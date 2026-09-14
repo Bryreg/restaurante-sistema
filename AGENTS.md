@@ -18,7 +18,9 @@ compartida en modo kiosko, y el administrador en PC. La spec completa está en
 |---|---|---|
 | Stack default (FastAPI + React) | **Se mantiene.** SQLite en desarrollo, PostgreSQL en producción. | Sin motivo para apartarse; la referencia corre igual. |
 | Régimen fiscal (el framework no asume ninguno) | **Colombia.** Impuesto nacional al consumo 8 % sobre restaurante no franquicia (IVA 19 % si franquicia, por configuración de sede). Propina voluntaria ≤ 10 %, separada de la venta (Ley 1935 de 2018). Tiquete POS con consecutivo por sede y datos de resolución DIAN; emisión electrónica delegada a fase 2. Datos de cliente sólo con finalidad declarada (Ley 1581 de 2012). | Es el país de operación. El Contador y el Legal del equipo trabajan sobre estas reglas, no las inventan. |
-| Autenticación JWT | JWT para admin **y** para el dispositivo del salón (sesión larga por dispositivo activado con PIN de sede), más **PIN personal de 4 dígitos** para atribuir cada acción a una persona en el dispositivo compartido. La sesión va en cookie `httpOnly`, nunca en `localStorage`. | Un mesero no va a teclear correo y contraseña entre mesa y mesa. La referencia guardaba el token del kiosko en `localStorage`; acá se cumple la regla global desde el inicio. |
+| Autenticación JWT | JWT para admin **y** para el dispositivo del salón (sesión larga por dispositivo activado con PIN de sede), más **PIN personal de 4 dígitos** para atribuir cada acción a una persona en el dispositivo compartido; la persona activa se liga a la sesión del dispositivo en el servidor. La sesión va en cookie `httpOnly`, nunca en `localStorage`, y por eso **frontend y API se sirven bajo el mismo origen**. | Un mesero no va a teclear correo y contraseña entre mesa y mesa. La referencia guardaba el token del kiosko en `localStorage` porque desplegaba en dos dominios; acá se cumple la regla global desde el inicio. |
+| Patrón «atribución sin FK dura» (`docs/PATRONES.md` del framework) | **No se adopta.** Toda escritura de una persona guarda `employee_id` como **FK real** más `employee_name` congelado. Los empleados se desactivan, nunca se borran. | En la referencia las columnas planas fueron un parche añadido después en doce tablas; con la FK decidida desde el inicio no hace falta relajar la integridad. |
+| Base de datos | PostgreSQL en producción y CI; SQLite permitido en desarrollo local y tests unitarios, con `busy_timeout` y evitando las trampas listadas en `docs/SPEC-NEGOCIO.md § 12`. Migraciones con Alembic desde el primer commit. | La referencia migraba con una lista de `ALTER` en el arranque y pagó los dos bugs más caros del go-live por columnas sin migración. |
 | Idioma de UI | Español. Sin cambio. | |
 | Fecha y hora | La **fecha operativa** se guarda como fecha de negocio en `America/Bogota`, en columna propia; los timestamps de auditoría en UTC. | Un día que "cambia" a las 7 pm por derivar la fecha de UTC es un bug real de la referencia. |
 | Agentes del catálogo | Ninguno desactivado. El Maestro arma el equipo por fase; para fases con recetas, preparaciones e inventario se espera un rol nuevo de **especialista en inventario y costos** si el Maestro lo juzga necesario. | El catálogo es material, no mandato. |
@@ -33,6 +35,16 @@ compartida en modo kiosko, y el administrador en PC. La spec completa está en
   valorar una venta pasada.
 - **El operador no recibe costos ni márgenes** en ninguna respuesta de la API.
 - **Consecutivo de tiquete sin huecos** por sede, defendido con constraint.
+- **Una sola matemática, en el backend.** El frontend nunca deriva saldos, esperados
+  ni diferencias. `null` no es 0. El error tolerable es el que muestra menos plata.
+- **Causa tipada** (enum) en todo movimiento de caja y de inventario; nunca se
+  clasifica por texto libre.
+- **Toda escritura que mueve plata o estado acepta `Idempotency-Key`**, reservada
+  dentro de la transacción; `409` ante concurrencia; constraints en la base para
+  «un turno abierto por sede» y «una comanda abierta por mesa».
+- **Errores** con una sola forma `{ error: { code, message } }`: reglas de negocio en
+  `400` con código y mensaje que nombra la acción correctiva; nunca `500` por una
+  regla de negocio.
 - **El insumo se descuenta una sola vez**: al producir la preparación o al enviar
   el plato a cocina, nunca en ambos.
 - **Nombres**: código, tests, rutas y esquemas en inglés (`order`, `shift`,

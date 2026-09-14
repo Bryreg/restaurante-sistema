@@ -42,7 +42,14 @@ más fácil se rompen sin que se vea en pantalla:
 - **Nada financiero ni de inventario se borra**: baja lógica + auditoría.
 - **Propina separada** de la venta y del impuesto.
 - **Sesión en cookie `httpOnly`**; nada sensible en `localStorage`.
-- **Cobro idempotente** (clave por dispositivo y comanda) y `409` ante concurrencia.
+- **Cobro, envío y producción idempotentes** (`Idempotency-Key` reservada dentro de
+  la transacción) y `409` ante concurrencia.
+- **La reserva de caja se declara aparte** y no entra al esperado (Palmetto, 15-ago
+  en la referencia).
+- **Una sola matemática en el backend**; el frontend no deriva plata; `null` ≠ 0.
+- **Causa tipada** en movimientos de caja e inventario.
+- **Atribución con FK real** (`employee_id`) más nombre congelado; empleados nunca
+  se borran.
 
 ## Glosario español ↔ código
 
@@ -75,6 +82,14 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
 | cuenta por pagar | `payable` |
 | movimiento de caja | `cash_movement` |
 | retiro de efectivo | `cash_pickup` |
+| relevo (cuadre sin cerrar) | `shift_handover` |
+| reserva de caja | `cash_reserve` |
+| hora de corte | `cutoff_hour` |
+| rescate (cierre administrativo, reabrir, cancelar, ajustar apertura) | `admin_rescue` (`close_administrative`, `reopen`, `cancel`, `adjust_opening`) |
+| estación de cocina | `station` |
+| causa de un movimiento | `cause` |
+| proveedor | `supplier` |
+| lote | `stock_batch` |
 | consignación | `bank_deposit` |
 
 ## Qué está hecho
@@ -82,9 +97,13 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
 - **Adopción del framework** (2026-09-14): `.claude/` copiado desde
   sistemas-maestros 2.0.0 con `scripts/adoptar.sh`; versión estampada en
   `.claude/FRAMEWORK`.
-- **Spec de negocio** en `docs/SPEC-NEGOCIO.md`, versión 0.1, escrita sobre la
-  lectura del proyecto de referencia `cafe-sistema` y del dominio (fiscal Colombia,
-  operación de restaurante, control interno). Pendiente de aprobación del dueño.
+- **Spec de negocio** en `docs/SPEC-NEGOCIO.md`, versión 0.2, escrita sobre la
+  lectura por subsistema del proyecto de referencia `cafe-sistema` (caja y turnos,
+  inventario y recetas, POS, plata y admin, lecciones del go-live) y del dominio
+  (fiscal Colombia, operación de restaurante, control interno). Pendiente de
+  aprobación del dueño.
+- **Spec de la fase 1** en `features/fase-1-fundacion/spec.md`, con el contrato de
+  API inicial para que backend y frontend construyan en paralelo contra lo mismo.
 - **AGENTS.md** con lo que este proyecto se aparta del framework: régimen fiscal
   colombiano, PIN personal sobre dispositivo compartido, fecha operativa en Bogotá.
 
