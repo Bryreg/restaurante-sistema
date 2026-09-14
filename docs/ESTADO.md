@@ -208,10 +208,11 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
 
 ## Dónde retomar
 
-1. **Resultado de la suite de backend completa después de las correcciones**: lo
-   registra el commit que cierra el pedido 1a (ver su mensaje). Si está en verde,
-   el CI del repo puede estarlo también (no se pudo ejecutar acá: sin runner ni
-   Postgres local).
+1. **Verificación final del pedido 1a** (2026-09-14, árbol quieto, en serie):
+   mypy limpio; suite de backend completa **214 passed, 0 failed** (SQLite,
+   8 min); `tsc` limpio; vitest 61/61; `vite build` OK; Alembic desde cero
+   `0001 → 0002 → 0003` y seed idempotente. El CI del repo debería estar en verde
+   con esto; no se pudo ejecutar acá (sin runner ni Postgres local).
 2. **Abierto por decisión del dueño de la spec** (advertencias del auditor, en
    `features/fase-1a-cimientos/outputs/ENTREGA.md § 5.4`): O-1 (el responsable ve
    el esperado en `/shifts/current` y después cierra «a ciegas»: ocultarlo desde
