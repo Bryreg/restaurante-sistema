@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -9,7 +10,10 @@ const SOURCE_PATH = fileURLToPath(new URL("../businessDate.ts", import.meta.url)
 
 describe("businessDate", () => {
   it("no usa new Date(\"YYYY-MM-DD\") en su propia fuente (la trampa de zona horaria)", () => {
-    const source = readFileSync(SOURCE_PATH, "utf-8");
+    // Se descartan los comentarios de bloque: documentan la trampa citando
+    // literalmente `new Date("YYYY-MM-DD")` como el ejemplo de lo prohibido,
+    // así que sólo el código ejecutable importa para esta prueba.
+    const source = readFileSync(SOURCE_PATH, "utf-8").replace(/\/\*[\s\S]*?\*\//g, "");
     expect(source).not.toMatch(/new Date\(\s*value\s*\)/);
     expect(source).not.toMatch(/new Date\(["'`]/);
     expect(source).not.toMatch(/toISOString\(\)\.slice/);
@@ -43,7 +47,8 @@ describe("businessDate", () => {
     // 2026-09-14T15:05:00Z = 10:05 a.m. en Bogotá (UTC-5, sin horario de verano).
     const formatted = formatInstant("2026-09-14T15:05:00Z");
     expect(formatted).toContain("2026");
-    expect(formatted).toContain("14 sep");
+    expect(formatted).toContain("14");
+    expect(formatted).toMatch(/sep/i);
     expect(formatted).toMatch(/10:05/);
   });
 

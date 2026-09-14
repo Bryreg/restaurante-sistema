@@ -114,10 +114,12 @@ function AdminChrome(): React.JSX.Element {
         <header className="flex h-14 items-center justify-between gap-2 border-b px-3 md:px-6">
           <div className="flex items-center gap-2">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-              <SheetTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" className="md:hidden" aria-label="Abrir menú">
-                  <Menu className="size-5" aria-hidden="true" />
-                </Button>
+              <SheetTrigger
+                render={
+                  <Button type="button" variant="ghost" size="icon" className="md:hidden" aria-label="Abrir menú" />
+                }
+              >
+                <Menu className="size-5" aria-hidden="true" />
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-4">
                 <SheetHeader>

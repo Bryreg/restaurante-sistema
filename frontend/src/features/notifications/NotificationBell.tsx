@@ -34,25 +34,27 @@ export function NotificationBell({ storeId }: { storeId: number | null }): React
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="relative"
-          aria-label={unreadCount > 0 ? `Notificaciones, ${unreadCount} sin leer` : "Notificaciones"}
-        >
-          <Bell className="size-5" aria-hidden="true" />
-          {unreadCount > 0 ? (
-            <Badge
-              variant="destructive"
-              className="absolute -right-1 -top-1 h-5 min-w-5 justify-center px-1 text-[11px]"
-              aria-hidden="true"
-            >
-              {unreadCount}
-            </Badge>
-          ) : null}
-        </Button>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="relative"
+            aria-label={unreadCount > 0 ? `Notificaciones, ${unreadCount} sin leer` : "Notificaciones"}
+          />
+        }
+      >
+        <Bell className="size-5" aria-hidden="true" />
+        {unreadCount > 0 ? (
+          <Badge
+            variant="destructive"
+            className="absolute -right-1 -top-1 h-5 min-w-5 justify-center px-1 text-[11px]"
+            aria-hidden="true"
+          >
+            {unreadCount}
+          </Badge>
+        ) : null}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
         <DropdownMenuLabel>Notificaciones</DropdownMenuLabel>

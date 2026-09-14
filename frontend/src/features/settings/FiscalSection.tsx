@@ -77,7 +77,7 @@ export function FiscalSection({ storeId }: { storeId: number | null }): React.JS
     setSaving(true);
     setError(null);
     try {
-      await setFiscal(storeId, {
+      await setFiscal(storeId as number, {
         ...values,
         rut_codes: rutCodesText
           .split(",")

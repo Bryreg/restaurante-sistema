@@ -103,11 +103,13 @@ export default function AuditPage(): React.JSX.Element {
           <h1 className="text-lg font-semibold">Historial</h1>
           <p className="text-sm text-muted-foreground">Quién cambió qué, con antes y después.</p>
         </div>
-        <Button asChild variant="outline" className="gap-2">
-          <a href={auditCsvUrl(filters)} target="_blank" rel="noreferrer">
-            <Download className="size-4" aria-hidden="true" />
-            Exportar CSV
-          </a>
+        <Button
+          render={<a href={auditCsvUrl(filters)} target="_blank" rel="noreferrer" />}
+          variant="outline"
+          className="gap-2"
+        >
+          <Download className="size-4" aria-hidden="true" />
+          Exportar CSV
         </Button>
       </div>
 

@@ -24,30 +24,23 @@ export function parseBusinessDate(value: string): BusinessDateParts {
   return { y: Number(match[1]), m: Number(match[2]), d: Number(match[3]) };
 }
 
-const WEEKDAY_FORMATTER = new Intl.DateTimeFormat("es-CO", {
-  weekday: "short",
-  timeZone: "UTC",
-});
-const DAY_MONTH_YEAR_FORMATTER = new Intl.DateTimeFormat("es-CO", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-  timeZone: "UTC",
-});
+const WEEKDAY_ABBR = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+const MONTH_ABBR = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
 /**
  * "2026-09-14" → "lun 14 sep 2026". Ancla el día calendario con
- * `Date.UTC(y, m-1, d)` (no `new Date(string)`) y formatea también en
- * `timeZone: "UTC"`, así el resultado no depende de la zona del navegador
- * que corre el código ni se corre un día.
+ * `Date.UTC(y, m-1, d)` (no `new Date(string)`) y lee el día de la semana
+ * con `getUTCDay()` — cálculo de calendario puro, sin pasar por `Intl` ni
+ * por la zona del navegador — para que el resultado no dependa de dónde
+ * corre el código ni de qué datos de ICU tenga instalados.
  */
 export function formatBusinessDate(value: string | null | undefined): string {
   if (!value) return "—";
   const { y, m, d } = parseBusinessDate(value);
   const anchor = new Date(Date.UTC(y, m - 1, d));
-  const weekday = WEEKDAY_FORMATTER.format(anchor).replace(/\.$/, "");
-  const rest = DAY_MONTH_YEAR_FORMATTER.format(anchor).replace(/\./g, "");
-  return `${weekday} ${rest}`;
+  const weekday = WEEKDAY_ABBR[anchor.getUTCDay()];
+  const month = MONTH_ABBR[anchor.getUTCMonth()];
+  return `${weekday} ${String(d).padStart(2, "0")} ${month} ${y}`;
 }
 
 const INSTANT_FORMATTER = new Intl.DateTimeFormat("es-CO", {

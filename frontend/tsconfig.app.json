@@ -4,7 +4,7 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 
@@ -16,8 +16,7 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* Alias */
-    "baseUrl": ".",
+    /* Alias — sin baseUrl: TS 6 lo resuelve relativo al tsconfig (deprecado en 6.0). */
     "paths": {
       "@/*": ["./src/*"]
     },
