@@ -46,6 +46,13 @@ if (!PEDIDO) {
 const OUT = (args && args.outputs) || 'outputs'
 const SPEC = (args && args.spec) || null
 const CONTEXTO_FILES = (args && args.contexto) || []
+// Commit base del pedido: el orquestador humano puede ir commiteando snapshots
+// mientras el equipo trabaja; el Conciliador y la entrega comparan contra ESTE
+// commit, no contra el árbol sin commitear (que puede estar vacío).
+const BASE = (args && args.base) || null
+const DIFF_HINT = BASE
+  ? 'El trabajo del equipo YA ESTÁ COMMITEADO en la rama actual: el commit base del pedido es ' + BASE + '. Para ver el código real usá `git diff ' + BASE + ' --stat`, `git diff ' + BASE + ' -- <directorio>` y `git status` (para lo aún no commiteado); un `git diff` pelado contra HEAD NO muestra el trabajo.'
+  : 'git diff --stat y git diff sobre los directorios tocados'
 
 const CONTEXTO = [
   'CONTEXTO OBLIGATORIO — leé estos archivos ANTES de trabajar:',
@@ -204,7 +211,7 @@ for (let iter = 1; iter <= MAX_ITERATIONS; iter++) {
   log('Ronda ' + iter + ': conciliando...')
   veredicto = await agent(
     'Sos el CONCILIADOR AGENT de sistemas-maestros. Encontrá y leé tu definición (conciliador.md en ' + AGDIR + ') y cumplila al pie de la letra — generalizada: el equipo NO es un roster fijo; es este equipo dinámico definido por el Maestro:\n' + JSON.stringify(plan.equipo.map(a => ({ id: a.id, nombre: a.nombre, tipo: a.tipo, mision: a.mision }))) + '\n\n' +
-    'Leé TODOS los outputs completos en ' + OUT + '/ (ls primero) y verificá contra el código real: git diff --stat y git diff sobre los directorios tocados (un output que declara algo que el diff no muestra ES un conflicto bloqueante).\n' +
+    'Leé TODOS los outputs completos en ' + OUT + '/ (ls primero) y verificá contra el código real: ' + DIFF_HINT + ' (un output que declara algo que el diff no muestra ES un conflicto bloqueante).\n' +
     'Cruces obligatorios según las misiones: contratos consumidos vs expuestos entre agentes; reglas de validación de los auditores vs lo que el código implementa de verdad; gaps declarados — ¿alguien los resolvió o siguen abiertos?; cumplimiento de las reglas del proyecto (' + (CONTEXTO_FILES.join(', ') || 'docs del repo') + ').\n' +
     'Resúmenes estructurados de esta ronda:\n' + JSON.stringify(latest) + '\n' +
     'En cada conflicto, origen y destino son ids del equipo de arriba. coherente=true SOLO sin bloqueantes. No propongas soluciones: describí con precisión accionable. Sé determinista.',
@@ -243,7 +250,7 @@ phase('Entrega')
 const sintesis = await agent(
   'Sos el MAESTRO ORCHESTRATOR (Fable). Cerrá el ciclo. Equipo que definiste y por qué: ' + JSON.stringify({ analisis: plan.analisis, equipo: plan.equipo.map(a => ({ id: a.id, nombre: a.nombre, modelo: a.modelo, tipo: a.tipo })) }) + '\n' +
   'Historial de iteraciones: ' + JSON.stringify(historial) + '\nVeredicto final del Conciliador: ' + JSON.stringify(veredicto) + '\n' +
-  'Antes de redactar, VERIFICÁ con las herramientas del proyecto (tests, typecheck, lo que el repo defina' + (SPEC ? ', y el checklist de ' + SPEC : '') + ') — contra el código, no contra los reportes. ' +
+  'Antes de redactar, VERIFICÁ con las herramientas del proyecto (tests, typecheck, lo que el repo defina' + (SPEC ? ', y el checklist de ' + SPEC : '') + ') — contra el código, no contra los reportes. ' + (BASE ? DIFF_HINT + ' ' : '') +
   'Acá y SOLO acá corre la suite completa: UNA vez (dos si el proyecto lo pide), en SERIE, con el árbol quieto — ningún otro agente está trabajando ya. Antes de correrla confirmá que no quede ningún proceso de test o build huérfano (ps), y no lances builds del frontend mientras la suite corre: un build que borra y reescribe dist/ a mitad de corrida produce errores falsos.\n' +
   'Leé los outputs completos en ' + OUT + '/ y redactá la ENTREGA FINAL en ' + OUT + '/ENTREGA.md: qué equipo armaste y por qué (parte del valor del framework), qué construyó/halló cada agente (con archivos), coherencia, verificación, conflictos NO resueltos (explícitos, nunca ocultos), próximos pasos priorizados. Español, directo, sin humo.',
   { label: 'maestro:entrega', phase: 'Entrega' }
