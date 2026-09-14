@@ -21,8 +21,18 @@ administrador vea Hoy, Ventas (con el informe del contador) y Pedidos.
   (impuesto, documento fiscal, datos personales), §9.1 completo, §9.2 (cocina
   mínima), §9.3 secciones Hoy, Ventas, Pedidos y lo que Turnos y personal y Dinero
   ganan con ventas.
-- Canales `dine_in`, `takeout` y `staff_meal`. Los valores `delivery` y `platform`
-  existen en el enum y en la configuración (apagados); sus datos llegan en fase 2.
+- Canales `counter` (mostrador: la comanda se crea, se envía si hay cocina y se cobra
+  en un solo flujo), `dine_in`, `takeout` y `staff_meal`, cada uno detrás de su
+  función. Los valores `delivery` y `platform` existen en el enum (apagados); sus
+  datos llegan en fase 2.
+- Cada capacidad detrás de su flag: `pos.tables`, `pos.seats`, `pos.courses`,
+  `pos.pre_bill`, `pos.split_bill`, `pos.tips`, `pos.discounts`, `pos.courtesies`,
+  `pos.staff_meal`, `kitchen.view`, `fiscal.dee_pos`, `fiscal.invoice`, `customers`.
+  Con `kitchen.view` apagado no existe «enviar»: los ítems pasan a `served` al cobrar
+  y se marcan `sent_at_payment` sin penalidad en el reporte. Con `pos.tips` apagado
+  el cobro no exige `tip.asked`. Con `fiscal.dee_pos` apagado (sólo si la
+  organización declaró no estar obligada) el documento es un comprobante interno con
+  consecutivo propio, y nunca dice ser documento equivalente.
 - **Adaptador de proveedor tecnológico**: una interfaz (`FiscalProvider`) con dos
   implementaciones: `PendingTransmissionProvider` (modo pendiente, imprime con
   leyenda y encola) y un `FakeProvider` para tests (valida, rechaza y simula
@@ -61,7 +71,7 @@ Las de 1a, más:
 Same conventions as 1a. All routes under `/api/v1`.
 
 ### Orders
-- `POST /orders` `{channel: "dine_in"|"takeout"|"staff_meal", table_ids?: [...], covers?, takeout?: {customer_name, phone, promised_at}, consumed_by_employee_id? (staff_meal), note?}` → `400 NO_OPEN_SHIFT`, `409 TABLE_ALREADY_OPEN`, `400 CHANNEL_DISABLED`. Records `opened_by`.
+- `POST /orders` `{channel: "counter"|"dine_in"|"takeout"|"staff_meal", table_ids?: [...], covers?, takeout?: {customer_name, phone, promised_at}, consumed_by_employee_id? (staff_meal), note?}` → `400 NO_OPEN_SHIFT`, `409 TABLE_ALREADY_OPEN`, `400 CHANNEL_DISABLED`. Records `opened_by`.
 - `GET /orders?status=open|to_pay`; `GET /orders/{id}` → `{id, version, channel, tables, covers, status, opened_by, opened_at, bill_presented_at?, items: [{id, product_id, name, qty, seat?, course, station, unit_price, tax_code, tax_rate, discount, modifiers: [...], modifiers_text, note, status, round_no?, sent_at?, ready_at?, served_at?, sent_at_payment, courtesy?: {reason, authorized_by}, void?: {reason, authorized_by, at, after_bill}}], discounts: [...], totals: {subtotal, discount_total, tax_lines: [{rate, base, tax}], total}}`. **No cost fields for device sessions.**
 - `POST /orders/{id}/items` (Idempotency-Key, `expected_version`) `[{product_id | combo_id, qty, seat?, course?, modifiers: [{option_id}], combo_selections?: [{group_id, option_id}], note?}]` → items `pending` with snapshots; `400 PRODUCT_UNAVAILABLE`, `400 COMBO_NOT_ACTIVE`, `400 BILL_PRESENTED_NEEDS_AUTH` (after bill without `authorizer_pin`).
 - `PATCH /orders/{id}/items/{item_id}` `{qty?, note?, seat?}` — only while `pending`.
@@ -111,6 +121,10 @@ Same conventions as 1a. All routes under `/api/v1`.
 Además de la sección 16 de la spec de negocio (pedido 1b):
 
 - [ ] `POST /orders` sin turno → `400 NO_OPEN_SHIFT` con la acción correctiva (test).
+- [ ] Con `pos.tables` apagado, `POST /orders {channel: "dine_in"}` → `400
+      FEATURE_DISABLED` y el POS abre en mostrador; con `kitchen.view` apagado no hay
+      ronda y el cobro deja los ítems `served`; con `pos.tips` apagado el cobro no
+      exige `tip` (tests con flags).
 - [ ] Mutación con `expected_version` vieja → `409 STALE_VERSION` y la comanda actual
       (test); `items` con la misma `Idempotency-Key` no duplica (test).
 - [ ] `send` crea una ronda numerada sólo con los pendientes; un producto sin

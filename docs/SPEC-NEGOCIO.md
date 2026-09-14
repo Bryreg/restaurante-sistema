@@ -1,6 +1,7 @@
 # Restaurante Sistema — Spec de negocio
 
-Versión 0.3 (borrador para aprobación). Fecha: 2026-09-14.
+Versión 0.4 (aprobada con los defaults el 2026-09-14; incorpora el requisito de producto
+comercializable con funciones habilitables). Fecha: 2026-09-14.
 
 Este documento dice **qué** hace el sistema y **qué reglas no se negocian**. No dice
 cómo se implementa: eso lo deciden los agentes del framework en cada fase y queda
@@ -38,10 +39,101 @@ la mesa, con dos pantallas y una vista auxiliar:
 | **Admin** | dueño / administrador | PC | ventas, pedidos, inventario, recetas, preparaciones, turnos, dinero, control; configurar carta y sistema |
 | **Cocina** (vista mínima, fase 1b) | cocina y bar | pantalla o tablet en cocina | ver lo enviado por estación, en orden, con tiempo transcurrido; marcar listo |
 
+### 1.1 Producto comercializable: organizaciones, perfiles y funciones habilitables
+
+El sistema **se va a vender a varios restaurantes**, y no todos son igual de
+complejos: uno de mostrador no tiene mesas ni cocina que vea comandas; uno de mantel
+tiene cursos, división de cuenta y recetas con preparaciones. Por eso:
+
+- **Organización** (el cliente: la empresa que opera uno o más restaurantes) es la
+  raíz de todo. Cada **sede** pertenece a una organización; cada administrador
+  pertenece a una organización; **toda consulta se acota por organización y por
+  sede**. Un mismo despliegue puede servir a varias organizaciones (modo servicio) o
+  a una sola (modo dedicado) sin cambiar el modelo. Agregar esto después es la
+  migración más cara que existe; agregarlo ahora es una columna y una regla.
+- **Catálogo de funciones** (`feature`): cada capacidad opcional del sistema tiene una
+  **clave estable**, una descripción en lenguaje del dueño, **dependencias** (la
+  varianza de inventario requiere conteos, que requieren recetas) y un estado
+  `enabled` / `disabled` por organización, con **override por sede**. La lista
+  completa está en §1.2.
+- **Perfiles** como punto de partida, no como jaula: `basic` (mostrador y comida
+  rápida: venta directa, sin mesas, sin cocina, sin inventario), `standard` (mesas,
+  cocina mínima, recetas simples, conteos) y `full` (todo). Elegir un perfil fija
+  los valores iniciales; después se ajusta función por función.
+- **El backend hace cumplir los flags.** Un endpoint de una función deshabilitada
+  responde `400 FEATURE_DISABLED` nombrando la función; la interfaz oculta lo
+  deshabilitado y sus menús, pero nunca es la única barrera. Los flags vigentes
+  viajan con la sesión (`GET /auth/me`) para que la interfaz se arme sola.
+- **Deshabilitar no borra datos** ni rompe la historia: lo registrado con la función
+  activa sigue siendo consultable en reportes. Cambiar un flag queda en auditoría.
+- **Lo que es ley o integridad no es un flag.** Auditoría, snapshots, idempotencia,
+  fecha operativa, propina separada, consecutivo sin huecos, causa tipada y el
+  documento fiscal cuando el establecimiento está obligado a facturar son núcleo:
+  no se apagan. Lo que sí es configurable ahí es el régimen y el proveedor, no la
+  existencia del control.
+- **Todo módulo se construye detrás de su flag desde su primer commit**, y sus tests
+  corren con el flag encendido y apagado (al menos: apagado, el endpoint rechaza y la
+  interfaz no lo muestra). Los parámetros de sede que ya existían (canales activos,
+  cursos, estaciones, PIN de supervisor) se expresan como funciones cuando son una
+  capacidad, y como parámetros cuando son un valor.
+
+### 1.2 Funciones (catálogo inicial)
+
+| Clave | Qué habilita | `basic` | `standard` | `full` | Requiere |
+|---|---|---|---|---|---|
+| `pos.tables` | mapa de mesas, unir y mover, comensales | no | sí | sí | |
+| `pos.counter` | venta de mostrador: comanda que se cobra en el acto, sin mesa | sí | sí | sí | |
+| `pos.takeout` | para llevar con nombre, teléfono y hora prometida | sí | sí | sí | |
+| `pos.delivery` | domicilio propio (fase 2) | no | no | sí | `pos.takeout` |
+| `pos.platforms` | pedidos de plataformas (fase 2) | no | no | sí | |
+| `pos.seats` | asiento por ítem y división por asiento | no | no | sí | `pos.tables` |
+| `pos.courses` | curso por ítem; «marchar» (fase 2) | no | sí | sí | `kitchen.view` |
+| `pos.modifiers` | grupos de modificadores | sí | sí | sí | |
+| `pos.combos` | combos de precio fijo | sí | sí | sí | |
+| `pos.daily_menu` | menú del día con opciones por día y franja | no | sí | sí | `pos.combos` |
+| `pos.pre_bill` | precuenta y marca `after_bill` | no | sí | sí | |
+| `pos.split_bill` | división de cuenta | no | sí | sí | |
+| `pos.tips` | pregunta de propina y reporte | sí | sí | sí | |
+| `pos.discounts` | descuentos con motivos y límites | sí | sí | sí | |
+| `pos.courtesies` | cortesías | no | sí | sí | |
+| `pos.staff_meal` | comanda de consumo de personal | no | sí | sí | |
+| `pos.daily_count` | contador de porciones del día | no | sí | sí | |
+| `kitchen.view` | vista de cocina mínima por estación | no | sí | sí | |
+| `kitchen.kds` | KDS con «bump», expedición e impresión (fase 2) | no | no | sí | `kitchen.view` |
+| `cash.blind_close` | cierre a ciegas en tres pasos (apagado: cierre en un paso, igual con causa) | no | sí | sí | |
+| `cash.reserve` | reserva de caja declarada aparte | sí | sí | sí | |
+| `cash.pickups` | retiros de efectivo con snapshot | sí | sí | sí | |
+| `cash.handovers` | relevo del responsable y arqueo sorpresa | no | sí | sí | |
+| `cash.photo_required` | foto obligatoria en cierre y retiro | no | sí | sí | |
+| `cash.swaps` | cambio de denominaciones | sí | sí | sí | |
+| `roles.supervisor` | rol supervisor con PIN propio | no | sí | sí | |
+| `fiscal.dee_pos` | documento equivalente electrónico vía proveedor | sí* | sí* | sí* | |
+| `fiscal.invoice` | factura electrónica a cliente identificado | sí* | sí* | sí* | `fiscal.dee_pos` |
+| `customers` | maestro de clientes y consentimientos | sí | sí | sí | |
+| `catalog.recipes` | fichas técnicas y costo teórico (fase 2) | no | sí | sí | |
+| `catalog.preps` | preparaciones en dos modos (fase 2) | no | no | sí | `catalog.recipes` |
+| `inventory.perpetual` | movimientos y stock teórico (fase 2) | no | sí | sí | `catalog.recipes` |
+| `inventory.counts` | conteos de críticos y completos (fase 2) | no | sí | sí | `inventory.perpetual` |
+| `inventory.variance` | varianza, food cost real, salud del control (fase 2) | no | no | sí | `inventory.counts` |
+| `inventory.waste` | mermas (fase 2) | no | sí | sí | `inventory.perpetual` |
+| `inventory.lots` | lotes y vencimientos (fase 2) | no | no | sí | `inventory.perpetual` |
+| `purchases` | proveedores, recepciones, cuentas por pagar (fase 2) | no | sí | sí | `inventory.perpetual` |
+| `money.deposits` | consignaciones y por consignar (fase 3) | no | sí | sí | |
+| `money.bank` | libro del banco y mano del dueño (fase 3) | no | no | sí | `money.deposits` |
+| `money.obligations` | gastos, obligaciones, punto de equilibrio (fase 3) | no | no | sí | |
+| `payroll` | horas, recargos y nómina (fase 3) | no | no | sí | |
+| `multi_store` | selector de sede y comparativo | no | no | sí | |
+| `notifications.push` | push al administrador (fase 2) | no | sí | sí | |
+
+\* `fiscal.dee_pos` se apaga sólo si la organización declara **no estar obligada a
+facturar** (persona natural, un local, ingresos bajo el umbral); la declaración
+queda registrada con fecha y quién la hizo.
+
 ### Supuestos declarados
 
 | Supuesto | Valor asumido | Por qué |
 |---|---|---|
+| Despliegue | un despliegue puede servir varias organizaciones; la primera versión corre con una | el modelo es el mismo; el aislamiento por organización se prueba desde el primer test |
 | País y moneda | Colombia, COP, **enteros de pesos** | igualdad estricta de flotantes trabó el botón «Cobrar» en la referencia (auditoría M11) |
 | Obligación de facturar | el establecimiento **está obligado a facturar** y hoy no emite documento electrónico | es el caso general de un restaurante; el tiquete POS de papel sin transmisión a la DIAN dejó de ser válido en 2024 (Res. DIAN 000165/2023 y 000008/2024). Si resulta no obligado (persona natural, un solo local, ingresos < 3.500 UVT), la emisión se apaga por configuración sin cambiar el modelo |
 | Régimen | persona natural, régimen ordinario, responsable de INC 8 %, no responsable de IVA, **no franquicia** | franquicia → IVA 19 %; régimen SIMPLE cambia periodicidad y retenciones. Todo es configuración de sede **con vigencia** |
@@ -71,8 +163,9 @@ la mesa, con dos pantallas y una vista auxiliar:
   anular un ítem enviado, cortesía, descuento sobre el límite, retiro de efectivo,
   merma. Así una tablet abandonada no vende a nombre de quien la dejó (atribución
   cruzada, auditoría H9 de la referencia).
-- El **administrador** entra con correo y contraseña en PC, y tiene además un PIN
-  propio (no compartido) para autorizar en el POS.
+- El **administrador** entra con correo y contraseña en PC, pertenece a **una
+  organización** y ve sólo sus sedes; tiene además un PIN propio (no compartido) para
+  autorizar en el POS.
 - Seguridad del PIN: hasheado; **cinco intentos fallidos bloquean** la identificación
   de esa persona por 15 minutos y avisan al administrador.
 
@@ -102,9 +195,9 @@ Reglas:
   autorización es teatro.
 - El operador **no ve costos ni márgenes**: los esquemas de respuesta para
   dispositivo no tienen esos campos.
-- El **alcance por sede** se verifica en cada escritura que recibe un id
-  (commit 305e335 de la referencia: «cerrar el mes» de la sede vecina estaba a un
-  número de distancia).
+- El **alcance por organización y por sede** se verifica en cada lectura y escritura
+  que recibe un id (commit 305e335 de la referencia: «cerrar el mes» de la sede
+  vecina estaba a un número de distancia). Un id de otra organización responde `404`.
 
 ---
 
@@ -230,13 +323,14 @@ Canales y sus datos:
 
 | Canal | Datos propios | Fase |
 |---|---|---|
+| `counter` | venta de mostrador: sin mesa, se cobra en el acto (la comanda nace y se paga en un solo flujo); es el modo del perfil `basic` | 1b |
 | `dine_in` | mesa(s), comensales, asiento opcional por ítem | 1b |
 | `takeout` | nombre y teléfono del cliente, hora prometida, estado «listo para recoger» | 1b |
 | `delivery` (propio) | dirección, teléfono, domiciliario, **cargo de domicilio como línea** (lleva INC), cobro `pending` hasta que el domiciliario liquida; el efectivo de domicilios se arquea aparte | 2 |
 | `platform` (Rappi, Didi, iFood) | `source`, `external_id`, precio del canal plataforma, medio de pago `platform` que **no entra al cajón** (cuenta por cobrar), % de comisión por plataforma, cancelación tras preparar = venta compensada, no merma | 2 |
 | `staff_meal` | quién consumió (`consumed_by`), precio 0, sin impuesto ni propina; gasta receta; se valoriza a costo teórico y se reporta por empleado y mes | 1b |
 
-Los canales que la sede no usa se apagan por configuración.
+Cada canal es una función habilitable (§1.2); los que la sede no usa no aparecen.
 
 Estados de la comanda:
 
@@ -784,8 +878,10 @@ con IVA (fase 2).
 | Turno | base fija, ventas por medio, ingresos, egresos, retiros; relevo; cierre a ciegas | abrir, relevo, retiro (PIN admin), gasto menor, cambio, cerrar |
 | Herramientas | paneles laterales **sin abandonar el POS**: merma rápida, agotado, producir una preparación, mis ventas del turno | registrar |
 
-Requisitos no funcionales: cada acción frecuente en **tres toques o menos** con default
-inteligente; botones ≥ 44 px; tablet de 10" y PC; estado de mesas, turno y agotados
+Requisitos no funcionales: la interfaz se arma a partir de las funciones habilitadas
+(sin `pos.tables` el POS abre directo en la comanda de mostrador; sin `kitchen.view`
+no existe «enviar», la comanda se cobra y listo); cada acción frecuente en **tres
+toques o menos** con default inteligente; botones ≥ 44 px; tablet de 10" y PC; estado de mesas, turno y agotados
 refrescado por sondeo corto (3–8 s); un cobro que falla conserva la cuenta;
 WCAG 2.1 AA; todo error del servidor como texto legible (un `detail` que era una
 lista dejó la referencia en pantalla blanca).
@@ -816,7 +912,8 @@ Tres bandas: **pulso de hoy**, **requiere tu atención** (tarjetas accionables),
 | **Turnos y personal** | ¿Quién estuvo y qué hizo? tablero por persona: ventas, ticket, comandas, anulaciones (n, $, %, `after_bill`, sobre efectivo), descuentos, cortesías a costo, walkouts, reimpresiones, % ítems enviados al cobrar, diferencias y racha, propinas; comparado contra el promedio del equipo; **autorizaciones por autorizador** |
 | **Historial** | ¿Quién cambió qué? auditoría con antes y después |
 | **Notificaciones** | reglas por sede: tipo, umbral, canal (campana; push en fase 2), nivel; dedupe diario |
-| **Configuración** | sede y fiscal (§8.1), hora de corte, horario, base fija, tolerancias, umbrales de retiro y gastos menores, propina sugerida, límites de descuento, motivos, medios de pago con código DIAN, rangos de numeración y datos del documento, canales activos, estaciones, cursos y tiempos objetivo, plataformas y comisiones, insumos críticos, usuarios y PINs, PIN de sede |
+| **Funciones** | ¿Qué usa este restaurante? perfil elegido, cada función con su estado, dependencias y desde cuándo; cambios auditados |
+| **Configuración** | organización y sedes, sede y fiscal (§8.1), hora de corte, horario, base fija, tolerancias, umbrales de retiro y gastos menores, propina sugerida, límites de descuento, motivos, medios de pago con código DIAN, rangos de numeración y datos del documento, canales activos, estaciones, cursos y tiempos objetivo, plataformas y comisiones, insumos críticos, usuarios y PINs, PIN de sede |
 
 Requisitos: cada número responde una pregunta concreta; «sin datos» se dice, no se
 dibuja como cero; toda tabla de saldos muestra los términos que hacen cerrar la
@@ -881,6 +978,9 @@ Toda serie diaria agrupa por **día operativo**.
 16. **El sistema nunca calcula deuda de un empleado ni descuentos de nómina.**
 17. **No existe transferencia de ítems entre comandas.**
 18. **Todo 4xx operativo nombra la acción correctiva; un 200 que no guardó todo lo dice.**
+19. **Toda función opcional vive detrás de su flag, que hace cumplir el backend**;
+    lo que es ley o integridad no es un flag; toda consulta se acota por
+    organización y sede.
 
 ---
 
@@ -936,8 +1036,8 @@ cada uno quepa en un equipo de 2 a 6 agentes y tres rondas de conciliación.
 
 | Pedido | Qué construye | Qué queda funcionando |
 |---|---|---|
-| **1a. Cimientos y caja** | repositorio con backend, frontend, CI y Alembic; las tres identidades y roles; configuración de sede y fiscal con vigencia; zonas, mesas, empleados; catálogo plano con modificadores, combos y menú del día, agotados; día operativo y turno de caja completos (base fija, reserva, responsable, roster, movimientos, cambio, retiros, relevo, arqueo sorpresa, cierre a ciegas, tolerancias, rescates, `closes_day`); notificaciones por campana; admin: Configuración, Turnos y personal, Dinero, Historial; POS: activar, identificarse, turno | se abre y se cierra caja con control; la carta está cargada |
-| **1b. Comanda y venta** | mesas y comandas (mesa, para llevar, `staff_meal`), rondas y vista de cocina mínima, precuenta y propina, cobro con pagos mixtos y división, descuentos y cortesías con motivos, **documento fiscal** con rangos, estados, contingencia, adquirente y adaptador de proveedor (modo pendiente de transmisión), notas, devoluciones pendientes; admin: Hoy, Ventas e informe del contador, Pedidos; POS completo | se opera el restaurante de punta a punta |
+| **1a. Cimientos y caja** | repositorio con backend, frontend, CI y Alembic; **organización, catálogo de funciones, perfiles y override por sede, con el flag exigido en el backend**; las tres identidades y roles; configuración de sede y fiscal con vigencia; zonas, mesas, empleados; catálogo plano con modificadores, combos y menú del día, agotados; día operativo y turno de caja completos (base fija, reserva, responsable, roster, movimientos, cambio, retiros, relevo, arqueo sorpresa, cierre a ciegas, tolerancias, rescates, `closes_day`); notificaciones por campana; admin: Configuración, Turnos y personal, Dinero, Historial; POS: activar, identificarse, turno | se abre y se cierra caja con control; la carta está cargada |
+| **1b. Comanda y venta** | mesas y comandas (mostrador, mesa, para llevar, `staff_meal`), cada capacidad detrás de su función; rondas y vista de cocina mínima, precuenta y propina, cobro con pagos mixtos y división, descuentos y cortesías con motivos, **documento fiscal** con rangos, estados, contingencia, adquirente y adaptador de proveedor (modo pendiente de transmisión), notas, devoluciones pendientes; admin: Hoy, Ventas e informe del contador, Pedidos; POS completo | se opera el restaurante de punta a punta |
 | **2. Carta, recetas e inventario** | insumos con rendimiento e IVA de compras, preparaciones en dos modos, fichas técnicas, consumo teórico al enviar, mermas, conteos de críticos y completos, salud del control, compras con proveedores y cuentas por pagar, lotes; `recipe_effect` en modificadores; domicilio propio y plataformas; KDS; conexión real con el proveedor tecnológico si no se hizo en 1b | se sabe qué cuesta cada plato y qué se pierde; se factura electrónicamente |
 | **3. Dinero y control** | consignaciones, banco y mano, conciliación de datáfono y plataformas, obligaciones y gastos, punto de equilibrio, propinas repartidas, nómina con recargos, reposición sugerida, ingeniería de menú, varianza por plato, cobro por mesero | se cierra el mes con números |
 
@@ -980,6 +1080,7 @@ El pedido **1a** es el que se lanza al aprobar esta spec; su spec está en
 | 25 | [CONFIG] ¿Vende licor? | No |
 | 26 | [CONFIG] ¿Quiere usar datos de clientes para marketing? | No |
 | 27 | [CONFIG] ¿Tiene Excel de caja o ventas de un mes real? | Si existe, fixture de tests |
+| 28 | [MODELO] ¿Cómo se va a vender: un despliegue por cliente, o un servicio con varias organizaciones? ¿Habrá planes comerciales atados a perfiles? | El modelo soporta ambos; la primera versión corre con una organización; los planes se mapean a perfiles después |
 
 Lo que hay que **verificar con el contador o con Legal** antes de fijarlo en código:
 texto literal de la Ley 1935 de 2018 y número de la Circular SIC sobre propinas y
@@ -996,6 +1097,11 @@ Lo que tiene que poder demostrarse con el código corriendo. Es el checklist que
 Maestro usa en la entrega.
 
 **Pedido 1a**
+- [ ] Una función deshabilitada responde `400 FEATURE_DISABLED` en su endpoint y no
+      aparece en la interfaz; habilitarla requiere sus dependencias; el cambio queda
+      en auditoría.
+- [ ] Elegir un perfil deja exactamente los flags de la tabla §1.2.
+- [ ] Un id de otra organización responde `404` en lectura y escritura.
 - [ ] Dos aperturas de turno simultáneas en la misma sede: una `200`, otra `409`.
 - [ ] Abrir con una base distinta de la fija sin causa tipada → `400` con la acción
       correctiva.

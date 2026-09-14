@@ -7,7 +7,9 @@ silencio es una regla que no existe.
 
 ## Dominio
 
-POS y control interno para un restaurante de servicio a la mesa en Colombia. Lo usan
+POS y control interno para restaurantes en Colombia, **pensado para venderse a varios**:
+cada restaurante habilita las funciones que su complejidad pide (mostrador, mesas,
+cocina, recetas, inventario, dinero). Lo usan
 dos personas distintas: el operador del salón (mesero o cajero) en una tablet
 compartida en modo kiosko, y el administrador en PC. La spec completa está en
 `docs/SPEC-NEGOCIO.md`; las reglas que no se negocian, en su sección 11.
@@ -28,6 +30,15 @@ compartida en modo kiosko, y el administrador en PC. La spec completa está en
 | Agentes del catálogo | Ninguno desactivado. El Maestro arma el equipo por fase; para fases con recetas, preparaciones e inventario se espera un rol nuevo de **especialista en inventario y costos** si el Maestro lo juzga necesario. | El catálogo es material, no mandato. |
 
 ## Reglas propias del proyecto que todos los agentes heredan
+
+- **Es un producto para varios restaurantes.** Organización → sede; toda consulta se
+  acota por organización y sede (un id ajeno es `404`). **Toda función opcional se
+  construye detrás de su flag** (`docs/SPEC-NEGOCIO.md § 1.1 y 1.2`) desde el primer
+  commit, el backend la hace cumplir con `400 FEATURE_DISABLED`, la interfaz se arma
+  a partir de los flags de la sesión, y los tests la prueban encendida y apagada. Lo
+  que es ley o integridad (auditoría, snapshots, idempotencia, fecha operativa,
+  propina separada, consecutivo, causa tipada, documento fiscal si está obligado) no
+  es un flag.
 
 - **El backend hace cumplir los gates** (sin turno no se vende; sin justificación no
   se cierra con diferencia; anular lo enviado exige PIN admin). La interfaz los

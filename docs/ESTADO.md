@@ -2,7 +2,7 @@
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
 Última actualización: 2026-09-14 (adopción del framework sistemas-maestros 2.0.0;
-spec de negocio v0.3 en borrador, todavía sin código).
+spec de negocio v0.4 aprobada, todavía sin código).
 
 **Este documento es VIVO.** Si un cambio altera una regla o un flujo descrito acá,
 se actualiza en el MISMO PR que el cambio. Un estado desactualizado miente con más
@@ -50,6 +50,8 @@ más fácil se rompen sin que se vea en pantalla:
 - **Causa tipada** en movimientos de caja e inventario.
 - **Atribución con FK real** (`employee_id`) más nombre congelado; empleados nunca
   se borran.
+- **Producto para varios restaurantes**: organización → sede; toda función opcional
+  detrás de su flag, exigido por el backend; lo legal y la integridad no se apagan.
 
 ## Glosario español ↔ código
 
@@ -57,7 +59,10 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
 
 | En la UI / en los docs | En el código |
 |---|---|
+| organización (el cliente) | `organization` |
 | sede | `store` |
+| función habilitable / perfil | `feature` / `profile` (`basic`, `standard`, `full`) |
+| venta de mostrador | `counter` (canal) |
 | día operativo | `business_day` |
 | turno de caja | `shift` |
 | empleado / operador | `employee` (rol `operator`), `admin` |
@@ -111,12 +116,13 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
 - **Adopción del framework** (2026-09-14): `.claude/` copiado desde
   sistemas-maestros 2.0.0 con `scripts/adoptar.sh`; versión estampada en
   `.claude/FRAMEWORK`.
-- **Spec de negocio** en `docs/SPEC-NEGOCIO.md`, versión 0.3, escrita sobre la
+- **Spec de negocio** en `docs/SPEC-NEGOCIO.md`, versión 0.4 (**aprobada** con los
+  defaults de la sección 15 y el requisito de funciones habilitables), escrita sobre la
   lectura por subsistema del proyecto de referencia `cafe-sistema` (caja y turnos,
   inventario y recetas, POS, plata y admin, lecciones del go-live), tres
   investigaciones de dominio (fiscal y legal, operación de piso y cocina, control
   interno) y un crítico de completitud que verificó las afirmaciones dudosas contra
-  el código de la referencia. Pendiente de aprobación del dueño.
+  el código de la referencia.
 - **Specs de los pedidos 1a y 1b** en `features/fase-1a-cimientos/spec.md` y
   `features/fase-1b-venta/spec.md`, con el contrato de API para que backend y
   frontend construyan en paralelo contra lo mismo.
@@ -125,11 +131,8 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
 
 ## Dónde retomar
 
-1. **Aprobar la spec** (`docs/SPEC-NEGOCIO.md`), en particular las preguntas
-   marcadas [MODELO] de la sección 15. Sin eso no se lanza nada.
-2. **Crear el repositorio en GitHub** (`Bryreg/<nombre>`) y subir esta rama.
-   Después, agregar la fila del proyecto en `docs/PROYECTOS.md` del framework.
-3. **Lanzar el pedido 1a** con el orquestador (y después el 1b sobre lo entregado):
+1. Spec aprobada el 2026-09-14 con los defaults; repositorio `Bryreg/restaurante-sistema`.
+2. **Lanzar el pedido 1a** con el orquestador (y después el 1b sobre lo entregado):
    ```js
    Workflow({
      scriptPath: '.claude/workflows/orquestador-general.js',
@@ -141,5 +144,5 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
      },
    })
    ```
-4. Cuando exista código: ajustar `.claude/launch.json` a los comandos reales y
+3. Cuando exista código: ajustar `.claude/launch.json` a los comandos reales y
    reemplazar la sección «Cómo corre» de este documento.

@@ -17,6 +17,15 @@ comandas ni cobro todavía**: eso es el pedido 1b, que construye sobre este.
 
 **Entra**
 
+- **Organización y funciones** (spec §1.1 y §1.2): tabla de organizaciones; sedes y
+  administradores pertenecen a una; catálogo de funciones con clave, descripción,
+  dependencias y default por perfil; estado por organización con override por sede;
+  perfiles `basic`, `standard`, `full`; dependencia `require_feature("clave")` que
+  responde `400 FEATURE_DISABLED`; los flags vigentes en `GET /auth/me`; cambios
+  auditados; pantalla Admin → Funciones. Todo lo demás de este pedido se construye
+  detrás de su flag (`cash.blind_close`, `cash.reserve`, `cash.pickups`,
+  `cash.handovers`, `cash.photo_required`, `cash.swaps`, `roles.supervisor`,
+  `pos.modifiers`, `pos.combos`, `pos.daily_menu`, `pos.daily_count`, `multi_store`).
 - Repositorio: `backend/` (FastAPI + SQLAlchemy + Pydantic, Alembic, pytest, mypy),
   `frontend/` (Vite + React + TypeScript + shadcn/ui + Tailwind, vitest), CI que corre
   typecheck, suite y build en serie y bloquea en rojo, `.claude/launch.json` ajustado.
@@ -56,6 +65,12 @@ comandas ni cobro todavía**: eso es el pedido 1b, que construye sobre este.
   respuesta original.
 - Constraints en la base: un turno abierto por sede (índice único parcial); un día
   operativo por sede y fecha; `Idempotency-Key` única por alcance.
+- **Alcance por organización**: la sesión (admin o dispositivo) lleva `organization_id`;
+  todo repositorio de datos filtra por organización y sede; un id de otra organización
+  es `404`. Test de aislamiento desde el primer módulo.
+- **Flags**: un decorador/dependencia `require_feature` por endpoint opcional; el
+  frontend arma menús y pantallas a partir de `features` en `GET /auth/me`; cada
+  módulo opcional tiene al menos un test con el flag apagado.
 - Auditoría con antes y después en toda escritura de caja, configuración, empleados y
   carta; si falla, se registra en log, nunca se traga.
 - PostgreSQL en CI; SQLite en desarrollo y tests con `busy_timeout`.
@@ -69,8 +84,15 @@ Routes under `/api/v1`. Money is integer COP. Instants are ISO-8601 UTC with `Z`
 not rename or remove these; the frontend must not consume routes not listed here
 without reporting them as a gap.
 
+### Organizations & features
+- `GET /auth/me` includes `{organization: {id, name}, features: {"pos.tables": true, ...}}` for the current store (org value with store override applied).
+- `GET /admin/organization` → `{id, name, profile, declared_not_obliged_to_invoice?: {at, by}}`; `PATCH /admin/organization` `{name}`.
+- `GET /admin/features` → `[{key, description, enabled, source: "org"|"store_override"|"profile_default", requires: [...], available_from_phase}]`; `PUT /admin/features/{key}` `{enabled, store_id?}` → `400 FEATURE_DEPENDENCY` naming the missing dependency, `400 FEATURE_IS_CORE` for non-optional capabilities; audited.
+- `POST /admin/organization/profile` `{profile: "basic"|"standard"|"full"}` → resets flags to the profile defaults (audited).
+- Any endpoint of a disabled feature → `400 FEATURE_DISABLED` `{feature: "..."}`.
+
 ### Auth & identity
-- `POST /auth/admin/login` `{email, password}` → httpOnly cookie; `{user: {id, name, role: "admin"}}`.
+- `POST /auth/admin/login` `{email, password}` → httpOnly cookie; `{user: {id, name, role: "admin"}, organization: {...}}`.
 - `POST /auth/device/activate` `{store_id, store_pin}` → long-lived httpOnly device cookie; `{store: {id, name, cutoff_hour, active_channels}}`.
 - `POST /auth/device/identify` `{employee_id, pin}` → binds the active employee to the device session (server side), adds them to the open shift roster with `in_at` if a shift is open; `{employee: {id, name, role, can_charge, discount_limit_pct}}`. `400 PIN_LOCKED` after 5 failures (15 min).
 - `POST /auth/device/release`; `POST /auth/device/deactivate`; `POST /auth/logout`.
@@ -81,7 +103,7 @@ without reporting them as a gap.
 - `GET /admin/stores`, `POST /admin/stores`, `PATCH /admin/stores/{id}` → `{name, nit, dv, legal_name, address, municipality_dane, opening_hours: [{weekday, open, close}], cutoff_hour, active_channels: [...]}`.
 - `GET/PUT /admin/stores/{id}/fiscal` (versioned by `valid_from`) → `{person_type: "natural"|"legal", regime: "ordinary"|"simple", franchise: bool, inc_responsible: bool, iva_responsible: bool, rut_codes: [...], price_includes_tax: bool, default_tax: "inc_8"|"iva_19"|"excluded"}`; `GET /admin/stores/{id}/fiscal/history`.
 - `GET/PUT /admin/stores/{id}/cash-settings` → `{opening_cash_fixed, cash_reserve_default, tolerance_unknown_cause, tolerance_identified_cause, critical_difference, cash_pickup_threshold, petty_cash_limit, photo_required_on_close, photo_required_on_pickup, streak_alert_shifts}`.
-- `GET/PUT /admin/stores/{id}/sales-settings` → `{tip_suggested_pct (≤ 10), discount_limit_pct, discount_daily_limit_pct, courtesy_shift_limit, payment_methods: [{code, label, dian_code, enabled, requires_reference}], void_reasons, discount_reasons, courtesy_reasons, courses: [...], stations: [...], course_target_minutes: {...}}`.
+- `GET/PUT /admin/stores/{id}/sales-settings` → `{tip_suggested_pct (≤ 10), discount_limit_pct, discount_daily_limit_pct, courtesy_shift_limit, payment_methods: [{code, label, dian_code, enabled, requires_reference}], void_reasons, discount_reasons, courtesy_reasons, courses: [...], stations: [...], course_target_minutes: {...}}` (values; the capabilities themselves are features).
 - `GET/PUT /admin/uvt` → `[{year, value}]`.
 - `POST /admin/stores/{id}/rotate-pin` `{new_pin}`.
 
@@ -124,6 +146,12 @@ Además de la sección 16 de la spec de negocio (pedido 1a):
 
 - [ ] `alembic upgrade head` desde cero crea el esquema; `python -m app.seed` siembra
       aparte; CI verde con typecheck backend y frontend, suite y build en serie.
+- [ ] `PUT /admin/features/cash.handovers {enabled: false}` → `POST /shifts/{id}/handovers`
+      responde `400 FEATURE_DISABLED` y el POS no muestra «Relevo» (tests).
+- [ ] Habilitar `pos.daily_menu` sin `pos.combos` → `400 FEATURE_DEPENDENCY`; elegir
+      `basic` deja los flags de §1.2 (tests).
+- [ ] Un admin de la organización A recibe `404` al leer o escribir un turno de la
+      organización B (test).
 - [ ] Dos `POST /shifts/open` concurrentes: uno `200`, otro `409` (test).
 - [ ] `POST /shifts/{id}/close/count` no devuelve el esperado; `review` sí; `confirm`
       con `difference_seen` vieja → `400 DIFFERENCE_CHANGED` (test).
