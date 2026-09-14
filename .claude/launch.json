@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/schemas/launch.schema.json",
+  "description": "Configuración de arranque local para proyectos generados con sistemas-maestros. Ajustar rutas/puertos según el proyecto adoptante.",
+  "services": [
+    {
+      "name": "backend",
+      "cwd": "backend",
+      "command": "uvicorn app.main:app --reload --port 8000",
+      "env": {
+        "PYTHONPATH": "."
+      },
+      "healthcheck": {
+        "url": "http://localhost:8000/docs",
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "name": "frontend",
+      "cwd": "frontend",
+      "command": "npm run dev -- --port 5173",
+      "env": {
+        "VITE_API_URL": "http://localhost:8000"
+      },
+      "healthcheck": {
+        "url": "http://localhost:5173",
+        "timeoutMs": 15000
+      }
+    }
+  ],
+  "startAll": ["backend", "frontend"],
+  "notes": [
+    "Este archivo es una plantilla. El proyecto adoptante debe ajustar cwd, command y puertos a su estructura real.",
+    "Si el proyecto no usa Vite ni Uvicorn, reemplazar los comandos manteniendo la forma { name, cwd, command, env, healthcheck }."
+  ]
+}

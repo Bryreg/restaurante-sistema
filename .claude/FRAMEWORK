@@ -1,0 +1,7 @@
+sistemas-maestros 2.0.0
+adoptado: 2026-09-14
+
+Este proyecto adoptó el framework en esta versión. Si el repo del framework está
+más adelante, este proyecto está ATRÁS — lo cual está bien mientras sea una
+decisión y no un olvido. Al actualizar, cambiar esta versión y la fila de este
+proyecto en docs/PROYECTOS.md del framework.
