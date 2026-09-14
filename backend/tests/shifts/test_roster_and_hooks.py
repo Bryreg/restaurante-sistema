@@ -119,7 +119,7 @@ def test_identify_over_http_adds_the_person_to_the_open_shift_roster(
 
     resp = device_client.get(f"/api/v1/shifts/{shift.id}")
     assert resp.status_code == 200, resp.text
-    roster_ids = [entry["employee"]["id"] for entry in resp.json()["roster"]]
+    roster_ids = [entry["employee_id"] for entry in resp.json()["roster"]]
     assert employees["operator"].id in roster_ids, resp.json()["roster"]
 
     # Idempotente: identificarse otra vez no duplica la entrada abierta.
