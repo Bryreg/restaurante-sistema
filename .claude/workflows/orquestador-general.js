@@ -15,7 +15,8 @@
  *   Workflow({ scriptPath: 'systems-master/.claude/workflows/orquestador-general.js',
  *              args: { pedido: '...', outputs: 'features/<slug>/outputs',
  *                      spec: 'features/<slug>/spec.md',
- *                      contexto: ['docs/ESTADO.md'] } })
+ *                      contexto: ['docs/ESTADO.md'],
+ *                      base: 'abc1234' } })   // commit base: el Conciliador diffea contra él
  *
  * Ver: .claude/skills/agentes/maestro-fable.md · conciliador.md · agente-*.md
  */
@@ -46,9 +47,11 @@ if (!PEDIDO) {
 const OUT = (args && args.outputs) || 'outputs'
 const SPEC = (args && args.spec) || null
 const CONTEXTO_FILES = (args && args.contexto) || []
-// Commit base del pedido: el orquestador humano puede ir commiteando snapshots
-// mientras el equipo trabaja; el Conciliador y la entrega comparan contra ESTE
-// commit, no contra el árbol sin commitear (que puede estar vacío).
+// Commit base del pedido (opcional, args.base). El orquestador humano puede ir
+// commiteando snapshots mientras el equipo trabaja; sin esto, el Conciliador y
+// la entrega miran `git diff` contra un árbol ya commiteado, lo ven vacío y
+// marcan todo lo declarado como conflicto. Nació en restaurante-sistema
+// (pedido 1a): el primer run se conciliaba contra tres snapshots ya pusheados.
 const BASE = (args && args.base) || null
 const DIFF_HINT = BASE
   ? 'El trabajo del equipo YA ESTÁ COMMITEADO en la rama actual: el commit base del pedido es ' + BASE + '. Para ver el código real usá `git diff ' + BASE + ' --stat`, `git diff ' + BASE + ' -- <directorio>` y `git status` (para lo aún no commiteado); un `git diff` pelado contra HEAD NO muestra el trabajo.'

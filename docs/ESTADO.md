@@ -1,10 +1,7 @@
 # Restaurante Sistema — estado del proyecto
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
-Última actualización: 2026-09-14 (pedido 1a en construcción: cimientos del backend
-—organización, funciones, identidad, sedes, auditoría y notificaciones— entregados
-por `backend-core`; turno de caja por `backend-caja`; carta y frontend en curso por
-el resto del equipo).
+Última actualización: 2026-09-14 (pedido 1a entregado y verificado; framework 2.1.0).
 
 **Este documento es VIVO.** Si un cambio altera una regla o un flujo descrito acá,
 se actualiza en el MISMO PR que el cambio. Un estado desactualizado miente con más
@@ -14,9 +11,10 @@ autoridad que no tener estado.
 
 ## Cómo corre
 
-El backend ya existe y corre. El frontend todavía no (lo construyen `frontend-core`,
-`frontend-caja` y `catalogo` en este mismo pedido); cuando exista, se arranca con
-`.claude/launch.json` (ya ajustado a estos comandos reales).
+Backend y frontend existen y corren; `.claude/launch.json` está ajustado a estos
+comandos reales. En desarrollo el backend usa SQLite y el frontend proxea `/api`
+al backend (mismo origen, cookies `httpOnly`); en producción el backend sirve
+`frontend/dist` con fallback SPA.
 
 ```bash
 # instalación (una sola vez; sin venv, tal como pide CONTRATO-INTERNO §1)
@@ -33,7 +31,7 @@ python -m app.seed
 PYTHONPATH=. DATABASE_URL=sqlite:///./dev.db uvicorn app.main:app --reload --port 8000
 # /docs sirve el OpenAPI; si existe ../frontend/dist, main.py lo sirve con fallback SPA
 
-# frontend (cuando exista)
+# frontend
 cd frontend
 npm install
 npm run dev -- --port 5173   # proxea /api -> :8000 (mismo origen; ver vite.config.ts)
@@ -149,118 +147,96 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
 
 ## Qué está hecho
 
-- **Adopción del framework** (2026-09-14): `.claude/` copiado desde
-  sistemas-maestros 2.0.0 con `scripts/adoptar.sh`; versión estampada en
-  `.claude/FRAMEWORK`.
-- **Spec de negocio** en `docs/SPEC-NEGOCIO.md`, versión 0.4 (**aprobada** con los
-  defaults de la sección 15 y el requisito de funciones habilitables), escrita sobre la
-  lectura por subsistema del proyecto de referencia `cafe-sistema` (caja y turnos,
-  inventario y recetas, POS, plata y admin, lecciones del go-live), tres
-  investigaciones de dominio (fiscal y legal, operación de piso y cocina, control
-  interno) y un crítico de completitud que verificó las afirmaciones dudosas contra
-  el código de la referencia.
-- **Specs de los pedidos 1a y 1b** en `features/fase-1a-cimientos/spec.md` y
-  `features/fase-1b-venta/spec.md`, con el contrato de API para que backend y
-  frontend construyan en paralelo contra lo mismo.
-- **AGENTS.md** con lo que este proyecto se aparta del framework: régimen fiscal
-  colombiano, PIN personal sobre dispositivo compartido, fecha operativa en Bogotá.
-- **Pedido 1a en construcción** (equipo de seis agentes en paralelo sobre
-  `features/fase-1a-cimientos/CONTRATO-INTERNO.md`). Por agente, lo que este
-  documento puede verificar hoy:
-  - **`backend-core`** (este agente) — cimientos comunes y los dominios `core`,
-    `auth`, `stores`, `audit`, `notifications` completos:
-    - `app/core/`: `config`, `db` (con `UTCDateTime`, un `TypeDecorator` que evita
-      la trampa de SQLite de devolver datetimes *naive* — ver Patrón nuevo más
-      abajo), `clock`, `tz`, `money`, `errors` (+ handlers), `security`
-      (bcrypt + PyJWT + cookies `httpOnly`), `idempotency` (reserva dentro de la
-      transacción, replay, `IDEMPOTENCY_MISMATCH`/`IN_PROGRESS`), `csv`,
-      `features` (`FEATURE_CATALOG` completo de SPEC-NEGOCIO §1.2, 41 claves con
-      sus defaults por perfil, `requires` y `available_from_phase`;
-      `enabled_map`/`is_enabled`/`assert_feature`/`require_feature`),
-      `models_registry` (descubre `models.py` de cada dominio con `find_spec`).
-    - `app/auth/`: `Employee` (incluye al admin), `DeviceSession`, `Authorization`;
-      `deps.py` (`Actor`, `current_admin`, `current_device`, `current_operator`,
-      `current_actor`, `admin_store`); `service.py` (`verify_pin` con bloqueo de 5
-      intentos / 15 min y notificación `pin_locked`; `verify_authorizer` con la
-      matriz supervisor/admin); router con login admin, activar/identificar/
-      liberar/desactivar dispositivo, `/auth/me`, `/auth/authorize`, CRUD de
-      empleados (PIN nunca devuelto, baja lógica) y `/admin/authorizations`.
-      **Semántica de `current_device` vs. `current_operator` (fijada en la
-      iteración 2, corrección B-2b)**: `current_device` = dispositivo
-      activado, punto — la persona identificada es **opcional**: si la sesión
-      tiene una vigente, el `Actor` trae `employee_id`/`employee_name`/`role`;
-      si no, quedan en `None`, y nunca lanza por esa ausencia. `current_operator`
-      = persona **obligatoria** y vigente (401 `IDENTIFY_REQUIRED` si no la
-      hay) y es el **único** que renueva `employee_expires_at` (ventana
-      deslizante) — `current_device` no renueva, porque se consulta por
-      *polling* (`GET /shifts/current`) y renovar ahí extendería la sesión de
-      la persona indefinidamente. Antes de esta corrección, `current_device`
-      devolvía siempre `employee_id=None`, por lo que el responsable de caja
-      nunca veía `expected_cash` en `GET /shifts/current`/`POST
-      /shifts/{id}/roster` (territorio `backend-caja`); el helper privado
-      `_bound_employee(db, session, now)` centraliza ahora la comprobación de
-      vigencia para las dos dependencias. Detalle completo y tests en
-      `features/fase-1a-cimientos/outputs/backend-core.md` §8.
-    - `app/stores/`: `Organization`, `Store`, `StoreFiscalConfig` (versionado por
-      `valid_from`), `StoreCashSettings`, `StoreSalesSettings`, `UvtValue` (por
-      organización), `Zone`, `Table`, `FeatureState`; router con organización y
-      funciones (`GET/PATCH /admin/organization`, `GET/PUT /admin/features`,
-      `POST /admin/organization/profile`), CRUD de sedes + fiscal + cash/sales
-      settings + UVT + rotar PIN, zonas y mesas, y `GET /tables` de dispositivo
-      (siempre `free` en 1a).
-    - `app/audit/`: `AuditLog` + `record_audit` (SAVEPOINT propio: si falla, se
-      loguea y la escritura que la llamó sigue) + `GET /admin/audit`.
-    - `app/notifications/`: `Notification` + `NotificationRule` + `notify`
-      (respeta la regla apagada, deduplica por día) + endpoints de campana y
-      reglas.
-    - `app/main.py` (descubre routers por `find_spec`, sirve `../frontend/dist`
-      con fallback SPA), `app/seed.py` (`python -m app.seed`, idempotente, nunca
-      al arrancar), Alembic (`alembic.ini`, `env.py`, `0001_core.py` con las 16
-      tablas de estos cinco dominios).
-    - Tests propios (`tests/core`, `tests/auth`, `tests/stores`, `tests/audit_log`,
-      `tests/notifications`, 74 casos) y `tests/conftest.py` con **todas** las
-      fixtures del contrato.
-    - Detalle completo, endpoints uno por uno y gaps en
-      `features/fase-1a-cimientos/outputs/backend-core.md`.
-  - **`backend-caja`** — `app/shifts/**` (día operativo y turno de caja completos:
-    apertura, roster, movimientos, cambio, retiros, relevo/arqueo, cierre a ciegas
-    en tres pasos, rescates) y `alembic/versions/0003_shifts.py`. Detalle en
-    `features/fase-1a-cimientos/outputs/backend-caja.md` (no verificado por este
-    agente más allá de que `app/shifts/**` importa y el typecheck combinado de
-    `app/` sigue limpio).
-  - **`catalogo`** — `app/catalog/models.py` y `app/catalog/schemas.py` existen
-    (250 y 271 líneas); a la fecha de este corte todavía **no** existen
-    `app/catalog/router.py`, `app/catalog/seed.py` ni
-    `alembic/versions/0002_catalog.py` — ver su propio output cuando lo publique.
-  - **`frontend-core`, `frontend-caja`, `auditor-control`** — `frontend/` todavía
-    no existe en este corte; ver sus outputs cuando los publiquen.
-- **Patrón nuevo (no estaba en el contrato interno, documentado para que lo usen
-  todos)**: `app.core.db.UTCDateTime` — usar este tipo (no `DateTime(timezone=True)`
-  a secas) en todo `Mapped[datetime]` de cualquier dominio; en SQLite,
-  `DateTime(timezone=True)` devuelve *naive* al leer, y compararlo contra
-  `clock.now_utc()` (aware) tira `TypeError`. `app/shifts/models.py` todavía usa
-  `sa.DateTime(timezone=True)` sin este wrapper — funciona hoy porque sus tests no
-  comparan esos campos contra un `datetime` aware directamente, pero conviene
-  migrarlo antes de que sí lo hagan.
-- **Decisión de `get_db` que todo servicio nuevo tiene que conocer**: un `AppError`
-  (400/404/409 de negocio) hace **commit**, no rollback — si no, un contador de
-  intentos fallidos (PIN) nunca se guarda porque cada intento se revierte a sí
-  mismo. Consecuencia: **todo servicio valida antes de escribir**; para cuando se
-  hace `db.add()`/`db.flush()`, la operación ya está decidida y lo que se
-  escriba tiene que sobrevivir aunque el request termine en 4xx.
+- **Adopción del framework** (2026-09-14): sistemas-maestros 2.0.0 con
+  `scripts/adoptar.sh`; actualizado a **2.1.0** el mismo día (`args.base` del
+  orquestador, promovido desde este proyecto). Versión en `.claude/FRAMEWORK`.
+- **Spec de negocio** `docs/SPEC-NEGOCIO.md` v0.4, **aprobada** con los defaults de la
+  sección 15 y el requisito de producto comercializable (organización → sede,
+  funciones habilitables por flag, perfiles `basic`/`standard`/`full`).
+- **Specs de los pedidos** `features/fase-1a-cimientos/spec.md` (entregado) y
+  `features/fase-1b-venta/spec.md` (siguiente), con contrato de API.
+- **Pedido 1a entregado** (orquestador, dos rondas, veredicto del Conciliador
+  **coherente**; entrega del Maestro en `features/fase-1a-cimientos/outputs/ENTREGA.md`,
+  outputs por agente en el mismo directorio, contrato interno del equipo en
+  `features/fase-1a-cimientos/CONTRATO-INTERNO.md`). Equipo: `backend-core`,
+  `backend-caja`, `catalogo` (rol nuevo, full-stack), `frontend-core`,
+  `frontend-caja`, `auditor-control` (opus, 58 invariantes ejecutables en
+  `backend/tests/audit/` y `frontend/src/audit/`).
+  - **Backend** (`backend/app/`): `core` (config, `UTCDateTime`, reloj, tz, dinero,
+    errores de una sola forma, seguridad con cookies `httpOnly`, idempotencia,
+    catálogo de 41 funciones con perfiles y `require_feature`), `auth` (empleados,
+    sesión de dispositivo, PIN con bloqueo, autorizaciones supervisor/admin),
+    `stores` (organización, sedes, fiscal con vigencia, ajustes de caja y ventas,
+    UVT, zonas, mesas, flags con override por sede), `audit`, `notifications`,
+    `catalog` (carta plana: categorías, productos con precio por canal y tasa,
+    modificadores, combos y menú del día con franjas, agotados y contador; sin
+    campos de costo), `shifts` (día operativo con hora de corte y `closes_day`,
+    turno con base fija y reserva aparte, roster, movimientos con causa, cambio
+    neto cero, retiros con snapshot, relevo y arqueo sorpresa, cierre a ciegas en
+    tres pasos, cierre en un paso cuando `cash.blind_close` está apagada, rescates
+    de admin, actividad por persona). Alembic `0001 → 0002 → 0003` (31 tablas),
+    `python -m app.seed` aparte e idempotente, CI en `.github/workflows/ci.yml`
+    (Postgres 16; backend y frontend en serie).
+  - **Frontend** (`frontend/src/`): Vite + React 19 + TypeScript 6 + Tailwind v4 +
+    shadcn sobre `@base-ui/react`; `api/client.ts` con `credentials: "include"`;
+    login admin, activar dispositivo, identificarse, Admin → Funciones,
+    Configuración (8 pestañas), Carta, Dinero (operacional, historial, cronología,
+    rescates), Turnos y personal (actividad y autorizaciones), Historial,
+    Notificaciones; POS → Turno (abrir, roster, movimientos, cambio, retiros,
+    relevo, cierre a ciegas o en un paso según flag, foto).
+  - **Verificación final** (orquestador humano, árbol quieto, en serie): mypy
+    limpio; `tsc` limpio; Alembic desde cero y `downgrade base`; seed dos veces sin
+    duplicar; vitest 61/61; `vite build` OK; suite de backend completa (ver «Dónde
+    retomar» para el resultado posterior a las correcciones).
+  - **Correcciones posteriores a la entrega** (commit `31db8cb`): D-1 (el hook que
+    agrega al roster al identificarse se buscaba en `app.shifts.service` y vive en
+    `app.shifts.hooks`; test de punta a punta), D-2 (`race_app`, una sesión por
+    request, promovida a `tests/conftest.py`; el test de carrera de `tests/shifts`
+    corre sobre ella y acepta `409 SHIFT_OPEN_RACE` o `400 SHIFT_ALREADY_OPEN`),
+    A-3 (`app/shifts/models.py` usa `UTCDateTime`).
+- **Decisiones de implementación que todo servicio nuevo tiene que conocer**:
+  - `app.core.db.UTCDateTime` en todo `Mapped[datetime]` (SQLite devuelve *naive*
+    al leer `DateTime(timezone=True)`).
+  - `get_db` hace **commit** también ante `AppError`: un contador de PIN fallido
+    tiene que sobrevivir a su propio 400. Consecuencia: validar antes de escribir.
+  - `current_device` = dispositivo activado, persona **opcional** y sin renovar su
+    ventana; `current_operator` = persona **obligatoria** y vigente, única que
+    renueva la ventana deslizante.
+  - `run_idempotent` guarda un error de negocio como respuesta resuelta.
+  - `multi_store` no gatea `GET /admin/stores` (selector de interfaz); `UvtValue`
+    es por organización.
 
 ## Dónde retomar
 
-1. Spec aprobada el 2026-09-14 con los defaults; repositorio `Bryreg/restaurante-sistema`.
-2. El pedido 1a está en construcción (seis agentes en paralelo). Falta terminar
-   `catalogo` (router, seed, migración `0002`) y todo el `frontend/`
-   (`frontend-core`, `frontend-caja`); `auditor-control` corre al final sobre lo
-   que quede. Cuando el Maestro corra la verificación final (suite completa,
-   `alembic upgrade head` contra el árbol entero, `npm run build`), va a
-   necesitar que `0002_catalog.py` exista para que la cadena `0001→0002→0003`
-   resuelva (hoy `0003_shifts.py` referencia un `0002` que todavía no está).
-3. **Lanzar el pedido 1b** sobre lo entregado por 1a cuando el equipo termine y
-   se concilie:
+1. **Resultado de la suite de backend completa después de las correcciones**: lo
+   registra el commit que cierra el pedido 1a (ver su mensaje). Si está en verde,
+   el CI del repo puede estarlo también (no se pudo ejecutar acá: sin runner ni
+   Postgres local).
+2. **Abierto por decisión del dueño de la spec** (advertencias del auditor, en
+   `features/fase-1a-cimientos/outputs/ENTREGA.md § 5.4`): O-1 (el responsable ve
+   el esperado en `/shifts/current` y después cierra «a ciegas»: ocultarlo desde
+   que teclea el conteo, o aceptar el arqueo sorpresa como control); A-7 (qué PII
+   de empleados entra a la auditoría exportable, con abogado); A-1 (tope de
+   intentos en `/auth/authorize`); A-2 (validar `JWT_SECRET` en producción);
+   A-4 (esperado calculado para turnos abiertos en `GET /admin/shifts`); A-6
+   (idempotencia en `cash-swaps` y reversa de retiro); A-8 (`SAVEPOINT` en vez de
+   `rollback()` ante `IntegrityError`); A-9 (**no hay ruta de dispositivo para
+   listar el personal**: cuatro pantallas piden el número de empleado a mano; la
+   pantalla «Quién opera» de la spec §9.1 no existe todavía).
+3. **Gaps declarados por los constructores** (`ENTREGA.md § 5.5`): motivo en
+   `DELETE /admin/shifts/{id}`; `close_cause` y base de apertura en el listado de
+   turnos; quitar opciones de modificadores y grupos de combos (API y UI);
+   agregar grupos a un combo existente desde la UI; tests de las pantallas de
+   configuración, personal, auditoría y notificaciones; `shadcn` a
+   `devDependencies`; token `--warning`.
+4. **Corrección al contrato interno para 1b**: cada hook cruzado entre territorios
+   lleva dueño del test de punta a punta, y la fixture `race_app` es la común para
+   carreras (ya está en `tests/conftest.py`). Patrón registrado en
+   `docs/PATRONES.md` del framework (2.1.0).
+5. **Lanzar el pedido 1b** (mostrador, mesas, comandas, rondas y cocina mínima,
+   precuenta y propina, cobro, documento fiscal con adaptador de proveedor, notas,
+   Hoy/Ventas/Pedidos) sobre lo entregado. Conviene meter A-9 en el pedido 1b
+   como primera tarea, porque «Quién opera» es la puerta del POS:
    ```js
    Workflow({
      scriptPath: '.claude/workflows/orquestador-general.js',
@@ -269,12 +245,10 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
        spec: 'features/fase-1b-venta/spec.md',
        outputs: 'features/fase-1b-venta/outputs',
        contexto: ['docs/ESTADO.md', 'AGENTS.md', 'docs/SPEC-NEGOCIO.md'],
+       base: '<commit desde el que arranca 1b>',
      },
    })
    ```
-4. Antes de lanzar 1b conviene mirar los gaps de
-   `features/fase-1a-cimientos/outputs/backend-core.md` (ambigüedades de la spec
-   resueltas con una interpretación propia: `multi_store` no gatea
-   `GET /admin/stores` a propósito, `UvtValue` quedó por organización en vez de
-   global, `employee_id` en `GET /admin/audit` filtra por autorizador no por
-   entidad afectada, entre otras).
+6. Lo que no se pudo verificar en este entorno: Postgres real (tipos, índices y el
+   `409 SHIFT_OPEN_RACE` literal, que sólo el CI puede probar), el CI en sí, WCAG
+   más allá de Testing Library, y el flujo completo en un navegador real.

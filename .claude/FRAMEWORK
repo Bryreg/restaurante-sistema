@@ -1,5 +1,5 @@
-sistemas-maestros 2.0.0
-adoptado: 2026-09-14
+sistemas-maestros 2.1.0
+adoptado: 2026-09-14 (2.0.0); actualizado a 2.1.0 el 2026-09-14 (args.base del orquestador, promovido desde este proyecto)
 
 Este proyecto adoptó el framework en esta versión. Si el repo del framework está
 más adelante, este proyecto está ATRÁS — lo cual está bien mientras sea una
