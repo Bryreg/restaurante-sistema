@@ -52,7 +52,7 @@ Bogotá se calcula siempre con `app/core/tz.py`, nunca con la zona del sistema.
 
 **Seed de desarrollo** (`python -m app.seed`, idempotente): una organización perfil
 `standard`, una sede con fiscal vigente (natural, ordinario, INC 8 %, precios con
-impuesto), PIN de sede `1234`, UVT 2026 = 52.374, admin `admin@demo.local` /
+impuesto), PIN de sede `123456`, UVT 2026 = 52.374, admin `admin@demo.local` /
 `cambiar` (PIN POS `9000`), supervisor (PIN `5001`), cuatro operadores (PIN `6001`
 a `6004`; `6001` puede cobrar), dos zonas ("Salón", "Terraza") con cuatro mesas
 cada una. Si existe `app.catalog.seed.seed_catalog`, también carga la carta (lo

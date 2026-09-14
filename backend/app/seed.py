@@ -43,7 +43,7 @@ from app.stores.service import (
 ADMIN_EMAIL = "admin@demo.local"
 ADMIN_PASSWORD = "cambiar"
 ADMIN_PIN = "9000"
-STORE_PIN = "1234"
+STORE_PIN = "123456"  # seis dígitos: el teclado de activación del POS pide 6
 SUPERVISOR_PIN = "5001"
 OPERATOR_PINS = ["6001", "6002", "6003", "6004"]  # el primero (6001) puede cobrar
 

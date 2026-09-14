@@ -1322,6 +1322,29 @@ def list_business_days(db: Session, *, store_id: int, date_from: date | None, da
     return list(db.execute(stmt).scalars())
 
 
+_MOVEMENT_KIND_LABEL = {"income": "Ingreso", "expense": "Egreso"}
+_MOVEMENT_CAUSE_LABEL = {
+    "petty_expense": "Gasto menor",
+    "emergency_purchase": "Compra de emergencia",
+    "refund": "Devolución",
+    "tip_payout": "Pago de propinas",
+    "other_income": "Otro ingreso",
+    "other_expense": "Otro egreso",
+}
+
+
+def _enum_value(value: object) -> str:
+    return str(getattr(value, "value", value))
+
+
+def _movement_kind_label(kind: object) -> str:
+    return _MOVEMENT_KIND_LABEL.get(_enum_value(kind), _enum_value(kind))
+
+
+def _movement_cause_label(cause: object) -> str:
+    return _MOVEMENT_CAUSE_LABEL.get(_enum_value(cause), _enum_value(cause))
+
+
 def build_timeline(db: Session, shift: Shift) -> list[dict[str, Any]]:
     """Eventos ordenados: apertura, roster, movimientos, cambios, retiros,
     relevos, conteos, cierre y rescates (`GET /admin/shifts/{id}/timeline`).
@@ -1351,7 +1374,7 @@ def build_timeline(db: Session, shift: Shift) -> list[dict[str, Any]]:
             {
                 "at": m.at,
                 "kind": "movement",
-                "summary": f"{m.kind} ({m.cause}) por ${m.amount}",
+                "summary": f"{_movement_kind_label(m.kind)} ({_movement_cause_label(m.cause)}) por ${m.amount:,}".replace(",", "."),
                 "employee_name": m.employee_name,
                 "data": {"id": m.id, "kind": m.kind, "cause": m.cause, "amount": m.amount},
             }
