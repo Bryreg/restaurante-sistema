@@ -234,10 +234,18 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    lleva dueño del test de punta a punta, y la fixture `race_app` es la común para
    carreras (ya está en `tests/conftest.py`). Patrón registrado en
    `docs/PATRONES.md` del framework (2.1.0).
-5. **Lanzar el pedido 1b** (mostrador, mesas, comandas, rondas y cocina mínima,
-   precuenta y propina, cobro, documento fiscal con adaptador de proveedor, notas,
-   Hoy/Ventas/Pedidos) sobre lo entregado. Conviene meter A-9 en el pedido 1b
-   como primera tarea, porque «Quién opera» es la puerta del POS:
+5. **El pedido 1b se parte en dos** para que cada mitad quepa en un equipo de 2 a 6
+   agentes y en una ventana de uso: **1b-1** (lanzado el 2026-09-14 sobre el commit
+   `74c1eac`; outputs en `features/fase-1b-venta/outputs-1b-1/`): «Quién opera» con
+   lista de personal del dispositivo (A-9), mostrador, mesas, comandas con versión
+   optimista, rondas y vista de cocina mínima, precuenta y propina, cobro con pagos
+   mixtos y división, descuentos y cortesías, `staff_meal`, con las decisiones O-1
+   y A-7 resueltas por default (el responsable no ve el esperado del turno abierto
+   con cierre a ciegas activo; documento y correo de empleados fuera del JSON de
+   auditoría). **1b-2** (siguiente): documento fiscal con rangos, estados,
+   contingencia y adaptador de proveedor, notas y devoluciones pendientes,
+   clientes y consentimientos, Hoy, Ventas e informe del contador, Pedidos.
+   La spec de ambos es `features/fase-1b-venta/spec.md`; el pedido delimita:
    ```js
    Workflow({
      scriptPath: '.claude/workflows/orquestador-general.js',
