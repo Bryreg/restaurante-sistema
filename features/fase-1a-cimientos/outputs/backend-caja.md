@@ -4,6 +4,13 @@ Agente: `backend-caja`. Territorio: `backend/app/shifts/**`, `backend/tests/shif
 `backend/alembic/versions/0003_shifts.py`. No se tocó ningún archivo fuera de ese
 territorio.
 
+> **Nota de iteración 2 (ajuste del Maestro sobre el veredicto del Conciliador,
+> B-1 a B-4)**: esta versión reemplaza la "decisión de diseño" del §4 original
+> (donde el cierre en un paso y los tres pasos convivían) y corrige dos bugs
+> reales (`kind` del relevo, fuga del esperado por `pickups`/`handovers`). Los
+> cambios están marcados `[it.2]` en las secciones que tocan. El resto del
+> documento (modelos, migración, matemática de base) no cambió de fondo.
+
 ## 1. Modelos y constraints (`app/shifts/models.py`)
 
 Todos con `organization_id` + `store_id` (índice en ambos), dinero en `Integer`,
@@ -98,7 +105,7 @@ agrega `/api/v1`. `Idempotency-Key` usa `app.core.idempotency.run_idempotent` +
 |---|---|---|---|
 | `GET /shifts/current` | 200 (o `null`) | — | `cash_over_threshold`/`shift_stale` se notifican con dedupe diario en cada llamada |
 | `POST /shifts/open` (Idempotency-Key) | 201 | `SHIFT_ALREADY_OPEN` 400, `409 SHIFT_OPEN_RACE` (IntegrityError del índice parcial), `OPENING_DIFFERENCE_NEEDS_CAUSE` 400 | `cash.reserve` (si está apagada, `cash_reserve` se ignora y queda en 0) |
-| `GET /shifts/{id}` | 200 | `404 NOT_FOUND` (otra org/sede) | — |
+| `GET /shifts/{id}` | 200 | `404 NOT_FOUND` (otra org/sede) | — (`expected_cash`, `pickups[].expected_at_pickup` y `handovers[].breakdown` son `int\|null`/`dict\|null`: `null` para quien no es admin ni responsable de caja — `[it.2]`, ver §4) |
 | `POST /shifts/{id}/roster` | 200 | `PIN_INVALID`, `NOT_CASH_RESPONSIBLE` (el responsable sale por `handovers`), `EMPLOYEE_NOT_IN_ROSTER` | — |
 | `POST /shifts/{id}/handovers` (Idempotency-Key) | 201 | `SHIFT_NOT_OPEN`, `VALIDATION_ERROR` (falta `new_responsible_id` en `handover`), + lo que levante `verify_authorizer` (`AUTHORIZATION_REQUIRED/INVALID/NOT_ALLOWED`, `PIN_LOCKED`) para `spot_check` | `cash.handovers` (`require_feature`) |
 | `POST /shifts/{id}/cash-movements` (Idempotency-Key) | 201 | `SHIFT_NOT_OPEN`, `PETTY_CASH_LIMIT` (egreso > `petty_cash_limit` sin `authorizer_pin`) | — (no está en el catálogo de flags: es capacidad core) |
@@ -108,7 +115,7 @@ agrega `/api/v1`. `Idempotency-Key` usa `app.core.idempotency.run_idempotent` +
 | `POST /shifts/{id}/close/count` (Idempotency-Key) | 201 → `{count_id}` | `SHIFT_NOT_OPEN`, `PHOTO_REQUIRED`, `CARD_TOTAL_REQUIRED`, `TRANSFER_TOTAL_REQUIRED` | `cash.blind_close` |
 | `GET /shifts/{id}/close/{count_id}/review` | 200 | `404 NOT_FOUND` (conteo ajeno) | `cash.blind_close` |
 | `POST /shifts/{id}/close/{count_id}/confirm` | 200 → `{to_deposit, closes_day}` | `DIFFERENCE_CHANGED` (con `extra.review` recalculado), `CAUSE_REQUIRED`, `IDENTIFIED_CAUSE_REQUIRED` | `cash.blind_close` |
-| `POST /shifts/{id}/close` (un solo paso) | 200 → `{to_deposit, closes_day, expected, difference}` | mismos códigos que el flujo de 3 pasos (comparte `create_close_count`/`_evaluate_close`/`_finalize_close`) | ver §4 (decisión de diseño) |
+| `POST /shifts/{id}/close` (un solo paso) | 200 → `{to_deposit, closes_day, expected, difference}` | `400 BLIND_CLOSE_REQUIRED` si `cash.blind_close` está **encendida** (`[it.2]`, ver §4) + mismos códigos que el flujo de 3 pasos cuando sí corre (comparte `create_close_count`/`_evaluate_close`/`_finalize_close`) | `cash.blind_close` **apagada** (mutuamente excluyente con la fila de arriba, ver §4) |
 | `GET /admin/shifts?store_id&from&to[&format=csv]` | 200 | `404` (sede ajena, vía `admin_store`) | — |
 | `GET /admin/shifts/{id}/timeline` | 200 | `404` (turno de otra org) | — |
 | `POST /admin/shifts/{id}/review` | 200 | `404` | — |
@@ -121,60 +128,124 @@ agrega `/api/v1`. `Idempotency-Key` usa `app.core.idempotency.run_idempotent` +
 
 Todo `400` de negocio usa `AppError(code, message, status)` (provisto por
 `backend-core`, `app/core/errors.py`) con `message` que nombra la acción correctiva
-(ninguna regla de negocio devuelve 500). El operador (`current_operator`, Actor de
-dispositivo) nunca recibe `expected_cash` salvo que su `employee_id` sea el
-`cash_responsible_id` del turno o su rol sea `admin`; se resuelve en
-`_shift_summary`/`GET /shifts/current` comparando contra el Actor, nunca en el
-frontend.
+(ninguna regla de negocio devuelve 500). El operador (`current_operator`/`current_device`,
+Actor de dispositivo) nunca recibe `expected_cash` (ni nada derivado de él, `[it.2]`
+ver §4) salvo que su `employee_id` sea el `cash_responsible_id` del turno o su rol
+sea `admin`; se resuelve en un único predicado (`router._can_see_expected`), usado
+por `_shift_summary` (`GET /shifts/{id}`) y `get_current` (`GET /shifts/current`),
+nunca en el frontend.
 
-## 4. Decisión de diseño: `cash.blind_close` apagado/encendido
+## 4. `cash.blind_close`: mutuamente excluyente por flag `[it.2]`
 
-`spec.md` dice "apagado: un solo `POST /shifts/{id}/close}`... con flag encendido,
-los tres pasos". Implementé:
+**Esta sección reemplaza la "decisión de diseño" de la versión anterior de este
+documento.** El Maestro fijó el veredicto del Conciliador como firme:
+`cash.blind_close` no son dos rutas que conviven, es **una u otra**:
 
-- Los tres endpoints `close/count`, `close/{count_id}/review`,
-  `close/{count_id}/confirm` están **gateados** con `require_feature("cash.blind_close")`
-  → `400 FEATURE_DISABLED` cuando está apagada (test del checklist).
-- `POST /shifts/{id}/close` (un solo paso) queda **siempre disponible**, sin
-  `require_feature`, y reutiliza exactamente la misma cadena interna
-  (`create_close_count` → `_evaluate_close` → `_validate_close_cause` →
-  `_finalize_close`) en una sola llamada. Sigue siendo "a ciegas" en el sentido de
-  que el cliente nunca ve el esperado antes de mandar el conteo+causa; la única
-  diferencia con el flujo de tres pasos es que no hay ida y vuelta HTTP.
-- No inventé un código de error nuevo para "estás con `blind_close` encendido y
-  llamaste al de un paso": simplemente ambos caminos conviven. Documento esto como
-  gap de interpretación en §5 por si el Maestro quiere que el de un paso responda
-  `FEATURE_DISABLED` cuando el flag está prendido (forzando el flujo de tres pasos).
+- **Encendida** (perfil `full`/`standard` por defecto): sólo corre
+  `count → review → confirm`. Los tres endpoints siguen gateados con
+  `require_feature("cash.blind_close")` → `400 FEATURE_DISABLED` si la flag está
+  apagada. Y ahora, además, `POST /shifts/{id}/close` (el de un solo paso) queda
+  **cerrado**: responde `400 BLIND_CLOSE_REQUIRED` (`extra.feature = "cash.blind_close"`)
+  sin tocar el turno ni el servicio.
+- **Apagada**: sólo corre `POST /shifts/{id}/close`. Los tres endpoints del
+  flujo de tres pasos responden `400 FEATURE_DISABLED` (`extra.feature = "cash.blind_close"`).
+
+Implementación (`app/shifts/router.py::post_close_single`): el chequeo
+(`features.is_enabled(db, actor.organization_id, actor.store_id, "cash.blind_close")`)
+corre **antes** de `_idempotent`/`_do`, no adentro — así el `409`/`400` de
+`BLIND_CLOSE_REQUIRED` nunca queda grabado como la respuesta "original" de esa
+`Idempotency-Key`: si la sede después prende la flag y el cliente reintenta la
+misma key contra el flujo correcto, no hay una respuesta vieja pegada en el medio.
+`BLIND_CLOSE_REQUIRED` es `400` por default de `AppError` (no hay razón de negocio
+para otro status: es un error de "hablaste con el endpoint equivocado", no una regla
+de plata).
+
+| Código | Cuándo | Acción correctiva en `message` |
+|---|---|---|
+| `BLIND_CLOSE_REQUIRED` | `POST /shifts/{id}/close` con `cash.blind_close` encendida | "Esta sede cierra a ciegas en tres pasos; usá el conteo de cierre (`POST /shifts/{id}/close/count`)" |
+| `FEATURE_DISABLED` (`extra.feature="cash.blind_close"`) | `close/count`\|`review`\|`confirm` con `cash.blind_close` apagada | genérico de `features.assert_feature`/`require_feature` |
+
+## 4.1. Dos bugs corregidos en esta iteración: `kind` del relevo y fuga del esperado `[it.2]`
+
+**B-2 — `ShiftHandover.kind` explotaba en `.value`.** `service.create_handover`
+guardaba `kind=payload.kind` (el `str` `Literal` del payload), no el enum de
+SQLAlchemy `HandoverKind`. Mientras la instancia recién creada seguía "viva" en la
+sesión, `handover.kind.value` funcionaba por suerte (el atributo Python seguía
+siendo el `str` que se le asignó, y `str` no tiene `.value`... en realidad fallaba
+ahí mismo apenas se llamaba, no "por suerte" — el bug era real y reproducible en
+cualquier request). Corregido en el origen (`service.py`):
+`kind=HandoverKind(payload.kind)`. Y en `router.py` ya no se asume `.value` en
+ningún punto: un helper único `_kind_str(kind: HandoverKind | str) -> HandoverKindLiteral`
+normaliza tanto el enum (instancia recién creada) como el `str` plano (fila releída
+después de que la sesión expira sus atributos), y lo usan `_shift_summary` y
+`post_handover`.
+
+**B-3/B-4 — el esperado se filtraba por `pickups[].expected_at_pickup` y
+`handovers[].breakdown`.** El gate de `show_expected` en `_shift_summary` sólo
+tapaba `expected_cash`; el snapshot del retiro y el desglose congelado del relevo
+viajaban completos en el mismo `GET /shifts/{id}` para cualquier operador. Corregido:
+
+- `CashPickupOut.expected_at_pickup` y `HandoverOut.breakdown` pasan a
+  `int | None` / `dict | None` (antes eran obligatorios).
+- El predicado se extrajo a un único helper `router._can_see_expected(actor, shift)`
+  (admin por `kind` o por `role`, o `actor.employee_id == shift.cash_responsible_id`)
+  y es la única fuente de verdad: lo usan `_shift_summary` (`GET /shifts/{id}`) y
+  `get_current` (`GET /shifts/current`), que antes tenían cada uno su propia
+  condición copiada (y la de `get_current` ni siquiera cubría `actor.kind == "admin"`,
+  aunque en la práctica `GET /shifts/current` sólo la llama `current_device`).
+- En `_shift_summary`, cuando `_can_see_expected` es `False`: cada `CashPickupOut`
+  se devuelve con `expected_at_pickup=None` (`model_copy(update=...)`, el resto de
+  los campos del retiro — monto, sobre, quién autorizó — se mantienen visibles: el
+  hecho del retiro no es secreto, el esperado sí) y cada `HandoverOut.breakdown` se
+  devuelve `None` (la fila del relevo/arqueo se sigue viendo: quién, cuándo, contado;
+  el desglose que revela el esperado, no).
+- **Decisión explícita (no un descuido)**: la respuesta que devuelve el propio
+  `POST /shifts/{id}/pickups` (al actor que ejecuta el retiro) y el propio
+  `POST /shifts/{id}/handovers` (al actor que ejecuta el relevo/arqueo) **siguen
+  trayendo el snapshot completo**, sin pasar por `_can_see_expected`. Razón: un
+  retiro lo autoriza un PIN de administrador (`verify_authorizer`, no cualquier
+  operador puede iniciarlo) y un relevo/arqueo lo hace el propio responsable de
+  caja o requiere PIN admin para `spot_check` — en ambos casos quien recibe esa
+  respuesta puntual ya demostró la autorización para ver el número en ese instante,
+  aunque no sea el responsable "de base" del turno. Es distinto de `GET /shifts/{id}`,
+  que cualquier operador identificado puede pedir en cualquier momento sin volver a
+  autenticarse con un PIN de admin. El auditor puede pesar esta decisión; si se
+  quiere cerrar también ahí, es enmascarar el `expected_at_pickup`/`breakdown` de
+  la respuesta directa del `POST` cuando `actor` no es admin ni responsable — un
+  cambio de una función (`_can_see_expected(actor, shift)` ya está escrita) en
+  `post_pickup` y `post_handover`.
 
 ## 5. Gaps (todo lo que depende de otro agente o queda ambiguo)
 
+**Resueltos en esta iteración (ya no son gap):**
+
+1. ~~`alembic upgrade head` no corre completo~~ — `backend/alembic/versions/0002_catalog.py`
+   ya existe (territorio de `catalogo`, entregado entre rondas). Reverifiqué en un
+   SQLite limpio: `DATABASE_URL=sqlite:////tmp/pt-backend-caja/mig.db python -m alembic
+   upgrade head` corre `0001 → 0002 → 0003` completo, y
+   `alembic downgrade base` revierte `0003 → 0002 → 0001 → (vacío)` sin errores (el
+   downgrade de mi propia migración no necesitó cambios: no tiene la FK circular que
+   habría forzado un `batch_alter_table`, ver §1).
+2. ~~Test de concurrencia real bloqueado por el fixture compartido `db`~~ — el
+   auditor de control interno (`tests/audit/conftest.py::race_app`, no mi territorio)
+   resolvió esto con una fixture propia que abre **una sesión por request** (como en
+   producción) en vez de compartir el `Session` único de `tests/conftest.py::db`. Mi
+   test original (`tests/shifts/test_open.py::test_two_concurrent_opens_...`, sobre
+   el fixture `db` compartido) sigue fallando por la misma razón estructural que
+   documenté antes — eso no cambió y no es mi código — pero el invariante del
+   checklist ("dos aperturas concurrentes: una gana, otra 409") ya está verificado
+   de verdad por `tests/audit/test_cash_invariants.py::test_two_concurrent_opens_leave_exactly_one_winner`,
+   que sí corre sobre sesiones reales por request y pasa.
+
 **Bloqueantes de verificación completa (no dependen de mí):**
 
-1. **`alembic upgrade head` no corre completo**: `backend/alembic/versions/0002_catalog.py`
-   (territorio de `catalogo`) todavía no existe al momento de este entregable. Mi
-   `0003_shifts.py` queda con `down_revision="0002"` tal como indica el contrato;
-   `DATABASE_URL=sqlite:////tmp/pt-backend-caja/mig.db python -m alembic upgrade head`
-   falla con `KeyError: '0002'`. La cadena `0001→0002→0003` hay que volver a
-   verificarla en la ronda de integración final, cuando `catalogo` haya entregado.
-2. **Test de concurrencia real bloqueado por el fixture compartido `db`**
-   (`tests/conftest.py`, territorio de `backend-core`): `_override_get_db` cierra
-   sobre **un solo objeto `Session`** (`session = testing_session_local()`, creado
-   una vez por test) y lo devuelve para *todas* las requests de ese test, incluidas
-   las que llegan desde hilos distintos. `Session` de SQLAlchemy no es thread-safe
-   para uso concurrente: dos hilos escribiendo a la vez producen
-   `InvalidRequestError("Session is already flushing")` /
-   `ResourceClosedError("This transaction is closed")`, y la request nunca llega a
-   devolver 200 ni 409 — mi test
-   `test_two_concurrent_opens_one_wins_one_gets_409` (que ejercita exactamente la
-   regla del checklist: dos `POST /shifts/open` con hilos → uno 200/201, otro 409)
-   falla por esto, no por mi código (el índice único parcial y el manejo de
-   `IntegrityError` en `service.open_shift` están escritos y se ejercitan
-   correctamente en el resto de la suite). Sugerencia concreta para
-   `backend-core`: que `_override_get_db` cree una sesión nueva
-   (`testing_session_local()`) en cada llamada en lugar de cerrar sobre la del
-   fixture — el motor/pool ya soporta múltiples conexiones (`check_same_thread=False`,
-   sin `StaticPool`), falta que cada request tenga su propia `Session`.
-3. Encontré (y no toqué, no es mi territorio) que **`DateTime(timezone=True)` sobre
+1. **Test de concurrencia propio (`tests/shifts/`) sigue sin poder verificar la
+   carrera real**, por la razón de arriba (`db` fixture con una sola `Session`
+   compartida entre hilos). No lo elimino porque documenta la limitación en mi
+   propio territorio, pero el invariante real ya está cubierto por el auditor (ver
+   arriba) — sugerencia a `backend-core` sigue en pie por si se quiere que
+   `tests/shifts/` también lo pueda probar sin depender de `tests/audit/`.
+2. Encontré (y no toqué, no es mi territorio) que **`DateTime(timezone=True)` sobre
    SQLite no preserva el `tzinfo` al releer** (trampa listada en
    `docs/SPEC-NEGOCIO.md §12`): confirmé con un repro aislado que un valor aware
    escrito vuelve `tzinfo=None` al leerlo en una sesión nueva. Esto puede volver a
@@ -190,40 +261,47 @@ los tres pasos". Implementé:
 
 **Ambigüedades de la spec que interpreté (declaradas, no asumidas en silencio):**
 
-4. `POST /shifts/{id}/roster` no trae `pin` en el ejemplo JSON de `spec.md`, pero el
+3. `POST /shifts/{id}/roster` no trae `pin` en el ejemplo JSON de `spec.md`, pero el
    pedido del Maestro y la regla "PIN de la persona: `verify_pin`" lo exigen.
    Agregué `pin: str` al body (`RosterActionIn`) — es un campo agregado, no un
    renombre, así que no rompe el contrato ("el backend puede agregar campos").
-5. `POST /shifts/{id}/pickups` en `spec.md` no lista `photo` en el JSON de ejemplo,
+4. `POST /shifts/{id}/pickups` en `spec.md` no lista `photo` en el JSON de ejemplo,
    pero `cash.photo_required` + `photo_required_on_pickup` (spec de negocio §3.2 y
    `StoreCashSettings`) exigen algo que validar. Agregué `photo?: str` opcional al
    body y lo exijo con `PHOTO_REQUIRED` cuando corresponde — mismo criterio que el
    punto anterior.
-6. `closes_day_suggested` en la respuesta de `review`: no está en el JSON de
+5. `closes_day_suggested` en la respuesta de `review`: no está en el JSON de
    `spec.md` pero sí en el pedido del Maestro. Lo calculé como "no hay otro turno
    abierto para el mismo `business_day_id`" (heurística razonable; la spec de
    negocio solo dice que por defecto lo marca el turno cuya hora de cierre es la
    última del horario de la sede, algo que 1a no modela todavía porque
    `opening_hours` de `Store` llega vacío en el seed).
-7. `DELETE /admin/shifts/{id}` no lleva body en el contrato (verbo DELETE); usé un
+6. `DELETE /admin/shifts/{id}` no lleva body en el contrato (verbo DELETE); usé un
    motivo fijo en el audit log (`"Cancelado por administrador..."`) en vez de pedir
    `reason` en el body. Si el frontend necesita un motivo libre acá, es un cambio de
    una línea (agregar un body opcional) que puede pedirse en ronda 2.
-8. "Racha de `streak_alert_shifts` cierres con diferencia por la misma persona" la
+7. "Racha de `streak_alert_shifts` cierres con diferencia por la misma persona" la
    interpreté como: los últimos `N` turnos **cerrados** de la sede cuyo
    `cash_responsible_id` es esta persona, ordenados por `closed_at` descendente,
    todos con `difference != 0`. Cubierto por `service._check_difference_streak`
    (para notificar en el cierre) y `service.employee_activity` (para reportarlo en
    `GET /admin/employees/{id}/activity`, con el mismo criterio pero de lectura).
-9. `"actividad"` que bloquea `DELETE /admin/shifts/{id}` (`SHIFT_HAS_ACTIVITY`): la
+8. `"actividad"` que bloquea `DELETE /admin/shifts/{id}` (`SHIFT_HAS_ACTIVITY`): la
    spec no la define con precisión. Implementé: cualquier `CashMovement`, `CashSwap`,
    `CashPickup`, `ShiftHandover` o `ShiftCloseCount`, **o** más de una entrada en el
    roster, **o** una entrada de roster con `out_at`/pausas. Un turno recién abierto
    (solo la entrada automática del responsable) se puede cancelar; cualquier otra
    cosa, no.
-10. `employee_activity` no tiene `format=csv` implementado (sí lo tienen
-    `/admin/shifts` y, por construcción, `/admin/business-days` reutilizando el
-    mismo serializador). Es una fila más de trabajo si se necesita.
+9. `employee_activity` no tiene `format=csv` implementado (sí lo tienen
+   `/admin/shifts` y, por construcción, `/admin/business-days` reutilizando el
+   mismo serializador). Es una fila más de trabajo si se necesita.
+10. **`POST /pickups`/`POST /handovers` siguen devolviendo el snapshot completo al
+    actor que ejecuta la acción, aunque no sea admin ni responsable** — ver la
+    decisión explícita en §4.1. No es una omisión: quedó fuera de `_can_see_expected`
+    a propósito porque esas dos escrituras ya exigen su propia autorización puntual
+    (PIN admin en el retiro; responsable o PIN admin en el relevo/arqueo). Si el
+    auditor pesa que igual debería taparse ahí, el cambio es de una línea en cada
+    handler (ya con `_can_see_expected` escrito).
 
 **Dependencias de otros agentes ya resueltas (documentadas, no son gap real):**
 
@@ -241,54 +319,88 @@ los tres pasos". Implementé:
   al roster y es un bug de integración a reportar en la ronda de verificación
   final, no mío).
 
-## 6. Tests escritos y resultado final
+## 6. Tests escritos y resultado final `[actualizado it.2]`
 
-Comando: `cd backend && TMPDIR=/tmp/pt-backend-caja python -m pytest tests/shifts -q`.
+Comando de mi territorio: `cd backend && TMPDIR=/tmp/pt-backend-caja python -m
+pytest tests/shifts -q` → **33 passed, 1 failed** (34 tests recolectados; el único
+fallo sigue siendo
+`test_two_concurrent_opens_one_wins_one_gets_409`, por la razón ya documentada en
+§5: el fixture `db` compartido de `tests/conftest.py` no es thread-safe entre
+hilos — no es mi código, y el invariante real ya está verificado por el auditor,
+ver abajo).
 
-**Resultado: 30 passed, 1 failed** (el único fallo es el gap #2 de arriba, ajeno a
-este código — confirmado con la traza exacta `Session is already flushing` /
-`ResourceClosedError`).
+Comando pedido por el Maestro para el cierre de esta iteración: `cd backend &&
+TMPDIR=/tmp/pt-backend-caja python -m pytest tests/shifts tests/audit -q` →
+**86 passed, 1 failed** (87 tests recolectados; el único fallo es el mismo de
+arriba). En particular, los cuatro invariantes del auditor que el Maestro pidió
+poner en verde **ya están verdes**, reconfirmados en una corrida aislada:
+
+```
+tests/audit/test_cash_invariants.py::test_the_one_step_close_is_refused_while_blind_close_is_on PASSED
+tests/audit/test_cash_invariants.py::test_the_expected_does_not_leak_to_a_non_responsible_operator_through_pickups PASSED
+tests/audit/test_cash_invariants.py::test_the_expected_does_not_leak_to_a_non_responsible_operator_through_handovers PASSED
+tests/audit/test_cash_invariants.py::test_expected_cash_is_visible_to_the_cash_responsible PASSED
+```
+
+El último dependía también de `backend-core` (según la nota del Maestro): a la
+fecha de esta corrida, `current_device`/`current_operator` (`app/auth/deps.py`,
+no tocado por mí) ya resuelven `Actor.employee_id`/`role` de la persona
+identificada, así que pasó sin que yo tuviera que hacer nada del lado de `auth`.
 
 | Archivo | Qué prueba | Resultado |
 |---|---|---|
-| `tests/shifts/conftest.py` | fixture propia `open_shift(...)` (abre con base fija por defecto, o con `total`/`denominations`/`opening_cause` custom) | — (fixture, no test) |
-| `test_open.py` | día operativo + roster al abrir; `SHIFT_ALREADY_OPEN`; `OPENING_DIFFERENCE_NEEDS_CAUSE` → acepta con causa; dos aperturas concurrentes por hilos → uno gana, otro `409` | 3 OK, 1 **bloqueado por gap #2** |
-| `test_cash_operations.py` | reserva no cambia el esperado; swap neto cero no cambia el esperado; `SWAP_NOT_ZERO`; retiro baja el esperado y guarda `expected_at_pickup`; reversa de retiro (y doble reversa → `PICKUP_ALREADY_REVERSED`); `PETTY_CASH_LIMIT` con/sin `authorizer_pin`; gasto menor bajo el límite no pide PIN; replay de `Idempotency-Key` no duplica el movimiento | 8 OK |
-| `test_close.py` | `count` no revela el esperado, `review` sí; `confirm` con `difference_seen` vieja → `DIFFERENCE_CHANGED`; tolerancia `unknown` / causa identificada obligatoria / crítica (cierra igual); `PHOTO_REQUIRED`; `cash.handovers` apagado → `FEATURE_DISABLED`; `cash.blind_close` apagado → cierre en un paso (y el flujo de 3 pasos da `FEATURE_DISABLED`) | 9 OK |
+| `tests/shifts/conftest.py` | fixture propia `open_shift(...)` (abre con base fija por defecto, o con `total`/`denominations`/`opening_cause`/`cash_responsible` custom) | — (fixture, no test) |
+| `test_open.py` | día operativo + roster al abrir; `SHIFT_ALREADY_OPEN`; `OPENING_DIFFERENCE_NEEDS_CAUSE` → acepta con causa; dos aperturas concurrentes por hilos → uno gana, otro `409` | 3 OK, 1 **bloqueado por el fixture `db` compartido (ver §5), invariante real cubierto por `tests/audit`** |
+| `test_cash_operations.py` | reserva no cambia el esperado; swap neto cero no cambia el esperado; `SWAP_NOT_ZERO`; retiro baja el esperado y guarda `expected_at_pickup`; reversa de retiro (y doble reversa → `PICKUP_ALREADY_REVERSED`); `PETTY_CASH_LIMIT` con/sin `authorizer_pin`; gasto menor bajo el límite no pide PIN; replay de `Idempotency-Key` no duplica el movimiento; **`[it.2]` `spot_check` y `handover` devuelven `kind` como string correcto, sin 500 (B-2)** | 9 OK |
+| `test_close.py` | `count` no revela el esperado, `review` sí; `confirm` con `difference_seen` vieja → `DIFFERENCE_CHANGED`; tolerancia `unknown` / causa identificada obligatoria / crítica (cierra igual); `PHOTO_REQUIRED`; `cash.handovers` apagado → `FEATURE_DISABLED`; `cash.blind_close` apagado → cierre en un paso (y el flujo de 3 pasos da `FEATURE_DISABLED`); **`[it.2]` con la flag encendida (default), el cierre de un paso da `400 BLIND_CLOSE_REQUIRED` y el turno sigue `open` (B-1)** | 9 OK |
 | `test_admin.py` | admin de otra organización → `404` (turno y listado); cierre administrativo solo si stale; reopen conserva el conteo anterior (`superseded=True`, valores intactos); cancelar con actividad → `400`; `adjust-opening` recalcula el esperado con la misma fórmula; racha de 3 cierres con diferencia → notifica `difference_streak` (verificado con `monkeypatch` sobre `service.notify`, no contra el esquema de `Notification` que no es mi territorio) | 6 OK |
-| `test_roster_and_hooks.py` | `hooks.on_employee_identified` agrega al roster (llamado directo, idempotente); sin turno abierto es no-op; el responsable de caja no sale por `roster` (`NOT_CASH_RESPONSIBLE`); entrada/salida de un operador normal; PIN incorrecto → `PIN_INVALID` | 4 OK |
+| `test_roster_and_hooks.py` | `hooks.on_employee_identified` agrega al roster (llamado directo, idempotente); sin turno abierto es no-op; el responsable de caja no sale por `roster` (`NOT_CASH_RESPONSIBLE`); entrada/salida de un operador normal; PIN incorrecto → `PIN_INVALID` | 5 OK |
+| **`test_expected_visibility.py` `[nuevo, it.2]`** | responsable A abre, hace un retiro y un arqueo; se identifica un operador B (no responsable): `GET /shifts/{id}` como B → `expected_cash`, todo `pickups[].expected_at_pickup` y todo `handovers[].breakdown` son `None` (el evento se sigue viendo, sólo se tapa el número); el mismo `GET` como admin trae los tres con valor (B-3/B-4) | 1 OK |
 
-`python -m mypy app/shifts` → **`Success: no issues found in 6 source files`**.
+`python -m mypy app` (el paquete completo, pedido explícito del Maestro para el
+cierre — no sólo `app/shifts`) → **`Success: no issues found in 49 source
+files`**. Los dos errores que aparecieron al normalizar `_kind_str` (`HandoverOut.kind`
+espera el `Literal["handover","spot_check"]`, no `str`) se resolvieron tipando el
+helper como `-> HandoverKindLiteral` con `cast` explícito, no aflojando el tipo de
+`HandoverOut.kind`.
 
-`DATABASE_URL=sqlite:////tmp/pt-backend-caja/mig.db alembic upgrade head` → falla
-por `0002_catalog.py` ausente (gap #1); la sintaxis y el DDL de `0003_shifts.py` se
-verificaron con `python -m py_compile` y una revisión manual columna por columna
-contra `models.py`.
+`DATABASE_URL=sqlite:////tmp/pt-backend-caja/mig.db python -m alembic upgrade
+head` → **corre completo** (`0001 → 0002 → 0003`, `0002_catalog.py` ya existe) y
+`alembic downgrade base` revierte los tres pasos sin error, en un SQLite limpio
+(gap #1 de la versión anterior de este documento, cerrado — ver §5).
 
-Nota de método: antes de que existieran `backend/tests/conftest.py` y
-`backend/app/core/idempotency.py`, escribí todo el código (modelos, schemas,
-service, router, hooks, migración y los seis archivos de test) sin ejecutar nada,
-como pedía el orden de arranque. Cuando `backend-core` los publicó, alineé las
-firmas exactas (`AppError`, `run_idempotent`, `hash_request_body`,
-`verify_authorizer`/`verify_pin`, `Actor`, `admin_store`, `get_cash_settings`,
-`record_audit`, `notify`) contra el código real (no contra mi suposición) y corregí
-7 errores de tipos que `mypy` encontró en esa alineación (conversión de `Literal`
-str a los enums de SQLAlchemy en las respuestas, narrowing de `Optional`, y una
-variable con dos tipos inferidos en `get_or_create_business_day`).
+Nota de método (histórica, ronda 1): antes de que existieran
+`backend/tests/conftest.py` y `backend/app/core/idempotency.py`, escribí todo el
+código (modelos, schemas, service, router, hooks, migración y los seis archivos de
+test) sin ejecutar nada, como pedía el orden de arranque. Cuando `backend-core` los
+publicó, alineé las firmas exactas (`AppError`, `run_idempotent`,
+`hash_request_body`, `verify_authorizer`/`verify_pin`, `Actor`, `admin_store`,
+`get_cash_settings`, `record_audit`, `notify`) contra el código real (no contra mi
+suposición) y corregí 7 errores de tipos que `mypy` encontró en esa alineación.
 
 ## 7. Archivos tocados
 
+Territorio completo (ronda 1 + iteración 2). Los marcados `[it.2]` son los que
+cambiaron en esta iteración; el resto no se tocó de nuevo.
+
 - `backend/app/shifts/__init__.py`
 - `backend/app/shifts/models.py`
-- `backend/app/shifts/schemas.py`
-- `backend/app/shifts/service.py`
-- `backend/app/shifts/router.py`
+- `backend/app/shifts/schemas.py` `[it.2]` — `CashPickupOut.expected_at_pickup` y
+  `HandoverOut.breakdown` pasan a nullable (B-3/B-4).
+- `backend/app/shifts/service.py` `[it.2]` — `create_handover` guarda
+  `kind=HandoverKind(payload.kind)` en vez del `str` del payload (B-2).
+- `backend/app/shifts/router.py` `[it.2]` — helper `_can_see_expected` (único
+  predicado de visibilidad, B-3/B-4), helper `_kind_str` (normaliza `kind` sin
+  asumir `.value`, B-2), `BLIND_CLOSE_REQUIRED` en `post_close_single` antes de
+  `_idempotent` (B-1).
 - `backend/app/shifts/hooks.py`
 - `backend/alembic/versions/0003_shifts.py`
 - `backend/tests/shifts/__init__.py`
 - `backend/tests/shifts/conftest.py`
 - `backend/tests/shifts/test_open.py`
-- `backend/tests/shifts/test_cash_operations.py`
-- `backend/tests/shifts/test_close.py`
+- `backend/tests/shifts/test_cash_operations.py` `[it.2]` — test nuevo del B-2.
+- `backend/tests/shifts/test_close.py` `[it.2]` — test nuevo del B-1.
 - `backend/tests/shifts/test_admin.py`
 - `backend/tests/shifts/test_roster_and_hooks.py`
+- `backend/tests/shifts/test_expected_visibility.py` `[nuevo, it.2]` — test del
+  B-3/B-4.

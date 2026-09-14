@@ -193,3 +193,32 @@ def test_blind_close_disabled_uses_single_step_and_locks_the_three_step_flow(
     body = resp.json()
     assert body["difference"] == 0
     assert body["expected"] == 200_000
+
+
+def test_one_step_close_is_refused_while_blind_close_flag_is_on(device_client, open_shift, db: Session) -> None:
+    """Iteración 2, B-1: `cash.blind_close` es mutuamente excluyente por flag,
+    no dos rutas que conviven (veredicto del Conciliador). El perfil `full` de
+    los tests la trae encendida por defecto, así que el cierre de un solo paso
+    tiene que rechazarse con `BLIND_CLOSE_REQUIRED` (sin gastar la
+    `Idempotency-Key`) y el turno tiene que seguir `open`."""
+    open_shift(total=200_000, denominations=[{"value": 10000, "count": 20}])
+    shift = _open(db)
+
+    resp = device_client.post(
+        f"/api/v1/shifts/{shift.id}/close",
+        json={
+            "counted_cash": {"denominations": [{"value": 10000, "count": 20}], "total": 200_000},
+            "tips_cash_out": 0,
+            "cause": None,
+            "closes_day": False,
+            "photo": "x.jpg",
+        },
+        headers=idem(),
+    )
+    assert resp.status_code == 400, resp.text
+    body = resp.json()
+    assert body["error"]["code"] == "BLIND_CLOSE_REQUIRED"
+    assert body["error"]["feature"] == "cash.blind_close"
+
+    db.refresh(shift)
+    assert shift.status == "open"

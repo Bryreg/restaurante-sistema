@@ -163,3 +163,39 @@ def test_idempotency_key_replay_does_not_duplicate_the_movement(device_client, o
         .count()
     )
     assert count == 1
+
+
+def test_handover_and_spot_check_return_the_string_kind_never_500(
+    device_client, employees, open_shift, db: Session
+) -> None:
+    """Iteración 2, B-2: `ShiftHandover.kind` se guarda como el enum
+    (`service.create_handover` usa `HandoverKind(payload.kind)`, no el `str`
+    del payload) y el router normaliza con `_kind_str` en vez de asumir
+    `.value` a ciegas: antes reventaba en cuanto la instancia recién creada
+    perdía el atributo Python y quedaba el `str` plano de la fila releída."""
+    open_shift()
+    shift = _open(db)
+
+    spot_check = device_client.post(
+        f"/api/v1/shifts/{shift.id}/handovers",
+        json={
+            "kind": "spot_check",
+            "counted_cash": {"denominations": [{"value": 50000, "count": 4}], "total": 200_000},
+            "authorizer_pin": "9999",
+        },
+        headers=idem(),
+    )
+    assert spot_check.status_code == 201, spot_check.text
+    assert spot_check.json()["kind"] == "spot_check"
+
+    handover = device_client.post(
+        f"/api/v1/shifts/{shift.id}/handovers",
+        json={
+            "kind": "handover",
+            "counted_cash": {"denominations": [{"value": 50000, "count": 4}], "total": 200_000},
+            "new_responsible_id": employees["operator"].id,
+        },
+        headers=idem(),
+    )
+    assert handover.status_code == 201, handover.text
+    assert handover.json()["kind"] == "handover"

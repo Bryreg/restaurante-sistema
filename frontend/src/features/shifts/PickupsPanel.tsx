@@ -159,6 +159,7 @@ export function PickupsPanel({ shiftId }: { shiftId: number }): React.JSX.Elemen
                 <TableHead>Hora</TableHead>
                 <TableHead>Monto</TableHead>
                 <TableHead>Sobre</TableHead>
+                <TableHead>Esperado al retirar</TableHead>
                 <TableHead>Autorizó</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead />
@@ -199,6 +200,12 @@ function PickupRow({
       <TableCell>{formatInstant(pickup.at)}</TableCell>
       <TableCell className="tabular-nums">{formatCOP(pickup.amount)}</TableCell>
       <TableCell>{pickup.envelope_ref ?? "—"}</TableCell>
+      {/*
+       * `null` cuando quien mira no es el responsable de caja ni admin (mismo
+       * criterio que `Handover.breakdown`); `formatCOP` ya convierte tanto
+       * `null` como `undefined` en "—" y nunca en "$0" o "NaN".
+       */}
+      <TableCell className="tabular-nums">{formatCOP(pickup.expected_at_pickup)}</TableCell>
       <TableCell>{pickup.authorized_by_employee_name ?? "—"}</TableCell>
       <TableCell>{reversed ? `Reversado: ${pickup.reversed_reason ?? "—"}` : "Vigente"}</TableCell>
       <TableCell>

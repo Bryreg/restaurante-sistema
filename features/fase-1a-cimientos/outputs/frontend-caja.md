@@ -6,6 +6,47 @@ otro archivo — confirmado con `git status` antes de entregar (los cambios que
 aparecen en otros archivos del árbol son de los agentes que corren en paralelo
 en este mismo pedido: `frontend-core`, `catalogo`, etc.).
 
+## 0. Cambios de iteración 2 (ajuste del Maestro, derivado del Conciliador — B-1, B-3, B-4)
+
+1. **`breakdown` (`Handover`) y `expected_at_pickup` (`CashPickup`) ahora
+   pueden llegar en `null`**, no sólo ausentes, cuando quien mira `GET
+   /shifts/{id}` no es el responsable de caja ni admin. Tipos actualizados en
+   `api/shifts.ts`: `Handover.breakdown?: FrozenBreakdown | null` (antes sin
+   `| null`) y `CashPickup.expected_at_pickup?: number | null` (antes
+   `number` sin siquiera `?` de opcional en el valor — ver diff debajo).
+   Verificado que nada rompe con `null`:
+   - `HandoverPanel.tsx` → `BreakdownCard` ya hacía `if (!breakdown) return
+     null` (cubre `null` y `undefined` por igual, sin ningún elemento
+     vacío ni "$0"); se amplió sólo el tipo del prop
+     (`FrozenBreakdown | null | undefined`) y se documentó el porqué.
+   - `PickupsPanel.tsx` → `expected_at_pickup` **no se mostraba en ningún
+     lado** (sólo vivía en un comentario). Se agregó la columna "Esperado al
+     retirar" a la tabla de retiros usando `formatCOP(pickup.expected_at_pickup)`
+     — `formatCOP` (`src/lib/money.ts`, de `frontend-core`) ya convierte
+     `null` **y** `undefined` en `"—"`, nunca en `"$0"` ni `"NaN"`; no hizo
+     falta ningún cambio ahí.
+
+2. **`POST /shifts/{id}/close` ahora puede responder `400
+   BLIND_CLOSE_REQUIRED`** (`error.feature === "cash.blind_close"`) cuando la
+   sede tiene el cierre a ciegas encendido. `ShiftPage.tsx` ya elegía
+   `CloseWizard` vs `SingleStepCloseForm` por `hasFeature("cash.blind_close")`,
+   así que el caso normal ya estaba cubierto; el caso restante es una tablet
+   con flags viejos en memoria. `SingleStepCloseForm.tsx` ahora trata ese
+   código como error tipado: muestra el `message` del servidor, **no
+   reintenta el POST**, y llama a `refresh()` de `useSession()`
+   (`src/app/session.tsx`, de `frontend-core`) para refrescar `GET /auth/me`
+   y que `ShiftPage` cambie de formulario en el próximo render. Test nuevo:
+   `__tests__/SingleStepCloseForm.test.tsx`.
+
+3. **Gap 1 del entregable original, resuelto**: `POST /shifts/{id}/close` ya
+   no es "una ruta fuera de contrato" — es la ruta oficial para
+   `cash.blind_close` apagada, excluyente por flag con el cierre en tres
+   pasos. Detalle en § 6, punto 1 (tachado, ya no cuenta como gap abierto).
+
+Verificación de esta ronda: `cd frontend && npx vitest run src/features/shifts
+src/audit` → 7 archivos, 24 tests, todo en verde; `npm run typecheck` → limpio
+en todo el árbol. Detalle completo en § 5.
+
 ## 1. Rutas y componentes
 
 ### POS (`/pos/*`, dentro de `PosLayout`)
@@ -24,7 +65,7 @@ Componentes internos de `ShiftPage` (no son rutas propias, son las pestañas):
 - `PickupsPanel.tsx` — retiros y su reversa.
 - `HandoverPanel.tsx` — relevo y arqueo sorpresa (una sola pestaña con un selector de modo).
 - `CloseWizard.tsx` — cierre a ciegas en tres pasos (`cash.blind_close` encendida).
-- `SingleStepCloseForm.tsx` — cierre en un solo paso (`cash.blind_close` apagada). Ver **GAP 1**.
+- `SingleStepCloseForm.tsx` — cierre en un solo paso (`cash.blind_close` apagada; ruta oficial excluyente por flag con el wizard, ver iteración 2 en Gaps).
 - `PhotoCaptureField.tsx` — helper compartido de captura de foto → data URL (`<input type=file accept=image capture>`), usado por movimientos, retiros, relevo/arqueo y los dos cierres.
 
 ### Admin (`/admin/*`, dentro de `AdminLayout`)
@@ -47,7 +88,9 @@ esa ruta resuelva a algo en vez de quedar en blanco).
 
 Todos bajo `/api/v1`, exactamente como los lista
 `features/fase-1a-cimientos/spec.md` § "Business day & shifts" y "Employees &
-audit" (salvo el que se documenta como GAP 1). Formato: método y ruta → códigos
+audit"; `POST /shifts/{id}/close` (cierre en un solo paso) se documentaba
+como fuera de contrato en la iteración 1 — la iteración 2 la reconoció como
+ruta oficial, ver Gaps § 1. Formato: método y ruta → códigos
 de error que la pantalla maneja explícitamente (además del texto genérico que
 `errorMessage()` siempre muestra para cualquier otro 4xx).
 
@@ -111,10 +154,15 @@ de error que la pantalla maneja explícitamente (además del texto genérico que
    `requires_cause` está en `true` y no hay causa elegida, para no depender
    sólo del roundtrip).
 
-**`SingleStepCloseForm`** (cuando `cash.blind_close` está apagada — ver GAP 1)
+**`SingleStepCloseForm`** (cuando `cash.blind_close` está apagada — ruta
+oficial, excluyente por flag con `CloseWizard`)
 - `POST /shifts/{id}/close` (con `Idempotency-Key`) → `400 CAUSE_REQUIRED` /
   `IDENTIFIED_CAUSE_REQUIRED` / `PHOTO_REQUIRED` / `CARD_TOTAL_REQUIRED`
-  (mensaje genérico + reintento con clave nueva para `PHOTO_REQUIRED`).
+  (mensaje genérico + reintento con clave nueva para `PHOTO_REQUIRED`);
+  `400 BLIND_CLOSE_REQUIRED` (`error.feature === "cash.blind_close"`, tablet
+  con flags viejos) — mensaje del servidor, **sin reintentar el POST**, y
+  dispara `refresh()` de `useSession()` (`GET /auth/me`) para que
+  `ShiftPage` cambie al wizard en el próximo render.
 
 **`admin/OperationalTab` / `admin/HistoryTab`**
 - `GET /admin/shifts?store_id&from&to` (Operacional: `from`/`to` fijados a
@@ -189,12 +237,17 @@ de error que la pantalla maneja explícitamente (además del texto genérico que
 - `DenominationsInput`, `MoneyInput`, `EmptyState` se reutilizan sin
   modificación — no se tocó ningún archivo de `src/components/**`.
 
-## 5. Tests (`cd frontend && npx vitest run src/features/shifts`)
+## 5. Tests (`cd frontend && npx vitest run src/features/shifts src/audit`)
 
 ```
-Test Files  5 passed (5)
-     Tests  15 passed (15)
+Test Files  7 passed (7)
+     Tests  24 passed (24)
 ```
+
+(`src/audit` es territorio ajeno — se corre junto porque así lo pidió el
+Maestro en el ajuste de iteración 2 para el cierre de esta ronda; sus 9 tests
+no se tocaron ni se cuentan como propios. Sólo de `src/features/shifts`:
+6 archivos, 16 tests.)
 
 | Archivo | Qué prueba |
 |---|---|
@@ -203,27 +256,35 @@ Test Files  5 passed (5)
 | `__tests__/OpenShiftForm.test.tsx` | El campo "Reserva de caja" con su leyenda "no entra al cuadre" sólo aparece con `cash.reserve` encendida; el responsable de caja se precarga con el `employee_id` de la persona identificada. |
 | `__tests__/MovementsPanel.test.tsx` | Tras `400 PETTY_CASH_LIMIT` aparece el `PinPad` de administrador; al completarlo, el segundo intento manda `authorizer_pin` y usa una `Idempotency-Key` **distinta** de la primera (el cuerpo cambió). |
 | `__tests__/CloseWizard.test.tsx` | (1) El paso 1 nunca llama a `getCloseReview` y no muestra la etiqueta "Esperado" hasta tener `count_id`; recién entonces se dispara la revisión y aparece el esperado. (2) Ante `400 DIFFERENCE_CHANGED`, el wizard vuelve al paso 2 mostrando la `review` nueva que trae el propio error (no la vieja), y el botón "Confirmar cierre" del paso 3 desaparece. |
+| `__tests__/SingleStepCloseForm.test.tsx` **(nuevo, iteración 2)** | Ante `400 BLIND_CLOSE_REQUIRED`: `closeSingleStep` se llama una sola vez (no hay reintento automático del POST), se muestra el `message` exacto del servidor, y `refresh()` de la sesión (inyectada con un `SessionContext.Provider` propio en el test, con `refresh` espiable — `src/test/utils.tsx` no expone eso) se llama una vez. |
 
 Typecheck (`npm run typecheck`, árbol completo — incluye archivos de otros
-agentes): limpio, cero errores, en la última corrida antes de este entregable.
+agentes): limpio, cero errores, en la última corrida antes de este entregable
+(iteración 2).
 
 No se corrió `npm run build` ni la suite completa del frontend (reservado a la
 verificación final del Maestro, por instrucción explícita).
 
 ## 6. Gaps
 
-1. **Cierre en un solo paso sin ruta en el contrato escrito.**
-   `features/fase-1a-cimientos/spec.md` § "Close, three steps" sólo documenta
-   el cierre en tres pasos; no lista una ruta para cuando `cash.blind_close`
-   está apagada. `backend/app/shifts/router.py` (de `backend-caja`, mismo
-   pedido) sí expone `POST /shifts/{id}/close` con
-   `SingleStepCloseIn`/`SingleStepCloseOut`. Usé esa ruta (documentada como
-   tal en `api/shifts.ts`, función `closeSingleStep`) porque la instrucción
-   de este agente permite "el endpoint que la spec/backends definan", pero
-   **el contrato escrito no la avala**: si el Maestro concilia una ruta
-   distinta (o decide que 1a no necesita este caso porque `cash.blind_close`
-   viene encendida por perfil en todos los casos del seed), hay que tocar
-   sólo `api/shifts.ts` y `SingleStepCloseForm.tsx`.
+1. ~~Cierre en un solo paso sin ruta en el contrato escrito~~ — **conciliado
+   en la iteración 2, ya no es gap.** `POST /shifts/{id}/close`
+   (`SingleStepCloseIn`/`SingleStepCloseOut`, función `closeSingleStep` en
+   `api/shifts.ts`) es la ruta **oficial** para cuando `cash.blind_close`
+   está apagada; el cierre en tres pasos (`/close/count` →
+   `/close/{count_id}/review` → `/close/{count_id}/confirm`) es la ruta
+   oficial cuando está encendida. Las dos son **excluyentes por flag**, nunca
+   ambas a la vez para el mismo turno: el servidor lo hace cumplir
+   devolviendo `400 BLIND_CLOSE_REQUIRED` (`error.feature ===
+   "cash.blind_close"`) si `POST /shifts/{id}/close` se llama con la sede en
+   modo ciego. `ShiftPage.tsx` ya elige el formulario correcto con
+   `hasFeature("cash.blind_close")`, así que ese `400` sólo puede llegar con
+   una tablet que traía flags viejos en memoria (la sede cambió de modo
+   mientras la pantalla estaba abierta): `SingleStepCloseForm.tsx` lo trata
+   como error tipado — muestra el `message` del servidor, **no reintenta el
+   POST**, y llama a `refresh()` de `useSession()` (`GET /auth/me`) para que
+   `me.features` se actualice y `ShiftPage` cambie al wizard en el próximo
+   render. Test: `__tests__/SingleStepCloseForm.test.tsx`.
 
 2. **`DELETE /admin/shifts/{id}` (cancelar) no acepta motivo en el cuerpo.**
    La misión pide "confirmación y motivo obligatorio" en los cuatro
@@ -297,20 +358,37 @@ verificación final del Maestro, por instrucción explícita).
 
 ## 7. Archivos tocados
 
-- `frontend/src/api/shifts.ts` (nuevo).
+Creados en la ronda 1 (sin cambios de fondo salvo los marcados abajo):
+
+- `frontend/src/api/shifts.ts`.
 - `frontend/src/features/shifts/index.ts` (reemplaza el stub de
   `frontend-core`).
 - `frontend/src/features/shifts/{hooks.ts, PhotoCaptureField.tsx,
   ShiftStatusStrip.tsx, OpenShiftForm.tsx, RosterPanel.tsx,
   MovementsPanel.tsx, CashSwapPanel.tsx, PickupsPanel.tsx,
   HandoverPanel.tsx, CloseWizard.tsx, SingleStepCloseForm.tsx,
-  ShiftSummaryPanel.tsx, ShiftPage.tsx}` (nuevos).
+  ShiftSummaryPanel.tsx, ShiftPage.tsx}`.
 - `frontend/src/features/shifts/admin/{MoneyAdminPage.tsx,
   OperationalTab.tsx, HistoryTab.tsx, ShiftDetailDialog.tsx,
-  PeopleAdminPage.tsx, PersonActivityTab.tsx, AuthorizationsTab.tsx}`
-  (nuevos).
+  PeopleAdminPage.tsx, PersonActivityTab.tsx, AuthorizationsTab.tsx}`.
 - `frontend/src/features/shifts/__tests__/{shiftsApi.test.ts,
   ShiftPage.test.tsx, OpenShiftForm.test.tsx, MovementsPanel.test.tsx,
-  CloseWizard.test.tsx}` (nuevos).
+  CloseWizard.test.tsx}`.
 
-Ningún otro archivo del repo se tocó.
+Tocados en esta ronda (iteración 2, ver § 0):
+
+- `frontend/src/api/shifts.ts` — `Handover.breakdown` y
+  `CashPickup.expected_at_pickup` ahora admiten `| null`.
+- `frontend/src/features/shifts/HandoverPanel.tsx` — `BreakdownCard` amplía
+  su tipo de prop a `FrozenBreakdown | null | undefined`.
+- `frontend/src/features/shifts/PickupsPanel.tsx` — nueva columna "Esperado
+  al retirar" en la tabla de retiros (`formatCOP(pickup.expected_at_pickup)`).
+- `frontend/src/features/shifts/SingleStepCloseForm.tsx` — maneja `400
+  BLIND_CLOSE_REQUIRED` sin reintentar el POST y dispara `refresh()` de la
+  sesión.
+- `frontend/src/features/shifts/__tests__/SingleStepCloseForm.test.tsx`
+  (nuevo) — cubre el caso anterior.
+
+Ningún otro archivo del repo se tocó (ni `frontend/src/api/client.ts`,
+`frontend/src/app/session.tsx` ni `frontend/src/test/utils.tsx`, todos de
+`frontend-core`, sólo importados).

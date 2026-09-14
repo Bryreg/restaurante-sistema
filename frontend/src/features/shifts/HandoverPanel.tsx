@@ -34,7 +34,11 @@ const BREAKDOWN_LABEL: Record<string, string> = {
   difference: "Diferencia",
 };
 
-function BreakdownCard({ breakdown }: { breakdown: FrozenBreakdown | undefined }) {
+function BreakdownCard({ breakdown }: { breakdown: FrozenBreakdown | null | undefined }) {
+  // `!breakdown` cubre tanto `undefined` (campo ausente en un backend viejo)
+  // como `null` (el servidor lo oculta a propósito porque quien mira no es
+  // el responsable de caja ni admin) — en los dos casos no se muestra nada,
+  // nunca "$0" ni "NaN".
   if (!breakdown) return null;
   const entries = Object.entries(BREAKDOWN_LABEL).filter(([key]) => breakdown[key as keyof FrozenBreakdown] !== undefined);
   if (entries.length === 0) return null;

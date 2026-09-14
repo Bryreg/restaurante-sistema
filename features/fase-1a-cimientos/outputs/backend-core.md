@@ -44,7 +44,11 @@ como pide el contrato) — soy el único agente que instala.
   `store_id=None`), `DeviceSession`, `Authorization`.
 - `deps.py`: `Actor` (dataclass), `current_admin`, `current_device`,
   `current_device_session` (**agregado**, no estaba nombrado en el contrato —
-  ver §4), `current_operator`, `current_actor`, `admin_store`.
+  ver §4), `current_operator`, `current_actor`, `admin_store`. Desde la
+  iteración 2 (§8), `current_device` también expone la persona identificada
+  cuando está vigente — ver §8 por la semántica exacta y por qué
+  `current_operator` sigue siendo el único que exige persona y renueva su
+  ventana.
 - `service.py`: `SUPERVISOR_ACTIONS`, `verify_pin`, `verify_authorizer`.
 - `schemas.py` + `router.py`: ver endpoints en §2.
 
@@ -208,7 +212,10 @@ en la lista y lo explico en §4.
 - `app/core/features.py::FEATURE_CATALOG, enabled_map, is_enabled, assert_feature, require_feature` — igual.
 - `app/auth/models.py::Employee, DeviceSession, Authorization` — igual.
 - `app/auth/deps.py::Actor, current_admin, current_device, current_operator, current_actor, admin_store` —
-  igual, **más** `current_device_session` (agregado, ver §4.3).
+  igual, **más** `current_device_session` (agregado, ver §4.3) y, desde la
+  iteración 2, `current_device` con la persona identificada opcional en el
+  `Actor` (ver §8; no es un apartamiento del contrato, es la corrección de un
+  bug reportado por el Conciliador).
 - `app/auth/service.py::verify_authorizer, verify_pin` — igual, incluida la
   matriz `SUPERVISOR_ACTIONS = {"void_sent_item","courtesy","discount_over_limit"}`.
 - `app/stores/models.py` — igual, con un cambio de forma en `UvtValue` (ver
@@ -460,3 +467,96 @@ Maestro, cuando `catalogo` termine `0002_catalog.py`.
    un gate de endpoint, porque depende de qué PIN matcheó) y `multi_store` es
    un asunto de interfaz (ver punto 4). Lo marco para que el Maestro confirme
    que la lectura es correcta.
+
+---
+
+## 8. Iteración 2 (ajuste del Maestro, derivado del Conciliador) — B-2b
+
+**El bug**: `current_device` (`app/auth/deps.py`) devolvía siempre
+`Actor(employee_id=None, employee_name=None, role=None)`, incluso cuando la
+sesión del dispositivo tenía una persona ligada y vigente. `GET
+/shifts/current` y `POST /shifts/{id}/roster` (territorio de `backend-caja`)
+dependen de `current_device`, así que el responsable de caja nunca veía
+`expected_cash` — el contrato de API 1a dice explícitamente "only for admin or
+the cash responsible". El invariante del auditor
+`test_expected_cash_is_visible_to_the_cash_responsible` (en
+`tests/audit/test_cash_invariants.py`, territorio de `backend-audit`, no mío)
+fallaba por esta causa.
+
+### 8.1 La semántica nueva (queda fijada, no es una interpretación mía)
+
+- **`current_device`** = dispositivo activado, punto. La persona identificada
+  es **opcional**: si la sesión tiene una vigente, el `Actor` trae
+  `employee_id`/`employee_name`/`role`; si no, quedan en `None`. Nunca lanza
+  por falta de persona (sigue lanzando 401 `DEVICE_NOT_ACTIVATED` si falta la
+  cookie de dispositivo, igual que antes).
+- **`current_operator`** = persona **obligatoria** y vigente. 401
+  `IDENTIFY_REQUIRED` si no la hay. Sigue siendo el único que renueva
+  `employee_expires_at` (ventana deslizante).
+- **Por qué `current_device` no renueva**: `GET /shifts/current` se consulta
+  por *polling* desde el POS. Si `current_device` también renovara la ventana
+  de inactividad de la persona, cada poll extendería la sesión de quien esté
+  identificado indefinidamente — la expiración por inactividad dejaría de
+  significar algo. La renovación queda exclusivamente en `current_operator`,
+  que es lo que se usa para acciones activas de esa persona (abrir turno,
+  mover caja, etc.).
+
+### 8.2 Cómo quedó implementado
+
+Extraje el helper privado `_bound_employee(db, session, now) -> Employee |
+None` (nuevo en `app/auth/deps.py`, no estaba en el contrato interno — sigue
+el mismo patrón que ya tenía `current_device_session` de §4.7: una pieza
+compartida entre las dos dependencias que antes tenían la lógica duplicada).
+Devuelve el empleado sólo si `session.employee_id` no es `None`,
+`session.employee_expires_at` existe y es `> now`, y el empleado existe y está
+`active`; en cualquier otro caso `None`. No lanza y no muta la fila (es una
+lectura pura).
+
+`current_device` ahora llama a `_bound_employee` con `clock.now_utc()` y
+puebla el `Actor` con lo que devuelva (o `None` en los tres campos si
+devuelve `None`). `current_operator` usa el mismo helper para decidir si hay
+persona vigente, y si la hay, sigue con su comportamiento de siempre: renovar
+`session.employee_expires_at = now + timedelta(minutes=EMPLOYEE_SESSION_MINUTES)`
+y `db.flush()`.
+
+Los otros dos consumidores de `current_device` que no son de mi territorio
+(`app/catalog/router.py::_catalog_read_actor` y
+`app/stores/router.py::device_tables`) no cambian de comportamiento: ninguno
+de los dos leía `employee_id`/`employee_name`/`role` del `Actor`, así que sólo
+ganan campos opcionales que antes tampoco existían con un valor útil.
+
+### 8.3 Tests nuevos (`backend/tests/auth/test_identity.py`)
+
+Agregué cuatro tests, contra `current_device` llamada directo (con un
+`_FakeRequest` que sólo duck-tipea `.cookies`, ya que la dependencia sólo lee
+`request.cookies.get(...)`) para poder inspeccionar el `Actor` en vez del JSON
+de un endpoint:
+
+1. `test_current_device_without_identified_person_has_no_employee` — (a) del
+   enunciado: dispositivo activado sin persona → `Actor` con `employee_id`
+   `None`, sin error.
+2. `test_current_device_after_identify_carries_employee_fields` — (b):
+   después de `POST /auth/device/identify` → `Actor` con `employee_id`,
+   `employee_name` y `role` del empleado identificado.
+3. `test_current_device_after_employee_session_expires_reverts_to_none` — (c):
+   con `clock.advance(minutes=EMPLOYEE_SESSION_MINUTES + 1)` → vuelve a
+   `None` en los tres campos, sin lanzar.
+4. `test_current_device_does_not_renew_employee_expiration` — (d): una
+   llamada a `current_device` no cambia `employee_expires_at` (lo leo de la
+   fila `DeviceSession` real, vía `db.get` + `read_token` sobre la cookie del
+   `TestClient`, antes y después de la llamada).
+
+### 8.4 Verificación
+
+```bash
+cd backend
+TMPDIR=/tmp/pt-backend-core python -m pytest tests/auth -q          # 78→ incluye los 4 nuevos, 12 en test_identity.py, todos verdes
+TMPDIR=/tmp/pt-backend-core python -m pytest tests/auth tests/audit/test_cash_invariants.py \
+  -q -k 'visible_to_the_cash_responsible or hidden_from_an_operator'  # 2 passed
+python -m mypy app                                                   # Success: no issues found in 49 source files
+```
+
+No toqué `app/shifts/*` ni ningún otro archivo fuera de `app/auth/deps.py` y
+`tests/auth/test_identity.py`. No hay gaps nuevos de esta corrección: el
+comportamiento quedó exactamente como lo pidió el ajuste, verificado con los
+tests propios y con el invariante del auditor que reportaba el fallo.

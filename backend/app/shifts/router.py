@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -25,7 +25,7 @@ from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.shifts import service
-from app.shifts.models import BusinessDay, CashMovement, CashPickup, CashSwap, Shift, ShiftHandover, ShiftStatus
+from app.shifts.models import BusinessDay, CashMovement, CashPickup, CashSwap, HandoverKind, Shift, ShiftHandover, ShiftStatus
 from app.shifts.schemas import (
     AdminAdjustOpeningIn,
     AdminCloseAdministrativeIn,
@@ -48,6 +48,7 @@ from app.shifts.schemas import (
     EmployeeActivityOut,
     EmployeeRef,
     HandoverIn,
+    HandoverKindLiteral,
     HandoverOut,
     OpenShiftIn,
     OpenShiftOut,
@@ -108,12 +109,31 @@ def _optional_employee_ref(employee_id: int | None, employee_name: str | None) -
     return EmployeeRef(id=employee_id, name=employee_name or "")
 
 
-def _shift_summary(db: Session, shift: Shift, actor: Actor) -> ShiftSummaryOut:
-    show_expected = (
+def _kind_str(kind: HandoverKind | str) -> HandoverKindLiteral:
+    """Normaliza `ShiftHandover.kind`: puede llegar como el enum de SQLAlchemy
+    (instancia recién creada, todavía en la sesión) o como el `str` plano que
+    devuelve una fila releída después de que la sesión expira sus objetos —
+    `.value` a ciegas revienta en el segundo caso (B-2, iteración 2)."""
+
+    value = kind.value if isinstance(kind, HandoverKind) else kind
+    return cast(HandoverKindLiteral, value)
+
+
+def _can_see_expected(actor: Actor, shift: Shift) -> bool:
+    """Único lugar que decide quién ve el esperado y todo lo derivado de él
+    (`expected_cash`, `pickups[].expected_at_pickup`, `handovers[].breakdown`):
+    admin (por tipo de actor o por rol) o el responsable de caja del turno.
+    El operador nunca ve el esperado salvo que sea el responsable (B-3/B-4)."""
+
+    return (
         actor.kind == "admin"
         or actor.role == "admin"
         or (actor.employee_id is not None and actor.employee_id == shift.cash_responsible_id)
     )
+
+
+def _shift_summary(db: Session, shift: Shift, actor: Actor) -> ShiftSummaryOut:
+    show_expected = _can_see_expected(actor, shift)
     day = db.get(BusinessDay, shift.business_day_id)
     assert day is not None
     roster = service.list_roster(db, shift.id)
@@ -140,17 +160,22 @@ def _shift_summary(db: Session, shift: Shift, actor: Actor) -> ShiftSummaryOut:
         roster=[RosterEntryOut.model_validate(r) for r in roster],
         movements=[CashMovementOut.model_validate(m) for m in movements],
         swaps=[CashSwapOut(id=s.id, amount=s.amount, at=s.at) for s in swaps],
-        pickups=[CashPickupOut.model_validate(p) for p in pickups],
+        pickups=[
+            CashPickupOut.model_validate(p).model_copy(update={"expected_at_pickup": None})
+            if not show_expected
+            else CashPickupOut.model_validate(p)
+            for p in pickups
+        ],
         handovers=[
             HandoverOut(
                 id=h.id,
-                kind=h.kind.value,
+                kind=_kind_str(h.kind),
                 from_responsible=EmployeeRef(id=h.from_responsible_id, name=h.from_responsible_name),
                 new_responsible=_optional_employee_ref(h.new_responsible_id, h.new_responsible_name),
                 counted_cash=h.counted_cash,
                 counted_card=h.counted_card,
                 counted_transfer=h.counted_transfer,
-                breakdown=h.breakdown,
+                breakdown=h.breakdown if show_expected else None,
                 at=h.at,
             )
             for h in handovers_rows
@@ -210,7 +235,7 @@ def get_current(actor: Actor = Depends(current_device), db: Session = Depends(ge
     assert day is not None
     roster = service.list_roster(db, shift.id)
 
-    show_expected = actor.role == "admin" or (actor.employee_id is not None and actor.employee_id == shift.cash_responsible_id)
+    show_expected = _can_see_expected(actor, shift)
     expected: int | None = None
     if show_expected:
         expected = service.compute_breakdown(db, shift)["expected"]
@@ -310,7 +335,7 @@ def post_handover(
         handover = service.create_handover(db, actor=actor, shift=shift, store=store, payload=payload)
         out = HandoverOut(
             id=handover.id,
-            kind=handover.kind.value,
+            kind=_kind_str(handover.kind),
             from_responsible=EmployeeRef(id=handover.from_responsible_id, name=handover.from_responsible_name),
             new_responsible=_optional_employee_ref(handover.new_responsible_id, handover.new_responsible_name),
             counted_cash=handover.counted_cash,
@@ -497,6 +522,18 @@ def post_close_single(
 ) -> JSONResponse:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+
+    # `cash.blind_close` es mutuamente excluyente por flag, no dos rutas que
+    # conviven (veredicto del Conciliador, iteración 2): con la flag encendida
+    # este endpoint de un solo paso queda cerrado y el cliente tiene que usar
+    # count → review → confirm. Se resuelve ANTES de `_idempotent`/`_do` para
+    # que el rechazo no quede grabado como respuesta idempotente resuelta.
+    if features.is_enabled(db, actor.organization_id, actor.store_id, "cash.blind_close"):
+        raise AppError(
+            code="BLIND_CLOSE_REQUIRED",
+            message="Esta sede cierra a ciegas en tres pasos; usá el conteo de cierre (POST /shifts/{id}/close/count)",
+            extra={"feature": "cash.blind_close"},
+        )
 
     def _do() -> tuple[int, dict[str, Any]]:
         result = service.close_single_step(db, actor=actor, shift=shift, store=store, payload=payload)

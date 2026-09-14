@@ -15,6 +15,8 @@ import threading
 import uuid
 from typing import Any
 
+from sqlalchemy import select
+
 from tests.audit.conftest import (
     OPENING_FIXED,
     deep_contains_text,
@@ -305,6 +307,97 @@ def test_critical_difference_still_closes_and_raises_a_notification(
 
 
 # ---------------------------------------------------------------------------
+# (g bis) El cierre a ciegas no se puede saltear por la puerta de al lado
+# ---------------------------------------------------------------------------
+
+
+def test_the_one_step_close_is_refused_while_blind_close_is_on(
+    device_client: Any, open_shift: Any, set_feature: Any
+) -> None:
+    """§1.2 (`cash.blind_close`: «cierre a ciegas en tres pasos — **apagado**:
+    cierre en un paso, igual con causa») y §11.19 («toda función opcional vive
+    detrás de su flag, que hace cumplir el backend»).
+
+    El cierre en un paso es el camino de la sede que apagó el cierre a ciegas.
+    Si sigue abierto con la función encendida, cualquiera que hable con la API
+    cierra sin pasar por `count → review → confirm`: se saltea el conteo a
+    ciegas y el control de `DIFFERENCE_CHANGED`. Bloquear el camino de al lado
+    es lo único que hace real al cierre a ciegas.
+
+    Iteración 2 (veredicto del Maestro sobre CONFLICT-INTERPRETATION): los dos
+    cierres son **excluyentes por flag**, y el rechazo es tipado —
+    `400 BLIND_CLOSE_REQUIRED` con `feature: "cash.blind_close"`—, no un 4xx
+    cualquiera. Además el turno tiene que **seguir abierto**: un rechazo que
+    deja el turno a medio cerrar es peor que no rechazar.
+    """
+    shift = open_shift()
+    sid = shift["id"]
+
+    atajo = device_client.post(
+        f"{API}/shifts/{sid}/close",
+        json={
+            "counted_cash": denoms(OPENING_FIXED),
+            "tips_cash_out": 0,
+            "closes_day": True,
+            "photo": PHOTO,
+        },
+        headers=idem_headers(),
+    )
+    assert atajo.status_code == 400, (
+        "con `cash.blind_close` encendida, el cierre en un paso tiene que rechazarse "
+        f"con 400; respondió {atajo.status_code}: {atajo.text}"
+    )
+    error = atajo.json()["error"]
+    assert error["code"] == "BLIND_CLOSE_REQUIRED", (
+        f"el rechazo tiene que ser tipado, no genérico: {error}"
+    )
+    assert error["message"].strip(), "el mensaje tiene que nombrar la acción correctiva"
+    assert error.get("feature") == "cash.blind_close", (
+        "el error tiene que nombrar la función que lo exige, como todo gate de flag "
+        f"(§11.19): {error}"
+    )
+
+    actual = device_client.get(f"{API}/shifts/current").json()
+    assert actual is not None and actual["id"] == sid, "el turno rechazado no puede desaparecer"
+    sigue = device_client.get(f"{API}/shifts/{sid}").json()
+    assert sigue["status"] == "open", (
+        f"el turno tiene que seguir abierto después del rechazo, no a medio cerrar: {sigue['status']}"
+    )
+    assert sigue["counted_cash"] is None and sigue["difference"] is None, (
+        "un cierre rechazado no puede dejar el conteo ni la diferencia escritos"
+    )
+
+
+def test_with_blind_close_off_the_one_step_close_is_the_way_and_the_three_steps_are_refused(
+    device_client: Any, open_shift: Any, set_feature: Any
+) -> None:
+    """La otra mitad de la misma regla: apagada la función, el cierre en un
+    paso es el camino y los tres pasos responden `400 FEATURE_DISABLED`
+    nombrando la función (checklist del pedido 1a)."""
+    shift = open_shift()
+    sid = shift["id"]
+    set_feature("cash.blind_close", False)
+
+    bloqueado = _count(device_client, sid, OPENING_FIXED)
+    assert bloqueado.status_code == 400, bloqueado.text
+    error = bloqueado.json()["error"]
+    assert error["code"] == "FEATURE_DISABLED", error
+    assert error.get("feature") == "cash.blind_close", error
+
+    un_paso = device_client.post(
+        f"{API}/shifts/{sid}/close",
+        json={
+            "counted_cash": denoms(OPENING_FIXED),
+            "tips_cash_out": 0,
+            "closes_day": True,
+            "photo": PHOTO,
+        },
+        headers=idem_headers(),
+    )
+    assert un_paso.status_code == 200, un_paso.text
+
+
+# ---------------------------------------------------------------------------
 # (h) Foto exigida en el backend, no en la interfaz
 # ---------------------------------------------------------------------------
 
@@ -365,7 +458,8 @@ def test_one_open_shift_per_store_is_defended_by_a_partial_unique_index() -> Non
     único parcial sobre `shifts(store_id)` con `status='open'`."""
     from app.shifts.models import Shift
 
-    index = next((i for i in Shift.__table__.indexes if i.name == "uq_shifts_one_open_per_store"), None)
+    indexes = Shift.__table__.indexes  # type: ignore[attr-defined]
+    index = next((i for i in indexes if i.name == "uq_shifts_one_open_per_store"), None)
     assert index is not None, "falta el índice único parcial de «un turno abierto por sede»"
     assert index.unique is True
     assert [c.name for c in index.columns] == ["store_id"]
@@ -373,34 +467,37 @@ def test_one_open_shift_per_store_is_defended_by_a_partial_unique_index() -> Non
     assert dialect_options, "el índice tiene que ser parcial (postgresql_where / sqlite_where)"
 
 
-def test_two_concurrent_opens_leave_exactly_one_winner(
-    device_client: Any, identify: Any, employees: dict[str, Any]
-) -> None:
-    """§3.2 y §11.9: un solo turno abierto por sede, con índice único parcial
-    en la base y `409` en la carrera.
+def test_two_concurrent_opens_leave_exactly_one_winner(race_app: Any) -> None:
+    """§3.2 y §11.9 + checklist 1a: «dos `POST /shifts/open` concurrentes: uno
+    `200`, otro `409`».
 
-    Si este test falla con un `500` para la perdedora, la regla no está rota en
-    la base (ver el test del índice) sino en el camino de la carrera: hay que
-    revisar que cada request use su propia `Session` y que el `IntegrityError`
-    se traduzca a `409 SHIFT_OPEN_RACE`.
+    Corre sobre `race_app` (fixture propia, `tests/audit/conftest.py`) y no
+    sobre `device_client`: la fixture compartida `db` entrega **una sola**
+    `Session` a todos los requests, y una `Session` de SQLAlchemy no es
+    thread-safe — dos hilos sobre ella mueren con `ResourceClosedError` antes
+    de llegar al índice único, así que la regla quedaría sin verificar. Acá
+    cada request recibe su propia sesión, como en producción.
     """
-    identify(device_client, employees["cashier"])
+    client, employee_id = race_app
     payload = {
         "opening_cash": denoms(OPENING_FIXED),
         "cash_reserve": 0,
-        "cash_responsible_id": employees["cashier"].id,
+        "cash_responsible_id": employee_id,
     }
 
     outcomes: list[str] = []
+    lock = threading.Lock()
 
     def _attempt() -> None:
         try:
-            resp = device_client.post(
+            resp = client.post(
                 f"{API}/shifts/open", json=payload, headers={"Idempotency-Key": str(uuid.uuid4())}
             )
-            outcomes.append(str(resp.status_code))
+            result = str(resp.status_code)
         except Exception as exc:  # la request murió: también es un resultado
-            outcomes.append(f"EXC:{type(exc).__name__}")
+            result = f"EXC:{type(exc).__name__}"
+        with lock:
+            outcomes.append(result)
 
     threads = [threading.Thread(target=_attempt) for _ in range(2)]
     for t in threads:
@@ -410,7 +507,23 @@ def test_two_concurrent_opens_leave_exactly_one_winner(
 
     winners = [c for c in outcomes if c in ("200", "201")]
     assert len(winners) == 1, f"exactamente una apertura gana: {outcomes}"
-    assert "409" in outcomes, f"la perdedora tiene que ser 409, no un 500 ni una excepción: {outcomes}"
+
+    # La perdedora es un rechazo limpio y declarado en el contrato
+    # (`400 SHIFT_ALREADY_OPEN` o `409 SHIFT_OPEN_RACE`), nunca un 500 ni una
+    # excepción. Cuál de los dos depende del motor: SQLite serializa las
+    # escrituras, así que la segunda request ya ve el turno confirmado y para
+    # en la validación (400); en Postgres las dos pueden pasar la validación y
+    # la que pierde choca contra el índice único parcial (409). Las dos ramas
+    # existen en `app/shifts/service.py: open_shift`.
+    losers = [c for c in outcomes if c not in ("200", "201")]
+    assert losers == ["400"] or losers == ["409"], (
+        f"la perdedora tiene que ser 400 SHIFT_ALREADY_OPEN o 409 SHIFT_OPEN_RACE: {outcomes}"
+    )
+
+    # Lo que de verdad no se negocia: quedó UN solo turno abierto en la sede.
+    current = client.get(f"{API}/shifts/current")
+    assert current.status_code == 200, current.text
+    assert current.json() is not None, "la apertura ganadora tiene que haber quedado"
 
 
 # ---------------------------------------------------------------------------
@@ -631,29 +744,46 @@ def test_expected_cash_is_hidden_from_an_operator_who_is_not_the_cash_responsibl
     assert body["expected_cash"] is None, "un operador que no es el responsable no ve el esperado"
 
 
-def test_the_expected_does_not_leak_to_a_non_responsible_operator_through_pickups_or_handovers(
+def test_the_expected_does_not_leak_to_a_non_responsible_operator_through_pickups(
     device_client: Any, open_shift: Any, identify: Any, employees: dict[str, Any]
 ) -> None:
     """La misma regla, mirada de cerca: esconder `expected_cash` no sirve de
-    nada si el mismo número viaja en `pickups[].expected_at_pickup` y en
-    `handovers[].breakdown.expected` del mismo `GET /shifts/{id}`."""
+    nada si el mismo número viaja en `pickups[].expected_at_pickup` dentro del
+    mismo `GET /shifts/{id}`."""
     shift = open_shift(responsible=employees["cashier"])
     sid = shift["id"]
-    _pickup(device_client, sid, 50_000)
-    device_client.post(
-        f"{API}/shifts/{sid}/handovers",
-        json={"kind": "spot_check", "counted_cash": denoms(150_000), "authorizer_pin": "9999"},
-        headers=idem_headers(),
-    )
+    assert _pickup(device_client, sid, 50_000).status_code == 201
 
     identify(device_client, employees["operator"])  # no es el responsable
     body = device_client.get(f"{API}/shifts/{sid}").json()
 
     assert body["expected_cash"] is None, "el esperado está deliberadamente oculto para este operador"
     for pickup in body["pickups"]:
-        assert "expected_at_pickup" not in pickup, f"el esperado se filtró por el retiro: {pickup}"
+        assert pickup.get("expected_at_pickup") is None, (
+            f"el esperado se filtró por el retiro: {pickup}"
+        )
+
+
+def test_the_expected_does_not_leak_to_a_non_responsible_operator_through_handovers(
+    device_client: Any, open_shift: Any, identify: Any, employees: dict[str, Any]
+) -> None:
+    """Y tampoco por `handovers[].breakdown`, que congela la ecuación entera
+    (`base`, `expected`, `counted`, `difference`) del §3.2."""
+    shift = open_shift(responsible=employees["cashier"])
+    sid = shift["id"]
+    arqueo = device_client.post(
+        f"{API}/shifts/{sid}/handovers",
+        json={"kind": "spot_check", "counted_cash": denoms(150_000), "authorizer_pin": "9999"},
+        headers=idem_headers(),
+    )
+    assert arqueo.status_code == 201, arqueo.text
+
+    identify(device_client, employees["operator"])  # no es el responsable
+    body = device_client.get(f"{API}/shifts/{sid}").json()
+
+    assert body["expected_cash"] is None, "el esperado está deliberadamente oculto para este operador"
     for handover in body["handovers"]:
-        leaked = deep_keys(handover) & {"expected", "difference", "counted"}
+        leaked = deep_keys(handover) & {"expected", "difference"}
         assert not leaked, f"el esperado se filtró por el relevo: {sorted(leaked)}"
 
 
@@ -677,3 +807,106 @@ def test_expected_cash_is_visible_to_the_admin(
 
     admin_view = admin_client.get(f"{API}/shifts/{shift['id']}").json()
     assert admin_view["expected_cash"] == OPENING_FIXED, "el administrador ve el esperado"
+
+
+def test_reading_the_current_shift_does_not_extend_the_person_session(
+    device_client: Any, open_shift: Any, employees: dict[str, Any], clock: Any, db: Any
+) -> None:
+    """§2.1: la persona activa expira «cuando pasan N minutos **sin uso**».
+
+    `GET /shifts/current` es la consulta que el POS repite por polling: si
+    renovara la ventana, una tablet abandonada con la pantalla del turno
+    abierta nunca expiraría y todo lo que se tecleara después seguiría yendo a
+    nombre de quien se fue (atribución cruzada, auditoría H9 de la
+    referencia). La renovación es de `current_operator` —el uso real—, no de
+    la lectura. Verificado con el reloj controlado y leyendo la fila
+    `device_sessions`, no la respuesta.
+
+    De paso encarna la otra mitad del contrato de 1a: el responsable de caja
+    **sí** ve su `expected_cash` en `GET /shifts/current`.
+    """
+    from app.auth.models import DeviceSession
+
+    shift = open_shift(responsible=employees["cashier"])
+    sid = shift["id"]
+
+    def _expires_at() -> Any:
+        db.expire_all()
+        row = db.execute(select(DeviceSession)).scalars().first()
+        assert row is not None and row.employee_id == employees["cashier"].id
+        return row.employee_expires_at
+
+    vence_al_abrir = _expires_at()
+    assert vence_al_abrir is not None, "identificarse tiene que fijar una expiración"
+
+    clock.advance(minutes=1)
+
+    lectura = device_client.get(f"{API}/shifts/current")
+    assert lectura.status_code == 200, lectura.text
+    assert lectura.json()["expected_cash"] == OPENING_FIXED, (
+        "el responsable de caja ve su esperado en `/shifts/current` (contrato 1a)"
+    )
+    assert _expires_at() == vence_al_abrir, (
+        "una lectura no puede correr la expiración por inactividad: si lo hiciera, "
+        "el polling del POS mantendría viva para siempre la sesión de quien ya se fue"
+    )
+
+    # Contraprueba: el uso real (una escritura, `current_operator`) sí la renueva.
+    uso = _movement(device_client, sid, kind="income", cause="other_income", amount=1_000)
+    assert uso.status_code in (200, 201), uso.text
+    assert _expires_at() > vence_al_abrir, (
+        "una escritura sí renueva la ventana de inactividad (sliding window de §2.1)"
+    )
+
+
+def test_a_handover_moves_the_responsibility_and_the_expected_moves_with_it(
+    device_client: Any, open_shift: Any, identify: Any, employees: dict[str, Any]
+) -> None:
+    """§3.2: el relevo «cambia el responsable de caja» con conteo de por medio.
+
+    Dos mitades de la misma regla, y la segunda es la que importa para el
+    control: después del relevo el esperado es de quien **ahora** responde por
+    el cajón. Si el anterior siguiera viéndolo, el relevo sería papeleo; si el
+    nuevo no lo viera, respondería por una plata que no puede mirar.
+    """
+    shift = open_shift(responsible=employees["cashier"])
+    sid = shift["id"]
+
+    relevo = device_client.post(
+        f"{API}/shifts/{sid}/handovers",
+        json={
+            "kind": "handover",
+            "counted_cash": denoms(OPENING_FIXED),
+            "new_responsible_id": employees["operator2"].id,
+        },
+        headers=idem_headers(),
+    )
+    assert relevo.status_code == 201, relevo.text
+    cuerpo = relevo.json()
+    assert cuerpo["kind"] == "handover", f"el tipo se guarda y se devuelve tal cual: {cuerpo}"
+    assert cuerpo["from_responsible"]["id"] == employees["cashier"].id
+    assert cuerpo["new_responsible"]["id"] == employees["operator2"].id
+
+    # El turno quedó a nombre del nuevo responsable.
+    admin_ajeno = device_client.get(f"{API}/shifts/{sid}").json()
+    assert admin_ajeno["cash_responsible"]["id"] == employees["operator2"].id
+
+    # El anterior responsable deja de ver el esperado…
+    identify(device_client, employees["cashier"])
+    anterior = device_client.get(f"{API}/shifts/current").json()
+    assert anterior["expected_cash"] is None, (
+        "quien entregó el cajón ya no responde por él y deja de ver el esperado"
+    )
+    detalle_anterior = device_client.get(f"{API}/shifts/{sid}").json()
+    assert detalle_anterior["expected_cash"] is None
+    assert all(h["breakdown"] is None for h in detalle_anterior["handovers"]), (
+        "ni por el desglose congelado del relevo (que trae `expected` y `difference`)"
+    )
+
+    # …y el nuevo pasa a verlo.
+    identify(device_client, employees["operator2"])
+    nuevo = device_client.get(f"{API}/shifts/current").json()
+    assert nuevo["expected_cash"] == OPENING_FIXED, (
+        "el nuevo responsable ve el esperado del cajón por el que ahora responde"
+    )
+    assert nuevo["cash_responsible"]["id"] == employees["operator2"].id

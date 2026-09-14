@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useSession } from "@/app/session";
 import { ApiError, newIdempotencyKey } from "@/api/client";
 import { closeSingleStep, type CashDifferenceCause } from "@/api/shifts";
 import { Button } from "@/components/ui/button";
@@ -48,9 +49,19 @@ function emptyDenominations(): Denomination[] {
  * esperado antes de mandar el conteo; recién en la pantalla de resultado
  * (después de que el servidor cierra el turno) aparecen `expected` y
  * `difference` — ambos calculados por el servidor.
+ *
+ * Caso restante (iteración 2, ajuste del Maestro): una tablet con flags
+ * viejos puede llegar acá aunque la sede ya tenga `cash.blind_close`
+ * encendida. El servidor lo rechaza con `400 BLIND_CLOSE_REQUIRED`
+ * (`error.feature === "cash.blind_close"`) — acá NO se reintenta el POST:
+ * se muestra el `message` del servidor tal cual y se dispara `refresh()` de
+ * `useSession()` (vuelve a pedir `GET /auth/me`) para que `me.features` se
+ * actualice y `ShiftPage` cambie de `SingleStepCloseForm` a `CloseWizard`
+ * en el próximo render.
  */
 export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX.Element {
   const queryClient = useQueryClient();
+  const { refresh } = useSession();
 
   const [counted, setCounted] = useState<Denomination[]>(emptyDenominations());
   const [countedCard, setCountedCard] = useState<number | null>(null);
@@ -94,6 +105,15 @@ export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX
       void queryClient.invalidateQueries({ queryKey: shiftSummaryQueryKey(shiftId) });
     },
     onError: (err) => {
+      if (err instanceof ApiError && err.code === "BLIND_CLOSE_REQUIRED") {
+        // La sede prendió "cierre a ciegas" mientras esta pantalla estaba
+        // abierta (tablet con flags viejos): NO se reintenta el POST acá —
+        // se muestra el mensaje del servidor y se refresca la sesión para
+        // que `ShiftPage` cambie al wizard en cuanto `me.features` llegue.
+        setError(errorMessage(err));
+        void refresh();
+        return;
+      }
       if (
         err instanceof ApiError &&
         (err.code === "PHOTO_REQUIRED" || err.code === "CAUSE_REQUIRED" || err.code === "IDENTIFIED_CAUSE_REQUIRED")

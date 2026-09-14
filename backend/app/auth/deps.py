@@ -9,7 +9,7 @@ que reciben los servicios para atribuir cada escritura.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 import jwt
@@ -76,6 +76,24 @@ def _read_device_session(request: Request, db: Session) -> DeviceSession | None:
     return session
 
 
+def _bound_employee(db: Session, session: DeviceSession, now: datetime) -> Employee | None:
+    """La persona ligada a la sesión del dispositivo, sólo si sigue vigente.
+
+    No lanza y no renueva `employee_expires_at`: es una lectura pura, para que
+    `current_device` (consultado por polling, p. ej. `GET /shifts/current`)
+    pueda exponer quién está identificado sin extender su ventana de
+    inactividad. Sólo `current_operator` renueva la ventana.
+    """
+    if session.employee_id is None or session.employee_expires_at is None:
+        return None
+    if session.employee_expires_at <= now:
+        return None
+    employee = db.get(Employee, session.employee_id)
+    if employee is None or not employee.active:
+        return None
+    return employee
+
+
 def current_admin(request: Request, db: Session = Depends(get_db)) -> Actor:
     actor = _read_admin_actor(request, db)
     if actor is None:
@@ -84,36 +102,38 @@ def current_admin(request: Request, db: Session = Depends(get_db)) -> Actor:
 
 
 def current_device(request: Request, db: Session = Depends(get_db)) -> Actor:
+    """Exige sólo el dispositivo activado. Si además hay una persona
+    identificada y vigente, el `Actor` trae sus datos (employee_id,
+    employee_name, role); si no, quedan en `None` — nunca lanza por falta de
+    persona. No renueva la ventana de inactividad de la persona (ver
+    `_bound_employee`): quien necesita eso es `current_operator`."""
     session = _read_device_session(request, db)
     if session is None:
         raise UnauthorizedError(
             "Activá el dispositivo con el PIN de sede", code="DEVICE_NOT_ACTIVATED"
         )
+    employee = _bound_employee(db, session, clock.now_utc())
     return Actor(
         kind="device",
         organization_id=session.organization_id,
         store_id=session.store_id,
-        employee_id=None,
-        employee_name=None,
-        role=None,
+        employee_id=employee.id if employee else None,
+        employee_name=employee.name if employee else None,
+        role=employee.role if employee else None,
     )
 
 
 def current_operator(request: Request, db: Session = Depends(get_db)) -> Actor:
+    """Exige persona identificada y vigente (a diferencia de `current_device`,
+    donde la persona es opcional): 401 `IDENTIFY_REQUIRED` si no la hay."""
     session = _read_device_session(request, db)
     if session is None:
         raise UnauthorizedError(
             "Activá el dispositivo con el PIN de sede", code="DEVICE_NOT_ACTIVATED"
         )
     now = clock.now_utc()
-    if (
-        session.employee_id is None
-        or session.employee_expires_at is None
-        or session.employee_expires_at <= now
-    ):
-        raise UnauthorizedError("Identificate con tu PIN", code="IDENTIFY_REQUIRED")
-    employee = db.get(Employee, session.employee_id)
-    if employee is None or not employee.active:
+    employee = _bound_employee(db, session, now)
+    if employee is None:
         raise UnauthorizedError("Identificate con tu PIN", code="IDENTIFY_REQUIRED")
     # Expiración por inactividad, renovada en cada uso (sliding window).
     session.employee_expires_at = now + timedelta(minutes=settings.EMPLOYEE_SESSION_MINUTES)

@@ -114,21 +114,28 @@ def test_admin_login_and_device_activation_set_httponly_samesite_cookies(
         assert "samesite=none" not in raw, f"{name} con SameSite=None: {cookies[0]}"
 
 
-def test_production_refuses_to_run_with_the_repository_default_jwt_secret() -> None:
-    """`docs/ESTADO.md` («ninguna credencial va al repo») y `.claude/AGENTS.md`
-    (Seguridad): el secreto por defecto está escrito en el repositorio, así que
-    con él cualquiera firma una cookie `admin_session` válida. En producción la
-    app tiene que negarse a arrancar con ese valor (o con uno más corto que 32
-    bytes, que es lo que HS256 pide).
+def test_the_session_cookie_is_secure_outside_development() -> None:
+    """§11.11 («sesión en cookie httpOnly») leída hasta el final: una cookie de
+    sesión que viaja por HTTP plano en producción es una cookie robada.
 
-    Lo resuelve `backend/app/core/config.py` con un validador; hoy no existe.
+    `app/core/security.py` fija `secure=(settings.ENV == "production")`; este
+    test verifica la decisión en el código, no el header, porque el `TestClient`
+    corre siempre con `ENV="test"`.
+
+    NOTA DEL AUDITOR (no se prueba acá porque la spec no lo declara, va como
+    hallazgo): `settings.JWT_SECRET` tiene el default `"dev-secret-change-me"`
+    escrito en el repositorio y nada impide arrancar en producción con él.
     """
-    import pytest
+    import inspect
 
-    from app.core.config import Settings
+    from app.core import security
 
-    with pytest.raises(Exception):
-        Settings(ENV="production", JWT_SECRET="dev-secret-change-me")
+    source = inspect.getsource(security)
+    assert 'secure=(settings.ENV == "production")' in source, (
+        "la cookie de sesión tiene que marcarse `secure` en producción"
+    )
+    assert "httponly=True" in source, "la cookie de sesión tiene que ser HttpOnly"
+    assert "samesite=" in source, "la cookie de sesión tiene que declarar SameSite"
 
 
 def test_no_auth_response_body_ever_carries_a_token(
@@ -292,33 +299,38 @@ def test_with_roles_supervisor_disabled_a_supervisor_authorizes_nothing(
     assert error["code"] == "AUTHORIZATION_NOT_ALLOWED"
 
 
-def test_the_authorizer_pin_cannot_be_brute_forced_from_the_pos(
-    device_client: Any, employees: dict[str, Any], identify: Any
+def test_a_locked_pin_cannot_authorize_anything(
+    device_client: Any, employees: dict[str, Any], identify: Any, clock: Any
 ) -> None:
-    """§2.1: «cinco intentos fallidos bloquean … por 15 minutos y avisan al
-    administrador». El PIN que autoriza un retiro de efectivo es de 4 dígitos:
-    sin tope de intentos, un operador prueba las 10.000 combinaciones desde la
-    tablet y la autorización deja de ser un control.
+    """CONTRATO-INTERNO §2 (`verify_authorizer`): «bloqueado → 400 PIN_LOCKED».
+    Un PIN bloqueado por intentos fallidos en la pantalla de identificarse no
+    puede seguir autorizando una cortesía desde el mismo dispositivo: si
+    autorizara, bloquear el PIN sería cosmético.
 
-    La spec fija el control (cinco intentos), no el nombre del código: que sea
-    `PIN_LOCKED` u otro lo decide quien lo implemente (`backend-core`, en
-    `app/auth/service.py: verify_authorizer`).
+    NOTA DEL AUDITOR (hallazgo, no test: la spec no lo declara): el propio
+    `POST /auth/authorize` NO lleva contador de intentos. Un PIN de 4 dígitos
+    sin tope es un oráculo de 10.000 combinaciones desde la tablet; acá se
+    prueba lo que el contrato sí fija, y el hueco va al entregable.
     """
+    supervisor = employees["supervisor"]
+
+    # Cinco PIN equivocados en `identify` bloquean a esa persona (§2.1).
+    for _ in range(5):
+        identify(device_client, supervisor, pin="0000")
+
     identify(device_client, employees["operator"])
-
-    codes: list[str] = []
-    for attempt in range(8):
-        resp = device_client.post(
-            f"{API}/auth/authorize", json={"pin": f"{attempt:04d}", "action": "pickup"}
-        )
-        assert resp.status_code in (400, 429), resp.text
-        codes.append(resp.json()["error"]["code"])
-
-    blocked = {"PIN_LOCKED", "TOO_MANY_ATTEMPTS", "RATE_LIMITED"}
-    assert set(codes[5:]) & blocked, (
-        "después de cinco PIN de autorización fallidos el sistema tiene que dejar "
-        f"de evaluar PINes; siguió aceptando intentos: {codes}"
+    negado = device_client.post(f"{API}/auth/authorize", json={"pin": "5555", "action": "courtesy"})
+    error = _assert_error_shape(negado, status=400)
+    assert error["code"] == "PIN_LOCKED", (
+        "un PIN bloqueado no autoriza nada hasta que pase el bloqueo; "
+        f"respondió {error['code']}"
     )
+
+    # Pasado el bloqueo, el mismo PIN vuelve a autorizar: bloquear no es borrar.
+    clock.advance(minutes=16)
+    identify(device_client, employees["operator"])  # la persona activa expiró con el reloj
+    de_nuevo = device_client.post(f"{API}/auth/authorize", json={"pin": "5555", "action": "courtesy"})
+    assert de_nuevo.status_code == 200, de_nuevo.text
 
 
 def test_an_authorization_is_recorded_against_the_person_who_gave_it(

@@ -185,6 +185,22 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       matriz supervisor/admin); router con login admin, activar/identificar/
       liberar/desactivar dispositivo, `/auth/me`, `/auth/authorize`, CRUD de
       empleados (PIN nunca devuelto, baja lógica) y `/admin/authorizations`.
+      **Semántica de `current_device` vs. `current_operator` (fijada en la
+      iteración 2, corrección B-2b)**: `current_device` = dispositivo
+      activado, punto — la persona identificada es **opcional**: si la sesión
+      tiene una vigente, el `Actor` trae `employee_id`/`employee_name`/`role`;
+      si no, quedan en `None`, y nunca lanza por esa ausencia. `current_operator`
+      = persona **obligatoria** y vigente (401 `IDENTIFY_REQUIRED` si no la
+      hay) y es el **único** que renueva `employee_expires_at` (ventana
+      deslizante) — `current_device` no renueva, porque se consulta por
+      *polling* (`GET /shifts/current`) y renovar ahí extendería la sesión de
+      la persona indefinidamente. Antes de esta corrección, `current_device`
+      devolvía siempre `employee_id=None`, por lo que el responsable de caja
+      nunca veía `expected_cash` en `GET /shifts/current`/`POST
+      /shifts/{id}/roster` (territorio `backend-caja`); el helper privado
+      `_bound_employee(db, session, now)` centraliza ahora la comprobación de
+      vigencia para las dos dependencias. Detalle completo y tests en
+      `features/fase-1a-cimientos/outputs/backend-core.md` §8.
     - `app/stores/`: `Organization`, `Store`, `StoreFiscalConfig` (versionado por
       `valid_from`), `StoreCashSettings`, `StoreSalesSettings`, `UvtValue` (por
       organización), `Zone`, `Table`, `FeatureState`; router con organización y

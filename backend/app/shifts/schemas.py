@@ -140,7 +140,7 @@ class HandoverOut(BaseModel):
     counted_cash: int
     counted_card: int | None = None
     counted_transfer: int | None = None
-    breakdown: dict
+    breakdown: dict | None = None
     at: datetime
 
 
@@ -208,7 +208,7 @@ class CashPickupOut(OutModel):
     id: int
     amount: int
     envelope_ref: str | None = None
-    expected_at_pickup: int
+    expected_at_pickup: int | None = None
     authorized_by_employee_id: int
     authorized_by_employee_name: str
     at: datetime

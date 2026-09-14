@@ -172,7 +172,8 @@ export interface Handover {
   counted_cash?: number;
   counted_card?: number | null;
   counted_transfer?: number | null;
-  breakdown?: FrozenBreakdown;
+  /** `null` cuando quien mira no es el responsable de caja ni admin. */
+  breakdown?: FrozenBreakdown | null;
   at?: string;
 }
 
@@ -255,8 +256,12 @@ export interface CashPickup {
   id: number;
   amount?: number;
   envelope_ref?: string | null;
-  /** Snapshot del esperado al momento del retiro; nunca se recalcula. */
-  expected_at_pickup?: number;
+  /**
+   * Snapshot del esperado al momento del retiro; nunca se recalcula. `null`
+   * cuando quien mira no es el responsable de caja ni admin (mismo criterio
+   * que `Handover.breakdown`) — se trata igual que "ausente".
+   */
+  expected_at_pickup?: number | null;
   authorized_by_employee_id?: number;
   authorized_by_employee_name?: string;
   at?: string;

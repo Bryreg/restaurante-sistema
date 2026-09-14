@@ -6,8 +6,11 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from app.auth.models import Employee
+from app.auth.deps import current_device
+from app.auth.models import DeviceSession, Employee
+from app.core.security import COOKIE_DEVICE, read_token
 from app.stores.models import Store
 
 
@@ -114,3 +117,103 @@ def test_pin_and_password_never_in_employee_response(
         assert "password_hash" not in row
         assert "pin" not in row
         assert "password" not in row
+
+
+# ---------------------------------------------------------------------------
+# `current_device`: dispositivo activado, persona OPCIONAL (a diferencia de
+# `current_operator`, donde es obligatoria). Ver deps.py `_bound_employee`.
+# ---------------------------------------------------------------------------
+
+
+class _FakeRequest:
+    """Duplica lo único que `current_device` lee de `Request`: las cookies.
+    Llamamos la dependencia directo (sin pasar por FastAPI) para poder
+    inspeccionar el `Actor` que produce, en vez del JSON de un endpoint."""
+
+    def __init__(self, cookies: dict[str, str]) -> None:
+        self.cookies = cookies
+
+
+def _device_request(client: TestClient) -> _FakeRequest:
+    token = client.cookies.get(COOKIE_DEVICE)
+    assert token
+    return _FakeRequest({COOKIE_DEVICE: token})
+
+
+def _session_row(client: TestClient, db: Session) -> DeviceSession:
+    token = client.cookies.get(COOKIE_DEVICE)
+    assert token
+    payload = read_token(token)
+    session = db.get(DeviceSession, payload["session_id"])
+    assert session is not None
+    return session
+
+
+def test_current_device_without_identified_person_has_no_employee(
+    device_client: TestClient, db: Session
+) -> None:
+    actor = current_device(_device_request(device_client), db)
+    assert actor.kind == "device"
+    assert actor.employee_id is None
+    assert actor.employee_name is None
+    assert actor.role is None
+
+
+def test_current_device_after_identify_carries_employee_fields(
+    device_client: TestClient,
+    employees: dict[str, Employee],
+    identify: Any,
+    db: Session,
+) -> None:
+    operator = employees["operator"]
+    assert identify(device_client, operator).status_code == 200
+
+    actor = current_device(_device_request(device_client), db)
+    assert actor.employee_id == operator.id
+    assert actor.employee_name == operator.name
+    assert actor.role == operator.role
+
+
+def test_current_device_after_employee_session_expires_reverts_to_none(
+    device_client: TestClient,
+    employees: dict[str, Employee],
+    identify: Any,
+    db: Session,
+    clock: Any,
+) -> None:
+    from app.core.config import settings
+
+    operator = employees["operator"]
+    assert identify(device_client, operator).status_code == 200
+
+    clock.advance(minutes=settings.EMPLOYEE_SESSION_MINUTES + 1)
+
+    # No debe lanzar: vuelve a "dispositivo sin persona identificada".
+    actor = current_device(_device_request(device_client), db)
+    assert actor.kind == "device"
+    assert actor.employee_id is None
+    assert actor.employee_name is None
+    assert actor.role is None
+
+
+def test_current_device_does_not_renew_employee_expiration(
+    device_client: TestClient,
+    employees: dict[str, Employee],
+    identify: Any,
+    db: Session,
+    clock: Any,
+) -> None:
+    operator = employees["operator"]
+    assert identify(device_client, operator).status_code == 200
+
+    expires_before = _session_row(device_client, db).employee_expires_at
+    assert expires_before is not None
+
+    clock.advance(minutes=1)
+    current_device(_device_request(device_client), db)
+
+    # `current_device` es de sólo lectura sobre la ventana de la persona: la
+    # renovación (sliding window) es exclusiva de `current_operator`, porque
+    # `GET /shifts/current` se consulta por polling y extendería la sesión
+    # de la persona indefinidamente si `current_device` también renovara.
+    assert _session_row(device_client, db).employee_expires_at == expires_before
