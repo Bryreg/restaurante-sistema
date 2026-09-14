@@ -1,13 +1,16 @@
 {
   "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/schemas/launch.schema.json",
-  "description": "Configuración de arranque local para proyectos generados con sistemas-maestros. Ajustar rutas/puertos según el proyecto adoptante.",
+  "description": "Arranque local de Restaurante Sistema (pedido 1a). Backend FastAPI + SQLite de desarrollo; frontend Vite + React bajo el mismo origen (proxy /api -> :8000).",
   "services": [
     {
       "name": "backend",
       "cwd": "backend",
       "command": "uvicorn app.main:app --reload --port 8000",
       "env": {
-        "PYTHONPATH": "."
+        "PYTHONPATH": ".",
+        "DATABASE_URL": "sqlite:///./dev.db",
+        "JWT_SECRET": "dev-secret-change-me",
+        "ENV": "dev"
       },
       "healthcheck": {
         "url": "http://localhost:8000/docs",
@@ -18,9 +21,7 @@
       "name": "frontend",
       "cwd": "frontend",
       "command": "npm run dev -- --port 5173",
-      "env": {
-        "VITE_API_URL": "http://localhost:8000"
-      },
+      "env": {},
       "healthcheck": {
         "url": "http://localhost:5173",
         "timeoutMs": 15000
@@ -29,7 +30,9 @@
   ],
   "startAll": ["backend", "frontend"],
   "notes": [
-    "Este archivo es una plantilla. El proyecto adoptante debe ajustar cwd, command y puertos a su estructura real.",
-    "Si el proyecto no usa Vite ni Uvicorn, reemplazar los comandos manteniendo la forma { name, cwd, command, env, healthcheck }."
+    "Antes del primer arranque: cd backend && pip install -r requirements.txt -r requirements-dev.txt && alembic upgrade head && python -m app.seed.",
+    "El seed NUNCA corre solo al arrancar uvicorn; es un comando aparte (python -m app.seed), idempotente.",
+    "El frontend proxea /api hacia http://localhost:8000 (vite.config.ts, lo escribe frontend-core): mismo origen, las cookies httpOnly viajan solas.",
+    "Sin DATABASE_URL, el backend usa sqlite:///./dev.db (creado por Alembic, no por la app al arrancar)."
   ]
 }

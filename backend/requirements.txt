@@ -1,0 +1,17 @@
+# Runtime dependencies, versiones fijadas (pedido 1a).
+# SQLite (desarrollo/tests) no necesita driver aparte: viene con Python.
+# Postgres (CI/producción) usa el dialecto "postgresql+psycopg" -> paquete psycopg.
+
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+sqlalchemy==2.0.52
+pydantic==2.13.5
+pydantic-settings==2.15.0
+alembic==1.20.0
+PyJWT==2.14.0
+# Dependencia opcional de PyJWT: se fija a mano porque en algunos hosts el paquete
+# "cryptography" del sistema (apt) está roto y rompe el import de jwt.algorithms.
+cryptography==46.0.7
+bcrypt==5.0.0
+python-multipart==0.0.32
+psycopg[binary]==3.3.5

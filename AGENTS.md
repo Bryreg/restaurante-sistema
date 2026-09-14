@@ -66,11 +66,16 @@ compartida en modo kiosko, y el administrador en PC. La spec completa está en
 
 ## Verificación mínima
 
-Los comandos que tienen que pasar antes de dar algo por hecho. Hasta que exista el
-código de la fase 1, son la meta; cuando exista, son la ley y se actualizan acá:
+Los comandos que tienen que pasar antes de dar algo por hecho (código de la fase 1a
+ya existe: esto es la ley, no la meta):
 
 ```bash
-# backend
+# backend — instalación y esquema (una sola vez, o tras cambiar requirements/migraciones)
+cd backend && pip install -r requirements.txt -r requirements-dev.txt
+cd backend && alembic upgrade head           # crea el esquema (Postgres en CI; SQLite en dev)
+cd backend && python -m app.seed             # seed de desarrollo, aparte, nunca al arrancar
+
+# backend — verificación
 cd backend && python -m pytest -q            # suite completa: SOLO el paso final del orquestador
 cd backend && python -m mypy app             # typecheck
 cd backend && uvicorn app.main:app --port 8000   # arranca y /docs responde

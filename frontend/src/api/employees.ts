@@ -1,0 +1,66 @@
+/**
+ * CRUD de empleados (Admin → Configuración → Empleados). El PIN nunca vuelve
+ * en una respuesta (AGENTS.md, checklist § pedido 1a); la baja es lógica
+ * (`active=false`), nunca un `DELETE`.
+ */
+import { api } from "./client";
+
+export type EmployeeRole = "operator" | "supervisor" | "admin";
+
+export interface Employee {
+  id: number;
+  name: string;
+  role: EmployeeRole;
+  store_id: number | null;
+  can_charge: boolean;
+  discount_limit_pct: number | null;
+  document?: string | null;
+  email?: string | null;
+  active: boolean;
+}
+
+export interface EmployeeCreateIn {
+  name: string;
+  role: EmployeeRole;
+  pin: string;
+  store_id?: number | null;
+  can_charge?: boolean;
+  discount_limit_pct?: number | null;
+  document?: string | null;
+  email?: string | null;
+  password?: string | null;
+}
+
+export interface EmployeeUpdateIn {
+  name?: string;
+  role?: EmployeeRole;
+  pin?: string;
+  store_id?: number | null;
+  can_charge?: boolean;
+  discount_limit_pct?: number | null;
+  document?: string | null;
+  email?: string | null;
+  password?: string | null;
+  active?: boolean;
+}
+
+export function listEmployees(params: { storeId?: number | null; active?: boolean | null } = {}): Promise<
+  Employee[]
+> {
+  return api<Employee[]>("/admin/employees", {
+    query: { store_id: params.storeId ?? undefined, active: params.active ?? undefined },
+  });
+}
+
+export function createEmployee(body: EmployeeCreateIn): Promise<Employee> {
+  return api<Employee>("/admin/employees", { method: "POST", body });
+}
+
+export function updateEmployee(employeeId: number, body: EmployeeUpdateIn): Promise<Employee> {
+  return api<Employee>(`/admin/employees/${employeeId}`, { method: "PATCH", body });
+}
+
+/** Baja lógica: PATCH con `active: false` (nunca hay un DELETE de empleado). */
+export function deactivateEmployee(employeeId: number): Promise<Employee> {
+  return updateEmployee(employeeId, { active: false });
+}
