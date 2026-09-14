@@ -101,3 +101,36 @@ def test_roster_wrong_pin_is_rejected(device_client, employees, open_shift, db: 
     )
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "PIN_INVALID"
+
+
+def test_identify_over_http_adds_the_person_to_the_open_shift_roster(
+    device_client, identify, employees, open_shift, db: Session
+) -> None:
+    """Costura entre dominios (D-1 de la entrega del pedido 1a): el hook existe
+    en ambos extremos, pero `POST /auth/device/identify` lo buscaba en el
+    módulo equivocado y nunca corría desde HTTP. Este test lo prueba de punta a
+    punta: abrir turno, identificar a otra persona por HTTP y encontrarla en el
+    roster que devuelve `GET /shifts/{id}`.
+    """
+    open_shift(cash_responsible=employees["cashier"])
+    shift = _open(db)
+
+    identify(device_client, employees["operator"])
+
+    resp = device_client.get(f"/api/v1/shifts/{shift.id}")
+    assert resp.status_code == 200, resp.text
+    roster_ids = [entry["employee"]["id"] for entry in resp.json()["roster"]]
+    assert employees["operator"].id in roster_ids, resp.json()["roster"]
+
+    # Idempotente: identificarse otra vez no duplica la entrada abierta.
+    identify(device_client, employees["operator"])
+    open_entries = (
+        db.query(ShiftRoster)
+        .filter(
+            ShiftRoster.shift_id == shift.id,
+            ShiftRoster.employee_id == employees["operator"].id,
+            ShiftRoster.out_at.is_(None),
+        )
+        .count()
+    )
+    assert open_entries == 1

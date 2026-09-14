@@ -76,15 +76,30 @@ def test_open_shift_difference_needs_cause_then_accepts_with_cause(device_client
     assert with_cause.json()["opening_cash_total"] == 150_000
 
 
-def test_two_concurrent_opens_one_wins_one_gets_409(device_client, identify, employees) -> None:
-    identify(device_client, employees["cashier"])
-    payload = _open_payload(employees["cashier"].id)
+def test_two_concurrent_opens_one_wins_and_the_other_is_rejected(race_app) -> None:
+    """Checklist 1a: «dos `POST /shifts/open` concurrentes: uno `200`, otro `409`».
 
-    results: list[int] = []
+    Corre sobre `race_app` (una sesión por request, como en producción): la
+    fixture compartida `db` entrega una sola `Session` a todos los requests y
+    una `Session` de SQLAlchemy no es segura entre hilos (D-2 de la entrega).
+    La perdedora es un rechazo limpio y declarado: `409 SHIFT_OPEN_RACE` cuando
+    la carrera llega al índice único parcial (Postgres, CI) o
+    `400 SHIFT_ALREADY_OPEN` cuando la validación previa la frena (SQLite).
+    """
+    client, employee_id = race_app
+    payload = _open_payload(employee_id)
+
+    outcomes: list[tuple[int, str]] = []
+    lock = threading.Lock()
 
     def _attempt() -> None:
-        resp = device_client.post("/api/v1/shifts/open", json=payload, headers={"Idempotency-Key": str(uuid.uuid4())})
-        results.append(resp.status_code)
+        resp = client.post("/api/v1/shifts/open", json=payload, headers={"Idempotency-Key": str(uuid.uuid4())})
+        try:
+            code = resp.json().get("error", {}).get("code", "")
+        except ValueError:
+            code = ""
+        with lock:
+            outcomes.append((resp.status_code, code))
 
     threads = [threading.Thread(target=_attempt) for _ in range(2)]
     for t in threads:
@@ -92,6 +107,9 @@ def test_two_concurrent_opens_one_wins_one_gets_409(device_client, identify, emp
     for t in threads:
         t.join()
 
-    assert 409 in results, f"se esperaba un 409 por la carrera, resultados: {results}"
-    winners = [code for code in results if code in (200, 201)]
-    assert len(winners) == 1, f"exactamente una apertura debía ganar, resultados: {results}"
+    winners = [o for o in outcomes if o[0] in (200, 201)]
+    assert len(winners) == 1, f"exactamente una apertura debía ganar, resultados: {outcomes}"
+    losers = [o for o in outcomes if o not in winners]
+    assert losers and losers[0] in ((409, "SHIFT_OPEN_RACE"), (400, "SHIFT_ALREADY_OPEN")), (
+        f"la perdedora tiene que ser un rechazo declarado, resultados: {outcomes}"
+    )

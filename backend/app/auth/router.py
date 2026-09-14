@@ -203,9 +203,12 @@ def device_identify(
     db.flush()
 
     # Hook cruzado: si el dominio de turnos ya existe, suma al roster.
-    if importlib.util.find_spec("app.shifts.service") is not None:
-        shifts_service = importlib.import_module("app.shifts.service")
-        on_identified = getattr(shifts_service, "on_employee_identified", None)
+    # La función vive en app/shifts/hooks.py (no en service.py, que solo lo
+    # importa): buscarla en el módulo equivocado dejaba el hook sin correr
+    # jamás desde HTTP (defecto D-1 de la entrega del pedido 1a).
+    if importlib.util.find_spec("app.shifts.hooks") is not None:
+        shifts_hooks = importlib.import_module("app.shifts.hooks")
+        on_identified = getattr(shifts_hooks, "on_employee_identified", None)
         if callable(on_identified):
             on_identified(db, store_id=session.store_id, employee=employee)
 

@@ -26,7 +26,7 @@ import sqlalchemy as sa
 from sqlalchemy import CheckConstraint, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base
+from app.core.db import Base, UTCDateTime
 
 
 def _uuid() -> str:
@@ -117,8 +117,8 @@ class BusinessDay(Base):
         _enum(BusinessDayStatus, length=16), default=BusinessDayStatus.OPEN
     )
 
-    opened_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
-    closed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("store_id", "business_date", name="uq_business_days_store_date"),
@@ -148,7 +148,7 @@ class Shift(Base):
 
     status: Mapped[ShiftStatus] = mapped_column(_enum(ShiftStatus, length=16), default=ShiftStatus.OPEN)
 
-    opened_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
+    opened_at: Mapped[datetime] = mapped_column(UTCDateTime())
     opened_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     opened_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
 
@@ -165,7 +165,7 @@ class Shift(Base):
     # de la sede; lo decide quien confirma el cierre (`close/confirm`).
     closes_day: Mapped[bool] = mapped_column(sa.Boolean, default=False)
 
-    closed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     closed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     closed_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
     # True solo en el rescate "cierre administrativo" (turno abandonado, sin conteo).
@@ -186,16 +186,16 @@ class Shift(Base):
 
     reviewed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     reviewed_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
-    reviewed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     # Rescate "reabrir": el conteo previo queda histórico en shift_close_counts
     # (no se borra); acá solo queda la traza de la última reapertura.
     reopen_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    reopened_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    reopened_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     reopened_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
 
     # Rescate "cancelar": baja lógica, solo si nunca tuvo actividad.
-    cancelled_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     cancelled_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     cancelled_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
 
@@ -237,8 +237,8 @@ class ShiftRoster(Base):
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
     employee_name: Mapped[str] = mapped_column(sa.String(200))
 
-    in_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
-    out_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    in_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    out_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     # [{"start": iso, "end": iso|None}, ...]
     pauses: Mapped[list] = mapped_column(sa.JSON, default=list)
@@ -276,7 +276,7 @@ class CashMovement(Base):
     authorized_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     authorized_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
-    at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
+    at: Mapped[datetime] = mapped_column(UTCDateTime())
 
     __table_args__ = (
         Index("ix_cash_movements_shift_at", "shift_id", "at"),
@@ -304,7 +304,7 @@ class CashSwap(Base):
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     employee_name: Mapped[str] = mapped_column(sa.String(200))
 
-    at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
+    at: Mapped[datetime] = mapped_column(UTCDateTime())
 
     __table_args__ = (
         Index("ix_cash_swaps_shift_at", "shift_id", "at"),
@@ -341,9 +341,9 @@ class CashPickup(Base):
     authorized_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     authorized_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
 
-    at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
+    at: Mapped[datetime] = mapped_column(UTCDateTime())
 
-    reversed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     reversed_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     reversed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     reversed_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
@@ -389,7 +389,7 @@ class ShiftHandover(Base):
     authorized_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
     photo: Mapped[str | None] = mapped_column(sa.String(500), nullable=True)
-    at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
+    at: Mapped[datetime] = mapped_column(UTCDateTime())
 
     __table_args__ = (Index("ix_shift_handovers_shift_at", "shift_id", "at"),)
 
@@ -418,7 +418,7 @@ class ShiftCloseCount(Base):
 
     created_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     created_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
-    created_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
     # True cuando este conteo quedó superado por uno posterior (turno
     # reabierto y vuelto a cerrar): se conserva, nunca se borra.
