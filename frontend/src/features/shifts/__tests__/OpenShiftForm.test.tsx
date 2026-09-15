@@ -1,10 +1,21 @@
 import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Me } from "@/api/auth";
 import { renderWithProviders } from "@/test/utils";
 
 import { OpenShiftForm } from "../OpenShiftForm";
+
+vi.mock("@/api/employees", async () => {
+  const actual = await vi.importActual<typeof import("@/api/employees")>("@/api/employees");
+  return {
+    ...actual,
+    listDeviceEmployees: vi.fn().mockResolvedValue([
+      { id: 7, name: "Ana", role: "operator" },
+      { id: 9, name: "Beto", role: "supervisor" },
+    ]),
+  };
+});
 
 function deviceMe(features: Record<string, boolean>): Me {
   return {
@@ -31,9 +42,14 @@ describe("OpenShiftForm — la reserva se muestra aparte de la base", () => {
     expect(screen.queryByLabelText("Reserva de caja")).not.toBeInTheDocument();
   });
 
-  it("precarga el responsable de caja con quien está identificado", () => {
+  it("precarga el responsable de caja con quien está identificado, elegido con EmployeePicker (sin input numérico)", async () => {
     renderWithProviders(<OpenShiftForm />, { me: deviceMe({}) });
 
-    expect(screen.getByLabelText(/responsable de caja/i)).toHaveValue(7);
+    expect(await screen.findByRole("radio", { name: /ana, operador/i })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(screen.getByRole("radio", { name: /beto, supervisor/i })).toHaveAttribute("aria-checked", "false");
+    expect(screen.queryByLabelText(/responsable de caja \(número de empleado\)/i)).not.toBeInTheDocument();
   });
 });

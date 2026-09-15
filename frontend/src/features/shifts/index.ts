@@ -17,12 +17,10 @@ import { ShiftStatusStrip } from "./ShiftStatusStrip";
 
 // "turno" (no "cierre" ni ninguna otra pantalla): la spec agrupa todo el
 // turno de caja bajo una sola vista con pestañas (SPEC-NEGOCIO § 9.1
-// "Turno"); `index: true` para que `navigate("/pos")` tras identificarse
-// (`DeviceIdentifyPage`, frontend-core) resuelva a algo.
-const posRoutes: RouteObject[] = [
-  { index: true, element: createElement(ShiftPage) },
-  { path: "turno", element: createElement(ShiftPage) },
-];
+// "Turno"). Ya NO lleva `index: true` (CONTRATO-INTERNO-1b-1.md §6.2): la
+// ruta índice de `/pos` es `PosHome` (frontend-cobro), que decide entre
+// Mesas y Comanda nueva según `pos.tables`.
+const posRoutes: RouteObject[] = [{ path: "turno", element: createElement(ShiftPage) }];
 
 const adminRoutes: RouteObject[] = [
   { path: "dinero", element: createElement(MoneyAdminPage) },

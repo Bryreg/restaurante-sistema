@@ -4,6 +4,7 @@ import { NavLink, Outlet } from "react-router-dom";
 
 import { NotificationBell } from "@/features/notifications/NotificationBell";
 import { catalogFeature } from "@/features/catalog";
+import { ordersFeature } from "@/features/orders";
 import { shiftsFeature } from "@/features/shifts";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,7 +36,7 @@ const OWN_NAV: NavItem[] = [
 ];
 
 function buildNav(hasFeature: (key: string) => boolean): NavItem[] {
-  const all = [...OWN_NAV, ...shiftsFeature.adminNav, ...catalogFeature.adminNav];
+  const all = [...OWN_NAV, ...shiftsFeature.adminNav, ...catalogFeature.adminNav, ...ordersFeature.adminNav];
   return all.filter((item) => !item.feature || hasFeature(item.feature));
 }
 

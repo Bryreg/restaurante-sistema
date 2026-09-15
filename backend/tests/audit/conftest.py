@@ -178,20 +178,164 @@ def catalog_seeded(db: Any, store: Any) -> None:
 
 
 @pytest.fixture()
-def expected_of(device_client: Any) -> Callable[[int], int]:
+def expected_of(admin_client: Any) -> Callable[[int], int]:
     """Esperado que el backend reporta hoy para un turno abierto.
 
-    Se lee de `GET /shifts/{id}` con la persona responsable identificada: el
-    frontend nunca lo deriva y el test tampoco (§11.13, una sola matemática).
+    Se lee de `GET /shifts/{id}` **como administrador**: el frontend nunca lo
+    deriva y el test tampoco (§11.13, una sola matemática).
+
+    Por qué el admin y no el responsable (cambio de 1b-1, decisión O-1,
+    `CONTRATO-INTERNO-1b-1.md §2.4 «Caja»` y §5.8): con `cash.blind_close`
+    encendida —el default del perfil `full`, que es el de estos tests— el
+    responsable de caja **no** ve `expected_cash` fuera del paso 2 del cierre.
+    El administrador lo ve siempre, así que es el único observador desde el
+    que se puede medir la ecuación del esperado sin depender de una flag. Los
+    invariantes sobre **quién** ve el esperado viven en
+    `test_cash_invariants.py`, no acá.
     """
 
     def _expected(shift_id: int) -> int:
-        resp = device_client.get(f"/api/v1/shifts/{shift_id}")
+        resp = admin_client.get(f"/api/v1/shifts/{shift_id}")
         assert resp.status_code == 200, resp.text
         value = resp.json()["expected_cash"]
-        assert value is not None, "el responsable de caja tiene que poder ver el esperado"
+        assert value is not None, "el administrador siempre puede ver el esperado"
         return int(value)
 
     return _expected
 
 
+
+# ---------------------------------------------------------------------------
+# Venta (pedido 1b-1): productos con tasas distintas, mesas, y helpers HTTP
+# delgados para armar una comanda por API. No redefinen nada de
+# `tests/conftest.py`; viven acá porque los invariantes de plata de la venta
+# necesitan controlar exactamente qué tasa lleva cada línea.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def sales_products(db: Any, store: Any) -> dict[str, Any]:
+    """Tres productos con las tres tarifas del país (`inc_8`, `iva_19`,
+    `excluded`), uno con estación y dos sin ella.
+
+    Con una sola tarifa no se puede auditar `tax_lines` (una lista de un
+    elemento siempre suma bien); con dos tarifas y una excluida, el
+    agrupamiento por tasa y el prorrateo del descuento de comanda quedan
+    realmente expuestos.
+    """
+    from app.catalog.models import Category, Product
+    from app.core import clock as clock_module
+
+    now = clock_module.now_utc()
+    category = Category(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        name="Auditoría",
+        sort_order=0,
+        default_course="main",
+        default_station=None,
+        active=True,
+    )
+    db.add(category)
+    db.flush()
+
+    specs = [
+        ("inc8", "Bandeja", 25_000, "hot_kitchen", "inc_8"),
+        ("iva19", "Cerveza", 12_000, None, "iva_19"),
+        ("excluded", "Agua", 4_000, None, "excluded"),
+    ]
+    made: dict[str, Any] = {}
+    for key, name, price, station, tax_code in specs:
+        row = Product(
+            organization_id=store.organization_id,
+            store_id=store.id,
+            category_id=category.id,
+            name=name,
+            description=None,
+            station=station,
+            default_course="main",
+            price_dine_in=price,
+            price_takeout=price,
+            price_delivery=None,
+            price_platform=None,
+            tax_code=tax_code,
+            active=True,
+            available=True,
+            daily_count=None,
+            daily_remaining=None,
+            unavailable_by_employee_id=None,
+            unavailable_by_employee_name=None,
+            unavailable_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        db.flush()
+        made[key] = row
+    db.commit()
+    for row in made.values():
+        db.refresh(row)
+    return made
+
+
+@pytest.fixture()
+def audit_tables(db: Any, store: Any) -> list[Any]:
+    """Una zona con dos mesas de la sede propia (para `dine_in`)."""
+    from app.stores.models import Table, Zone
+
+    zone = Zone(store_id=store.id, name="Auditoría", sort_order=9, active=True)
+    db.add(zone)
+    db.flush()
+    rows = []
+    for number in ("A1", "A2"):
+        table = Table(zone_id=zone.id, store_id=store.id, number=number, seats=4, active=True)
+        db.add(table)
+        rows.append(table)
+    db.commit()
+    for table in rows:
+        db.refresh(table)
+    return rows
+
+
+def create_order(client: Any, *, channel: str = "counter", **body: Any) -> Any:
+    return client.post(
+        "/api/v1/orders", json={"channel": channel, **body}, headers=idem_headers()
+    )
+
+
+def add_items(client: Any, order: dict[str, Any], items: list[dict[str, Any]], **extra: Any) -> Any:
+    payload: dict[str, Any] = {"expected_version": order["version"], "items": items, **extra}
+    return client.post(
+        f"/api/v1/orders/{order['id']}/items", json=payload, headers=idem_headers()
+    )
+
+
+def get_order(client: Any, order_id: int) -> dict[str, Any]:
+    resp = client.get(f"/api/v1/orders/{order_id}")
+    assert resp.status_code == 200, resp.text
+    body: dict[str, Any] = resp.json()
+    return body
+
+
+def pay(
+    client: Any,
+    order_id: int,
+    *,
+    splits: list[dict[str, Any]],
+    tip: dict[str, Any] | None = None,
+    pin: str = "1111",
+    sub_account_id: int | None = None,
+    headers: dict[str, str] | None = None,
+    **extra: Any,
+) -> Any:
+    payload: dict[str, Any] = {"pin": pin, "splits": splits, **extra}
+    if tip is not None:
+        payload["tip"] = tip
+    if sub_account_id is not None:
+        payload["sub_account_id"] = sub_account_id
+    return client.post(
+        f"/api/v1/orders/{order_id}/payments", json=payload, headers=headers or idem_headers()
+    )
+
+
+NO_TIP: dict[str, Any] = {"asked": True, "accepted": False, "modified": False, "amount": 0}

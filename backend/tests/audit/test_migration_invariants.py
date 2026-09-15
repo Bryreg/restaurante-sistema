@@ -141,3 +141,129 @@ def test_downgrading_to_base_leaves_no_table_of_the_application(migrated_url: st
         engine.dispose()
 
     assert not quedaron, f"el downgrade dejó tablas de la aplicación en pie: {sorted(quedaron)}"
+
+
+# ---------------------------------------------------------------------------
+# Pedido 1b-1: `0004_orders` y `0005_payments_fiscal`
+# ---------------------------------------------------------------------------
+
+
+def test_the_chain_reaches_the_two_migrations_of_the_sale(migrated_url: str) -> None:
+    """`CONTRATO-INTERNO-1b-1.md §2.6`: `0004_orders` (`0003 → 0004`) y
+    `0005_payments_fiscal` (`0004 → 0005`).
+
+    Los dos tests de arriba comparan modelos contra DDL, pero pasarían igual
+    si `head` se hubiera quedado en `0003` y las tablas nuevas **tampoco**
+    estuvieran en los modelos. Este fija el punto de llegada: la cadena
+    termina en `0005` y las catorce tablas de la venta existen.
+    """
+    from sqlalchemy import text
+
+    engine = create_engine(migrated_url)
+    try:
+        with engine.connect() as conn:
+            version = conn.execute(text("select version_num from alembic_version")).scalar_one()
+        tablas = set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+
+    assert version == "0005", f"la cadena quedó en {version!r} y el pedido 1b-1 llega hasta 0005"
+
+    de_la_comanda = {
+        "orders",
+        "order_tables",
+        "order_rounds",
+        "order_items",
+        "order_discounts",
+        "order_sub_accounts",
+        "order_sub_account_items",
+        "order_events",
+        "waste_stubs",
+    }
+    del_cobro = {"fiscal_counters", "fiscal_documents", "document_reprints", "payments", "order_tips"}
+    faltan = sorted((de_la_comanda | del_cobro) - tablas)
+    assert not faltan, f"la migración de la venta no creó: {faltan}"
+
+
+def test_one_open_order_per_table_is_defended_by_a_partial_unique_index(migrated_url: str) -> None:
+    """§3.3 y §11.9: «Una mesa tiene **a lo sumo una comanda abierta**
+    (constraint)»; contrato §2.2: índice único parcial
+    `uq_order_tables_one_open_per_table` sobre `(table_id) WHERE released_at
+    IS NULL`.
+
+    El chequeo previo en el servicio no alcanza: entre el `SELECT` y el
+    `INSERT` de dos tablets caben las dos. La única defensa real es la base, y
+    tiene que ser **parcial** — sin el `WHERE`, la segunda comanda de la
+    historia en esa mesa no se podría abrir nunca.
+    """
+    from sqlalchemy import text
+
+    engine = create_engine(migrated_url)
+    try:
+        indices = {i["name"]: i for i in inspect(engine).get_indexes("order_tables")}
+        with engine.connect() as conn:
+            sql = conn.execute(
+                text("select sql from sqlite_master where type='index' and name=:n"),
+                {"n": "uq_order_tables_one_open_per_table"},
+            ).scalar_one_or_none()
+    finally:
+        engine.dispose()
+
+    assert "uq_order_tables_one_open_per_table" in indices, (
+        f"falta el índice único parcial de «una comanda abierta por mesa»: {sorted(indices)}"
+    )
+    indice = indices["uq_order_tables_one_open_per_table"]
+    assert indice["unique"], "el índice existe pero no es único: no defiende nada"
+    assert indice["column_names"] == ["table_id"], (
+        f"el índice tiene que ser sobre `table_id`: {indice['column_names']}"
+    )
+    assert sql is not None and "where" in sql.lower() and "released_at" in sql.lower(), (
+        "el índice no es parcial: sin `WHERE released_at IS NULL` la mesa quedaría "
+        f"bloqueada para siempre después de la primera comanda — {sql!r}"
+    )
+
+
+def test_the_consecutive_is_defended_by_unique_constraints_in_the_database(
+    migrated_url: str,
+) -> None:
+    """§8.3: «Consecutivo estrictamente creciente, sin huecos ni
+    reutilización»; contrato §2.2: `UNIQUE(store_id, document_type, prefix)`
+    en `fiscal_counters`, y en `fiscal_documents` `UNIQUE(target_key)` («un
+    documento por comanda o sub-cuenta») más `UNIQUE(store_id, document_type,
+    prefix, number)` («consecutivo único»).
+
+    Se inspecciona el esquema, no el servicio: el `SELECT ... FOR UPDATE` del
+    contador es la defensa de primera línea, pero SQLite lo ignora y Postgres
+    no protege de un bug de aplicación. Estas tres restricciones son las que
+    convierten una carrera perdida en un `IntegrityError` —que el cobro
+    traduce a `409`— en vez de en dos documentos con el mismo número.
+    """
+    engine = create_engine(migrated_url)
+    try:
+        inspector = inspect(engine)
+
+        def _uniques(table: str) -> list[list[str]]:
+            constraints = [
+                list(c["column_names"]) for c in inspector.get_unique_constraints(table)
+            ]
+            indices = [
+                list(i["column_names"]) for i in inspector.get_indexes(table) if i.get("unique")
+            ]
+            return constraints + indices
+
+        contadores = _uniques("fiscal_counters")
+        documentos = _uniques("fiscal_documents")
+    finally:
+        engine.dispose()
+
+    assert ["store_id", "document_type", "prefix"] in contadores, (
+        f"`fiscal_counters` no tiene UNIQUE(store_id, document_type, prefix): {contadores}"
+    )
+    assert ["target_key"] in documentos, (
+        f"`fiscal_documents` no tiene UNIQUE(target_key): dos documentos podrían "
+        f"nacer de una misma comanda — {documentos}"
+    )
+    assert ["store_id", "document_type", "prefix", "number"] in documentos, (
+        f"`fiscal_documents` no tiene UNIQUE(store_id, document_type, prefix, number): "
+        f"el consecutivo se podría reutilizar — {documentos}"
+    )

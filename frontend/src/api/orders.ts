@@ -560,3 +560,16 @@ export function adminListOrders(params: AdminOrdersQuery): Promise<AdminOrderLis
 export function adminGetOrder(orderId: number): Promise<OrderOut> {
   return api<OrderOut>(`/admin/orders/${orderId}`)
 }
+
+/** URL directa (con `format=csv`) para el enlace "Exportar" — mismo patrón que `adminShiftsCsvUrl`. */
+export function adminOrdersCsvUrl(params: AdminOrdersQuery): string {
+  const query = new URLSearchParams()
+  query.set("format", "csv")
+  query.set("store_id", String(params.storeId))
+  if (params.from) query.set("from", params.from)
+  if (params.to) query.set("to", params.to)
+  if (params.status) query.set("status", params.status)
+  if (params.channel) query.set("channel", params.channel)
+  if (params.flags) query.set("flags", params.flags)
+  return `/api/v1/admin/orders?${query.toString()}`
+}

@@ -137,7 +137,6 @@ export function NewOrderPage(): React.JSX.Element {
                 <Input
                   id="takeout-name"
                   className="h-11"
-                  required
                   value={customerName}
                   onChange={(event) => setCustomerName(event.target.value)}
                 />

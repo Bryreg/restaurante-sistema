@@ -70,3 +70,59 @@ describe("FeaturesPage", () => {
     expect(screen.getByText("1a")).toBeInTheDocument();
   });
 });
+
+describe("FeaturesPage — flags nuevos del pedido 1b-1", () => {
+  it("muestra los flags de comanda y cobro de 1b-1 con su dependencia, desde GET /admin/features", async () => {
+    const { listFeatures } = await import("@/api/features");
+    vi.mocked(listFeatures).mockResolvedValueOnce([
+      { key: "pos.tables", description: "Venta por mesas", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "pos.seats", description: "Asiento por ítem", enabled: false, source: "profile_default", requires: ["pos.tables"], available_from_phase: "1b" },
+      { key: "pos.courses", description: "Cursos del plato", enabled: false, source: "profile_default", requires: ["kitchen.view"], available_from_phase: "1b" },
+      { key: "pos.pre_bill", description: "Precuenta", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "pos.split_bill", description: "División de cuenta", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "pos.tips", description: "Pregunta de propina", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "pos.discounts", description: "Descuentos", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "pos.courtesies", description: "Cortesías", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "pos.staff_meal", description: "Consumo de personal", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "pos.takeout", description: "Para llevar", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "pos.counter", description: "Venta de mostrador", enabled: true, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "pos.daily_count", description: "Contador de porciones", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "kitchen.view", description: "Vista de cocina", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+      { key: "fiscal.dee_pos", description: "Documento equivalente POS", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
+    ]);
+
+    renderWithProviders(<FeaturesPage />, { me: buildMe() });
+
+    // Cada clave es la primera celda de su fila (`font-mono`): puede
+    // aparecer otra vez como dependencia de otra función (p. ej.
+    // "pos.tables" también en la columna "Dependencias" de "pos.seats"),
+    // así que se busca por celda, no por texto suelto.
+    await screen.findByRole("table");
+    for (const key of [
+      "pos.tables",
+      "pos.seats",
+      "pos.courses",
+      "pos.pre_bill",
+      "pos.split_bill",
+      "pos.tips",
+      "pos.discounts",
+      "pos.courtesies",
+      "pos.staff_meal",
+      "pos.takeout",
+      "pos.counter",
+      "pos.daily_count",
+      "kitchen.view",
+      "fiscal.dee_pos",
+    ]) {
+      const cell = screen.getAllByText(key).find((el) => el.tagName === "TD");
+      expect(cell, `fila de ${key}`).toBeDefined();
+    }
+
+    // Dependencias visibles (`requires`), no reinventadas acá: vienen del backend.
+    const seatsRow = screen.getAllByText("pos.seats").find((el) => el.tagName === "TD")?.closest("tr");
+    expect(seatsRow).toHaveTextContent("pos.tables");
+
+    const coursesRow = screen.getAllByText("pos.courses").find((el) => el.tagName === "TD")?.closest("tr");
+    expect(coursesRow).toHaveTextContent("kitchen.view");
+  });
+});

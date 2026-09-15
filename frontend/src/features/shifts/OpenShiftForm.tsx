@@ -7,7 +7,7 @@ import { ApiError, newIdempotencyKey } from "@/api/client";
 import { openShift, type CashDifferenceCause, type OpenShiftIn } from "@/api/shifts";
 import { Button } from "@/components/ui/button";
 import { DenominationsInput, type Denomination } from "@/components/DenominationsInput";
-import { Input } from "@/components/ui/input";
+import { EmployeePicker } from "@/components/EmployeePicker";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -51,8 +51,8 @@ export function OpenShiftForm(): React.JSX.Element {
 
   const [denominations, setDenominations] = useState<Denomination[]>(emptyDenominations());
   const [reserve, setReserve] = useState<number | null>(0);
-  const [responsibleId, setResponsibleId] = useState(
-    me?.kind === "device" && me.employee ? String(me.employee.id) : "",
+  const [responsibleId, setResponsibleId] = useState<number | null>(
+    me?.kind === "device" && me.employee ? me.employee.id : null,
   );
   const [needsCause, setNeedsCause] = useState(false);
   const [cause, setCause] = useState<CashDifferenceCause | "">("");
@@ -62,8 +62,7 @@ export function OpenShiftForm(): React.JSX.Element {
   const idempotencyKeyRef = useRef(newIdempotencyKey());
 
   const total = denominations.reduce((acc, d) => acc + d.value * d.count, 0);
-  const responsibleIdNumber = Number(responsibleId);
-  const responsibleValid = responsibleId.trim() !== "" && Number.isInteger(responsibleIdNumber) && responsibleIdNumber > 0;
+  const responsibleValid = responsibleId !== null;
 
   const mutation = useMutation({
     mutationFn: (body: OpenShiftIn) => openShift(body, idempotencyKeyRef.current),
@@ -92,7 +91,7 @@ export function OpenShiftForm(): React.JSX.Element {
     mutation.mutate({
       opening_cash: { denominations, total },
       cash_reserve: showReserve ? reserve ?? 0 : undefined,
-      cash_responsible_id: responsibleIdNumber,
+      cash_responsible_id: responsibleId as number,
       opening_cause: needsCause && cause !== "" ? cause : undefined,
       opening_note: needsCause && note.trim() !== "" ? note.trim() : undefined,
     });
@@ -119,16 +118,13 @@ export function OpenShiftForm(): React.JSX.Element {
         </div>
       ) : null}
 
-      <div className="space-y-1">
-        <Label htmlFor="open-responsible">Responsable de caja (número de empleado)</Label>
-        <Input
-          id="open-responsible"
-          type="number"
-          inputMode="numeric"
-          min={1}
-          className="h-11"
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Responsable de caja</p>
+        <EmployeePicker
           value={responsibleId}
-          onChange={(event) => setResponsibleId(event.target.value)}
+          onChange={(id) => setResponsibleId(id)}
+          label="Responsable de caja"
+          disabled={mutation.isPending}
         />
         <p className="text-xs text-muted-foreground">
           Por defecto, quien está identificado ahora. Cambialo si otra persona va a responder por la caja.

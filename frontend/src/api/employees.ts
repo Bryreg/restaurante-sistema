@@ -64,3 +64,22 @@ export function updateEmployee(employeeId: number, body: EmployeeUpdateIn): Prom
 export function deactivateEmployee(employeeId: number): Promise<Employee> {
   return updateEmployee(employeeId, { active: false });
 }
+
+// ---------------------------------------------------------------------------
+// Personal del dispositivo — "Quién opera" (SPEC-NEGOCIO §9.1, A-9 de 1a;
+// CONTRATO-INTERNO-1b-1.md §2.4 y §7 orden de arranque). `GET
+// /device/employees` (la escribe `backend-base`) devuelve SOLO estos tres
+// campos del personal activo de la sede del dispositivo (más los admins de
+// la organización): nunca `document`, `email`, `discount_limit_pct` ni
+// `can_charge`. Es el tipo que consume `EmployeePicker`.
+// ---------------------------------------------------------------------------
+
+export interface DeviceEmployee {
+  id: number;
+  name: string;
+  role: EmployeeRole;
+}
+
+export function listDeviceEmployees(): Promise<DeviceEmployee[]> {
+  return api<DeviceEmployee[]>("/device/employees");
+}

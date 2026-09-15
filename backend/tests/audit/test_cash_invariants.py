@@ -787,16 +787,88 @@ def test_the_expected_does_not_leak_to_a_non_responsible_operator_through_handov
         assert not leaked, f"el esperado se filtró por el relevo: {sorted(leaked)}"
 
 
-def test_expected_cash_is_visible_to_the_cash_responsible(
+def test_with_blind_close_on_the_cash_responsible_does_not_see_the_expected(
     device_client: Any, open_shift: Any, employees: dict[str, Any]
 ) -> None:
-    """Contrato de API 1a: `expected_cash` viaja «only for admin or the cash
-    responsible». El responsable **sí** lo ve: su turno es su responsabilidad y
-    el control no se ejerce a ciegas fuera del cierre."""
-    open_shift(responsible=employees["cashier"])
+    """**O-1, resuelto por default en 1b-1** (`CONTRATO-INTERNO-1b-1.md §2.4
+    «Caja»`, §5.8): con `cash.blind_close` encendida el cierre es a ciegas, y
+    un cierre a ciegas al que se llega mirando el esperado toda la noche no es
+    a ciegas. El responsable de caja **no** ve `expected_cash`, ni `sales`, ni
+    `tips` en `GET /shifts/current` ni en `GET /shifts/{id}`: lo ve recién en
+    el paso 2 del cierre (`review`).
 
-    responsable = device_client.get(f"{API}/shifts/current").json()
-    assert responsable["expected_cash"] == OPENING_FIXED, "el responsable de caja ve su esperado"
+    El `org` de los tests tiene perfil `full`, donde `cash.blind_close` viene
+    encendida: éste es el comportamiento por default del producto.
+
+    Invierte deliberadamente el invariante que 1a había escrito acá
+    (`test_expected_cash_is_visible_to_the_cash_responsible`): la tensión
+    entre el contrato de 1a y §3.2 estaba declarada como O-1 y el dueño de la
+    spec la resolvió a favor del cierre a ciegas.
+    """
+    shift = open_shift(responsible=employees["cashier"])
+
+    actual = device_client.get(f"{API}/shifts/current").json()
+    assert actual["expected_cash"] is None, (
+        "con cierre a ciegas el responsable no ve el esperado antes del paso 2"
+    )
+    assert actual["sales"] is None, "ni las ventas del turno, que dejan deducir el esperado"
+    assert actual["tips"] is None, "ni las propinas, por la misma razón"
+
+    detalle = device_client.get(f"{API}/shifts/{shift['id']}").json()
+    assert detalle["expected_cash"] is None
+    assert detalle["sales"] is None
+    assert detalle["tips"] is None
+
+
+def test_with_blind_close_off_the_cash_responsible_sees_the_expected_again(
+    device_client: Any, open_shift: Any, employees: dict[str, Any], set_feature: Any
+) -> None:
+    """La otra mitad de O-1: la sede que **no** cierra a ciegas (perfil
+    `basic`, o la flag apagada a mano) vuelve al contrato de 1a — el
+    responsable ve su esperado, sus ventas y sus propinas. La flag es la única
+    diferencia; no hay un segundo predicado escondido
+    (`app.shifts.router._can_see_expected`).
+    """
+    set_feature("cash.blind_close", False)
+    shift = open_shift(responsible=employees["cashier"])
+
+    actual = device_client.get(f"{API}/shifts/current").json()
+    assert actual["expected_cash"] == OPENING_FIXED, (
+        "sin cierre a ciegas el responsable sí ve el esperado de su cajón"
+    )
+    assert actual["sales"] is not None and actual["sales"]["cash"] == 0, (
+        "y las ventas del turno, que todavía son cero"
+    )
+    assert actual["tips"] is not None and actual["tips"]["cash"] == 0
+
+    detalle = device_client.get(f"{API}/shifts/{shift['id']}").json()
+    assert detalle["expected_cash"] == OPENING_FIXED
+    assert detalle["sales"] is not None
+
+
+def test_the_expected_reaches_the_responsible_only_in_step_two_of_the_close(
+    device_client: Any, open_shift: Any, employees: dict[str, Any]
+) -> None:
+    """Cierre de O-1: con la flag encendida el esperado no desaparece del
+    sistema, se **posterga**. El paso 1 (`close/count`) sigue sin revelarlo y
+    el paso 2 (`review`) se lo entrega al mismo responsable que no lo veía en
+    `current`. Sin esta mitad, «no lo ve» sería indistinguible de «no existe».
+    """
+    shift = open_shift(responsible=employees["cashier"])
+    sid = shift["id"]
+
+    assert device_client.get(f"{API}/shifts/current").json()["expected_cash"] is None
+
+    conteo = _count(device_client, sid, OPENING_FIXED)
+    assert conteo.status_code in (200, 201), conteo.text
+    count_id = conteo.json()["count_id"]
+    assert "expected" not in deep_keys(conteo.json()), "el paso 1 sigue siendo a ciegas"
+
+    review = _review(device_client, sid, count_id)
+    assert review.status_code == 200, review.text
+    assert review.json()["expected"] == OPENING_FIXED, (
+        "el paso 2 le revela el esperado al responsable: ahí termina la ceguera"
+    )
 
 
 def test_expected_cash_is_visible_to_the_admin(
@@ -822,8 +894,11 @@ def test_reading_the_current_shift_does_not_extend_the_person_session(
     la lectura. Verificado con el reloj controlado y leyendo la fila
     `device_sessions`, no la respuesta.
 
-    De paso encarna la otra mitad del contrato de 1a: el responsable de caja
-    **sí** ve su `expected_cash` en `GET /shifts/current`.
+    De paso encarna O-1 (`CONTRATO-INTERNO-1b-1.md §5.8`): con
+    `cash.blind_close` encendida —el default del perfil `full`, el de estos
+    tests— el responsable de caja **no** ve `expected_cash` en
+    `GET /shifts/current`; la lectura sigue siendo legítima (el turno, el
+    roster, los movimientos) y sigue sin renovar la ventana.
     """
     from app.auth.models import DeviceSession
 
@@ -843,8 +918,9 @@ def test_reading_the_current_shift_does_not_extend_the_person_session(
 
     lectura = device_client.get(f"{API}/shifts/current")
     assert lectura.status_code == 200, lectura.text
-    assert lectura.json()["expected_cash"] == OPENING_FIXED, (
-        "el responsable de caja ve su esperado en `/shifts/current` (contrato 1a)"
+    assert lectura.json()["expected_cash"] is None, (
+        "con `cash.blind_close` encendida el responsable no ve el esperado en "
+        "`/shifts/current` (O-1 resuelto en 1b-1)"
     )
     assert _expires_at() == vence_al_abrir, (
         "una lectura no puede correr la expiración por inactividad: si lo hiciera, "
@@ -859,8 +935,8 @@ def test_reading_the_current_shift_does_not_extend_the_person_session(
     )
 
 
-def test_a_handover_moves_the_responsibility_and_the_expected_moves_with_it(
-    device_client: Any, open_shift: Any, identify: Any, employees: dict[str, Any]
+def test_a_handover_moves_the_responsibility_and_with_blind_close_off_the_expected_moves_with_it(
+    device_client: Any, open_shift: Any, identify: Any, employees: dict[str, Any], set_feature: Any
 ) -> None:
     """§3.2: el relevo «cambia el responsable de caja» con conteo de por medio.
 
@@ -868,7 +944,13 @@ def test_a_handover_moves_the_responsibility_and_the_expected_moves_with_it(
     control: después del relevo el esperado es de quien **ahora** responde por
     el cajón. Si el anterior siguiera viéndolo, el relevo sería papeleo; si el
     nuevo no lo viera, respondería por una plata que no puede mirar.
+
+    Esta mitad se mide con `cash.blind_close` **apagada**, porque es la única
+    configuración en la que el responsable ve el esperado fuera del cierre
+    (O-1, `CONTRATO-INTERNO-1b-1.md §5.8`). La variante con la flag encendida
+    está en el test siguiente.
     """
+    set_feature("cash.blind_close", False)
     shift = open_shift(responsible=employees["cashier"])
     sid = shift["id"]
 
@@ -910,3 +992,56 @@ def test_a_handover_moves_the_responsibility_and_the_expected_moves_with_it(
         "el nuevo responsable ve el esperado del cajón por el que ahora responde"
     )
     assert nuevo["cash_responsible"]["id"] == employees["operator2"].id
+
+
+def test_with_blind_close_on_a_handover_hides_the_expected_from_both_responsibles(
+    device_client: Any, admin_client: Any, open_shift: Any, identify: Any, employees: dict[str, Any]
+) -> None:
+    """La misma regla bajo el default del producto (O-1, §5.8): el relevo
+    sigue moviendo la responsabilidad —eso no depende de ninguna flag— pero
+    con `cash.blind_close` encendida **ninguno de los dos** ve el esperado ni
+    el desglose congelado del relevo en `current`/`{id}`. El único que lo ve
+    es el administrador, que no cuenta el cajón.
+
+    Que el relevo mueva la responsabilidad se comprueba por `cash_responsible`
+    y por el cuerpo del relevo, no por quién ve el número: si el invariante se
+    escribiera sólo sobre la visibilidad, apagar el esperado lo volvería
+    verde por accidente.
+    """
+    shift = open_shift(responsible=employees["cashier"])
+    sid = shift["id"]
+
+    relevo = device_client.post(
+        f"{API}/shifts/{sid}/handovers",
+        json={
+            "kind": "handover",
+            "counted_cash": denoms(OPENING_FIXED),
+            "new_responsible_id": employees["operator2"].id,
+        },
+        headers=idem_headers(),
+    )
+    assert relevo.status_code == 201, relevo.text
+    assert relevo.json()["new_responsible"]["id"] == employees["operator2"].id
+
+    identify(device_client, employees["cashier"])
+    anterior = device_client.get(f"{API}/shifts/{sid}").json()
+    assert anterior["expected_cash"] is None
+    assert all(h["breakdown"] is None for h in anterior["handovers"])
+
+    identify(device_client, employees["operator2"])
+    nuevo = device_client.get(f"{API}/shifts/current").json()
+    assert nuevo["cash_responsible"]["id"] == employees["operator2"].id, (
+        "el relevo movió la responsabilidad aunque el esperado siga oculto"
+    )
+    assert nuevo["expected_cash"] is None, (
+        "el nuevo responsable tampoco ve el esperado: cierra a ciegas como el anterior"
+    )
+    assert nuevo["sales"] is None and nuevo["tips"] is None
+
+    vista_admin = admin_client.get(f"{API}/shifts/{sid}").json()
+    assert vista_admin["expected_cash"] == OPENING_FIXED, (
+        "el administrador, que no cuenta el cajón, sí lo ve siempre"
+    )
+    assert any(h["breakdown"] is not None for h in vista_admin["handovers"]), (
+        "y ve el desglose congelado del relevo, que es su herramienta de control"
+    )

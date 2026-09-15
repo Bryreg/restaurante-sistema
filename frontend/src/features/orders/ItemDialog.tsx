@@ -267,7 +267,7 @@ export function ItemDialog({
           {coursesEnabled ? (
             <div className="space-y-1">
               <Label htmlFor="item-course">Curso</Label>
-              <Select value={course === "" ? undefined : course} onValueChange={setCourse}>
+              <Select value={course === "" ? undefined : course} onValueChange={(value) => setCourse(value ?? "")}>
                 <SelectTrigger id="item-course" className="h-11 w-full">
                   <SelectValue placeholder="Por defecto del producto" />
                 </SelectTrigger>

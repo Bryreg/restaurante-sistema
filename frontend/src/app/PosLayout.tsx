@@ -1,14 +1,53 @@
-import { Users } from "lucide-react";
+import { LayoutGrid, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Navigate, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { deviceRelease } from "@/api/auth";
 import { Button } from "@/components/ui/button";
+import { ordersFeature } from "@/features/orders";
 import { shiftsFeature } from "@/features/shifts";
 import { errorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 
+import type { NavItem } from "./nav";
 import { useSession } from "./session";
+
+/** [...ordersFeature.posNav, ...shiftsFeature.posNav] (CONTRATO-INTERNO-1b-1.md §6.2). */
+function buildPosNav(hasFeature: (key: string) => boolean): NavItem[] {
+  const all: NavItem[] = [...ordersFeature.posNav, ...shiftsFeature.posNav];
+  return all.filter((item) => !item.feature || hasFeature(item.feature));
+}
+
+function PosNavBar({ hasFeature }: { hasFeature: (key: string) => boolean }): React.JSX.Element | null {
+  const items = buildPosNav(hasFeature);
+  if (items.length === 0) return null;
+
+  return (
+    <nav aria-label="Secciones del salón" className="flex gap-2 overflow-x-auto border-b bg-background px-3 py-2">
+      {items.map((item) => {
+        const Icon = item.icon ?? LayoutGrid;
+        return (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) =>
+              cn(
+                "flex h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              )
+            }
+          >
+            <Icon className="size-4" aria-hidden="true" />
+            {item.label}
+          </NavLink>
+        );
+      })}
+    </nav>
+  );
+}
 
 const POLL_MS = 5_000;
 
@@ -26,7 +65,7 @@ const ROLE_LABEL: Record<string, string> = {
  * /shifts/current`, fuera del contrato que este agente puede consumir.
  */
 export default function PosLayout(): React.JSX.Element | null {
-  const { me, refresh } = useSession();
+  const { me, refresh, hasFeature } = useSession();
   const navigate = useNavigate();
   const [releasing, setReleasing] = useState(false);
 
@@ -97,6 +136,7 @@ export default function PosLayout(): React.JSX.Element | null {
       <div className="border-b bg-muted/30 px-3 py-2">
         <shiftsFeature.ShiftStatusStrip />
       </div>
+      <PosNavBar hasFeature={hasFeature} />
       <main className="flex-1 p-3">
         <Outlet />
       </main>

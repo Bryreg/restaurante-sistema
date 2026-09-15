@@ -6,13 +6,14 @@
  * STALE_VERSION` se reemplaza la comanda local por `error.extra.order`, se
  * invalida la query y se avisa a la persona.
  */
-import { useQuery, type QueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { useCallback, useRef, useState } from "react"
 
 import { getCatalog } from "@/api/catalog"
 import { ApiError } from "@/api/client"
 import { listFavorites, listTablesStatus, getOrder, type OrderOut } from "@/api/orders"
 import { listKitchenRounds } from "@/api/kitchen"
+import { errorMessage } from "@/lib/errors"
 
 export const TABLES_STATUS_QUERY_KEY = ["tables", "status"] as const
 export const CATALOG_QUERY_KEY = ["catalog"] as const
@@ -134,4 +135,48 @@ export function useAuthorizerFlow() {
   }, []);
 
   return { open, pinError, pending, handleError, submitPin, fail, close };
+}
+
+/**
+ * Combina `useAuthorizerFlow` con el reemplazo de la comanda ante
+ * `STALE_VERSION`: el único punto por el que toda mutación de `OrderPage`
+ * decide "abrir el diálogo de PIN", "avisar que la comanda cambió" o "mostrar
+ * el error tal cual" (§6.3).
+ */
+export function useOrderMutationHandler(orderId: number | null | undefined) {
+  const queryClient = useQueryClient();
+  const authorizerFlow = useAuthorizerFlow();
+  const [error, setError] = useState<string | null>(null);
+
+  const handleError = useCallback(
+    (err: unknown, opts: { pin?: string; retry: (pin: string) => void; onStale?: () => void }) => {
+      if (isStaleVersionError(err)) {
+        if (orderId !== null && orderId !== undefined) applyStaleOrder(queryClient, orderId, err);
+        authorizerFlow.close();
+        setError(STALE_VERSION_MESSAGE);
+        // Cierra el diálogo de la acción que disparó el error: con la
+        // comanda reemplazada, un ítem/mesa/versión que ese diálogo tenía
+        // en memoria puede ya no existir tal cual (§6.3 "STALE_VERSION").
+        opts.onStale?.();
+        return;
+      }
+      const handled = authorizerFlow.handleError(err, opts.retry);
+      if (handled) {
+        // El texto del servidor (p. ej. "la comanda ya tiene cuenta
+        // presentada") se muestra en la página, igual que
+        // `MovementsPanel` ante `PETTY_CASH_LIMIT` — el diálogo de PIN
+        // sólo pide el PIN, no repite el motivo.
+        if (opts.pin === undefined) setError(errorMessage(err));
+        return;
+      }
+      if (opts.pin !== undefined) {
+        authorizerFlow.fail(errorMessage(err));
+        return;
+      }
+      setError(errorMessage(err));
+    },
+    [authorizerFlow, orderId, queryClient],
+  );
+
+  return { authorizerFlow, error, setError, handleError, queryClient };
 }

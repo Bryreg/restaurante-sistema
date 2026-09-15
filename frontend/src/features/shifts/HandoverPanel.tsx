@@ -6,6 +6,7 @@ import { newIdempotencyKey } from "@/api/client";
 import { createHandover, type FrozenBreakdown, type Handover, type HandoverKind } from "@/api/shifts";
 import { EmptyState } from "@/components/EmptyState";
 import { DenominationsInput, type Denomination } from "@/components/DenominationsInput";
+import { EmployeePicker } from "@/components/EmployeePicker";
 import { MoneyInput } from "@/components/MoneyInput";
 import { PinPad } from "@/components/PinPad";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ import { errorMessage } from "@/lib/errors";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
 import { PhotoCaptureField } from "./PhotoCaptureField";
-import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftSummary } from "./hooks";
+import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useCurrentShift, useShiftSummary } from "./hooks";
 
 function emptyDenominations(): Denomination[] {
   return DENOMINATIONS.map((value) => ({ value, count: 0 }));
@@ -60,19 +61,21 @@ function BreakdownCard({ breakdown }: { breakdown: FrozenBreakdown | null | unde
  * administrador sin cambiar a nadie. El desglose congelado que devuelve el
  * servidor (`breakdown`) se muestra tal cual — nunca se recalcula.
  *
- * GAP compartido: elegir el "nuevo responsable" en un relevo pide su número
- * de empleado a mano (no hay ruta de dispositivo que liste el personal —
- * ver `RosterPanel` y `DeviceIdentifyPage`).
+ * Elige el "nuevo responsable" con `EmployeePicker` (`GET
+ * /device/employees`, CONTRATO-INTERNO-1b-1.md §6), excluyendo al
+ * responsable actual (`excludeIds`) — no tiene sentido relevarlo a sí mismo.
  */
 export function HandoverPanel({ shiftId }: { shiftId: number }): React.JSX.Element {
   const queryClient = useQueryClient();
   const summary = useShiftSummary(shiftId);
+  const currentShift = useCurrentShift();
+  const currentResponsibleId = currentShift.data?.cash_responsible?.id;
 
   const [kind, setKind] = useState<HandoverKind>("handover");
   const [counted, setCounted] = useState<Denomination[]>(emptyDenominations());
   const [countedCard, setCountedCard] = useState<number | null>(null);
   const [countedTransfer, setCountedTransfer] = useState<number | null>(null);
-  const [newResponsibleId, setNewResponsibleId] = useState("");
+  const [newResponsibleId, setNewResponsibleId] = useState<number | null>(null);
   const [handoverPin, setHandoverPin] = useState("");
   const [photo, setPhoto] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +86,6 @@ export function HandoverPanel({ shiftId }: { shiftId: number }): React.JSX.Eleme
   const mutation = useMutation({
     mutationFn: (authorizerPin?: string) => {
       const total = counted.reduce((acc, d) => acc + d.value * d.count, 0);
-      const responsibleIdNumber = Number(newResponsibleId);
       return createHandover(
         shiftId,
         {
@@ -91,7 +93,7 @@ export function HandoverPanel({ shiftId }: { shiftId: number }): React.JSX.Eleme
           counted_cash: { denominations: counted, total },
           counted_card: countedCard,
           counted_transfer: countedTransfer,
-          new_responsible_id: kind === "handover" ? responsibleIdNumber : undefined,
+          new_responsible_id: kind === "handover" ? newResponsibleId ?? undefined : undefined,
           authorizer_pin: authorizerPin,
           photo,
         },
@@ -105,7 +107,7 @@ export function HandoverPanel({ shiftId }: { shiftId: number }): React.JSX.Eleme
       setCounted(emptyDenominations());
       setCountedCard(null);
       setCountedTransfer(null);
-      setNewResponsibleId("");
+      setNewResponsibleId(null);
       setHandoverPin("");
       setPhoto(null);
       idempotencyKeyRef.current = newIdempotencyKey();
@@ -115,13 +117,12 @@ export function HandoverPanel({ shiftId }: { shiftId: number }): React.JSX.Eleme
     onError: (err) => setError(errorMessage(err)),
   });
 
-  const responsibleIdNumber = Number(newResponsibleId);
-  const responsibleValid = kind !== "handover" || (newResponsibleId.trim() !== "" && Number.isInteger(responsibleIdNumber) && responsibleIdNumber > 0);
+  const responsibleValid = kind !== "handover" || newResponsibleId !== null;
 
   function handleContinue() {
     setError(null);
     if (!responsibleValid) {
-      setError("Ingresá el número de empleado del nuevo responsable.");
+      setError("Elegí quién va a ser el nuevo responsable.");
       return;
     }
     if (kind === "handover") {
@@ -155,16 +156,14 @@ export function HandoverPanel({ shiftId }: { shiftId: number }): React.JSX.Eleme
         </div>
 
         {kind === "handover" ? (
-          <div className="space-y-1">
-            <Label htmlFor="handover-responsible">Nuevo responsable (número de empleado)</Label>
-            <Input
-              id="handover-responsible"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              className="h-11"
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Nuevo responsable</p>
+            <EmployeePicker
               value={newResponsibleId}
-              onChange={(event) => setNewResponsibleId(event.target.value)}
+              onChange={(id) => setNewResponsibleId(id)}
+              label="Nuevo responsable"
+              excludeIds={currentResponsibleId !== undefined ? [currentResponsibleId] : undefined}
+              disabled={mutation.isPending}
             />
           </div>
         ) : null}

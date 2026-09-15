@@ -4,8 +4,8 @@ import { toast } from "sonner";
 
 import { rosterAction, type RosterAction, type ShiftCurrent } from "@/api/shifts";
 import { PinPad } from "@/components/PinPad";
+import { EmployeePicker } from "@/components/EmployeePicker";
 import { EmptyState } from "@/components/EmptyState";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -34,21 +34,19 @@ const ACTION_LABEL: Record<RosterAction, string> = {
  * automáticamente (contrato interno § 2): este panel es para el resto de
  * los movimientos del roster.
  *
- * GAP compartido con `DeviceIdentifyPage` (frontend-auth): no hay una ruta
- * de dispositivo para listar el personal activo de la sede, así que se pide
- * el número de empleado a mano en vez de un selector con nombres.
+ * Usa `EmployeePicker` (`GET /device/employees`, CONTRATO-INTERNO-1b-1.md
+ * §6) para elegir a la persona en un toque, en vez de tipear su número.
  */
 export function RosterPanel({ shift }: { shift: ShiftCurrent }): React.JSX.Element {
   const queryClient = useQueryClient();
-  const [employeeId, setEmployeeId] = useState("");
+  const [employeeId, setEmployeeId] = useState<number | null>(null);
   const [action, setAction] = useState<RosterAction>("in");
   const [error, setError] = useState<string | null>(null);
 
-  const employeeIdNumber = Number(employeeId);
-  const employeeIdValid = employeeId.trim() !== "" && Number.isInteger(employeeIdNumber) && employeeIdNumber > 0;
+  const employeeIdValid = employeeId !== null;
 
   const mutation = useMutation({
-    mutationFn: (pin: string) => rosterAction(shift.id, { employee_id: employeeIdNumber, action, pin }),
+    mutationFn: (pin: string) => rosterAction(shift.id, { employee_id: employeeId as number, action, pin }),
     onSuccess: () => {
       toast.success(`${ACTION_LABEL[action]} registrada.`);
       setError(null);
@@ -62,20 +60,12 @@ export function RosterPanel({ shift }: { shift: ShiftCurrent }): React.JSX.Eleme
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 rounded-md border p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-        <div className="space-y-1">
-          <Label htmlFor="roster-employee">Número de empleado</Label>
-          <Input
-            id="roster-employee"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            className="h-11"
-            value={employeeId}
-            onChange={(event) => setEmployeeId(event.target.value)}
-          />
+      <div className="space-y-4 rounded-md border p-4">
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Persona</p>
+          <EmployeePicker value={employeeId} onChange={(id) => setEmployeeId(id)} label="Persona" disabled={mutation.isPending} />
         </div>
-        <div className="space-y-1">
+        <div className="max-w-xs space-y-1">
           <Label htmlFor="roster-action">Acción</Label>
           <Select value={action} onValueChange={(v) => setAction(v as RosterAction)}>
             <SelectTrigger id="roster-action" className="h-11 w-full">
@@ -98,7 +88,7 @@ export function RosterPanel({ shift }: { shift: ShiftCurrent }): React.JSX.Eleme
           label={`PIN personal para ${ACTION_LABEL[action].toLowerCase()}`}
           disabled={!employeeIdValid || mutation.isPending}
           onSubmit={(pin) => mutation.mutate(pin)}
-          errorMessage={error ?? (!employeeIdValid ? "Ingresá el número de empleado primero." : null)}
+          errorMessage={error ?? (!employeeIdValid ? "Elegí quién entra, sale o pausa primero." : null)}
         />
       </div>
 

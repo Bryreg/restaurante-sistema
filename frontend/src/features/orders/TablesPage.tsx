@@ -3,7 +3,6 @@ import { Link2, Move, Plus, Users } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
-import { ApiError, newIdempotencyKey } from "@/api/client"
 import {
   createOrder,
   getOrder,
@@ -154,10 +153,12 @@ export function TablesPage(): React.JSX.Element {
       void queryClient.invalidateQueries({ queryKey: TABLES_STATUS_QUERY_KEY })
     } catch (err) {
       const handled = authorizerFlow.handleError(err, (retryPin) => void runMerge(retryPin))
-      if (!handled) {
-        setActionError(errorMessage(err))
-        if (pin !== undefined) authorizerFlow.fail(errorMessage(err))
+      if (handled) {
+        if (pin === undefined) setActionError(errorMessage(err))
+        else authorizerFlow.fail(errorMessage(err))
+        return
       }
+      setActionError(errorMessage(err))
     } finally {
       setActionPending(false)
     }
@@ -181,10 +182,12 @@ export function TablesPage(): React.JSX.Element {
       void queryClient.invalidateQueries({ queryKey: TABLES_STATUS_QUERY_KEY })
     } catch (err) {
       const handled = authorizerFlow.handleError(err, (retryPin) => void runMove(retryPin))
-      if (!handled) {
-        setActionError(errorMessage(err))
-        if (pin !== undefined) authorizerFlow.fail(errorMessage(err))
+      if (handled) {
+        if (pin === undefined) setActionError(errorMessage(err))
+        else authorizerFlow.fail(errorMessage(err))
+        return
       }
+      setActionError(errorMessage(err))
     } finally {
       setActionPending(false)
     }

@@ -14,7 +14,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from tests.audit.conftest import deep_keys, denoms, idem_headers
+from sqlalchemy import select
+
+from tests.audit.conftest import (
+    NO_TIP,
+    add_items,
+    create_order,
+    deep_keys,
+    denoms,
+    get_order,
+    idem_headers,
+    pay,
+)
 
 API = "/api/v1"
 
@@ -588,3 +599,868 @@ def test_changing_cash_settings_leaves_an_audit_row_with_before_and_after(
     assert row["before"] is not None and row["after"] is not None
     assert row["before"] != row["after"]
     assert row["before"]["tolerance_unknown_cause"] != row["after"]["tolerance_unknown_cause"]
+
+
+# ===========================================================================
+# PEDIDO 1b-1 — comanda, cocina, cobro y comprobante
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Privacidad del personal (A-7 y A-9 de 1a, resueltos en 1b-1; §5.9, §8.4)
+# ---------------------------------------------------------------------------
+
+
+def test_the_employee_audit_trail_never_stores_the_document_or_the_email(
+    admin_client: Any, employees: dict[str, Any]
+) -> None:
+    """**A-7, resuelto por default en 1b-1** (`CONTRATO-INTERNO-1b-1.md §5.9`,
+    `docs/ESTADO.md`): el `before`/`after` de la auditoría de `employee` no
+    guarda `document` ni `email`.
+
+    §8.4 (minimización, Ley 1581 de 2012): la auditoría es un registro que se
+    conserva años, lo lee cualquier administrador y se exporta a CSV. Copiar
+    ahí la cédula y el correo de cada empleado cada vez que alguien le cambia
+    el PIN multiplica el dato personal por cada edición, sin ninguna finalidad
+    que lo ampare. El maestro (`GET /admin/employees`) los sigue mostrando al
+    administrador: el dato no se pierde, deja de replicarse.
+    """
+    empleado = employees["operator"]
+    documento = "CC-99887766"
+    correo = "mesero@ejemplo.local"
+
+    creado = admin_client.post(
+        f"{API}/admin/employees",
+        json={
+            "name": "Nuevo Con Datos",
+            "role": "operator",
+            "pin": "7788",
+            "store_id": empleado.store_id,
+            "document": documento,
+            "email": correo,
+        },
+    )
+    assert creado.status_code in (200, 201), creado.text
+    nuevo_id = creado.json()["id"]
+
+    editado = admin_client.patch(
+        f"{API}/admin/employees/{nuevo_id}", json={"document": "CC-11112222", "email": "otro@ejemplo.local"}
+    )
+    assert editado.status_code == 200, editado.text
+
+    filas = admin_client.get(f"{API}/admin/audit", params={"entity": "employee"})
+    assert filas.status_code == 200, filas.text
+    assert filas.json(), "crear y editar un empleado tiene que dejar auditoría"
+
+    for fila in filas.json():
+        for lado in ("before", "after"):
+            if fila[lado] is None:
+                continue
+            claves = {k.lower() for k in deep_keys(fila[lado])}
+            assert "document" not in claves, f"la auditoría guardó el documento: {fila[lado]}"
+            assert "email" not in claves, f"la auditoría guardó el correo: {fila[lado]}"
+    assert documento not in filas.text and correo not in filas.text, (
+        "ni siquiera como valor suelto en el JSON de la auditoría"
+    )
+
+    maestro = admin_client.get(f"{API}/admin/employees")
+    assert any(e.get("document") == "CC-11112222" for e in maestro.json()), (
+        "el administrador sigue viendo el documento en el maestro: A-7 quita la copia, no el dato"
+    )
+
+
+def test_the_device_employee_list_shows_only_id_name_and_role(
+    device_client: Any, admin_client: Any, db: Any, employees: dict[str, Any], store: Any
+) -> None:
+    """**A-9, resuelto en 1b-1**: `GET /device/employees` es la lista de
+    «Quién opera» de §9.1 — reemplaza teclear el número de empleado a mano en
+    cuatro pantallas.
+
+    Es una lista **sin sesión de persona**, en una tablet compartida del
+    salón: cualquiera que pase la ve. Por eso lleva exactamente tres campos
+    (`id`, `name`, `role`) y ninguno más. `document` y `email` son datos
+    personales (§8.4); `discount_limit_pct` y `can_charge` son el mapa de
+    quién puede autorizar qué, que es justo lo que no se le muestra a quien
+    quiera abusarlo.
+    """
+    # Un inactivo y alguien de otra sede no tienen por qué aparecer.
+    inactivo = admin_client.post(
+        f"{API}/admin/employees",
+        json={"name": "Ya No Trabaja", "role": "operator", "pin": "7001", "store_id": store.id},
+    )
+    assert inactivo.status_code in (200, 201), inactivo.text
+    assert admin_client.patch(
+        f"{API}/admin/employees/{inactivo.json()['id']}", json={"active": False}
+    ).status_code == 200
+
+    from app.auth.models import Employee
+    from app.core import clock as clock_module
+    from app.core import security as security_module
+    from app.stores.models import Store
+
+    now = clock_module.now_utc()
+    otra_sede = Store(
+        organization_id=store.organization_id,
+        name="Sede Vecina",
+        nit="900123457",
+        dv="8",
+        legal_name="Organización Demo SAS",
+        address="Calle 2",
+        municipality_dane="11001",
+        opening_hours=[],
+        cutoff_hour=6,
+        active_channels=["counter"],
+        store_pin_hash=security_module.hash_secret("654321"),
+        active=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(otra_sede)
+    db.flush()
+    ajeno = Employee(
+        organization_id=store.organization_id,
+        store_id=otra_sede.id,
+        name="De Otra Sede",
+        role="operator",
+        pin_hash=security_module.hash_secret("7002"),
+        can_charge=False,
+        active=True,
+        failed_pin_attempts=0,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(ajeno)
+    db.commit()
+
+    resp = device_client.get(f"{API}/device/employees")
+    assert resp.status_code == 200, resp.text
+    listado = resp.json()
+    assert listado, "el dispositivo tiene que poder ofrecer a alguien"
+
+    for persona in listado:
+        assert set(persona.keys()) == {"id", "name", "role"}, (
+            f"la lista del dispositivo trae campos de más: {sorted(persona.keys())}"
+        )
+
+    nombres = {p["name"] for p in listado}
+    assert "Ya No Trabaja" not in nombres, "un inactivo no puede seguir ofreciéndose para operar"
+    assert "De Otra Sede" not in nombres, "ni alguien que trabaja en otra sede"
+    assert "Admin" in nombres, "el admin de la organización sí (store_id NULL): tiene PIN de POS"
+    assert "Cashier" in nombres and "Supervisor" in nombres
+
+    prohibidos = ("document", "email", "discount_limit_pct", "can_charge", "pin", "hash", "password")
+    claves = {k.lower() for k in deep_keys(listado)}
+    filtrado = {k for k in claves if any(p in k for p in prohibidos)}
+    assert not filtrado, f"la lista del dispositivo filtró {sorted(filtrado)}"
+
+
+def test_the_device_employee_list_requires_an_activated_device(client: Any) -> None:
+    """La misma lista, sin dispositivo activado: `401`. Si respondiera, el
+    personal completo de una sede sería público para cualquiera que conozca la
+    URL — y los nombres del personal son dato personal (§8.4)."""
+    resp = client.get(f"{API}/device/employees")
+    assert resp.status_code == 401, resp.text
+    assert resp.json()["error"]["code"], "y con la forma de error de siempre"
+
+
+# ---------------------------------------------------------------------------
+# El operador no ve costos: ahora también en venta, cocina y comprobante
+# ---------------------------------------------------------------------------
+
+
+def test_no_sale_response_for_a_device_carries_cost_margin_or_unit_cost(
+    device_client: Any, open_shift: Any, sales_products: Any
+) -> None:
+    """§11.10 y `AGENTS.md`: «el operador no recibe costos ni márgenes en
+    ninguna respuesta de la API».
+
+    En 1b-1 la superficie crece: la comanda congela `unit_cost` y
+    `recipe_version` en la fila del ítem (gancho de fase 2,
+    `CONTRATO-INTERNO-1b-1.md §2.2`), así que ahora existe una columna de
+    costo a un `model_dump()` de distancia del mostrador. La columna puede
+    existir; **serializarla hacia el dispositivo, no**.
+    """
+    open_shift()
+    order = create_order(device_client, channel="counter").json()
+    order = add_items(
+        device_client, order, [{"product_id": sales_products["inc8"].id, "qty": 1}]
+    ).json()
+    envio = device_client.post(
+        f"{API}/orders/{order['id']}/send",
+        json={"expected_version": order["version"]},
+        headers=idem_headers(),
+    )
+    assert envio.status_code == 200, envio.text
+    order = envio.json()
+
+    precuenta = device_client.post(
+        f"{API}/orders/{order['id']}/bill/present",
+        json={"expected_version": order["version"]},
+        headers=idem_headers(),
+    )
+    assert precuenta.status_code == 200, precuenta.text
+
+    order = get_order(device_client, order["id"])
+    cobro = pay(
+        device_client,
+        order["id"],
+        splits=[{"method": "cash", "amount": order["totals"]["total"]}],
+        tip=NO_TIP,
+    )
+    assert cobro.status_code == 201, cobro.text
+    doc_id = cobro.json()["document"]["id"]
+
+    respuestas = {
+        "GET /orders": device_client.get(f"{API}/orders"),
+        "GET /orders/{id}": device_client.get(f"{API}/orders/{order['id']}"),
+        "GET /orders/favorites": device_client.get(f"{API}/orders/favorites"),
+        "GET /tables/status": device_client.get(f"{API}/tables/status"),
+        "GET /kitchen/rounds": device_client.get(f"{API}/kitchen/rounds"),
+        "POST /orders/{id}/bill/present": precuenta,
+        "POST /orders/{id}/payments": cobro,
+        "GET /documents/{id}": device_client.get(f"{API}/documents/{doc_id}"),
+        "GET /documents/last": device_client.get(f"{API}/documents/last"),
+    }
+    for nombre, resp in respuestas.items():
+        assert resp.status_code in (200, 201), f"{nombre}: {resp.text}"
+        claves = {k.lower() for k in deep_keys(resp.json())}
+        filtrado = {k for k in claves if any(secret in k for secret in MONEY_SECRETS)}
+        assert not filtrado, f"{nombre} filtró {sorted(filtrado)}"
+        assert "recipe_version" not in claves, f"{nombre} filtró la versión de receta"
+
+
+def test_the_openapi_of_orders_kitchen_payments_and_documents_declares_no_cost_fields(
+    client: Any,
+) -> None:
+    """El mismo control sobre el contrato publicado. Un campo declarado en el
+    esquema es un campo que alguien va a llenar: el `unit_cost` del ítem tiene
+    que quedarse en la tabla y no aparecer nunca en `OrderItemOut`."""
+    spec = client.get("/openapi.json").json()
+    names = _property_names_reachable_from(
+        spec,
+        (
+            f"{API}/orders",
+            f"{API}/tables",
+            f"{API}/kitchen",
+            f"{API}/documents",
+            f"{API}/admin/orders",
+            f"{API}/admin/documents",
+        ),
+    )
+    assert names, "no se encontró ningún esquema bajo /orders, /kitchen ni /documents"
+
+    leaked = {n for n in names if any(secret in n.lower() for secret in MONEY_SECRETS)}
+    assert not leaked, f"el OpenAPI de la venta declara campos de costo: {sorted(leaked)}"
+    assert "recipe_version" not in {n.lower() for n in names}
+
+
+# ---------------------------------------------------------------------------
+# Aislamiento por organización y por sede en la venta (§1.1, §11.1)
+# ---------------------------------------------------------------------------
+
+
+def _relocate_sale(db: Any, order_id: int, *, organization_id: int, store_id: int) -> None:
+    """Muda una venta ya creada (comanda, ítems y documento) a otra
+    organización/sede.
+
+    Por qué así y no armando las filas a mano: lo que se audita es el **filtro
+    de la consulta**, no la capacidad de construir un `Order` válido con
+    treinta columnas. Mudar una venta real deja los datos coherentes y prueba
+    exactamente lo que importa — que un id ajeno responda `404` y no `403`
+    (un `403` confirmaría que el id existe) ni `200`.
+    """
+    from app.fiscal.models import FiscalDocument
+    from app.orders.models import Order, OrderItem
+
+    order = db.get(Order, order_id)
+    assert order is not None
+    order.organization_id = organization_id
+    order.store_id = store_id
+    for item in db.execute(select(OrderItem).where(OrderItem.order_id == order_id)).scalars():
+        item.organization_id = organization_id
+        item.store_id = store_id
+    for doc in db.execute(select(FiscalDocument).where(FiscalDocument.order_id == order_id)).scalars():
+        doc.organization_id = organization_id
+        doc.store_id = store_id
+    db.commit()
+
+
+def test_a_device_gets_404_on_an_order_a_kitchen_round_and_a_document_of_another_store(
+    device_client: Any, db: Any, open_shift: Any, sales_products: Any, store: Any, org_b: Any, store_b: Any
+) -> None:
+    """§1.1 y §11.1: «organización → sede; toda consulta se acota por
+    organización y sede (un id ajeno es `404`)».
+
+    Es la regla que hace vendible el producto: dos restaurantes distintos en
+    la misma base de datos. Se prueba en **lectura y en escritura** y en los
+    cuatro caminos nuevos de 1b-1 (comanda, mesas, cocina, documento), porque
+    basta que uno filtre sólo por `id` para que un restaurante vea las ventas
+    del otro.
+    """
+    open_shift()
+    order = create_order(device_client, channel="counter").json()
+    order = add_items(
+        device_client, order, [{"product_id": sales_products["inc8"].id, "qty": 1}]
+    ).json()
+    envio = device_client.post(
+        f"{API}/orders/{order['id']}/send",
+        json={"expected_version": order["version"]},
+        headers=idem_headers(),
+    )
+    assert envio.status_code == 200, envio.text
+    assert device_client.get(f"{API}/kitchen/rounds").json(), "la ronda se ve mientras es propia"
+
+    order = get_order(device_client, order["id"])
+    cobro = pay(
+        device_client,
+        order["id"],
+        splits=[{"method": "cash", "amount": order["totals"]["total"]}],
+        tip=NO_TIP,
+    )
+    assert cobro.status_code == 201, cobro.text
+    order_id = order["id"]
+    item_id = order["items"][0]["id"]
+    document_id = cobro.json()["document"]["id"]
+
+    # Guardia contra el falso verde: las tres cosas se ven ANTES de mudarlas.
+    # Si la ronda o el documento ya no existieran, los `404` de abajo no
+    # probarían el filtro por sede, sólo que el id no está.
+    assert device_client.get(f"{API}/orders/{order_id}").status_code == 200
+    assert device_client.get(f"{API}/documents/{document_id}").status_code == 200
+    assert any(
+        row["order_id"] == order_id for row in device_client.get(f"{API}/kitchen/rounds").json()
+    ), "la ronda sigue en cocina después de cobrar (los ítems quedaron `sent`)"
+    ultimo_propio = device_client.get(f"{API}/documents/last").json()
+    assert ultimo_propio is not None and ultimo_propio["id"] == document_id
+
+    for etiqueta, organization_id, store_id in (
+        ("otra sede de la misma organización", store.organization_id, store_b.id),
+        ("otra organización", org_b.id, store_b.id),
+    ):
+        _relocate_sale(db, order_id, organization_id=organization_id, store_id=store_id)
+
+        lecturas = {
+            "GET /orders/{id}": device_client.get(f"{API}/orders/{order_id}"),
+            "GET /documents/{id}": device_client.get(f"{API}/documents/{document_id}"),
+        }
+        for nombre, resp in lecturas.items():
+            assert resp.status_code == 404, f"{etiqueta} — {nombre}: {resp.status_code} {resp.text}"
+            assert resp.json()["error"]["code"] == "NOT_FOUND", resp.text
+
+        escrituras = {
+            "POST /orders/{id}/items": device_client.post(
+                f"{API}/orders/{order_id}/items",
+                json={"expected_version": 1, "items": [{"product_id": sales_products["inc8"].id, "qty": 1}]},
+                headers=idem_headers(),
+            ),
+            "POST /orders/{id}/items/{item_id}/void": device_client.post(
+                f"{API}/orders/{order_id}/items/{item_id}/void",
+                json={"expected_version": 1, "reason": "duplicate", "authorizer_pin": "9999"},
+            ),
+            "POST /documents/{id}/reprint": device_client.post(
+                f"{API}/documents/{document_id}/reprint"
+            ),
+        }
+        for nombre, resp in escrituras.items():
+            assert resp.status_code == 404, f"{etiqueta} — {nombre}: {resp.status_code} {resp.text}"
+
+        listados = {
+            "GET /orders": device_client.get(f"{API}/orders"),
+            "GET /kitchen/rounds": device_client.get(f"{API}/kitchen/rounds"),
+        }
+        for nombre, resp in listados.items():
+            assert resp.status_code == 200, resp.text
+            assert order_id not in [row.get("id", row.get("order_id")) for row in resp.json()], (
+                f"{etiqueta} — {nombre} sigue listando una venta que ya no es de esta sede"
+            )
+
+        ultimo = device_client.get(f"{API}/documents/last")
+        assert ultimo.status_code == 200, ultimo.text
+        assert ultimo.json() is None, (
+            f"{etiqueta} — `GET /documents/last` devolvió un documento de otra sede"
+        )
+
+
+def test_the_table_map_of_a_device_only_shows_its_own_store(
+    device_client: Any, db: Any, open_shift: Any, audit_tables: Any, store: Any, store_b: Any
+) -> None:
+    """La misma regla en el mapa de mesas, que es una pantalla de sólo lectura
+    y por eso se audita poco: una mesa de otra sede no puede aparecer, y
+    abrir una comanda sobre ella tiene que ser `404`, no `409`."""
+    from app.stores.models import Table, Zone
+
+    open_shift()
+    zona_ajena = Zone(store_id=store_b.id, name="Vecina", sort_order=1, active=True)
+    db.add(zona_ajena)
+    db.flush()
+    mesa_ajena = Table(zone_id=zona_ajena.id, store_id=store_b.id, number="Z9", seats=2, active=True)
+    db.add(mesa_ajena)
+    db.commit()
+    db.refresh(mesa_ajena)
+
+    mapa = device_client.get(f"{API}/tables/status")
+    assert mapa.status_code == 200, mapa.text
+    numeros = {t["number"] for zona in mapa.json()["zones"] for t in zona["tables"]}
+    assert "Z9" not in numeros, "el mapa de mesas mostró una mesa de otra sede"
+    assert {"A1", "A2"} <= numeros, "y sí muestra las propias"
+
+    intento = create_order(device_client, channel="dine_in", table_ids=[mesa_ajena.id])
+    assert intento.status_code == 404, intento.text
+
+
+# ---------------------------------------------------------------------------
+# Autorizaciones: quién puede autorizar qué (§2.2, §11.6)
+# ---------------------------------------------------------------------------
+
+
+def test_a_supervisor_authorizes_voids_and_after_bill_changes_but_never_a_pickup(
+    device_client: Any, open_shift: Any, sales_products: Any, employees: dict[str, Any]
+) -> None:
+    """§2.2 y `AGENTS.md`: el supervisor «autoriza anulaciones, cortesías y
+    descuentos, **no retiros ni rescates**».
+
+    1b-1 le agrega dos acciones (`void_order`, `after_bill_change`,
+    `CONTRATO-INTERNO-1b-1.md §2.3`) y ahí está el riesgo: una lista de
+    acciones que crece es una lista que se puede desbordar. El supervisor
+    tiene que poder anular la comanda de una mesa que se fue sin pagar sin
+    despertar al dueño, y **no** tiene que poder sacar plata del cajón —
+    exactamente la separación que evita que un PIN de supervisor sea un PIN de
+    administrador con otro nombre.
+    """
+    shift = open_shift()
+    order = create_order(device_client, channel="counter").json()
+    order = add_items(
+        device_client, order, [{"product_id": sales_products["inc8"].id, "qty": 1}]
+    ).json()
+    envio = device_client.post(
+        f"{API}/orders/{order['id']}/send",
+        json={"expected_version": order["version"]},
+        headers=idem_headers(),
+    )
+    assert envio.status_code == 200, envio.text
+    order = envio.json()
+
+    precuenta = device_client.post(
+        f"{API}/orders/{order['id']}/bill/present",
+        json={"expected_version": order["version"]},
+        headers=idem_headers(),
+    )
+    assert precuenta.status_code == 200, precuenta.text
+    order = get_order(device_client, order["id"])
+
+    # (a) `after_bill_change`: agregar después de presentar la cuenta.
+    con_supervisor = add_items(
+        device_client,
+        order,
+        [{"product_id": sales_products["iva19"].id, "qty": 1}],
+        authorizer_pin="5555",
+    )
+    assert con_supervisor.status_code == 200, con_supervisor.text
+    order = con_supervisor.json()
+    agregado = order["items"][-1]
+    assert agregado["name"] == "Cerveza"
+
+    # (b) `void_order`: anular una comanda con ítems enviados y cuenta presentada.
+    anulada = device_client.post(
+        f"{API}/orders/{order['id']}/void",
+        json={"expected_version": order["version"], "reason": "walkout", "authorizer_pin": "5555"},
+    )
+    assert anulada.status_code == 200, anulada.text
+    assert anulada.json()["status"] == "voided"
+
+    # (c) …y el mismo PIN no saca un peso del cajón.
+    retiro = device_client.post(
+        f"{API}/shifts/{shift['id']}/pickups",
+        json={"amount": 50_000, "authorizer_pin": "5555", "photo": "data:image/png;base64,AAAA"},
+        headers=idem_headers(),
+    )
+    assert retiro.status_code == 400, retiro.text
+    assert retiro.json()["error"]["code"] == "AUTHORIZATION_NOT_ALLOWED", retiro.text
+
+
+def test_voiding_a_sent_item_without_a_pin_names_the_corrective_action(
+    device_client: Any, open_shift: Any, sales_products: Any
+) -> None:
+    """§3.3 y el checklist del pedido 1b: anular un ítem `sent`/`ready`/
+    `served` «requires an authorizer → `400 AUTHORIZATION_REQUIRED`».
+
+    Y §11.18: el `message` tiene que **nombrar la acción correctiva**. Un
+    «no autorizado» a secas manda al mesero a buscar al administrador cuando
+    el supervisor que está a dos metros alcanza; peor, lo empuja a resolverlo
+    por fuera del sistema.
+    """
+    open_shift()
+    order = create_order(device_client, channel="counter").json()
+    order = add_items(
+        device_client, order, [{"product_id": sales_products["inc8"].id, "qty": 1}]
+    ).json()
+    item_id = order["items"][0]["id"]
+
+    libre = device_client.post(
+        f"{API}/orders/{order['id']}/items/{item_id}/void",
+        json={"expected_version": order["version"], "reason": "customer_changed_mind"},
+    )
+    assert libre.status_code == 200, "un ítem `pending` se anula sin autorización (§3.3)"
+
+    order = add_items(
+        device_client, get_order(device_client, order["id"]), [{"product_id": sales_products["inc8"].id, "qty": 1}]
+    ).json()
+    enviado = device_client.post(
+        f"{API}/orders/{order['id']}/send",
+        json={"expected_version": order["version"]},
+        headers=idem_headers(),
+    )
+    assert enviado.status_code == 200, enviado.text
+    order = enviado.json()
+    item_id = [i["id"] for i in order["items"] if i["status"] == "sent"][0]
+
+    sin_pin = device_client.post(
+        f"{API}/orders/{order['id']}/items/{item_id}/void",
+        json={"expected_version": order["version"], "reason": "kitchen_error"},
+    )
+    assert sin_pin.status_code == 400, sin_pin.text
+    error = sin_pin.json()["error"]
+    assert error["code"] == "AUTHORIZATION_REQUIRED"
+    assert "PIN" in error["message"].upper(), (
+        f"el mensaje tiene que decir qué hacer, no sólo que no se puede: {error['message']!r}"
+    )
+
+
+def test_charging_requires_the_persons_own_pin_and_the_permission_to_charge(
+    device_client: Any, open_shift: Any, sales_products: Any, identify: Any, employees: dict[str, Any]
+) -> None:
+    """§2.1: «cobrar re-pide el PIN propio»; §2.2: sólo cobra quien tiene
+    `can_charge`.
+
+    Las dos mitades cierran el mismo agujero: una tablet compartida queda
+    identificada con la persona anterior durante minutos. Sin el PIN, cualquiera
+    que pase cobra a nombre de quien se fue; sin `can_charge`, el mesero que no
+    responde por el cajón cobra en efectivo sin que nadie responda por esa
+    plata.
+    """
+    open_shift()
+    order = create_order(device_client, channel="counter").json()
+    order = add_items(
+        device_client, order, [{"product_id": sales_products["inc8"].id, "qty": 1}]
+    ).json()
+    splits = [{"method": "cash", "amount": order["totals"]["total"]}]
+
+    con_pin_ajeno = pay(device_client, order["id"], splits=splits, tip=NO_TIP, pin="2222")
+    assert con_pin_ajeno.status_code == 400, con_pin_ajeno.text
+    assert con_pin_ajeno.json()["error"]["code"] == "PIN_INVALID", (
+        "el PIN que se pide al cobrar es el de la persona identificada, no el de cualquiera"
+    )
+
+    identify(device_client, employees["operator"])  # can_charge=False
+    sin_permiso = pay(device_client, order["id"], splits=splits, tip=NO_TIP, pin="2222")
+    assert sin_permiso.status_code == 400, sin_permiso.text
+    error = sin_permiso.json()["error"]
+    assert error["code"] == "CANNOT_CHARGE", sin_permiso.text
+    assert error["message"], "con la acción correctiva: a quién pedirle que cobre"
+
+    identify(device_client, employees["cashier"])
+    con_permiso = pay(device_client, order["id"], splits=splits, tip=NO_TIP, pin="1111")
+    assert con_permiso.status_code == 201, con_permiso.text
+
+
+# ---------------------------------------------------------------------------
+# Versión optimista: la comanda vive en el servidor (§3.3, §11.9)
+# ---------------------------------------------------------------------------
+
+
+def test_every_mutation_with_a_stale_version_returns_409_with_the_current_order(
+    device_client: Any, open_shift: Any, sales_products: Any, audit_tables: Any
+) -> None:
+    """§3.3: «la comanda tiene versión optimista; dos tablets editando la
+    misma comanda reciben `409` si su versión es vieja». Contrato §2.4: el
+    `409 STALE_VERSION` viaja **con la comanda actual** en `extra.order`.
+
+    Los dos pedazos importan por separado. El `409` evita que la segunda
+    tablet pise lo que hizo la primera; la comanda adjunta evita el «recargá y
+    volvé a intentar» que en hora pico termina en dos comandas paralelas de la
+    misma mesa. Se prueba en **todas** las mutaciones con `expected_version`,
+    porque alcanza con que una lo olvide para que esa sea la que se use.
+    """
+    open_shift()
+    order = create_order(device_client, channel="counter").json()
+    order = add_items(
+        device_client, order, [{"product_id": sales_products["inc8"].id, "qty": 2}]
+    ).json()
+    vieja = order["version"] - 1
+    item_id = order["items"][0]["id"]
+
+    mutaciones = {
+        "items": (
+            "post",
+            f"{API}/orders/{order['id']}/items",
+            {"expected_version": vieja, "items": [{"product_id": sales_products["inc8"].id, "qty": 1}]},
+        ),
+        "items/{id} (patch)": (
+            "patch",
+            f"{API}/orders/{order['id']}/items/{item_id}",
+            {"expected_version": vieja, "qty": 3},
+        ),
+        "send": ("post", f"{API}/orders/{order['id']}/send", {"expected_version": vieja}),
+        "items/{id}/void": (
+            "post",
+            f"{API}/orders/{order['id']}/items/{item_id}/void",
+            {"expected_version": vieja, "reason": "duplicate"},
+        ),
+        "items/{id}/courtesy": (
+            "post",
+            f"{API}/orders/{order['id']}/items/{item_id}/courtesy",
+            {"expected_version": vieja, "reason": "complaint", "authorizer_pin": "5555"},
+        ),
+        "discounts": (
+            "post",
+            f"{API}/orders/{order['id']}/discounts",
+            {"expected_version": vieja, "scope": "order", "kind": "percent", "value": 5, "reason": "promo"},
+        ),
+        "move": (
+            "post",
+            f"{API}/orders/{order['id']}/move",
+            {"expected_version": vieja, "table_ids": [audit_tables[0].id]},
+        ),
+        "merge": (
+            "post",
+            f"{API}/orders/{order['id']}/merge",
+            {"expected_version": vieja, "from_order_id": order["id"]},
+        ),
+        "void": (
+            "post",
+            f"{API}/orders/{order['id']}/void",
+            {"expected_version": vieja, "reason": "duplicate"},
+        ),
+        "bill/present": (
+            "post",
+            f"{API}/orders/{order['id']}/bill/present",
+            {"expected_version": vieja},
+        ),
+        "bill/split": (
+            "post",
+            f"{API}/orders/{order['id']}/bill/split",
+            {"expected_version": vieja, "mode": "equal", "parts": 2},
+        ),
+        "payments": (
+            "post",
+            f"{API}/orders/{order['id']}/payments",
+            {
+                "expected_version": vieja,
+                "pin": "1111",
+                "tip": NO_TIP,
+                "splits": [{"method": "cash", "amount": order["totals"]["total"]}],
+            },
+        ),
+    }
+
+    for nombre, (verbo, url, body) in mutaciones.items():
+        resp = getattr(device_client, verbo)(url, json=body, headers=idem_headers())
+        assert resp.status_code == 409, f"{nombre}: {resp.status_code} {resp.text}"
+        error = resp.json()["error"]
+        assert error["code"] == "STALE_VERSION", f"{nombre}: {error}"
+        assert error["message"], f"{nombre}: el 409 tiene que decir qué pasó"
+        adjunta = error.get("order")
+        assert adjunta is not None, (
+            f"{nombre}: el 409 no trae la comanda actual y obliga a la tablet a adivinar"
+        )
+        assert adjunta["id"] == order["id"]
+        assert adjunta["version"] == order["version"], (
+            f"{nombre}: la comanda adjunta tiene que ser la versión vigente"
+        )
+        assert adjunta["items"], f"{nombre}: la comanda adjunta llega vacía"
+
+
+# ---------------------------------------------------------------------------
+# Forma única del error en los códigos nuevos (§11.18, contrato §4)
+# ---------------------------------------------------------------------------
+
+
+def test_every_new_business_error_of_the_sale_has_exactly_one_shape(
+    device_client: Any, open_shift: Any, sales_products: Any, set_feature: Any
+) -> None:
+    """§11.18 y §12: «una sola forma `{error:{code,message}}`», `message` con
+    la acción correctiva, reglas de negocio en `400` y **nunca un `500`**.
+
+    Muestra de los códigos nuevos del contrato §4. Vale la pena mirarlos
+    juntos: el frontend enciende un diálogo distinto según el `code`
+    (`AUTHORIZATION_REQUIRED` abre el PIN de supervisor, `STALE_VERSION`
+    recarga la comanda), así que un error que llegue con otra forma —o con un
+    `detail` de FastAPI en vez de `error`— no rompe un test, rompe una
+    pantalla en hora pico.
+    """
+    turno = open_shift()
+    order = create_order(device_client, channel="counter").json()
+
+    casos: list[tuple[str, Any]] = [
+        (
+            "ORDER_EMPTY",
+            device_client.post(
+                f"{API}/orders/{order['id']}/bill/present",
+                json={"expected_version": order["version"]},
+                headers=idem_headers(),
+            ),
+        ),
+        (
+            "NOTHING_TO_SEND",
+            device_client.post(
+                f"{API}/orders/{order['id']}/send",
+                json={"expected_version": order["version"]},
+                headers=idem_headers(),
+            ),
+        ),
+        (
+            "TABLE_REQUIRED",
+            create_order(device_client, channel="dine_in"),
+        ),
+        (
+            "STAFF_MEAL_CONSUMER_REQUIRED",
+            create_order(device_client, channel="staff_meal"),
+        ),
+    ]
+
+    order = add_items(
+        device_client, get_order(device_client, order["id"]), [{"product_id": sales_products["inc8"].id, "qty": 1}]
+    ).json()
+    total = order["totals"]["total"]
+    casos += [
+        (
+            "SPLITS_DO_NOT_MATCH",
+            pay(device_client, order["id"], splits=[{"method": "cash", "amount": total - 1}], tip=NO_TIP),
+        ),
+        (
+            "PAYMENT_METHOD_INVALID",
+            pay(device_client, order["id"], splits=[{"method": "bitcoin", "amount": total}], tip=NO_TIP),
+        ),
+        (
+            "PAYMENT_REFERENCE_REQUIRED",
+            pay(device_client, order["id"], splits=[{"method": "transfer", "amount": total}], tip=NO_TIP),
+        ),
+        (
+            "CHANGE_ONLY_ON_CASH",
+            pay(
+                device_client,
+                order["id"],
+                splits=[{"method": "card", "amount": total, "tendered": total + 1_000}],
+                tip=NO_TIP,
+            ),
+        ),
+        (
+            "TENDERED_TOO_LOW",
+            pay(
+                device_client,
+                order["id"],
+                splits=[{"method": "cash", "amount": total, "tendered": total - 1_000}],
+                tip=NO_TIP,
+            ),
+        ),
+        (
+            "TIP_NOT_ASKED",
+            pay(device_client, order["id"], splits=[{"method": "cash", "amount": total}]),
+        ),
+        (
+            "DISCOUNT_EXCEEDS_LINE",
+            device_client.post(
+                f"{API}/orders/{order['id']}/discounts",
+                json={
+                    "expected_version": order["version"],
+                    "scope": "item",
+                    "item_id": order["items"][0]["id"],
+                    "kind": "amount",
+                    "value": total * 10,
+                    "reason": "promo",
+                },
+            ),
+        ),
+    ]
+
+    set_feature("pos.pre_bill", False)
+    casos.append(
+        (
+            "FEATURE_DISABLED",
+            device_client.post(
+                f"{API}/orders/{order['id']}/bill/present",
+                json={"expected_version": order["version"]},
+                headers=idem_headers(),
+            ),
+        )
+    )
+
+    for esperado, resp in casos:
+        assert resp.status_code == 400, f"{esperado}: salió {resp.status_code} {resp.text}"
+        cuerpo = resp.json()
+        assert set(cuerpo.keys()) == {"error"}, f"{esperado}: forma distinta — {cuerpo}"
+        error = cuerpo["error"]
+        assert "code" in error and "message" in error, f"{esperado}: faltan code/message — {error}"
+        assert error["code"] == esperado, f"esperaba {esperado}, llegó {error['code']}"
+        assert isinstance(error["message"], str) and len(error["message"]) > 10, (
+            f"{esperado}: el mensaje tiene que hablarle a una persona — {error['message']!r}"
+        )
+
+    # Y el gate del cierre de turno, que es del mismo contrato (§2.4 «Caja»).
+    cierre = device_client.post(
+        f"{API}/shifts/{turno['id']}/close/count",
+        json={"counted_cash": denoms(200_000), "tips_cash_out": 0, "photo": "data:image/png;base64,AAAA"},
+        headers=idem_headers(),
+    )
+    assert cierre.status_code in (200, 201), cierre.text
+    confirmado = device_client.post(
+        f"{API}/shifts/{turno['id']}/close/{cierre.json()['count_id']}/confirm",
+        json={"difference_seen": 0, "closes_day": True},
+    )
+    assert confirmado.status_code == 400, confirmado.text
+    error = confirmado.json()["error"]
+    assert error["code"] == "OPEN_ORDERS_EXIST", confirmado.text
+    assert error.get("open_orders") == 1, f"y dice cuántas quedaron abiertas: {error}"
+
+
+def test_the_takeout_customer_data_travels_only_where_it_is_needed(
+    device_client: Any, admin_client: Any, open_shift: Any, sales_products: Any, store: Any
+) -> None:
+    """§8.4 (minimización) sobre los datos personales **nuevos** de 1b-1: el
+    nombre y el teléfono de quien pide para llevar.
+
+    Tienen una finalidad concreta y acotada —llamar cuando el pedido está
+    listo— y por eso viven en la comanda, que el salón necesita mirar. No
+    tienen ninguna finalidad en el comprobante fiscal (el adquirente es
+    «consumidor final», §8.3) ni en el listado de comandas del administrador,
+    que se exporta a CSV. Un teléfono que aparece en un CSV exportable es un
+    teléfono que termina en una lista de difusión sin autorización (§8.4).
+    """
+    open_shift()
+    telefono = "3001234567"
+    creada = create_order(
+        device_client,
+        channel="takeout",
+        takeout={"customer_name": "Ana Pérez", "phone": telefono},
+    )
+    assert creada.status_code == 201, creada.text
+    order = creada.json()
+    assert order["takeout"]["phone"] == telefono, (
+        "el salón sí lo ve: es para lo único que se pidió"
+    )
+
+    order = add_items(
+        device_client, order, [{"product_id": sales_products["inc8"].id, "qty": 1}]
+    ).json()
+    cobro = pay(
+        device_client,
+        order["id"],
+        splits=[{"method": "cash", "amount": order["totals"]["total"]}],
+        tip=NO_TIP,
+    )
+    assert cobro.status_code == 201, cobro.text
+
+    documento = device_client.get(f"{API}/documents/{cobro.json()['document']['id']}")
+    assert documento.status_code == 200, documento.text
+    assert telefono not in documento.text, "el teléfono no tiene nada que hacer en el comprobante"
+    assert documento.json()["customer"]["name"] == "Consumidor final", (
+        "el adquirente por defecto es «consumidor final» (§8.3): 1b-1 no captura clientes"
+    )
+
+    listado = admin_client.get(f"{API}/admin/orders", params={"store_id": store.id})
+    assert listado.status_code == 200, listado.text
+    assert telefono not in listado.text, (
+        "ni en el listado del administrador, que acepta `format=csv`"
+    )
+    claves = {k.lower() for k in deep_keys(listado.json())}
+    assert "phone" not in claves and "takeout_phone" not in claves

@@ -7,10 +7,13 @@ import { catalogFeature } from "@/features/catalog";
 import AuditPage from "@/features/audit/AuditPage";
 import FeaturesPage from "@/features/features/FeaturesPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
+import { ordersFeature } from "@/features/orders";
+import { paymentsFeature } from "@/features/payments";
 import SettingsPage from "@/features/settings/SettingsPage";
 import { shiftsFeature } from "@/features/shifts";
 
 import AdminLayout from "./AdminLayout";
+import PosHome from "./PosHome";
 import PosLayout from "./PosLayout";
 import { useSession } from "./session";
 
@@ -39,7 +42,9 @@ function RequireDevice({ children }: { children: React.ReactElement }): React.Re
 /**
  * `createBrowserRouter`: "/admin/*" exige `kind === "admin"`, "/pos/*"
  * exige `kind === "device"`. Concatena las rutas y la navegación que
- * declaran `shiftsFeature` y `catalogFeature` (contrato interno § 5).
+ * declaran `shiftsFeature`, `catalogFeature`, `ordersFeature` y
+ * `paymentsFeature` (CONTRATO-INTERNO-1b-1.md §6.2). `PosHome` es la ruta
+ * índice de `/pos`: decide entre Mesas y Comanda nueva según `pos.tables`.
  */
 const routes: RouteObject[] = [
   { path: "/", element: <Navigate to="/login" replace /> },
@@ -68,6 +73,7 @@ const routes: RouteObject[] = [
       { path: "notifications", element: <NotificationsPage /> },
       ...shiftsFeature.adminRoutes,
       ...catalogFeature.adminRoutes,
+      ...ordersFeature.adminRoutes,
     ],
   },
   {
@@ -77,7 +83,12 @@ const routes: RouteObject[] = [
         <PosLayout />
       </RequireDevice>
     ),
-    children: [...shiftsFeature.posRoutes],
+    children: [
+      { index: true, element: <PosHome /> },
+      ...shiftsFeature.posRoutes,
+      ...ordersFeature.posRoutes,
+      ...paymentsFeature.posRoutes,
+    ],
   },
   { path: "*", element: <Navigate to="/login" replace /> },
 ];

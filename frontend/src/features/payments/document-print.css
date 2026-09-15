@@ -1,0 +1,51 @@
+/**
+ * Impresión del comprobante interno (CONTRATO-INTERNO-1b-1.md §6.3):
+ * `window.print()` sin ninguna librería — en pantalla esta hoja no cambia
+ * nada; al imprimir sólo se ve `#document-printable`, en una sola columna
+ * angosta pensada para impresoras de tiquete (58/72/80 mm). El ancho real lo
+ * elige la clase `print-58mm`/`print-72mm`/`print-80mm` en el elemento
+ * imprimible (por defecto 80 mm; no hay todavía una configuración de sede
+ * para el ancho de la impresora — se aplica a mano si hace falta).
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #document-printable,
+  #document-printable * {
+    visibility: visible;
+  }
+
+  #document-printable {
+    position: absolute;
+    left: 0;
+    top: 0;
+    margin: 0;
+    padding: 3mm;
+    border: none;
+    box-shadow: none;
+    color: #000;
+    background: #fff;
+  }
+
+  .print-58mm {
+    width: 58mm;
+    font-size: 9px;
+  }
+
+  .print-72mm {
+    width: 72mm;
+    font-size: 10px;
+  }
+
+  .print-80mm {
+    width: 80mm;
+    font-size: 11px;
+  }
+
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+}
