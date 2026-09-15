@@ -478,6 +478,34 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    `201 POST /orders/{id}/payments` (emitió la fila de `fiscal_documents`).
    Esto cierra el último punto de la lista 9 para 1b-1; lo que sigue sin poder
    probarse acá es Postgres real y el CI.
+3. **Verificación final del pedido 1b-2** (2026-09-15, orquestador humano, árbol
+   quieto, en serie, después de cerrar los tres rojos que declaró la entrega):
+   `python -m mypy app` limpio (89 archivos); suite de backend completa
+   **538 passed, 0 failed** (SQLite, 26:12) —la corrida previa a los arreglos
+   daba **2 failed, 536 passed**, exactamente los dos que `ENTREGA.md § 5`
+   declaraba, así que el reporte del Maestro era honesto—; `tsc` limpio; vitest
+   **184/184** (48 archivos); `vite build` OK; Alembic desde cero `0001 → 0007`
+   (**53 tablas**) y seed idempotente. Las 893 advertencias `Duplicate Operation
+   ID` de cada corrida desaparecieron al quitar el doble montaje de routers.
+   **Recorrido en navegador real** (Playwright sobre Chromium, base recreada
+   desde cero): venta completa de mesa → **documento equivalente POS
+   `DEVPOS-000001`** con **Estado DIAN «Pendiente de transmisión»** y la leyenda
+   que ahora manda el servidor; el documento quedó con `fiscal_range_id` apuntando
+   al rango real y el rango consumió exactamente un número (1/5000). Una segunda
+   venta emitió `DEVPOS-000002`: **el consecutivo avanza sin huecos**. En el
+   admin se recorrieron Hoy, Ventas, Documentos fiscales, Rangos de numeración,
+   Notas, Devoluciones pendientes, Clientes y Pedidos. La matemática de Hoy
+   cerró contra el backend con dos ventas: netas **$148.148** ($160.000 cobrados
+   − $11.852 de impuesto), ticket promedio $74.074, ticket por comensal $37.037
+   sobre 4 comensales, efectivo esperado $360.000 (base $200.000 + lo cobrado) y
+   **propinas $14.814 por fuera del neto** — el invariante de que la propina
+   nunca entra en el `net` de un reporte, visto en pantalla.
+   **Defecto encontrado en el recorrido y corregido** (nadie del equipo lo vio,
+   y es la misma lección de reparto): `frontend/src/features/auth/LoginPage.tsx`
+   navegaba a `/admin/features` escrito a mano, así que aunque `router.tsx` ya
+   mandaba el índice de `/admin` a «Hoy», el administrador seguía aterrizando en
+   «Funciones» después de entrar. Ahora navega a `/admin` y decide el índice del
+   router, que es el único lugar donde debería decidirse.
 4. **Abierto por decisión del dueño de la spec** (advertencias del auditor, en
    `features/fase-1a-cimientos/outputs/ENTREGA.md § 5.4`) — **O-1, A-7 y A-9
    resueltos por default en 1b-1** (ver «Qué está hecho»; `backend-base`):

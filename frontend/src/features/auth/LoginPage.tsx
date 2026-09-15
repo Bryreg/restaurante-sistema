@@ -37,7 +37,10 @@ export default function LoginPage(): React.JSX.Element {
     try {
       await adminLogin(values);
       await refresh();
-      navigate("/admin/features", { replace: true });
+      // A la raíz, no a una pantalla fija: el índice de `/admin` decide cuál es
+      // la de entrada (hoy «Hoy», antes «Funciones»). Con la ruta escrita acá,
+      // 1b-2 cambió el índice del router y el login siguió cayendo en Funciones.
+      navigate("/admin", { replace: true });
     } catch (err) {
       setServerError(errorMessage(err));
     }
