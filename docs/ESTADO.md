@@ -1,9 +1,10 @@
 # Restaurante Sistema — estado del proyecto
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
-Última actualización: 2026-09-15 (pedido 1b-1 construido y verificado; el
-cierre lo hizo el orquestador humano sin Conciliador, ver «Dónde retomar».
-Pedido 1a entregado y verificado el 2026-09-14; framework 2.1.0).
+Última actualización: 2026-09-15 (pedido 1b-1 construido, verificado y recorrido
+en navegador real; el cierre lo hizo el orquestador humano sin Conciliador, ver
+«Dónde retomar». Arranca el pedido 1b-2. Pedido 1a entregado y verificado el
+2026-09-14; framework 2.1.0).
 
 **Este documento es VIVO.** Si un cambio altera una regla o un flujo descrito acá,
 se actualiza en el MISMO PR que el cambio. Un estado desactualizado miente con más
@@ -374,6 +375,21 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    constructores se reutilizan de caché y corren sólo Conciliador, ajustes y
    entrega), o darlo por cerrado con esta verificación — el contrato de
    coherencia lo cubrió el auditor y este cierre.
+   **Recorrido en navegador real** (2026-09-15, Playwright sobre Chromium, base
+   recreada desde cero: `alembic upgrade head` + `python -m app.seed`): activar
+   dispositivo (PIN de sede) → «Quién opera» (Operador 1, PIN propio) → abrir
+   turno con conteo por denominación (base fija $200.000) → Mesas → abrir Mesa 1
+   con 2 comensales → comanda con modificador **obligatorio** (punto de la carne)
+   y dos platos → enviar a cocina (ronda numerada) → Cuenta/Cobrar con pregunta
+   de propina → pago en efectivo → **documento equivalente POS-000001** → la mesa
+   vuelve a `libre`. La plata cerró en pantalla contra la matemática del backend:
+   venta $80.000 con precios impuesto incluido → base $74.074 e **INC 8 %
+   $5.926** discriminados, propina sugerida 10 % sobre la base neta **$7.407**,
+   total a cobrar $87.407, recibido $100.000, vuelto **$12.593**. Respuestas
+   observadas: `201 POST /orders`, `200 POST /orders/{id}/items`,
+   `201 POST /orders/{id}/payments` (emitió la fila de `fiscal_documents`).
+   Esto cierra el último punto de la lista 9 para 1b-1; lo que sigue sin poder
+   probarse acá es Postgres real y el CI.
 3. **Abierto por decisión del dueño de la spec** (advertencias del auditor, en
    `features/fase-1a-cimientos/outputs/ENTREGA.md § 5.4`) — **O-1, A-7 y A-9
    resueltos por default en 1b-1** (ver «Qué está hecho»; `backend-base`):
@@ -421,27 +437,30 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    (ver «Qué está hecho»): «Quién opera» con lista de personal (A-9),
    mostrador, mesas, comandas con versión optimista, rondas y cocina mínima,
    precuenta y propina, cobro con pagos mixtos y división, descuentos y
-   cortesías, `staff_meal`, O-1 y A-7 resueltos por default. **1b-2**
-   (siguiente): documento fiscal con rangos, estados, contingencia y adaptador
-   de proveedor (`FiscalProvider`), notas y devoluciones pendientes, clientes y
-   consentimientos, Hoy, Ventas e informe del contador, Pedidos; arranca desde
-   el commit del cierre de 1b-1 y conviene que su contrato interno tome los
-   puntos 6 y 7 de esta lista como entradas. La spec de ambos es
+   cortesías, `staff_meal`, O-1 y A-7 resueltos por default. **1b-2 arranca
+   ahora** (2026-09-15), sobre el commit de esta anotación — el cierre de 1b-1
+   (`e80c6f1`) más este ESTADO: documento fiscal con rangos, estados,
+   contingencia y adaptador de proveedor (`FiscalProvider`), notas y
+   devoluciones pendientes, clientes y consentimientos, Hoy, Ventas e informe
+   del contador, Pedidos. Su contrato interno toma los **puntos 6 y 7 de esta
+   lista como entradas** (A-10, A-11 y A-12 del auditor son trabajo de 1b-2, no
+   decisiones pendientes: la plata no se calcula en el cliente y la leyenda
+   legal la manda el servidor). La spec de ambos es
    `features/fase-1b-venta/spec.md`; el pedido delimita:
    ```js
    Workflow({
      scriptPath: '.claude/workflows/orquestador-general.js',
      args: {
-       pedido: '<el pedido 1b, sección 14 de la spec>',
+       pedido: '<la mitad 1b-2, delimitada contra lo que 1b-1 ya construyó>',
        spec: 'features/fase-1b-venta/spec.md',
-       outputs: 'features/fase-1b-venta/outputs',
+       outputs: 'features/fase-1b-venta/outputs-1b-2',
        contexto: ['docs/ESTADO.md', 'AGENTS.md', 'docs/SPEC-NEGOCIO.md'],
-       base: '<commit desde el que arranca 1b>',
+       base: '<commit de esta anotación>',
      },
    })
    ```
 9. Lo que no se pudo verificar en este entorno: Postgres real (tipos, índices,
    `SELECT FOR UPDATE` del consecutivo y los `409` literales de carrera, que
-   sólo el CI puede probar), el CI en sí, WCAG más allá de Testing Library, y
-   el flujo completo de comanda y cobro en un navegador real (1a sí se recorrió
-   con Playwright; 1b-1 todavía no).
+   sólo el CI puede probar), el CI en sí, y WCAG más allá de Testing Library.
+   El flujo completo de comanda y cobro en navegador real **ya no está en esta
+   lista**: 1a y 1b-1 se recorrieron con Playwright (ver punto 2).
