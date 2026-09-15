@@ -24,6 +24,14 @@ NOTIFICATION_TYPES: list[str] = [
     "cash_over_threshold",
     "pin_locked",
     "product_unavailable",
+    # 1b-1 (CONTRATO-INTERNO-1b-1.md §2.3): "discount_rate_high" y
+    # "courtesy_limit" ya emiten, desde `backend-comanda`; los otros tres
+    # quedan declarados para que 1b-2 los use sin tocar este catálogo.
+    "discount_rate_high",
+    "courtesy_limit",
+    "void_rate_high",
+    "order_unsent_too_long",
+    "order_unpaid_too_long",
 ]
 
 

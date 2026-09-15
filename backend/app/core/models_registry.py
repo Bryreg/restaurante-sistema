@@ -11,7 +11,8 @@ un `import` directo.
 from __future__ import annotations
 
 import importlib
-import importlib.util
+
+from app.core.modules import find_spec_safe
 
 MODEL_MODULES: list[str] = [
     "core",
@@ -19,6 +20,9 @@ MODEL_MODULES: list[str] = [
     "stores",
     "catalog",
     "shifts",
+    "orders",
+    "payments",
+    "fiscal",
     "audit",
     "notifications",
 ]
@@ -27,5 +31,5 @@ MODEL_MODULES: list[str] = [
 def import_all_models() -> None:
     for domain in MODEL_MODULES:
         module_name = f"app.{domain}.models"
-        if importlib.util.find_spec(module_name) is not None:
+        if find_spec_safe(module_name) is not None:
             importlib.import_module(module_name)

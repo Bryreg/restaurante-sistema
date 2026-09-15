@@ -10,7 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
@@ -21,6 +21,7 @@ from app.auth.deps import (
     _read_device_session,
     current_actor,
     current_admin,
+    current_device,
     current_device_session,
 )
 from app.auth.models import Authorization, DeviceSession, Employee
@@ -33,6 +34,7 @@ from app.auth.schemas import (
     AuthorizerOut,
     DeviceActivateIn,
     DeviceActivateOut,
+    DeviceEmployeeOut,
     DeviceIdentifyIn,
     DeviceIdentifyOut,
     EmployeeBriefOut,
@@ -90,6 +92,19 @@ def _employee_out(employee: Employee) -> EmployeeOut:
         email=employee.email,
         active=employee.active,
     )
+
+
+def _employee_audit_view(employee: Employee) -> dict:
+    """`before`/`after` de `record_audit(entity="employee")` (A-7, decisión
+    resuelta por default en 1b-1): `document` y `email` son PII que no entra
+    a la auditoría exportable, aunque `GET /admin/employees` los siga
+    devolviendo al admin. Único punto que arma ese `dict` para que ningún
+    llamador futuro los vuelva a colar."""
+
+    data = _employee_out(employee).model_dump()
+    data.pop("document", None)
+    data.pop("email", None)
+    return data
 
 
 def _store_brief(store: Store) -> StoreBriefOut:
@@ -238,6 +253,34 @@ def device_deactivate(
     db.flush()
     clear_session_cookie(response, COOKIE_DEVICE)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Personal del dispositivo: «Quién opera» (SPEC-NEGOCIO §9.1, A-9 de 1a).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/device/employees")
+def list_device_employees(
+    actor: Actor = Depends(current_device), db: Session = Depends(get_db)
+) -> list[DeviceEmployeeOut]:
+    """Personal activo que puede identificarse en este dispositivo: el de la
+    sede del dispositivo, más los admins de toda la organización (`store_id
+    IS NULL`, tienen PIN de POS). **Nunca** `document`, `email`,
+    `discount_limit_pct`, `can_charge` ni hashes (CONTRATO-INTERNO-1b-1.md
+    §2.4): el esquema `DeviceEmployeeOut` sólo tiene `id`, `name`, `role`."""
+
+    stmt = (
+        select(Employee)
+        .where(
+            Employee.organization_id == actor.organization_id,
+            Employee.active.is_(True),
+            or_(Employee.store_id == actor.store_id, Employee.store_id.is_(None)),
+        )
+        .order_by(Employee.name)
+    )
+    rows = db.execute(stmt).scalars().all()
+    return [DeviceEmployeeOut(id=e.id, name=e.name, role=e.role) for e in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +442,7 @@ def create_employee(
         entity_id=employee.id,
         action="create",
         before=None,
-        after=_employee_out(employee).model_dump(),
+        after=_employee_audit_view(employee),
     )
     return _employee_out(employee)
 
@@ -415,7 +458,7 @@ def update_employee(
     if employee is None or employee.organization_id != actor.organization_id:
         raise NotFoundError("El empleado no existe")
 
-    before = _employee_out(employee).model_dump()
+    before = _employee_audit_view(employee)
 
     if body.store_id is not None:
         store = db.get(Store, body.store_id)
@@ -449,7 +492,7 @@ def update_employee(
         entity_id=employee.id,
         action="update",
         before=before,
-        after=_employee_out(employee).model_dump(),
+        after=_employee_audit_view(employee),
     )
     return _employee_out(employee)
 

@@ -21,7 +21,13 @@ from app.core.features import is_enabled
 from app.core.security import verify_secret
 from app.notifications.service import notify
 
-SUPERVISOR_ACTIONS: set[str] = {"void_sent_item", "courtesy", "discount_over_limit"}
+SUPERVISOR_ACTIONS: set[str] = {
+    "void_sent_item",
+    "courtesy",
+    "discount_over_limit",
+    "void_order",
+    "after_bill_change",
+}
 
 
 def verify_pin(db: Session, employee: Employee, pin: str) -> bool:

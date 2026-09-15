@@ -7,6 +7,7 @@ Ningún dominio redefine estas fixtures; si necesita algo propio, agrega un
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -345,13 +346,164 @@ def idem() -> Callable[[], dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------
-# Carreras reales (una sesión por request). Promovida desde tests/audit para
-# que cualquier dominio pruebe concurrencia con hilos (D-2 de la entrega 1a).
+# Turno abierto y carta cargada, para dominios sin fixtures propias
+# (CONTRATO-INTERNO-1b-1 §1 y §3). `tests/audit` y `tests/shifts` ya definen
+# su propio `open_shift` con la misma semántica: esta versión, con `db` en
+# vez de `identify` renovando la sesión de la persona (misma cosa: identifica
+# antes de abrir), la usan los dominios nuevos (`orders`, `payments`, ...)
+# que no tienen conftest propio todavía.
 # ---------------------------------------------------------------------------
 
 
+def _denominations_for(total: int) -> dict[str, Any]:
+    from app.core.money import DENOMINATIONS
+
+    rest = total
+    items: list[dict[str, int]] = []
+    for value in sorted(DENOMINATIONS, reverse=True):
+        count, rest = divmod(rest, value)
+        if count:
+            items.append({"value": value, "count": count})
+    assert rest == 0, f"{total} no es representable con denominaciones colombianas"
+    return {"denominations": items, "total": total}
+
+
 @pytest.fixture()
-def race_app(tmp_path: Any) -> Any:
+def open_shift(
+    device_client: TestClient, identify: Callable[..., object], employees: dict[str, Employee]
+) -> Callable[..., dict]:
+    """Abre un turno y devuelve el cuerpo de `POST /shifts/open` (copia de
+    `tests/audit/conftest.py`): identifica al responsable —cajero por
+    defecto, PIN "1111", `can_charge=True`— y abre con la base fija en
+    denominaciones reales."""
+
+    def _open(
+        *,
+        responsible: Employee | None = None,
+        total: int = 200_000,
+        cash_reserve: int = 0,
+        opening_cause: str | None = None,
+        opening_note: str | None = None,
+    ) -> dict:
+        person = responsible if responsible is not None else employees["cashier"]
+        identify(device_client, person)
+        payload: dict[str, Any] = {
+            "opening_cash": _denominations_for(total),
+            "cash_reserve": cash_reserve,
+            "cash_responsible_id": person.id,
+        }
+        if opening_cause is not None:
+            payload["opening_cause"] = opening_cause
+        if opening_note is not None:
+            payload["opening_note"] = opening_note
+        resp = device_client.post(
+            "/api/v1/shifts/open", json=payload, headers={"Idempotency-Key": str(uuid4())}
+        )
+        assert resp.status_code in (200, 201), resp.text
+        return resp.json()
+
+    return _open
+
+
+@pytest.fixture()
+def catalog_seeded(db: Session, store: Store) -> None:
+    """Carta mínima cargada (`app.catalog.seed.seed_catalog` + commit) para
+    que los tests de otros dominios tengan productos que vender sin repetir
+    el seed a mano. Si el dominio de carta todavía no existe, el test que la
+    usa queda sin datos y se reporta como pendiente, no como hallazgo."""
+
+    from app.catalog.seed import seed_catalog
+
+    seed_catalog(db, store)
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Carreras reales (una sesión por request). Promovida desde tests/audit para
+# que cualquier dominio pruebe concurrencia con hilos (D-2 de la entrega 1a).
+# `race_env` agrega utilidades (`seed_product`, `open_shift`) para que cada
+# dominio arme sus propios datos DENTRO de la base de la carrera sin salirse
+# de ella; `race_app` queda como wrapper delgado (misma base, una sesión por
+# request) para no romper los tests de 1a que ya la usan.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RaceEnv:
+    client: TestClient
+    employee_id: int
+    store_id: int
+    organization_id: int
+    store_pin: str
+    employee_pin: str
+    session_factory: Callable[[], Session]
+
+    def seed_product(
+        self,
+        name: str = "Gaseosa",
+        price: int = 5000,
+        station: str | None = None,
+        tax_code: str = "inc_8",
+    ) -> int:
+        """Crea una categoría y un producto en la base de la carrera (no en
+        la de `db`/`client`: son bases distintas) y devuelve el `product_id`."""
+        from app.catalog.models import Category, Product
+
+        now = clock_module.now_utc()
+        with self.session_factory() as db:
+            category = Category(
+                organization_id=self.organization_id,
+                store_id=self.store_id,
+                name=f"Categoría {name}",
+                sort_order=0,
+                default_course=None,
+                default_station=None,
+                active=True,
+            )
+            db.add(category)
+            db.flush()
+            product = Product(
+                organization_id=self.organization_id,
+                store_id=self.store_id,
+                category_id=category.id,
+                name=name,
+                description=None,
+                station=station,
+                default_course=None,
+                price_dine_in=price,
+                price_takeout=None,
+                price_delivery=None,
+                price_platform=None,
+                tax_code=tax_code,
+                active=True,
+                available=True,
+                daily_count=None,
+                daily_remaining=None,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(product)
+            db.commit()
+            return product.id
+
+    def open_shift(self) -> dict:
+        """Abre turno por API con `self.client` (la persona ya está
+        identificada por la fixture `race_env`). Base fija por defecto."""
+        resp = self.client.post(
+            "/api/v1/shifts/open",
+            json={
+                "opening_cash": {"denominations": [{"value": 50000, "count": 4}], "total": 200_000},
+                "cash_reserve": 0,
+                "cash_responsible_id": self.employee_id,
+            },
+            headers={"Idempotency-Key": str(uuid4())},
+        )
+        assert resp.status_code in (200, 201), resp.text
+        return resp.json()
+
+
+@pytest.fixture()
+def race_env(tmp_path: Any) -> Iterator[RaceEnv]:
     """App con **una sesión por request** (como en producción) para los tests
     de concurrencia real con hilos.
 
@@ -366,7 +518,9 @@ def race_app(tmp_path: Any) -> Any:
     una sesión por request, con la misma política de commit de
     `app.core.db.get_db` (un `AppError` también hace commit).
 
-    Devuelve `(TestClient con dispositivo activado e identificado, employee_id)`.
+    Devuelve un `RaceEnv` con el cliente (dispositivo activado e
+    identificado), los ids de la sede/organización/empleado de la carrera y
+    `session_factory` para que cada dominio arme sus propios datos.
     """
     from collections.abc import Iterator
     from datetime import date
@@ -461,7 +615,7 @@ def race_app(tmp_path: Any) -> Any:
         )
         setup.add(employee)
         setup.commit()
-        store_id, employee_id = store.id, employee.id
+        store_id, employee_id, organization_id = store.id, employee.id, org.id
 
     def _per_request_db() -> Iterator[Session]:
         session = session_factory()
@@ -489,10 +643,27 @@ def race_app(tmp_path: Any) -> Any:
             "/api/v1/auth/device/identify", json={"employee_id": employee_id, "pin": employee_pin}
         )
         assert identified.status_code == 200, identified.text
-        yield client, employee_id
+        yield RaceEnv(
+            client=client,
+            employee_id=employee_id,
+            store_id=store_id,
+            organization_id=organization_id,
+            store_pin=store_pin,
+            employee_pin=employee_pin,
+            session_factory=session_factory,
+        )
     finally:
         if previous is None:
             app.dependency_overrides.pop(get_db, None)
         else:
             app.dependency_overrides[get_db] = previous
         engine.dispose()
+
+
+@pytest.fixture()
+def race_app(race_env: RaceEnv) -> tuple[TestClient, int]:
+    """Wrapper delgado sobre `race_env`: misma base, una sesión por request.
+    Se mantiene para no romper los tests de 1a que ya la usan como
+    `(TestClient, employee_id)`."""
+
+    return race_env.client, race_env.employee_id

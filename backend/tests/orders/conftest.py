@@ -1,0 +1,126 @@
+"""Fixtures propias de `tests/orders` y `tests/kitchen`.
+
+No redefine ninguna fixture de `tests/conftest.py` (CONTRATO-INTERNO-1b-1.md
+§3): sólo agrega lo que la comanda necesita (mesas, un par de productos y
+helpers HTTP delgados para crear/agregar/enviar).
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Callable
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.catalog.models import Category, Product
+from app.core import clock as clock_module
+from app.stores.models import Store, Table, Zone
+
+
+def idem_headers() -> dict[str, str]:
+    return {"Idempotency-Key": str(uuid.uuid4())}
+
+
+@pytest.fixture()
+def zone(db: Session, store: Store) -> Zone:
+    row = Zone(store_id=store.id, name="Salón", sort_order=1, active=True)
+    db.add(row)
+    db.commit()
+    return row
+
+
+@pytest.fixture()
+def tables(db: Session, zone: Zone, store: Store) -> list[Table]:
+    rows = []
+    for i in range(1, 5):
+        t = Table(zone_id=zone.id, store_id=store.id, number=str(i), seats=4, active=True)
+        db.add(t)
+        rows.append(t)
+    db.commit()
+    for t in rows:
+        db.refresh(t)
+    return rows
+
+
+@pytest.fixture()
+def main_product(db: Session, store: Store) -> Product:
+    """Producto CON estación (pasa por cocina al enviar)."""
+    now = clock_module.now_utc()
+    category = Category(
+        organization_id=store.organization_id, store_id=store.id, name="Platos", sort_order=0,
+        default_course="main", default_station="hot_kitchen", active=True,
+    )
+    db.add(category)
+    db.flush()
+    row = Product(
+        organization_id=store.organization_id, store_id=store.id, category_id=category.id, name="Bandeja Paisa",
+        description=None, station="hot_kitchen", default_course="main", price_dine_in=25000, price_takeout=22000,
+        price_delivery=None, price_platform=None, tax_code="inc_8", active=True, available=True, daily_count=None,
+        daily_remaining=None, unavailable_by_employee_id=None, unavailable_by_employee_name=None, unavailable_at=None,
+        created_at=now, updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@pytest.fixture()
+def drink_product(db: Session, store: Store) -> Product:
+    """Producto SIN estación: pasa directo a `served` al enviar."""
+    now = clock_module.now_utc()
+    category = Category(
+        organization_id=store.organization_id, store_id=store.id, name="Bebidas", sort_order=1,
+        default_course="beverage", default_station=None, active=True,
+    )
+    db.add(category)
+    db.flush()
+    row = Product(
+        organization_id=store.organization_id, store_id=store.id, category_id=category.id, name="Gaseosa",
+        description=None, station=None, default_course="beverage", price_dine_in=5000, price_takeout=None,
+        price_delivery=None, price_platform=None, tax_code="inc_8", active=True, available=True, daily_count=None,
+        daily_remaining=None, unavailable_by_employee_id=None, unavailable_by_employee_name=None, unavailable_at=None,
+        created_at=now, updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@pytest.fixture()
+def new_order(device_client: TestClient) -> Callable[..., dict[str, Any]]:
+    def _create(*, channel: str = "counter", expect_status: int = 201, **body: Any) -> Any:
+        payload: dict[str, Any] = {"channel": channel, **body}
+        resp = device_client.post("/api/v1/orders", json=payload, headers=idem_headers())
+        if expect_status is not None:
+            assert resp.status_code == expect_status, resp.text
+        return resp
+
+    return _create
+
+
+@pytest.fixture()
+def add_items(device_client: TestClient) -> Callable[..., Any]:
+    def _add(order: dict[str, Any], items: list[dict[str, Any]], *, authorizer_pin: str | None = None, headers: dict[str, str] | None = None) -> Any:
+        body: dict[str, Any] = {"expected_version": order["version"], "items": items}
+        if authorizer_pin is not None:
+            body["authorizer_pin"] = authorizer_pin
+        resp = device_client.post(f"/api/v1/orders/{order['id']}/items", json=body, headers=headers or idem_headers())
+        return resp
+
+    return _add
+
+
+@pytest.fixture()
+def send_order(device_client: TestClient) -> Callable[..., Any]:
+    def _send(order: dict[str, Any]) -> Any:
+        resp = device_client.post(
+            f"/api/v1/orders/{order['id']}/send", json={"expected_version": order["version"]}, headers=idem_headers()
+        )
+        return resp
+
+    return _send

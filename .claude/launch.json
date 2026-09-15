@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/schemas/launch.schema.json",
-  "description": "Arranque local de Restaurante Sistema (pedido 1a). Backend FastAPI + SQLite de desarrollo; frontend Vite + React bajo el mismo origen (proxy /api -> :8000).",
+  "description": "Arranque local de Restaurante Sistema (pedido 1a + 1b-1 en construcción). Backend FastAPI + SQLite de desarrollo; frontend Vite + React bajo el mismo origen (proxy /api -> :8000).",
   "services": [
     {
       "name": "backend",

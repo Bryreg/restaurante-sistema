@@ -129,6 +129,16 @@ class EmployeeOut(BaseModel):
     active: bool
 
 
+class DeviceEmployeeOut(BaseModel):
+    """`GET /device/employees` (SPEC-NEGOCIO §9.1, «Quién opera»): SOLO estos
+    tres campos. Nunca `document`, `email`, `discount_limit_pct`, `can_charge`
+    ni ningún hash (CONTRATO-INTERNO-1b-1.md §2.4)."""
+
+    id: int
+    name: str
+    role: str
+
+
 class AuthorizationOut(BaseModel):
     id: int
     authorizer_id: int

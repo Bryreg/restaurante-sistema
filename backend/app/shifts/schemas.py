@@ -49,6 +49,17 @@ class EmployeeRef(OutModel):
     name: str
 
 
+class SalesByMethodOut(BaseModel):
+    """Forma compartida por `sales` y `tips` de `ShiftSummaryOut`/
+    `ShiftCurrentOut` (1b-1, `app.shifts.hooks.SalesTotals`). `other` agrupa
+    `platform`/`voucher`/`other` (no entran al cajón)."""
+
+    cash: int
+    card: int
+    transfer: int
+    other: int
+
+
 # ---------------------------------------------------------------------------
 # Turno actual / apertura
 # ---------------------------------------------------------------------------
@@ -68,6 +79,8 @@ class ShiftCurrentOut(BaseModel):
     cash_responsible: EmployeeRef
     roster: list[RosterEntryOut]
     expected_cash: int | None = None
+    sales: SalesByMethodOut | None = None
+    tips: SalesByMethodOut | None = None
     is_stale: bool
     cash_over_threshold: bool
 
@@ -255,6 +268,7 @@ class CloseReviewOut(BaseModel):
     requires_identified_cause: bool
     is_critical: bool
     closes_day_suggested: bool
+    open_orders: int = 0
 
 
 class CloseConfirmIn(BaseModel):
@@ -314,6 +328,8 @@ class ShiftSummaryOut(BaseModel):
     pickups: list[CashPickupOut]
     handovers: list[HandoverOut]
     expected_cash: int | None = None
+    sales: SalesByMethodOut | None = None
+    tips: SalesByMethodOut | None = None
     counted_cash: int | None = None
     difference: int | None = None
     close_cause: CashDifferenceCauseLiteral | None = None

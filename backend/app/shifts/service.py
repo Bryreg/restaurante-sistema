@@ -12,7 +12,6 @@ conteos humanos).
 from __future__ import annotations
 
 import importlib
-import importlib.util
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -26,6 +25,7 @@ from app.auth import service as auth_service
 from app.auth.deps import Actor
 from app.auth.models import Authorization, Employee
 from app.core import clock, features, money, tz
+from app.core import modules
 from app.core.errors import AppError
 from app.notifications.service import notify
 from app.stores import service as stores_service
@@ -110,12 +110,74 @@ def _reset_daily_availability_if_present(db: Session, *, store_id: int) -> None:
     catálogo ya existe (protegido con `find_spec`: se construye en paralelo).
     """
 
-    if importlib.util.find_spec("app.catalog.service") is None:
+    if modules.find_spec_safe("app.catalog.service") is None:
         return
     module = importlib.import_module("app.catalog.service")
     fn = getattr(module, "reset_daily_availability", None)
     if fn is not None:
         fn(db, store_id=store_id)
+
+
+# ---------------------------------------------------------------------------
+# Gancho cruzado con `app.orders.hooks` (comandas abiertas al cerrar el
+# turno; traslado al turno siguiente). Protegido con `find_spec` porque
+# `app.orders` se construye en paralelo (CONTRATO-INTERNO-1b-1.md §2.5, dueño
+# del test E2E: backend-base, `tests/shifts/test_open_orders_gate.py`).
+# ---------------------------------------------------------------------------
+
+
+def _orders_hooks_module() -> Any | None:
+    if modules.find_spec_safe("app.orders.hooks") is None:
+        return None
+    return importlib.import_module("app.orders.hooks")
+
+
+def _count_open_orders(db: Session, shift_id: int) -> int:
+    module = _orders_hooks_module()
+    if module is None:
+        return 0
+    fn = getattr(module, "count_open_orders", None)
+    if fn is None:
+        return 0
+    return int(fn(db, shift_id=shift_id))
+
+
+def _detach_open_orders(db: Session, *, shift_id: int, actor: Actor) -> list[int]:
+    module = _orders_hooks_module()
+    if module is None:
+        return []
+    fn = getattr(module, "detach_open_orders", None)
+    if fn is None:
+        return []
+    return list(fn(db, shift_id=shift_id, actor=actor))
+
+
+def _adopt_transferred_orders(db: Session, *, store_id: int, shift: Shift, actor: Actor) -> list[int]:
+    module = _orders_hooks_module()
+    if module is None:
+        return []
+    fn = getattr(module, "adopt_transferred_orders", None)
+    if fn is None:
+        return []
+    return list(fn(db, store_id=store_id, shift=shift, actor=actor))
+
+
+def _apply_open_orders_gate(db: Session, *, shift: Shift, actor: Actor, transfer_open_orders: bool) -> None:
+    """`400 OPEN_ORDERS_EXIST` si el turno tiene comandas abiertas y no se
+    pidió trasladarlas; con el traslado, las desprende del turno (quedan
+    `shift_id NULL`, a la espera del próximo `open_shift`)."""
+
+    open_count = _count_open_orders(db, shift.id)
+    if open_count == 0:
+        return
+    if not transfer_open_orders:
+        raise AppError(
+            "OPEN_ORDERS_EXIST",
+            "Cobrá o anulá las comandas abiertas, o marcá trasladarlas al turno siguiente",
+            status=400,
+            extra={"open_orders": open_count},
+        )
+    _detach_open_orders(db, shift_id=shift.id, actor=actor)
 
 
 def _close_business_day(db: Session, business_day_id: int) -> None:
@@ -376,6 +438,11 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
         opener = db.get(Employee, opener_id)
         if opener is not None:
             hooks.on_employee_identified(db, store_id=store.id, employee=opener)
+
+    # Comandas que quedaron trasladadas (`shift_id NULL`) por el cierre de un
+    # turno anterior: este nuevo turno las adopta (CONTRATO-INTERNO-1b-1.md
+    # §2.5, dueño del test E2E: backend-base).
+    _adopt_transferred_orders(db, store_id=store.id, shift=shift, actor=actor)
 
     record_audit(
         db,
@@ -852,6 +919,7 @@ def review_close(db: Session, *, shift: Shift, store: Store, count: ShiftCloseCo
         "requires_identified_cause": ev.requires_identified_cause,
         "is_critical": ev.is_critical,
         "closes_day_suggested": not _has_other_open_shift_same_day(db, shift),
+        "open_orders": _count_open_orders(db, shift.id),
     }
 
 
@@ -1055,8 +1123,10 @@ def confirm_close(
     cause: str | None,
     note: str | None,
     closes_day: bool,
+    transfer_open_orders: bool = False,
 ) -> dict[str, Any]:
     _require_open(shift)
+    _apply_open_orders_gate(db, shift=shift, actor=actor, transfer_open_orders=transfer_open_orders)
     ev = _evaluate_close(db, shift, store, count)
 
     if ev.difference != difference_seen:
@@ -1078,6 +1148,7 @@ def confirm_close(
 
 def close_single_step(db: Session, *, actor: Actor, shift: Shift, store: Store, payload: SingleStepCloseIn) -> dict[str, Any]:
     _require_open(shift)
+    _apply_open_orders_gate(db, shift=shift, actor=actor, transfer_open_orders=payload.transfer_open_orders)
     count = create_close_count(
         db,
         actor=actor,
@@ -1112,6 +1183,12 @@ def close_administrative(db: Session, *, actor: Actor, shift: Shift, store: Stor
             "Este turno todavía no pasó la hora de corte: no se puede cerrar administrativamente",
             status=400,
         )
+
+    # El cierre administrativo traslada las comandas abiertas siempre (nunca
+    # bloquea con `OPEN_ORDERS_EXIST`): es un rescate de administrador sobre
+    # un turno abandonado, no algo que el responsable de caja pueda resolver
+    # cobrando o anulando.
+    _detach_open_orders(db, shift_id=shift.id, actor=actor)
 
     cash_settings = stores_service.get_cash_settings(db, store.id)
     breakdown = compute_breakdown(db, shift)

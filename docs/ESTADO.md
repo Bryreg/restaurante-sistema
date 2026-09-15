@@ -1,7 +1,9 @@
 # Restaurante Sistema — estado del proyecto
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
-Última actualización: 2026-09-14 (pedido 1a entregado y verificado; framework 2.1.0).
+Última actualización: 2026-09-15 (pedido 1b-1 en construcción; `backend-base`
+entregó cimientos, caja y personal del dispositivo. Pedido 1a entregado y
+verificado el 2026-09-14; framework 2.1.0).
 
 **Este documento es VIVO.** Si un cambio altera una regla o un flujo descrito acá,
 se actualiza en el MISMO PR que el cambio. Un estado desactualizado miente con más
@@ -155,6 +157,70 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
   funciones habilitables por flag, perfiles `basic`/`standard`/`full`).
 - **Specs de los pedidos** `features/fase-1a-cimientos/spec.md` (entregado) y
   `features/fase-1b-venta/spec.md` (siguiente), con contrato de API.
+- **Pedido 1b-1 en construcción** (comanda y cobro, primera mitad de 1b;
+  contrato interno del equipo en `features/fase-1b-venta/CONTRATO-INTERNO-1b-1.md`;
+  outputs por agente en `features/fase-1b-venta/outputs-1b-1/`). Equipo:
+  `backend-base`, `backend-comanda`, `backend-cobro`, `frontend-comanda`,
+  `frontend-cobro`, `auditor-venta`. Lo que entregó `backend-base` (cimientos,
+  caja y personal del dispositivo — esto es lo que destraba al resto):
+  - **`GET /device/employees`** («Quién opera», SPEC-NEGOCIO §9.1; cierra A-9
+    de 1a): personal activo de la sede del dispositivo **o** de toda la
+    organización (`store_id NULL`, los admins), sólo `{id, name, role}` —
+    nunca `document`, `email`, `discount_limit_pct`, `can_charge` ni hashes.
+  - **O-1 resuelto por default**: con `cash.blind_close` encendida (perfil
+    `full`, el del seed y el de los tests, la deja encendida) el responsable
+    de caja **no** ve `expected_cash`/`sales`/`tips` en `GET /shifts/current`
+    ni en `GET /shifts/{id}` — sólo el admin; el responsable los ve recién en
+    el paso 2 del cierre (`GET /shifts/{id}/close/{count_id}/review`). Con la
+    flag apagada, el responsable ve todo igual que antes. Un único predicado,
+    `app.shifts.router._can_see_expected(db, actor, shift)`.
+  - **A-7 resuelto por default**: `document` y `email` de empleados quedan
+    fuera del `before`/`after` de `record_audit(entity="employee")`
+    (`app.auth.router._employee_audit_view`); `GET /admin/employees` los
+    sigue devolviendo al admin sin cambios.
+  - **`app/shifts/hooks.py`**: `SalesTotals` ahora trae `other`,
+    `tips_card`/`tips_transfer`/`tips_other` además de `cash`/`card`/
+    `transfer`/`tips_cash`; `get_sales_totals` lee `app.payments.models.Payment`
+    (protegido con `find_spec_safe`, ver más abajo) agrupado por medio del
+    turno con `voided_at IS NULL`. `compute_breakdown` no cambió: sigue
+    leyendo sólo `.cash`.
+  - **Gate de comandas abiertas al cerrar el turno**: `confirm_close` y
+    `close_single_step` responden `400 OPEN_ORDERS_EXIST {open_orders: n}` si
+    el turno tiene comandas `open`/`to_pay` y no se pidió `transfer_open_orders`
+    (el campo ya existía en `CloseConfirmIn`/`SingleStepCloseIn`); con el
+    traslado (o siempre, en `close_administrative`, que es un rescate) las
+    comandas quedan `shift_id NULL` a la espera del turno siguiente, que las
+    adopta al abrir. Los tres hooks (`count_open_orders`, `detach_open_orders`,
+    `adopt_transferred_orders`) viven en `app.orders.hooks` (los escribió
+    `backend-comanda`; `backend-base` sólo los llama, protegido con
+    `find_spec_safe`). `CloseReviewOut` ganó `open_orders: int`.
+  - **Fixtures nuevas en `tests/conftest.py`** (sin tocar las existentes):
+    `open_shift(*, responsible=None, total=200000, cash_reserve=0,
+    opening_cause=None, opening_note=None)`, `catalog_seeded`, y `race_env`
+    (dataclass `RaceEnv` con `client`, `employee_id`, `store_id`,
+    `organization_id`, `store_pin`, `employee_pin`, `session_factory`, más
+    `seed_product(...)` y `open_shift()`); `race_app` quedó como wrapper
+    delgado sobre `race_env` — mismo comportamiento externo que en 1a, ningún
+    test de carrera existente se tocó.
+  - **`app/main.py` (`DOMAINS`) y `app/core/models_registry.py`
+    (`MODEL_MODULES`)** ya incluyen `orders`/`payments`/`fiscal`/`kitchen`
+    (`kitchen` sin modelos).
+  - **Defecto encontrado y corregido** (no estaba en el contrato):
+    `importlib.util.find_spec("app.payments.router")` — o cualquier submódulo
+    de un dominio que todavía no tiene ni carpeta — **lanza**
+    `ModuleNotFoundError` en vez de devolver `None`, porque `find_spec` de un
+    nombre con punto importa primero el paquete padre. En 1a esto nunca se vio
+    porque todo dominio ausente durante la construcción en paralelo ya tenía
+    su `__init__.py`; en 1b-1, mientras `app/payments` y `app/fiscal` no
+    tenían carpeta, agregar `"payments"`/`"fiscal"` a `DOMAINS`/`MODEL_MODULES`
+    tumbaba el arranque completo de la API (y por lo tanto toda la suite de
+    tests, de cualquier dominio). Nuevo helper **`app.core.modules.find_spec_safe`**
+    (atrapa `ModuleNotFoundError`) reemplaza el `find_spec` crudo en
+    `main.py`, `models_registry.py`, `shifts/hooks.py` y `shifts/service.py`.
+  - Confirmado sin cambios (ya cumplía lo pedido): el seed de desarrollo
+    (`app/seed.py`) ya declara `active_channels` counter/dine_in/takeout,
+    `payment_methods` cash/card/transfer habilitados, `stations`, `courses` y
+    `course_target_minutes`.
 - **Pedido 1a entregado** (orquestador, dos rondas, veredicto del Conciliador
   **coherente**; entrega del Maestro en `features/fase-1a-cimientos/outputs/ENTREGA.md`,
   outputs por agente en el mismo directorio, contrato interno del equipo en
@@ -205,6 +271,21 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
   - `run_idempotent` guarda un error de negocio como respuesta resuelta.
   - `multi_store` no gatea `GET /admin/stores` (selector de interfaz); `UvtValue`
     es por organización.
+  - **`app.core.modules.find_spec_safe(name)`** (nuevo en 1b-1): reemplaza el
+    `importlib.util.find_spec(name)` crudo en todo punto que pregunta "¿existe
+    este dominio todavía?". `find_spec("app.payments.router")` importa primero
+    el paquete padre (`app.payments`) para resolver su `__path__`; si ese
+    paquete existe (tiene `__init__.py`, aunque el archivo puntual falte)
+    devuelve `None` sin drama — así funcionó siempre en 1a, porque un dominio
+    ausente durante la construcción en paralelo YA tenía su carpeta. Pero si el
+    paquete no existe en absoluto (ni carpeta, como pasó con `app/payments` y
+    `app/fiscal` en un punto de la construcción de 1b-1) `find_spec` no
+    devuelve `None`: lanza `ModuleNotFoundError` y tumba el arranque de toda la
+    API. `find_spec_safe` atrapa esa excepción. Usado en `app/main.py`
+    (`DOMAINS`), `app/core/models_registry.py` (`MODEL_MODULES`) y
+    `app/shifts/hooks.py`/`service.py`; cualquier dominio nuevo que agregue su
+    propio `find_spec` sobre un módulo de otro dominio que puede no existir
+    tiene que usar este helper, no `importlib.util.find_spec` directo.
 
 ## Dónde retomar
 
@@ -213,28 +294,35 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    8 min); `tsc` limpio; vitest 61/61; `vite build` OK; Alembic desde cero
    `0001 → 0002 → 0003` y seed idempotente. El CI del repo debería estar en verde
    con esto; no se pudo ejecutar acá (sin runner ni Postgres local).
-2. **Abierto por decisión del dueño de la spec** (advertencias del auditor, en
-   `features/fase-1a-cimientos/outputs/ENTREGA.md § 5.4`): O-1 (el responsable ve
-   el esperado en `/shifts/current` y después cierra «a ciegas»: ocultarlo desde
-   que teclea el conteo, o aceptar el arqueo sorpresa como control); A-7 (qué PII
-   de empleados entra a la auditoría exportable, con abogado); A-1 (tope de
-   intentos en `/auth/authorize`); A-2 (validar `JWT_SECRET` en producción);
-   A-4 (esperado calculado para turnos abiertos en `GET /admin/shifts`); A-6
-   (idempotencia en `cash-swaps` y reversa de retiro); A-8 (`SAVEPOINT` en vez de
-   `rollback()` ante `IntegrityError`); A-9 (**no hay ruta de dispositivo para
-   listar el personal**: cuatro pantallas piden el número de empleado a mano; la
-   pantalla «Quién opera» de la spec §9.1 no existe todavía).
-3. **Gaps declarados por los constructores** (`ENTREGA.md § 5.5`): motivo en
+2. **Verificación de territorio de `backend-base` para 1b-1** (2026-09-15,
+   NO es la verificación final — corre en paralelo con el resto del equipo):
+   `TMPDIR=/tmp/pt-backend-base python -m pytest tests/core tests/auth
+   tests/stores tests/audit_log tests/notifications tests/shifts -q -x` →
+   **124 passed, 1 skipped, 0 failed** (261 s); el skip es
+   `test_sales_totals_flow_into_shift`, condicionado a que existan
+   `app.orders.router` y `app.payments.models` (todavía no, ronda 2).
+   `python -m mypy app` → **10 errores, todos en `app/orders/service.py`**
+   (territorio de `backend-comanda`, archivo a medio escribir; cero errores en
+   territorio de `backend-base`). Alembic, `npm run build` y la suite completa
+   quedan para la verificación final del Maestro, como manda el contrato.
+3. **Abierto por decisión del dueño de la spec** (advertencias del auditor, en
+   `features/fase-1a-cimientos/outputs/ENTREGA.md § 5.4`) — **O-1, A-7 y A-9
+   resueltos por default en 1b-1** (ver «Qué está hecho»; `backend-base`):
+   sigue abierto A-1 (tope de intentos en `/auth/authorize`); A-2 (validar
+   `JWT_SECRET` en producción); A-4 (esperado calculado para turnos abiertos en
+   `GET /admin/shifts`); A-6 (idempotencia en `cash-swaps` y reversa de
+   retiro); A-8 (`SAVEPOINT` en vez de `rollback()` ante `IntegrityError`).
+4. **Gaps declarados por los constructores** (`ENTREGA.md § 5.5`): motivo en
    `DELETE /admin/shifts/{id}`; `close_cause` y base de apertura en el listado de
    turnos; quitar opciones de modificadores y grupos de combos (API y UI);
    agregar grupos a un combo existente desde la UI; tests de las pantallas de
    configuración, personal, auditoría y notificaciones; `shadcn` a
    `devDependencies`; token `--warning`.
-4. **Corrección al contrato interno para 1b**: cada hook cruzado entre territorios
+5. **Corrección al contrato interno para 1b**: cada hook cruzado entre territorios
    lleva dueño del test de punta a punta, y la fixture `race_app` es la común para
    carreras (ya está en `tests/conftest.py`). Patrón registrado en
    `docs/PATRONES.md` del framework (2.1.0).
-5. **El pedido 1b se parte en dos** para que cada mitad quepa en un equipo de 2 a 6
+6. **El pedido 1b se parte en dos** para que cada mitad quepa en un equipo de 2 a 6
    agentes y en una ventana de uso: **1b-1** (lanzado el 2026-09-14 sobre el commit
    `74c1eac`; outputs en `features/fase-1b-venta/outputs-1b-1/`): «Quién opera» con
    lista de personal del dispositivo (A-9), mostrador, mesas, comandas con versión
@@ -242,7 +330,18 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    mixtos y división, descuentos y cortesías, `staff_meal`, con las decisiones O-1
    y A-7 resueltas por default (el responsable no ve el esperado del turno abierto
    con cierre a ciegas activo; documento y correo de empleados fuera del JSON de
-   auditoría). **1b-2** (siguiente): documento fiscal con rangos, estados,
+   auditoría). **`backend-base` (cimientos, caja y personal del dispositivo) ya
+   entregó** su parte — ver «Qué está hecho» y
+   `features/fase-1b-venta/outputs-1b-1/backend-base.md` para el detalle
+   completo (endpoints, fixtures, decisiones, verificación literal, gaps).
+   Todavía en construcción al momento de escribir esto: `backend-comanda`
+   (`app/orders`, `app/kitchen`, Alembic `0004_orders.py` — modelos, hooks,
+   `money.py` y `schemas.py` ya existían; `service.py` y `router.py` en
+   progreso, con errores de mypy pendientes ahí, no en territorio de
+   `backend-base`), `backend-cobro` (`app/payments`, `app/fiscal`, Alembic
+   `0005_payments_fiscal.py` — ninguno de los dos existía todavía como carpeta
+   al cerrar este output), `frontend-comanda`, `frontend-cobro` y
+   `auditor-venta`. **1b-2** (siguiente): documento fiscal con rangos, estados,
    contingencia y adaptador de proveedor, notas y devoluciones pendientes,
    clientes y consentimientos, Hoy, Ventas e informe del contador, Pedidos.
    La spec de ambos es `features/fase-1b-venta/spec.md`; el pedido delimita:
@@ -258,6 +357,10 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
      },
    })
    ```
-6. Lo que no se pudo verificar en este entorno: Postgres real (tipos, índices y el
+7. Lo que no se pudo verificar en este entorno: Postgres real (tipos, índices y el
    `409 SHIFT_OPEN_RACE` literal, que sólo el CI puede probar), el CI en sí, WCAG
-   más allá de Testing Library, y el flujo completo en un navegador real.
+   más allá de Testing Library, y el flujo completo en un navegador real. Sobre
+   1b-1: `alembic upgrade head` con `0004`/`0005` (no existían al cerrar este
+   output — son de `backend-comanda`/`backend-cobro`) y
+   `test_sales_totals_flow_into_shift` de punta a punta contra `POST /orders`
+   y `POST /orders/{id}/payments` reales.

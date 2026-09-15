@@ -10,7 +10,6 @@ después de las rutas `/api`.
 from __future__ import annotations
 
 import importlib
-import importlib.util
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -18,8 +17,20 @@ from fastapi.responses import FileResponse
 from starlette.responses import Response
 
 from app.core.errors import register_error_handlers
+from app.core.modules import find_spec_safe
 
-DOMAINS: list[str] = ["auth", "stores", "catalog", "shifts", "audit", "notifications"]
+DOMAINS: list[str] = [
+    "auth",
+    "stores",
+    "catalog",
+    "shifts",
+    "orders",
+    "payments",
+    "fiscal",
+    "kitchen",
+    "audit",
+    "notifications",
+]
 
 
 def create_app() -> FastAPI:
@@ -33,7 +44,7 @@ def create_app() -> FastAPI:
 
     for domain in DOMAINS:
         module_name = f"app.{domain}.router"
-        if importlib.util.find_spec(module_name) is not None:
+        if find_spec_safe(module_name) is not None:
             module = importlib.import_module(module_name)
             router = getattr(module, "router", None)
             if router is not None:

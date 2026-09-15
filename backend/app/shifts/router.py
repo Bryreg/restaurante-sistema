@@ -55,6 +55,7 @@ from app.shifts.schemas import (
     RosterActionIn,
     RosterActionOut,
     RosterEntryOut,
+    SalesByMethodOut,
     ShiftCurrentOut,
     ShiftSummaryOut,
     SingleStepCloseIn,
@@ -119,21 +120,35 @@ def _kind_str(kind: HandoverKind | str) -> HandoverKindLiteral:
     return cast(HandoverKindLiteral, value)
 
 
-def _can_see_expected(actor: Actor, shift: Shift) -> bool:
+def _can_see_expected(db: Session, actor: Actor, shift: Shift) -> bool:
     """Único lugar que decide quién ve el esperado y todo lo derivado de él
-    (`expected_cash`, `pickups[].expected_at_pickup`, `handovers[].breakdown`):
-    admin (por tipo de actor o por rol) o el responsable de caja del turno.
-    El operador nunca ve el esperado salvo que sea el responsable (B-3/B-4)."""
+    (`expected_cash`, `pickups[].expected_at_pickup`, `handovers[].breakdown`,
+    y desde 1b-1 también `sales`/`tips`): el admin (por tipo de actor o por
+    rol) siempre; el responsable de caja del turno SOLO si `cash.blind_close`
+    está apagada en su sede (O-1, CONTRATO-INTERNO-1b-1.md §2.4 «Caja»); el
+    operador que no es responsable, nunca. Con la flag encendida el
+    responsable ve el esperado recién en el paso 2 del cierre
+    (`GET /shifts/{id}/close/{count_id}/review`, que no pasa por esta
+    función: llama directo a `service.review_close`)."""
 
-    return (
-        actor.kind == "admin"
-        or actor.role == "admin"
-        or (actor.employee_id is not None and actor.employee_id == shift.cash_responsible_id)
+    if actor.kind == "admin" or actor.role == "admin":
+        return True
+    if actor.employee_id is None or actor.employee_id != shift.cash_responsible_id:
+        return False
+    return not features.is_enabled(db, shift.organization_id, shift.store_id, "cash.blind_close")
+
+
+def _sales_and_tips(db: Session, shift: Shift) -> tuple[SalesByMethodOut, SalesByMethodOut]:
+    totals = service.hooks.get_sales_totals(db, shift.id)
+    sales = SalesByMethodOut(cash=totals.cash, card=totals.card, transfer=totals.transfer, other=totals.other)
+    tips = SalesByMethodOut(
+        cash=totals.tips_cash, card=totals.tips_card, transfer=totals.tips_transfer, other=totals.tips_other
     )
+    return sales, tips
 
 
 def _shift_summary(db: Session, shift: Shift, actor: Actor) -> ShiftSummaryOut:
-    show_expected = _can_see_expected(actor, shift)
+    show_expected = _can_see_expected(db, actor, shift)
     day = db.get(BusinessDay, shift.business_day_id)
     assert day is not None
     roster = service.list_roster(db, shift.id)
@@ -145,8 +160,11 @@ def _shift_summary(db: Session, shift: Shift, actor: Actor) -> ShiftSummaryOut:
     )
 
     expected_cash: int | None = None
+    sales: SalesByMethodOut | None = None
+    tips: SalesByMethodOut | None = None
     if show_expected:
         expected_cash = shift.expected_cash if shift.status != ShiftStatus.OPEN else service.compute_breakdown(db, shift)["expected"]
+        sales, tips = _sales_and_tips(db, shift)
 
     return ShiftSummaryOut(
         id=shift.id,
@@ -181,6 +199,8 @@ def _shift_summary(db: Session, shift: Shift, actor: Actor) -> ShiftSummaryOut:
             for h in handovers_rows
         ],
         expected_cash=expected_cash,
+        sales=sales,
+        tips=tips,
         counted_cash=shift.counted_cash,
         difference=shift.difference,
         close_cause=shift.close_cause.value if shift.close_cause else None,
@@ -235,10 +255,13 @@ def get_current(actor: Actor = Depends(current_device), db: Session = Depends(ge
     assert day is not None
     roster = service.list_roster(db, shift.id)
 
-    show_expected = _can_see_expected(actor, shift)
+    show_expected = _can_see_expected(db, actor, shift)
     expected: int | None = None
+    sales: SalesByMethodOut | None = None
+    tips: SalesByMethodOut | None = None
     if show_expected:
         expected = service.compute_breakdown(db, shift)["expected"]
+        sales, tips = _sales_and_tips(db, shift)
 
     return ShiftCurrentOut(
         id=shift.id,
@@ -247,6 +270,8 @@ def get_current(actor: Actor = Depends(current_device), db: Session = Depends(ge
         cash_responsible=EmployeeRef(id=shift.cash_responsible_id, name=shift.cash_responsible_name),
         roster=[RosterEntryOut.model_validate(r) for r in roster],
         expected_cash=expected,
+        sales=sales,
+        tips=tips,
         is_stale=is_stale,
         cash_over_threshold=over,
     )
@@ -503,6 +528,7 @@ def post_close_confirm(
         cause=payload.cause,
         note=payload.note,
         closes_day=payload.closes_day,
+        transfer_open_orders=payload.transfer_open_orders,
     )
     return CloseConfirmOut(**result)
 
