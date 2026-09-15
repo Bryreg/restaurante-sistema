@@ -118,6 +118,9 @@ export function buildPaymentOut(overrides: Partial<PaymentOut> = {}): PaymentOut
     },
     total: 50000,
     tip_amount: 4630,
+    // A-10: siempre presente, ya sumado por el servidor.
+    amount_due: 54630,
+    requires_invoice: false,
     change: 0,
     paid_at: "2026-09-15T18:25:00Z",
     order: buildOrder({ status: "paid", version: 4, paid_at: "2026-09-15T18:25:00Z", document_id: 900 }),
@@ -165,7 +168,7 @@ export function buildDocument(overrides: Partial<DocumentPrintable> = {}): Docum
     print_count: 1,
     reprint_count: 0,
     reprints: [],
-    fiscal: { range: null, cude: null, qr_url: null },
+    fiscal: { dian_status: null, contingency: false, range: null, cude: null, qr_url: null },
     ...overrides,
   };
 }

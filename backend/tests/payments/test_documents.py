@@ -30,8 +30,22 @@ def test_document_printable_shape_and_legend_pos_equivalent(
     assert body["dian_status"] == "pending"
     assert body["legend"] == "DOCUMENTO PENDIENTE DE TRANSMISIÓN A LA DIAN"
     assert body["full_number"].startswith("POS-")
-    assert body["fiscal"] == {"range": None, "cude": None, "qr_url": None}
-    assert body["customer"] == {"doc_type": "13", "doc_number": "222222222222", "name": "Consumidor final"}
+    # 1b-2: `fiscal` ahora trae el rango vigente que amparó el consecutivo
+    # (A-11 — la leyenda depende del estado DIAN, acá `pending` porque el
+    # `PendingTransmissionProvider` de esta fase nunca transmite de verdad).
+    assert body["fiscal"]["dian_status"] == "pending"
+    assert body["fiscal"]["contingency"] is False
+    assert body["fiscal"]["cude"] is None
+    assert body["fiscal"]["qr_url"] is None
+    assert body["fiscal"]["range"]["prefix"] == "POS"
+    assert body["customer"] == {
+        "doc_type": "13",
+        "doc_number": "222222222222",
+        "name": "Consumidor final",
+        "email": None,
+        "address": None,
+        "municipality_dane": None,
+    }
     assert body["print_count"] == 1
     assert body["reprint_count"] == 0
     assert body["reprints"] == []

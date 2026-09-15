@@ -171,24 +171,34 @@ describe("una sola matemática de la venta, en el backend", () => {
     "features/payments/lib.ts",
     // (2) El mismo guía de tecleo, en el componente que la muestra:
     //     `remaining = totalDue - typedTotal`. Misma justificación que (1).
-    //     En el mismo archivo vive `totalDue` (venta + propina), que el
-    //     entregable del auditor reporta como advertencia: es plata derivada
-    //     en el front, aunque el contrato no la enumere entre lo prohibido.
     "features/payments/PaymentSplitsForm.tsx",
-    // (3) `totalDue = totals.total + tip.amount`: el único número de plata
-    //     que el front arma para mostrar «Total a cobrar». Reportado como
-    //     advertencia (el backend debería mandarlo, o mostrarse en dos
-    //     líneas: venta y propina).
+    // (3) **A-10, parcialmente saldado en 1b-2.** Lo que el cliente VE ya no
+    //     se deriva: `PaymentTargetPanel` pinta venta y propina en dos líneas
+    //     separadas, cada una tal como llega, y dice explícitamente cuando
+    //     `totals.total` no llegó (nada de `?? 0` sobre plata mostrada). Lo
+    //     que queda es `totalDue = saleTotal + (tip?.amount ?? 0)`, que
+    //     **nunca se muestra**: es el objetivo interno contra el que
+    //     `PaymentSplitsForm` calcula "faltan $X", la misma excepción (1).
+    //     Cierra del todo cuando `PreBillOut`/`SubAccountOut` traigan el
+    //     monto ya sumado (hoy `amount_due` sólo existe DESPUÉS de cobrar,
+    //     en `PaymentOut`). Sigue reportado como advertencia.
     "features/payments/PaymentTargetPanel.tsx",
-    // (4) `Math.round(numericValue)` sobre lo TECLEADO en el diálogo de
-    //     descuento, para mandar un entero (la API toma enteros). No deriva
-    //     plata del servidor. Reportado como observación: mejor restringir el
-    //     campo a enteros que redondear en silencio lo que la persona
-    //     escribió.
-    "features/orders/DiscountDialog.tsx",
-    // (5) Tiempo, no plata: `elapsedFromSeconds` divide segundos.
+    // (4) Tiempo, no plata: `elapsedFromSeconds` divide segundos.
     "features/orders/lib.ts",
   ];
+
+  /**
+   * Redondeo tolerado **sólo sobre tiempo o proporciones**, nunca sobre plata.
+   * Cada archivo de esta lista se verifica además línea por línea: la línea
+   * tolerada tiene que hablar de segundos, minutos o de una proporción que ya
+   * mandó el backend. Sin esa segunda verificación, tolerar un archivo entero
+   * sería abrir la puerta a que mañana ahí se redondee un total.
+   */
+  const ALLOWED_NON_MONEY_ROUNDING = [
+    "features/orders/lib.ts",
+    "features/orders/OrdersAdminPage.tsx",
+  ];
+  const NON_MONEY_ROUNDING_CONTEXT = /seconds|minutos|\bmin\b|\/\s*60\b|ratio|pct|percent/i;
 
   function offenders(pattern: RegExp): string[] {
     return hits(territoryFiles(), pattern).filter(
@@ -207,11 +217,37 @@ describe("una sola matemática de la venta, en el backend", () => {
   });
 
   it("ninguna pantalla de comanda o cobro redondea plata", () => {
-    const found = offenders(ROUNDING);
+    const todos = hits(territoryFiles(), ROUNDING);
+    const tolerados = todos.filter((hit) =>
+      ALLOWED_NON_MONEY_ROUNDING.some((allowed) => hit.startsWith(`${allowed}:`)),
+    );
+    const found = todos.filter((hit) => !tolerados.includes(hit));
     expect(
       found,
       `El redondeo a peso es del backend (round_half_up, app/orders/money.py):\n${found.join("\n")}`,
     ).toEqual([]);
+
+    // Y lo tolerado tiene que seguir siendo tiempo o proporción, no plata.
+    const disfrazados = tolerados.filter((hit) => !NON_MONEY_ROUNDING_CONTEXT.test(hit));
+    expect(
+      disfrazados,
+      `Se toleró el redondeo en estos archivos porque redondean SEGUNDOS o una ` +
+        `proporción; estas líneas ya no son ninguna de las dos:\n${disfrazados.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("**O-1 cerrado**: el diálogo de descuento ya no redondea en silencio lo tecleado", () => {
+    const file = path.join(SRC, "features/orders/DiscountDialog.tsx");
+    const code = stripComments(readFileSync(file, "utf8"));
+    expect(
+      code,
+      `O-1 (\`outputs-1b-1/auditor-venta.md §3\`): \`Math.round(numericValue)\` mandaba ` +
+        `un "10,6 %" tecleado como "11 %" sin que el operador viera que su número cambió`,
+    ).not.toMatch(/Math\s*\.\s*round/);
+    expect(
+      code,
+      "y en su lugar tiene que rechazar el no-entero con un mensaje, no corregirlo solo",
+    ).toMatch(/Number\s*\.\s*isInteger/);
   });
 
   it("la única excepción declarada es `sumTyped`, y sigue siendo sólo una suma", () => {
@@ -297,19 +333,14 @@ describe("la leyenda legal la escribe el servidor", () => {
   /** Las tres leyendas del pedido, tal como las emite el backend. */
   const LEGENDS = /NO ES FACTURA|PENDIENTE DE TRANSMISI|COMPROBANTE INTERNO|documento equivalente/i;
 
-  /**
-   * Única tolerancia, con nombre: `CheckoutPage` deja la leyenda de la
-   * precuenta como valor por defecto mientras `bill/present` viaja. Se tolera
-   * **sólo** si sigue siendo un `??` detrás de `legend` del servidor (el test
-   * lo verifica): nunca puede volverse la fuente. Reportado como advertencia
-   * en el entregable del auditor.
-   */
-  const FALLBACK_FILE = "features/payments/CheckoutPage.tsx";
-
   it("ninguna pantalla escribe una leyenda legal a mano", () => {
-    const offenders = hits(territoryFilesRaw(), LEGENDS).filter(
-      (hit) => !hit.startsWith(`${FALLBACK_FILE}:`),
-    );
+    // **A-11 cerrado en 1b-2**: ya no hay tolerancia. En 1b-1 `CheckoutPage`
+    // tenía `preBill?.legend ?? "NO ES FACTURA — documento informativo"`, y
+    // el auditor lo toleró con nombre. En 1b-2 la leyenda depende del estado
+    // ante la DIAN y de la contingencia (`app/fiscal/service.py::LEGEND_*`):
+    // una leyenda fija en el cliente dejó de ser una prolijidad y pasó a ser
+    // un riesgo legal — el papel afirmaría algo que el servidor no dijo.
+    const offenders = hits(territoryFilesRaw(), LEGENDS);
     expect(
       offenders,
       `la leyenda viaja en \`PreBillOut.legend\` y \`DocumentPrintableOut.legend\`: ` +
@@ -326,14 +357,19 @@ describe("la leyenda legal la escribe el servidor", () => {
     expect(code, "y no puede tener una leyenda de respaldo escrita a mano").not.toMatch(LEGENDS);
   });
 
-  it("la tolerancia de la precuenta sigue siendo un respaldo, no la fuente", () => {
-    const code = stripComments(readFileSync(path.join(SRC, FALLBACK_FILE), "utf8"));
-    const line = code.split("\n").find((text) => LEGENDS.test(text));
-    expect(line, `ya no hay leyenda fija en ${FALLBACK_FILE}: quitá esta tolerancia`).toBeTruthy();
+  it("**A-11 cerrado**: la precuenta ya no tiene leyenda de respaldo", () => {
+    const code = stripComments(
+      readFileSync(path.join(SRC, "features/payments/CheckoutPage.tsx"), "utf8"),
+    );
     expect(
-      line,
-      `la leyenda fija de ${FALLBACK_FILE} dejó de ser un respaldo de \`preBill.legend\``,
-    ).toMatch(/legend\s*\?\?/);
+      code,
+      "`CheckoutPage` tiene que leer la leyenda de la precuenta que manda el servidor",
+    ).toMatch(/preBill\??\.legend/);
+    expect(
+      code,
+      `A-11: volvió el respaldo \`legend ?? "…"\`. En 1b-2 la leyenda depende del ` +
+        `estado DIAN: un texto fijo en el cliente afirma algo que el servidor no dijo`,
+    ).not.toMatch(/legend\s*\?\?\s*["'`]/);
   });
 });
 

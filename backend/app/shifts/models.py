@@ -429,3 +429,53 @@ class ShiftCloseCount(Base):
         CheckConstraint("counted_cash_total >= 0", name="ck_close_counts_cash_nonneg"),
         CheckConstraint("tips_cash_out >= 0", name="ck_close_counts_tips_nonneg"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Reparto de propinas (1b-2, `docs/SPEC-NEGOCIO.md §6.2`, Ley 1935 de 2018)
+# ---------------------------------------------------------------------------
+
+
+class TipPayout(Base):
+    """Registro del reparto de propinas a la cadena de servicio. El cálculo
+    del reparto es **manual** en esta fase (SPEC-NEGOCIO §6.2): esta tabla
+    sólo deja constancia de quién, cuánto y cuándo — nunca lo calcula.
+
+    Puede cubrir varias `shift_ids` (propinas acumuladas de varios turnos que
+    se reparten juntas). Si el dueño lo paga del cajón, el egreso de caja
+    (`CashMovement` con causa `tip_payout`, que ya existe desde 1b-1) se
+    registra aparte por el endpoint genérico de movimientos de caja del
+    turno que corresponda — este modelo es sólo el libro de reparto, no
+    reemplaza ni crea ese movimiento (ver decisión declarada en el
+    entregable de `backend-clientes-dinero`)."""
+
+    __tablename__ = "tip_payouts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+
+    shift_ids: Mapped[list] = mapped_column(sa.JSON)
+    paid_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    method: Mapped[str] = mapped_column(sa.String(16))
+    total_amount: Mapped[int] = mapped_column(sa.Integer)
+
+    created_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    created_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (CheckConstraint("total_amount >= 0", name="ck_tip_payouts_total_nonneg"),)
+
+
+class TipPayoutDistribution(Base):
+    """Una línea del reparto: cuánto le tocó a cada persona."""
+
+    __tablename__ = "tip_payout_distributions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    payout_id: Mapped[int] = mapped_column(ForeignKey("tip_payouts.id"), index=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    employee_name: Mapped[str] = mapped_column(sa.String(200))
+    amount: Mapped[int] = mapped_column(sa.Integer)
+
+    __table_args__ = (CheckConstraint("amount >= 0", name="ck_tip_payout_distributions_amount_nonneg"),)

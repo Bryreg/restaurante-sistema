@@ -10,16 +10,45 @@ from __future__ import annotations
 
 import threading
 import uuid
+from datetime import date
 from typing import Any
 
 from sqlalchemy import select
 
-from app.fiscal.models import FiscalDocument
+from app.fiscal import service as fiscal_service
+from app.fiscal.models import FiscalDocument, FiscalDocumentType
 
 NO_TIP = {"asked": True, "accepted": False, "modified": False, "amount": 0}
 
 
+def _seed_fiscal_range(race_env: Any) -> None:
+    """`race_env` arma su PROPIA base (no la de `db`/`store`): el rango
+    vigente para que `pay_order` no corte con `NO_FISCAL_RANGE` se crea acá
+    (mismo criterio que `tests/payments/conftest.py::seed_fiscal_ranges`,
+    pero sobre `race_env.session_factory()`)."""
+    from app.core import clock as clock_module
+
+    with race_env.session_factory() as db:
+        fiscal_service.create_range(
+            db,
+            organization_id=race_env.organization_id,
+            store_id=race_env.store_id,
+            document_type=FiscalDocumentType.POS_EQUIVALENT,
+            prefix="POS",
+            from_number=1,
+            to_number=999_999_999,
+            resolution_number="18760000001",
+            resolution_date=date(2020, 1, 1),
+            valid_from=date(2020, 1, 1),
+            valid_until=date(2099, 12, 31),
+            technical_key="race-technical-key",
+            now=clock_module.now_utc(),
+        )
+        db.commit()
+
+
 def _seed_order(race_env: Any, *, qty: int = 1) -> dict[str, Any]:
+    _seed_fiscal_range(race_env)
     product_id = race_env.seed_product(name="Gaseosa", price=5000, station=None, tax_code="inc_8")
     race_env.open_shift()
     order_resp = race_env.client.post(

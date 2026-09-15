@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.models import Employee
 from app.core import clock
+from app.fiscal.models import FiscalDocumentType, FiscalRange
 from app.core.db import Base, SessionLocal, engine
 from app.core.models_registry import import_all_models
 from app.core.security import hash_secret
@@ -110,6 +112,44 @@ def seed(db: Session) -> None:
     )
     db.add(UvtValue(organization_id=org.id, year=2026, value=52_374))
 
+    # Rangos de numeración de DESARROLLO. Sin esto `fiscal.dee_pos` (encendida
+    # por defecto en los tres perfiles) corta el primer cobro con
+    # `400 NO_FISCAL_RANGE`: una base recién sembrada no podría vender, y el
+    # camino de demostración quedaría cortado antes de empezar. Se cargan
+    # rangos en vez de apagar la flag para que el seed ejercite el camino
+    # REAL (reservar dentro del rango, alertar al 80 %, agotarse).
+    # La resolución es deliberadamente falsa y está rotulada: si alguna vez
+    # aparece en un documento de producción, se ve a simple vista.
+    # `valid_from` arranca 30 días atrás a propósito: la fecha de negocio se
+    # calcula en `America/Bogota` (UTC-5) con hora de corte, así que puede
+    # quedar un día detrás de la fecha UTC de este seed.
+    range_from = now.date() - timedelta(days=30)
+    range_until = now.date() + timedelta(days=365 * 5)
+    for doc_type, prefix in (
+        (FiscalDocumentType.POS_EQUIVALENT, "DEVPOS"),
+        (FiscalDocumentType.INVOICE, "DEVFAC"),
+        (FiscalDocumentType.CREDIT_NOTE, "DEVNC"),
+        (FiscalDocumentType.DEBIT_NOTE, "DEVND"),
+        (FiscalDocumentType.ADJUSTMENT_NOTE, "DEVNA"),
+    ):
+        db.add(
+            FiscalRange(
+                organization_id=org.id,
+                store_id=store.id,
+                document_type=doc_type,
+                prefix=prefix,
+                from_number=1,
+                to_number=5_000,
+                next_number=1,
+                resolution_number="DEV-NO-ES-RESOLUCION-DIAN",
+                resolution_date=now.date(),
+                valid_from=range_from,
+                valid_until=range_until,
+                technical_key=None,
+                created_at=now,
+            )
+        )
+
     admin = Employee(
         organization_id=org.id,
         store_id=None,
@@ -193,6 +233,9 @@ def seed(db: Session) -> None:
     print(f"  Admin: {ADMIN_EMAIL} / {ADMIN_PASSWORD}  (PIN POS del admin: {ADMIN_PIN})")
     print(f"  Supervisor PIN: {SUPERVISOR_PIN}")
     print(f"  Operadores PIN: {', '.join(OPERATOR_PINS)} (el primero, {OPERATOR_PINS[0]}, puede cobrar)")
+    print("  Rangos de numeración: DE DESARROLLO (DEVPOS/DEVFAC/DEVNC/DEVND/DEVNA, 1-5000),")
+    print("    con resolución FALSA 'DEV-NO-ES-RESOLUCION-DIAN'. Antes de operar de verdad,")
+    print("    cargá el rango autorizado en Admin → Rangos de numeración.")
 
 
 def main() -> None:

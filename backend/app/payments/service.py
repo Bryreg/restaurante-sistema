@@ -32,7 +32,8 @@ from app.auth.models import Employee
 from app.core import clock, features
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.fiscal import service as fiscal_service
-from app.fiscal.models import DocumentReprint, FiscalDocument
+from app.fiscal.models import DianStatus, DocumentReprint, FiscalDocument, FiscalDocumentType, FiscalRange
+from app.fiscal.schemas import FiscalRangeRefOut
 from app.orders import money
 from app.orders import service as orders_service
 from app.orders.models import (
@@ -46,6 +47,7 @@ from app.orders.models import (
 )
 from app.payments.models import Payment, OrderTip
 from app.payments.schemas import (
+    DevicePaymentMethodOut,
     DocumentCustomerOut,
     DocumentFiscalOut,
     DocumentLineOut,
@@ -395,6 +397,58 @@ def pay_order(
         payload.splits, methods_by_code=methods_by_code, total=totals.total, tip_amount=tip.amount
     )
 
+    # `business_date`/`shift_row` son lecturas puras (sin escritura): se
+    # resuelven ACÁ, antes del punto sin retorno, porque
+    # `resolve_document_type_for_payment` (abajo) también es validación —
+    # puede levantar `CUSTOMER_REQUIRED_FOR_INVOICE`/`FEATURE_DISABLED` — y
+    # tiene que pasar ANTES de escribir nada (`get_db` comitea también ante
+    # `AppError`: validar antes de escribir).
+    shift_row = db.get(Shift, order.shift_id)
+    if shift_row is None:
+        # Defensivo: `assert_payable` ya garantizó un turno abierto vigente.
+        raise AppError("NO_OPEN_SHIFT", "Abrí un turno para poder cobrar esta comanda", status=400)
+    business_date = orders_service.business_date_for_sale(db, shift_row, store, now)
+
+    customer_identified = fiscal_service.customer_is_identified(payload.customer)
+    document_type = fiscal_service.resolve_document_type_for_payment(
+        db,
+        organization_id=order.organization_id,
+        store_id=store.id,
+        total_net=totals.tip_base,
+        business_date=business_date,
+        customer_identified=customer_identified,
+        requests_invoice=payload.requests_invoice,
+    )
+    # Chequeo temprano (sin reservar todavía): sin esto, un `NO_FISCAL_RANGE`
+    # que sólo aparece dentro de `issue_document` (después de `claim_payment`,
+    # más abajo) dejaría la comanda `paid` sin documento — `claim_payment` no
+    # está dentro del SAVEPOINT que protege la emisión. «Validar antes de
+    # escribir» exige cortar acá. Sólo cuando `splits` no está vacío: sin
+    # splits (staff_meal / todo cortesía) nunca se emite documento.
+    if split_results:
+        fiscal_service.assert_range_available(
+            db, store_id=store.id, document_type=document_type, business_date=business_date
+        )
+
+    # Ronda 2 — B-2 (Conciliador): mismo patrón que el chequeo de arriba.
+    # `resolve_customer_snapshot` (más abajo, en la fase de escritura) es la
+    # única puerta hacia `app.customers.hooks.upsert_customer_with_consent`,
+    # que YA levanta `400 FEATURE_DISABLED` si la flag `customers` está
+    # apagada (`app/customers/hooks.py:91`) — pero ese gate vive DESPUÉS de
+    # `claim_payment` (línea de escritura, más abajo), dentro del mismo
+    # `SAVEPOINT` que protege `issue_document`. `get_db` comitea también ante
+    # `AppError`, y el `SAVEPOINT` de `issue_document` no revierte
+    # `claim_payment`: sin este chequeo temprano, cobrar con `customer` en el
+    # body y la flag apagada dejaba la comanda `paid` sin documento y sin
+    # pago (mismo defecto de forma que el `NO_FISCAL_RANGE` de §5.1).
+    # Misma condición bajo la que HOY se llega a `resolve_customer_snapshot`
+    # (dentro de `if split_results:`, gancho sólo si `payload.customer` no es
+    # `None`): no cambia el comportamiento de ningún caso que ya funciona —
+    # una comanda 100% cortesía/staff_meal (sin `splits`) sigue sin tocar
+    # `customers`, con o sin `customer` en el body.
+    if split_results and payload.customer is not None:
+        features.assert_feature(db, order.organization_id, store.id, "customers")
+
     # Snapshot del comprobante ANTES de escribir: `claim_payment` libera las
     # mesas al dejar la comanda `paid`, y después ya no se puede leer qué
     # mesas tenía.
@@ -412,12 +466,6 @@ def pay_order(
     orders_service.auto_send_pending_for_payment(db, order, actor=actor, now=now)
     orders_service.claim_payment(db, order, sub_account=sub_account, actor=actor, now=now)
 
-    shift_row = db.get(Shift, order.shift_id)
-    if shift_row is None:
-        # Defensivo: `assert_payable` ya garantizó un turno abierto vigente.
-        raise AppError("NO_OPEN_SHIFT", "Abrí un turno para poder cobrar esta comanda", status=400)
-    business_date = orders_service.business_date_for_sale(db, shift_row, store, now)
-
     document: FiscalDocument | None = None
     if split_results:
         payments_snapshot = _payments_snapshot(split_results, methods_by_code)
@@ -426,6 +474,14 @@ def pay_order(
             suggested_pct=float(tip.suggested_pct) if tip.suggested_pct is not None else None,
             accepted=tip.accepted,
             modified=tip.modified,
+        )
+        customer_snapshot = fiscal_service.resolve_customer_snapshot(
+            db,
+            organization_id=order.organization_id,
+            store_id=store.id,
+            customer_in=payload.customer,
+            actor=actor,
+            now=now,
         )
         try:
             with db.begin_nested():
@@ -436,6 +492,7 @@ def pay_order(
                     shift=shift_row,
                     store=store,
                     actor=actor,
+                    document_type=document_type,
                     totals=totals,
                     tip=tip_snapshot,
                     lines=document_lines,
@@ -443,6 +500,7 @@ def pay_order(
                     tables_text=tables_text,
                     business_date=business_date,
                     now=now,
+                    customer=customer_snapshot,
                 )
         except IntegrityError as exc:
             raise ConflictError(
@@ -521,9 +579,9 @@ def pay_order(
             full_number=_full_number(document.prefix, document.number),
             dian_status=document.dian_status.value if document.dian_status else None,  # type: ignore[union-attr]
             legend=document.legend,
-            cude=None,
-            qr_url=None,
-            contingency=False,
+            cude=document.cude,
+            qr_url=document.qr_url,
+            contingency=document.dian_status == DianStatus.CONTINGENCY,
         )
         if document is not None
         else None
@@ -535,6 +593,9 @@ def pay_order(
         document=document_ref,
         total=totals.total,
         tip_amount=tip.amount,
+        # A-10: siempre sumado acá, presente siempre (nunca `?? 0` del cliente).
+        amount_due=totals.total + tip.amount,
+        requires_invoice=document is not None and document_type == FiscalDocumentType.INVOICE,
         change=change_total,
         paid_at=order.paid_at or now,
         order=orders_service.order_out(db, order, for_device=True),
@@ -618,6 +679,9 @@ def document_printable(db: Session, document: FiscalDocument) -> DocumentPrintab
             doc_type=document.customer_doc_type,
             doc_number=document.customer_doc_number,
             name=document.customer_name,
+            email=document.customer_email,
+            address=document.customer_address,
+            municipality_dane=document.customer_municipality_dane,
         ),
         order=DocumentOrderRefOut(
             id=document.order_id,
@@ -639,7 +703,32 @@ def document_printable(db: Session, document: FiscalDocument) -> DocumentPrintab
         print_count=document.print_count,
         reprint_count=document.reprint_count,
         reprints=[DocumentReprintOut(at=r.at, by=r.employee_name) for r in reprints],
-        fiscal=DocumentFiscalOut(range=document.fiscal_range_id, cude=document.cude, qr_url=document.qr_url),
+        fiscal=_document_fiscal_out(db, document),
+    )
+
+
+def _document_fiscal_out(db: Session, document: FiscalDocument) -> DocumentFiscalOut:
+    """A-11: todo lo que hace variar la leyenda (estado DIAN, contingencia)
+    más el rango vigente que amparó el consecutivo — nunca `None` a secas
+    salvo el rango, cuando el documento no reserva uno (`internal_receipt`)."""
+    range_ref: FiscalRangeRefOut | None = None
+    if document.fiscal_range_id is not None:
+        range_row = db.get(FiscalRange, document.fiscal_range_id)
+        if range_row is not None:
+            range_ref = FiscalRangeRefOut(
+                id=range_row.id,
+                prefix=range_row.prefix,
+                from_number=range_row.from_number,
+                to_number=range_row.to_number,
+                resolution_number=range_row.resolution_number,
+                valid_until=range_row.valid_until,
+            )
+    return DocumentFiscalOut(
+        dian_status=document.dian_status.value if document.dian_status else None,  # type: ignore[union-attr]
+        cude=document.cude,
+        qr_url=document.qr_url,
+        contingency=document.dian_status == DianStatus.CONTINGENCY,
+        range=range_ref,
     )
 
 
@@ -649,13 +738,26 @@ def document_printable(db: Session, document: FiscalDocument) -> DocumentPrintab
 
 
 def admin_list_documents(
-    db: Session, *, store_id: int, date_from: date | None, date_to: date | None
+    db: Session,
+    *,
+    store_id: int,
+    date_from: date | None,
+    date_to: date | None,
+    document_type: str | None = None,
+    status: str | None = None,
 ) -> list[dict[str, Any]]:
+    """`GET /admin/documents?from&to&type&status` (+ `format=csv`, pedido
+    1b-2 punto 9: la ruta ya existía desde 1b-1 con `from`/`to`; acá se
+    amplía con `type` (`document_type`) y `status` (`dian_status`)."""
     stmt = select(FiscalDocument).where(FiscalDocument.store_id == store_id, FiscalDocument.status == "issued")
     if date_from is not None:
         stmt = stmt.where(FiscalDocument.business_date >= date_from)
     if date_to is not None:
         stmt = stmt.where(FiscalDocument.business_date <= date_to)
+    if document_type is not None:
+        stmt = stmt.where(FiscalDocument.document_type == FiscalDocumentType(document_type))
+    if status is not None:
+        stmt = stmt.where(FiscalDocument.dian_status == DianStatus(status))
     stmt = stmt.order_by(FiscalDocument.issued_at.desc())
     rows = list(db.execute(stmt).scalars())
     return [
@@ -672,4 +774,26 @@ def admin_list_documents(
             "charged_by": d.charged_by_employee_name,
         }
         for d in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Dispositivo: medios de pago habilitados de la sede
+# ---------------------------------------------------------------------------
+
+
+def device_payment_methods(db: Session, *, store_id: int) -> list[DevicePaymentMethodOut]:
+    """`GET /device/payment-methods` (gap declarado en `outputs-1b-1/*.md`:
+    el POS ofrecía siempre los mismos seis códigos fijos). Sólo los
+    habilitados de `StoreSalesSettings.payment_methods`."""
+    settings = stores_service.get_sales_settings(db, store_id)
+    return [
+        DevicePaymentMethodOut(
+            code=m["code"],
+            label=m["label"],
+            dian_code=m.get("dian_code", ""),
+            requires_reference=bool(m.get("requires_reference", False)),
+        )
+        for m in settings.payment_methods
+        if m.get("enabled")
     ]

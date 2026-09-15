@@ -4,7 +4,10 @@ import { NavLink, Outlet } from "react-router-dom";
 
 import { NotificationBell } from "@/features/notifications/NotificationBell";
 import { catalogFeature } from "@/features/catalog";
+import { customersFeature } from "@/features/customers";
+import { fiscalFeature } from "@/features/fiscal";
 import { ordersFeature } from "@/features/orders";
+import { reportsFeature } from "@/features/reports";
 import { shiftsFeature } from "@/features/shifts";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,8 +38,22 @@ const OWN_NAV: NavItem[] = [
   { to: "/admin/notifications", label: "Notificaciones", feature: undefined, icon: Bell },
 ];
 
+/**
+ * Orden de SPEC-NEGOCIO §9.3: Hoy, Ventas, Pedidos, Carta, (Dinero, Turnos y
+ * personal ya estaban), Documentos fiscales/Rangos/Notas/Devoluciones
+ * pendientes y Clientes (pedido 1b-2) se intercalan donde la spec los agrupa
+ * — junto a la venta y junto a la caja — y `OWN_NAV` cierra igual que antes.
+ */
 function buildNav(hasFeature: (key: string) => boolean): NavItem[] {
-  const all = [...OWN_NAV, ...shiftsFeature.adminNav, ...catalogFeature.adminNav, ...ordersFeature.adminNav];
+  const all = [
+    ...reportsFeature.adminNav,
+    ...ordersFeature.adminNav,
+    ...catalogFeature.adminNav,
+    ...fiscalFeature.adminNav,
+    ...shiftsFeature.adminNav,
+    ...customersFeature.adminNav,
+    ...OWN_NAV,
+  ];
   return all.filter((item) => !item.feature || hasFeature(item.feature));
 }
 

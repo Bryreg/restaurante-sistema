@@ -194,7 +194,19 @@ export default function CheckoutPage(): React.JSX.Element {
   }
 
   const items = (order.items ?? []).filter((item) => item.status !== "voided");
-  const legend = preBill?.legend ?? "NO ES FACTURA — documento informativo";
+  // A-11 (`features/fase-1b-venta/outputs-1b-1/auditor-venta.md §3`): antes
+  // de este pedido acá había `preBill?.legend ?? "NO ES FACTURA — documento
+  // informativo"`, un respaldo escrito a mano que se mostraba INCLUSO
+  // cuando `preBill` todavía era `null` (mientras `bill/present` viajaba o
+  // había fallado) — el POS afirmaba algo que el servidor no dijo. En
+  // 1b-2 la leyenda depende del estado DIAN y de la contingencia
+  // (`app/fiscal/service.py`), así que un texto hardcodeado pasó de
+  // prolijidad a riesgo legal (SPEC-NEGOCIO §8.3: las leyendas las define
+  // el emisor). Ahora la leyenda SIEMPRE sale del servidor, sin respaldo;
+  // si no llegó, el bloque simplemente no se pinta más abajo
+  // (`preBill?.legend ? … : null`) — mismo patrón que ya usaba
+  // `DocumentPage.tsx` (`{doc.legend}`, sin alternativa).
+  const legend = preBill?.legend;
 
   const wholeOrderTarget: PaymentTarget = {
     totals: order.totals ?? {},
@@ -250,7 +262,9 @@ export default function CheckoutPage(): React.JSX.Element {
               ))}
             </div>
           ) : null}
-          <p className="text-center text-xs font-medium uppercase text-muted-foreground">{legend}</p>
+          {legend ? (
+            <p className="text-center text-xs font-medium uppercase text-muted-foreground">{legend}</p>
+          ) : null}
         </div>
       ) : null}
 

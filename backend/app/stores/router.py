@@ -140,6 +140,7 @@ def _sales_settings_out(row: StoreSalesSettings) -> SalesSettingsOut:
         courses=list(row.courses),
         stations=list(row.stations),
         course_target_minutes=dict(row.course_target_minutes),
+        invoice_threshold_uvt=row.invoice_threshold_uvt,
     )
 
 

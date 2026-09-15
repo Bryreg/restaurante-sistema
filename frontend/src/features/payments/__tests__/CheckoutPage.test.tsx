@@ -22,7 +22,7 @@ vi.mock("@/api/orders", async () => {
 
 vi.mock("@/api/payments", async () => {
   const actual = await vi.importActual<typeof import("@/api/payments")>("@/api/payments");
-  return { ...actual, payOrder: vi.fn() };
+  return { ...actual, payOrder: vi.fn(), listDevicePaymentMethods: vi.fn() };
 });
 
 vi.mock("@/api/documents", async () => {
@@ -33,8 +33,13 @@ vi.mock("@/api/documents", async () => {
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const { getOrder, presentBill } = await import("@/api/orders");
-const { payOrder } = await import("@/api/payments");
+const { payOrder, listDevicePaymentMethods } = await import("@/api/payments");
 const { toast } = await import("sonner");
+
+const DEVICE_PAYMENT_METHODS = [
+  { code: "cash" as const, label: "Efectivo", dian_code: "10", requires_reference: false },
+  { code: "card" as const, label: "Tarjeta", dian_code: "48", requires_reference: true },
+];
 
 function DocumentProbe() {
   const { documentId } = useParams();
@@ -66,6 +71,7 @@ describe("CheckoutPage", () => {
     vi.mocked(presentBill).mockReset();
     vi.mocked(payOrder).mockReset();
     vi.mocked(toast.success).mockClear();
+    vi.mocked(listDevicePaymentMethods).mockReset().mockResolvedValue(DEVICE_PAYMENT_METHODS);
   });
 
   it("con pos.pre_bill encendida presenta la cuenta, muestra la leyenda tal cual llega y pregunta la propina", async () => {
@@ -86,8 +92,14 @@ describe("CheckoutPage", () => {
     expect(screen.getByText(/¿desea incluir servicio voluntario del 10%\?/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /sí, \$\s?4\.630/i }));
-    expect(await screen.findByText(/propina: \$\s?4\.630/i)).toBeInTheDocument();
-    expect(screen.getByText(/total a cobrar: \$\s?54\.630/i)).toBeInTheDocument();
+    // A-10: la venta y la propina se pintan como dos líneas SEPARADAS,
+    // nunca sumadas por el cliente — no existe más un "Total a cobrar"
+    // calculado en el frontend.
+    expect(await screen.findByText("Venta")).toBeInTheDocument();
+    expect(screen.getAllByText(/\$\s?50\.000/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Propina")).toBeInTheDocument();
+    expect(screen.getAllByText(/\$\s?4\.630/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/total a cobrar/i)).not.toBeInTheDocument();
   });
 
   it("con pos.tips apagada no pregunta propina", async () => {

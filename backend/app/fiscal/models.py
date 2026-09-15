@@ -1,14 +1,43 @@
-"""Modelos del comprobante interno de venta y su consecutivo
-(`features/fase-1b-venta/CONTRATO-INTERNO-1b-1.md §2.2`, vinculante: nombres
-de tabla y columna los leen tal cual el auditor, `backend-comanda`
-(`app.orders.service._order_document_id`) y el frontend).
+"""Modelos del documento fiscal, su consecutivo y los rangos de numeración
+DIAN (`features/fase-1b-venta/CONTRATO-INTERNO-1b-1.md §2.2`, extendido por
+`features/fase-1b-venta/outputs-1b-2/backend-fiscal.md`). Nombres de tabla y
+columna son vinculantes: el auditor y el frontend los leen tal cual.
 
-**Nada de esto se emite ni se transmite en 1b-1.** El modelo ya se llama
-`FiscalDocument` (tipo `pos_equivalent`) para que 1b-2 sólo tenga que agregar
-el adaptador `FiscalProvider`, rangos DIAN y estados de validación; acá
-`dian_status` queda `pending` (o `NULL` en `internal_receipt`) y los campos de
-evidencia (`cude`, `qr_url`, `xml_ref`, `provider_response`,
-`fiscal_range_id`, `validated_at`) quedan `NULL` siempre.
+**Pedido 1b-2** activa lo que 1b-1 dejó moldeado: `DianStatus` ya usa
+`sent`/`validated`/`rejected`/`contingency`; `FiscalDocumentType` ya usa
+`invoice`/`adjustment_note`/`credit_note`/`debit_note`; los campos de
+evidencia (`cude`, `qr_url`, `xml_ref`, `provider_response`, `validated_at`)
+se llenan de verdad vía `app.fiscal.provider.FiscalProvider`.
+
+**Decisión declarada** (`backend-fiscal`, 1b-2): `FiscalCounter` NO se
+absorbe en `FiscalRange` — se mantiene, pero acotado a `internal_receipt`
+(el comprobante interno de una sede que declaró no estar obligada a facturar
+no es un documento DIAN y no exige que el admin cargue un rango). Todo tipo
+DIAN-trazable (`pos_equivalent`, `invoice`, `adjustment_note`, `credit_note`,
+`debit_note`) reserva su número DENTRO de un `FiscalRange` vigente
+(`app.fiscal.service.reserve_next_number`); sin rango vigente, el cobro
+falla con `400 NO_FISCAL_RANGE`/`FISCAL_RANGE_EXHAUSTED`, nunca un `500`.
+`fiscal_range_id` pasa de `Integer` pelado a FK real a `fiscal_ranges.id`
+(mismo patrón que dejó `fiscal_documents.fiscal_range_id` listo desde 1b-1).
+
+`FiscalDocument.customer_id` queda **Integer sin FK dura** a propósito: el
+dominio `app.customers` puede no tener `models.py` todavía cuando este
+archivo se importa (construcción en paralelo, mismo patrón que dejó
+`fiscal_range_id` pelado en 1b-1 — `docs/ESTADO.md`, `find_spec_safe`); una
+FK a una tabla que `app.core.models_registry.MODEL_MODULES` todavía no
+registra rompería `Base.metadata.create_all()` de TODO el árbol, no sólo el
+mío. Cuando `customers` esté consolidado en `MODEL_MODULES`, un pedido
+futuro la convierte en FK real, igual que este pedido hizo con
+`fiscal_range_id`.
+
+`FiscalDocument.reverses_document_id` es nuevo (1b-2): FK real y
+auto-referencial — NULL en un documento normal; en una nota
+(`adjustment_note`/`credit_note`/`debit_note`) apunta al documento que
+corrige, que a su vez queda `status="reversed"`. No se necesita una tabla
+`notes` aparte: una nota **es** un `FiscalDocument` con otro `document_type`
+y su propio consecutivo (su propio `fiscal_range_id`), como pide
+SPEC-NEGOCIO §8.3 («toda corrección va por nota, nunca editando ni
+borrando»).
 
 Convenciones heredadas (`docs/ESTADO.md`, `AGENTS.md`):
 - `app.core.db.UTCDateTime` en todo `Mapped[datetime]`.
@@ -16,7 +45,8 @@ Convenciones heredadas (`docs/ESTADO.md`, `AGENTS.md`):
   ciento (`8`, `19`, `0`).
 - Enums `native_enum=False`, comparados por valor.
 - Nada se borra ni se edita después de emitido: reimprimir sólo cuenta
-  (`DocumentReprint`), nunca reescribe el documento.
+  (`DocumentReprint`), nunca reescribe el documento; una nota reversa por
+  fila nueva, nunca por `UPDATE` del documento original salvo su `status`.
 """
 
 from __future__ import annotations
@@ -59,8 +89,9 @@ DOCUMENT_STATUS_VALUES = ("issued", "reversed")
 
 
 class FiscalCounter(Base):
-    """Consecutivo por sede, tipo de documento y prefijo. `reserve_next_number`
-    (`app.fiscal.service`) lo lee con `SELECT ... FOR UPDATE` dentro de la
+    """Consecutivo simple por sede, tipo de documento y prefijo — **acotado a
+    `internal_receipt`** desde 1b-2 (decisión declarada arriba). Todo lo
+    demás usa `FiscalRange`. `SELECT ... FOR UPDATE` dentro de la
     transacción del cobro: sin huecos, sin reutilización (SPEC-NEGOCIO §8.3)."""
 
     __tablename__ = "fiscal_counters"
@@ -77,12 +108,58 @@ class FiscalCounter(Base):
     )
 
 
+class FiscalRange(Base):
+    """Rango de numeración autorizado por la DIAN (SPEC-NEGOCIO §8.3): por
+    sede y tipo de documento, prefijo, desde/hasta, resolución y vigencia.
+
+    `next_number` (interno) es el próximo número a reservar; `consumed` NO se
+    guarda como columna — se deriva (`next_number - from_number`) para que no
+    exista un lugar donde quede desincronizado de la reserva real. El cobro
+    (`app.fiscal.service.reserve_next_number`) selecciona con
+    `SELECT ... FOR UPDATE` el rango de mayor `valid_from` cuya vigencia
+    cubre la fecha de negocio y que todavía tiene números libres
+    (`next_number <= to_number`); sin uno así, `400 NO_FISCAL_RANGE` (nada
+    vigente) o `400 FISCAL_RANGE_EXHAUSTED` (vigente pero agotado) — nunca
+    `500`. Puede haber varias filas históricas por `(store, document_type,
+    prefix)`: cuando un rango se agota o vence, el admin carga uno nuevo (una
+    nueva resolución) sin borrar el anterior."""
+
+    __tablename__ = "fiscal_ranges"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    document_type: Mapped[FiscalDocumentType] = mapped_column(_enum(FiscalDocumentType, length=24))
+    prefix: Mapped[str] = mapped_column(sa.String(10))
+    from_number: Mapped[int] = mapped_column(sa.Integer)
+    to_number: Mapped[int] = mapped_column(sa.Integer)
+    next_number: Mapped[int] = mapped_column(sa.Integer)
+    resolution_number: Mapped[str] = mapped_column(sa.String(50))
+    resolution_date: Mapped[date] = mapped_column(sa.Date)
+    valid_from: Mapped[date] = mapped_column(sa.Date)
+    valid_until: Mapped[date] = mapped_column(sa.Date)
+    technical_key: Mapped[str | None] = mapped_column(sa.String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (
+        Index("ix_fiscal_ranges_store_type", "store_id", "document_type"),
+        CheckConstraint("from_number >= 1", name="ck_fiscal_ranges_from_positive"),
+        CheckConstraint("to_number >= from_number", name="ck_fiscal_ranges_to_gte_from"),
+        CheckConstraint("next_number >= from_number", name="ck_fiscal_ranges_next_gte_from"),
+        CheckConstraint("next_number <= to_number + 1", name="ck_fiscal_ranges_next_lte_to_plus_one"),
+        CheckConstraint("valid_until >= valid_from", name="ck_fiscal_ranges_valid_until_gte_from"),
+    )
+
+
 class FiscalDocument(Base):
-    """El comprobante emitido al cobrar (o al cobrar una sub-cuenta). En 1b-1
-    es siempre `pos_equivalent` (con `fiscal.dee_pos` encendida) o
-    `internal_receipt` (apagada); nunca se transmite ni se valida: eso es
-    1b-2, y por eso `cude`/`qr_url`/`xml_ref`/`provider_response`/
-    `fiscal_range_id`/`validated_at` quedan siempre `NULL`."""
+    """El comprobante emitido al cobrar (o al cobrar una sub-cuenta), o una
+    nota que corrige uno anterior (`adjustment_note`/`credit_note`/
+    `debit_note`, con `reverses_document_id` apuntando al original). Desde
+    1b-2 se transmite de verdad vía `app.fiscal.provider.FiscalProvider`:
+    `cude`/`qr_url`/`xml_ref`/`provider_response`/`validated_at` se llenan
+    según lo que responda el proveedor (siguen `NULL` mientras el proveedor
+    no diga algo mejor, y siempre `NULL` en `internal_receipt`, que nunca se
+    transmite). `fiscal_range_id` es `NULL` sólo en `internal_receipt`."""
 
     __tablename__ = "fiscal_documents"
 
@@ -110,9 +187,15 @@ class FiscalDocument(Base):
     business_date: Mapped[date] = mapped_column(sa.Date)
     issued_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
+    # Integer sin FK dura a propósito (ver docstring del módulo):
+    # `app.customers` puede no estar en `MODEL_MODULES` todavía.
+    customer_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True, index=True)
     customer_doc_type: Mapped[str] = mapped_column(sa.String(4), default="13")
     customer_doc_number: Mapped[str] = mapped_column(sa.String(20), default="222222222222")
     customer_name: Mapped[str] = mapped_column(sa.String(200), default="Consumidor final")
+    customer_email: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
+    customer_address: Mapped[str | None] = mapped_column(sa.String(300), nullable=True)
+    customer_municipality_dane: Mapped[str | None] = mapped_column(sa.String(6), nullable=True)
 
     # {legal_name, nit, dv, address, municipality_dane, regime, person_type}
     store_snapshot: Mapped[dict[str, Any]] = mapped_column(sa.JSON)
@@ -140,13 +223,27 @@ class FiscalDocument(Base):
     charged_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     charged_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
 
-    # Evidencia DIAN: siempre NULL en 1b-1 (1b-2 los llena vía FiscalProvider).
-    fiscal_range_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    # Evidencia DIAN: NULL mientras el proveedor no responda algo mejor
+    # (`app.fiscal.provider.FiscalProvider`). `fiscal_range_id` es FK real
+    # desde 1b-2 (era Integer pelado en 1b-1): NULL sólo en `internal_receipt`
+    # (usa `FiscalCounter`, no un rango DIAN).
+    fiscal_range_id: Mapped[int | None] = mapped_column(
+        ForeignKey("fiscal_ranges.id"), nullable=True, index=True
+    )
     cude: Mapped[str | None] = mapped_column(sa.String(96), nullable=True)
     qr_url: Mapped[str | None] = mapped_column(sa.String(500), nullable=True)
     xml_ref: Mapped[str | None] = mapped_column(sa.String(500), nullable=True)
     provider_response: Mapped[dict[str, Any] | None] = mapped_column(sa.JSON, nullable=True)
     validated_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    # NULL en un documento normal; en una nota, el documento que corrige
+    # (que a su vez queda `status="reversed"`). FK auto-referencial (1b-2).
+    reverses_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("fiscal_documents.id"), nullable=True, index=True
+    )
+    # NULL en un documento normal; en una nota, el motivo declarado en
+    # `POST /admin/documents/{id}/notes` (spec §3.5, §6.3).
+    reason: Mapped[str | None] = mapped_column(sa.String(300), nullable=True)
 
     status: Mapped[str] = mapped_column(
         sa.Enum(*DOCUMENT_STATUS_VALUES, name="fiscal_document_status", native_enum=False, length=16),
@@ -163,6 +260,7 @@ class FiscalDocument(Base):
         Index("ix_fiscal_documents_order", "order_id"),
         Index("ix_fiscal_documents_store_business_date", "store_id", "business_date"),
         Index("ix_fiscal_documents_shift", "shift_id"),
+        Index("ix_fiscal_documents_dian_status", "dian_status"),
         CheckConstraint("number >= 1", name="ck_fiscal_documents_number_positive"),
     )
 

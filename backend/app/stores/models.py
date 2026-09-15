@@ -135,6 +135,10 @@ class StoreSalesSettings(Base):
     courses: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     stations: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     course_target_minutes: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    # SPEC-NEGOCIO §8.3: factura electrónica cuando el neto supera este
+    # umbral (en UVT) y el cliente está identificado (pedido 1b-2,
+    # `app.fiscal.service.resolve_document_type_for_payment`). Default 5 UVT.
+    invoice_threshold_uvt: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 

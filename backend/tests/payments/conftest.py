@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from datetime import date
 from typing import Any
 
 import pytest
@@ -17,11 +18,62 @@ from sqlalchemy.orm import Session
 
 from app.catalog.models import Category, Product
 from app.core import clock as clock_module
+from app.core.modules import find_spec_safe
+from app.fiscal import service as fiscal_service
+from app.fiscal.models import FiscalDocumentType
 from app.stores.models import Store, Table, Zone
+
+# `app.core.models_registry.MODEL_MODULES` todavía no incluye "customers" ni
+# "refunds" (mismo motivo documentado en `tests/fiscal/conftest.py`, no se
+# repite acá la explicación larga): sin este import a nivel de módulo, el
+# primer test de este proceso que paga con `customer`/nota con `refund`
+# revienta con `no such table: customers`/`pending_refunds`.
+if find_spec_safe("app.customers.models") is not None:
+    import app.customers.models  # noqa: F401
+if find_spec_safe("app.refunds.models") is not None:
+    import app.refunds.models  # noqa: F401
+
+# Prefijo corto por tipo (`fiscal_ranges.prefix` es `String(10)`).
+_RANGE_PREFIX: dict[FiscalDocumentType, str] = {
+    FiscalDocumentType.POS_EQUIVALENT: "POS",
+    FiscalDocumentType.INVOICE: "FE",
+    FiscalDocumentType.ADJUSTMENT_NOTE: "NA",
+    FiscalDocumentType.CREDIT_NOTE: "NC",
+    FiscalDocumentType.DEBIT_NOTE: "ND",
+}
 
 
 def idem_headers() -> dict[str, str]:
     return {"Idempotency-Key": str(uuid.uuid4())}
+
+
+def seed_fiscal_ranges(db: Session, store: Store, *, to_number: int = 999_999_999) -> None:
+    """Un rango vigente y amplio por tipo DIAN-trazable (pedido 1b-2: cobrar
+    ahora exige un rango cargado). Ver la misma función en
+    `tests/fiscal/conftest.py` — duplicada a propósito, directorio hermano."""
+    now = clock_module.now_utc()
+    for document_type, prefix in _RANGE_PREFIX.items():
+        fiscal_service.create_range(
+            db,
+            organization_id=store.organization_id,
+            store_id=store.id,
+            document_type=document_type,
+            prefix=prefix,
+            from_number=1,
+            to_number=to_number,
+            resolution_number="18760000001",
+            resolution_date=date(2020, 1, 1),
+            valid_from=date(2020, 1, 1),
+            valid_until=date(2099, 12, 31),
+            technical_key="fixture-technical-key",
+            now=now,
+        )
+    db.commit()
+
+
+@pytest.fixture(autouse=True)
+def default_fiscal_range(db: Session, store: Store) -> None:
+    seed_fiscal_ranges(db, store)
 
 
 @pytest.fixture()

@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import random
+
 from app.orders.money import LineInput, TaxLine, compute_totals, prorate, round_half_up
 
 
@@ -47,6 +49,83 @@ class TestProrate:
 
     def test_proportional_no_residual(self) -> None:
         assert prorate(10000, [30, 70]) == [3000, 7000]
+
+    # -- A-12 (`features/fase-1b-venta/outputs-1b-1/auditor-venta.md § 3`) --
+    # `prorate` no puede asignar a una línea más de lo que esa línea pesa
+    # cuando `amount` cabe dentro de la capacidad total (Σ weights): el
+    # residuo tiene que repartirse hacia la línea siguiente con saldo, nunca
+    # empujar una línea por encima de su propio peso.
+
+    def test_a12_regression_small_weights_never_exceed_their_own_weight(self) -> None:
+        # El caso exacto del hallazgo: antes del tope, `prorate(9, [5, 1, 1,
+        # 1, 1, 1])` daba `[9, 0, 0, 0, 0, 0]` — la primera línea (peso 5)
+        # recibía 9, más de lo que pesa. `net = gross - discount` hubiera
+        # quedado negativo y `round_half_up` revienta con un numerador
+        # negativo: un 500, no un 400.
+        weights = [5, 1, 1, 1, 1, 1]
+        shares = prorate(9, weights)
+        assert sum(shares) == 9
+        for share, weight in zip(shares, weights):
+            assert share <= weight, f"{share} > {weight}"
+
+    def test_a12_ties_can_overflow_the_single_largest_line(self) -> None:
+        # Con pesos empatados, ni siquiera hace falta un caso extremo: un
+        # descuento de $8 sobre tres líneas de $3 cada una (Σ = 9) ya
+        # empujaba la primera línea (peso 3) a 4 con el algoritmo viejo.
+        weights = [3, 3, 3]
+        shares = prorate(8, weights)
+        assert sum(shares) == 8
+        for share, weight in zip(shares, weights):
+            assert share <= weight
+
+    def test_a12_property_amount_within_capacity_never_exceeds_any_weight(self) -> None:
+        """Test de propiedad (A-12): sobre 2.000 combinaciones aleatorias de
+        `amount`/`weights` donde `amount <= Σ weights` (la situación real de
+        un descuento de comanda, donde cada peso es el bruto restante de su
+        línea, en la MISMA unidad que `amount`) — el tope `min(share,
+        weight)` se respeta línea por línea y, pese al tope, el reparto
+        sigue sumando exacto y un peso en `0` sigue recibiendo `0`."""
+        rng = random.Random(20260915)
+        for _ in range(2000):
+            n = rng.randint(1, 8)
+            weights = [rng.randint(0, 50) for _ in range(n)]
+            total_weight = sum(weights)
+            if total_weight == 0:
+                amount = 0
+            else:
+                # Deliberadamente en o por debajo de la capacidad total: es
+                # el caso que A-12 tenía que arreglar (`saldo total menor
+                # que la cantidad de líneas` cae naturalmente acá con pesos
+                # chicos).
+                amount = rng.randint(0, total_weight)
+            shares = prorate(amount, weights)
+
+            assert sum(shares) == amount, f"perdió pesos: {amount} entre {weights} -> {shares}"
+            for weight, share in zip(weights, shares):
+                assert share <= weight, f"{share} > peso {weight} (amount={amount}, weights={weights})"
+                assert share >= 0
+                if weight == 0:
+                    assert share == 0
+
+    def test_a12_property_amount_over_capacity_keeps_the_legacy_shape(self) -> None:
+        """Cuando `amount` excede la capacidad total (el otro uso de
+        `prorate`: repartir plata entre *porciones* de un ítem compartido,
+        donde `weights` son cantidades chicas de porciones que NO están en
+        la misma unidad que `amount`) el tope no aplica — sigue sin perder
+        un peso, que es el único invariante que ese llamador necesita."""
+        rng = random.Random(20260915 + 1)
+        for _ in range(500):
+            n = rng.randint(1, 6)
+            weights = [rng.randint(0, 5) for _ in range(n)]
+            total_weight = sum(weights)
+            if total_weight == 0:
+                continue
+            amount = rng.randint(total_weight + 1, total_weight * 10_000)
+            shares = prorate(amount, weights)
+            assert sum(shares) == amount
+            for weight, share in zip(weights, shares):
+                if weight == 0:
+                    assert share == 0
 
 
 class TestComputeTotals:

@@ -31,6 +31,7 @@ from app.catalog.models import Combo, ComboGroup, ComboOption, ModifierGroup, Mo
 from app.core import clock, features, tz
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.core.modules import find_spec_safe
+from app.core.tax import TAX_RATE_BY_CODE
 from app.notifications.service import notify
 from app.orders import money
 from app.orders.models import (
@@ -88,12 +89,6 @@ from app.shifts import service as shifts_service
 from app.shifts.models import BusinessDay, Shift, ShiftStatus
 from app.stores import service as stores_service
 from app.stores.models import Store, Table, Zone
-
-# Colombia: tasa entera por código de impuesto. No existe un mapeo así en
-# `app.catalog`/`app.stores` (territorio ajeno); se declara acá porque la
-# comanda es la primera que necesita convertir el `tax_code` de la carta en
-# una tasa entera para la matemática de la venta (declarado en `gaps`).
-TAX_RATE_BY_CODE: dict[str, int] = {"inc_8": 8, "iva_19": 19, "excluded": 0}
 
 _OPEN_ORDER_STATUSES = (OrderStatus.OPEN, OrderStatus.TO_PAY)
 _LIVE_ITEM_STATUSES_SENT = (OrderItemStatus.SENT, OrderItemStatus.READY, OrderItemStatus.SERVED)
@@ -994,7 +989,21 @@ def _apply_send(db: Session, order: Order, items: list[OrderItem], round_row: Or
             continue
         product.daily_remaining = max(product.daily_remaining - qty, 0)
         if product.daily_remaining <= 0:
+            # `app.catalog.service.set_product_availability` (a diferencia
+            # de `app.catalog.router.set_product_availability`, que SÍ
+            # audita) no llama `record_audit` por sí sola: acá se replica el
+            # mismo `entity`/`action`/`before`/`after` que usa el router
+            # para el 86 manual, así `app.reports.service.unavailable_log`
+            # (1b-2) ve el 86 automático por contador de porciones en la
+            # MISMA bitácora, sin tocar `app.catalog`.
+            before = catalog_service.product_admin_out(db, product).model_dump()
             catalog_service.set_product_availability(db, product, available=False, daily_count=None, actor=actor)
+            after = catalog_service.product_admin_out(db, product).model_dump()
+            record_audit(
+                db, actor=actor, organization_id=order.organization_id, store_id=order.store_id,
+                entity="product", entity_id=product.id, action="set_availability", before=before, after=after,
+                reason="Contador de porciones del día llegó a 0 al enviar",
+            )
     db.flush()
 
 
@@ -1104,6 +1113,7 @@ def void_item(db: Session, *, order: Order, item_id: int, actor: Actor, expected
     order.updated_at = now
     db.flush()
     record_audit(db, actor=actor, organization_id=order.organization_id, store_id=order.store_id, entity="order_item", entity_id=item.id, action="void", before={"status": prior_status.value}, after={"reason": reason}, reason=note)
+    _check_void_rate_high(db, order=order, actor=actor)
     return order
 
 
@@ -1217,6 +1227,7 @@ def void_order(db: Session, *, order: Order, actor: Actor, payload: VoidOrderIn)
     )
     db.flush()
     record_audit(db, actor=actor, organization_id=order.organization_id, store_id=order.store_id, entity="order", entity_id=order.id, action="void", before={"status": "open"}, after={"reason": payload.reason}, reason=payload.note)
+    _check_void_rate_high(db, order=order, actor=actor)
     return order
 
 
@@ -1338,6 +1349,51 @@ def _check_discount_rate_high(db: Session, *, order: Order, actor: Actor, settin
             body=f"{actor.employee_name} acumuló ${discounts} de descuento sobre ${sales} en ventas este turno ({pct:.1f}%).",
             payload={"employee_id": actor.employee_id, "shift_id": order.shift_id},
             dedupe_key=f"discount_rate_high:{order.shift_id}:{actor.employee_id}",
+        )
+
+
+# `void_rate_high` (1b-2, `app.notifications.service.NOTIFICATION_TYPES`):
+# no hay todavía un campo de configuración por sede para este umbral (mismo
+# caso que `UNSENT_MINUTES_THRESHOLD`/`UNPAID_MINUTES_THRESHOLD` de
+# `app.reports.service`: no existe en `StoreSalesSettings` y este territorio
+# no toca `app.stores`) — declarado como default de producto, gap en el
+# entregable para que un pedido futuro lo suba a Configuración junto con
+# `discount_daily_limit_pct`.
+VOID_RATE_ALERT_PCT = 10.0
+
+
+def _employee_shift_void_total(db: Session, *, shift_id: int, employee_id: int) -> int:
+    rows = db.execute(
+        select(OrderItem.unit_price, OrderItem.qty)
+        .join(Order, OrderItem.order_id == Order.id)
+        .where(
+            Order.shift_id == shift_id,
+            OrderItem.voided_by_employee_id == employee_id,
+            OrderItem.status == OrderItemStatus.VOIDED,
+        )
+    ).all()
+    return sum(unit_price * qty for unit_price, qty in rows)
+
+
+def _check_void_rate_high(db: Session, *, order: Order, actor: Actor) -> None:
+    """Espejo de `_check_discount_rate_high`: anulaciones (a precio de
+    lista, no sólo descuentos) de la persona sobre sus ventas del turno,
+    por encima de `VOID_RATE_ALERT_PCT` -> alerta (SPEC-NEGOCIO §9.3 "Hoy":
+    "anulaciones... inusuales")."""
+    if order.shift_id is None or actor.employee_id is None:
+        return
+    sales = _employee_shift_sales_total(db, shift_id=order.shift_id, employee_id=actor.employee_id)
+    if sales <= 0:
+        return
+    voided = _employee_shift_void_total(db, shift_id=order.shift_id, employee_id=actor.employee_id)
+    pct = voided / sales * 100
+    if pct > VOID_RATE_ALERT_PCT:
+        notify(
+            db, organization_id=order.organization_id, store_id=order.store_id, type="void_rate_high", level="warning",
+            title="Anulaciones por encima de lo habitual",
+            body=f"{actor.employee_name} anuló ${voided} (a precio de lista) sobre ${sales} en ventas este turno ({pct:.1f}%).",
+            payload={"employee_id": actor.employee_id, "shift_id": order.shift_id},
+            dedupe_key=f"void_rate_high:{order.shift_id}:{actor.employee_id}",
         )
 
 
@@ -1602,9 +1658,75 @@ def claim_payment(db: Session, order: Order, *, sub_account: OrderSubAccount | N
 # ---------------------------------------------------------------------------
 
 
+def _order_payment_methods(db: Session, order_id: int) -> list[str]:
+    """Medios de pago con los que cerró la comanda (spec «Admin reports»:
+    "medio de pago con que cerró la comanda"), leídos de
+    `app.fiscal.models.FiscalDocument.payments_snapshot` — puede haber más
+    de un documento (división por sub-cuentas), así que se juntan los medios
+    de todos. `find_spec_safe` como en `_order_document_id`: territorio
+    ajeno que 1b-2 construye en paralelo."""
+    if find_spec_safe("app.fiscal.models") is None:
+        return []
+    module = importlib.import_module("app.fiscal.models")
+    fiscal_document_cls = getattr(module, "FiscalDocument", None)
+    if fiscal_document_cls is None:
+        return []
+    snapshots = db.execute(
+        select(fiscal_document_cls.payments_snapshot).where(
+            fiscal_document_cls.order_id == order_id, fiscal_document_cls.status == "issued"
+        )
+    ).scalars().all()
+    methods: list[str] = []
+    for snapshot in snapshots:
+        for split in snapshot or []:
+            method = split.get("method")
+            if method and method not in methods:
+                methods.append(method)
+    return methods
+
+
+def _percentile(values: list[int], pct: float) -> int:
+    """Percentil por rango más cercano (`nearest-rank`), sin interpolar: para
+    una métrica operativa (segundos de cocina, no plata) alcanza y es fácil
+    de auditar a mano. `pct` en `[0, 1]` (p50 = 0.5, p90 = 0.9)."""
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, int(pct * len(ordered)))
+    return ordered[index]
+
+
+def _kitchen_times_by_station(items: list[OrderItem]) -> list[dict[str, Any]]:
+    """p50/p90 de "listo − enviado" (segundos) por estación, sobre TODOS los
+    ítems `enviados` de las comandas del rango (se leen los timestamps del
+    propio `OrderItem`, no de `OrderRound`: un ítem que pasó por `merge`
+    conserva su `sent_at`/`ready_at` propios porque son columnas suyas —
+    `merge_orders` reasigna `order_id` a los ítems, así que quedan del lado
+    de la comanda destino con sus tiempos intactos; lo único que no viaja
+    tras `merge` es el resumen `rounds` de `OrderOut`, que este cálculo no
+    usa). Ver §4 del entregable."""
+    by_station: dict[str, list[int]] = {}
+    for item in items:
+        if item.station is None or item.sent_at is None or item.ready_at is None:
+            continue
+        seconds = int((item.ready_at - item.sent_at).total_seconds())
+        if seconds < 0:
+            continue
+        by_station.setdefault(item.station, []).append(seconds)
+    return [
+        {"station": station, "p50_seconds": _percentile(values, 0.5), "p90_seconds": _percentile(values, 0.9), "samples": len(values)}
+        for station, values in sorted(by_station.items())
+    ]
+
+
 def admin_list_orders(
     db: Session, *, store_id: int, date_from: date | None, date_to: date | None, status: str | None, channel: str | None, flags: list[str] | None
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
+    """`GET /admin/orders` (SPEC-NEGOCIO §9.3 "Pedidos"; spec.md «Admin
+    reports»). Devuelve `{rows, kitchen_times_by_station, sent_at_payment_
+    ratio}`: `rows` es la lista por comanda (lo único que exporta
+    `format=csv`, para no romper el patrón «un listado = una tabla plana»
+    del resto del admin); `kitchen_times_by_station` y `sent_at_payment_
+    ratio` son agregados del período completo — un percentil no tiene
+    sentido por fila."""
     stmt = select(Order).where(Order.store_id == store_id)
     if date_from is not None:
         stmt = stmt.where(Order.business_date >= date_from)
@@ -1616,25 +1738,56 @@ def admin_list_orders(
         stmt = stmt.where(Order.channel == OrderChannel(channel))
     orders = list(db.execute(stmt.order_by(Order.opened_at.desc())).scalars())
 
-    out: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
+    all_sent_items: list[OrderItem] = []
+    total_live_items = 0
+    total_sent_at_payment_items = 0
+
     for order in orders:
         totals = compute_order_totals(db, order)
         items = list(db.execute(select(OrderItem).where(OrderItem.order_id == order.id)).scalars())
+        all_sent_items.extend(items)
+
         voided_items = sum(1 for i in items if i.status == OrderItemStatus.VOIDED)
         voids_after_bill = sum(1 for i in items if i.status == OrderItemStatus.VOIDED and i.void_after_bill)
         courtesies = sum(1 for i in items if i.courtesy_reason is not None)
+        courtesy_list_value = sum(i.list_price * i.qty for i in items if i.courtesy_reason is not None)
         sent_at_payment_items = sum(1 for i in items if i.sent_at_payment)
         live_items_count = sum(1 for i in items if i.status != OrderItemStatus.VOIDED)
+        total_live_items += live_items_count
+        total_sent_at_payment_items += sent_at_payment_items
         table_numbers = [t.number for t in db.execute(select(Table).join(OrderTable, OrderTable.table_id == Table.id).where(OrderTable.order_id == order.id)).scalars()]
         transferred = order.transferred_from_shift_id is not None or order.transferred_to_shift_id is not None
+
+        table_minutes = int((order.closed_at - order.opened_at).total_seconds() // 60) if order.closed_at is not None else None
+        bill_to_paid_minutes = (
+            int((order.paid_at - order.bill_presented_at).total_seconds() // 60)
+            if order.paid_at is not None and order.bill_presented_at is not None
+            else None
+        )
+        void_details = [
+            {
+                "item_id": i.id,
+                "reason": i.void_reason.value if i.void_reason else None,
+                "after_bill": i.void_after_bill,
+                "minutes_since_sent": i.void_minutes_since_sent,
+                "authorized_by": i.void_authorized_by_employee_name,
+            }
+            for i in items
+            if i.status == OrderItemStatus.VOIDED
+        ]
 
         row = {
             "id": order.id, "business_date": order.business_date, "shift_id": order.shift_id, "channel": order.channel.value,
             "tables": table_numbers, "covers": order.covers, "status": order.status.value, "opened_by": order.opened_by_employee_name,
             "opened_at": order.opened_at, "bill_presented_at": order.bill_presented_at, "paid_at": order.paid_at,
+            "closed_at": order.closed_at, "table_minutes": table_minutes, "bill_to_paid_minutes": bill_to_paid_minutes,
             "items_count": live_items_count, "total": totals.total, "voided_items": voided_items, "voids_after_bill": voids_after_bill,
-            "courtesies": courtesies, "discount_total": totals.discount_total, "sent_at_payment_items": sent_at_payment_items,
-            "transferred": transferred,
+            "void_details": void_details, "courtesies": courtesies, "courtesy_list_value": courtesy_list_value,
+            "discount_total": totals.discount_total, "sent_at_payment_items": sent_at_payment_items,
+            "sent_at_payment_ratio": (sent_at_payment_items / live_items_count) if live_items_count else None,
+            "is_staff_meal": order.channel == OrderChannel.STAFF_MEAL,
+            "transferred": transferred, "payment_methods": _order_payment_methods(db, order.id),
         }
 
         if flags:
@@ -1654,5 +1807,10 @@ def admin_list_orders(
                     keep = False
             if not keep:
                 continue
-        out.append(row)
-    return out
+        rows.append(row)
+
+    return {
+        "rows": rows,
+        "kitchen_times_by_station": _kitchen_times_by_station(all_sent_items),
+        "sent_at_payment_ratio": (total_sent_at_payment_items / total_live_items) if total_live_items else None,
+    }

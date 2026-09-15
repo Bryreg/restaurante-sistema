@@ -63,4 +63,22 @@ describe("AdminLayout: sidebar por features", () => {
     expect(await screen.findByRole("link", { name: "Funciones" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Configuración" })).toBeInTheDocument();
   });
+
+  it("integra Hoy, Ventas, Pedidos, Documentos fiscales (núcleo, sin flag) y Clientes según su feature — pedido 1b-2, sin mockear esos dominios", async () => {
+    renderAdmin(buildMe({ features: { customers: true } }));
+
+    expect(await screen.findByRole("link", { name: "Hoy" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ventas" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Pedidos" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Documentos fiscales" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Rangos de numeración" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Clientes" })).toBeInTheDocument();
+  });
+
+  it("«Clientes» respeta su feature: apagada, no se muestra", async () => {
+    renderAdmin(buildMe({ features: { customers: false } }));
+
+    await screen.findByRole("link", { name: "Hoy" });
+    expect(screen.queryByRole("link", { name: "Clientes" })).not.toBeInTheDocument();
+  });
 });

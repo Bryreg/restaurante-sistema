@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from datetime import date
 from typing import Any
 
 import pytest
@@ -17,11 +18,52 @@ from sqlalchemy.orm import Session
 
 from app.catalog.models import Category, Product
 from app.core import clock as clock_module
+from app.fiscal import service as fiscal_service
+from app.fiscal.models import FiscalDocumentType
 from app.stores.models import Store, Table, Zone
+
+# Prefijo corto por tipo (`fiscal_ranges.prefix` es `String(10)`); duplicado
+# a propósito de `tests/payments/conftest.py`, `tests/fiscal/conftest.py` y
+# `tests/reports/conftest.py` (directorios hermanos, mismo criterio: cada
+# uno arma su propia base sin imports cruzados entre carpetas de test). La
+# mayoría de `tests/orders` no cobra nada (territorio de `backend-cobro`),
+# pero los tests que sí llegan a `POST /orders/{id}/payments` (p. ej.
+# `tests/orders/test_admin_times.py`, que necesita un documento real para
+# probar `payment_methods`/`table_minutes` del reporte) necesitan un rango
+# vigente: sin esto, `pay_order` falla con `400 NO_FISCAL_RANGE`.
+_RANGE_PREFIX: dict[FiscalDocumentType, str] = {
+    FiscalDocumentType.POS_EQUIVALENT: "POS",
+    FiscalDocumentType.INVOICE: "FE",
+    FiscalDocumentType.ADJUSTMENT_NOTE: "NA",
+    FiscalDocumentType.CREDIT_NOTE: "NC",
+    FiscalDocumentType.DEBIT_NOTE: "ND",
+}
 
 
 def idem_headers() -> dict[str, str]:
     return {"Idempotency-Key": str(uuid.uuid4())}
+
+
+@pytest.fixture(autouse=True)
+def default_fiscal_range(db: Session, store: Store) -> None:
+    now = clock_module.now_utc()
+    for document_type, prefix in _RANGE_PREFIX.items():
+        fiscal_service.create_range(
+            db,
+            organization_id=store.organization_id,
+            store_id=store.id,
+            document_type=document_type,
+            prefix=prefix,
+            from_number=1,
+            to_number=999_999_999,
+            resolution_number="18760000001",
+            resolution_date=date(2020, 1, 1),
+            valid_from=date(2020, 1, 1),
+            valid_until=date(2099, 12, 31),
+            technical_key="fixture-technical-key",
+            now=now,
+        )
+    db.commit()
 
 
 @pytest.fixture()

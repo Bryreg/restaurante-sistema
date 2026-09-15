@@ -43,6 +43,48 @@ describe("DocumentPage", () => {
     expect(screen.getByText("POS-000123")).toBeInTheDocument();
   });
 
+  it("muestra el estado DIAN, el CUDE y el QR cuando llegan", async () => {
+    vi.mocked(getDocument).mockResolvedValue(
+      buildDocument({
+        document_type: "pos_equivalent",
+        dian_status: "validated",
+        legend: "DOCUMENTO VALIDADO POR LA DIAN",
+        fiscal: {
+          dian_status: "validated",
+          contingency: false,
+          cude: "CUDE-ABC-123",
+          qr_url: "https://catalogo-vpfe.dian.gov.co/document/search?cude=abc",
+          range: { id: 1, prefix: "POS", from_number: 1, to_number: 1000, resolution_number: "18760", valid_until: "2027-01-01" },
+        },
+      }),
+    );
+
+    renderDocument();
+
+    expect((await screen.findAllByText("Validado")).length).toBeGreaterThan(0);
+    expect(screen.getByText(/cude-abc-123/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /catalogo-vpfe/i })).toHaveAttribute(
+      "href",
+      "https://catalogo-vpfe.dian.gov.co/document/search?cude=abc",
+    );
+  });
+
+  it("un documento en contingencia muestra su leyenda de contingencia", async () => {
+    vi.mocked(getDocument).mockResolvedValue(
+      buildDocument({
+        document_type: "pos_equivalent",
+        dian_status: "contingency",
+        legend: "EXPEDIDO EN CONTINGENCIA — pendiente de transmisión a la DIAN (art. 616-1 ET)",
+        fiscal: { dian_status: "contingency", contingency: true, cude: null, qr_url: null, range: null },
+      }),
+    );
+
+    renderDocument();
+
+    expect(await screen.findByText(/expedido en contingencia/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Contingencia").length).toBeGreaterThan(0);
+  });
+
   it("reimprimir queda contado por el servidor (reprint_count)", async () => {
     vi.mocked(getDocument).mockResolvedValue(buildDocument({ reprint_count: 0 }));
     vi.mocked(reprintDocument).mockResolvedValue(buildDocument({ reprint_count: 1 }));

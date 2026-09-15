@@ -402,8 +402,121 @@ class EmployeeActivityShift(BaseModel):
     difference: int | None = None
 
 
+class EmployeeActivitySales(BaseModel):
+    """Ventas **netas** (sin propina, sin impuesto — KPI §10 de la spec de
+    negocio) atribuidas a las comandas que esta persona abrió y que llegaron
+    a pagarse, leídas de los snapshots (`FiscalDocument`), nunca revaloradas
+    con la carta actual."""
+
+    net: int
+    orders: int
+    avg_ticket: int | None = None
+
+
+class EmployeeActivityVoids(BaseModel):
+    """Anulaciones de ítem que esta persona ejecutó (`OrderItem
+    .voided_by_employee_id`), `docs/SPEC-NEGOCIO.md §3.5`. `amount` es el
+    valor de lista de lo anulado (precio unitario × cantidad, antes de
+    descuento); `pct_of_sales` es ese monto sobre `sales.net` de la misma
+    persona (`null` si no tuvo ventas en el período)."""
+
+    n: int
+    amount: int
+    pct_of_sales: float | None = None
+    after_bill: int
+    on_cash: int
+    walkouts: int
+
+
+class EmployeeActivityDiscounts(BaseModel):
+    n: int
+    amount: int
+
+
+class EmployeeActivityCourtesies(BaseModel):
+    n: int
+    amount: int
+
+
+class EmployeeActivityTips(BaseModel):
+    cash: int
+    card: int
+    transfer: int
+    other: int
+    total: int
+
+
+class EmployeeActivityMetrics(BaseModel):
+    sales: EmployeeActivitySales
+    voids: EmployeeActivityVoids
+    discounts: EmployeeActivityDiscounts
+    courtesies: EmployeeActivityCourtesies
+    reprints: int
+    sent_at_payment_pct: float | None = None
+    tips: EmployeeActivityTips
+
+
 class EmployeeActivityOut(BaseModel):
     employee: EmployeeRef
     shifts: list[EmployeeActivityShift]
     difference_streak: int
     authorizations_given: list[dict]
+    # `None` cuando `app.orders`/`app.payments`/`app.fiscal` no están
+    # disponibles (protegido con `find_spec_safe`, igual que
+    # `app.shifts.hooks.get_sales_totals`) — nunca `0` por defecto: la
+    # ausencia del dato no es lo mismo que "sin actividad".
+    activity: EmployeeActivityMetrics | None = None
+    team_average: EmployeeActivityMetrics | None = None
+
+
+# ---------------------------------------------------------------------------
+# Propinas (1b-2, `docs/SPEC-NEGOCIO.md §6.2`)
+# ---------------------------------------------------------------------------
+
+
+class TipsByEmployeeOut(BaseModel):
+    employee_id: int
+    employee_name: str
+    cash: int
+    card: int
+    transfer: int
+    other: int
+    total: int
+
+
+class ShiftTipsOut(BaseModel):
+    by_method: SalesByMethodOut
+    by_employee: list[TipsByEmployeeOut]
+    # Efectivo: sale del cajón al cierre. Electrónicas: pasivo con el
+    # personal (Ley 1935 de 2018) — `by_method.card + transfer + other`.
+    cash_out: int
+    electronic_liability: int
+
+
+class TipPayoutDistributionIn(BaseModel):
+    employee_id: int
+    amount: int = Field(ge=0)
+
+
+class TipPayoutIn(BaseModel):
+    shift_ids: list[int] = Field(min_length=1)
+    distribution: list[TipPayoutDistributionIn] = Field(min_length=1)
+    paid_at: datetime
+    method: str
+
+
+class TipPayoutDistributionOut(OutModel):
+    employee_id: int
+    employee_name: str
+    amount: int
+
+
+class TipPayoutOut(OutModel):
+    id: int
+    shift_ids: list[int]
+    paid_at: datetime
+    method: str
+    total_amount: int
+    created_by: EmployeeRef
+    created_at: datetime
+    distribution: list[TipPayoutDistributionOut]

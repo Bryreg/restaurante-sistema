@@ -27,7 +27,10 @@ DOMAINS: list[str] = [
     "orders",
     "payments",
     "fiscal",
+    "customers",
+    "refunds",
     "kitchen",
+    "reports",
     "audit",
     "notifications",
 ]

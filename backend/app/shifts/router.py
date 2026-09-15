@@ -24,7 +24,7 @@ from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.shifts import service
+from app.shifts import service, tips as tips_service
 from app.shifts.models import BusinessDay, CashMovement, CashPickup, CashSwap, HandoverKind, Shift, ShiftHandover, ShiftStatus
 from app.shifts.schemas import (
     AdminAdjustOpeningIn,
@@ -58,9 +58,12 @@ from app.shifts.schemas import (
     SalesByMethodOut,
     ShiftCurrentOut,
     ShiftSummaryOut,
+    ShiftTipsOut,
     SingleStepCloseIn,
     SingleStepCloseOut,
     TimelineEventOut,
+    TipPayoutIn,
+    TipPayoutOut,
 )
 from app.stores.models import Store
 
@@ -310,6 +313,26 @@ def get_shift_summary(shift_id: int, actor: Actor = Depends(current_actor), db: 
     if actor.kind == "device" and actor.store_id != shift.store_id:
         raise AppError("NOT_FOUND", "El turno no existe en esta sede", status=404)
     return _shift_summary(db, shift, actor)
+
+
+# ---------------------------------------------------------------------------
+# Propinas del turno (1b-2)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/shifts/{shift_id}/tips")
+def get_shift_tips(shift_id: int, actor: Actor = Depends(current_actor), db: Session = Depends(get_db)) -> ShiftTipsOut:
+    """A diferencia de `expected_cash` (oculto al responsable con
+    `cash.blind_close`, O-1), la propina no arma el cuadre de caja: no hay
+    razón de integridad para esconderla, así que esta ruta no aplica
+    `_can_see_expected` (decisión declarada en el entregable)."""
+
+    shift = db.get(Shift, shift_id)
+    if shift is None or shift.organization_id != actor.organization_id:
+        raise AppError("NOT_FOUND", "El turno no existe en esta organización", status=404)
+    if actor.kind == "device" and actor.store_id != shift.store_id:
+        raise AppError("NOT_FOUND", "El turno no existe en esta sede", status=404)
+    return tips_service.get_shift_tips(db, shift=shift)
 
 
 # ---------------------------------------------------------------------------
@@ -684,15 +707,80 @@ def admin_business_days(
 @router.get("/admin/employees/{employee_id}/activity")
 def admin_employee_activity(
     employee_id: int,
+    request: Request,
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
     store_id: int | None = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> EmployeeActivityOut:
+) -> Any:
     if store_id is not None:
         admin_store(db, actor, store_id)
     data = service.employee_activity(
         db, organization_id=actor.organization_id, store_id=store_id, employee_id=employee_id, date_from=date_from, date_to=date_to
     )
-    return EmployeeActivityOut(**data)
+    out = EmployeeActivityOut(**data)
+    if wants_csv(request):
+        # Un CSV de una sola fila: las listas anidadas (`shifts`,
+        # `authorizations_given`) no entran en una tabla plana, así que se
+        # exporta el resumen numérico (lo que "una sola tabla de saldos"
+        # necesita para cuadrar, `docs/SPEC-NEGOCIO.md §9.3`).
+        row: dict[str, Any] = {"employee_id": out.employee.id, "employee_name": out.employee.name, "difference_streak": out.difference_streak}
+        if out.activity is not None:
+            row.update(
+                {
+                    "sales_net": out.activity.sales.net,
+                    "orders": out.activity.sales.orders,
+                    "avg_ticket": out.activity.sales.avg_ticket,
+                    "voids_n": out.activity.voids.n,
+                    "voids_amount": out.activity.voids.amount,
+                    "voids_pct_of_sales": out.activity.voids.pct_of_sales,
+                    "voids_after_bill": out.activity.voids.after_bill,
+                    "voids_on_cash": out.activity.voids.on_cash,
+                    "walkouts": out.activity.voids.walkouts,
+                    "discounts_n": out.activity.discounts.n,
+                    "discounts_amount": out.activity.discounts.amount,
+                    "courtesies_n": out.activity.courtesies.n,
+                    "courtesies_amount": out.activity.courtesies.amount,
+                    "reprints": out.activity.reprints,
+                    "sent_at_payment_pct": out.activity.sent_at_payment_pct,
+                    "tips_total": out.activity.tips.total,
+                }
+            )
+        return csv_response([row], filename="employee_activity.csv")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Reparto de propinas (1b-2)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/admin/tips/payouts", status_code=201)
+def admin_create_tip_payout(
+    payload: TipPayoutIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        payout = tips_service.register_tip_payout(
+            db,
+            actor=actor,
+            organization_id=actor.organization_id,
+            store_id=store.id,
+            shift_ids=payload.shift_ids,
+            distribution=payload.distribution,
+            paid_at=payload.paid_at,
+            method=payload.method,
+            now=clock.now_utc(),
+        )
+        out = tips_service.tip_payout_out(db, payout=payout)
+        return 201, out.model_dump(mode="json")
+
+    return _idempotent(
+        db, organization_id=actor.organization_id, scope="tips.payouts", request=request, payload=payload, fn=_do
+    )

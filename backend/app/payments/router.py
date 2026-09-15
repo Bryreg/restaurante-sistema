@@ -21,7 +21,7 @@ from app.core.errors import AppError, UnauthorizedError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.orders import service as orders_service
 from app.payments import service
-from app.payments.schemas import DocumentPrintableOut, PaymentIn
+from app.payments.schemas import DevicePaymentMethodOut, DocumentPrintableOut, PaymentIn
 from app.shifts import service as shifts_service
 from app.stores.models import Store
 
@@ -83,6 +83,19 @@ def post_payment(
 
 
 # ---------------------------------------------------------------------------
+# Dispositivo: medios de pago habilitados de la sede
+# ---------------------------------------------------------------------------
+
+
+@router.get("/device/payment-methods")
+def get_device_payment_methods(
+    actor: Actor = Depends(current_device), db: Session = Depends(get_db)
+) -> list[DevicePaymentMethodOut]:
+    store = _store_of(db, actor)
+    return service.device_payment_methods(db, store_id=store.id)
+
+
+# ---------------------------------------------------------------------------
 # Comprobante
 # ---------------------------------------------------------------------------
 
@@ -123,11 +136,15 @@ def get_admin_documents(
     store_id: int = Query(...),
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
+    document_type: str | None = Query(None, alias="type"),
+    status: str | None = Query(None),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]] | Any:
     admin_store(db, actor, store_id)
-    rows = service.admin_list_documents(db, store_id=store_id, date_from=date_from, date_to=date_to)
+    rows = service.admin_list_documents(
+        db, store_id=store_id, date_from=date_from, date_to=date_to, document_type=document_type, status=status
+    )
     if wants_csv(request):
         return csv_response(rows, filename="comprobantes.csv")
     return rows

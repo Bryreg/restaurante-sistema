@@ -297,6 +297,118 @@ def audit_tables(db: Any, store: Any) -> list[Any]:
     return rows
 
 
+# ---------------------------------------------------------------------------
+# Documento fiscal de verdad (pedido 1b-2): sin un `fiscal_range` vigente no
+# se puede cobrar. `app.fiscal.service.reserve_next_number` reserva el
+# consecutivo DENTRO del rango y `pay_order` corta antes con
+# `400 NO_FISCAL_RANGE` si no hay uno (SPEC-NEGOCIO §8.3).
+#
+# Por eso todos los invariantes de venta de 1b-1 —que cobraban sin cargar
+# nada— necesitan ahora un rango: la fixture es **autouse** para no repetir
+# el mismo parámetro en veinte firmas, y los tests que auditan justamente la
+# ausencia de rango lo borran a mano (`delete(FiscalRange)`), que es más
+# honesto que un marcador.
+# ---------------------------------------------------------------------------
+
+# Prefijo corto por tipo (`fiscal_ranges.prefix` es `String(10)`). Cada tipo
+# DIAN-trazable lleva su PROPIO rango y por lo tanto su propio consecutivo:
+# es la regla "consecutivo por tipo y por sede" de §8.3, y el invariante de
+# las notas se apoya en que la nota no toma números de la serie de la venta.
+RANGE_PREFIX: dict[str, str] = {
+    "pos_equivalent": "POS",
+    "invoice": "FE",
+    "adjustment_note": "NA",
+    "credit_note": "NC",
+    "debit_note": "ND",
+}
+
+
+def seed_fiscal_ranges(
+    db: Any,
+    store: Any,
+    *,
+    to_number: int = 999_999_999,
+    from_number: int = 1,
+    types: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    """Un rango vigente por tipo DIAN-trazable, con vigencia amplia.
+
+    Vigencia 2020→2099 a propósito: los tests de fecha operativa mueven el
+    reloj (00:30, turno pasado de la hora de corte) y un rango que venciera
+    "hoy" convertiría un invariante de zona horaria en un falso rojo de
+    numeración.
+    """
+    from datetime import date as _date
+
+    from app.core import clock as clock_module
+    from app.fiscal import service as fiscal_service
+    from app.fiscal.models import FiscalDocumentType
+
+    now = clock_module.now_utc()
+    made: dict[str, Any] = {}
+    for value, prefix in RANGE_PREFIX.items():
+        if types is not None and value not in types:
+            continue
+        made[value] = fiscal_service.create_range(
+            db,
+            organization_id=store.organization_id,
+            store_id=store.id,
+            document_type=FiscalDocumentType(value),
+            prefix=prefix,
+            from_number=from_number,
+            to_number=to_number,
+            resolution_number="18760000001",
+            resolution_date=_date(2020, 1, 1),
+            valid_from=_date(2020, 1, 1),
+            valid_until=_date(2099, 12, 31),
+            technical_key="audit-technical-key",
+            now=now,
+        )
+    db.commit()
+    return made
+
+
+@pytest.fixture(autouse=True)
+def fiscal_ranges(request: Any) -> Any:
+    """Rango vigente por tipo en la sede propia, para todo test que hable con
+    la base. Se salta sola en los tests que no usan `db` (los de migraciones
+    arman su propio SQLite bajo `tmp_path`) y en los de carrera, que corren
+    sobre la base propia de `race_env`.
+    """
+    if "db" not in request.fixturenames or "store" not in request.fixturenames:
+        return None
+    db = request.getfixturevalue("db")
+    store = request.getfixturevalue("store")
+    return seed_fiscal_ranges(db, store)
+
+
+def seed_race_fiscal_range(race_env: Any, *, document_type: str = "pos_equivalent") -> None:
+    """Lo mismo, sobre la base **propia** de `race_env` (no es la de `db`)."""
+    from datetime import date as _date
+
+    from app.core import clock as clock_module
+    from app.fiscal import service as fiscal_service
+    from app.fiscal.models import FiscalDocumentType
+
+    with race_env.session_factory() as db:
+        fiscal_service.create_range(
+            db,
+            organization_id=race_env.organization_id,
+            store_id=race_env.store_id,
+            document_type=FiscalDocumentType(document_type),
+            prefix=RANGE_PREFIX[document_type],
+            from_number=1,
+            to_number=999_999_999,
+            resolution_number="18760000001",
+            resolution_date=_date(2020, 1, 1),
+            valid_from=_date(2020, 1, 1),
+            valid_until=_date(2099, 12, 31),
+            technical_key="audit-race-technical-key",
+            now=clock_module.now_utc(),
+        )
+        db.commit()
+
+
 def create_order(client: Any, *, channel: str = "counter", **body: Any) -> Any:
     return client.post(
         "/api/v1/orders", json={"channel": channel, **body}, headers=idem_headers()

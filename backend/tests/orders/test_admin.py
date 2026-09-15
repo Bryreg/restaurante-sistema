@@ -27,15 +27,23 @@ def test_admin_list_orders_with_flags_and_csv(
 
     listing = admin_client.get("/api/v1/admin/orders", params={"store_id": store.id})
     assert listing.status_code == 200, listing.text
-    ids = {row["id"] for row in listing.json()}
+    body = listing.json()
+    assert "kitchen_times_by_station" in body
+    assert "sent_at_payment_ratio" in body
+    ids = {row["id"] for row in body["rows"]}
     assert plain["id"] in ids
     assert courtesy_order["id"] in ids
 
     courtesies_only = admin_client.get("/api/v1/admin/orders", params={"store_id": store.id, "flags": "courtesy"})
     assert courtesies_only.status_code == 200, courtesies_only.text
-    courtesy_ids = {row["id"] for row in courtesies_only.json()}
+    courtesy_rows = courtesies_only.json()["rows"]
+    courtesy_ids = {row["id"] for row in courtesy_rows}
     assert courtesy_ids == {courtesy_order["id"]}
-    assert courtesies_only.json()[0]["courtesies"] == 1
+    assert courtesy_rows[0]["courtesies"] == 1
+    # "cortesías a precio de lista" (spec.md «Admin reports»): el ítem
+    # cortesía vale $0 en `total`, pero su valor a precio de lista queda
+    # visible aparte.
+    assert courtesy_rows[0]["courtesy_list_value"] == main_product.price_dine_in
 
     csv_resp = admin_client.get("/api/v1/admin/orders", params={"store_id": store.id, "format": "csv"})
     assert csv_resp.status_code == 200, csv_resp.text

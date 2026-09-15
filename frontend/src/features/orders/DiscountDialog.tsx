@@ -54,12 +54,24 @@ export function DiscountDialog({
       setLocalError("Ingresá un valor mayor a cero.")
       return
     }
+    // O-1 (auditor-venta, `features/fase-1b-venta/outputs-1b-1/auditor-venta.md
+    // § 3`): un `Math.round` silencioso mandaba "10,6 %" como "11 %" sin que el
+    // operador viera que su número cambió. El backend espera un entero
+    // (`value: int`) — se lo pedimos explícito acá en vez de redondearlo solos.
+    if (!Number.isInteger(numericValue)) {
+      setLocalError(
+        kind === "percent"
+          ? "Ingresá un porcentaje entero, sin decimales (por ejemplo 10, no 10,6)."
+          : "Ingresá un monto entero, sin decimales.",
+      )
+      return
+    }
     if (reason === "") {
       setLocalError("Elegí un motivo.")
       return
     }
     setLocalError(null)
-    onConfirm(kind, Math.round(numericValue), reason, note.trim() === "" ? undefined : note.trim())
+    onConfirm(kind, numericValue, reason, note.trim() === "" ? undefined : note.trim())
   }
 
   return (
@@ -87,8 +99,10 @@ export function DiscountDialog({
               id="discount-value"
               type="number"
               min={1}
+              step={1}
               className="h-11"
               inputMode="numeric"
+              aria-describedby={localError ?? errorMessage ? "discount-value-error" : undefined}
               value={value}
               onChange={(event) => setValue(event.target.value)}
             />
@@ -113,7 +127,7 @@ export function DiscountDialog({
             <Textarea id="discount-note" value={note} onChange={(event) => setNote(event.target.value)} />
           </div>
           {(localError ?? errorMessage) ? (
-            <p role="alert" className="text-sm text-destructive">
+            <p id="discount-value-error" role="alert" className="text-sm text-destructive">
               {localError ?? errorMessage}
             </p>
           ) : null}

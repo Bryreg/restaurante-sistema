@@ -230,6 +230,65 @@ def test_prorating_never_loses_a_peso_even_on_the_hardest_remainders() -> None:
                 assert share == 0, "un peso 0 no puede recibir parte del descuento"
 
 
+def test_prorating_never_gives_a_line_more_than_it_weighs(*_: object) -> None:
+    """**A-12 cerrado** (`outputs-1b-1/auditor-venta.md §3`): «`prorate` puede
+    asignar a una línea más de lo que pesa cuando el saldo total es menor que
+    la cantidad de líneas».
+
+    Por qué importaba: ese reparto dejaba `net = gross − discount` negativo, y
+    `round_half_up` levanta `ValueError` con un numerador negativo — un `500`
+    en el botón «Cobrar», que es la peor forma posible de fallar (§11.18:
+    nunca `500` por una regla de negocio). El caso exacto del hallazgo era
+    `prorate(9, [5, 1, 1, 1, 1, 1])` → `[9, 0, 0, 0, 0, 0]`.
+
+    El tope **sólo** aplica cuando `amount <= Σ weights`, que es el caso del
+    descuento de comanda (cada peso es el bruto restante de SU línea, en la
+    misma unidad que el monto). El otro llamador real —repartir plata entre
+    *porciones* de un ítem compartido, donde los pesos son cantidades y no
+    pesos— conserva el comportamiento de siempre; ahí un tope rompería que la
+    suma de las sub-cuentas reproduzca el total.
+    """
+    from app.orders.money import prorate
+
+    # (1) El caso exacto del hallazgo, sin aleatoriedad.
+    assert prorate(9, [5, 1, 1, 1, 1, 1]) == [5, 1, 1, 1, 1, 0], (
+        "A-12: la línea de peso 5 volvió a recibir 9"
+    )
+    # (2) Empate de pesos, que también alcanzaba para romperlo.
+    duro = prorate(8, [3, 3, 3])
+    assert sum(duro) == 8 and all(s <= 3 for s in duro), duro
+
+    # (3) Propiedad, con residuos difíciles a propósito: pesos chicos, montos
+    #     que no dividen, y `amount` siempre dentro de la capacidad.
+    rng = random.Random(SEED + 2)
+    for _ in range(2_000):
+        weights = [rng.randint(0, 7) for _ in range(rng.randint(1, 8))]
+        capacidad = sum(weights)
+        amount = rng.randint(0, capacidad) if capacidad else 0
+        shares = prorate(amount, weights)
+        ctx = f"prorate({amount}, {weights}) → {shares}"
+        assert sum(shares) == amount, f"se perdió o se inventó un peso — {ctx}"
+        for weight, share in zip(weights, shares):
+            assert 0 <= share <= weight, (
+                f"una línea recibió más de lo que pesa: `net` quedaría negativo y "
+                f"`round_half_up` levantaría un 500 — {ctx}"
+            )
+
+    # (4) Y cuando el monto NO cabe (el reparto por porciones), el contrato
+    #     del otro llamador se conserva: Σ = monto y peso 0 recibe 0.
+    for _ in range(500):
+        weights = [rng.randint(0, 4) for _ in range(rng.randint(1, 5))]
+        amount = sum(weights) + rng.randint(1, 50_000)
+        shares = prorate(amount, weights)
+        if sum(weights) == 0:
+            assert shares == [0] * len(weights)
+            continue
+        assert sum(shares) == amount, f"prorate({amount}, {weights}) → {shares}"
+        for weight, share in zip(weights, shares):
+            if weight == 0:
+                assert share == 0
+
+
 # ---------------------------------------------------------------------------
 # (b) La misma identidad, de punta a punta por la API (§5.1, §6.1)
 # ---------------------------------------------------------------------------

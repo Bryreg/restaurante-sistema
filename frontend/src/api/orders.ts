@@ -297,6 +297,15 @@ export type BillSplitOut = BillSplitEqualOut | BillSplitItemsOut
 // Admin.
 // ---------------------------------------------------------------------------
 
+/** Un ítem anulado de la fila (contrato ampliado 1b-2, `app/orders/service.py::admin_list_orders`). */
+export interface AdminOrderVoidDetailOut {
+  item_id?: number
+  reason?: VoidReason | null
+  after_bill?: boolean
+  minutes_since_sent?: number | null
+  authorized_by?: string | null
+}
+
 export interface AdminOrderListItem {
   id: number
   business_date?: string
@@ -309,14 +318,44 @@ export interface AdminOrderListItem {
   opened_at?: string
   bill_presented_at?: string | null
   paid_at?: string | null
+  /** Sólo si la comanda ya cerró (pagada o anulada). Mesa: cerrada − abierta. */
+  closed_at?: string | null
+  table_minutes?: number | null
+  /** Cobro: pagada − cuenta presentada. */
+  bill_to_paid_minutes?: number | null
   items_count?: number
   total?: number
   voided_items?: number
   voids_after_bill?: number
+  void_details?: AdminOrderVoidDetailOut[]
   courtesies?: number
+  /** Σ `list_price × qty` de los ítems de cortesía (a precio de lista, sin costo — fase 2). */
+  courtesy_list_value?: number
   discount_total?: number
   sent_at_payment_items?: number
+  /** `sent_at_payment_items / items_count` de ESTA comanda; `null` sin ítems vivos. */
+  sent_at_payment_ratio?: number | null
+  is_staff_meal?: boolean
   transferred?: boolean
+  /** Medios de pago con los que se cobró (documentos emitidos, no anulados/reversados). */
+  payment_methods?: string[]
+}
+
+/** Tiempo de cocina "listo − enviado" (p50/p90) por estación, sobre todo el período filtrado. */
+export interface AdminOrderKitchenStationTimeOut {
+  station: string
+  p50_seconds: number
+  p90_seconds: number
+  samples: number
+}
+
+/** `GET /admin/orders` (1b-2): ya no es una lista plana — trae la tabla por
+ * comanda más los agregados del período completo (un percentil no es una
+ * fila de esa tabla). `format=csv` sigue exportando sólo `rows`. */
+export interface AdminOrdersReportOut {
+  rows: AdminOrderListItem[]
+  kitchen_times_by_station: AdminOrderKitchenStationTimeOut[]
+  sent_at_payment_ratio: number | null
 }
 
 export interface AdminOrdersQuery {
@@ -544,8 +583,8 @@ export function listSubAccounts(orderId: number): Promise<SubAccountOut[]> {
 // Admin.
 // ---------------------------------------------------------------------------
 
-export function adminListOrders(params: AdminOrdersQuery): Promise<AdminOrderListItem[]> {
-  return api<AdminOrderListItem[]>("/admin/orders", {
+export function adminListOrders(params: AdminOrdersQuery): Promise<AdminOrdersReportOut> {
+  return api<AdminOrdersReportOut>("/admin/orders", {
     query: {
       store_id: params.storeId,
       from: params.from,

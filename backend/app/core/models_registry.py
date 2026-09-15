@@ -23,6 +23,9 @@ MODEL_MODULES: list[str] = [
     "orders",
     "payments",
     "fiscal",
+    "customers",
+    "refunds",
+    "reports",
     "audit",
     "notifications",
 ]

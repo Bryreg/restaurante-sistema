@@ -144,18 +144,21 @@ def test_downgrading_to_base_leaves_no_table_of_the_application(migrated_url: st
 
 
 # ---------------------------------------------------------------------------
-# Pedido 1b-1: `0004_orders` y `0005_payments_fiscal`
+# Pedidos 1b-1 y 1b-2: `0004` … `0007`
 # ---------------------------------------------------------------------------
 
 
-def test_the_chain_reaches_the_two_migrations_of_the_sale(migrated_url: str) -> None:
-    """`CONTRATO-INTERNO-1b-1.md §2.6`: `0004_orders` (`0003 → 0004`) y
-    `0005_payments_fiscal` (`0004 → 0005`).
+def test_the_chain_reaches_the_four_migrations_of_the_sale(migrated_url: str) -> None:
+    """`CONTRATO-INTERNO-1b-1.md §2.6` más el pedido 1b-2: `0004_orders`
+    (`0003 → 0004`), `0005_payments_fiscal` (`0004 → 0005`),
+    `0006_customers_refunds_tips` (`0005 → 0006`) y
+    `0007_fiscal_ranges_notes` (`0006 → 0007`).
 
     Los dos tests de arriba comparan modelos contra DDL, pero pasarían igual
     si `head` se hubiera quedado en `0003` y las tablas nuevas **tampoco**
     estuvieran en los modelos. Este fija el punto de llegada: la cadena
-    termina en `0005` y las catorce tablas de la venta existen.
+    termina en `0007` y existen las tablas de la venta, del cobro, del
+    cliente, de la devolución pendiente y del rango de numeración.
     """
     from sqlalchemy import text
 
@@ -167,7 +170,7 @@ def test_the_chain_reaches_the_two_migrations_of_the_sale(migrated_url: str) -> 
     finally:
         engine.dispose()
 
-    assert version == "0005", f"la cadena quedó en {version!r} y el pedido 1b-1 llega hasta 0005"
+    assert version == "0007", f"la cadena quedó en {version!r} y el pedido 1b-2 llega hasta 0007"
 
     de_la_comanda = {
         "orders",
@@ -181,8 +184,102 @@ def test_the_chain_reaches_the_two_migrations_of_the_sale(migrated_url: str) -> 
         "waste_stubs",
     }
     del_cobro = {"fiscal_counters", "fiscal_documents", "document_reprints", "payments", "order_tips"}
-    faltan = sorted((de_la_comanda | del_cobro) - tablas)
+    de_1b2 = {
+        "fiscal_ranges",
+        "customers",
+        "customer_consents",
+        "customer_data_requests",
+        "pending_refunds",
+        "tip_payouts",
+        "tip_payout_distributions",
+    }
+    faltan = sorted((de_la_comanda | del_cobro | de_1b2) - tablas)
     assert not faltan, f"la migración de la venta no creó: {faltan}"
+
+
+def test_the_numbering_range_is_defended_by_check_constraints_in_the_database(
+    migrated_url: str,
+) -> None:
+    """§8.3: el rango tiene «desde, hasta… vigencia» y el consecutivo se
+    asigna **dentro** de él. El servicio ya lo respeta; estas restricciones
+    son lo que impide que un `UPDATE` a mano, una migración futura o un bug
+    dejen un rango imposible (un «hasta» menor que el «desde», un
+    `next_number` fuera del rango, una vigencia invertida).
+
+    Se inspecciona el DDL, no el modelo: la defensa que importa es la que
+    corre en producción aunque la aplicación esté equivocada.
+    """
+    from sqlalchemy import text
+
+    engine = create_engine(migrated_url)
+    try:
+        with engine.connect() as conn:
+            sql = conn.execute(
+                text("select sql from sqlite_master where type='table' and name='fiscal_ranges'")
+            ).scalar_one()
+        columnas = {c["name"] for c in inspect(engine).get_columns("fiscal_ranges")}
+    finally:
+        engine.dispose()
+
+    del_contrato = {
+        "store_id",
+        "document_type",
+        "prefix",
+        "from_number",
+        "to_number",
+        "next_number",
+        "resolution_number",
+        "resolution_date",
+        "valid_from",
+        "valid_until",
+        "technical_key",
+    }
+    faltan = sorted(del_contrato - columnas)
+    assert not faltan, f"`fiscal_ranges` no tiene lo que pide §8.3: faltan {faltan}"
+
+    texto = (sql or "").lower()
+    for nombre in (
+        "ck_fiscal_ranges_to_gte_from",
+        "ck_fiscal_ranges_next_gte_from",
+        "ck_fiscal_ranges_next_lte_to_plus_one",
+        "ck_fiscal_ranges_valid_until_gte_from",
+    ):
+        assert nombre in texto, (
+            f"falta el CHECK `{nombre}` en la base: un rango imposible sólo lo frena la aplicación — {sql!r}"
+        )
+
+
+def test_the_note_points_at_the_document_it_reverses_and_the_range_that_numbered_it(
+    migrated_url: str,
+) -> None:
+    """§8.3: «Toda corrección va por nota, nunca editando ni borrando un
+    documento expedido», y la nota lleva su propio consecutivo de su propio
+    rango.
+
+    Las dos FK reales (`reverses_document_id` → `fiscal_documents.id` y
+    `fiscal_range_id` → `fiscal_ranges.id`) son lo que hace **auditable** esa
+    cadena: sin ellas, "qué nota corrige qué documento" y "de qué resolución
+    salió este número" quedan en una columna entera sin garantía, que es
+    exactamente como estaba `fiscal_range_id` en 1b-1.
+    """
+    engine = create_engine(migrated_url)
+    try:
+        fks = {
+            (tuple(fk["constrained_columns"]), fk["referred_table"])
+            for fk in inspect(engine).get_foreign_keys("fiscal_documents")
+        }
+        columnas = {c["name"] for c in inspect(engine).get_columns("fiscal_documents")}
+    finally:
+        engine.dispose()
+
+    assert (("fiscal_range_id",), "fiscal_ranges") in fks, (
+        f"`fiscal_documents.fiscal_range_id` no es FK real a `fiscal_ranges`: {sorted(fks)}"
+    )
+    assert (("reverses_document_id",), "fiscal_documents") in fks, (
+        f"`fiscal_documents.reverses_document_id` no es FK auto-referencial real: {sorted(fks)}"
+    )
+    for columna in ("cude", "qr_url", "xml_ref", "provider_response", "validated_at", "reason"):
+        assert columna in columnas, f"falta la evidencia `{columna}` que exige §8.3"
 
 
 def test_one_open_order_per_table_is_defended_by_a_partial_unique_index(migrated_url: str) -> None:

@@ -1464,3 +1464,227 @@ def test_the_takeout_customer_data_travels_only_where_it_is_needed(
     )
     claves = {k.lower() for k in deep_keys(listado.json())}
     assert "phone" not in claves and "takeout_phone" not in claves
+
+
+# ---------------------------------------------------------------------------
+# Pedido 1b-2: el contrato nuevo (rangos, estados DIAN, notas, clientes,
+# devoluciones, reportes) bajo las mismas reglas duras
+# ---------------------------------------------------------------------------
+
+
+def test_the_openapi_of_the_new_1b2_routes_declares_no_cost_fields(client: Any) -> None:
+    """`AGENTS.md` y §11.10: «El operador no ve costos ni márgenes; el backend
+    no se los manda» — extendido a **todas** las rutas nuevas de 1b-2.
+
+    El test de 1b-1 cubría `/orders`, `/kitchen`, `/documents` y
+    `/admin/orders`. 1b-2 agrega ocho rutas de admin, una de dispositivo
+    (`/device/payment-methods`) y cuatro reportes que leen `OrderItem` — el
+    modelo que en fase 2 va a llenar `unit_cost` y `recipe_version`. Escribir
+    el invariante ahora, cuando todavía no hay nada que filtrar, es lo que
+    hace que el día que se llenen no se escapen.
+    """
+    spec = client.get("/openapi.json").json()
+    names = _property_names_reachable_from(
+        spec,
+        (
+            f"{API}/admin/fiscal",
+            f"{API}/admin/notes",
+            f"{API}/admin/documents",
+            f"{API}/admin/customers",
+            f"{API}/admin/pending-refunds",
+            f"{API}/admin/today",
+            f"{API}/admin/sales",
+            f"{API}/admin/accountant-report",
+            f"{API}/admin/unavailable-log",
+            f"{API}/admin/tips",
+            f"{API}/device/payment-methods",
+            f"{API}/shifts",
+        ),
+    )
+    assert names, "no se encontró ningún esquema bajo las rutas nuevas de 1b-2"
+
+    leaked = {n for n in names if any(secret in n.lower() for secret in MONEY_SECRETS)}
+    assert not leaked, f"el OpenAPI de 1b-2 declara campos de costo: {sorted(leaked)}"
+    assert "recipe_version" not in {n.lower() for n in names}
+
+
+def test_a_device_session_never_reaches_the_new_admin_routes(
+    device_client: Any, identify: Any, employees: dict[str, Any], store: Any
+) -> None:
+    """§2.2: el operador «no autoriza retiros ni rescates» y tampoco
+    administra el documento fiscal. Un dispositivo no puede cargar un rango
+    de numeración, reintentar una transmisión, emitir una nota, saldar una
+    devolución ni leer los reportes del dueño.
+
+    Es una barrera de rol, no de pantalla: la tablet del salón la usa
+    cualquiera del turno y su sesión dura 180 días.
+    """
+    identify(device_client, employees["cashier"])
+    rango = {"from": "2020-01-01", "to": "2099-12-31"}
+    lecturas = [
+        (f"{API}/admin/fiscal/ranges", {"store_id": store.id}),
+        (f"{API}/admin/fiscal/documents", {"store_id": store.id}),
+        (f"{API}/admin/fiscal/export", {"store_id": store.id, **rango}),
+        (f"{API}/admin/notes", {"store_id": store.id}),
+        (f"{API}/admin/pending-refunds", {"store_id": store.id}),
+        (f"{API}/admin/today", {"store_id": store.id}),
+        (f"{API}/admin/sales", {"store_id": store.id, **rango, "group_by": "business_date"}),
+        (f"{API}/admin/accountant-report", {"store_id": store.id, "year": 2026, "month": 1}),
+        (f"{API}/admin/unavailable-log", {"store_id": store.id, **rango}),
+    ]
+    for ruta, params in lecturas:
+        resp = device_client.get(ruta, params=params)
+        assert resp.status_code in (401, 403), (
+            f"un dispositivo leyó `{ruta}` con {resp.status_code}: {resp.text[:200]}"
+        )
+        _assert_error_shape(resp, status=resp.status_code)
+
+    escrituras = [
+        (
+            f"{API}/admin/fiscal/ranges",
+            {
+                "store_id": store.id,
+                "document_type": "pos_equivalent",
+                "prefix": "X",
+                "from_number": 1,
+                "to_number": 9,
+                "resolution_number": "1",
+                "resolution_date": "2026-01-01",
+                "valid_from": "2026-01-01",
+                "valid_until": "2027-01-01",
+            },
+        ),
+        (f"{API}/admin/fiscal/documents/1/retry", None),
+        (f"{API}/admin/documents/1/notes", {"kind": "adjustment", "reason": "x", "lines": []}),
+        (f"{API}/admin/pending-refunds/1/settle", {"from": "owner"}),
+        (f"{API}/admin/tips/payouts", {"shift_ids": [1], "distribution": [], "paid_at": "2026-01-01", "method": "cash"}),
+    ]
+    for ruta, cuerpo in escrituras:
+        resp = device_client.post(ruta, json=cuerpo, headers=idem_headers())
+        assert resp.status_code in (401, 403), (
+            f"un dispositivo escribió en `{ruta}` con {resp.status_code}: {resp.text[:200]}"
+        )
+
+
+def test_every_new_business_error_of_1b2_has_exactly_one_shape(
+    device_client: Any, admin_client: Any, db: Any, store: Any, open_shift: Any, sales_products: Any
+) -> None:
+    """§11.18 y §12: «Errores con una sola forma `{error: {code, message}}`:
+    reglas de negocio en `400` con código y texto que **nombra la acción
+    correctiva**; nunca `500` por una regla de negocio».
+
+    Se recorren los códigos nuevos del pedido de punta a punta por HTTP. El
+    `500` es el que importa: un `500` no tiene código estable, el frontend no
+    puede ramificar sobre él y el operador ve una pantalla rota — que en hora
+    pico significa cobrar por fuera del sistema.
+    """
+    from app.fiscal.models import FiscalRange
+
+    open_shift()
+
+    # 1) Rango inválido (el «hasta» antes que el «desde»).
+    invalido = admin_client.post(
+        f"{API}/admin/fiscal/ranges",
+        json={
+            "store_id": store.id,
+            "document_type": "pos_equivalent",
+            "prefix": "BAD",
+            "from_number": 100,
+            "to_number": 10,
+            "resolution_number": "1",
+            "resolution_date": "2026-01-01",
+            "valid_from": "2026-01-01",
+            "valid_until": "2027-01-01",
+        },
+    )
+    error = _assert_error_shape(invalido, status=400)
+    assert error["code"] == "FISCAL_RANGE_INVALID", invalido.text
+
+    # 2) Nota con tipo cruzado y 3) segunda nota sobre el mismo documento.
+    order = create_order(device_client, channel="counter").json()
+    order = add_items(device_client, order, [{"product_id": sales_products["inc8"].id, "qty": 1}]).json()
+    cobro = pay(
+        device_client,
+        order["id"],
+        splits=[{"method": "cash", "amount": order["totals"]["total"]}],
+        tip=NO_TIP,
+    )
+    assert cobro.status_code == 201, cobro.text
+    doc_id = cobro.json()["document"]["id"]
+    lineas = [
+        {"item_id": line["item_id"], "used": True}
+        for line in admin_client.get(f"{API}/documents/{doc_id}").json()["lines"]
+    ]
+
+    cruzada = admin_client.post(
+        f"{API}/admin/documents/{doc_id}/notes",
+        json={"kind": "credit", "reason": "x", "lines": lineas},
+        headers=idem_headers(),
+    )
+    assert _assert_error_shape(cruzada, status=400)["code"] == "NOTE_KIND_MISMATCH"
+
+    # Ninguna línea marcada `used`: la nota no corrige nada y es `400`, no un
+    # documento vacío con consecutivo consumido.
+    vacia = admin_client.post(
+        f"{API}/admin/documents/{doc_id}/notes",
+        json={"kind": "adjustment", "reason": "x", "lines": [{**lineas[0], "used": False}]},
+        headers=idem_headers(),
+    )
+    assert _assert_error_shape(vacia, status=400)["code"] == "NOTE_EMPTY"
+
+    # Y `lines: []` cae en la validación de esquema, normalizada a la MISMA
+    # forma de error (§12: «validación de esquema normalizada a la misma forma»).
+    sin_lineas = admin_client.post(
+        f"{API}/admin/documents/{doc_id}/notes",
+        json={"kind": "adjustment", "reason": "x", "lines": []},
+        headers=idem_headers(),
+    )
+    _assert_error_shape(sin_lineas, status=400)
+
+    buena = admin_client.post(
+        f"{API}/admin/documents/{doc_id}/notes",
+        json={"kind": "adjustment", "reason": "Auditoría", "lines": lineas},
+        headers=idem_headers(),
+    )
+    assert buena.status_code == 201, buena.text
+    repetida = admin_client.post(
+        f"{API}/admin/documents/{doc_id}/notes",
+        json={"kind": "adjustment", "reason": "Auditoría", "lines": lineas},
+        headers=idem_headers(),
+    )
+    assert _assert_error_shape(repetida, status=400)["code"] == "DOCUMENT_ALREADY_REVERSED"
+
+    # 4) Reintentar la transmisión de un documento ya reversado.
+    reintento = admin_client.post(
+        f"{API}/admin/fiscal/documents/{doc_id}/retry", headers=idem_headers()
+    )
+    assert _assert_error_shape(reintento, status=400)["code"] == "DOCUMENT_ALREADY_REVERSED"
+
+    # 5) Saldar una devolución con `from: shift` sin turno.
+    sin_turno = admin_client.post(
+        f"{API}/admin/pending-refunds/1/settle", json={"from": "shift"}, headers=idem_headers()
+    )
+    assert sin_turno.status_code in (400, 404), sin_turno.text
+    _assert_error_shape(sin_turno, status=sin_turno.status_code)
+
+    # 6) Cobrar sin rango VIGENTE: `400`, nunca `500`. (Se vencen los rangos
+    # en vez de borrarlos: los documentos ya emitidos apuntan a ellos con FK
+    # real, y borrar evidencia es justamente lo que §8.3 prohíbe.)
+    from datetime import date as _date
+
+    for fila in db.execute(select(FiscalRange)).scalars():
+        fila.valid_until = _date(2020, 12, 31)
+    db.commit()
+    otra = create_order(device_client, channel="counter").json()
+    otra = add_items(device_client, otra, [{"product_id": sales_products["inc8"].id, "qty": 1}]).json()
+    sin_rango = pay(
+        device_client,
+        otra["id"],
+        splits=[{"method": "cash", "amount": otra["totals"]["total"]}],
+        tip=NO_TIP,
+    )
+    error = _assert_error_shape(sin_rango, status=400)
+    assert error["code"] == "NO_FISCAL_RANGE"
+    assert "admin" in error["message"].lower(), (
+        f"el mensaje tiene que decir dónde se corrige: {error['message']!r}"
+    )

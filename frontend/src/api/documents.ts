@@ -23,6 +23,9 @@ export interface DocumentCustomerRef {
   doc_type?: string;
   doc_number?: string;
   name?: string;
+  email?: string | null;
+  address?: string | null;
+  municipality_dane?: string | null;
 }
 
 export interface DocumentOrderRef {
@@ -78,11 +81,28 @@ export interface DocumentReprintEntry {
   by?: string;
 }
 
-/** Todo `null` en 1b-1: los rangos DIAN, el CUDE y el QR son de 1b-2. */
+/** Rango DIAN que amparó el consecutivo (`GET /admin/fiscal/documents/{id}/evidence` trae más detalle). */
+export interface DocumentFiscalRangeRef {
+  id?: number;
+  prefix?: string;
+  from_number?: number;
+  to_number?: number;
+  resolution_number?: string;
+  valid_until?: string;
+}
+
+/**
+ * A-11 (`features/fase-1b-venta/outputs-1b-1/auditor-venta.md §3`): acá va
+ * lo que en 1b-2 hace variar la leyenda — estado DIAN y contingencia — más
+ * el rango vigente. `DocumentPrintable.legend` en sí SIEMPRE sale ya
+ * redactada del servidor (nunca se arma un texto legal en el cliente).
+ */
 export interface DocumentFiscalInfo {
-  range?: unknown | null;
+  dian_status?: string | null;
   cude?: string | null;
   qr_url?: string | null;
+  contingency?: boolean;
+  range?: DocumentFiscalRangeRef | null;
 }
 
 export interface DocumentPrintable {
@@ -142,12 +162,35 @@ export interface AdminDocumentListItem {
   charged_by?: string;
 }
 
-export function adminListDocuments(params: {
+export interface AdminDocumentsQuery {
   storeId: number;
   from?: string;
   to?: string;
-}): Promise<AdminDocumentListItem[]> {
+  /** Pedido 1b-2: `GET /admin/documents` ahora también acepta `type`/`status`. */
+  type?: string;
+  status?: string;
+}
+
+export function adminListDocuments(params: AdminDocumentsQuery): Promise<AdminDocumentListItem[]> {
   return api<AdminDocumentListItem[]>("/admin/documents", {
-    query: { store_id: params.storeId, from: params.from, to: params.to },
+    query: {
+      store_id: params.storeId,
+      from: params.from,
+      to: params.to,
+      type: params.type,
+      status: params.status,
+    },
   });
+}
+
+/** URL directa (con `format=csv`) — mismo patrón que `adminOrdersCsvUrl`. */
+export function adminDocumentsCsvUrl(params: AdminDocumentsQuery): string {
+  const query = new URLSearchParams();
+  query.set("format", "csv");
+  query.set("store_id", String(params.storeId));
+  if (params.from) query.set("from", params.from);
+  if (params.to) query.set("to", params.to);
+  if (params.type) query.set("type", params.type);
+  if (params.status) query.set("status", params.status);
+  return `/api/v1/admin/documents?${query.toString()}`;
 }

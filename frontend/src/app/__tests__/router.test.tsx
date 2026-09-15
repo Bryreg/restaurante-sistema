@@ -70,4 +70,25 @@ describe("router — integra shiftsFeature, catalogFeature, ordersFeature y paym
     expect(findChild(children, "carta")).toBeDefined();
     expect(findChild(children, "pedidos")).toBeDefined();
   });
+
+  it("/admin monta hoy, ventas (reportsFeature), fiscal/* (fiscalFeature) y clientes (customersFeature) — pedido 1b-2", () => {
+    const adminRoute = router.routes.find((r) => r.path === "/admin");
+    const children = adminRoute?.children ?? [];
+
+    expect(findChild(children, "hoy")).toBeDefined();
+    expect(findChild(children, "ventas")).toBeDefined();
+    expect(findChild(children, "fiscal/documentos")).toBeDefined();
+    expect(findChild(children, "fiscal/rangos")).toBeDefined();
+    expect(findChild(children, "fiscal/notas")).toBeDefined();
+    expect(findChild(children, "fiscal/devoluciones-pendientes")).toBeDefined();
+    expect(findChild(children, "clientes")).toBeDefined();
+  });
+
+  it("la ruta índice de /admin redirige a «hoy» — es la pantalla por la que el dueño abre el admin", () => {
+    const adminRoute = router.routes.find((r) => r.path === "/admin");
+    const children = adminRoute?.children ?? [];
+    const indexRoute = children.find((r) => r.index === true) as { element?: React.ReactElement<{ to?: string }> } | undefined;
+
+    expect(indexRoute?.element?.props?.to).toBe("hoy");
+  });
 });

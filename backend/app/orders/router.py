@@ -162,8 +162,18 @@ def post_send(order_id: int, payload: ExpectedVersionIn, request: Request, actor
     return _idempotent(db, organization_id=actor.organization_id, scope="orders.send", request=request, extra={"order_id": order_id}, payload=payload, fn=_do)
 
 
-@router.post("/orders/{order_id}/items/{item_id}/ready", dependencies=[Depends(features.require_feature("kitchen.view"))])
+@router.post("/orders/{order_id}/items/{item_id}/ready")
 def post_item_ready(order_id: int, item_id: int, request: Request, actor: Actor = Depends(current_device), db: Session = Depends(get_db)) -> JSONResponse:
+    # `require_feature(...)` como *dependency* resolvería `current_actor` ->
+    # `current_operator` por dentro, exigiendo una persona identificada y
+    # vigente — pero esta ruta es de dispositivo con persona OPCIONAL
+    # (contrato §2.4: `current_device`; alguien en cocina puede marcar
+    # "listo" sin estar "identificado" como mesero, o después de que la
+    # ventana deslizante de la persona expiró). Mismo defecto que
+    # `backend-comanda` ya encontró y corrigió en `GET /tables/status` y
+    # `GET /kitchen/rounds` (ver `outputs-1b-1/backend-comanda.md §6.1`):
+    # se valida la función a mano, sobre el actor real (`current_device`).
+    features.assert_feature(db, actor.organization_id, actor.store_id, "kitchen.view")
     order = service.get_order_or_404(db, actor=actor, order_id=order_id)
 
     def _do() -> tuple[int, dict[str, Any]]:
@@ -286,13 +296,16 @@ def get_admin_orders(
     flags: str | None = Query(None),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[dict[str, Any]] | Any:
+) -> dict[str, Any] | Any:
+    """`format=csv` exporta sólo `rows` (la tabla por comanda): los
+    agregados del período (`kitchen_times_by_station`,
+    `sent_at_payment_ratio`) no son una fila de esa tabla."""
     admin_store(db, actor, store_id)
     flags_list = flags.split(",") if flags else None
-    rows = service.admin_list_orders(db, store_id=store_id, date_from=date_from, date_to=date_to, status=status, channel=channel, flags=flags_list)
+    report = service.admin_list_orders(db, store_id=store_id, date_from=date_from, date_to=date_to, status=status, channel=channel, flags=flags_list)
     if wants_csv(request):
-        return csv_response(rows, filename="pedidos.csv")
-    return rows
+        return csv_response(report["rows"], filename="pedidos.csv")
+    return report
 
 
 @router.get("/admin/orders/{order_id}")

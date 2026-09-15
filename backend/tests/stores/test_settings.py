@@ -47,6 +47,22 @@ def test_tip_suggested_pct_at_10_is_accepted(admin_client: TestClient, store: St
     assert resp.json()["tip_suggested_pct"] == 10
 
 
+def test_invoice_threshold_uvt_default_and_update(admin_client: TestClient, store: Store) -> None:
+    """Pedido 1b-2 (mandato acotado de `backend-fiscal` en `app/stores`):
+    `invoice_threshold_uvt` entero, default 5, expuesto en `GET`/`PUT
+    /admin/stores/{store_id}/sales-settings`."""
+    sales = admin_client.get(f"/api/v1/admin/stores/{store.id}/sales-settings").json()
+    assert sales["invoice_threshold_uvt"] == 5
+
+    sales["invoice_threshold_uvt"] = 3
+    resp = admin_client.put(f"/api/v1/admin/stores/{store.id}/sales-settings", json=sales)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["invoice_threshold_uvt"] == 3
+
+    again = admin_client.get(f"/api/v1/admin/stores/{store.id}/sales-settings").json()
+    assert again["invoice_threshold_uvt"] == 3
+
+
 def test_uvt_upsert(admin_client: TestClient) -> None:
     resp = admin_client.put("/api/v1/admin/uvt", json=[{"year": 2026, "value": 52374}])
     assert resp.status_code == 200

@@ -30,7 +30,7 @@ from app.core.errors import AppError
 from app.notifications.service import notify
 from app.stores import service as stores_service
 from app.stores.models import Store
-from app.shifts import hooks
+from app.shifts import activity_metrics, hooks
 from app.shifts.models import (
     BusinessDay,
     BusinessDayStatus,
@@ -1580,11 +1580,30 @@ def employee_activity(
         for a in authorizations
     ]
 
+    activity = activity_metrics.employee_sales_metrics(
+        db,
+        organization_id=organization_id,
+        store_id=store_id,
+        employee_id=employee_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    team_average = activity_metrics.team_average_metrics(
+        db,
+        organization_id=organization_id,
+        store_id=store_id,
+        date_from=date_from,
+        date_to=date_to,
+        exclude_employee_id=employee_id,
+    )
+
     return {
         "employee": {"id": employee.id, "name": employee.name},
         "shifts": shifts_out,
         "difference_streak": streak,
         "authorizations_given": authorizations_out,
+        "activity": activity,
+        "team_average": team_average,
     }
 
 

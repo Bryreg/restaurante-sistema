@@ -3,6 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { useSession } from "@/app/session";
 import { getDocument, reprintDocument, type DocumentPrintable } from "@/api/documents";
+import { DIAN_STATUS_LABEL } from "@/api/fiscal";
+import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { formatInstant } from "@/lib/businessDate";
@@ -19,6 +21,18 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
   voucher: "Bono",
   other: "Otro",
 };
+
+/** Texto SIEMPRE acompaña el color del `Badge` (nunca sólo color). */
+function dianStatusLabel(status: string | null | undefined): string | null {
+  if (!status) return null;
+  return (DIAN_STATUS_LABEL as Record<string, string>)[status] ?? status;
+}
+
+function dianBadgeVariant(status: string): "default" | "destructive" | "outline" {
+  if (status === "validated") return "default";
+  if (status === "rejected") return "destructive";
+  return "outline";
+}
 
 function documentQueryKey(documentId: number) {
   return ["documents", documentId] as const;
@@ -84,7 +98,13 @@ export default function DocumentPage(): React.JSX.Element {
   return (
     <div className="mx-auto max-w-md space-y-6 pb-16">
       <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
-        <h1 className="text-lg font-semibold">Comprobante</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-lg font-semibold">Comprobante</h1>
+          {doc.fiscal?.dian_status ? (
+            <Badge variant={dianBadgeVariant(doc.fiscal.dian_status)}>{dianStatusLabel(doc.fiscal.dian_status)}</Badge>
+          ) : null}
+          {doc.fiscal?.contingency ? <Badge variant="outline">Contingencia</Badge> : null}
+        </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" className="h-11" onClick={backTo}>
             Volver
@@ -128,6 +148,28 @@ export default function DocumentPage(): React.JSX.Element {
           <span>{doc.business_date ?? "—"}</span>
           <span>{doc.issued_at ? formatInstant(doc.issued_at) : "—"}</span>
         </div>
+
+        {doc.fiscal?.dian_status || doc.fiscal?.cude || doc.fiscal?.qr_url ? (
+          <div className="space-y-1 text-xs">
+            {doc.fiscal?.dian_status ? (
+              <p className="flex items-center justify-center gap-2">
+                <span>Estado DIAN:</span>
+                <Badge variant={dianBadgeVariant(doc.fiscal.dian_status)}>
+                  {dianStatusLabel(doc.fiscal.dian_status)}
+                </Badge>
+              </p>
+            ) : null}
+            {doc.fiscal?.cude ? <p className="break-all text-center">CUDE: {doc.fiscal.cude}</p> : null}
+            {doc.fiscal?.qr_url ? (
+              <p className="break-all text-center">
+                QR:{" "}
+                <a className="underline" href={doc.fiscal.qr_url} target="_blank" rel="noreferrer">
+                  {doc.fiscal.qr_url}
+                </a>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="space-y-0.5 text-xs">
           <p>Adquirente: {customer?.name ?? "Consumidor final"}</p>

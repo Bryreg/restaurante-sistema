@@ -35,8 +35,27 @@ def prorate(amount: int, weights: list[int]) -> list[int]:
     """Reparte `amount` (pesos) entre `weights` en proporción a cada peso.
 
     Σ del resultado == `amount`; el residuo del redondeo (por truncar hacia
-    abajo cada parte) va entero al peso más grande (el primero, si hay
-    empate); los pesos en `0` siempre reciben `0`.
+    abajo cada parte) va, en el caso común, entero al peso más grande (el
+    primero, si hay empate); los pesos en `0` siempre reciben `0`.
+
+    **A-12** (`features/fase-1b-venta/outputs-1b-1/auditor-venta.md § 3`):
+    cuando `amount` cabe dentro de la capacidad total (`amount <=
+    sum(weights)`) — el caso de un descuento de comanda, donde cada peso es
+    el bruto restante de su línea y por lo tanto está en la MISMA unidad que
+    `amount` — ninguna línea puede terminar con más de lo que pesa
+    (`share > weight` rompería `net = gross - discount >= 0` en
+    `compute_totals` y `round_half_up` reventaría con un numerador negativo:
+    un `500`, no un `400`). Con pesos chicos (`prorate(9, [5, 1, 1, 1, 1,
+    1])`) todo el residuo puede no entrar en la línea mayor: acá se reparte
+    el sobrante hacia la siguiente línea con saldo disponible (mismo orden,
+    peso descendente y después por índice), nunca por encima de su propio
+    peso. Cuando `amount > sum(weights)` (el otro uso de `prorate`: repartir
+    plata entre *porciones* de un ítem compartido en `_sub_account_item_
+    allocations`, donde `weights` son cantidades chicas de porciones y no
+    pesan en la misma unidad que `amount`) el tope no aplica — no hay forma
+    de que cada "porción" absorba su propio peso en pesos, y el contrato de
+    ese llamador es justamente que `amount` se reparta igual sin ese tope;
+    ahí se conserva el comportamiento literal de siempre.
     """
     if not weights:
         return []
@@ -46,9 +65,35 @@ def prorate(amount: int, weights: list[int]) -> list[int]:
 
     shares = [amount * w // total_weight for w in weights]
     residual = amount - sum(shares)
-    if residual:
+    if not residual:
+        return shares
+
+    if amount <= total_weight:
+        # El residuo se reparte respetando el tope de cada línea: primero la
+        # de mayor peso (empate por índice), y lo que no entra ahí pasa a la
+        # siguiente con saldo. Cuando `amount <= total_weight` siempre hay
+        # saldo total suficiente (Σ(weight_i - share_i) == total_weight -
+        # amount + residual >= residual), así que este reparto siempre
+        # termina en `remaining == 0`.
+        order = sorted(range(len(weights)), key=lambda i: (-weights[i], i))
+        remaining = residual
+        for i in order:
+            if remaining == 0:
+                break
+            room = weights[i] - shares[i]
+            if room <= 0:
+                continue
+            take = min(room, remaining)
+            shares[i] += take
+            remaining -= take
+        if remaining:  # defensivo: no debería alcanzarse nunca (ver arriba)
+            max_index = max(range(len(weights)), key=lambda i: weights[i])
+            shares[max_index] += remaining
+    else:
         # `max(..., key=...)` conserva el primer índice en caso de empate:
-        # es "el peso mayor (primer máximo)" del contrato.
+        # es "el peso mayor (primer máximo)" del contrato. Acá `weights` no
+        # está en la misma unidad que `amount` (porciones, no pesos): no hay
+        # tope que respetar.
         max_index = max(range(len(weights)), key=lambda i: weights[i])
         shares[max_index] += residual
     return shares

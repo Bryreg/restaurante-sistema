@@ -144,6 +144,15 @@ class SalesSettingsIn(BaseModel):
     courses: list[str]
     stations: list[str]
     course_target_minutes: dict[str, int]
+    # SPEC-NEGOCIO §8.3: factura electrónica automática cuando el neto de la
+    # venta supera `invoice_threshold_uvt` × UVT del año y el cliente está
+    # identificado (pedido 1b-2). Lleva default porque es un campo NUEVO sobre
+    # una entrada que ya existía: sin él, cualquier cuerpo escrito contra el
+    # contrato de 1b-1 muere en la validación de Pydantic ANTES de llegar a la
+    # regla de negocio, y devuelve `VALIDATION_ERROR` en vez del código que
+    # nombra la acción correctiva (AGENTS.md). El valor coincide con el de la
+    # columna (`StoreSalesSettings.invoice_threshold_uvt`).
+    invoice_threshold_uvt: int = Field(default=5, ge=1)
 
 
 class SalesSettingsOut(SalesSettingsIn):

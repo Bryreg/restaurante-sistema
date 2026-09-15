@@ -37,6 +37,23 @@ export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
 
 export const PAYMENT_METHODS: PaymentMethod[] = ["cash", "card", "transfer", "platform", "voucher", "other"];
 
+/**
+ * Medio de pago habilitado en la sede (`GET /device/payment-methods`, pedido
+ * 1b-2 — gap de 1b-1: el POS ofrecía siempre los seis códigos fijos de
+ * `PAYMENT_METHODS`, aunque la sede hubiera deshabilitado alguno). Nunca
+ * trae `cost`/`margin` (AGENTS.md, "el operador no recibe costos").
+ */
+export interface DevicePaymentMethod {
+  code: PaymentMethod;
+  label: string;
+  dian_code: string;
+  requires_reference: boolean;
+}
+
+export function listDevicePaymentMethods(): Promise<DevicePaymentMethod[]> {
+  return api<DevicePaymentMethod[]>("/device/payment-methods");
+}
+
 export interface PaymentSplitIn {
   method: PaymentMethod;
   /** Pesos, entero. */
@@ -54,6 +71,33 @@ export interface PaymentTipIn {
   amount: number;
 }
 
+/**
+ * Prueba de habeas data (Ley 1581 de 2012, SPEC-NEGOCIO §8.4): finalidad
+ * declarada, canal y versión de texto. El dispositivo sólo la crea al
+ * cobrar; el admin la administra (`src/api/customers.ts`).
+ */
+export interface CustomerConsentIn {
+  text_version: string;
+  channel: string;
+}
+
+/**
+ * `customer?` de `POST /orders/{id}/payments` (SPEC-NEGOCIO §8.3, §8.4): el
+ * dispositivo sólo CREA clientes al cobrar. `consent` es obligatorio en
+ * cuanto se manda `customer` — proveer los datos para pedir factura ES el
+ * acto de autorizar esa finalidad.
+ */
+export interface CustomerIn {
+  doc_type: string;
+  doc_number: string;
+  dv?: string;
+  name: string;
+  email?: string;
+  address?: string;
+  municipality_dane?: string;
+  consent: CustomerConsentIn;
+}
+
 export interface PaymentIn {
   /** Versión optimista de la comanda (o de la sub-cuenta, si aplica igual). */
   expected_version?: number;
@@ -63,6 +107,10 @@ export interface PaymentIn {
   /** Ausente u omitido si `pos.tips` está apagada. */
   tip?: PaymentTipIn;
   splits: PaymentSplitIn[];
+  /** Sólo si el cliente pide factura o queda identificado por otra razón. */
+  customer?: CustomerIn;
+  /** Fuerza `invoice` aunque el neto no supere `invoice_threshold_uvt` × UVT. */
+  requests_invoice?: boolean;
 }
 
 export interface PaymentDocumentRef {
@@ -86,6 +134,15 @@ export interface PaymentOut {
   document?: PaymentDocumentRef | null;
   total?: number;
   tip_amount?: number;
+  /**
+   * A-10 (`features/fase-1b-venta/outputs-1b-1/auditor-venta.md §3`): venta
+   * + propina, YA sumadas por el servidor (`app/payments/schemas.py:106`,
+   * `total + tip.amount`). Se pinta tal cual llega, nunca se recalcula acá
+   * (`?? 0` sobre este campo está prohibido: si falta, `formatCOP(null)`
+   * muestra «—», no «$0»).
+   */
+  amount_due?: number;
+  requires_invoice?: boolean;
   /** Sólo si hubo `cash` con `tendered`; el frontend nunca lo calcula. */
   change?: number;
   paid_at?: string;

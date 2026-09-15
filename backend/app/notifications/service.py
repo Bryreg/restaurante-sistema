@@ -32,6 +32,14 @@ NOTIFICATION_TYPES: list[str] = [
     "void_rate_high",
     "order_unsent_too_long",
     "order_unpaid_too_long",
+    # 1b-2 (backend-clientes-dinero): documento fiscal (rechazo, contingencia
+    # vencida, rango por agotarse — emitidos por `backend-fiscal`, territorio
+    # ajeno; este catálogo sólo los declara) y devolución pendiente (emitido
+    # por `app.refunds.hooks.settle_or_queue_refund`, este territorio).
+    "fiscal_rejected",
+    "fiscal_contingency_overdue",
+    "fiscal_range_low",
+    "pending_refund",
 ]
 
 

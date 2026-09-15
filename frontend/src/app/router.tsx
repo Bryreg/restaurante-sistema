@@ -5,10 +5,13 @@ import DeviceIdentifyPage from "@/features/auth/DeviceIdentifyPage";
 import LoginPage from "@/features/auth/LoginPage";
 import { catalogFeature } from "@/features/catalog";
 import AuditPage from "@/features/audit/AuditPage";
+import { customersFeature } from "@/features/customers";
+import { fiscalFeature } from "@/features/fiscal";
 import FeaturesPage from "@/features/features/FeaturesPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import { ordersFeature } from "@/features/orders";
 import { paymentsFeature } from "@/features/payments";
+import { reportsFeature } from "@/features/reports";
 import SettingsPage from "@/features/settings/SettingsPage";
 import { shiftsFeature } from "@/features/shifts";
 
@@ -42,9 +45,12 @@ function RequireDevice({ children }: { children: React.ReactElement }): React.Re
 /**
  * `createBrowserRouter`: "/admin/*" exige `kind === "admin"`, "/pos/*"
  * exige `kind === "device"`. Concatena las rutas y la navegación que
- * declaran `shiftsFeature`, `catalogFeature`, `ordersFeature` y
- * `paymentsFeature` (CONTRATO-INTERNO-1b-1.md §6.2). `PosHome` es la ruta
- * índice de `/pos`: decide entre Mesas y Comanda nueva según `pos.tables`.
+ * declaran `shiftsFeature`, `catalogFeature`, `ordersFeature`,
+ * `paymentsFeature`, `reportsFeature`, `fiscalFeature` y `customersFeature`
+ * (CONTRATO-INTERNO-1b-1.md §6.2, pedido 1b-2). `PosHome` es la ruta índice
+ * de `/pos`: decide entre Mesas y Comanda nueva según `pos.tables`. La ruta
+ * índice de `/admin` es "Hoy" (`reportsFeature`): es la pantalla por la que
+ * el dueño abre el admin (SPEC-NEGOCIO §9.3, "pulso de hoy" primero).
  */
 const routes: RouteObject[] = [
   { path: "/", element: <Navigate to="/login" replace /> },
@@ -66,14 +72,17 @@ const routes: RouteObject[] = [
       </RequireAdmin>
     ),
     children: [
-      { index: true, element: <Navigate to="features" replace /> },
+      { index: true, element: <Navigate to="hoy" replace /> },
       { path: "features", element: <FeaturesPage /> },
       { path: "settings", element: <SettingsPage /> },
       { path: "audit", element: <AuditPage /> },
       { path: "notifications", element: <NotificationsPage /> },
+      ...reportsFeature.adminRoutes,
       ...shiftsFeature.adminRoutes,
       ...catalogFeature.adminRoutes,
       ...ordersFeature.adminRoutes,
+      ...fiscalFeature.adminRoutes,
+      ...customersFeature.adminRoutes,
     ],
   },
   {
