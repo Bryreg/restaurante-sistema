@@ -583,18 +583,29 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    ítem congela `unit_cost` y `recipe_version` en `null`, `send` crea la fila de
    consumo pendiente vacía, y `void` de un ítem enviado crea la merma con
    cantidad y sin insumo—. `AGENTS.md` ya anticipa que el Maestro puede
-   necesitar un rol nuevo de **especialista en inventario y costos**. Falta
-   escribir la spec del pedido (`features/fase-2-*/spec.md`); el orquestador se
-   dispara igual que 1b-2:
+   necesitar un rol nuevo de **especialista en inventario y costos**.
+   **La spec está escrita**: `features/fase-2-costo-inventario/spec.md`, y por el
+   mismo motivo que 1b se parte en dos —**2a** insumos, preparaciones, fichas
+   técnicas, libro de movimientos, consumo teórico al enviar y mermas; **2b**
+   compras y cuentas por pagar, lotes de compra, conteos a ciegas, varianza,
+   food cost real y salud del control—. El corte no es arbitrario: el consumo
+   teórico de 2a es contra qué comparar un conteo de 2b, el `prep_batch` que
+   produce una preparación es una entidad distinta del `stock_batch` que crea
+   una recepción, y el costo del insumo en 2a sale de «oficial» o «estimado»
+   mientras 2b agrega los otros dos escalones de la jerarquía. **Domicilio,
+   plataformas, KDS y la conexión real con el proveedor tecnológico** están en
+   la fila «fase 2» de la tabla §14 de la spec de negocio pero no tienen nada
+   que ver con costo ni inventario: van en su propio pedido, no acá.
+   **2a arranca ahora** (2026-09-15), sobre el commit de esta anotación:
    ```js
    Workflow({
      scriptPath: '.claude/workflows/orquestador-general.js',
      args: {
-       pedido: '<el pedido, delimitado contra lo que 1a y 1b ya construyeron>',
-       spec: 'features/fase-2-<slug>/spec.md',
-       outputs: 'features/fase-2-<slug>/outputs',
+       pedido: '<la mitad 2a, delimitada contra lo que 1a y 1b ya construyeron>',
+       spec: 'features/fase-2-costo-inventario/spec.md',
+       outputs: 'features/fase-2-costo-inventario/outputs-2a',
        contexto: ['docs/ESTADO.md', 'AGENTS.md', 'docs/SPEC-NEGOCIO.md'],
-       base: '<commit desde el que arranca>',
+       base: '<commit de esta anotación>',
      },
    })
    ```
