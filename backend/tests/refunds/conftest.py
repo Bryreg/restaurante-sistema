@@ -1,8 +1,8 @@
-"""Fixtures propias de `tests/refunds`. Mismo motivo que
-`tests/customers/conftest.py`: `app.refunds.router` todavía no está en
-`app.main.DOMAINS` (fuera de mi territorio), así que se monta a mano para que
-los tests HTTP de este dominio puedan ejercer `/api/v1/admin/pending-refunds/*`
-de punta a punta contra el `app` real."""
+"""Fixtures propias de `tests/refunds`. Mismo caso que
+`tests/customers/conftest.py`: este archivo montaba `app.refunds.router` a mano
+mientras `refunds` no estaba en `app.main.DOMAINS`. Ya está (`app/main.py:31`),
+así que el montaje manual pasó a duplicar rutas sobre el `app` singleton.
+Removido en el cierre del pedido."""
 
 from __future__ import annotations
 
@@ -16,28 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.catalog.models import Category, Product
 from app.core import clock as clock_module
-from app.main import app
 from app.refunds import models as _refunds_models  # noqa: F401  (registra las tablas en Base.metadata)
-from app.refunds.router import router as refunds_router
 from app.stores.models import Store
-
-def _mount_before_spa_fallback(router: Any) -> None:
-    """Ver `tests/customers/conftest.py::_mount_before_spa_fallback`: si
-    `frontend/dist` existe, el catch-all SPA de `app.main._mount_frontend`
-    ya está registrado antes de que este conftest corra, y por orden de
-    registro interceptaría cualquier ruta agregada después."""
-
-    app.include_router(router, prefix="/api/v1")
-    routes = app.router.routes
-    spa_fallback = [r for r in routes if getattr(r, "path", None) == "/{full_path:path}"]
-    if spa_fallback:
-        rest = [r for r in routes if r not in spa_fallback]
-        app.router.routes = rest + spa_fallback
-
-
-if not getattr(app, "_refunds_router_mounted", False):
-    _mount_before_spa_fallback(refunds_router)
-    app._refunds_router_mounted = True  # type: ignore[attr-defined]
 
 
 def idem_headers() -> dict[str, str]:

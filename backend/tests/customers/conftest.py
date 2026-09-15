@@ -3,15 +3,12 @@
 agrega un `tests/<dominio>/conftest.py` con lo que le falta; no hay un
 `CONTRATO-INTERNO-1b-2.md` en este árbol al momento de escribir esto).
 
-**Por qué este archivo monta el router a mano**: `app.customers.router` no
-está todavía en `app.main.DOMAINS` (ese archivo es territorio de otro agente
-en 1b-2 — `app/main.py` y `app/core/**` están fuera de mi territorio, ver
-`backend-clientes-dinero.md § gaps`). Sin esto, `TestClient(app)` de
-`tests/conftest.py` nunca ve `/api/v1/admin/customers/*` y todos los tests
-HTTP de este dominio fallarían con `404` aunque el router esté completo y
-correcto. Se monta una sola vez por proceso (guardado en un atributo del
-propio `app`) para no duplicar rutas si el archivo se importa más de una vez
-o si otro conftest hermano hace lo mismo.
+Este archivo montaba `app.customers.router` a mano porque `customers` no
+estaba en `app.main.DOMAINS` mientras 1b-2 se construía en paralelo. Ya está
+(`app/main.py:30`), así que `create_app()` lo monta: el montaje manual pasó a
+montarlo por SEGUNDA vez sobre el `app` singleton compartido entre módulos de
+test, y de ahí salían las advertencias `Duplicate Operation ID`. Removido en
+el cierre del pedido.
 """
 
 from __future__ import annotations
@@ -27,31 +24,7 @@ from sqlalchemy.orm import Session
 from app.catalog.models import Category, Product
 from app.core import clock as clock_module
 from app.customers import models as _customers_models  # noqa: F401  (registra las tablas en Base.metadata)
-from app.customers.router import router as customers_router
-from app.main import app
 from app.stores.models import Store
-
-def _mount_before_spa_fallback(router: Any) -> None:
-    """`app.include_router` **agrega** rutas al final de `app.router.routes`.
-    Si `frontend/dist` existe (build de producción presente en este árbol),
-    `app.main._mount_frontend` ya registró un catch-all `GET
-    /{full_path:path}` ANTES de que este conftest corra — y FastAPI resuelve
-    por ORDEN de registro, así que cualquier ruta añadida después queda
-    inalcanzable (el catch-all la intercepta primero y devuelve el `index.html`
-    del SPA). Se agrega el router y después se reordena para que el
-    catch-all, si existe, quede siempre último."""
-
-    app.include_router(router, prefix="/api/v1")
-    routes = app.router.routes
-    spa_fallback = [r for r in routes if getattr(r, "path", None) == "/{full_path:path}"]
-    if spa_fallback:
-        rest = [r for r in routes if r not in spa_fallback]
-        app.router.routes = rest + spa_fallback
-
-
-if not getattr(app, "_customers_router_mounted", False):
-    _mount_before_spa_fallback(customers_router)
-    app._customers_router_mounted = True  # type: ignore[attr-defined]
 
 
 def idem_headers() -> dict[str, str]:
