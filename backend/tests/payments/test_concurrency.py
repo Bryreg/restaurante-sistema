@@ -42,11 +42,11 @@ def _pay_body(race_env: Any, total: int) -> dict[str, Any]:
 
 def test_two_concurrent_payments_one_wins_one_conflicts(race_env: Any) -> None:
     """Dos cobros concurrentes sobre la MISMA comanda: exactamente uno gana
-    (`201`). La perdedora es un rechazo declarado: `409 ORDER_ALREADY_PAID`
-    cuando la carrera llega al `UPDATE` condicional atómico de
-    `orders.service.claim_payment` (Postgres, CI), o `400 ORDER_NOT_OPEN`
-    cuando el chequeo previo de `assert_payable` la frena por haber corrido en
-    SQLite estrictamente en serie (mismo criterio que
+    (`201`). La perdedora es siempre `409 ORDER_ALREADY_PAID`: lo levanta el
+    `UPDATE` condicional atómico de `orders.service.claim_payment` cuando la
+    carrera es real (Postgres, CI) y lo levanta `assert_payable` cuando SQLite
+    serializó los dos requests y la comanda ya figura cobrada (hallazgo B-1 del
+    auditor de 1b-1; mismo criterio que
     `tests/shifts/test_open.py::test_two_concurrent_opens_one_wins_and_the_other_is_rejected`,
     la carrera análoga de 1a: no hay forma determinística de forzar el
     entrelazado real de dos hilos contra SQLite). Un solo `fiscal_document`
@@ -77,7 +77,7 @@ def test_two_concurrent_payments_one_wins_one_conflicts(race_env: Any) -> None:
     winners = [o for o in outcomes if o[0] == 201]
     assert len(winners) == 1, f"exactamente un cobro debía ganar, resultados: {outcomes}"
     losers = [o for o in outcomes if o not in winners]
-    assert losers and losers[0] in ((409, "ORDER_ALREADY_PAID"), (400, "ORDER_NOT_OPEN")), (
+    assert losers and losers[0] == (409, "ORDER_ALREADY_PAID"), (
         f"la perdedora tiene que ser un rechazo declarado, resultados: {outcomes}"
     )
 

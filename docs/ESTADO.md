@@ -1,9 +1,9 @@
 # Restaurante Sistema — estado del proyecto
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
-Última actualización: 2026-09-15 (pedido 1b-1 en construcción; `backend-base`
-entregó cimientos, caja y personal del dispositivo. Pedido 1a entregado y
-verificado el 2026-09-14; framework 2.1.0).
+Última actualización: 2026-09-15 (pedido 1b-1 construido y verificado; el
+cierre lo hizo el orquestador humano sin Conciliador, ver «Dónde retomar».
+Pedido 1a entregado y verificado el 2026-09-14; framework 2.1.0).
 
 **Este documento es VIVO.** Si un cambio altera una regla o un flujo descrito acá,
 se actualiza en el MISMO PR que el cambio. Un estado desactualizado miente con más
@@ -157,12 +157,82 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
   funciones habilitables por flag, perfiles `basic`/`standard`/`full`).
 - **Specs de los pedidos** `features/fase-1a-cimientos/spec.md` (entregado) y
   `features/fase-1b-venta/spec.md` (siguiente), con contrato de API.
-- **Pedido 1b-1 en construcción** (comanda y cobro, primera mitad de 1b;
-  contrato interno del equipo en `features/fase-1b-venta/CONTRATO-INTERNO-1b-1.md`;
-  outputs por agente en `features/fase-1b-venta/outputs-1b-1/`). Equipo:
-  `backend-base`, `backend-comanda`, `backend-cobro`, `frontend-comanda`,
-  `frontend-cobro`, `auditor-venta`. Lo que entregó `backend-base` (cimientos,
-  caja y personal del dispositivo — esto es lo que destraba al resto):
+- **Pedido 1b-1 construido** (comanda y cobro, primera mitad de 1b; run
+  `wf_1ee5978f-ad4` sobre el commit base `098d3a0`; contrato interno del equipo
+  en `features/fase-1b-venta/CONTRATO-INTERNO-1b-1.md`; outputs por agente en
+  `features/fase-1b-venta/outputs-1b-1/`; **no hay `ENTREGA.md`**: el run se
+  pausó a pedido del dueño al terminar la construcción, antes de la
+  Conciliación, para cuidar la ventana de uso, y el cierre lo hizo a mano el
+  orquestador humano — hallazgo B-1 corregido y verificación completa, ver
+  «Dónde retomar»). Equipo elegido por el Maestro: `backend-base`,
+  `backend-comanda`, `backend-cobro`, `frontend-comanda`, `frontend-cobro`
+  (sonnet) y `auditor-venta` (opus).
+  - **`backend-comanda`** (`app/orders`, `app/kitchen`, Alembic `0004_orders`):
+    la única matemática de la venta en `app/orders/money.py` (enteros, sin
+    float; `prorate` reparte exacto y el residuo va a la línea mayor); canales
+    `counter`/`dine_in`/`takeout`/`staff_meal` detrás de flags; mesas con unión
+    y movimiento (índice único parcial anti-carrera); comandas con versión
+    optimista (`409 STALE_VERSION`) e `Idempotency-Key`; rondas numeradas con
+    contador de porciones que apaga el producto; anulación con motivo tipado;
+    cortesía con límite por turno; descuentos por ítem/comanda con límite por
+    empleado/sede y alerta acumulada; precuenta con propina sugerida ≤ 10 %;
+    división por partes iguales y por ítems (sub-cuentas cuya suma reproduce el
+    total); 23 endpoints bajo `/api/v1` más la vista mínima de cocina (sin
+    modelos propios). Firmas que usa `backend-cobro`: `get_order_or_404`,
+    `compute_order_totals`, `compute_sub_account_totals`, `order_out`,
+    `assert_payable`, `claim_payment`, `auto_send_pending_for_payment`,
+    `business_date_for_sale`.
+  - **`backend-cobro`** (`app/payments`, `app/fiscal` sin router, Alembic
+    `0005_payments_fiscal`): `pay_order` valida todo (versión, `can_charge`,
+    PIN propio, sub-cuenta, `assert_payable`, totales, propina, medios y
+    splits) **antes** de escribir; luego `auto_send_pending_for_payment`,
+    `claim_payment` (`UPDATE` condicional, `409` en carrera),
+    `reserve_next_number` + `issue_document` dentro de un `SAVEPOINT`
+    (`IntegrityError` → `409 ORDER_ALREADY_PAID`), `OrderTip`, un `Payment` por
+    split, `record_audit`. Consecutivo por sede sin huecos (`FiscalCounter`
+    con `SELECT FOR UPDATE`); el documento se emite como `pos_equivalent`
+    (`dian_status=pending`, sin evidencia DIAN) o `internal_receipt`
+    (`dian_status NULL`, leyenda que niega ser factura) según la flag
+    `fiscal.dee_pos`. Rangos DIAN, `FiscalProvider`, notas, devoluciones y
+    clientes quedan para 1b-2 (columnas ya previstas en `NULL`).
+  - **`frontend-comanda`** (`src/features/orders/**`, `src/api/orders.ts`,
+    `src/api/kitchen.ts`): Mesas, Comanda nueva y abierta, Cocina y
+    Admin → Pedidos; `ordersFeature` exporta `posRoutes`/`adminRoutes`/
+    `posNav`/`adminNav`. Toda mutación manda `expected_version` y ante
+    `STALE_VERSION` reemplaza la comanda local; `AUTHORIZATION_REQUIRED`,
+    `DISCOUNT_LIMIT_EXCEEDED` y `BILL_PRESENTED_NEEDS_AUTH` abren el diálogo
+    de PIN del autorizador y reintentan con `Idempotency-Key` nueva. El
+    frontend no calcula plata: todo sale de `OrderOut.totals`/`tip`/`PreBillOut`.
+  - **`frontend-cobro`** (`src/features/payments/**`, `src/components/
+    EmployeePicker.tsx`, carcasa `src/app/*`): «Quién opera» con lista de
+    personal (`EmployeePicker` reemplaza los inputs numéricos en identificar,
+    apertura, roster y relevo); `PosHome`/`PosLayout`/`AdminLayout` integran
+    `shiftsFeature`, `ordersFeature` y `paymentsFeature`; `CheckoutPage`
+    (precuenta con leyenda tal cual llega, pregunta de propina, división en
+    partes iguales o por ítems, pagos mixtos con PIN e `Idempotency-Key`,
+    `STALE_VERSION` y `ORDER_ALREADY_PAID` manejados) y `DocumentPage`
+    (comprobante imprimible 58/72/80 mm con `document-print.css`, reimpresión
+    contada).
+  - **`auditor-venta`** (opus; `backend/tests/audit/**`, `frontend/src/audit/**`):
+    32 invariantes nuevos y 6 reescritos por O-1 (96 en backend, 20 en
+    frontend). **La plata cierra**: las cinco identidades de `compute_totals`
+    se cumplen sobre 1.000 comandas aleatorias (`random.Random(20260915)`) y
+    los mismos números aparecen en `OrderOut.totals`, `PreBillOut` y
+    `DocumentPrintableOut`; consecutivo 1..100 sin huecos y tres rechazos `400`
+    no consumen número; dos cobros concurrentes dejan una venta, un pago y un
+    documento; misma `Idempotency-Key` → mismo documento; documento inmutable.
+    Hallazgo bloqueante **B-1** (corregido en el cierre, ver abajo) y
+    advertencias A-10/A-11/A-12 y observaciones O-1/O-2/O-3 abiertas en
+    `features/fase-1b-venta/outputs-1b-1/auditor-venta.md § 3`.
+  - **Corrección B-1 del cierre** (orquestador humano, `app/orders/service.py`
+    `assert_payable`): cobrar una comanda con `status=paid` o `paid_at` no nulo
+    responde `409 ORDER_ALREADY_PAID` (antes `400 ORDER_NOT_OPEN`, que dejaba
+    muerta la pantalla «Esta comanda ya fue cobrada» del POS), y
+    `SUB_ACCOUNT_ALREADY_PAID` es `409` por los dos caminos (cierra también
+    O-3). `tests/payments/test_concurrency.py` y `test_split.py` exigen ahora
+    el `409` sin alternativa; el test del auditor pasó a verde sin tocarlo.
+  - Lo que entregó `backend-base` (cimientos, caja y personal del dispositivo
+    — esto es lo que destrabó al resto):
   - **`GET /device/employees`** («Quién opera», SPEC-NEGOCIO §9.1; cierra A-9
     de 1a): personal activo de la sede del dispositivo **o** de toda la
     organización (`store_id NULL`, los admins), sólo `{id, name, role}` —
@@ -294,17 +364,16 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    8 min); `tsc` limpio; vitest 61/61; `vite build` OK; Alembic desde cero
    `0001 → 0002 → 0003` y seed idempotente. El CI del repo debería estar en verde
    con esto; no se pudo ejecutar acá (sin runner ni Postgres local).
-2. **Verificación de territorio de `backend-base` para 1b-1** (2026-09-15,
-   NO es la verificación final — corre en paralelo con el resto del equipo):
-   `TMPDIR=/tmp/pt-backend-base python -m pytest tests/core tests/auth
-   tests/stores tests/audit_log tests/notifications tests/shifts -q -x` →
-   **124 passed, 1 skipped, 0 failed** (261 s); el skip es
-   `test_sales_totals_flow_into_shift`, condicionado a que existan
-   `app.orders.router` y `app.payments.models` (todavía no, ronda 2).
-   `python -m mypy app` → **10 errores, todos en `app/orders/service.py`**
-   (territorio de `backend-comanda`, archivo a medio escribir; cero errores en
-   territorio de `backend-base`). Alembic, `npm run build` y la suite completa
-   quedan para la verificación final del Maestro, como manda el contrato.
+2. **Verificación final del pedido 1b-1** (2026-09-15, orquestador humano,
+   árbol quieto, en serie, después de corregir B-1): `python -m mypy app` limpio
+   (67 archivos); suite de backend completa **377 passed, 0 failed** (SQLite, 15 min); `tsc` limpio;
+   vitest **129/129** (34 archivos); `vite build` OK; Alembic desde cero
+   `0001 → 0005` (45 tablas), seed idempotente y `downgrade base` limpio.
+   Sin Conciliador ni `ENTREGA.md`: el run `wf_1ee5978f-ad4` quedó pausado al
+   terminar la construcción; se puede retomar con `resumeFromRunId` (los seis
+   constructores se reutilizan de caché y corren sólo Conciliador, ajustes y
+   entrega), o darlo por cerrado con esta verificación — el contrato de
+   coherencia lo cubrió el auditor y este cierre.
 3. **Abierto por decisión del dueño de la spec** (advertencias del auditor, en
    `features/fase-1a-cimientos/outputs/ENTREGA.md § 5.4`) — **O-1, A-7 y A-9
    resueltos por default en 1b-1** (ver «Qué está hecho»; `backend-base`):
@@ -322,29 +391,43 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    lleva dueño del test de punta a punta, y la fixture `race_app` es la común para
    carreras (ya está en `tests/conftest.py`). Patrón registrado en
    `docs/PATRONES.md` del framework (2.1.0).
-6. **El pedido 1b se parte en dos** para que cada mitad quepa en un equipo de 2 a 6
-   agentes y en una ventana de uso: **1b-1** (lanzado el 2026-09-14 sobre el commit
-   `74c1eac`; outputs en `features/fase-1b-venta/outputs-1b-1/`): «Quién opera» con
-   lista de personal del dispositivo (A-9), mostrador, mesas, comandas con versión
-   optimista, rondas y vista de cocina mínima, precuenta y propina, cobro con pagos
-   mixtos y división, descuentos y cortesías, `staff_meal`, con las decisiones O-1
-   y A-7 resueltas por default (el responsable no ve el esperado del turno abierto
-   con cierre a ciegas activo; documento y correo de empleados fuera del JSON de
-   auditoría). **`backend-base` (cimientos, caja y personal del dispositivo) ya
-   entregó** su parte — ver «Qué está hecho» y
-   `features/fase-1b-venta/outputs-1b-1/backend-base.md` para el detalle
-   completo (endpoints, fixtures, decisiones, verificación literal, gaps).
-   Todavía en construcción al momento de escribir esto: `backend-comanda`
-   (`app/orders`, `app/kitchen`, Alembic `0004_orders.py` — modelos, hooks,
-   `money.py` y `schemas.py` ya existían; `service.py` y `router.py` en
-   progreso, con errores de mypy pendientes ahí, no en territorio de
-   `backend-base`), `backend-cobro` (`app/payments`, `app/fiscal`, Alembic
-   `0005_payments_fiscal.py` — ninguno de los dos existía todavía como carpeta
-   al cerrar este output), `frontend-comanda`, `frontend-cobro` y
-   `auditor-venta`. **1b-2** (siguiente): documento fiscal con rangos, estados,
-   contingencia y adaptador de proveedor, notas y devoluciones pendientes,
-   clientes y consentimientos, Hoy, Ventas e informe del contador, Pedidos.
-   La spec de ambos es `features/fase-1b-venta/spec.md`; el pedido delimita:
+6. **Abierto por el auditor de 1b-1** (detalle con archivo:línea en
+   `features/fase-1b-venta/outputs-1b-1/auditor-venta.md § 3`; decisión del
+   dueño de la spec o trabajo de 1b-2): **A-10** el POS de cobro deriva «Total a
+   cobrar» como venta + propina con `?? 0` (`PaymentTargetPanel.tsx`), único
+   número de plata calculado en el cliente — que lo mande el backend o mostrar
+   dos líneas; **A-11** leyenda legal escrita a mano como respaldo en
+   `CheckoutPage.tsx` — debería venir siempre del servidor; **A-12** `prorate`
+   puede asignar a una línea más de lo que pesa cuando el saldo total es menor
+   que la cantidad de líneas (pesos diminutos; el router ya impide
+   `item_discount > gross`) — tope `min(share, weight)` de una línea; **O-1**
+   `Math.round` silencioso en `DiscountDialog.tsx`; **O-2** `stripComments` del
+   auditor de 1a colapsa saltos de línea y corre los `archivo:línea`.
+7. **Gaps declarados por los constructores de 1b-1** (cada `outputs-1b-1/*.md`
+   § gaps): `PinPad` compartido escucha el teclado a nivel de `window` sin
+   filtrar por foco (se cuela en cualquier input visible; `frontend-cobro` lo
+   mitigó en su código sin tocar el componente); no hay ruta de dispositivo
+   para leer los medios de pago habilitados de la sede (el POS ofrece los seis
+   códigos fijos); división por ítems con UI de armado manual, sin derivar
+   grupos por asiento aunque `pos.seats` esté activa; `document-print.css`
+   tiene 58/72/80 mm pero no hay configuración de sede para elegir el ancho;
+   `TAX_RATE_BY_CODE` declarado localmente en `app/orders/service.py` (conviene
+   centralizarlo si 1b-2 agrega tasas); tras unir comandas, las rondas
+   históricas de la origen no se listan en la destino (sólo presentación);
+   `OrderPage` no tiene botón propio de dividir ni acción «quitar descuento»;
+   el tiempo transcurrido de mesas se calcula con el reloj del dispositivo.
+8. **El pedido 1b se partió en dos** para que cada mitad quepa en un equipo de
+   2 a 6 agentes y en una ventana de uso. **1b-1 está construido y verificado**
+   (ver «Qué está hecho»): «Quién opera» con lista de personal (A-9),
+   mostrador, mesas, comandas con versión optimista, rondas y cocina mínima,
+   precuenta y propina, cobro con pagos mixtos y división, descuentos y
+   cortesías, `staff_meal`, O-1 y A-7 resueltos por default. **1b-2**
+   (siguiente): documento fiscal con rangos, estados, contingencia y adaptador
+   de proveedor (`FiscalProvider`), notas y devoluciones pendientes, clientes y
+   consentimientos, Hoy, Ventas e informe del contador, Pedidos; arranca desde
+   el commit del cierre de 1b-1 y conviene que su contrato interno tome los
+   puntos 6 y 7 de esta lista como entradas. La spec de ambos es
+   `features/fase-1b-venta/spec.md`; el pedido delimita:
    ```js
    Workflow({
      scriptPath: '.claude/workflows/orquestador-general.js',
@@ -357,10 +440,8 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
      },
    })
    ```
-7. Lo que no se pudo verificar en este entorno: Postgres real (tipos, índices y el
-   `409 SHIFT_OPEN_RACE` literal, que sólo el CI puede probar), el CI en sí, WCAG
-   más allá de Testing Library, y el flujo completo en un navegador real. Sobre
-   1b-1: `alembic upgrade head` con `0004`/`0005` (no existían al cerrar este
-   output — son de `backend-comanda`/`backend-cobro`) y
-   `test_sales_totals_flow_into_shift` de punta a punta contra `POST /orders`
-   y `POST /orders/{id}/payments` reales.
+9. Lo que no se pudo verificar en este entorno: Postgres real (tipos, índices,
+   `SELECT FOR UPDATE` del consecutivo y los `409` literales de carrera, que
+   sólo el CI puede probar), el CI en sí, WCAG más allá de Testing Library, y
+   el flujo completo de comanda y cobro en un navegador real (1a sí se recorrió
+   con Playwright; 1b-1 todavía no).

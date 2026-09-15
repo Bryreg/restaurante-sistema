@@ -1552,6 +1552,8 @@ def list_sub_accounts(db: Session, order: Order) -> list[OrderSubAccount]:
 
 
 def assert_payable(db: Session, order: Order, *, sub_account: OrderSubAccount | None) -> None:
+    if order.status == OrderStatus.PAID or order.paid_at is not None:
+        raise ConflictError("Esta comanda ya fue cobrada; consultá el comprobante", code="ORDER_ALREADY_PAID")
     if order.status not in _OPEN_ORDER_STATUSES:
         raise AppError("ORDER_NOT_OPEN", "La comanda no está abierta", status=400)
     live_count = int(db.execute(select(func.count()).select_from(OrderItem).where(OrderItem.order_id == order.id, OrderItem.status != OrderItemStatus.VOIDED)).scalar_one())
@@ -1561,7 +1563,7 @@ def assert_payable(db: Session, order: Order, *, sub_account: OrderSubAccount | 
     if has_sub_accounts and sub_account is None:
         raise AppError("SUB_ACCOUNT_REQUIRED", "Esta comanda está dividida: indicá la sub-cuenta a cobrar", status=400)
     if sub_account is not None and sub_account.status != "open":
-        raise AppError("SUB_ACCOUNT_ALREADY_PAID", "Esta sub-cuenta ya fue cobrada", status=400)
+        raise ConflictError("Esta sub-cuenta ya fue cobrada; consultá el comprobante", code="SUB_ACCOUNT_ALREADY_PAID")
     if order.shift_id is None:
         raise AppError("NO_OPEN_SHIFT", "Abrí un turno para poder cobrar esta comanda", status=400)
     shift = db.get(Shift, order.shift_id)

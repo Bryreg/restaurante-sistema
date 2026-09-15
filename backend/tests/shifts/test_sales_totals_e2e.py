@@ -66,7 +66,7 @@ def _open_after(open_shift, db: Session) -> Shift:
 def test_sales_totals_flow_into_shift(
     device_client, admin_client, identify, employees, open_shift, catalog_seeded, db: Session
 ) -> None:
-    shift = open_shift(responsible=employees["cashier"])
+    shift = open_shift(cash_responsible=employees["cashier"])
     identify(device_client, employees["cashier"])
 
     catalog = device_client.get("/api/v1/catalog").json()
@@ -94,9 +94,12 @@ def test_sales_totals_flow_into_shift(
             "expected_version": order["version"],
             "pin": "1111",
             "tip": {"asked": True, "accepted": True, "modified": False, "amount": 1000},
+            # Los splits cubren venta + propina en orden: el efectivo paga sólo
+            # venta y la propina de $1.000 viaja en la tarjeta, así el esperado
+            # de caja no la incluye y `sales.card` sigue siendo la venta.
             "splits": [
                 {"method": "cash", "amount": cash_part, "tendered": cash_part},
-                {"method": "card", "amount": card_part},
+                {"method": "card", "amount": card_part + 1000},
             ],
         },
         headers=idem(),
@@ -110,7 +113,11 @@ def test_sales_totals_flow_into_shift(
 
     count = device_client.post(
         f"/api/v1/shifts/{shift['id']}/close/count",
-        json={"counted_cash": {"denominations": [{"value": 50000, "count": 4}], "total": 200_000}},
+        json={
+            "counted_cash": {"denominations": [{"value": 50000, "count": 4}], "total": 200_000},
+            "tips_cash_out": 0,
+            "photo": "foto.jpg",
+        },
         headers=idem(),
     )
     assert count.status_code == 400, count.text

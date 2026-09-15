@@ -160,5 +160,5 @@ def test_sub_account_already_paid(
     assert first.status_code == 201, first.text
 
     second = pay(order, tip=NO_TIP, sub_account_id=sub_account["id"], splits=[{"method": "cash", "amount": sub_account["totals"]["total"]}])
-    assert second.status_code in (400, 409), second.text
+    assert second.status_code == 409, second.text
     assert second.json()["error"]["code"] == "SUB_ACCOUNT_ALREADY_PAID"
