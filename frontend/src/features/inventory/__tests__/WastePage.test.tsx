@@ -42,6 +42,11 @@ describe("WastePage — dispositivo, sin costos (AGENTS.md)", () => {
     const typeCombobox = await screen.findByRole("combobox", { name: "Tipo" })
     await user.click(typeCombobox)
 
+    // El popup se monta en un portal: con 68 entornos jsdom compitiendo no
+    // está montado todavía cuando un `getAllByRole` síncrono pregunta, y el
+    // test pasa solo pero falla en la suite. Un verde que depende de la carga
+    // de la máquina enseña a ignorar el rojo de la suite.
+    await screen.findByRole("option", { name: "Vencido" })
     const options = screen.getAllByRole("option").map((o) => o.textContent)
     expect(options.some((label) => /personal/i.test(label ?? ""))).toBe(false)
     expect(options).toEqual(

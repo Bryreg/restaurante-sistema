@@ -64,8 +64,8 @@ export default function DeviceActivatePage(): React.JSX.Element {
           disabled={submitting}
         />
         <p className="text-xs text-muted-foreground">
-          Lo indica el administrador. Todavía no hay una pantalla para elegirla por nombre (ver
-          gaps del entregable de este agente).
+          El número de la sede, no el PIN. Te lo da el administrador; el PIN va en el teclado de
+          abajo.
         </p>
       </div>
       <PinPad

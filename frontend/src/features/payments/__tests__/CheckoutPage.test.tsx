@@ -92,14 +92,15 @@ describe("CheckoutPage", () => {
     expect(screen.getByText(/¿desea incluir servicio voluntario del 10%\?/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /sí, \$\s?4\.630/i }));
-    // A-10: la venta y la propina se pintan como dos líneas SEPARADAS,
-    // nunca sumadas por el cliente — no existe más un "Total a cobrar"
-    // calculado en el frontend.
+    // La venta y la propina se discriminan (propina separada de la venta y
+    // del impuesto, regla dura), Y se muestra lo que hay que cobrar: sin ese
+    // número el mesero suma de cabeza frente al cliente.
     expect(await screen.findByText("Venta")).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?50\.000/).length).toBeGreaterThan(0);
     expect(screen.getByText("Propina")).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?4\.630/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/total a cobrar/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Total a cobrar")).toBeInTheDocument();
+    expect(screen.getAllByText(/\$\s?54\.630/).length).toBeGreaterThan(0);
   });
 
   it("con pos.tips apagada no pregunta propina", async () => {

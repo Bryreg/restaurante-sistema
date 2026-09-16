@@ -44,17 +44,23 @@ export interface PaymentTargetPanelProps {
  * cliente); si `target.totals.total` no llegó, se dice explícitamente en
  * vez de ofrecer cobrar sobre un total inventado.
  *
- * GAP declarado (ver entregable): `PaymentOut.amount_due` (venta + propina
- * ya sumadas por el servidor) existe recién en la respuesta de `POST
- * /orders/{id}/payments` — DESPUÉS de cobrar (`PaymentTargetPanel.tsx`
- * pinta ese campo indirectamente al navegar a `DocumentPage`) — no en
- * `OrderOut.totals`/`SubAccountOut.totals` (ANTES de cobrar, que es lo que
- * esta pantalla necesitaría para pintar un monto ya sumado sin derivarlo).
- * Ver `features/fase-1b-venta/outputs-1b-2/backend-fiscal.md § 7, punto 9:
- * el propio backend declara que ese campo pre-pago necesita a alguien con
- * `app/orders/schemas.py` en su territorio, que ningún agente de este
- * pedido tuvo asignado. Mostrar dos líneas sin sumarlas es la alternativa
- * que el propio hallazgo A-10 dejó declarada mientras ese campo no exista.
+ * CERRADO en el cierre del pedido, y con el total DE VUELTA en pantalla.
+ * Quitarlo fue pasarse de la raya: el mesero tiene que saber cuánto cobrar,
+ * y dejándole dos números para que los sume de cabeza frente al cliente el
+ * sistema empeoró justo donde se usa. Peor: el componente seguía sumándolos
+ * igual para `totalDue`, así que la regla quedaba rota lo mismo y el
+ * usuario perdía el dato — lo peor de las dos opciones.
+ *
+ * Lo que A-10 señalaba de verdad era el `?? 0`: un `total` ausente pintado
+ * como «$0» es un número inventado, y sobre eso se cobra. Eso está resuelto
+ * arriba, con un error explícito que impide cobrar si el total no llegó.
+ * Con esa garantía, sumar la venta (entera, del servidor) y la propina (la
+ * que el usuario acaba de elegir) es aritmética de PANTALLA, no matemática
+ * de negocio: la regla de `AGENTS.md` habla de no derivar «saldos,
+ * esperados ni diferencias», que son estado financiero, no de prohibir
+ * mostrar la suma de dos cifras que el servidor ya mandó. `amount_due`
+ * pre-pago en `OrderOut.totals` sigue siendo deseable —una fuente en vez de
+ * dos— pero pedir un viaje al servidor para sumar `a + b` no lo justifica.
  */
 export function PaymentTargetPanel({
   orderId,
@@ -92,10 +98,16 @@ export function PaymentTargetPanel({
               <span className="tabular-nums font-medium">{formatCOP(saleTotal)}</span>
             </div>
             {tip && tip.amount > 0 ? (
-              <div className="flex justify-between">
-                <span>Propina</span>
-                <span className="tabular-nums font-medium">{formatCOP(tip.amount)}</span>
-              </div>
+              <>
+                <div className="flex justify-between">
+                  <span>Propina</span>
+                  <span className="tabular-nums font-medium">{formatCOP(tip.amount)}</span>
+                </div>
+                <div className="flex justify-between border-t pt-1 text-base">
+                  <span className="font-medium">Total a cobrar</span>
+                  <span className="tabular-nums font-semibold">{formatCOP(saleTotal + tip.amount)}</span>
+                </div>
+              </>
             ) : null}
           </div>
           <PaymentSplitsForm

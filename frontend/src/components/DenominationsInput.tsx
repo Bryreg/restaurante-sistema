@@ -33,7 +33,7 @@ export function DenominationsInput({
 
   function handleCountChange(denomValue: number, rawCount: string) {
     const parsed = Math.trunc(Number(rawCount));
-    const count = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    const count = rawCount.trim() !== "" && Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
     const next = DENOMINATIONS.map((v) => ({
       value: v,
       count: v === denomValue ? count : countByValue.get(v) ?? 0,
@@ -60,7 +60,16 @@ export function DenominationsInput({
                 step={1}
                 className="h-11 w-24"
                 disabled={disabled}
-                value={countByValue.get(denomValue) ?? 0}
+                // Vacío, NO `0`: un `0` precargado obliga a borrarlo antes de
+                // teclear, y quien cuenta efectivo en una tablet no lo borra —
+                // teclea encima y le queda "010". Además un campo en blanco
+                // dice "todavía no conté", que no es lo mismo que "conté cero"
+                // (`docs/SPEC-NEGOCIO.md §9.3`: «sin datos» se dice, no se
+                // dibuja como cero).
+                value={countByValue.get(denomValue) || ""}
+                // Contar efectivo es corregir: al tocar el campo se selecciona
+                // lo que haya, así retecleás en vez de agregarle dígitos.
+                onFocus={(event) => event.target.select()}
                 onChange={(event) => handleCountChange(denomValue, event.target.value)}
               />
             </div>
