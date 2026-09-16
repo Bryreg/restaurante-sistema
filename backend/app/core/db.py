@@ -54,8 +54,31 @@ def _is_sqlite(url: str) -> bool:
     return url.startswith("sqlite")
 
 
+def normalize_database_url(url: str) -> str:
+    """Fija el driver de Postgres en la URL: este proyecto usa **psycopg 3**
+    (`psycopg[binary]` en `requirements.txt`), no psycopg2.
+
+    Los hosts administrados (Render, Railway, Fly, Heroku) entregan la URL en
+    su forma estándar, `postgresql://…` — y algunos todavía en la vieja
+    `postgres://…`. SQLAlchemy mapea las dos al dialecto **psycopg2**, que no
+    está instalado: la app no arranca, con un `ModuleNotFoundError` que no
+    menciona la base por ningún lado. El CI nunca lo vio porque escribe
+    `postgresql+psycopg://` a mano en `ci.yml`.
+
+    Normalizar acá y no en la configuración del host es lo correcto: quién es
+    el driver lo decide este repo, no la consola de un proveedor, y así
+    `DATABASE_URL` se puede conectar tal como la entrega cualquiera de ellos.
+    Una URL que ya trae driver explícito (`postgresql+psycopg://`,
+    `postgresql+psycopg2://`) se respeta sin tocar.
+    """
+    for prefix in ("postgresql://", "postgres://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix) :]
+    return url
+
+
 def make_engine(database_url: str | None = None) -> Engine:
-    url = database_url or settings.DATABASE_URL
+    url = normalize_database_url(database_url or settings.DATABASE_URL)
     connect_args: dict[str, object] = {}
     if _is_sqlite(url):
         connect_args["check_same_thread"] = False

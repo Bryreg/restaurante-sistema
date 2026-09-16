@@ -1,0 +1,67 @@
+# Despliegue en Render — un solo servicio web que sirve la API y el frontend.
+#
+# Por qué UN servicio y no dos: la sesión va en cookie `httpOnly`, y por eso
+# `AGENTS.md` exige que frontend y API se sirvan bajo el MISMO ORIGEN.
+# `backend/app/main.py` ya sirve `frontend/dist` con fallback SPA, así que
+# partirlo en un sitio estático + una API rompería la decisión que protege la
+# cookie. No hace falta Dockerfile: los runtimes nativos de Render traen `node`
+# y `npm` preinstalados también en el de Python, así que este servicio se
+# construye el frontend solo.
+#
+# Cómo se usa: en Render → New → Blueprint, apuntando a este repositorio.
+# El asistente pide la REGIÓN: elegí **Virginia** u **Ohio** (costa este, la
+# más cercana a Colombia) y usá la MISMA para el servicio y para la base, o no
+# se ven por red interna.
+
+services:
+  - name: restaurante-sistema
+    type: web
+    runtime: python
+    branch: main
+    # `free` alcanza para demostrar el producto, con una advertencia: Render
+    # duerme un servicio gratuito a los 15 minutos sin tráfico y tarda cerca de
+    # un minuto en despertar. En una demo, ese minuto en blanco delante del
+    # dueño del restaurante decide la venta. Si vas a mostrarlo seguido, subí
+    # esta línea a `0.5c-512mb` (y ver el comentario de `startCommand`).
+    plan: free
+
+    # El build construye el frontend y después instala la API. `main.py` busca
+    # `frontend/dist` desde la raíz del repo, que es justo donde queda.
+    buildCommand: cd frontend && npm ci && npm run build && cd ../backend && pip install -r requirements.txt
+
+    # Las migraciones corren acá y no en `preDeployCommand` porque el comando
+    # de pre-deploy NO existe en el plan gratuito. Es idempotente: `alembic
+    # upgrade head` sobre una base ya migrada no hace nada.
+    # Al pasar a un plan pago, mové la migración a su lugar propio:
+    #   preDeployCommand: cd backend && alembic upgrade head
+    #   startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # Eso evita que dos instancias migren a la vez el día que escales.
+    startCommand: cd backend && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+    envVars:
+      # Render la entrega como `postgresql://…`; `app.core.db.normalize_database_url`
+      # le pone el driver psycopg 3 que este repo instala.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: restaurante-sistema-db
+          property: connectionString
+      # Lo genera Render y no lo ve nadie. Ninguna credencial va al repo.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.11"
+
+databases:
+  # Gratuita a propósito mientras esto sea una demo: los datos son del seed y
+  # se rehacen con `python -m app.seed`. OJO con las dos condiciones del plan
+  # gratuito: la base EXPIRA a los 30 días de creada (14 más de gracia, y
+  # después Render la borra con todo adentro) y NO tiene respaldos.
+  # El día que haya un cliente de verdad esto pasa a un plan pago con
+  # point-in-time recovery: son ventas y documentos fiscales con consecutivo
+  # sin huecos ante la DIAN, no datos de prueba.
+  - name: restaurante-sistema-db
+    plan: free
+    databaseName: restaurante
+    user: restaurante
