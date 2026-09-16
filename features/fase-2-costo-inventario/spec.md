@@ -23,7 +23,7 @@ y en una ventana de uso.
 | | Qué construye |
 |---|---|
 | **2a** (este pedido) | Insumos, preparaciones y fichas técnicas; el libro de movimientos de inventario con causa tipada; consumo teórico al enviar; mermas; `recipe_effect` en modificadores; costo en los reportes que ya existen |
-| **2b** (después) | Compras con proveedores y cuentas por pagar; lotes de compra y vencimientos; conteos de críticos y completos a ciegas; varianza y food cost real; salud del control; reposición |
+| **2b** (después) | Compras con proveedores y cuentas por pagar; lotes de compra y vencimientos; conteos de críticos y completos a ciegas; varianza y food cost real; salud del control |
 
 **Por qué ese corte y no otro.** El consumo teórico (2a) es lo que le da sentido a
 un conteo (2b): sin uso teórico no hay varianza contra qué comparar. Y las
@@ -196,3 +196,241 @@ pedido **tiene que nombrar dueño** para, como mínimo:
 
 Y la regla general: cuando un mandato acotado toca un modelo compartido, se le
 asigna **también** su esquema de entrada, sus tests y la pantalla que lo edita.
+
+---
+
+## Alcance de 2b
+
+Cuarto pedido al orquestador. Construye sobre 1a, 1b y **2a**, que dejó el libro de
+movimientos con causa tipada, el consumo teórico congelado al enviar y las mermas.
+2b es la mitad que **confronta la teoría con la realidad**: lo que entró (compras), lo
+que hay de verdad (conteos), y la diferencia entre ambos (varianza y food cost real).
+Sin 2b el sistema sabe lo que un plato *debería* costar; con 2b sabe lo que le está
+costando.
+
+**Entra**
+
+- Spec de negocio **§5.6 (compras)**, **§5.7 (lotes y vencimientos)**, **§5.4 (conteos
+  y varianza)**, los dos escalones de costo que faltan de **§4.1** (promedio ponderado
+  de las compras desde el último conteo completo, y última compra), el KPI de mermas ÷
+  compras de §5.5 que hoy siempre es `null`, y lo que **Compras** e **Inventario**
+  ganan en §9.3.
+- Cada capacidad detrás de su función, **que ya están en el catálogo desde 1a y en
+  `app/core/features.py`**: `purchases`, `inventory.counts`, `inventory.variance`,
+  `inventory.lots`. Sus dependencias ya están declaradas (las tres primeras requieren
+  `inventory.perpetual`; `inventory.variance` requiere `inventory.counts`) y el backend
+  las hace cumplir con `400 FEATURE_DISABLED`.
+- **Cerrar lo que 2a dejó declarado** (`outputs-2a/ENTREGA.md § 5`, `docs/ESTADO.md`
+  punto 13): la escala de cantidades publicada de dos formas distintas, el KPI de
+  mermas declarado `float`, los cinco listados que sirven CSV sin declarar `format`, y
+  `MovementCause.VOID_AFTER_SEND` declarada y nunca producida.
+
+**No entra en 2b** (fase 3)
+
+- **Orden de compra y sugerencia de reposición.** §5.6 las manda explícitamente a fase
+  3. La tabla de este documento decía «reposición» en la fila de 2b: **manda la spec de
+  negocio**, y queda corregido arriba.
+- Documento soporte electrónico (Res. DIAN 167/2021) para la compra sin factura: la
+  recepción se marca `no_invoice` y ahí termina 2b.
+- Ingeniería de menú y varianza por plato prorrateada.
+- Consignaciones, libro del banco, mano del dueño, gastos y obligaciones (§6.1, §6.4).
+- Domicilio, plataformas y KDS: están en la fila «fase 2» de §14 pero no tienen nada
+  que ver con costo ni inventario. Van en su propio pedido, igual que en 2a.
+
+## Convenciones propias de 2b
+
+Las de 1a, 1b y 2a, más:
+
+- **Dominio nuevo: `purchases`** (proveedores, recepciones, cuentas por pagar, pagos).
+  Los **conteos, lotes y varianza** van en `inventory`, que ya existe: son el libro
+  mirándose al espejo, no un dominio aparte. Crear la carpeta con su `__init__.py`
+  **antes** de nombrarla en `DOMAINS`/`MODEL_MODULES`, y preguntar por módulos ajenos
+  con `app.core.modules.find_spec_safe`, nunca con `importlib.util.find_spec` crudo.
+- Alembic arranca en **`0011`**.
+- Cantidades y costos siguen el contrato numérico de 2a (`app/core/quantity.py`):
+  `QTY_SCALE = 1000`, `COST_SCALE = 1_000_000`, enteros, **sin `float` en ninguna
+  parte** — incluido el KPI de mermas, que hoy lo declara y hay que corregir.
+- **Una sola escala publicada.** Hoy `app/reports/schemas.py` publica milésimas crudas
+  y `app/inventory/schemas.py` texto decimal, para la misma magnitud. La primera
+  pantalla de 2b que pinte una cantidad va a mostrar `117648 g`, o va a dividir por
+  1.000 en el cliente, que es matemática en el lugar equivocado. Elegir **una** forma,
+  declararla en el contrato interno y unificar las dos.
+- Toda escritura de inventario sigue pasando por `record_movement` con `cause`
+  enumerada. Las causas nuevas (`purchase`, `count_adjustment`, `reception_reversal`)
+  se agregan al enum; **la causa no se infiere de un texto**.
+- **El IVA pagado en compras bajo INC es mayor valor del costo** (§4.1); bajo IVA es
+  descontable y se reporta aparte. Cada línea de recepción guarda base, tarifa y valor.
+  Ignorarlo subestima el costo cerca de un 19 % en insumos gravados.
+- **El saldo de una cuenta por pagar se deriva de los pagos vivos** (§5.6). No existe
+  un campo `balance` guardado: es la misma regla que ya rige los saldos de caja.
+- `Idempotency-Key` en recepción, pago de cuenta por pagar y aplicación de conteo.
+- **Nada financiero se borra.** Eliminar una recepción es una reversa con causa, no un
+  `DELETE` de filas.
+
+## API contract — 2b (English — technical artifact)
+
+Same conventions as 1a/1b/2a. All routes under `/api/v1`.
+
+### Suppliers
+- `GET/POST /admin/suppliers` `{name, nit?, payment_term_days, contact_name?, contact_phone?, invoices_required, active}` → canonical entity, never free text (41 spellings for 23 suppliers in the reference). `400 SUPPLIER_DUPLICATE_NIT`.
+- `PATCH /admin/suppliers/{id}`; `DELETE` is a logical deactivation, never a row delete.
+- `GET /admin/suppliers/{id}/reliability?from&to` → received ÷ invoiced, share of receptions with an invoice, average price drift.
+
+### Receptions
+- `POST /receptions` (Idempotency-Key) `{supplier_id, invoice_number?, invoice_date, no_invoice, photo?, received_by_pin, lines: [{ingredient_id, qty_received, qty_invoiced, purchase_unit_price, tax_base, tax_rate, tax_amount, lot_code?, expires_at?}]}`.
+  - `400 INVOICE_REQUIRED` when `no_invoice` and the supplier is `invoices_required`.
+  - **Typing guards, which ask and never self-correct**: `409 PRICE_LOOKS_LIKE_PACKAGE` (10–12 × the reference = package price typed as unit price) and `409 PRICE_JUMP` (> 15 % against the weighted average). Both clear with an explicit `confirm_price: true`, and who confirmed is recorded.
+  - On confirm, in **one transaction**: a `record_movement(cause=purchase)` per line, a `stock_batch` per line with expiry and cost, the weighted average recomputed, and a `payable` in `pending_review`.
+- `GET /admin/receptions?from&to&supplier_id&status&format`; `GET /admin/receptions/{id}`.
+- `PATCH`/`DELETE /admin/receptions/{id}` `{authorizer_pin}` → reverses everything downstream **atomically or fails explaining why**: `409 LOT_CONSUMED`, `409 PAYABLE_HAS_PAYMENTS`. The reversal is a movement with `cause=reception_reversal`.
+
+### Payables and payments
+- `GET /admin/payables?status&supplier_id&overdue&from&to&format` → balance **derived** from live payments.
+- `POST /admin/payables/{id}/approve` `{authorizer_pin}` → `pending_review` → `approved`. Paying an unapproved payable → `409 PAYABLE_NOT_APPROVED`: this is the minimum control between whoever receives and whoever pays.
+- `POST /admin/payables/{id}/payments` (Idempotency-Key) `{amount, method, paid_at, reference?, from_cash_drawer, authorizer_pin}` → a cash payment out of the drawer creates the shift expense **in the same transaction**; with no open shift → `409 NO_OPEN_SHIFT` and no payment is left behind.
+- `POST /admin/payables/{id}/payments/{payment_id}/void` `{reason, authorizer_pin}` — never a delete.
+
+### Lots and expiry
+- `GET /admin/lots?ingredient_id&status&expiring_within_days` → `active`, `expiring` (≤ 7 days), `expired`, `depleted`.
+- Every issue consumes **the lot closest to expiring first**, and at equal expiry the one received first. Declare the rule in the internal contract: "the oldest" (§5.7) is ambiguous and a silent choice here moves money.
+- An expired lot **is never written off automatically**: the system raises "about to expire" and "expired with stock", and a person writes it off through `POST /waste type=expired`, which already exists.
+
+### Counts
+- `POST /admin/counts` `{scope: "key_items"|"full"}` → opens a **blind** count: no response in the capture flow carries theoretical stock, by any path. The on-screen reference is the **previous count**.
+- `PUT /admin/counts/{id}/lines` `{lines: [{ingredient_id, qty_counted, was_counted}]}` — `was_counted` is written line by line by whoever counts. **There is no "everything matches"**: no route and no button marks every line at once (it erased real shortfalls of −10.065 g in the reference). A partial save says so; a local draft never overwrites a confirmed value.
+- `POST /admin/counts/{id}/apply` `{authorizer_pin}` → explicit admin action, **once** (`409 COUNT_ALREADY_APPLIED`), applying `stock = counted + (ins − outs since the instant of the count)`, not since the instant of applying. The adjustment carries `cause=count_adjustment`.
+- `GET /admin/counts?scope&from&to&format`; `GET /admin/counts/{id}`.
+
+### Variance, food cost and control health
+- `GET /admin/variance?count_id&format` → per ingredient: opening + ins − closing = real usage, against theoretical usage (sales × recipe + productions); variance in **quantity and in pesos, with the cost source**. Traffic light from **store configuration** with industry defaults (< 2 points green, 2–4 review, > 4–5 sustained red), never hard-coded.
+- `GET /admin/food-cost?from&to` → (opening inventory + purchases − closing) ÷ net sales, **only between two consecutive full counts**; without them `null` **with the reason**, never `0`.
+- `GET /admin/control-health` → days since the last full count (> 14 → `inventory_unreliable`, and real food cost is not published), share of receptions with an invoice, share of `batch` preparations produced this week, waste entries this week.
+- The §5.5 weekly KPI (waste ÷ purchases) stops being `null` once there are purchases in the period, and stays `null` when there are none.
+
+### Reads that 2a asked for
+- `GET /admin/orders/{id}/consumption` → **the per-order merge**: one row per ingredient, summing the ledger's per-item rows. This is the §5.3 correction made real: the merge is a **read**; the ledger still stores one row per item.
+- `resolve_ingredient_cost` (`app/inventory/hooks.py`) gains the two missing rungs: today `official → estimated → none`, in 2b `official → weighted_average → last_purchase → estimated → none`. The weighted average is computed **since the last full count**, not since forever.
+- `GET /admin/today` gains: lots about to expire and expired with stock, payables overdue and pending review, and "inventory not reliable" past 14 days without a full count.
+
+## Invariantes heredados que 2b toca por diseño
+
+Lección de `outputs-2a/ENTREGA.md § 7`: **un invariante también tiene territorio y
+también envejece**. En 2a, tres barridos del OpenAPI prohibían la superficie que la
+fase existía para construir; como eran inesquivables, dos constructores renombraron
+campos publicados en vez de discutirlos. Se lista de entrada, con dueño:
+
+1. **Los tres barridos de costo del OpenAPI**, ya acotados en 2a
+   (`tests/payments/test_documents.py`, `tests/audit/test_reports_invariants.py`).
+   2b agrega superficie de costo en `/admin/suppliers*`, `/admin/receptions*`,
+   `/admin/payables*`, `/admin/counts*`, `/admin/variance`, `/admin/food-cost`. Los
+   barridos tienen que **seguir pasando y cubrir las rutas nuevas**. Acotarlos otra vez
+   si hace falta es tarea de alguien **nombrado**, no de quien tropiece.
+2. **«El operador no ve costos» sigue en pie y 2b no lo toca.** La recepción lleva
+   precios, así que es pantalla de **Admin**: el PIN de quien recibe es atribución, no
+   una sesión de dispositivo. Si a alguien le parece que la recepción debería hacerse
+   desde una tablet del salón, eso **cambia una regla dura** y es decisión del dueño de
+   la spec, no de un constructor.
+3. **El KPI de mermas declara `float`.** Es el único número no entero de la fase, y 2b
+   es exactamente quien lo hace dejar de ser `null`. Quien lo llene lo pasa a entero.
+4. **`min_stock` obligatorio** (`400 MIN_STOCK_REQUIRED`) ya existe: la recepción no
+   puede crear insumos por la puerta de atrás sin umbral.
+
+## Archivos huérfanos: con dueño asignado desde el arranque (2b)
+
+La regla funcionó en 2a —ninguno de los nombrados falló— y el único huérfano **sin**
+nombrar, `app/shifts/**`, es justo donde cayó un hallazgo. En 2b vuelve a estar en el
+camino. Se nombra dueño para, como mínimo:
+
+- `backend/app/seed.py` — proveedores, al menos una recepción con lote y **un conteo
+  completo aplicado**: sin dos conteos completos el food cost real es `null` para
+  siempre, y una base sembrada nunca podría mostrarlo.
+- `backend/app/inventory/hooks.py` — `resolve_ingredient_cost` es de `inventory` pero
+  lo consumen `recipes` y `orders`; extenderlo mueve el costo de toda la fase 2.
+- `backend/app/core/quantity.py`, `backend/app/reports/schemas.py` y
+  `backend/app/inventory/schemas.py` — la escala publicada de dos formas.
+- `backend/tests/audit/**` y `backend/tests/payments/test_documents.py` — los barridos
+  heredados de la lista de arriba.
+- `backend/app/shifts/**` — un pago en efectivo desde el cajón crea un egreso en el
+  turno abierto. Es de `shifts` y lo escribe `purchases`.
+- `frontend/src/features/settings/**` — umbrales de varianza e insumos críticos son
+  configuración de sede (§9.3): un campo que el backend acepta y ninguna pantalla edita
+  está escrito a medias.
+- `frontend/src/app/router.tsx` y la navegación del admin — **Compras** es una sección
+  nueva y Conteos entra dentro de Inventario.
+
+## Verificación del pedido 2b (checklist de entrega)
+
+Además de la sección 16 de la spec de negocio:
+
+- [ ] Con `purchases` apagada todo lo de 2a sigue igual y las rutas nuevas responden
+      `400 FEATURE_DISABLED`; ídem `inventory.counts`, `inventory.variance` e
+      `inventory.lots`, **respetando sus dependencias declaradas** (test con cada flag
+      en los dos estados).
+- [ ] Una recepción confirmada deja, **en una sola transacción**, un movimiento por
+      línea, un lote con vencimiento y costo, el promedio ponderado recalculado y una
+      cuenta por pagar en `pending_review`. Si algo falla no queda **nada** (test de
+      atomicidad, con un fallo inyectado en la última línea).
+- [ ] **El IVA bajo INC entra al costo**: dos recepciones idénticas, una bajo INC y
+      otra bajo IVA, dejan costos distintos y la diferencia es exactamente el IVA (test
+      numérico — ignorarlo subestima el costo cerca de 19 %).
+- [ ] La jerarquía de costo respeta el orden de §4.1 en los **cinco** escalones: con
+      oficial puesto el promedio no manda; sin oficial manda el promedio; sin compras
+      desde el último conteo completo manda la última compra; luego `estimated`; y sin
+      nada `null` con origen `none`, **nunca `0`** (un test por escalón).
+- [ ] El promedio ponderado se calcula **desde el último conteo completo**: una compra
+      anterior a ese conteo no lo mueve (test).
+- [ ] Las dos guardas de tecleo **preguntan y no corrigen solas**: precio 10–12 × la
+      referencia y salto > 15 % contra el promedio; confirmadas pasan y queda quién
+      confirmó (test de las dos).
+- [ ] El saldo de una cuenta por pagar **se deriva** de los pagos vivos: anular un pago
+      lo devuelve al saldo, y no existe ningún campo `balance` guardado (test y revisión
+      del modelo).
+- [ ] Un pago en efectivo desde el cajón crea el egreso en el turno abierto **en la
+      misma transacción**; sin turno abierto, `409` y **el pago no queda** (test).
+- [ ] Una cuenta por pagar no se puede pagar antes de ser aprobada (test): es el
+      control mínimo entre quien recibe y quien paga.
+- [ ] Eliminar una recepción revierte todo aguas abajo **o falla con nombre propio**:
+      lote ya consumido, cuenta con pagos vivos (test de los dos caminos). La reversa es
+      un movimiento; **nada se borra**.
+- [ ] El conteo es **a ciegas**: ninguna respuesta del flujo de captura contiene el
+      stock teórico por ningún camino (test sobre el JSON, no sobre la pantalla).
+- [ ] **No existe «todo coincide»**: ninguna ruta ni botón marca todos los renglones de
+      una vez (test de contrato y revisión de la UI).
+- [ ] Aplicar un conteo usa `contado + (entradas − salidas desde el instante del
+      conteo)`, **no desde el instante de aplicar**: un conteo de las 13:07 aplicado a
+      las 15:42, con movimientos en el medio, no inventa un faltante (test — es el caso
+      que «mandó a buscar un robo que no existe»).
+- [ ] Aplicar el mismo conteo dos veces no duplica el ajuste (`409`, test).
+- [ ] Food cost real es `null` **con motivo** sin dos conteos completos consecutivos, y
+      se calcula sólo entre ellos (test de los dos casos). Jamás `0`.
+- [ ] Con más de 14 días sin conteo completo, «salud del control» dice **inventario no
+      confiable** y el food cost real **no se publica** (test).
+- [ ] La varianza cierra la identidad `inicial + entradas − final = uso real` y publica
+      `uso real − uso teórico` en cantidad **y en pesos con el origen del costo** (test
+      numérico con un caso armado a mano, no generado).
+- [ ] Los umbrales del semáforo son configuración de sede con defaults: cambiar el
+      umbral cambia el color (test).
+- [ ] Una salida consume el lote más próximo a vencer, y a igualdad el recibido primero
+      (test con tres lotes).
+- [ ] Un lote vencido **no se da de baja solo**: queda la alerta «vencido con stock» y
+      el stock sigue hasta que alguien registre la merma (test).
+- [ ] `GET /admin/orders/{id}/consumption` da **un renglón por insumo** sumando las
+      filas por ítem, y el libro sigue guardando una fila por ítem (test: la lectura
+      agrega, la escritura no fusiona).
+- [ ] Mermas ÷ compras deja de ser `null` con compras en el período, sigue `null` sin
+      ellas, y **no es un `float`** (test).
+- [ ] **Una sola escala de cantidad publicada**: ningún esquema publica milésimas
+      crudas mientras otro publica texto decimal para la misma magnitud (test de
+      contrato sobre el OpenAPI).
+- [ ] Todo listado nuevo declara `format` en el contrato, y **los cinco de 1b-2 que lo
+      leen de `request.query_params` quedan arreglados** (test sobre el OpenAPI).
+- [ ] `MovementCause.VOID_AFTER_SEND` **se produce o se saca**: hoy está declarada y
+      nunca se emite, así que un reporte de merma por anulación agrupado por causa
+      devuelve vacío (test).
+- [ ] Sesión de dispositivo: ninguna respuesta contiene `cost` ni `margin`, con
+      `purchases` montado. Los tres barridos acotados en 2a **siguen pasando y cubren
+      las rutas nuevas**.
+- [ ] Cantidades sin `float` en todo lo nuevo (test de propiedad sobre 1.000 casos).
+- [ ] Zona horaria: una recepción a las 00:30 queda sellada con el día del turno.
+- [ ] Admin en 1024 px sin scroll horizontal; foco visible; contraste AA.
+- [ ] Typecheck, suite completa y build, una vez, en serie, con el árbol quieto.
