@@ -19,7 +19,27 @@ from app.recipes.hooks import uncosted_products
 from app.recipes.schemas import ComponentLineIn, ProductRecipeIn
 
 
-def _sell_one(db: Session, org: Any, store: Any, employee: Any, product: Any, business_date: date) -> None:
+def _sell_one(
+    db: Session,
+    org: Any,
+    store: Any,
+    employee: Any,
+    product: Any,
+    business_date: date,
+    *,
+    consumed_ingredient_id: int | None = None,
+    actor: Any = None,
+) -> None:
+    """Venta mínima, insertada a mano. `consumed_ingredient_id` escribe además
+    el movimiento de consumo que el envío real deja en el libro.
+
+    Hace falta desde el cierre de 2a: `uncosted_products` decide si una venta
+    PASADA descontó algo leyendo el libro (`ref_type="order_item"`), no
+    re-expandiendo la ficha de hoy — si la re-expandiera, cargar una ficha hoy
+    reescribiría hacia atrás la cobertura de un período cerrado. Una venta
+    insertada sin su movimiento es, correctamente, una venta que no descontó
+    nada; para representar la que sí descontó hay que dejar el movimiento.
+    """
     from app.orders.models import Order, OrderChannel, OrderItem
 
     now = clock.now_utc()
@@ -39,6 +59,27 @@ def _sell_one(db: Session, org: Any, store: Any, employee: Any, product: Any, bu
     db.add(item)
     db.flush()
 
+    if consumed_ingredient_id is not None:
+        from app.inventory.hooks import record_movement
+        from app.inventory.models import CostSource, MovementCause
+
+        record_movement(
+            db,
+            organization_id=org.id,
+            store_id=store.id,
+            ingredient_id=consumed_ingredient_id,
+            qty_base=-10_000,
+            cause=MovementCause.SALE,
+            cost_micros=None,
+            cost_source=CostSource.NONE,
+            actor=actor,
+            business_date=business_date,
+            at=now,
+            ref_type="order_item",
+            ref_id=item.id,
+        )
+        db.flush()
+
 
 def test_product_sold_without_recipe_appears_in_uncosted_products(
     db: Session, org: Any, store: Any, employees: dict[str, Any], admin_actor: Any, make_ingredient: Any,
@@ -54,7 +95,10 @@ def test_product_sold_without_recipe_appears_in_uncosted_products(
     )
 
     _sell_one(db, org, store, employees["cashier"], no_recipe_product, today)
-    _sell_one(db, org, store, employees["cashier"], with_recipe_product, today)
+    _sell_one(
+        db, org, store, employees["cashier"], with_recipe_product, today,
+        consumed_ingredient_id=ing.id, actor=admin_actor,
+    )
 
     rows = uncosted_products(db, store_id=store.id, date_from=today, date_to=today)
     flagged_ids = {r["product_id"] for r in rows}
