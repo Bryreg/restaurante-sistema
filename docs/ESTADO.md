@@ -1,7 +1,16 @@
 # Restaurante Sistema — estado del proyecto
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
-Última actualización: 2026-09-16 (**pedido 2a, ronda 2 del conciliador**:
+Última actualización: 2026-09-16 (**pedido 2a cerrado y verificado** por el
+orquestador humano: suite de backend **770/770**, vitest **280/280**, mypy y
+`tsc` limpios, build OK, Alembic desde cero `0001 → 0010` con 63 tablas. Los
+nueve rojos que declaró la entrega están cerrados —ocho eran advertencias del
+auditor y el noveno era un invariante heredado mal acotado que además había
+deformado el contrato publicado de `/admin/sales`—. Además **el repositorio ya
+tiene despliegue**: `render.yaml` en la raíz y `main` al día con todo el código.
+Lo que sigue: **2b**. Lo de abajo quedó escrito por un agente a mitad de la
+construcción y se conserva por su detalle técnico, no por su estado.
+—— Nota original del agente: **pedido 2a, ronda 2 del conciliador**:
 cierra el bloqueante **B-1** — la nota «vuelve»/«se usó» ahora SÍ revierte el
 consumo teórico de verdad, conectada desde `app.fiscal.service.issue_note` —
 y la mitad de **B-2** de este agente, el "cero mudo congelado" de
@@ -57,6 +66,14 @@ npm run dev -- --port 5173   # proxea /api -> :8000 (mismo origen; ver vite.conf
 |---|---|---|---|
 | backend | `backend/` | `uvicorn app.main:app --reload --port 8000` | 8000 |
 | frontend | `frontend/` | `npm run dev -- --port 5173` | 5173 |
+
+**En producción es UN solo servicio, no dos.** `render.yaml` (raíz) define el
+despliegue: el build construye el frontend y `main.py` sirve `frontend/dist` con
+fallback SPA, así que API y frontend quedan bajo el mismo origen — que es lo que
+exige la cookie `httpOnly`, no una comodidad. No hay Dockerfile ni hace falta.
+`DATABASE_URL` se conecta tal como la entregue el host: `normalize_database_url`
+le pone el driver **psycopg 3** que este repo instala (una URL `postgresql://`
+sin normalizar busca psycopg2 y la API no arranca).
 
 Variables de entorno (ver `backend/app/core/config.py`): `DATABASE_URL` (default
 `sqlite:///./dev.db`), `JWT_SECRET`, `ENV` (`dev`\|`test`\|`production`),
@@ -431,15 +448,17 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     request, promovida a `tests/conftest.py`; el test de carrera de `tests/shifts`
     corre sobre ella y acepta `409 SHIFT_OPEN_RACE` o `400 SHIFT_ALREADY_OPEN`),
     A-3 (`app/shifts/models.py` usa `UTCDateTime`).
-- **Pedido 2a construido** (insumos, preparaciones, fichas técnicas, libro de
-  movimientos, consumo teórico al enviar, mermas y costo en los reportes que ya
-  existían — primera mitad de la fase 2; sin `ENTREGA.md` del Maestro todavía,
-  cierre pendiente del orquestador humano, igual que 1b-1). Alembic
-  `0008 → 0009 → 0010` (**63 tablas**, verificado). Equipo de backend elegido
-  por el Maestro: `backend-inventario`, `backend-recetas`, `backend-consumo`
-  (sonnet); el frontend de este pedido (Carta y recetas/Preparaciones/
-  Inventario, producción rápida en POS/cocina) y el auditor de 2a **no
-  corrieron todavía** al momento de escribir esto — ver «Dónde retomar».
+- **Pedido 2a construido y verificado** (insumos, preparaciones, fichas
+  técnicas, libro de movimientos, consumo teórico al enviar, mermas y costo en
+  los reportes que ya existían — primera mitad de la fase 2; run
+  `wf_630a825c-c41` sobre el commit base `dad3ee1`, outputs en
+  `features/fase-2-costo-inventario/outputs-2a/` **con `ENTREGA.md` del
+  Maestro**). Dos rondas, veredicto del Conciliador **coherente**. Alembic
+  `0008 → 0009 → 0010` (**63 tablas**). Equipo de seis: `backend-inventario`,
+  `backend-recetas`, `backend-consumo`, `frontend-recetas`,
+  `frontend-inventario` (sonnet) y `auditor-costos` (opus). **Los seis
+  corrieron**: el párrafo que decía que el frontend y el auditor no habían
+  corrido se escribió a mitad de la construcción y quedó viejo.
   - **`backend-inventario`** (`app/inventory/**`, Alembic `0008`, dueño del
     contrato numérico `app/core/quantity.py`): `Ingredient` (rendimiento,
     costo oficial/estimado con origen, `min_stock` obligatorio > 0,
@@ -748,44 +767,94 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    también su esquema de entrada, sus tests y la pantalla que lo edita, o el
    campo queda escrito a medias en tres capas.
 
-   **2a construido** (2026-09-15, backend completo; ver la entrada de «Qué
-   está hecho» de arriba y los tres `outputs-2a/*.md`). **Ronda 2
-   (2026-09-16) cerró el punto 1** (la nota «vuelve»/«se usó» ya revierte de
-   verdad — ver la entrada «Ronda 2 del conciliador» de `backend-consumo`
-   arriba). Sigue abierto:
-   1. ~~Crítico: la nota «vuelve» no revierte inventario todavía~~ **CERRADO
-      en la ronda 2**: `app.fiscal.service.issue_note` llama
-      `app.orders.hooks.reverse_item_consumption` por cada línea
-      `used=True and returns_to_stock=True` (default `True`); nota débito
-      nunca revierte. 6 tests en `tests/fiscal/test_notes.py`. Falta que el
-      **frontend** de la nota exponga el checkbox «vuelve»/«se usó»
-      (`returns_to_stock`) — no se encontró ninguna pantalla de notas en
-      `frontend/src/features/fiscal/**` al momento de escribir esto; si ya
-      existe, sólo necesita el campo nuevo.
-   2. **`GET /admin/employees/{id}/activity`** no ganó cortesías a costo
-      (vive en `app/shifts/**`, ningún agente de 2a lo tocó).
-   3. **Frontend de 2a**: al cerrar la construcción de backend sólo existía
-      `frontend/src/features/recipes/**` (Preparaciones, producción rápida,
-      editor de líneas de componente — con tests) y las secciones de receta
-      dentro de `frontend/src/features/catalog/**` (`RecipeEditor`,
-      `RecipeEffectDialog`, `SuspiciousUnitsSection` — con tests). **No se
-      encontró ninguna pantalla de Inventario** (stock por insumo,
-      movimientos por causa, mermas, negativos con causa probable) en
-      `frontend/src/`: si el agente de frontend de este pedido todavía no
-      corrió, es el hueco más grande que queda antes de poder recorrer 2a en
-      navegador real.
-   4. **Verificación completa pendiente**: typecheck y suite de backend
-      completa (no sólo `tests/orders`/`tests/reports`/`tests/inventory`/
-      `tests/recipes`, cada uno corrido por su agente por separado), `tsc`,
-      vitest, `vite build`, Alembic desde cero **con el árbol completo de
-      2a** y recorrido en navegador real — todo eso lo corre, una sola vez
-      en serie, el paso de verificación del orquestador (regla del pedido:
-      cinco agentes no pueden correr la suite completa en paralelo sobre el
-      mismo árbol). `backend-consumo` corrió sólo lo suyo: ver
-      `outputs-2a/backend-consumo.md § Verificación corrida`.
-   5. Compras, conteos, varianza y food cost real (**2b**) siguen sin
-      empezar — dependen del consumo teórico que 2a ya deja construido.
-11. Lo que no se pudo verificar en este entorno: Postgres real (tipos, índices,
+11. **Verificación final del pedido 2a** (2026-09-16, orquestador humano, árbol
+   quieto, en serie): `python -m mypy app` limpio (**106 archivos**); suite de
+   backend completa **770 passed, 0 failed** (SQLite, 36 min); `tsc` limpio;
+   vitest **280/280** (68 archivos); `vite build` OK; Alembic desde cero
+   `0001 → 0010` (**63 tablas**) y seed idempotente. La corrida previa a los
+   arreglos daba **9 failed, 761 passed**, exactamente los nueve que
+   `ENTREGA.md § 5` declaraba: el reporte del Maestro volvió a ser honesto.
+   **Los nueve cerrados**, y el más importante no era un bug de código:
+   - **Tres invariantes heredados barrían el OpenAPI entero** buscando la
+     subcadena `cost`. Se llamaban «device responses» y citaban «el operador no
+     ve costos» — y pedían con `admin_client`. Eran correctos mientras el
+     producto no tenía superficie de costo para el administrador; 2a existe para
+     construir esa superficie, así que la prohibían por existir. **Un guard
+     inesquivable no se discute, se esquiva**: dos constructores publicaron
+     `theoretical_value`, `gross_contribution` y `recipe_coverage_pct` donde la
+     spec pide `theoretical_cost`, `gross_margin` y `costed_pct`, y lo dejaron
+     declarado. Se acotaron los tres barridos a lo que la regla dice (rutas que
+     no son `/admin/`, y por reporte los campos que 2a agregó a propósito) y
+     **volvieron los nombres de la spec**.
+   - **La cobertura de recetas** se re-expandía con la ficha de hoy para juzgar
+     si una venta pasada descontó algo, y publicaba el nombre actual del plato:
+     rompía el snapshot (regla dura) y alimenta la varianza de 2b. Hoy se lee del
+     **libro** (`ref_type="order_item"`) y del nombre congelado.
+   - **Las cortesías a costo** sumaban pesos ya redondeados por ítem y perdían el
+     sub-peso, en `/admin/orders` y en la actividad por persona —que además no
+     traía el costo—: las dos suman en micros y convierten una sola vez.
+   - **Las alertas de inventario de «Hoy»** preguntaban si el módulo existía, no
+     si la función estaba encendida: una sede con `inventory.perpetual` apagada
+     veía alarmas que no podía resolver.
+   - **La cascada al sustituto** se resolvía sobre una unidad y se multiplicaba
+     después: con 400 g en stock y diez platos de 100 g mandaba los 1.000 g al
+     insumo principal en vez de repartir 400 y 600. Ahora se resuelve sobre el
+     total.
+   - **Corrección a la spec de negocio §5.3, no al código**: §5.3 pide fusionar
+     los consumos del mismo insumo en una comanda, pero eso choca con el espejo
+     exacto de la nota «vuelve» y con el `waste_stub` de un ítem anulado, que
+     apuntan a un `order_item` y se resuelven leyendo el libro. Entre integridad
+     y conteo de filas manda la integridad: **el libro guarda una fila por ítem**
+     y la fusión por comanda pasa a ser una **lectura**, que se construye en 2b.
+     Queda escrito en `features/fase-2-costo-inventario/spec.md`.
+12. **El repositorio ya tiene despliegue** (2026-09-16). `render.yaml` en la raíz:
+   **un solo servicio web** (`main.py` sirve `frontend/dist` con fallback SPA, y
+   partirlo rompería el mismo origen que protege la cookie `httpOnly`) más
+   Postgres administrado. **No hace falta Dockerfile**: los runtimes nativos de
+   Render traen `node` y `npm` también en el de Python, así que el servicio se
+   construye el frontend solo. **`main` ya tiene todo el código** (hasta 2a
+   estaba sólo en la rama de trabajo; `main` tenía únicamente las specs).
+   - **Defecto encontrado al preparar el despliegue, que ningún test podía ver**:
+     la app sólo se había corrido contra Postgres con `postgresql+psycopg://`
+     escrito a mano en `ci.yml`. Todo host administrado entrega la URL estándar
+     `postgresql://`, que SQLAlchemy mapea a **psycopg2** —un paquete que este
+     repo no instala—, así que la API no arranca y el error no menciona la base.
+     **`app.core.db.normalize_database_url`** le pone el driver que el repo sí
+     instala y respeta cualquier URL que ya lo declare (7 tests en
+     `tests/core/test_db_url.py`). Quién es el driver lo decide el repo, no la
+     consola del proveedor.
+   - Dos condiciones del plan gratuito que están anotadas en el propio
+     `render.yaml` y que hay que respetar: el servicio web **se duerme** a los 15
+     minutos y tarda ~1 minuto en despertar (en una demo, ese minuto en blanco
+     decide la venta), y la base **expira a los 30 días** y **no tiene
+     respaldos**. Para un cliente real: Postgres pago con point-in-time recovery,
+     porque son ventas y documentos fiscales con consecutivo ante la DIAN.
+   - `preDeployCommand` no existe en plan gratuito, así que las migraciones
+     corren en el arranque; queda anotado cómo moverlas al pasar a pago.
+13. **Lo que sigue: el pedido 2b** — compras con proveedores y cuentas por pagar,
+   lotes de compra y vencimientos, conteos de críticos y completos a ciegas,
+   varianza y food cost real, salud del control. La spec ya está escrita
+   (`features/fase-2-costo-inventario/spec.md`) y depende del consumo teórico que
+   2a deja construido. **Entradas para su contrato interno**, de
+   `outputs-2a/ENTREGA.md § 5`: la escala de cantidades se publica de dos formas
+   (`app/reports/schemas.py` en milésimas crudas, `app/inventory/schemas.py` como
+   texto decimal) y la primera pantalla que las pinte va a mostrar `117648 g` o a
+   dividir por 1.000 en el cliente; el KPI de mermas declara `float`, el único
+   número de la fase que no es entero, y hoy siempre es `null`; cinco listados
+   sirven CSV leyendo `request.query_params` sin declarar `format` en el
+   contrato; `GET /admin/fiscal/documents` filtra por estado pero no por tipo;
+   `FiscalDocument.customer_id` sigue `Integer` sin FK dura (hoy es una migración
+   de una línea); los insumos no están detrás de ninguna flag; y
+   `MovementCause.VOID_AFTER_SEND` está declarada y nunca se produce, así que un
+   reporte de merma por anulación agrupado por causa devuelve vacío.
+   **Y la lección de reparto de 2a** (`ENTREGA.md § 7`): la regla de nombrar
+   dueño para los archivos huérfanos funcionó —ninguno de los nombrados falló—,
+   y el único huérfano sin nombrar, `app/shifts/**`, es exactamente donde cayó
+   un hallazgo. La lección nueva: **un invariante también tiene territorio y
+   también envejece**. Cuando una fase agrega una superficie nueva por diseño,
+   hay que listar de entrada los invariantes heredados que la prohíben y
+   asignarle a alguien la decisión de acotarlos.
+14. Lo que no se pudo verificar en este entorno: Postgres real (tipos, índices,
    `SELECT FOR UPDATE` del consecutivo y los `409` literales de carrera, que
    sólo el CI puede probar), el CI en sí, y WCAG más allá de Testing Library
    (el ítem «POS en 375 px y 1024 px, foco visible, contraste AA» del checklist
