@@ -55,13 +55,13 @@ describe("SalesPage", () => {
         {
           key: "2026-09-15", label: "2026-09-15", gross: 100000, net: 92593, tax: 7407, tips: 9000, orders: 5,
           covers: 12, avg_ticket: 18519, avg_per_cover: 7716,
-          theoretical_value: 30000, gross_contribution: 62593, recipe_coverage_pct: 40,
+          theoretical_cost: 30000, gross_margin: 62593, costed_pct: 40,
         },
       ],
       total: {
         key: "total", label: "total", gross: 100000, net: 92593, tax: 7407, tips: 9000, orders: 5, covers: 12,
         avg_ticket: 18519, avg_per_cover: 7716,
-        theoretical_value: 30000, gross_contribution: 62593, recipe_coverage_pct: 40,
+        theoretical_cost: 30000, gross_margin: 62593, costed_pct: 40,
       },
     })
 
@@ -77,7 +77,7 @@ describe("SalesPage", () => {
   it("costo/margen/cobertura `null` se muestran «sin costo»/«—», nunca $0 ni 0%", async () => {
     const bucket = {
       key: "2026-09-15", label: "2026-09-15", gross: 0, net: 0, tax: 0, tips: 0, orders: 0, covers: null,
-      avg_ticket: null, avg_per_cover: null, theoretical_value: null, gross_contribution: null, recipe_coverage_pct: null,
+      avg_ticket: null, avg_per_cover: null, theoretical_cost: null, gross_margin: null, costed_pct: null,
     }
     getSalesMock.mockResolvedValue({
       store_id: 1, date_from: "2026-09-09", date_to: "2026-09-15", group_by: "business_date", rows: [bucket], total: bucket,

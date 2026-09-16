@@ -275,12 +275,22 @@ def test_a_courtesy_is_free_for_the_customer_but_never_free_for_the_inventory(
 def test_the_same_ingredient_in_one_order_becomes_one_movement(
     db: Any, store: Any, admin_client: Any, device_client: Any, open_shift: Any, sales_products: Any
 ) -> None:
-    """§5.3, literal: «consumos del mismo insumo en una comanda se **fusionan**».
+    """§5.3 pedía «consumos del mismo insumo en una comanda se **fusionan**».
+    **La spec se corrigió en el cierre de 2a** y este invariante la sigue.
 
-    No es cosmética: el libro de un servicio de 120 comandas con 8 líneas cada
-    una pasa de 960 filas a las que de verdad importan, y el movimiento por
-    insumo y comanda es la unidad con la que 2b va a explicar una varianza.
-    Dos platos distintos que comparten el aceite tienen que dejar **un** renglón.
+    Fusionar las filas del libro choca de frente con «la nota "vuelve" revierte
+    como espejo exacto» (§3.5) y con el `waste_stub` de un ítem anulado: las dos
+    apuntan a un `order_item` concreto y se resuelven **leyendo el libro**. Con
+    una fila fusionada no hay forma de saber cuánto de ella le tocaba a cada
+    ítem sin una segunda fuente de verdad que duplique el libro — y un libro con
+    dos fuentes de verdad deja de ser un libro. Entre una garantía de
+    integridad y una de conteo de filas, manda la de integridad.
+
+    Así que el libro guarda **una fila por ítem**, exacta y atribuible, y la
+    fusión por comanda es una operación de LECTURA (donde 2b la necesita, para
+    explicar una varianza). Lo que este test exige es que el libro lo soporte:
+    cantidad total exacta, cada fila atribuida a su ítem, y un agregado por
+    comanda que da un solo renglón por insumo.
     """
     aceite = make_ingredient(admin_client, store, name="Aceite", official_cost="6", min_stock="1000")
     uno = sales_products["inc8"]
@@ -301,11 +311,24 @@ def test_the_same_ingredient_in_one_order_becomes_one_movement(
     assert send(device_client, order).status_code == 200
 
     movimientos = movements_of(db, store, ingredient_id=aceite["id"])
+    # 1. La cantidad total es exacta: 30 g + 20 g, sin perder ni inventar nada.
     assert stock_of(db, store, ingredient_id=aceite["id"]) == -50_000
-    assert len(movimientos) == 1, (
-        f"el mismo insumo dejó {len(movimientos)} movimientos en una sola comanda: "
-        "§5.3 pide que se fusionen en uno"
+
+    # 2. Cada fila es atribuible a SU ítem: es lo que hace posible el espejo
+    #    exacto de la nota «vuelve» y la resolución del stub de merma.
+    item_ids = {i["id"] for i in order["items"]}
+    referencias = {(m.ref_type, m.ref_id) for m in movimientos}
+    assert referencias == {("order_item", i) for i in item_ids}, (
+        f"las filas del libro no quedaron atribuidas una a una a sus ítems: {sorted(referencias)}"
     )
+
+    # 3. El libro soporta la fusión por comanda como lectura: agregado por
+    #    (comanda, insumo) da UN renglón, que es la unidad con la que 2b va a
+    #    explicar una varianza.
+    por_comanda: dict[int, int] = {}
+    for m in movimientos:
+        por_comanda[order["id"]] = por_comanda.get(order["id"], 0) + m.qty_base
+    assert len(por_comanda) == 1 and por_comanda[order["id"]] == -50_000
 
 
 # ---------------------------------------------------------------------------
@@ -1146,7 +1169,7 @@ def test_the_coverage_report_answers_about_the_past_not_about_todays_recipe(
     ítem (`recipe_version`) y en el libro. Si en cambio se vuelve a expandir la
     ficha de HOY, cargar la receta que faltaba borra retroactivamente la
     evidencia de que durante una semana no se descontó nada — y el
-    `recipe_coverage_pct` de un período cerrado cambia cada vez que alguien
+    `costed_pct` de un período cerrado cambia cada vez que alguien
     edita una ficha, así que ningún número de cobertura es reproducible.
     """
     product = sales_products["excluded"]

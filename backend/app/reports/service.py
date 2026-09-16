@@ -30,10 +30,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 import importlib
+from types import ModuleType
 
 from app.audit.models import AuditLog
 from app.catalog.models import Product
-from app.core import clock, tz
+from app.core import clock, features, tz
 from app.core.errors import AppError
 from app.core.modules import find_spec_safe
 from app.core.quantity import micros_to_pesos
@@ -134,7 +135,7 @@ class _Bucket:
     order_ids: set[int] = field(default_factory=set)
     # Pedido 2a: costo teórico (desde `OrderItem.unit_cost`/`unit_cost_micros`
     # CONGELADOS — nunca se revalora con la ficha actual), y las dos sumas de
-    # `net` que arman `recipe_coverage_pct`. `has_theoretical_cost` distingue
+    # `net` que arman `costed_pct`. `has_theoretical_cost` distingue
     # "no hubo ningún ítem con costo" (`None` en la salida, nunca `0` mudo)
     # de "hubo costo y dio cero" (que sólo pasaría con un `unit_cost=0` real).
     #
@@ -144,7 +145,7 @@ class _Bucket:
     # cuando muchos ítems tienen un costo menor a $1 (un plato de $0,30
     # congela `unit_cost=0`; 100 de esos daban $0 en vez de $30). Se
     # convierte a pesos con `micros_to_pesos` UNA sola vez, al cerrar el
-    # total del bucket (`_to_out`) — `theoretical_value` en la respuesta
+    # total del bucket (`_to_out`) — `theoretical_cost` en la respuesta
     # sigue siendo `int` de pesos, sin cambiar su tipo publicado.
     theoretical_cost_micros: int = 0
     has_theoretical_cost: bool = False
@@ -364,9 +365,9 @@ def aggregate_sales(
         avg_per_cover = money.round_half_up(net, covers_sum) if covers_sum > 0 and net >= 0 else None
         # Conversión a pesos ÚNICA, acá, después de sumar micros a través de
         # TODOS los documentos del bucket (ronda 2, B-2) — nunca antes.
-        theoretical_value = micros_to_pesos(bucket.theoretical_cost_micros) if bucket.has_theoretical_cost else None
-        gross_contribution = (net - theoretical_value) if theoretical_value is not None else None
-        recipe_coverage_pct = (
+        theoretical_cost = micros_to_pesos(bucket.theoretical_cost_micros) if bucket.has_theoretical_cost else None
+        gross_margin = (net - theoretical_cost) if theoretical_cost is not None else None
+        costed_pct = (
             money.round_half_up(bucket.costed_net * 100, net) if net > 0 and bucket.costed_net > 0 else (0 if net > 0 else None)
         )
         return SalesBucketOut(
@@ -380,9 +381,9 @@ def aggregate_sales(
             covers=covers_sum if orders_count > 0 else None,
             avg_ticket=avg_ticket,
             avg_per_cover=avg_per_cover,
-            theoretical_value=theoretical_value,
-            gross_contribution=gross_contribution,
-            recipe_coverage_pct=recipe_coverage_pct,
+            theoretical_cost=theoretical_cost,
+            gross_margin=gross_margin,
+            costed_pct=costed_pct,
         )
 
     order_key: list[str]
@@ -614,31 +615,48 @@ def _recent_alerts(db: Session, store: Store, *, limit: int = 30) -> list[AlertO
 # ---------------------------------------------------------------------------
 
 
+def _hooks_if_enabled(db: Session, store: Store, *, module: str, feature: str) -> ModuleType | None:
+    """El módulo tiene que existir **y** la función tiene que estar encendida.
+
+    `find_spec_safe` sólo contesta «¿está montado este dominio?», que es una
+    propiedad del despliegue, no de la sede. Preguntando sólo eso, un
+    restaurante con `inventory.perpetual` apagada veía igual las alarmas de
+    insumos bajo mínimo y de stock negativo en «Hoy»: seis alertas que no
+    puede resolver, sobre un inventario que decidió no llevar. Toda función
+    opcional se respeta también al LEER, no sólo al escribir (`AGENTS.md`).
+    """
+    if find_spec_safe(module) is None:
+        return None
+    if not features.is_enabled(db, store.organization_id, store.id, feature):
+        return None
+    return importlib.import_module(module)
+
+
 def _low_stock_alerts(db: Session, store: Store) -> list[IngredientAlertOut]:
-    if find_spec_safe("app.inventory.hooks") is None:
+    hooks = _hooks_if_enabled(db, store, module="app.inventory.hooks", feature="inventory.perpetual")
+    if hooks is None:
         return []
-    hooks = importlib.import_module("app.inventory.hooks")
     return [IngredientAlertOut(**row) for row in hooks.low_stock_alerts(db, store_id=store.id)]
 
 
 def _negative_stock_alerts(db: Session, store: Store) -> list[NegativeStockAlertOut]:
-    if find_spec_safe("app.inventory.hooks") is None:
+    hooks = _hooks_if_enabled(db, store, module="app.inventory.hooks", feature="inventory.perpetual")
+    if hooks is None:
         return []
-    hooks = importlib.import_module("app.inventory.hooks")
     return [NegativeStockAlertOut(**row) for row in hooks.negative_stock_alerts(db, store_id=store.id)]
 
 
 def _prep_alerts(db: Session, store: Store) -> list[PrepAlertOut]:
-    if find_spec_safe("app.recipes.hooks") is None:
+    hooks = _hooks_if_enabled(db, store, module="app.recipes.hooks", feature="catalog.preps")
+    if hooks is None:
         return []
-    hooks = importlib.import_module("app.recipes.hooks")
     return [PrepAlertOut(**row) for row in hooks.prep_stock_alerts(db, store_id=store.id)]
 
 
 def _uncosted_products(db: Session, store: Store, *, business_date: date) -> list[UncostedProductOut]:
-    if find_spec_safe("app.recipes.hooks") is None:
+    hooks = _hooks_if_enabled(db, store, module="app.recipes.hooks", feature="catalog.recipes")
+    if hooks is None:
         return []
-    hooks = importlib.import_module("app.recipes.hooks")
     rows = hooks.uncosted_products(db, store_id=store.id, date_from=business_date, date_to=business_date)
     return [UncostedProductOut(**row) for row in rows]
 

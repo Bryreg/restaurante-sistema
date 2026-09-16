@@ -112,7 +112,8 @@ Same conventions as 1a/1b. All routes under `/api/v1`.
 - `GET /admin/recipes/coverage` → products sold with no recipe and no direct ingredient (they discount nothing); `GET /admin/recipes/suspicious-units` → the 18 "kg" that were 18 g.
 
 ### Consumption, waste and adjustments
-- Sending an item (`POST /orders/{id}/send`, already built in 1b) now also registers the theoretical consumption: recipe lines × qty, with modifiers' `recipe_effect` and `yield_pct` applied (`qty ÷ yield`), freezing `recipe_version` and `unit_cost` on the item. Consumptions of the same ingredient within one order are merged. A `note` with "vuelve" reverses it as an **exact mirror**.
+- Sending an item (`POST /orders/{id}/send`, already built in 1b) now also registers the theoretical consumption: recipe lines × qty, with modifiers' `recipe_effect` and `yield_pct` applied (`qty ÷ yield`), freezing `recipe_version` and `unit_cost` on the item. A `note` with "vuelve" reverses it as an **exact mirror**.
+- **Corrección a la spec de negocio §5.3, decidida al cerrar 2a.** §5.3 pide que «los consumos del mismo insumo en una comanda se fusionen» en un movimiento. Eso choca con dos garantías más fuertes: el espejo exacto de la nota «vuelve» y la resolución del `waste_stub` de un ítem anulado, que apuntan a un `order_item` concreto y **se resuelven leyendo el libro**. Con la fila fusionada no hay forma de saber cuánto le tocaba a cada ítem sin una segunda fuente de verdad que duplique el libro — y un libro con dos fuentes de verdad deja de ser un libro. **El libro guarda una fila por ítem**, exacta y atribuible; **la fusión por comanda es una operación de lectura**, y se construye en 2b, que es donde hace falta para explicar una varianza. El motivo original de §5.3 (no tener 960 filas redundantes por servicio) lo resuelve igual la lectura agregada.
 - `POST /waste` (Idempotency-Key, device) `{ingredient_id|preparation_id, qty, type: "expired"|"overproduction"|"kitchen_error"|"breakage"|"customer_return"|"tasting"|"courtesy_no_dish"|"unidentified", note?, employee_pin, photo?}`. **There is no `staff_meal` waste type**: that is an order channel.
 - `POST /admin/inventory/adjustments` `{ingredient_id, qty_delta, reason, authorizer_pin}` → `cause = manual_adjustment`.
 - `GET /admin/waste?from&to&type&employee_id` and the weekly KPI (waste ÷ purchases is `null` until 2b brings purchases — say "sin datos", never `0`).
@@ -145,8 +146,11 @@ Además de la sección 16 de la spec de negocio:
       que 1b dejó abierto).
 - [ ] Una nota con «vuelve» revierte el consumo como **espejo exacto**: el saldo
       vuelve al valor previo al peso (test de propiedad).
-- [ ] Consumos del mismo insumo en una comanda se **fusionan** en un movimiento
-      (test).
+- [ ] Consumos del mismo insumo en una comanda: **una fila por ítem**, exacta y
+      atribuida a su `order_item`, y un agregado por comanda que da un solo
+      renglón por insumo (test). Ver la corrección a §5.3 más arriba: la fusión
+      es lectura, no escritura, porque el libro tiene que poder desarmar qué
+      consumió cada ítem para revertir una nota y resolver una merma.
 - [ ] Vender con stock en cero o negativo **no bloquea**: la venta pasa y queda la
       alerta; `negativo` y `agotado` disparan alertas **distintas** (test).
 - [ ] Cambiar de modo una preparación con lotes abiertos los cierra con

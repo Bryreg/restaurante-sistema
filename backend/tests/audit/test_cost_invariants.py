@@ -728,10 +728,10 @@ def test_the_sales_report_gains_theoretical_cost_gross_margin_and_costed_share(
     anécdota. Este test exige que los tres conceptos viajen y que ninguno
     mienta con un `0` cuando lo que corresponde es `null`.
 
-    El test acepta el nombre de la spec **o** el que publicó el backend
-    (`theoretical_value` / `gross_contribution` / `recipe_coverage_pct`): la
-    divergencia de nombres está reportada aparte, pero un invariante no puede
-    quedar sin cubrir por un desacuerdo de nombre.
+    Este test aceptaba el nombre de la spec **o** el de rodeo que el backend
+    publicó para esquivar un barrido mal acotado. El barrido se corrigió y los
+    nombres de la spec volvieron, así que acá se exigen tal cual: un invariante
+    que tolera dos nombres deja de detectar que el contrato se corrió.
     """
     open_shift()
     order = _sale_with_recipe(admin_client, device_client, store, sales_products["inc8"])
@@ -747,15 +747,11 @@ def test_the_sales_report_gains_theoretical_cost_gross_margin_and_costed_share(
     cuerpo = resp.json()
     bloque = cuerpo.get("total") or cuerpo
 
-    def _uno_de(*nombres: str) -> Any:
-        for nombre in nombres:
-            if nombre in bloque:
-                return bloque[nombre]
-        raise AssertionError(f"ninguno de {nombres} está en la respuesta: {sorted(bloque)}")
-
-    costo = _uno_de("theoretical_cost", "theoretical_value")
-    margen = _uno_de("gross_margin", "gross_contribution")
-    costeado = _uno_de("costed_pct", "recipe_coverage_pct")
+    for clave in ("theoretical_cost", "gross_margin", "costed_pct"):
+        assert clave in bloque, f"falta `{clave}` (nombre de la spec) en la respuesta: {sorted(bloque)}"
+    costo = bloque["theoretical_cost"]
+    margen = bloque["gross_margin"]
+    costeado = bloque["costed_pct"]
 
     assert costo == 1000, f"costo teórico del período: {costo}"
     assert margen == bloque["net"] - costo, "el margen bruto no es ventas netas − costo teórico"
@@ -788,9 +784,8 @@ def test_a_period_without_any_recipe_reports_null_not_zero(
     )
     assert resp.status_code == 200, resp.text
     bloque = resp.json().get("total") or resp.json()
-    for clave in ("theoretical_cost", "theoretical_value", "gross_margin", "gross_contribution"):
-        if clave in bloque:
-            assert bloque[clave] is None, f"{clave} devolvió {bloque[clave]!r} sin ninguna venta costeada"
+    for clave in ("theoretical_cost", "gross_margin"):
+        assert bloque[clave] is None, f"{clave} devolvió {bloque[clave]!r} sin ninguna venta costeada"
 
 
 def test_the_employee_activity_report_gains_courtesies_at_cost(

@@ -2002,15 +2002,17 @@ def admin_list_orders(
         # `None` (nunca `0` mudo) cuando ninguno tenía costo todavía
         # (`catalog.recipes` apagada, o sin ficha) — se distingue de
         # `courtesy_list_value`, que es lo que el cliente NO pagó (precio),
-        # no lo que le costó al restaurante (insumo). Nombre sin la
-        # subcadena "cost": ver la decisión declarada al inicio de
-        # `app.reports.schemas` — el mismo invariante de OpenAPI de
-        # `tests/audit` alcanza a `/admin/orders`.
-        courtesy_costed_values: list[int] = []
+        # no lo que le costó al restaurante (insumo).
+        # Se suma en MICROS y se convierte a pesos una sola vez al final:
+        # `unit_cost` ya viene redondeado por ítem, así que sumarlo pierde el
+        # sub-peso — veinte cortesías de un insumo de $0,30 daban $0 en vez de
+        # $6. Es el mismo modo de falla que el «cero mudo» que el auditor
+        # encontró en la pantalla de insumos, sobreviviendo en el reporte.
+        courtesy_micros: list[int] = []
         for i in items:
-            if i.courtesy_reason is not None and i.unit_cost is not None:
-                courtesy_costed_values.append(i.unit_cost * i.qty)
-        courtesies_theoretical_value = sum(courtesy_costed_values) if courtesy_costed_values else None
+            if i.courtesy_reason is not None and i.unit_cost_micros is not None:
+                courtesy_micros.append(i.unit_cost_micros * i.qty)
+        courtesies_cost = micros_to_pesos(sum(courtesy_micros)) if courtesy_micros else None
         sent_at_payment_items = sum(1 for i in items if i.sent_at_payment)
         live_items_count = sum(1 for i in items if i.status != OrderItemStatus.VOIDED)
         total_live_items += live_items_count
@@ -2043,7 +2045,7 @@ def admin_list_orders(
             "closed_at": order.closed_at, "table_minutes": table_minutes, "bill_to_paid_minutes": bill_to_paid_minutes,
             "items_count": live_items_count, "total": totals.total, "voided_items": voided_items, "voids_after_bill": voids_after_bill,
             "void_details": void_details, "courtesies": courtesies, "courtesy_list_value": courtesy_list_value,
-            "courtesies_theoretical_value": courtesies_theoretical_value,
+            "courtesies_cost": courtesies_cost,
             "discount_total": totals.discount_total, "sent_at_payment_items": sent_at_payment_items,
             "sent_at_payment_ratio": (sent_at_payment_items / live_items_count) if live_items_count else None,
             "is_staff_meal": order.channel == OrderChannel.STAFF_MEAL,

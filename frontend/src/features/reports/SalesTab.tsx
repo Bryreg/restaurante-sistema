@@ -107,23 +107,23 @@ function SalesReport({ report, groupBy }: { report: { rows: SalesBucketOut[]; to
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatTile
           label="Cobertura de receta"
-          value={formatPercentInt(total.recipe_coverage_pct)}
+          value={formatPercentInt(total.costed_pct)}
           hint={
-            recipeCoverageTone(total.recipe_coverage_pct) === "default"
+            recipeCoverageTone(total.costed_pct) === "default"
               ? "Porción de la venta neta con ficha técnica de verdad."
               : "Bajo esto, el costo y el margen de al lado no representan toda la venta — la mayoría se vendió sin receta."
           }
-          tone={recipeCoverageTone(total.recipe_coverage_pct)}
+          tone={recipeCoverageTone(total.costed_pct)}
         />
         <StatTile
           label="Costo teórico"
-          value={formatCOP(total.theoretical_value)}
-          hint={total.theoretical_value === null || total.theoretical_value === undefined ? "Sin ventas costeadas en el período" : undefined}
+          value={formatCOP(total.theoretical_cost)}
+          hint={total.theoretical_cost === null || total.theoretical_cost === undefined ? "Sin ventas costeadas en el período" : undefined}
         />
         <StatTile
           label="Margen bruto teórico"
-          value={formatCOP(total.gross_contribution)}
-          hint={total.gross_contribution === null || total.gross_contribution === undefined ? "Sin ventas costeadas en el período" : "Ventas netas − costo teórico"}
+          value={formatCOP(total.gross_margin)}
+          hint={total.gross_margin === null || total.gross_margin === undefined ? "Sin ventas costeadas en el período" : "Ventas netas − costo teórico"}
         />
       </div>
 
@@ -172,9 +172,9 @@ function SalesReport({ report, groupBy }: { report: { rows: SalesBucketOut[]; to
                     <TableCell className="tabular-nums">{row.orders ?? "—"}</TableCell>
                     <TableCell className="tabular-nums">{row.covers ?? "—"}</TableCell>
                     <TableCell className="tabular-nums">{formatCOP(row.avg_ticket)}</TableCell>
-                    <TableCell className="tabular-nums">{formatCOP(row.theoretical_value)}</TableCell>
-                    <TableCell className="tabular-nums">{formatCOP(row.gross_contribution)}</TableCell>
-                    <TableCell className="tabular-nums">{formatPercentInt(row.recipe_coverage_pct)}</TableCell>
+                    <TableCell className="tabular-nums">{formatCOP(row.theoretical_cost)}</TableCell>
+                    <TableCell className="tabular-nums">{formatCOP(row.gross_margin)}</TableCell>
+                    <TableCell className="tabular-nums">{formatPercentInt(row.costed_pct)}</TableCell>
                   </TableRow>
                 ))}
                 <TableRow className="font-medium">
@@ -186,9 +186,9 @@ function SalesReport({ report, groupBy }: { report: { rows: SalesBucketOut[]; to
                   <TableCell className="tabular-nums">{total.orders ?? "—"}</TableCell>
                   <TableCell className="tabular-nums">{total.covers ?? "—"}</TableCell>
                   <TableCell className="tabular-nums">{formatCOP(total.avg_ticket)}</TableCell>
-                  <TableCell className="tabular-nums">{formatCOP(total.theoretical_value)}</TableCell>
-                  <TableCell className="tabular-nums">{formatCOP(total.gross_contribution)}</TableCell>
-                  <TableCell className="tabular-nums">{formatPercentInt(total.recipe_coverage_pct)}</TableCell>
+                  <TableCell className="tabular-nums">{formatCOP(total.theoretical_cost)}</TableCell>
+                  <TableCell className="tabular-nums">{formatCOP(total.gross_margin)}</TableCell>
+                  <TableCell className="tabular-nums">{formatPercentInt(total.costed_pct)}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>

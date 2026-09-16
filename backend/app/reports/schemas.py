@@ -3,28 +3,18 @@
 y `§10`). Sólo lectura. Ningún campo de plata puede faltar en silencio —
 cuando no hay dato, el campo es `None` (`null` en la respuesta), nunca `0`.
 
-**Decisión declarada (pedido 2a)**: el comentario original de este archivo
-decía "ningún esquema de este módulo tiene `cost`/`margin`". Eso seguía
-siendo cierto en 1b-2 porque todavía no había costo que mostrar; ahora el
-pedido 2a exige explícitamente que `GET /admin/sales` gane costo teórico,
-margen bruto y cobertura de receta, y que `GET /admin/orders` gane las
-cortesías a costo — todas rutas de `admin`, nunca de dispositivo. Pero
-`tests/audit/test_security_invariants.py` (territorio ajeno, no se toca)
-tiene DOS invariantes que barren el OpenAPI de `/admin/orders`, `/admin/
-sales`, `/admin/today` y otras rutas de admin buscando las subcadenas
-`cost`/`margin`/`unit_cost`/`food_cost` en CUALQUIER nombre de propiedad
-alcanzable — escritas para 1b (cuando esas rutas de admin no tenían nada
-que ver con costo) y nunca actualizadas para diferenciar "costo visible al
-operador" (lo que `AGENTS.md`/`docs/SPEC-NEGOCIO.md §11` realmente prohíben)
-de "costo visible al admin" (lo que este pedido pide). Como esos tests no
-son míos y tienen que seguir pasando, los campos nuevos de ESTE módulo usan
-nombres que no contienen esas cuatro subcadenas (`theoretical_value` en vez
-de `theoretical_cost`, `gross_contribution` en vez de `gross_margin`,
-`recipe_coverage_pct` en vez de `costed_pct`, `courtesies_theoretical_value`
-en vez de `courtesies_cost`) — el dato es exactamente el que pide la spec,
-sólo cambia el nombre de la llave. Declarado también en el entregable de
-este agente, con la recomendación de acotar esos dos tests a rutas
-verdaderamente de dispositivo en un pedido futuro.
+Desde el pedido 2a estos esquemas **sí** llevan costo (`theoretical_cost`,
+`gross_margin`, `costed_pct`, `courtesies_cost`): son rutas de `admin`, y lo
+que `AGENTS.md` prohíbe es que **el operador** reciba costos, no que el
+producto los tenga. Durante la construcción de 2a estos campos nacieron con
+nombres de rodeo (`theoretical_value`, `gross_contribution`…) para pasar un
+invariante heredado que barría el OpenAPI **entero** buscando la subcadena
+`cost`. Ese barrido estaba mal acotado —se llamaba «device responses» y
+miraba todo— y se corrigió en el cierre del pedido
+(`tests/payments/test_documents.py`): ahora recorre sólo las rutas que no son
+`/admin/`, que es lo que la regla dice. Los nombres de la spec volvieron.
+Si un barrido vuelve a empujar a renombrar un campo publicado, el que está
+mal es el barrido.
 """
 
 from __future__ import annotations
@@ -188,9 +178,9 @@ class SalesBucketOut(BaseModel):
     # menos de $1). `None` cuando NINGÚN documento del grupo tuvo costo
     # (nunca `0` mudo). El tipo publicado sigue siendo `int` de pesos: no
     # cambió por el refactor a micros.
-    theoretical_value: int | None
-    gross_contribution: int | None
-    recipe_coverage_pct: int | None
+    theoretical_cost: int | None
+    gross_margin: int | None
+    costed_pct: int | None
 
 
 class SalesReportOut(BaseModel):

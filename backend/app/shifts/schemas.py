@@ -436,6 +436,12 @@ class EmployeeActivityDiscounts(BaseModel):
 class EmployeeActivityCourtesies(BaseModel):
     n: int
     amount: int
+    # Pedido 2a: `amount` es a PRECIO DE VENTA (lo que el cliente no pagó) y
+    # `theoretical_cost` es lo que le costó al restaurante. Una cortesía
+    # valorada a precio exagera lo regalado; la cifra con la que se puede mirar
+    # a alguien a la cara es el costo. `None` —nunca `0` mudo— cuando ningún
+    # ítem tenía costo congelado (`catalog.recipes` apagada, o plato sin ficha).
+    theoretical_cost: int | None = None
 
 
 class EmployeeActivityTips(BaseModel):

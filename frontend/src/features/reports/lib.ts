@@ -44,7 +44,7 @@ export function formatPercent(ratio: number | null | undefined): string {
   return `${Math.round(ratio * 100)}%`
 }
 
-/** `recipe_coverage_pct` (pedido 2a) YA llega como entero 0–100 desde el
+/** `costed_pct` (pedido 2a) YA llega como entero 0–100 desde el
  * servidor (`backend/app/reports/service.py _to_out`, `round_half_up`) — a
  * diferencia de `formatPercent`, esto NUNCA multiplica por 100: sólo agrega
  * el signo. `null` es "sin ventas netas en el período", nunca "0 %". */

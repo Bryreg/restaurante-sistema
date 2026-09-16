@@ -137,9 +137,48 @@ def test_document_404_across_stores(
 
 
 def test_openapi_device_responses_never_expose_cost_fields() -> None:
+    """Ningún esquema alcanzable desde una ruta **de dispositivo** declara
+    `cost`, `margin` ni `unit_cost`.
+
+    Este test se llamaba «device responses» pero serializaba el OpenAPI
+    ENTERO y buscaba el texto, así que prohibía el costo en todo el producto.
+    Eso era correcto mientras el sistema no tenía superficie de costo para el
+    administrador; la fase 2a existe para construir exactamente esa superficie
+    (`IngredientOut.cost`, `PreparationAdminOut.unit_cost`,
+    `PrepBatchAdminOut.unit_cost`, todos bajo `/admin/`), y un barrido global
+    la prohibía por existir. Peor: al ser inesquivable, empujó a renombrar
+    campos del contrato publicado con tal de pasarlo.
+
+    La regla real (`AGENTS.md`) es «el operador no recibe costos ni márgenes»,
+    no «el producto no tiene costos». Acá se acota a lo que la regla dice: las
+    rutas que NO son `/admin/`. El recorrido sigue los `$ref` para que un campo
+    opcional anidado no se escape.
+    """
     from app.main import app
 
     schema = app.openapi()
-    raw = json.dumps(schema)
-    for forbidden in ("\"cost\"", "\"margin\"", "\"unit_cost\""):
-        assert forbidden not in raw
+    components: dict[str, Any] = schema.get("components", {}).get("schemas", {})
+    forbidden = ("cost", "margin", "unit_cost", "food_cost")
+
+    def _walk(node: Any, visited: set[str], where: str) -> None:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if ref:
+                name = ref.split("/")[-1]
+                if name not in visited:
+                    visited.add(name)
+                    _walk(components[name], visited, f"{where} -> {name}")
+                return
+            for key, value in node.items():
+                if key == "properties" and isinstance(value, dict):
+                    leaked = {p for p in value if p.lower() in forbidden}
+                    assert not leaked, f"{where} declara {sorted(leaked)} en una ruta de dispositivo"
+                _walk(value, visited, where)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item, visited, where)
+
+    device_paths = [p for p in schema["paths"] if "/admin/" not in p]
+    assert device_paths, "el OpenAPI no tiene ninguna ruta de dispositivo: el barrido no probaría nada"
+    for path in device_paths:
+        _walk(schema["paths"][path], set(), path)

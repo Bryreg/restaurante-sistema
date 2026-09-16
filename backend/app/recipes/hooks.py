@@ -85,15 +85,17 @@ def _accumulate(
                 # línea no aporta nada al plan.
                 continue
             qty_final = apply_yield(qty_scaled, ingredient.yield_pct)
-            # Único camino de consumo con cascada de sustituto
-            # (`app.inventory.hooks.resolve_consumption_target`): venta,
-            # cortesía, staff_meal y producción pasan TODOS por acá, nunca
-            # cada uno resolviendo el sustituto a su manera.
-            for resolved_ingredient, resolved_qty in inventory_hooks.resolve_consumption_target(
-                db, ingredient, qty_final
-            ):
-                key: _AccKey = ("ingredient", resolved_ingredient.id)
-                acc[key] = acc.get(key, 0) + resolved_qty
+            # Se acumula el insumo DE LA FICHA, sin resolver todavía el
+            # sustituto: `acc` es el consumo de UNA unidad y sirve para costear
+            # (`_cost_of_acc`), y el costo teórico de un plato es el de su
+            # ficha, no el del insumo que hoy haya en la heladera. La cascada
+            # se aplica una sola vez, sobre la cantidad TOTAL, al armar las
+            # líneas — resolverla por unidad y multiplicar después repartía
+            # mal: con 400 g de stock y 10 platos de 100 g, la resolución
+            # unitaria veía 100 ≤ 400 y mandaba los 1.000 g al insumo
+            # principal, en vez de 400 al principal y 600 al sustituto.
+            key: _AccKey = ("ingredient", ingredient.id)
+            acc[key] = acc.get(key, 0) + qty_final
             continue
 
         component_id = getattr(line, "component_preparation_id", None)
@@ -261,20 +263,24 @@ def expand_consumption(
         qty_total = qty_unit * qty
         if kind == "ingredient":
             ingredient = inventory_hooks.get_ingredient(db, store_id=store_id, ingredient_id=component_id)
-            cost_micros, source = (
-                inventory_hooks.resolve_ingredient_cost(db, ingredient)
-                if ingredient is not None
-                else (None, CostSource.NONE)
-            )
-            lines_out.append(
-                ConsumptionLine(
-                    ingredient_id=component_id,
-                    preparation_id=None,
-                    qty_base=qty_total,
-                    cost_micros=cost_micros,
-                    cost_source=source,
+            if ingredient is None:
+                continue
+            # Único camino de consumo con cascada de sustituto: venta,
+            # cortesía, `staff_meal` y producción pasan TODOS por acá. Se
+            # llama con la cantidad TOTAL para que el reparto entre el insumo
+            # y su cadena respete el stock real de cada uno; la suma de lo que
+            # devuelve es siempre exactamente `qty_total`.
+            for resolved, resolved_qty in inventory_hooks.resolve_consumption_target(db, ingredient, qty_total):
+                cost_micros, source = inventory_hooks.resolve_ingredient_cost(db, resolved)
+                lines_out.append(
+                    ConsumptionLine(
+                        ingredient_id=resolved.id,
+                        preparation_id=None,
+                        qty_base=resolved_qty,
+                        cost_micros=cost_micros,
+                        cost_source=source,
+                    )
                 )
-            )
         else:
             component = db.get(Preparation, component_id)
             cost_micros, source = (
@@ -327,13 +333,38 @@ def prep_stock_alerts(db: Session, *, store_id: int) -> list[dict[str, Any]]:
 
 
 def uncosted_products(db: Session, *, store_id: int, date_from: date, date_to: date) -> list[dict[str, Any]]:
-    """Platos vendidos en `[date_from, date_to]` que no descuentan nada (sin
-    ficha ni insumo directo): lo consume `GET /admin/today` y el reporte de
-    cobertura, ambos ajenos a este dominio salvo por esta función."""
+    """Platos vendidos en `[date_from, date_to]` que **no descontaron nada**:
+    lo consume `GET /admin/today` y el reporte de cobertura.
+
+    Se lee del **snapshot**, no de la carta de hoy. La versión anterior
+    re-expandía la ficha vigente (`expand_consumption`) para decidir si una
+    venta PASADA había descontado algo: cargar una ficha hoy reescribía hacia
+    atrás la cobertura de un período ya cerrado, y borrarla la inventaba. Eso
+    rompe la regla dura del snapshot (`docs/SPEC-NEGOCIO.md §11`, «los reportes
+    nunca revaloran ventas pasadas con la carta actual») y, como la cobertura
+    alimenta la varianza de 2b, una varianza calculada sobre una cobertura que
+    se reescribe sola no se puede defender.
+
+    La evidencia de que un ítem descontó algo es que dejó movimientos en el
+    libro (`ref_type="order_item"`, `ref_id=item.id`). El nombre también sale
+    congelado (`OrderItem.name`), no de `Product.name`: si el plato se renombró
+    después, el reporte tiene que decir cómo se llamaba cuando se vendió.
+    """
+    from app.inventory.models import StockMovement
     from app.orders.models import Order, OrderItem
 
+    descontó = (
+        select(StockMovement.id)
+        .where(StockMovement.ref_type == "order_item", StockMovement.ref_id == OrderItem.id)
+        .exists()
+    )
     stmt = (
-        select(OrderItem.product_id, func.count(OrderItem.id), func.coalesce(func.sum(OrderItem.qty), 0))
+        select(
+            OrderItem.product_id,
+            func.count(OrderItem.id),
+            func.coalesce(func.sum(OrderItem.qty), 0),
+            func.max(OrderItem.id),
+        )
         .join(Order, Order.id == OrderItem.order_id)
         .where(
             Order.store_id == store_id,
@@ -341,26 +372,26 @@ def uncosted_products(db: Session, *, store_id: int, date_from: date, date_to: d
             Order.business_date <= date_to,
             OrderItem.product_id.is_not(None),
             OrderItem.voided_at.is_(None),
+            ~descontó,
         )
         .group_by(OrderItem.product_id)
     )
+    rows = [r for r in db.execute(stmt).all() if r[0] is not None]
+    if not rows:
+        return []
 
-    from app.catalog.models import Product
-
-    result: list[dict[str, Any]] = []
-    for product_id, item_count, qty_sold in db.execute(stmt).all():
-        if product_id is None:
-            continue
-        plan = expand_consumption(db, store_id=store_id, product_id=product_id, qty=1, modifier_option_ids=[])
-        if plan.lines:
-            continue
-        product = db.get(Product, product_id)
-        result.append(
-            {
-                "product_id": product_id,
-                "product_name": product.name if product is not None else None,
-                "items_sold": item_count,
-                "qty_sold": qty_sold,
-            }
-        )
-    return result
+    nombres: dict[int, str] = {
+        item_id: name
+        for item_id, name in db.execute(
+            select(OrderItem.id, OrderItem.name).where(OrderItem.id.in_([r[3] for r in rows]))
+        ).all()
+    }
+    return [
+        {
+            "product_id": product_id,
+            "product_name": nombres.get(last_item_id),
+            "items_sold": item_count,
+            "qty_sold": qty_sold,
+        }
+        for product_id, item_count, qty_sold, last_item_id in rows
+    ]

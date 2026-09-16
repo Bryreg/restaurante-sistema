@@ -413,10 +413,20 @@ def test_no_report_ever_exposes_a_cost_or_a_margin(
     """`AGENTS.md` y §11.10: «El operador no ve costos ni márgenes; el backend
     no se los manda».
 
-    En 1b-2 el costo todavía no existe (llega en fase 2), así que este
-    invariante se escribe **antes** de que haya algo que filtrar: el día que
-    `unit_cost` se llene de verdad, este test dice enseguida si alguno de los
-    reportes nuevos lo arrastró hasta una respuesta que ve el salón.
+    Escrito en 1b-2, cuando el costo todavía no existía, barría TODO reporte
+    contra la lista entera de campos prohibidos — **pidiéndolos con
+    `admin_client`**. Esa era la trampa: la regla habla del operador, y acá no
+    hay ninguno. Cuando 2a construyó la superficie de costo del administrador,
+    el barrido la prohibió por existir; un invariante inesquivable no se
+    discute, se esquiva, y el costo real fue que dos reportes publicaron nombres
+    de rodeo para pasarlo (`theoretical_value` por `theoretical_cost`).
+
+    Acotado a lo que de verdad protege: los reportes que 2a extendió a propósito
+    pueden llevar sus campos de costo **declarados uno por uno**; cualquier otro
+    campo de costo en cualquier reporte sigue siendo una filtración, y
+    `recipe_version` —puntero interno al snapshot, que no le sirve a ninguna
+    pantalla— no va en ninguno. Que el dispositivo no llegue a estas rutas lo
+    prueba `test_a_device_session_never_reaches_the_admin_routes_of_cost_and_inventory`.
     """
     from tests.audit.conftest import deep_keys
 
@@ -425,18 +435,28 @@ def test_no_report_ever_exposes_a_cost_or_a_margin(
 
     prohibidos = {"cost", "unit_cost", "margin", "food_cost", "recipe_version", "theoretical_cost"}
     rango = {"from": "2020-01-01", "to": "2099-12-31"}
+    # Lo que el pedido 2a agregó a propósito, por reporte. Todo lo demás filtra.
+    permitidos: dict[str, set[str]] = {
+        "today": set(),
+        "sales": {"theoretical_cost", "gross_margin"},
+        "accountant-report": set(),
+        "orders": {"courtesies_cost"},
+        "unavailable-log": set(),
+        "fiscal/documents": set(),
+    }
     respuestas = [
-        admin_client.get(f"{API}/admin/today", params={"store_id": store.id}),
-        admin_client.get(f"{API}/admin/sales", params={"store_id": store.id, **rango, "group_by": "employee"}),
-        admin_client.get(f"{API}/admin/accountant-report", params={"store_id": store.id, "year": 2026, "month": 1}),
-        admin_client.get(f"{API}/admin/orders", params={"store_id": store.id, **rango}),
-        admin_client.get(f"{API}/admin/unavailable-log", params={"store_id": store.id, **rango}),
-        admin_client.get(f"{API}/admin/fiscal/documents", params={"store_id": store.id}),
+        ("today", admin_client.get(f"{API}/admin/today", params={"store_id": store.id})),
+        ("sales", admin_client.get(f"{API}/admin/sales", params={"store_id": store.id, **rango, "group_by": "employee"})),
+        ("accountant-report", admin_client.get(f"{API}/admin/accountant-report", params={"store_id": store.id, "year": 2026, "month": 1})),
+        ("orders", admin_client.get(f"{API}/admin/orders", params={"store_id": store.id, **rango})),
+        ("unavailable-log", admin_client.get(f"{API}/admin/unavailable-log", params={"store_id": store.id, **rango})),
+        ("fiscal/documents", admin_client.get(f"{API}/admin/fiscal/documents", params={"store_id": store.id})),
     ]
-    for resp in respuestas:
+    for nombre, resp in respuestas:
         assert resp.status_code == 200, resp.text
-        filtradas = deep_keys(resp.json()) & prohibidos
+        filtradas = (deep_keys(resp.json()) & prohibidos) - permitidos[nombre]
         assert not filtradas, f"{resp.request.url} filtró {sorted(filtradas)}"
+        assert "recipe_version" not in deep_keys(resp.json()), f"{nombre} publicó el puntero al snapshot"
 
 
 # ---------------------------------------------------------------------------

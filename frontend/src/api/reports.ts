@@ -186,11 +186,11 @@ export interface SalesBucketOut {
   // (decisión declarada en ese archivo). `null` cuando NINGÚN documento del
   // grupo tuvo costo todavía (nunca `0` mudo).
   /** = costo teórico (spec: `theoretical_cost`). */
-  theoretical_value?: number | null
-  /** = margen bruto teórico (spec: `gross_margin`): `net − theoretical_value`. */
-  gross_contribution?: number | null
+  theoretical_cost?: number | null
+  /** = margen bruto teórico (spec: `gross_margin`): `net − theoretical_cost`. */
+  gross_margin?: number | null
   /** = `costed_pct` (spec): % de la venta neta que tuvo ficha de verdad. */
-  recipe_coverage_pct?: number | null
+  costed_pct?: number | null
 }
 
 export interface SalesReportOut {

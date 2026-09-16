@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.modules import find_spec_safe
+from app.core.quantity import micros_to_pesos
 from app.shifts.schemas import (
     EmployeeActivityCourtesies,
     EmployeeActivityDiscounts,
@@ -159,6 +160,12 @@ def employee_sales_metrics(
     courtesy_items = list(db.execute(court_stmt).scalars())
     courtesies_n = len(courtesy_items)
     courtesies_amount = sum(int(i.list_price) * int(i.qty) for i in courtesy_items)
+    # A costo (pedido 2a): se suma en MICROS y se convierte una sola vez, para
+    # no perder el sub-peso — `unit_cost` ya viene redondeado por ítem.
+    courtesy_micros = [
+        int(i.unit_cost_micros) * int(i.qty) for i in courtesy_items if i.unit_cost_micros is not None
+    ]
+    courtesies_cost = micros_to_pesos(sum(courtesy_micros)) if courtesy_micros else None
 
     # -- Reimpresiones que esta persona hizo ------------------------------
     reprint_stmt = (
@@ -222,7 +229,7 @@ def employee_sales_metrics(
             walkouts=walkouts,
         ),
         discounts=EmployeeActivityDiscounts(n=discounts_n, amount=discounts_amount),
-        courtesies=EmployeeActivityCourtesies(n=courtesies_n, amount=courtesies_amount),
+        courtesies=EmployeeActivityCourtesies(n=courtesies_n, amount=courtesies_amount, theoretical_cost=courtesies_cost),
         reprints=reprints_count,
         sent_at_payment_pct=sent_at_payment_pct,
         tips=EmployeeActivityTips(
@@ -316,6 +323,13 @@ def team_average_metrics(
         courtesies=EmployeeActivityCourtesies(
             n=round(_mean([m.courtesies.n for m in metrics])),
             amount=round(_mean([m.courtesies.amount for m in metrics])),
+            # Promedia sólo a quienes tienen costo; si nadie lo tiene queda
+            # `None`, no `0` — el promedio de "sin dato" no es cero.
+            theoretical_cost=(
+                round(_mean(costos))
+                if (costos := [m.courtesies.theoretical_cost for m in metrics if m.courtesies.theoretical_cost is not None])
+                else None
+            ),
         ),
         reprints=round(_mean([m.reprints for m in metrics])),
         sent_at_payment_pct=_mean(sent_pcts) if sent_pcts else None,

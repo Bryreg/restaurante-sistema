@@ -296,7 +296,7 @@ def get_admin_orders(
     flags: str | None = Query(None),
     # Pedido 2a (R-5): declarado en el contrato, ver el mismo comentario en
     # `app.reports.router.get_sales`. Este endpoint gana `courtesies_
-    # theoretical_value` en este mismo pedido.
+    # theoretical_cost` en este mismo pedido.
     format: str | None = Query(None, description='"csv" exporta `rows` como CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),

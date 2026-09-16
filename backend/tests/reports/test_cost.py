@@ -1,5 +1,5 @@
-"""`GET /admin/sales` gana `theoretical_value`/`gross_contribution`/
-`recipe_coverage_pct`; `GET /admin/orders` gana `courtesies_theoretical_
+"""`GET /admin/sales` gana `theoretical_cost`/`gross_margin`/
+`costed_pct`; `GET /admin/orders` gana `courtesies_theoretical_
 value`; `GET /admin/today` gana las cuatro alertas de 2a (spec.md «Reports
 that gain cost», pedido 2a, `backend-consumo`).
 
@@ -59,7 +59,7 @@ def _make_flat_cost_ingredient(db: Any, store: Any, *, cost_micros_per_g: int, n
     return row
 
 
-def test_sales_report_theoretical_value_sums_sub_peso_costs_without_losing_them(
+def test_sales_report_theoretical_cost_sums_sub_peso_costs_without_losing_them(
     db: Any, admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any, open_shift: Any,
     sell: Any, main_product: Any, store: Any, set_recipe: Any,
 ) -> None:
@@ -99,14 +99,14 @@ def test_sales_report_theoretical_value_sums_sub_peso_costs_without_losing_them(
     )
     assert resp.status_code == 200, resp.text
     row = resp.json()["rows"][0]
-    assert row["theoretical_value"] == 30, (
-        f"100 platos de $0,30 tienen que costar $30 en el reporte, no $0 (dio {row['theoretical_value']})"
+    assert row["theoretical_cost"] == 30, (
+        f"100 platos de $0,30 tienen que costar $30 en el reporte, no $0 (dio {row['theoretical_cost']})"
     )
     total = resp.json()["total"]
-    assert total["theoretical_value"] == 30
+    assert total["theoretical_cost"] == 30
 
 
-def test_sales_report_theoretical_value_matches_the_round_number_case(
+def test_sales_report_theoretical_cost_matches_the_round_number_case(
     db: Any, admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any, open_shift: Any,
     sell: Any, main_product: Any, store: Any, set_recipe: Any,
 ) -> None:
@@ -139,10 +139,10 @@ def test_sales_report_theoretical_value_matches_the_round_number_case(
     )
     assert resp.status_code == 200, resp.text
     row = resp.json()["rows"][0]
-    assert row["theoretical_value"] == 1000, f"costo teórico del período: {row['theoretical_value']}"
+    assert row["theoretical_cost"] == 1000, f"costo teórico del período: {row['theoretical_cost']}"
 
 
-def test_sales_report_gains_theoretical_value_and_coverage(
+def test_sales_report_gains_theoretical_cost_and_coverage(
     admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any, open_shift: Any,
     sell: Any, main_product: Any, store: Any, ingredient_seeded: Any, set_recipe: Any,
 ) -> None:
@@ -153,7 +153,7 @@ def test_sales_report_gains_theoretical_value_and_coverage(
 
     qty_base = apply_yield(100 * 1000, ingredient_seeded.yield_pct)
     unit_cost_micros = line_cost_micros(qty_base, ingredient_seeded.official_cost_micros)
-    expected_theoretical_value = micros_to_pesos(unit_cost_micros)
+    expected_theoretical_cost = micros_to_pesos(unit_cost_micros)
 
     # Rango ancho y fijo, no `date.today()`: el `business_date` (cutoff de
     # sede, `app.core.tz`) puede quedar un día detrás de la fecha calendario
@@ -167,20 +167,20 @@ def test_sales_report_gains_theoretical_value_and_coverage(
     assert resp.status_code == 200, resp.text
     row = resp.json()["rows"][0]
 
-    assert row["theoretical_value"] == expected_theoretical_value
-    assert row["gross_contribution"] == row["net"] - expected_theoretical_value
-    assert row["recipe_coverage_pct"] == 100  # el único ítem vendido tenía ficha completa
+    assert row["theoretical_cost"] == expected_theoretical_cost
+    assert row["gross_margin"] == row["net"] - expected_theoretical_cost
+    assert row["costed_pct"] == 100  # el único ítem vendido tenía ficha completa
 
     total = resp.json()["total"]
-    assert total["theoretical_value"] == row["theoretical_value"]
+    assert total["theoretical_cost"] == row["theoretical_cost"]
 
 
-def test_sales_report_theoretical_value_is_null_without_any_recipe(
+def test_sales_report_theoretical_cost_is_null_without_any_recipe(
     admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any, open_shift: Any,
     sell: Any, drink_product: Any, store: Any,
 ) -> None:
-    """Nunca un cero mudo: sin ninguna ficha, `theoretical_value` es `None`,
-    no `0`. `recipe_coverage_pct` sí es `0` (hubo ventas, ninguna con
+    """Nunca un cero mudo: sin ninguna ficha, `theoretical_cost` es `None`,
+    no `0`. `costed_pct` sí es `0` (hubo ventas, ninguna con
     ficha: es un dato real, no "sin datos")."""
     open_shift()
     identify(device_client, employees["cashier"])
@@ -196,12 +196,12 @@ def test_sales_report_theoretical_value_is_null_without_any_recipe(
         params={"store_id": store.id, "from": "2020-01-01", "to": "2099-12-31", "group_by": "business_date"},
     )
     row = resp.json()["rows"][0]
-    assert row["theoretical_value"] is None
-    assert row["gross_contribution"] is None
-    assert row["recipe_coverage_pct"] == 0
+    assert row["theoretical_cost"] is None
+    assert row["gross_margin"] is None
+    assert row["costed_pct"] == 0
 
 
-def test_admin_orders_gains_courtesies_theoretical_value(
+def test_admin_orders_gains_courtesies_cost(
     admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any, open_shift: Any,
     main_product: Any, store: Any, ingredient_seeded: Any, set_recipe: Any,
 ) -> None:
@@ -236,7 +236,7 @@ def test_admin_orders_gains_courtesies_theoretical_value(
     rows = resp.json()["rows"]
     assert len(rows) == 1
     assert rows[0]["courtesies"] == 1
-    assert rows[0]["courtesies_theoretical_value"] == expected
+    assert rows[0]["courtesies_cost"] == expected
 
 
 def test_today_reports_low_stock_alert(
