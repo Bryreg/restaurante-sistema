@@ -864,3 +864,38 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    tecnológico real**: `GET /admin/fiscal/export` devuelve un manifiesto JSON
    con hash por documento, no un ZIP con XML, porque todavía no hay XML que
    empaquetar.
+15. **El pedido 2b arrancó** (2026-09-16), sobre el commit `8116135`, que es el
+   que escribe su delimitación. **La spec de 2b ya está escrita**:
+   `features/fase-2-costo-inventario/spec.md § Alcance de 2b`, con su contrato
+   de API, sus invariantes heredados y un checklist de entrega de 31 puntos.
+   ```js
+   Workflow({
+     scriptPath: '.claude/workflows/orquestador-general.js',
+     args: {
+       pedido: '<la mitad 2b, delimitada contra lo que 1a, 1b y 2a construyeron>',
+       spec: 'features/fase-2-costo-inventario/spec.md',
+       outputs: 'features/fase-2-costo-inventario/outputs-2b',
+       contexto: ['docs/ESTADO.md', 'AGENTS.md', 'docs/SPEC-NEGOCIO.md',
+                  'features/fase-2-costo-inventario/outputs-2a/ENTREGA.md'],
+       base: '8116135',
+     },
+   })
+   // run: wf_a4ed1dec-258 — se puede retomar con resumeFromRunId
+   ```
+   **Tres decisiones de spec que se tomaron al delimitar** y que no estaban
+   resueltas antes:
+   - **«Reposición» sale de 2b.** La tabla del propio documento la ponía en 2b,
+     pero §5.6 de la spec de negocio manda la orden de compra y la sugerencia de
+     reposición a fase 3. Manda la spec de negocio y la tabla queda corregida.
+   - **La recepción es pantalla de administrador, no del POS.** Lleva precios
+     unitarios, base y IVA por línea; el PIN de quien recibe es **atribución**,
+     no una sesión de dispositivo. Así la regla dura de que el operador no ve
+     costos no se toca. Si alguien quiere recibir desde una tablet del salón,
+     eso cambia una regla dura y es decisión del dueño de la spec.
+   - **FEFO explícito.** §5.7 dice «toda salida consume el más antiguo», que es
+     ambiguo entre fecha de recepción y vencimiento. Queda declarado:
+     vencimiento primero, recepción para desempatar. Una elección silenciosa acá
+     mueve plata.
+   **Sigue abierta la única decisión que espera al dueño de la spec**: A-1 de
+   1b-2, si la supresión de habeas data alcanza `pending_refunds`. No bloquea
+   2b, pero es deuda legal y no se arregla sola.
