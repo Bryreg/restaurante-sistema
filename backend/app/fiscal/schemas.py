@@ -163,6 +163,18 @@ class ExportBundleOut(BaseModel):
 class NoteLineIn(BaseModel):
     item_id: int
     used: bool
+    # SPEC-NEGOCIO §3.5: «por línea "se usó" (no vuelve al inventario) o
+    # "vuelve"». `True` = "vuelve" (revierte el consumo teórico registrado al
+    # enviar); `False` = "se usó" (el plato se sirvió y no vuelve). El
+    # DEFAULT es `True` porque §3.5 escribe "se usó" como la EXCEPCIÓN
+    # marcada explícitamente entre paréntesis — "vuelve" es lo que pasa
+    # cuando nadie dice lo contrario — y porque un campo requerido acá
+    # rompería cualquier llamador que hoy manda `{"item_id": X, "used": true}`
+    # sin conocer este campo nuevo (422, no el comportamiento que la spec
+    # pide). Una nota `kind="debit"` ignora este campo por completo y fuerza
+    # `False` en el servicio (ver `app.fiscal.service.issue_note`): una nota
+    # débito cobra más, nunca devuelve producto.
+    returns_to_stock: bool = True
 
 
 class RefundIn(BaseModel):
@@ -212,6 +224,13 @@ class NoteOut(BaseModel):
     # "settled_in_shift" | "pending" | "settled_externally"; `None` si la
     # nota no traía `refund` o el gancho todavía no existe (`gaps`).
     refund_status: str | None
+    # Ítems cuyo consumo teórico se REVIRTIÓ de verdad contra el libro
+    # (`app.orders.hooks.reverse_item_consumption`, espejo exacto). Vacía
+    # cuando ninguna línea pedía `returns_to_stock=True`, cuando
+    # `inventory.perpetual` está apagada, o cuando la nota es `debit` (nunca
+    # revierte). Para que la pantalla pueda confirmar qué volvió al
+    # inventario sin adivinar a partir de `lines[].used`.
+    returned_to_stock_item_ids: list[int] = Field(default_factory=list)
 
 
 class AdminNoteListItem(BaseModel):

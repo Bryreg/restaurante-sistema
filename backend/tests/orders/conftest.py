@@ -16,6 +16,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.auth.deps import Actor
+from app.auth.models import Employee
 from app.catalog.models import Category, Product
 from app.core import clock as clock_module
 from app.fiscal import service as fiscal_service
@@ -166,3 +168,96 @@ def send_order(device_client: TestClient) -> Callable[..., Any]:
         return resp
 
     return _send
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2a (`backend-consumo`): fixtures para armar fichas técnicas contra
+# `app.recipes.service` directamente (mismo patrón que `default_fiscal_range`
+# llama `app.fiscal.service` sin pasar por HTTP admin): más rápido que loguear
+# un admin y no duplica la validación del router, que es territorio de
+# `backend-recetas`.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def admin_actor(store: Store, employees: dict[str, Employee]) -> Actor:
+    admin = employees["admin"]
+    return Actor(
+        kind="admin",
+        organization_id=store.organization_id,
+        store_id=store.id,
+        employee_id=admin.id,
+        employee_name=admin.name,
+        role="admin",
+    )
+
+
+@pytest.fixture()
+def set_recipe(db: Session, admin_actor: Actor) -> Callable[..., Any]:
+    """`lines` es una lista de `{"ingredient_id"|"preparation_id": id, "qty": "texto decimal", "unit": "g"|"ml"|"unit"}`
+    (mismo contrato que `POST/PUT /admin/products/{id}/recipe`). Devuelve
+    `ProductRecipeOut` (trae `version`, `theoretical_cost`, `cost_source`)."""
+
+    def _set(product_id: int, lines: list[dict[str, Any]], *, version: int = 0) -> Any:
+        from app.recipes import service as recipes_service
+        from app.recipes.schemas import ComponentLineIn, ProductRecipeIn
+
+        out = recipes_service.put_product_recipe(
+            db,
+            actor=admin_actor,
+            product_id=product_id,
+            data=ProductRecipeIn(version=version, lines=[ComponentLineIn(**line) for line in lines]),
+        )
+        db.commit()
+        return out
+
+    return _set
+
+
+@pytest.fixture()
+def make_preparation(db: Session, admin_actor: Actor, store: Store) -> Callable[..., Any]:
+    def _make(
+        name: str,
+        *,
+        mode: str = "exploded",
+        standard_yield_qty: str = "1000",
+        standard_yield_unit: str = "g",
+        lines: list[dict[str, Any]],
+    ) -> Any:
+        from app.recipes import service as recipes_service
+        from app.recipes.schemas import ComponentLineIn, PreparationIn
+
+        prep = recipes_service.create_preparation(
+            db,
+            actor=admin_actor,
+            store_id=store.id,
+            data=PreparationIn(
+                name=name,
+                mode=mode,  # type: ignore[arg-type]
+                standard_yield_qty=standard_yield_qty,
+                standard_yield_unit=standard_yield_unit,  # type: ignore[arg-type]
+                lines=[ComponentLineIn(**line) for line in lines],
+            ),
+        )
+        db.commit()
+        return prep
+
+    return _make
+
+
+@pytest.fixture()
+def produce_preparation(db: Session, admin_actor: Actor) -> Callable[..., Any]:
+    def _produce(preparation: Any, *, qty_expected: str, qty_real: str) -> Any:
+        from app.recipes import service as recipes_service
+        from app.recipes.schemas import ProduceIn
+
+        out = recipes_service.produce_preparation(
+            db,
+            actor=admin_actor,
+            preparation=preparation,
+            data=ProduceIn(qty_expected=qty_expected, qty_real=qty_real, employee_pin="9999"),
+        )
+        db.commit()
+        return out
+
+    return _produce

@@ -6,11 +6,15 @@ mínimo y el rango fiscal en vez de importar entre paquetes de test.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
+from typing import Any
 
 import pytest
 from sqlalchemy.orm import Session
 
+from app.auth.deps import Actor
+from app.auth.models import Employee
 from app.catalog.models import Category, Product
 from app.core import clock as clock_module
 from app.core.modules import find_spec_safe
@@ -123,3 +127,42 @@ def main_product(db: Session, store: Store) -> Product:
     db.commit()
     db.refresh(row)
     return row
+
+
+# ---------------------------------------------------------------------------
+# Ronda 2 (B-1, `backend-consumo`): notas «vuelve»/«se usó» y su reversión de
+# consumo teórico. Duplicadas a propósito de `tests/orders/conftest.py`/
+# `tests/reports/conftest.py` (mismo criterio de la cabecera: cada carpeta
+# arma su propia base sin imports cruzados entre carpetas de test).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def admin_actor(store: Store, employees: dict[str, Employee]) -> Actor:
+    admin = employees["admin"]
+    return Actor(
+        kind="admin", organization_id=store.organization_id, store_id=store.id,
+        employee_id=admin.id, employee_name=admin.name, role="admin",
+    )
+
+
+@pytest.fixture()
+def set_recipe(db: Session, admin_actor: Actor) -> Callable[..., Any]:
+    """`lines` es una lista de `{"ingredient_id"|"preparation_id": id, "qty": "texto decimal", "unit": "g"|"ml"|"unit"}`
+    (mismo contrato que `POST/PUT /admin/products/{id}/recipe`). Devuelve
+    `ProductRecipeOut` (trae `version`, `theoretical_cost`, `cost_source`)."""
+
+    def _set(product_id: int, lines: list[dict[str, Any]], *, version: int = 0) -> Any:
+        from app.recipes import service as recipes_service
+        from app.recipes.schemas import ComponentLineIn, ProductRecipeIn
+
+        out = recipes_service.put_product_recipe(
+            db,
+            actor=admin_actor,
+            product_id=product_id,
+            data=ProductRecipeIn(version=version, lines=[ComponentLineIn(**line) for line in lines]),
+        )
+        db.commit()
+        return out
+
+    return _set

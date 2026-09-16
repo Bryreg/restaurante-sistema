@@ -37,7 +37,9 @@ vi.mock("@/features/orders", () => ({
 
 // `paymentsFeature` es este mismo territorio — se deja real: es la
 // verificación de que `router.tsx` lo integra tal como lo exporta
-// `src/features/payments/index.ts`.
+// `src/features/payments/index.ts`. `inventoryFeature` (este territorio) y
+// `recipesFeature` (`frontend-recetas`, pedido 2a) también se dejan reales
+// por el mismo motivo.
 
 const { router } = await import("../router");
 
@@ -82,6 +84,22 @@ describe("router — integra shiftsFeature, catalogFeature, ordersFeature y paym
     expect(findChild(children, "fiscal/notas")).toBeDefined();
     expect(findChild(children, "fiscal/devoluciones-pendientes")).toBeDefined();
     expect(findChild(children, "clientes")).toBeDefined();
+  });
+
+  it("/admin monta inventario (inventoryFeature) y preparaciones (recipesFeature) — pedido 2a", () => {
+    const adminRoute = router.routes.find((r) => r.path === "/admin");
+    const children = adminRoute?.children ?? [];
+
+    expect(findChild(children, "inventario")).toBeDefined();
+    expect(findChild(children, "preparaciones")).toBeDefined();
+  });
+
+  it("/pos monta merma (inventoryFeature) y produccion (recipesFeature) — pedido 2a", () => {
+    const posRoute = router.routes.find((r) => r.path === "/pos");
+    const children = posRoute?.children ?? [];
+
+    expect(findChild(children, "merma")).toBeDefined();
+    expect(findChild(children, "produccion")).toBeDefined();
   });
 
   it("la ruta índice de /admin redirige a «hoy» — es la pantalla por la que el dueño abre el admin", () => {

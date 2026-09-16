@@ -681,9 +681,20 @@ def test_voiding_a_sent_item_never_restores_the_counter_and_creates_a_waste_stub
     El contador de porciones del día es el caso visible de la misma regla: si
     anular repusiera el contador, dos personas podrían vender veinte
     sancochos, anular diez y seguir vendiendo, y el inventario de fase 2
-    acusaría un robo que nunca existió. La merma queda con `ingredient_id`
-    NULL: es el gancho que fase 2 resuelve, no un dato que falte
-    (`CONTRATO-INTERNO-1b-1.md §2.2`, `WasteStub`).
+    acusaría un robo que nunca existió.
+
+    **Actualizado en 2a** (auditor de costo e inventario). Este test decía
+    «la merma queda con `ingredient_id` NULL y `resolved = False`: es el
+    gancho que fase 2 resuelve». Fase 2a lo resolvió
+    (`app.orders.service._resolve_waste_stub`), así que la aserción que
+    codificaba «todavía sin resolver» quedó obsoleta **por diseño**, no por
+    un defecto: se cambia por la regla nueva. Acá el producto no tiene ficha,
+    así que no hay insumo contra el cual cargar la merma y `ingredient_id`
+    sigue `NULL` — pero el stub ya queda `resolved = True` (se miró el libro
+    y no había nada que cargar). El caso **con** ficha lo cubre
+    `test_consumption_invariants.py::test_voiding_a_sent_item_resolves_its_waste_stub_and_does_not_replenish`.
+    Lo que este test sigue defendiendo sin cambios es lo de 1b: el contador no
+    se repone y el inventario no se repone.
     """
     from app.orders.models import WasteStub
 
@@ -725,8 +736,11 @@ def test_voiding_a_sent_item_never_restores_the_counter_and_creates_a_waste_stub
     stubs = list(db.execute(select(WasteStub).where(WasteStub.order_id == order["id"])).scalars())
     assert len(stubs) == 1, "el ítem enviado y anulado deja exactamente una merma"
     stub = stubs[0]
-    assert stub.ingredient_id is None, "sin insumo: la receta llega en fase 2"
-    assert stub.resolved is False
+    assert stub.ingredient_id is None, "este producto no tiene ficha: no hay insumo que cargar"
+    assert stub.resolved is True, (
+        "desde 2a la merma se resuelve contra el libro al anular, aunque el resultado sea "
+        "«este plato no descontaba nada»: un stub sin resolver es trabajo pendiente invisible"
+    )
     assert stub.qty == 2 and stub.reason.value == "kitchen_error"
     assert stub.product_name == producto.name, "con el nombre congelado del producto"
 

@@ -5,7 +5,9 @@ import { toast } from "sonner";
 
 import { deviceRelease } from "@/api/auth";
 import { Button } from "@/components/ui/button";
+import { inventoryFeature } from "@/features/inventory";
 import { ordersFeature } from "@/features/orders";
+import { recipesFeature } from "@/features/recipes";
 import { shiftsFeature } from "@/features/shifts";
 import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
@@ -13,9 +15,16 @@ import { cn } from "@/lib/utils";
 import type { NavItem } from "./nav";
 import { useSession } from "./session";
 
-/** [...ordersFeature.posNav, ...shiftsFeature.posNav] (CONTRATO-INTERNO-1b-1.md §6.2). */
+/** [...ordersFeature.posNav, ...shiftsFeature.posNav, ...recipesFeature.posNav,
+ * ...inventoryFeature.posNav] (CONTRATO-INTERNO-1b-1.md §6.2; los últimos
+ * dos, pedido 2a: "Producir" y "Merma"). */
 function buildPosNav(hasFeature: (key: string) => boolean): NavItem[] {
-  const all: NavItem[] = [...ordersFeature.posNav, ...shiftsFeature.posNav];
+  const all: NavItem[] = [
+    ...ordersFeature.posNav,
+    ...shiftsFeature.posNav,
+    ...recipesFeature.posNav,
+    ...inventoryFeature.posNav,
+  ];
   return all.filter((item) => !item.feature || hasFeature(item.feature));
 }
 

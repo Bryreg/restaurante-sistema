@@ -39,9 +39,17 @@ def get_sales(
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
     group_by: GroupBy = Query(..., alias="group_by"),
+    # Pedido 2a (R-5, `outputs-1b-2/auditor-fiscal.md`): declarado en el
+    # contrato (parámetro de la firma), no sólo leído de
+    # `request.query_params` dentro de `wants_csv` — así el OpenAPI SÍ lo
+    # publica. Este endpoint gana campos de costo en este mismo pedido, así
+    # que se corrige acá de una vez; el chequeo real sigue siendo
+    # `wants_csv(request)` (no se toca `app.core.csv`, ajeno).
+    format: str | None = Query(None, description='"csv" exporta `rows` como CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any] | Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     admin_store(db, actor, store_id)
     report = service.sales_report(db, store_id=store_id, date_from=date_from, date_to=date_to, group_by=group_by)
     if wants_csv(request):

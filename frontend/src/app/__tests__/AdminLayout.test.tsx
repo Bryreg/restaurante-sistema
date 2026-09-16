@@ -81,4 +81,19 @@ describe("AdminLayout: sidebar por features", () => {
     await screen.findByRole("link", { name: "Hoy" });
     expect(screen.queryByRole("link", { name: "Clientes" })).not.toBeInTheDocument();
   });
+
+  it("«Inventario» (inventory.perpetual) y «Preparaciones» (catalog.preps) — pedido 2a: apagadas, no se muestran", async () => {
+    renderAdmin(buildMe({ features: { "inventory.perpetual": false, "catalog.preps": false } }));
+
+    await screen.findByRole("link", { name: "Hoy" });
+    expect(screen.queryByRole("link", { name: "Inventario" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Preparaciones" })).not.toBeInTheDocument();
+  });
+
+  it("«Inventario» y «Preparaciones» aparecen cuando su feature está encendida", async () => {
+    renderAdmin(buildMe({ features: { "inventory.perpetual": true, "catalog.preps": true } }));
+
+    expect(await screen.findByRole("link", { name: "Inventario" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Preparaciones" })).toBeInTheDocument();
+  });
 });

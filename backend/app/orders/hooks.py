@@ -16,13 +16,15 @@ siguiente con `shift_id` nuevo y `transferred_from_shift_id`).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.orders.models import Order, OrderEvent, OrderStatus
+from app.core.modules import find_spec_safe
+from app.orders.models import Order, OrderEvent, OrderItem, OrderStatus
 
 if TYPE_CHECKING:
     from app.auth.deps import Actor
@@ -115,3 +117,95 @@ def adopt_transferred_orders(db: Session, *, store_id: int, shift: "Shift", acto
         ids.append(order.id)
     db.flush()
     return ids
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2a: el espejo exacto de la nota «vuelve» (SPEC-NEGOCIO §5.3).
+#
+# **Por qué se construye desde el libro (`StockMovement`) y no desde la
+# ficha actual**: la ficha de un producto versiona y puede cambiar entre el
+# envío y la nota (SPEC-NEGOCIO §4.3, la regla dura del snapshot). Si esta
+# función volviera a llamar `app.recipes.hooks.expand_consumption` con la
+# ficha de HOY, una venta de la v1 que se revierte después de guardar la v2
+# se descontaría/repondría con cantidades y costos de la v2 — exactamente lo
+# que la regla "ningún reporte revalora una venta pasada con la ficha
+# actual" prohíbe, aplicada acá a la reversión en vez de a un reporte. Leer
+# los movimientos `cause=SALE` con `ref_type="order_item"`/`ref_id=item.id`
+# (la MISMA clave con la que `_apply_send` los escribió; ver
+# `app.orders.service._freeze_item_consumption`) y negarlos exactamente
+# hace el espejo posible **por construcción**: la suma de lo que se escribe
+# acá siempre cancela exactamente la suma de lo que ya existía, sin
+# importar si la ficha cambió entremedio. `cause=NOTE_RETURN` (no `SALE`)
+# para que el movimiento nuevo no se fusione con el original (la fusión de
+# `record_movement` exige la MISMA causa) y quede trazable como reversión.
+#
+# **Dueño del test de punta a punta**: este territorio (`backend-consumo`),
+# `tests/orders/test_consumption.py` (llamada directa, ficha cambiada
+# entremedio) y, desde la ronda 2 (conciliador, B-1), también
+# `tests/fiscal/test_notes.py` (el camino HTTP real). Esta función es el
+# "espejo"; el llamador real es `app.fiscal.service.issue_note`
+# (`returns_to_stock` por línea de `NoteLineIn`, default `True` — SPEC-NEGOCIO
+# §3.5 escribe "se usó" como la excepción marcada; una nota `kind="debit"`
+# fuerza `False` en todas sus líneas, nunca revierte). `app/fiscal/**` se
+# amplió al territorio de `backend-consumo` sólo para esta ronda y sólo para
+# esta conexión — ver `docs/ESTADO.md § Ronda 2 del conciliador`.
+# ---------------------------------------------------------------------------
+
+
+def reverse_item_consumption(
+    db: Session, *, item: OrderItem, actor: "Actor", now: datetime
+) -> list[Any]:
+    """Espejo exacto del consumo ya registrado para `item` (SPEC-NEGOCIO
+    §5.3). Protegida con `find_spec_safe`: si `app.inventory` no está
+    montado (`inventory.perpetual` nunca se activó, o el módulo ni existe
+    en este árbol) no hay libro que revertir y devuelve `[]` sin escribir
+    nada — nunca lanza.
+
+    No recibe `ConsumptionPlan`: **no vuelve a calcular nada**, sólo lee y
+    niega lo que el libro ya tiene. Devuelve los `StockMovement` nuevos
+    (uno por línea revertida), para que el llamador pueda auditar/mostrar
+    cuánto se revirtió si lo necesita.
+    """
+    if find_spec_safe("app.inventory.hooks") is None or find_spec_safe("app.inventory.models") is None:
+        return []
+
+    import importlib
+
+    inv_hooks = importlib.import_module("app.inventory.hooks")
+    inv_models = importlib.import_module("app.inventory.models")
+
+    original_rows = list(
+        db.execute(
+            select(inv_models.StockMovement).where(
+                inv_models.StockMovement.store_id == item.store_id,
+                inv_models.StockMovement.ref_type == "order_item",
+                inv_models.StockMovement.ref_id == item.id,
+                inv_models.StockMovement.cause == inv_models.MovementCause.SALE,
+            )
+        ).scalars()
+    )
+
+    reversed_rows: list[Any] = []
+    for row in original_rows:
+        if row.qty_base == 0:
+            continue  # defensivo: `record_movement` nunca debería dejar esto, pero un 0 rompería el CHECK al negarlo.
+        reversed_rows.append(
+            inv_hooks.record_movement(
+                db,
+                organization_id=row.organization_id,
+                store_id=row.store_id,
+                ingredient_id=row.ingredient_id,
+                preparation_id=row.preparation_id,
+                qty_base=-row.qty_base,
+                cause=inv_models.MovementCause.NOTE_RETURN,
+                cost_micros=row.cost_micros,
+                cost_source=row.cost_source,
+                actor=actor,
+                business_date=row.business_date,
+                at=now,
+                ref_type="order_item",
+                ref_id=item.id,
+                note="Reversión por nota (espejo exacto del consumo original)",
+            )
+        )
+    return reversed_rows

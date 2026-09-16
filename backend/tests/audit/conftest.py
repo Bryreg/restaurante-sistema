@@ -451,3 +451,131 @@ def pay(
 
 
 NO_TIP: dict[str, Any] = {"asked": True, "accepted": False, "modified": False, "amount": 0}
+
+
+# ---------------------------------------------------------------------------
+# Costo e inventario (pedido 2a). Todo por HTTP, a propósito: los invariantes
+# de esta fase defienden el CONTRATO (lo que el dueño de un restaurante puede
+# hacer desde el admin y lo que el POS escribe), no la firma interna de un
+# servicio. Armar los insumos con `db.add(Ingredient(...))` saltearía
+# justamente las validaciones que el checklist manda probar (`min_stock > 0`,
+# costo con origen, unidad base) — y un invariante que se salta la puerta de
+# entrada no defiende la puerta de entrada.
+#
+# Excepción deliberada: `stock_of` lee con `app.inventory.hooks.current_stock`
+# en vez de `GET /admin/inventory/stock`. Es una LECTURA del libro, la misma
+# que usa el backend para decidir alertas; leerla por HTTP obligaría a parsear
+# el string decimal de la respuesta y mezclaría dos cosas distintas (que el
+# saldo esté bien y que el borde lo formatee bien) en una sola aserción.
+# ---------------------------------------------------------------------------
+
+API_V1 = "/api/v1"
+
+
+def make_ingredient(
+    admin_client: Any,
+    store: Any,
+    *,
+    name: str = "Insumo",
+    base_unit: str = "g",
+    yield_pct: int = 100,
+    official_cost: str | None = "10",
+    min_stock: str = "1000",
+    expect: int | None = 201,
+    **extra: Any,
+) -> dict[str, Any]:
+    """`POST /admin/ingredients`. `official_cost=None` deja el insumo **sin
+    costo** (`cost_source = none`), que es el caso que la regla "nunca un cero
+    mudo" defiende."""
+    payload: dict[str, Any] = {
+        "name": name,
+        "base_unit": base_unit,
+        "purchase_unit": "kg" if base_unit == "g" else ("l" if base_unit == "ml" else "unit"),
+        "purchase_factor": 1000 if base_unit in ("g", "ml") else 1,
+        "yield_pct": yield_pct,
+        "min_stock": min_stock,
+        **extra,
+    }
+    if official_cost is not None:
+        payload["official_cost"] = official_cost
+    resp = admin_client.post(f"{API_V1}/admin/ingredients?store_id={store.id}", json=payload)
+    if expect is not None:
+        assert resp.status_code == expect, resp.text
+    if resp.status_code != 201:
+        return {"_resp": resp, "_status": resp.status_code, "_body": resp.json()}
+    body: dict[str, Any] = resp.json()
+    return body
+
+
+def make_preparation(
+    admin_client: Any,
+    store: Any,
+    *,
+    name: str = "Preparación",
+    mode: str = "exploded",
+    standard_yield_qty: str = "1000",
+    standard_yield_unit: str = "g",
+    lines: list[dict[str, Any]] | None = None,
+    expect: int | None = 201,
+) -> Any:
+    payload = {
+        "name": name,
+        "mode": mode,
+        "standard_yield_qty": standard_yield_qty,
+        "standard_yield_unit": standard_yield_unit,
+        "lines": lines or [],
+    }
+    resp = admin_client.post(f"{API_V1}/admin/preparations?store_id={store.id}", json=payload)
+    if expect is not None:
+        assert resp.status_code == expect, resp.text
+    return resp.json() if resp.status_code == 201 else resp
+
+
+def put_recipe(
+    admin_client: Any, product_id: int, lines: list[dict[str, Any]], *, version: int = 0, expect: int | None = 200
+) -> Any:
+    resp = admin_client.put(
+        f"{API_V1}/admin/products/{product_id}/recipe", json={"version": version, "lines": lines}
+    )
+    if expect is not None:
+        assert resp.status_code == expect, resp.text
+    return resp.json() if resp.status_code == 200 else resp
+
+
+def stock_of(db: Any, store: Any, *, ingredient_id: int | None = None, preparation_id: int | None = None) -> int:
+    from app.inventory import hooks as inventory_hooks
+
+    return inventory_hooks.current_stock(
+        db, store_id=store.id, ingredient_id=ingredient_id, preparation_id=preparation_id
+    )
+
+
+def movements_of(db: Any, store: Any, *, ingredient_id: int | None = None, preparation_id: int | None = None) -> list[Any]:
+    from sqlalchemy import select
+
+    from app.inventory.models import StockMovement
+
+    stmt = select(StockMovement).where(StockMovement.store_id == store.id)
+    if ingredient_id is not None:
+        stmt = stmt.where(StockMovement.ingredient_id == ingredient_id)
+    if preparation_id is not None:
+        stmt = stmt.where(StockMovement.preparation_id == preparation_id)
+    return list(db.execute(stmt.order_by(StockMovement.id)).scalars())
+
+
+def send(client: Any, order: dict[str, Any]) -> Any:
+    return client.post(
+        f"{API_V1}/orders/{order['id']}/send",
+        json={"expected_version": order["version"]},
+        headers=idem_headers(),
+    )
+
+
+def produce(
+    client: Any, preparation_id: int, *, qty_expected: str, qty_real: str, pin: str = "2222", headers: Any = None
+) -> Any:
+    return client.post(
+        f"{API_V1}/preparations/{preparation_id}/produce",
+        json={"qty_expected": qty_expected, "qty_real": qty_real, "employee_pin": pin},
+        headers=headers or idem_headers(),
+    )

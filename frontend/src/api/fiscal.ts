@@ -242,6 +242,15 @@ export type NoteKind = "adjustment" | "credit" | "debit";
 export interface NoteLineIn {
   item_id: number;
   used: boolean;
+  /**
+   * Ronda 2 (B-1, "vuelve al inventario"): explícito por línea, nunca se
+   * apoya en el default del servidor (`= True`). `true` = los insumos de
+   * ese plato vuelven al stock teórico (SPEC-NEGOCIO §5.3, "la reversión es
+   * espejo exacto"); `false` = el plato se consumió y no hay reversión de
+   * inventario. En nota débito siempre `false` (una débito cobra más, no
+   * devuelve producto).
+   */
+  returns_to_stock: boolean;
 }
 
 export interface RefundIn {
@@ -289,6 +298,14 @@ export interface NoteOut {
   issued_at?: string;
   /** `RefundOutcome.status`: "settled_in_shift" | "pending" | "settled_externally"; `null` sin `refund`. */
   refund_status?: string | null;
+  /**
+   * Ronda 2 (B-1): `item_id` de las líneas cuyo inventario volvió al stock
+   * teórico al emitir esta nota. Opcional por la misma convención del
+   * archivo (un backend que todavía no lo manda no rompe la pantalla);
+   * `[]`/ausente se lee como "ningún ítem volvió al inventario", nunca como
+   * error.
+   */
+  returned_to_stock_item_ids?: number[];
 }
 
 export function createNote(documentId: number, body: NoteCreateIn, idempotencyKey: string): Promise<NoteOut> {

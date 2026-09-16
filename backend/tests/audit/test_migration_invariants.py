@@ -156,21 +156,17 @@ def test_the_chain_reaches_the_four_migrations_of_the_sale(migrated_url: str) ->
 
     Los dos tests de arriba comparan modelos contra DDL, pero pasarían igual
     si `head` se hubiera quedado en `0003` y las tablas nuevas **tampoco**
-    estuvieran en los modelos. Este fija el punto de llegada: la cadena
-    termina en `0007` y existen las tablas de la venta, del cobro, del
-    cliente, de la devolución pendiente y del rango de numeración.
+    estuvieran en los modelos. Este fija que existen las tablas de la venta,
+    del cobro, del cliente, de la devolución pendiente y del rango de
+    numeración; el **punto de llegada** de la cadena lo fija el test de 2a
+    (`test_the_chain_reaches_the_three_migrations_of_cost_and_inventory`),
+    que es el que hay que mover cada vez que se agrega una migración.
     """
-    from sqlalchemy import text
-
     engine = create_engine(migrated_url)
     try:
-        with engine.connect() as conn:
-            version = conn.execute(text("select version_num from alembic_version")).scalar_one()
         tablas = set(inspect(engine).get_table_names())
     finally:
         engine.dispose()
-
-    assert version == "0007", f"la cadena quedó en {version!r} y el pedido 1b-2 llega hasta 0007"
 
     de_la_comanda = {
         "orders",
@@ -364,3 +360,179 @@ def test_the_consecutive_is_defended_by_unique_constraints_in_the_database(
         f"`fiscal_documents` no tiene UNIQUE(store_id, document_type, prefix, number): "
         f"el consecutivo se podría reutilizar — {documentos}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2a: `0008_inventory` → `0009_recipes` → `0010_consumption`
+# ---------------------------------------------------------------------------
+
+
+def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_url: str) -> None:
+    """El punto de llegada de la cadena después de 2a.
+
+    `0008_inventory` (insumos, libro de movimientos, mermas), `0009_recipes`
+    (preparaciones, lotes, fichas versionadas y `recipe_effect`) y
+    `0010_consumption` (`order_items.cost_source` y el `waste_stubs.
+    ingredient_id` que pasa a FK real). Este test es el que hay que mover
+    cuando se agregue `0011`: fijar `head` a un valor exacto es lo que
+    convierte "me olvidé de encadenar la migración" en un rojo y no en un
+    deploy roto.
+    """
+    from sqlalchemy import text
+
+    engine = create_engine(migrated_url)
+    try:
+        with engine.connect() as conn:
+            version = conn.execute(text("select version_num from alembic_version")).scalar_one()
+        tablas = set(inspect(engine).get_table_names()) - ALEMBIC_BOOKKEEPING
+    finally:
+        engine.dispose()
+
+    assert version == "0010", f"la cadena quedó en {version!r} y el pedido 2a llega hasta 0010"
+
+    del_inventario = {"ingredients", "stock_movements", "wastes"}
+    de_las_recetas = {
+        "preparations",
+        "preparation_lines",
+        "prep_batches",
+        "recipes",
+        "recipe_versions",
+        "recipe_lines",
+        "modifier_option_recipe_effects",
+        "modifier_option_recipe_effect_lines",
+    }
+    faltan = sorted((del_inventario | de_las_recetas) - tablas)
+    assert not faltan, f"las migraciones de 2a no crearon: {faltan}"
+
+    # El conteo total, para que agregar una tabla sin querer también se vea.
+    # **Sin `alembic_version`** (no es del dominio): 52 de 1a/1b + 3 de
+    # inventario + 8 de recetas = 63. Ojo al comparar con `docs/ESTADO.md`,
+    # que para 1b anotó "53 tablas" contando la de control de Alembic y para
+    # 2a anotó "63" sin contarla: son el mismo esquema contado de dos maneras.
+    assert len(tablas) == 63, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; 2a lo deja en 63 "
+        f"(52 de 1a/1b + 3 de inventario + 8 de recetas). Actualizá este número "
+        f"junto con la migración que lo cambie: {sorted(tablas)}"
+    )
+
+
+def test_the_waste_stub_points_at_a_real_ingredient_with_a_foreign_key(migrated_url: str) -> None:
+    """El gancho que 1b dejó abierto: `waste_stubs.ingredient_id` entró como
+    `Integer` pelado porque `app.inventory` no existía. 2a lo resuelve contra
+    la ficha, y la columna tiene que pasar a **FK real** — el mismo caso que
+    `fiscal_range_id` en 1b-2.
+
+    Sin la FK, una merma puede quedar apuntando a un insumo que ya no existe y
+    el reporte de mermas por insumo pierde filas en silencio. La defensa que
+    importa es la de la base, no la del servicio.
+    """
+    engine = create_engine(migrated_url)
+    try:
+        inspector = inspect(engine)
+        fks = inspector.get_foreign_keys("waste_stubs")
+        columnas_items = {c["name"] for c in inspector.get_columns("order_items")}
+    finally:
+        engine.dispose()
+
+    hacia_insumos = [
+        fk for fk in fks if fk.get("referred_table") == "ingredients" and "ingredient_id" in fk.get("constrained_columns", [])
+    ]
+    assert hacia_insumos, (
+        f"`waste_stubs.ingredient_id` sigue siendo un entero pelado: {fks}"
+    )
+
+    # Y el snapshot del costo viaja completo en el ítem: cantidad, costo y
+    # ORIGEN del costo (nunca un costo sin origen, §4.1).
+    assert {"unit_cost", "recipe_version", "cost_source"} <= columnas_items, (
+        f"al ítem le falta parte del snapshot de costo: {sorted(columnas_items)}"
+    )
+
+
+def test_the_ledger_is_defended_by_check_constraints_in_the_database(migrated_url: str) -> None:
+    """§5.1: un movimiento es de **un** insumo o de **una** preparación, nunca
+    de los dos ni de ninguno, y nunca de cantidad cero.
+
+    El servicio ya lo valida; estas restricciones son lo que impide que un
+    `UPDATE` a mano, una migración futura o un bug dejen el libro con filas que
+    no suman a nada. Se inspecciona el DDL, no el modelo: la defensa que
+    importa es la que corre en producción aunque la aplicación esté
+    equivocada.
+    """
+    from sqlalchemy import text
+
+    engine = create_engine(migrated_url)
+    try:
+        with engine.connect() as conn:
+            ddl = conn.execute(
+                text("select sql from sqlite_master where type='table' and name='stock_movements'")
+            ).scalar_one()
+            ddl_ingredients = conn.execute(
+                text("select sql from sqlite_master where type='table' and name='ingredients'")
+            ).scalar_one()
+    finally:
+        engine.dispose()
+
+    normalizado = " ".join(ddl.split()).lower()
+    assert "check" in normalizado, "`stock_movements` no tiene ninguna restricción CHECK"
+    assert "qty_base" in normalizado and "<> 0" in normalizado.replace("!= 0", "<> 0"), (
+        f"nada impide un movimiento de cantidad cero en la base: {normalizado}"
+    )
+    assert "ingredient_id" in normalizado and "preparation_id" in normalizado, (
+        "no hay CHECK de insumo XOR preparación en `stock_movements`"
+    )
+
+    # §4.1/§11.7: el umbral mínimo nunca en cero, defendido también en la base.
+    normalizado_ingredientes = " ".join(ddl_ingredients.split()).lower()
+    assert "min_stock" in normalizado_ingredientes and "check" in normalizado_ingredientes, (
+        f"`ingredients.min_stock` no tiene defensa en la base: {normalizado_ingredientes}"
+    )
+
+
+def test_the_development_seed_runs_twice_without_duplicating_and_can_exercise_2a(
+    migrated_url: str,
+) -> None:
+    """`docs/ESTADO.md`: «el seed corre dos veces sin duplicar nada» — y la
+    lección cara de 1b-2: un seed que no cargaba los rangos de numeración
+    dejaba una base recién sembrada **incapaz de vender**, y nadie lo vio
+    hasta el recorrido en navegador.
+
+    La versión 2a de esa lección: si el seed no carga insumos, preparaciones y
+    fichas, una base recién sembrada no puede ejercitar **ningún** camino nuevo
+    de esta fase (ni costo al enviar, ni producción rápida, ni merma), y el
+    recorrido en navegador va a encontrarse pantallas vacías que parecen rotas.
+    """
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import sessionmaker
+
+    from app.inventory.models import Ingredient
+    from app.recipes.models import Preparation, Recipe, RecipeLine
+    from app.seed import seed
+
+    engine = create_engine(migrated_url)
+    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+    def _conteos() -> dict[str, int]:
+        with session_factory() as db:
+            return {
+                "ingredients": db.execute(select(func.count()).select_from(Ingredient)).scalar_one(),
+                "preparations": db.execute(select(func.count()).select_from(Preparation)).scalar_one(),
+                "recipes": db.execute(select(func.count()).select_from(Recipe)).scalar_one(),
+                "recipe_lines": db.execute(select(func.count()).select_from(RecipeLine)).scalar_one(),
+            }
+
+    try:
+        with session_factory() as db:
+            seed(db)
+        primera = _conteos()
+        with session_factory() as db:
+            seed(db)
+        segunda = _conteos()
+    finally:
+        engine.dispose()
+
+    assert primera["ingredients"] > 0, "el seed no carga insumos: la base sembrada no puede costear nada"
+    assert primera["preparations"] > 0, "el seed no carga preparaciones: no se puede probar la producción rápida"
+    assert primera["recipes"] > 0 and primera["recipe_lines"] > 0, (
+        "el seed no carga fichas técnicas: enviar un plato no va a descontar nada"
+    )
+    assert primera == segunda, f"el seed duplicó datos al correr dos veces: {primera} -> {segunda}"

@@ -16,6 +16,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.auth.deps import Actor
+from app.auth.models import Employee
 from app.catalog.models import Category, Product
 from app.core import clock as clock_module
 from app.core.modules import find_spec_safe
@@ -177,3 +179,35 @@ def sell(device_client: TestClient) -> Callable[..., Any]:
         return pay_resp.json()
 
     return _sell
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2a (`backend-consumo`): duplicadas a propósito de
+# `tests/orders/conftest.py` (mismo criterio de la cabecera del archivo: cada
+# carpeta arma su propia base sin imports cruzados entre carpetas de test).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def admin_actor(store: Store, employees: dict[str, Employee]) -> Actor:
+    admin = employees["admin"]
+    return Actor(
+        kind="admin", organization_id=store.organization_id, store_id=store.id,
+        employee_id=admin.id, employee_name=admin.name, role="admin",
+    )
+
+
+@pytest.fixture()
+def set_recipe(db: Session, admin_actor: Actor) -> Callable[..., Any]:
+    def _set(product_id: int, lines: list[dict[str, Any]], *, version: int = 0) -> Any:
+        from app.recipes import service as recipes_service
+        from app.recipes.schemas import ComponentLineIn, ProductRecipeIn
+
+        out = recipes_service.put_product_recipe(
+            db, actor=admin_actor, product_id=product_id,
+            data=ProductRecipeIn(version=version, lines=[ComponentLineIn(**line) for line in lines]),
+        )
+        db.commit()
+        return out
+
+    return _set

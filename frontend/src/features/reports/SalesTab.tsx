@@ -13,7 +13,15 @@ import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { CategoryBars, TrendLine } from "./charts"
-import { GROUP_BY_LABEL, daysAgoInBogota, isSequentialGroupBy, methodLabel, todayInBogota } from "./lib"
+import {
+  daysAgoInBogota,
+  formatPercentInt,
+  GROUP_BY_LABEL,
+  isSequentialGroupBy,
+  methodLabel,
+  recipeCoverageTone,
+  todayInBogota,
+} from "./lib"
 
 function bucketLabel(row: SalesBucketOut, groupBy: SalesGroupBy): string {
   if (groupBy === "method") return methodLabel(row.key)
@@ -91,6 +99,34 @@ function SalesReport({ report, groupBy }: { report: { rows: SalesBucketOut[]; to
         <StatTile label="Ticket por comensal" value={formatCOP(total.avg_per_cover)} />
       </div>
 
+      {/* Costo teórico, margen bruto y cobertura de receta (pedido 2a). La
+          cobertura es el número más honesto del reporte — dice qué porción
+          de la venta tuvo ficha técnica de verdad — así que va primero y
+          grande, no escondida en una columna; si es baja, el tono la marca
+          y el margen de al lado deja de leerse como definitivo. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatTile
+          label="Cobertura de receta"
+          value={formatPercentInt(total.recipe_coverage_pct)}
+          hint={
+            recipeCoverageTone(total.recipe_coverage_pct) === "default"
+              ? "Porción de la venta neta con ficha técnica de verdad."
+              : "Bajo esto, el costo y el margen de al lado no representan toda la venta — la mayoría se vendió sin receta."
+          }
+          tone={recipeCoverageTone(total.recipe_coverage_pct)}
+        />
+        <StatTile
+          label="Costo teórico"
+          value={formatCOP(total.theoretical_value)}
+          hint={total.theoretical_value === null || total.theoretical_value === undefined ? "Sin ventas costeadas en el período" : undefined}
+        />
+        <StatTile
+          label="Margen bruto teórico"
+          value={formatCOP(total.gross_contribution)}
+          hint={total.gross_contribution === null || total.gross_contribution === undefined ? "Sin ventas costeadas en el período" : "Ventas netas − costo teórico"}
+        />
+      </div>
+
       {rows.length === 0 ? (
         <EmptyState title="Sin ventas en este período" description="Elegí otro rango de fechas." />
       ) : (
@@ -120,6 +156,9 @@ function SalesReport({ report, groupBy }: { report: { rows: SalesBucketOut[]; to
                   <TableHead>Comandas</TableHead>
                   <TableHead>Comensales</TableHead>
                   <TableHead>Ticket prom.</TableHead>
+                  <TableHead>Costo teórico</TableHead>
+                  <TableHead>Margen bruto</TableHead>
+                  <TableHead>Cobertura</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -133,6 +172,9 @@ function SalesReport({ report, groupBy }: { report: { rows: SalesBucketOut[]; to
                     <TableCell className="tabular-nums">{row.orders ?? "—"}</TableCell>
                     <TableCell className="tabular-nums">{row.covers ?? "—"}</TableCell>
                     <TableCell className="tabular-nums">{formatCOP(row.avg_ticket)}</TableCell>
+                    <TableCell className="tabular-nums">{formatCOP(row.theoretical_value)}</TableCell>
+                    <TableCell className="tabular-nums">{formatCOP(row.gross_contribution)}</TableCell>
+                    <TableCell className="tabular-nums">{formatPercentInt(row.recipe_coverage_pct)}</TableCell>
                   </TableRow>
                 ))}
                 <TableRow className="font-medium">
@@ -144,6 +186,9 @@ function SalesReport({ report, groupBy }: { report: { rows: SalesBucketOut[]; to
                   <TableCell className="tabular-nums">{total.orders ?? "—"}</TableCell>
                   <TableCell className="tabular-nums">{total.covers ?? "—"}</TableCell>
                   <TableCell className="tabular-nums">{formatCOP(total.avg_ticket)}</TableCell>
+                  <TableCell className="tabular-nums">{formatCOP(total.theoretical_value)}</TableCell>
+                  <TableCell className="tabular-nums">{formatCOP(total.gross_contribution)}</TableCell>
+                  <TableCell className="tabular-nums">{formatPercentInt(total.recipe_coverage_pct)}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>

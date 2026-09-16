@@ -8,9 +8,11 @@ import AuditPage from "@/features/audit/AuditPage";
 import { customersFeature } from "@/features/customers";
 import { fiscalFeature } from "@/features/fiscal";
 import FeaturesPage from "@/features/features/FeaturesPage";
+import { inventoryFeature } from "@/features/inventory";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import { ordersFeature } from "@/features/orders";
 import { paymentsFeature } from "@/features/payments";
+import { recipesFeature } from "@/features/recipes";
 import { reportsFeature } from "@/features/reports";
 import SettingsPage from "@/features/settings/SettingsPage";
 import { shiftsFeature } from "@/features/shifts";
@@ -47,10 +49,11 @@ function RequireDevice({ children }: { children: React.ReactElement }): React.Re
  * exige `kind === "device"`. Concatena las rutas y la navegación que
  * declaran `shiftsFeature`, `catalogFeature`, `ordersFeature`,
  * `paymentsFeature`, `reportsFeature`, `fiscalFeature` y `customersFeature`
- * (CONTRATO-INTERNO-1b-1.md §6.2, pedido 1b-2). `PosHome` es la ruta índice
- * de `/pos`: decide entre Mesas y Comanda nueva según `pos.tables`. La ruta
- * índice de `/admin` es "Hoy" (`reportsFeature`): es la pantalla por la que
- * el dueño abre el admin (SPEC-NEGOCIO §9.3, "pulso de hoy" primero).
+ * (CONTRATO-INTERNO-1b-1.md §6.2, pedido 1b-2), más `inventoryFeature` y
+ * `recipesFeature` (pedido 2a). `PosHome` es la ruta índice de `/pos`:
+ * decide entre Mesas y Comanda nueva según `pos.tables`. La ruta índice de
+ * `/admin` es "Hoy" (`reportsFeature`): es la pantalla por la que el dueño
+ * abre el admin (SPEC-NEGOCIO §9.3, "pulso de hoy" primero).
  */
 const routes: RouteObject[] = [
   { path: "/", element: <Navigate to="/login" replace /> },
@@ -83,6 +86,8 @@ const routes: RouteObject[] = [
       ...ordersFeature.adminRoutes,
       ...fiscalFeature.adminRoutes,
       ...customersFeature.adminRoutes,
+      ...inventoryFeature.adminRoutes,
+      ...recipesFeature.adminRoutes,
     ],
   },
   {
@@ -97,6 +102,8 @@ const routes: RouteObject[] = [
       ...shiftsFeature.posRoutes,
       ...ordersFeature.posRoutes,
       ...paymentsFeature.posRoutes,
+      ...inventoryFeature.posRoutes,
+      ...recipesFeature.posRoutes,
     ],
   },
   { path: "*", element: <Navigate to="/login" replace /> },

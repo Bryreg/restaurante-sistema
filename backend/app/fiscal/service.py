@@ -40,7 +40,8 @@ from app.fiscal.schemas import (
     FiscalRangeRefOut,
 )
 from app.notifications import service as notifications_service
-from app.orders.models import Order, OrderSubAccount
+from app.orders import hooks as orders_hooks
+from app.orders.models import Order, OrderItem, OrderSubAccount
 from app.orders.money import OrderTotals
 from app.shifts.models import Shift
 from app.stores import service as stores_service
@@ -728,14 +729,35 @@ def issue_note(
     store: Store,
     business_date: date,
     now: datetime,
-) -> FiscalDocument:
+) -> tuple[FiscalDocument, list[int]]:
     """`POST /admin/documents/{id}/notes` (SPEC-NEGOCIO §3.5, §6.3): consecutivo
     propio de SU propio rango; el original pasa a `status="reversed"`
     (nunca se edita ni se borra). `lines_in[].used=True` selecciona qué
     líneas del original entran en la nota — sus montos ya están congelados
     en `original.lines` (snapshot del ítem), así que la nota los SUMA, no
     los recalcula: sigue siendo la única matemática (`app.orders.money`) la
-    que produjo esos números, acá sólo se agregan."""
+    que produjo esos números, acá sólo se agregan.
+
+    Además, por línea con `used=True` **y** `returns_to_stock=True`
+    (SPEC-NEGOCIO §3.5: «se usó» / «vuelve»), revierte el consumo teórico
+    registrado al enviar ese ítem, llamando a
+    `app.orders.hooks.reverse_item_consumption` — el espejo exacto leído del
+    LIBRO (`StockMovement` con `ref_type="order_item"`), nunca recalculado
+    con `expand_consumption`/la ficha de hoy: así la reversión es correcta
+    aunque la ficha haya cambiado entre el envío y la nota. Ese hook ya se
+    protege solo con `find_spec_safe` si `app.inventory` no está montado o
+    `inventory.perpetual` está apagada — acá no hace falta guardia extra.
+
+    **Regla de la nota débito**: una nota `kind="debit"` COBRA MÁS, nunca
+    devuelve producto. Se fuerza `returns_to_stock=False` para TODAS sus
+    líneas, ignorando lo que haya mandado el cliente (nunca se responde
+    `400`: con el default `True` de `NoteLineIn`, rechazar rompería toda
+    nota débito que no mande el campo).
+
+    Devuelve `(documento, returned_to_stock_item_ids)` — la segunda lista
+    sólo contiene los `item_id` cuya reversión escribió de verdad algún
+    movimiento (vacía si no se revirtió nada: flag apagada, sin consumo
+    original que revertir, o nota débito)."""
     note_type = NOTE_TYPE_FOR_KIND[kind]
     expected_original_type = ORIGINAL_TYPE_FOR_NOTE[note_type]
     if original.document_type != expected_original_type:
@@ -834,9 +856,32 @@ def issue_note(
     db.flush()
     emit_and_apply(db, document=row, store=store)
 
+    # Reversión de inventario ("vuelve"): nota débito nunca revierte (cobra
+    # más, no devuelve producto); las demás respetan `returns_to_stock` por
+    # línea, default `True`.
+    if kind == "debit":
+        reverting_item_ids: set[int] = set()
+    else:
+        reverting_item_ids = {line.item_id for line in lines_in if line.used and line.returns_to_stock}
+
+    returned_to_stock_item_ids: list[int] = []
+    if reverting_item_ids:
+        order_items = list(
+            db.execute(
+                select(OrderItem).where(
+                    OrderItem.order_id == original.order_id,
+                    OrderItem.id.in_(reverting_item_ids),
+                )
+            ).scalars()
+        )
+        for item in order_items:
+            reverted_rows = orders_hooks.reverse_item_consumption(db, item=item, actor=actor, now=now)
+            if reverted_rows:
+                returned_to_stock_item_ids.append(item.id)
+
     original.status = "reversed"
     db.flush()
-    return row
+    return row, returned_to_stock_item_ids
 
 
 def settle_or_queue_refund_for_note(

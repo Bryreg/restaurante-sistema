@@ -33,6 +33,15 @@ DOMAINS: list[str] = [
     "reports",
     "audit",
     "notifications",
+    # Pedido 2a (`features/fase-2-costo-inventario/spec.md`): dominios nuevos
+    # de `backend-inventario`/`backend-recetas`. Paso 0 de este reparto
+    # (verificado antes de tocar esta lista): `app/inventory/__init__.py` y
+    # `app/recipes/__init__.py` ya existen con contenido de sus dueños, así
+    # que `find_spec_safe("app.inventory.router")` resuelve `None` limpio si
+    # algún día falta el archivo puntual — nunca `ModuleNotFoundError` por
+    # falta de carpeta (la lección de 1b-1, ver `app.core.modules`).
+    "inventory",
+    "recipes",
 ]
 
 

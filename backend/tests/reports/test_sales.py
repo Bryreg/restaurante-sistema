@@ -5,7 +5,6 @@ anulados ni reversados); `net` = `gross - tax`, sin propina; `avg_ticket` =
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -22,9 +21,13 @@ def test_business_date_grouping_matches_the_kpi_formulas(
     sell(main_product, qty=1)
     sell(main_product, qty=1)
 
-    today = date.today().isoformat()
+    # Rango ancho y fijo, no `date.today()`: `business_date` (cutoff de sede)
+    # puede quedar un día detrás de la fecha calendario UTC durante varias
+    # horas cada día (Bogotá es UTC-5) — comparar contra `date.today()` es
+    # flaky por reloj real cerca de la medianoche UTC.
     resp = admin_client.get(
-        "/api/v1/admin/sales", params={"store_id": store.id, "from": today, "to": today, "group_by": "business_date"}
+        "/api/v1/admin/sales",
+        params={"store_id": store.id, "from": "2020-01-01", "to": "2099-12-31", "group_by": "business_date"},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -54,9 +57,9 @@ def test_tips_never_enter_gross_net_or_tax(
     identify(device_client, employees["cashier"])
     sell(main_product, qty=1, tip_amount=2_500)
 
-    today = date.today().isoformat()
     resp = admin_client.get(
-        "/api/v1/admin/sales", params={"store_id": store.id, "from": today, "to": today, "group_by": "business_date"}
+        "/api/v1/admin/sales",
+        params={"store_id": store.id, "from": "2020-01-01", "to": "2099-12-31", "group_by": "business_date"},
     )
     row = resp.json()["rows"][0]
     assert row["gross"] == 25_000  # la propina NO se suma acá
@@ -95,9 +98,9 @@ def test_group_by_method_splits_a_mixed_payment_prorating_the_tax(
     pay_resp = device_client.post(f"/api/v1/orders/{order['id']}/payments", json=pay_body, headers=idem_headers())
     assert pay_resp.status_code == 201, pay_resp.text
 
-    today = date.today().isoformat()
     resp = admin_client.get(
-        "/api/v1/admin/sales", params={"store_id": store.id, "from": today, "to": today, "group_by": "method"}
+        "/api/v1/admin/sales",
+        params={"store_id": store.id, "from": "2020-01-01", "to": "2099-12-31", "group_by": "method"},
     )
     assert resp.status_code == 200, resp.text
     rows = {r["key"]: r for r in resp.json()["rows"]}
@@ -116,10 +119,10 @@ def test_isolation_by_store_and_organization(
     identify(device_client, employees["cashier"])
     sell(main_product, qty=1)
 
-    today = date.today().isoformat()
     # Otra sede de OTRA organización: 404, nunca 200 vacío ni 403.
     resp = admin_client.get(
-        "/api/v1/admin/sales", params={"store_id": store_b.id, "from": today, "to": today, "group_by": "business_date"}
+        "/api/v1/admin/sales",
+        params={"store_id": store_b.id, "from": "2020-01-01", "to": "2099-12-31", "group_by": "business_date"},
     )
     assert resp.status_code == 404, resp.text
 
@@ -132,10 +135,15 @@ def test_csv_export(
     identify(device_client, employees["cashier"])
     sell(main_product, qty=1)
 
-    today = date.today().isoformat()
     resp = admin_client.get(
         "/api/v1/admin/sales",
-        params={"store_id": store.id, "from": today, "to": today, "group_by": "business_date", "format": "csv"},
+        params={
+            "store_id": store.id,
+            "from": "2020-01-01",
+            "to": "2099-12-31",
+            "group_by": "business_date",
+            "format": "csv",
+        },
     )
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("text/csv")
@@ -154,10 +162,10 @@ def test_every_group_by_value_answers_200_with_sane_rows(
     identify(device_client, employees["cashier"])
     sell(main_product, qty=1, channel="dine_in", table_ids=[tables[0].id])
 
-    today = date.today().isoformat()
     for group_by in ("shift", "channel", "employee", "hour", "zone"):
         resp = admin_client.get(
-            "/api/v1/admin/sales", params={"store_id": store.id, "from": today, "to": today, "group_by": group_by}
+            "/api/v1/admin/sales",
+            params={"store_id": store.id, "from": "2020-01-01", "to": "2099-12-31", "group_by": group_by},
         )
         assert resp.status_code == 200, f"{group_by}: {resp.text}"
         body = resp.json()

@@ -24,6 +24,21 @@ vi.mock("@/api/catalog", async () => {
   }
 })
 
+// La pestaña "Recetas" (pedido 2a) puede quedar montada aunque no esté
+// activa (los `Tabs` de base-ui no desmontan el contenido inactivo): se
+// mockea acá también para que ningún test de este archivo dispare una
+// llamada real a la red.
+vi.mock("@/api/recipes", async () => {
+  const actual = await vi.importActual<typeof import("@/api/recipes")>("@/api/recipes")
+  return {
+    ...actual,
+    listIngredientOptions: vi.fn().mockResolvedValue([]),
+    listPreparations: vi.fn().mockResolvedValue([]),
+    getRecipeCoverage: vi.fn().mockResolvedValue([]),
+    getSuspiciousUnits: vi.fn().mockResolvedValue([]),
+  }
+})
+
 describe("CatalogAdminPage", () => {
   it("no renderiza la pestaña Combos cuando pos.combos está apagado", () => {
     renderWithProviders(<CatalogAdminPage />, {
@@ -57,5 +72,29 @@ describe("CatalogAdminPage", () => {
 
     expect(screen.getByRole("tab", { name: "Combos" })).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: "Menú del día" })).toBeInTheDocument()
+  })
+
+  it("sin catalog.recipes no ofrece la pestaña Recetas: vende exactamente como hoy", () => {
+    renderWithProviders(<CatalogAdminPage />, {
+      me: {
+        kind: "admin",
+        organization: { id: 1, name: "Org" },
+        features: { "catalog.recipes": false },
+      },
+    })
+
+    expect(screen.queryByRole("tab", { name: "Recetas" })).not.toBeInTheDocument()
+  })
+
+  it("con catalog.recipes ofrece la pestaña Recetas (fichas técnicas, cobertura, unidades sospechosas)", async () => {
+    renderWithProviders(<CatalogAdminPage />, {
+      me: {
+        kind: "admin",
+        organization: { id: 1, name: "Org" },
+        features: { "catalog.recipes": true },
+      },
+    })
+
+    expect(screen.getByRole("tab", { name: "Recetas" })).toBeInTheDocument()
   })
 })

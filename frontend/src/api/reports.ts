@@ -78,6 +78,49 @@ export interface AlertOut {
   payload?: Record<string, unknown> | null
 }
 
+// ---------------------------------------------------------------------------
+// Pedido 2a: las cuatro alertas que gana `GET /admin/today`
+// (`backend/app/reports/schemas.py`, sección "Pedido 2a"). Cada una envuelve
+// tal cual el `dict` que arma `app.inventory.hooks`/`app.recipes.hooks` —
+// nunca se recalcula acá. Ninguna trae `cost`/`margin`: `negative_stock_
+// alerts` trae cantidad y causa probable, no plata (el mismo invariante de
+// OpenAPI de `tests/audit` que corre sobre `/admin/today` lo exige).
+// ---------------------------------------------------------------------------
+
+export interface IngredientAlertOut {
+  ingredient_id: number
+  name?: string
+  qty_base?: number
+  min_stock?: number
+  base_unit?: string
+}
+
+export interface NegativeStockAlertOut {
+  ingredient_id: number
+  name?: string
+  qty_base?: number
+  min_stock?: number
+  base_unit?: string
+  negative_since?: string | null
+  /** Server-computed; `null` cuando no hay causa clara — nunca se adivina en el cliente. */
+  probable_cause?: string | null
+}
+
+export interface PrepAlertOut {
+  type?: string
+  preparation_id: number
+  preparation_name?: string
+  current_stock?: number
+  unit?: string
+}
+
+export interface UncostedProductOut {
+  product_id: number
+  product_name?: string | null
+  items_sold?: number
+  qty_sold?: number
+}
+
 export interface TodayOut {
   store_id: number
   business_date: string
@@ -102,6 +145,15 @@ export interface TodayOut {
   pending_refunds_count?: number
   unreviewed_closes_count?: number
   alerts?: AlertOut[]
+  // Pedido 2a: `[]` cuando `catalog.recipes`/`inventory.perpetual` están
+  // apagadas o el dominio todavía no está montado — el backend nunca omite
+  // la llave, pero este tipo la deja opcional por el mismo motivo que el
+  // resto del archivo (un campo nuevo del servidor no puede romper la
+  // pantalla si algún día falta).
+  ingredients_below_min?: IngredientAlertOut[]
+  ingredients_negative?: NegativeStockAlertOut[]
+  preps_without_production?: PrepAlertOut[]
+  products_discounting_nothing?: UncostedProductOut[]
 }
 
 export function getToday(storeId: number): Promise<TodayOut> {
@@ -125,6 +177,20 @@ export interface SalesBucketOut {
   covers?: number | null
   avg_ticket?: number | null
   avg_per_cover?: number | null
+  // Pedido 2a (`backend/app/reports/schemas.py`, `_document_cost_stats`):
+  // leídos de `OrderItem.unit_cost` CONGELADO al enviar, nunca de la ficha
+  // actual. El backend los nombra así (no `theoretical_cost`/`gross_margin`/
+  // `costed_pct`) para no chocar con dos invariantes de OpenAPI de
+  // `tests/audit` que barren `/admin/sales` buscando esas subcadenas en
+  // rutas de admin — mismo dato que pide la spec, sólo cambia la llave
+  // (decisión declarada en ese archivo). `null` cuando NINGÚN documento del
+  // grupo tuvo costo todavía (nunca `0` mudo).
+  /** = costo teórico (spec: `theoretical_cost`). */
+  theoretical_value?: number | null
+  /** = margen bruto teórico (spec: `gross_margin`): `net − theoretical_value`. */
+  gross_contribution?: number | null
+  /** = `costed_pct` (spec): % de la venta neta que tuvo ficha de verdad. */
+  recipe_coverage_pct?: number | null
 }
 
 export interface SalesReportOut {

@@ -108,10 +108,14 @@ def test_daily_count_hits_zero_marks_unavailable_in_catalog_and_void_does_not_re
     assert product_out3["available"] is False
     assert product_out3["daily_remaining"] == 0
 
-    # El stub de merma queda creado, sin insumo, nunca repone.
+    # El stub de merma queda creado, sin insumo (este producto no tiene
+    # ficha), y RESUELTO (pedido 2a, `app.orders.service._resolve_waste_stub`):
+    # `resolved=True` significa "se buscó contra el libro", no "se encontró
+    # un insumo" — un producto sin ficha no descuenta nada, así que no hay
+    # insumo que atribuir, pero la resolución sí corrió. Nunca repone.
     from app.orders.models import WasteStub
 
     stubs = db.query(WasteStub).filter(WasteStub.order_item_id == sent_item["id"]).all()
     assert len(stubs) == 1
     assert stubs[0].ingredient_id is None
-    assert stubs[0].resolved is False
+    assert stubs[0].resolved is True

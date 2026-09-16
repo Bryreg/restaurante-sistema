@@ -40,6 +40,19 @@ NOTIFICATION_TYPES: list[str] = [
     "fiscal_contingency_overdue",
     "fiscal_range_low",
     "pending_refund",
+    # Pedido 2a (`features/fase-2-costo-inventario/spec.md`): alertas de costo
+    # e inventario que ganan `GET /admin/today`. Las EMITEN los dominios
+    # dueños del hecho que alertan (`backend-inventario` para las dos
+    # primeras vía `record_movement`/un barrido propio; `backend-recetas`
+    # para la tercera al detectar un lote sin producir; `backend-consumo`,
+    # este territorio, para la cuarta desde `app.reports.service.today_report`
+    # al leer `recipes.hooks.uncosted_products`); este catálogo sólo las
+    # declara, igual que se hizo con los tipos fiscales en 1b-2.
+    "ingredient_below_min",
+    "ingredient_negative",
+    "prep_no_production",
+    "product_discounts_nothing",
+    "waste_spike",
 ]
 
 

@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+import importlib
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.models import Employee
+from app.core.modules import find_spec_safe
 from app.seed import ADMIN_EMAIL, seed
 from app.stores.models import Store, Table, Zone
+
+# `seed()` cae en `app.recipes.seed.seed_recipes` cuando ese dominio existe
+# (territorio ajeno, todavía fuera de `app.core.models_registry.MODEL_MODULES`).
+# Sin este import, la fixture `db` (que crea el esquema con
+# `Base.metadata.create_all` ANTES de que `seed()` corra) nunca ve la tabla
+# `recipes`, y `seed_recipes` revienta con "no such table: recipes" -- no es
+# un fallo de este territorio, es el mismo caso que documenta
+# `0007_fiscal_ranges_notes.py` para `NoReferencedTableError`, pero para el
+# *esquema* en vez de una FK.
+if find_spec_safe("app.recipes.models") is not None:
+    importlib.import_module("app.recipes.models")
 
 
 def test_seed_is_idempotent(db: Session) -> None:

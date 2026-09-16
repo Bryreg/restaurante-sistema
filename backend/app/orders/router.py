@@ -294,12 +294,17 @@ def get_admin_orders(
     status: str | None = Query(None),
     channel: str | None = Query(None),
     flags: str | None = Query(None),
+    # Pedido 2a (R-5): declarado en el contrato, ver el mismo comentario en
+    # `app.reports.router.get_sales`. Este endpoint gana `courtesies_
+    # theoretical_value` en este mismo pedido.
+    format: str | None = Query(None, description='"csv" exporta `rows` como CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any] | Any:
     """`format=csv` exporta sólo `rows` (la tabla por comanda): los
     agregados del período (`kitchen_times_by_station`,
     `sent_at_payment_ratio`) no son una fila de esa tabla."""
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     admin_store(db, actor, store_id)
     flags_list = flags.split(",") if flags else None
     report = service.admin_list_orders(db, store_id=store_id, date_from=date_from, date_to=date_to, status=status, channel=channel, flags=flags_list)

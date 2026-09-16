@@ -6,7 +6,9 @@ import { NotificationBell } from "@/features/notifications/NotificationBell";
 import { catalogFeature } from "@/features/catalog";
 import { customersFeature } from "@/features/customers";
 import { fiscalFeature } from "@/features/fiscal";
+import { inventoryFeature } from "@/features/inventory";
 import { ordersFeature } from "@/features/orders";
+import { recipesFeature } from "@/features/recipes";
 import { reportsFeature } from "@/features/reports";
 import { shiftsFeature } from "@/features/shifts";
 import { Button } from "@/components/ui/button";
@@ -39,16 +41,18 @@ const OWN_NAV: NavItem[] = [
 ];
 
 /**
- * Orden de SPEC-NEGOCIO §9.3: Hoy, Ventas, Pedidos, Carta, (Dinero, Turnos y
+ * Orden de SPEC-NEGOCIO §9.3: Hoy, Ventas, Pedidos, Carta, Preparaciones e
+ * Inventario (pedido 2a) se intercalan junto a Carta, (Dinero, Turnos y
  * personal ya estaban), Documentos fiscales/Rangos/Notas/Devoluciones
- * pendientes y Clientes (pedido 1b-2) se intercalan donde la spec los agrupa
- * — junto a la venta y junto a la caja — y `OWN_NAV` cierra igual que antes.
+ * pendientes y Clientes (pedido 1b-2) — y `OWN_NAV` cierra igual que antes.
  */
 function buildNav(hasFeature: (key: string) => boolean): NavItem[] {
   const all = [
     ...reportsFeature.adminNav,
     ...ordersFeature.adminNav,
     ...catalogFeature.adminNav,
+    ...recipesFeature.adminNav,
+    ...inventoryFeature.adminNav,
     ...fiscalFeature.adminNav,
     ...shiftsFeature.adminNav,
     ...customersFeature.adminNav,

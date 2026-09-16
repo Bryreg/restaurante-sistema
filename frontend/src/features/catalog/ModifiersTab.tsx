@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
+import { useSession } from "@/app/session"
 import type { ModifierGroupOut, ModifierOptionIn } from "@/api/catalog"
 import {
   createModifierGroup,
@@ -23,7 +24,19 @@ import {
 import { errorMessage } from "@/lib/errors"
 import { formatCOP, parseCOP } from "@/lib/money"
 
-function GroupCard({ group, productId }: { group: ModifierGroupOut; productId: number }) {
+import { RecipeEffectDialog } from "./RecipeEffectDialog"
+
+function GroupCard({
+  group,
+  productId,
+  storeId,
+  showRecipeEffect,
+}: {
+  group: ModifierGroupOut
+  productId: number
+  storeId: number
+  showRecipeEffect: boolean
+}) {
   const queryClient = useQueryClient()
   const [options, setOptions] = useState<ModifierOptionIn[]>(
     group.options.map((o) => ({ id: o.id, name: o.name, price_delta: o.price_delta }))
@@ -93,6 +106,14 @@ function GroupCard({ group, productId }: { group: ModifierGroupOut; productId: n
                 )
               }
             />
+            {showRecipeEffect ? (
+              <RecipeEffectDialog
+                optionId={option.id}
+                optionName={option.name}
+                productId={productId}
+                storeId={storeId}
+              />
+            ) : null}
           </li>
         ))}
       </ul>
@@ -116,6 +137,11 @@ function GroupCard({ group, productId }: { group: ModifierGroupOut; productId: n
 }
 
 export function ModifiersTab({ storeId }: { storeId: number }) {
+  const { hasFeature } = useSession()
+  // `recipe_effect` sólo se ofrece con `catalog.recipes` encendida (spec
+  // §4.3): sin ficha técnica en la sede, no tiene sentido editar qué le
+  // suma/quita/reemplaza un modificador a un consumo que no existe.
+  const showRecipeEffect = hasFeature("catalog.recipes")
   const queryClient = useQueryClient()
   const [productId, setProductId] = useState<number | null>(null)
   const [newGroupName, setNewGroupName] = useState("")
@@ -186,7 +212,13 @@ export function ModifiersTab({ storeId }: { storeId: number }) {
             <p className="text-sm text-muted-foreground">Este producto todavía no tiene grupos.</p>
           )}
           {(groupsQuery.data ?? []).map((group) => (
-            <GroupCard key={group.id} group={group} productId={productId} />
+            <GroupCard
+              key={group.id}
+              group={group}
+              productId={productId}
+              storeId={storeId}
+              showRecipeEffect={showRecipeEffect}
+            />
           ))}
 
           <form

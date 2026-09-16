@@ -10,13 +10,18 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
+
+if TYPE_CHECKING:
+    # Sólo para el tipo de retorno de `ingredient_seeded` (pedido 2a); el
+    # import real es local a la fixture, mismo patrón que `catalog_seeded`.
+    from app.inventory.models import Ingredient
 
 from app.auth.models import Employee
 from app.core import clock as clock_module
@@ -667,3 +672,45 @@ def race_app(race_env: RaceEnv) -> tuple[TestClient, int]:
     `(TestClient, employee_id)`."""
 
     return race_env.client, race_env.employee_id
+
+
+# ---------------------------------------------------------------------------
+# Insumo de referencia (pedido 2a, `backend-inventario`; import local, mismo
+# patrón que `catalog_seeded`/`race_env.seed_product`, para que un dominio
+# que no toca `inventory` no dependa de que ese paquete exista).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def ingredient_seeded(db: Session, org: Organization, store: Store) -> "Ingredient":
+    """Un insumo activo listo para usar en tests de otros dominios
+    (`recipes`, `orders`): rendimiento 85 %, costo oficial, `min_stock`
+    real. No pasa por HTTP -- inserta directo, como `catalog_seeded`."""
+    from app.inventory.models import BaseUnit, Ingredient
+
+    now = clock_module.now_utc()
+    row = Ingredient(
+        organization_id=org.id,
+        store_id=store.id,
+        name="Pechuga de pollo",
+        category="Proteínas",
+        base_unit=BaseUnit.G,
+        purchase_unit="kg",
+        purchase_factor=1000,
+        yield_pct=85,
+        official_cost_micros=14_500_000,
+        estimated_cost_micros=None,
+        min_stock=5000,
+        lead_time_days=2,
+        perishable=True,
+        key_item=True,
+        active=True,
+        consumption_untracked=False,
+        substitute_ingredient_id=None,
+        supplier_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    return row

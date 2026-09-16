@@ -7,6 +7,7 @@ import { CombosTab } from "./CombosTab"
 import { DailyMenuTab } from "./DailyMenuTab"
 import { ModifiersTab } from "./ModifiersTab"
 import { ProductsTab } from "./ProductsTab"
+import { RecipesTab } from "./RecipesTab"
 
 export function CatalogAdminPage() {
   const { hasFeature } = useSession()
@@ -25,6 +26,10 @@ export function CatalogAdminPage() {
   const showModifiers = hasFeature("pos.modifiers")
   const showCombos = hasFeature("pos.combos")
   const showDailyMenu = hasFeature("pos.daily_menu")
+  // Fichas técnicas (pedido 2a): con `catalog.recipes` apagada, ni la
+  // pestaña se ofrece — el costo queda `null` con origen visible en todos
+  // lados y el sistema vende exactamente igual que antes (AGENTS.md).
+  const showRecipes = hasFeature("catalog.recipes")
 
   return (
     <div className="space-y-4">
@@ -37,6 +42,7 @@ export function CatalogAdminPage() {
           {showModifiers && <TabsTrigger value="modifiers">Modificadores</TabsTrigger>}
           {showCombos && <TabsTrigger value="combos">Combos</TabsTrigger>}
           {showDailyMenu && <TabsTrigger value="daily-menu">Menú del día</TabsTrigger>}
+          {showRecipes && <TabsTrigger value="recipes">Recetas</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="categories">
@@ -58,6 +64,11 @@ export function CatalogAdminPage() {
         {showDailyMenu && (
           <TabsContent value="daily-menu">
             <DailyMenuTab storeId={activeStoreId} />
+          </TabsContent>
+        )}
+        {showRecipes && (
+          <TabsContent value="recipes">
+            <RecipesTab storeId={activeStoreId} />
           </TabsContent>
         )}
       </Tabs>

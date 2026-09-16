@@ -28,6 +28,9 @@ MODEL_MODULES: list[str] = [
     "reports",
     "audit",
     "notifications",
+    # Pedido 2a: ver el mismo comentario en `app.main.DOMAINS`.
+    "inventory",
+    "recipes",
 ]
 
 

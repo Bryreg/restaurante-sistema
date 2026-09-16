@@ -31,6 +31,7 @@ from app.catalog.models import Combo, ComboGroup, ComboOption, ModifierGroup, Mo
 from app.core import clock, features, tz
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.core.modules import find_spec_safe
+from app.core.quantity import micros_to_pesos
 from app.core.tax import TAX_RATE_BY_CODE
 from app.notifications.service import notify
 from app.orders import money
@@ -967,8 +968,172 @@ def patch_item(db: Session, *, order: Order, item_id: int, actor: Actor, payload
     return order
 
 
+# ---------------------------------------------------------------------------
+# Pedido 2a: consumo teórico al enviar (SPEC-NEGOCIO §5.3).
+#
+# Enganche: DENTRO de `_apply_send`, en el mismo `for item in items` que ya
+# recorría 1b para poner `round_id`/`status`/`sent_at` — se agrega UNA
+# llamada más por ítem, después de fijar su estado. Orden respecto de lo que
+# ya estaba: corre ANTES del bloque de contador de porciones (que puede
+# marcar el producto agotado y auditar), porque congelar costo no depende de
+# esa auditoría y no hay razón para que un fallara al otro.
+#
+# Con `catalog.recipes` apagada, o si `app.recipes`/`app.inventory` no están
+# montados todavía, `_consumption_deps()` devuelve `None` y ningún ítem
+# llama nada de acá: `send` queda EXACTAMENTE como en 1b, `unit_cost` sigue
+# `None` (con `cost_source` también `None`, nunca `0`). Probado con la flag
+# en los dos estados en `tests/orders/test_send.py`.
+# ---------------------------------------------------------------------------
+
+
+def _consumption_deps() -> tuple[Any, Any, Any] | None:
+    """`(inventory.hooks, inventory.models, recipes.hooks)` si los tres
+    módulos ajenos de 2a están montados, o `None` si falta alguno —
+    protegido con `find_spec_safe`, nunca `importlib.util.find_spec` crudo,
+    para que la API arranque aunque uno todavía no exista (paso 0 de este
+    reparto)."""
+    if (
+        find_spec_safe("app.inventory.hooks") is None
+        or find_spec_safe("app.inventory.models") is None
+        or find_spec_safe("app.recipes.hooks") is None
+    ):
+        return None
+    inv_hooks = importlib.import_module("app.inventory.hooks")
+    inv_models = importlib.import_module("app.inventory.models")
+    rec_hooks = importlib.import_module("app.recipes.hooks")
+    return inv_hooks, inv_models, rec_hooks
+
+
+def _item_modifier_option_ids(item: OrderItem) -> list[int]:
+    """Los `option_id` ya resueltos y congelados en `item.modifiers` al
+    agregar el ítem (`ModifierOut`, JSON) — nunca se vuelven a resolver
+    contra `app.catalog` acá: son exactamente los que `expand_consumption`
+    necesita para aplicar `recipe_effect`."""
+    return [int(m["option_id"]) for m in (item.modifiers or []) if m.get("option_id") is not None]
+
+
+def _combine_cost_sources(inv_models: Any, sources: list[Any]) -> Any:
+    """Combina el origen de costo de varios componentes (un combo) en uno
+    solo: `official` únicamente si TODOS los componentes lo son —
+    "nunca un cero mudo" se extiende acá a "nunca un origen más optimista
+    que el componente menos confiable"."""
+    if not sources:
+        return inv_models.CostSource.NONE
+    if all(s == inv_models.CostSource.OFFICIAL for s in sources):
+        return inv_models.CostSource.OFFICIAL
+    return inv_models.CostSource.ESTIMATED
+
+
+def _freeze_item_consumption(db: Session, order: Order, item: OrderItem, actor: Actor, now: datetime, deps: tuple[Any, Any, Any]) -> None:
+    """Congela `recipe_version`/`unit_cost`/`cost_source` en `item` y
+    registra el consumo teórico (§5.3). Un solo camino para venta, cortesía
+    y `staff_meal`: esta función no mira `item.unit_price` ni `order.channel`
+    en ningún momento — el consumo depende sólo de `product_id`/`combo_id`,
+    modificadores y `qty`, así que vender, regalar y comer llaman EXACTAMENTE
+    el mismo código y dejan el inventario idéntico (se compara con un test
+    de los tres caminos).
+
+    **Combos**: no tienen una ficha propia versionada (cada componente tiene
+    la suya — `SPEC-NEGOCIO §4.3`, "el consumo y el mix se calculan por
+    componentes"), así que `item.recipe_version` queda `None` para un ítem
+    de combo aunque tenga costo; declarado en el entregable. Las líneas de
+    cada componente NO se pre-funden en Python antes de escribir: se llama
+    `record_movement` una vez por línea de cada componente y se deja que SU
+    fusión (misma `ref_type`/`ref_id`/`cause`/insumo) junte los insumos que
+    dos componentes comparten — es el caso real donde la fusión de
+    `record_movement` actúa dentro del consumo de un solo ítem."""
+    inv_hooks, inv_models, rec_hooks = deps
+    modifier_option_ids = _item_modifier_option_ids(item)
+    lines_multiplier = 1
+    recipe_version: int | None
+    unit_cost_micros: int | None
+    cost_source: Any
+
+    if item.product_id is not None:
+        plan = rec_hooks.expand_consumption(
+            db, store_id=order.store_id, product_id=item.product_id, qty=item.qty, modifier_option_ids=modifier_option_ids
+        )
+        recipe_version = plan.recipe_version
+        unit_cost_micros = plan.unit_cost_micros
+        cost_source = plan.cost_source
+        lines = list(plan.lines)
+    elif item.combo_id is not None:
+        recipe_version = None
+        lines = []
+        total_micros = 0
+        any_missing = False
+        sources: list[Any] = []
+        for selection in item.combo_selections or []:
+            component_product_id = selection.get("product_id")
+            if component_product_id is None:
+                continue
+            component_plan = rec_hooks.expand_consumption(
+                db, store_id=order.store_id, product_id=component_product_id, qty=1, modifier_option_ids=[]
+            )
+            lines.extend(component_plan.lines)
+            if component_plan.unit_cost_micros is None:
+                any_missing = True
+            else:
+                total_micros += component_plan.unit_cost_micros
+                sources.append(component_plan.cost_source)
+        lines_multiplier = item.qty
+        if not lines or any_missing:
+            unit_cost_micros = None
+            cost_source = inv_models.CostSource.NONE
+        else:
+            unit_cost_micros = total_micros
+            cost_source = _combine_cost_sources(inv_models, sources)
+    else:
+        return
+
+    item.recipe_version = recipe_version
+    if unit_cost_micros is not None:
+        item.unit_cost = micros_to_pesos(unit_cost_micros)
+        # Ronda 2 (B-2): el mismo costo, SIN redondear a pesos — viaja
+        # siempre junto a `unit_cost`/`cost_source` (los tres juntos, nunca
+        # uno solo). `_document_cost_stats` acumula sobre este campo para no
+        # sumar el redondeo de `unit_cost` línea por línea (un plato de
+        # $0,30 de costo real congela `unit_cost=0`, que es correcto para
+        # ESTE ítem — no es un cero mudo, tiene `cost_source` — pero sumar
+        # cientos de esos en pesos pierde la plata real).
+        item.unit_cost_micros = unit_cost_micros
+        item.cost_source = cost_source.value
+    else:
+        item.unit_cost = None
+        item.unit_cost_micros = None
+        item.cost_source = None
+
+    if not lines:
+        return
+    if not features.is_enabled(db, order.organization_id, order.store_id, "inventory.perpetual"):
+        return
+
+    for line in lines:
+        qty_base = line.qty_base * lines_multiplier
+        if qty_base <= 0:
+            continue
+        inv_hooks.record_movement(
+            db,
+            organization_id=order.organization_id,
+            store_id=order.store_id,
+            ingredient_id=line.ingredient_id,
+            preparation_id=line.preparation_id,
+            qty_base=-qty_base,
+            cause=inv_models.MovementCause.SALE,
+            cost_micros=line.cost_micros,
+            cost_source=line.cost_source,
+            actor=actor,
+            business_date=order.business_date,
+            at=now,
+            ref_type="order_item",
+            ref_id=item.id,
+            note=None,
+        )
+
+
 def _apply_send(db: Session, order: Order, items: list[OrderItem], round_row: OrderRound, now: datetime, actor: Actor, *, sent_at_payment: bool, force_served: bool) -> None:
     daily_count_enabled = features.is_enabled(db, order.organization_id, order.store_id, "pos.daily_count")
+    consumption_deps = _consumption_deps()
     qty_by_product: dict[int, int] = {}
     for item in items:
         item.round_id = round_row.id
@@ -981,6 +1146,8 @@ def _apply_send(db: Session, order: Order, items: list[OrderItem], round_row: Or
         else:
             item.status = OrderItemStatus.SERVED
             item.served_at = now
+        if consumption_deps is not None:
+            _freeze_item_consumption(db, order, item, actor, now, consumption_deps)
         if daily_count_enabled and item.product_id is not None:
             qty_by_product[item.product_id] = qty_by_product.get(item.product_id, 0) + item.qty
     for product_id, qty in qty_by_product.items():
@@ -1068,6 +1235,82 @@ def mark_served(db: Session, *, order: Order, item_id: int, actor: Actor) -> Ord
 # ---------------------------------------------------------------------------
 
 
+def _resolve_waste_stub(db: Session, *, base_stub: WasteStub) -> None:
+    """Resuelve `base_stub` (§ ganchos, pedido 2a) contra la ficha: lee del
+    LIBRO (`StockMovement` con `cause=SALE`, `ref_type="order_item"`,
+    `ref_id=item.id` — la misma clave con la que `_freeze_item_consumption`
+    los escribió al enviar), nunca contra la ficha actual (mismo criterio que
+    `app.orders.hooks.reverse_item_consumption`: la ficha pudo cambiar
+    entremedio). Un insumo por `WasteStub`: si el ítem descontó varios,
+    `base_stub` se queda con el primero y esta función crea filas
+    ADICIONALES para el resto — trazable insumo por insumo, sin inventar un
+    segundo modelo de datos.
+
+    **No repone inventario** (el plato ya se cocinó): esta función nunca
+    llama `record_movement`. Decisión declarada en el entregable: no se
+    escribe tampoco un movimiento `cause=void_after_send` adicional —
+    hacerlo sin mutar la fila `SALE` ya escrita (prohibido: `record_movement`
+    es la única escritura de inventario y no ofrece "reclasificar", sólo
+    sumar) exigiría un par que se cancela exactamente (un alta y una baja
+    nuevas, mismo insumo, `cause=void_after_send`), que no cambia el saldo
+    ni aporta a ningún reporte que sume por causa (su suma da cero) y sólo
+    agrega dos filas por insumo sin ganancia real; se prefiere no escribirlas
+    y dejar `MovementCause.VOID_AFTER_SEND` declarado para cuando `app.
+    inventory` ofrezca una reclasificación real. El saldo del insumo queda
+    exactamente donde lo dejó la venta original — ver el test de propiedad
+    en `tests/orders/test_send.py`."""
+    if find_spec_safe("app.inventory.models") is None:
+        base_stub.resolved = True
+        return
+
+    inv_models = importlib.import_module("app.inventory.models")
+    rows = list(
+        db.execute(
+            select(inv_models.StockMovement)
+            .where(
+                inv_models.StockMovement.store_id == base_stub.store_id,
+                inv_models.StockMovement.ref_type == "order_item",
+                inv_models.StockMovement.ref_id == base_stub.order_item_id,
+                inv_models.StockMovement.cause == inv_models.MovementCause.SALE,
+                inv_models.StockMovement.ingredient_id.is_not(None),
+            )
+            .order_by(inv_models.StockMovement.id)
+        ).scalars()
+    )
+    ingredient_ids: list[int] = []
+    seen: set[int] = set()
+    for row in rows:
+        if row.ingredient_id is not None and row.ingredient_id not in seen:
+            seen.add(row.ingredient_id)
+            ingredient_ids.append(row.ingredient_id)
+
+    base_stub.resolved = True
+    if not ingredient_ids:
+        return
+    base_stub.ingredient_id = ingredient_ids[0]
+    for extra_ingredient_id in ingredient_ids[1:]:
+        db.add(
+            WasteStub(
+                organization_id=base_stub.organization_id,
+                store_id=base_stub.store_id,
+                order_id=base_stub.order_id,
+                order_item_id=base_stub.order_item_id,
+                product_id=base_stub.product_id,
+                product_name=base_stub.product_name,
+                qty=base_stub.qty,
+                reason=base_stub.reason,
+                note=base_stub.note,
+                employee_id=base_stub.employee_id,
+                employee_name=base_stub.employee_name,
+                authorized_by_employee_id=base_stub.authorized_by_employee_id,
+                authorized_by_employee_name=base_stub.authorized_by_employee_name,
+                at=base_stub.at,
+                ingredient_id=extra_ingredient_id,
+                resolved=True,
+            )
+        )
+
+
 def void_item(db: Session, *, order: Order, item_id: int, actor: Actor, expected_version: int, reason: str, note: str | None, authorizer_pin: str | None) -> Order:
     _check_version(db, order, expected_version, actor=actor)
     if order.status not in _OPEN_ORDER_STATUSES:
@@ -1098,16 +1341,17 @@ def void_item(db: Session, *, order: Order, item_id: int, actor: Actor, expected
     item.void_minutes_since_sent = int((now - item.sent_at).total_seconds() // 60) if was_sent and item.sent_at else None
 
     if prior_status in _LIVE_ITEM_STATUSES_SENT:
-        db.add(
-            WasteStub(
-                organization_id=order.organization_id, store_id=order.store_id, order_id=order.id, order_item_id=item.id,
-                product_id=item.product_id, product_name=item.name, qty=item.qty, reason=VoidReason(reason), note=note,
-                employee_id=actor.employee_id, employee_name=actor.employee_name,  # type: ignore[arg-type]
-                authorized_by_employee_id=authorizer.id if authorizer else None,
-                authorized_by_employee_name=authorizer.name if authorizer else None,
-                at=now, ingredient_id=None, resolved=False,
-            )
+        stub = WasteStub(
+            organization_id=order.organization_id, store_id=order.store_id, order_id=order.id, order_item_id=item.id,
+            product_id=item.product_id, product_name=item.name, qty=item.qty, reason=VoidReason(reason), note=note,
+            employee_id=actor.employee_id, employee_name=actor.employee_name,  # type: ignore[arg-type]
+            authorized_by_employee_id=authorizer.id if authorizer else None,
+            authorized_by_employee_name=authorizer.name if authorizer else None,
+            at=now, ingredient_id=None, resolved=False,
         )
+        db.add(stub)
+        db.flush()
+        _resolve_waste_stub(db, base_stub=stub)
 
     order.version += 1
     order.updated_at = now
@@ -1183,16 +1427,17 @@ def void_order(db: Session, *, order: Order, actor: Actor, payload: VoidOrderIn)
     for item in items:
         was_sent = item.sent_at is not None
         if was_sent:
-            db.add(
-                WasteStub(
-                    organization_id=order.organization_id, store_id=order.store_id, order_id=order.id, order_item_id=item.id,
-                    product_id=item.product_id, product_name=item.name, qty=item.qty, reason=VoidReason(payload.reason), note=payload.note,
-                    employee_id=actor.employee_id, employee_name=actor.employee_name,  # type: ignore[arg-type]
-                    authorized_by_employee_id=authorizer.id if authorizer else None,
-                    authorized_by_employee_name=authorizer.name if authorizer else None,
-                    at=now, ingredient_id=None, resolved=False,
-                )
+            stub = WasteStub(
+                organization_id=order.organization_id, store_id=order.store_id, order_id=order.id, order_item_id=item.id,
+                product_id=item.product_id, product_name=item.name, qty=item.qty, reason=VoidReason(payload.reason), note=payload.note,
+                employee_id=actor.employee_id, employee_name=actor.employee_name,  # type: ignore[arg-type]
+                authorized_by_employee_id=authorizer.id if authorizer else None,
+                authorized_by_employee_name=authorizer.name if authorizer else None,
+                at=now, ingredient_id=None, resolved=False,
             )
+            db.add(stub)
+            db.flush()
+            _resolve_waste_stub(db, base_stub=stub)
         item.status = OrderItemStatus.VOIDED
         item.void_reason = VoidReason(payload.reason)
         item.void_note = payload.note
@@ -1752,6 +1997,20 @@ def admin_list_orders(
         voids_after_bill = sum(1 for i in items if i.status == OrderItemStatus.VOIDED and i.void_after_bill)
         courtesies = sum(1 for i in items if i.courtesy_reason is not None)
         courtesy_list_value = sum(i.list_price * i.qty for i in items if i.courtesy_reason is not None)
+        # Pedido 2a: las cortesías "a costo" (spec.md «Reports that gain
+        # cost»): Σ `unit_cost` CONGELADO × `qty` de los ítems de cortesía.
+        # `None` (nunca `0` mudo) cuando ninguno tenía costo todavía
+        # (`catalog.recipes` apagada, o sin ficha) — se distingue de
+        # `courtesy_list_value`, que es lo que el cliente NO pagó (precio),
+        # no lo que le costó al restaurante (insumo). Nombre sin la
+        # subcadena "cost": ver la decisión declarada al inicio de
+        # `app.reports.schemas` — el mismo invariante de OpenAPI de
+        # `tests/audit` alcanza a `/admin/orders`.
+        courtesy_costed_values: list[int] = []
+        for i in items:
+            if i.courtesy_reason is not None and i.unit_cost is not None:
+                courtesy_costed_values.append(i.unit_cost * i.qty)
+        courtesies_theoretical_value = sum(courtesy_costed_values) if courtesy_costed_values else None
         sent_at_payment_items = sum(1 for i in items if i.sent_at_payment)
         live_items_count = sum(1 for i in items if i.status != OrderItemStatus.VOIDED)
         total_live_items += live_items_count
@@ -1784,6 +2043,7 @@ def admin_list_orders(
             "closed_at": order.closed_at, "table_minutes": table_minutes, "bill_to_paid_minutes": bill_to_paid_minutes,
             "items_count": live_items_count, "total": totals.total, "voided_items": voided_items, "voids_after_bill": voids_after_bill,
             "void_details": void_details, "courtesies": courtesies, "courtesy_list_value": courtesy_list_value,
+            "courtesies_theoretical_value": courtesies_theoretical_value,
             "discount_total": totals.discount_total, "sent_at_payment_items": sent_at_payment_items,
             "sent_at_payment_ratio": (sent_at_payment_items / live_items_count) if live_items_count else None,
             "is_staff_meal": order.channel == OrderChannel.STAFF_MEAL,

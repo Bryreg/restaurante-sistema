@@ -216,7 +216,7 @@ def get_export(
 # ---------------------------------------------------------------------------
 
 
-def _note_out(row: Any, *, refund_status: str | None) -> NoteOut:
+def _note_out(row: Any, *, refund_status: str | None, returned_to_stock_item_ids: list[int]) -> NoteOut:
     return NoteOut(
         id=row.id,
         document_type=row.document_type.value,
@@ -235,6 +235,7 @@ def _note_out(row: Any, *, refund_status: str | None) -> NoteOut:
         business_date=row.business_date,
         issued_at=row.issued_at,
         refund_status=refund_status,
+        returned_to_stock_item_ids=returned_to_stock_item_ids,
     )
 
 
@@ -256,7 +257,7 @@ def post_note(
     def _do() -> tuple[int, dict[str, Any]]:
         now = clock.now_utc()
         business_date = tz.today_business_date(store.cutoff_hour)
-        note = service.issue_note(
+        note, returned_to_stock_item_ids = service.issue_note(
             db,
             original=original,
             kind=payload.kind,
@@ -279,9 +280,16 @@ def post_note(
             entity_id=note.id,
             action="issue_note",
             before={"reverses_document_id": original.id, "original_status": "issued"},
-            after={"kind": payload.kind, "total": note.total, "refund_status": refund_status},
+            after={
+                "kind": payload.kind,
+                "total": note.total,
+                "refund_status": refund_status,
+                "returned_to_stock_item_count": len(returned_to_stock_item_ids),
+            },
         )
-        return 201, _note_out(note, refund_status=refund_status).model_dump(mode="json")
+        return 201, _note_out(
+            note, refund_status=refund_status, returned_to_stock_item_ids=returned_to_stock_item_ids
+        ).model_dump(mode="json")
 
     status_code, resp_body = run_idempotent(
         db,

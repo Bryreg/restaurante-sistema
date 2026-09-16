@@ -245,3 +245,238 @@ def test_note_idempotency_key_replays_same_response(
     second = admin_client.post(f"/api/v1/admin/documents/{document['id']}/notes", json=body, headers=headers)
     assert second.status_code == 201, second.text
     assert first.json() == second.json()
+
+
+# ---------------------------------------------------------------------------
+# Ronda 2 — B-1 (bloqueante conflict-001-b1): la nota «vuelve»/«se usó»
+# (SPEC-NEGOCIO §3.5) revierte de verdad el consumo teórico registrado al
+# enviar, vía `app.orders.hooks.reverse_item_consumption` (el espejo exacto
+# construido en la ronda 1, leído del LIBRO — nunca de la ficha actual).
+#
+# `returns_to_stock: bool = True` (`NoteLineIn`, decisión de contrato del
+# Maestro): `True` = "vuelve" (default — SPEC-NEGOCIO §3.5 escribe "se usó"
+# como la EXCEPCIÓN marcada entre paréntesis), `False` = "se usó" (no
+# revierte). Una nota `kind="debit"` fuerza `False` en TODAS sus líneas
+# (cobra más, nunca devuelve producto) sin importar lo que mande el cliente.
+# ---------------------------------------------------------------------------
+
+
+def _stock(db: Any, store: Any, ingredient: Any) -> int:
+    from app.inventory import hooks as inventory_hooks
+
+    return inventory_hooks.current_stock(db, store_id=store.id, ingredient_id=ingredient.id)
+
+
+def test_a_adjustment_note_without_the_field_defaults_to_returns_and_stock_goes_back_exact(
+    db: Any, store: Any, device_client: Any, identify: Any, employees: Any, open_shift: Any, admin_client: Any,
+    drink_product: Any, ingredient_seeded: Any, set_recipe: Any,
+) -> None:
+    """(a) Nota de ajuste SIN el campo `returns_to_stock` en el body (el caso
+    real: `{"item_id": X, "used": true}` sin conocer el campo nuevo) — el
+    default `True` tiene que revertir el consumo exacto, sin que el cliente
+    tenga que enterarse de que el campo existe."""
+    set_recipe(drink_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+    antes = _stock(db, store, ingredient_seeded)
+
+    document = _pay_pos_equivalent(device_client, identify, employees, open_shift, drink_product)
+    db.expire_all()
+    despues_de_vender = _stock(db, store, ingredient_seeded)
+    assert despues_de_vender < antes, "la venta tiene que haber descontado el insumo"
+
+    printable = device_client.get(f"/api/v1/documents/{document['id']}")
+    item_id = printable.json()["lines"][0]["item_id"]
+
+    resp = admin_client.post(
+        f"/api/v1/admin/documents/{document['id']}/notes",
+        json={
+            "kind": "adjustment",
+            "reason": "El cliente devolvió el producto sin abrir; vuelve al inventario",
+            "lines": [{"item_id": item_id, "used": True}],  # SIN `returns_to_stock`: default True
+        },
+        headers=idem_headers(),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["returned_to_stock_item_ids"] == [item_id]
+
+    db.expire_all()
+    assert _stock(db, store, ingredient_seeded) == antes, "el saldo tiene que volver EXACTO al valor previo al envío"
+
+
+def test_b_returns_to_stock_false_keeps_the_consumption_and_writes_no_note_return_movement(
+    db: Any, store: Any, device_client: Any, identify: Any, employees: Any, open_shift: Any, admin_client: Any,
+    drink_product: Any, ingredient_seeded: Any, set_recipe: Any,
+) -> None:
+    """(b) `returns_to_stock=False` ("se usó"): el saldo NO vuelve y no existe
+    NINGÚN `StockMovement` con `cause=note_return` para este ítem — la línea
+    se ignora por completo para efectos de inventario, no sólo "no se ve"."""
+    set_recipe(drink_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+
+    document = _pay_pos_equivalent(device_client, identify, employees, open_shift, drink_product)
+    db.expire_all()
+    despues_de_vender = _stock(db, store, ingredient_seeded)
+
+    printable = device_client.get(f"/api/v1/documents/{document['id']}")
+    item_id = printable.json()["lines"][0]["item_id"]
+
+    resp = admin_client.post(
+        f"/api/v1/admin/documents/{document['id']}/notes",
+        json={
+            "kind": "adjustment",
+            "reason": "El plato se sirvió y se consumió; no vuelve",
+            "lines": [{"item_id": item_id, "used": True, "returns_to_stock": False}],
+        },
+        headers=idem_headers(),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["returned_to_stock_item_ids"] == []
+
+    db.expire_all()
+    assert _stock(db, store, ingredient_seeded) == despues_de_vender, "«se usó» no repone nada"
+
+    from sqlalchemy import select
+
+    from app.inventory.models import MovementCause, StockMovement
+
+    note_return_rows = list(
+        db.execute(
+            select(StockMovement).where(
+                StockMovement.ref_type == "order_item",
+                StockMovement.ref_id == item_id,
+                StockMovement.cause == MovementCause.NOTE_RETURN,
+            )
+        ).scalars()
+    )
+    assert note_return_rows == [], "«se usó» no puede escribir ningún movimiento de reversión"
+
+
+def test_c_note_mirrors_the_book_not_todays_recipe_when_it_changed_in_between(
+    db: Any, store: Any, device_client: Any, identify: Any, employees: Any, open_shift: Any, admin_client: Any,
+    main_product: Any, ingredient_seeded: Any, set_recipe: Any,
+) -> None:
+    """(c) La ficha cambia DESPUÉS del envío y ANTES de la nota: el espejo
+    tiene que ignorar la ficha nueva por completo y devolver EXACTAMENTE lo
+    que el libro tenía registrado — nunca recalcular con `expand_consumption`
+    contra la v2. Es la razón por la que `issue_note` llama
+    `app.orders.hooks.reverse_item_consumption` (lee el libro) y no
+    `app.recipes.hooks.expand_consumption` (leería la ficha de hoy)."""
+    recipe_v1 = set_recipe(main_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+    assert recipe_v1.version == 1
+    antes = _stock(db, store, ingredient_seeded)
+
+    document = _pay_pos_equivalent(device_client, identify, employees, open_shift, main_product)
+    db.expire_all()
+    assert _stock(db, store, ingredient_seeded) < antes
+
+    # La ficha cambia DESPUÉS del envío (v2, cien veces más cantidad): si el
+    # espejo recalculara con la ficha de hoy, "vuelve" repondría muchísimo
+    # más de lo que la venta original había descontado.
+    set_recipe(main_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "9999", "unit": "g"}], version=1)
+
+    printable = device_client.get(f"/api/v1/documents/{document['id']}")
+    item_id = printable.json()["lines"][0]["item_id"]
+
+    resp = admin_client.post(
+        f"/api/v1/admin/documents/{document['id']}/notes",
+        json={"kind": "adjustment", "reason": "Devolución, ficha cambió entremedio", "lines": [{"item_id": item_id, "used": True}]},
+        headers=idem_headers(),
+    )
+    assert resp.status_code == 201, resp.text
+
+    db.expire_all()
+    assert _stock(db, store, ingredient_seeded) == antes, (
+        "el espejo tiene que cancelar EXACTAMENTE lo que el libro tenía, no lo que da la ficha v2"
+    )
+
+
+def test_d_same_idempotency_key_twice_reverts_only_once(
+    db: Any, store: Any, device_client: Any, identify: Any, employees: Any, open_shift: Any, admin_client: Any,
+    drink_product: Any, ingredient_seeded: Any, set_recipe: Any,
+) -> None:
+    """(d) `run_idempotent` devuelve la respuesta guardada en el replay sin
+    volver a correr `_do` (`app.core.idempotency`) — esto se prueba de
+    verdad, no se asume: la segunda llamada con la MISMA `Idempotency-Key`
+    NO puede revertir el consumo una segunda vez."""
+    set_recipe(drink_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+    antes = _stock(db, store, ingredient_seeded)
+
+    document = _pay_pos_equivalent(device_client, identify, employees, open_shift, drink_product)
+    printable = device_client.get(f"/api/v1/documents/{document['id']}")
+    item_id = printable.json()["lines"][0]["item_id"]
+
+    body = {"kind": "adjustment", "reason": "idempotente, vuelve", "lines": [{"item_id": item_id, "used": True}]}
+    headers = idem_headers()
+
+    first = admin_client.post(f"/api/v1/admin/documents/{document['id']}/notes", json=body, headers=headers)
+    assert first.status_code == 201, first.text
+    db.expire_all()
+    stock_after_first = _stock(db, store, ingredient_seeded)
+    assert stock_after_first == antes, "la primera llamada tiene que haber revertido el consumo"
+
+    second = admin_client.post(f"/api/v1/admin/documents/{document['id']}/notes", json=body, headers=headers)
+    assert second.status_code == 201, second.text
+    assert second.json() == first.json(), "el replay devuelve la MISMA respuesta guardada, no vuelve a correr `_do`"
+
+    db.expire_all()
+    assert _stock(db, store, ingredient_seeded) == stock_after_first, "el replay no puede revertir una segunda vez"
+
+
+def test_e_inventory_perpetual_off_returns_201_with_no_movements_and_no_exception(
+    device_client: Any, identify: Any, employees: Any, open_shift: Any, admin_client: Any,
+    drink_product: Any, ingredient_seeded: Any, set_recipe: Any, set_feature: Any,
+) -> None:
+    """(e) `inventory.perpetual` apagada: la venta no escribió ningún
+    movimiento (`app.orders.service._freeze_item_consumption` corta antes de
+    llamar `record_movement`), así que la nota tampoco tiene nada que
+    revertir — `reverse_item_consumption` lee el libro, lo encuentra vacío
+    para este ítem y devuelve `[]` **sin lanzar**. `201`, no `500` ni `400`."""
+    set_feature("inventory.perpetual", False)
+    set_recipe(drink_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+
+    document = _pay_pos_equivalent(device_client, identify, employees, open_shift, drink_product)
+    printable = device_client.get(f"/api/v1/documents/{document['id']}")
+    item_id = printable.json()["lines"][0]["item_id"]
+
+    resp = admin_client.post(
+        f"/api/v1/admin/documents/{document['id']}/notes",
+        json={"kind": "adjustment", "reason": "sin inventario perpetuo", "lines": [{"item_id": item_id, "used": True}]},
+        headers=idem_headers(),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["returned_to_stock_item_ids"] == []
+
+
+def test_f_debit_note_never_reverts_even_if_the_client_asks_for_it(
+    db: Any, store: Any, device_client: Any, identify: Any, employees: Any, open_shift: Any, admin_client: Any,
+    main_product: Any, ingredient_seeded: Any, set_recipe: Any, set_feature: Any,
+) -> None:
+    """(f) Regla de la nota débito: COBRA MÁS, nunca devuelve producto. Se
+    fuerza `returns_to_stock=False` para TODAS sus líneas — incluso si el
+    cliente manda `returns_to_stock: true` explícito, se ignora, y NUNCA
+    responde `400` por eso (el default `True` de `NoteLineIn` existe
+    justamente para que un campo no reconocido no rompa el request)."""
+    set_feature("fiscal.invoice", True)
+    set_recipe(main_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+    antes = _stock(db, store, ingredient_seeded)
+
+    document = _pay_invoice(device_client, identify, employees, open_shift, main_product)
+    db.expire_all()
+    despues_de_vender = _stock(db, store, ingredient_seeded)
+    assert despues_de_vender < antes
+
+    printable = device_client.get(f"/api/v1/documents/{document['id']}")
+    item_id = printable.json()["lines"][0]["item_id"]
+
+    resp = admin_client.post(
+        f"/api/v1/admin/documents/{document['id']}/notes",
+        json={
+            "kind": "debit",
+            "reason": "Cobro adicional por un ítem faltante en la cuenta",
+            "lines": [{"item_id": item_id, "used": True, "returns_to_stock": True}],  # se IGNORA
+        },
+        headers=idem_headers(),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["returned_to_stock_item_ids"] == [], "una nota débito nunca revierte, aunque se lo pidan"
+
+    db.expire_all()
+    assert _stock(db, store, ingredient_seeded) == despues_de_vender, "el consumo de la venta original sigue intacto"

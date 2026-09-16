@@ -4,7 +4,13 @@
 
 Idempotente: si ya existe el admin de demo, no repite nada (lo prueba
 `tests/core/test_seed.py`). Si existe `app.catalog.seed.seed_catalog`, la
-llama para cargar la carta (find_spec: puede no existir todavía).
+llama para cargar la carta (find_spec: puede no existir todavía); igual con
+`app.inventory.seed.seed_inventory` (insumos, dominio propio, siempre
+disponible) y `app.recipes.seed.seed_recipes` (fichas y preparaciones,
+territorio de otro agente en el pedido 2a: protegido con
+`app.core.modules.find_spec_safe`, no con `importlib.util.find_spec` crudo,
+porque el paquete puede no tener ni carpeta todavía — `docs/ESTADO.md`,
+"defecto encontrado y corregido" de 1b-1).
 """
 
 from __future__ import annotations
@@ -18,10 +24,12 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import Employee
 from app.core import clock
+from app.core.modules import find_spec_safe
 from app.fiscal.models import FiscalDocumentType, FiscalRange
 from app.core.db import Base, SessionLocal, engine
 from app.core.models_registry import import_all_models
 from app.core.security import hash_secret
+from app.inventory.seed import seed_inventory
 from app.stores.models import (
     Organization,
     Store,
@@ -225,6 +233,23 @@ def seed(db: Session) -> None:
         if callable(seed_catalog):
             seed_catalog(db, store)
 
+    # Insumos de desarrollo (2a): siempre disponible, dominio propio de este
+    # archivo. Ejercita `yield_pct` != 100, costo oficial con origen,
+    # `min_stock` real, un `key_item`, un `consumption_untracked` y un par
+    # con sustituto en cascada.
+    seeded_ingredients = seed_inventory(db, store)
+
+    # Fichas y preparaciones (2a, territorio de `backend-recetas`): puede no
+    # existir todavía — `find_spec_safe`, nunca `importlib.util.find_spec`
+    # crudo, porque `app.recipes` puede no tener ni carpeta.
+    seeded_recipes_summary: str | None = None
+    if find_spec_safe("app.recipes.seed") is not None:
+        recipes_seed_module = importlib.import_module("app.recipes.seed")
+        seed_recipes = getattr(recipes_seed_module, "seed_recipes", None)
+        if callable(seed_recipes):
+            seed_recipes(db, store)
+            seeded_recipes_summary = "cargadas"
+
     db.commit()
 
     print("Seed aplicado.")
@@ -236,10 +261,29 @@ def seed(db: Session) -> None:
     print("  Rangos de numeración: DE DESARROLLO (DEVPOS/DEVFAC/DEVNC/DEVND/DEVNA, 1-5000),")
     print("    con resolución FALSA 'DEV-NO-ES-RESOLUCION-DIAN'. Antes de operar de verdad,")
     print("    cargá el rango autorizado en Admin → Rangos de numeración.")
+    if seeded_ingredients:
+        names = ", ".join(i.name for i in seeded_ingredients)
+        print(f"  Insumos: 5 cargados (con yield_pct != 100, costo oficial, sustituto en cascada; ver {names}, ...)")
+    else:
+        print("  Insumos: ya existían, no se repitió nada.")
+    if seeded_recipes_summary is not None:
+        print(f"  Fichas y preparaciones: {seeded_recipes_summary} (app.recipes.seed.seed_recipes).")
+    else:
+        print("  Fichas y preparaciones: app.recipes todavía no existe o no las cargó.")
 
 
 def main() -> None:
     import_all_models()
+    # `app.recipes` (territorio ajeno) todavía no está en `MODEL_MODULES`
+    # (otro agente lo agrega al integrar el dominio), así que
+    # `import_all_models()` no lo trae solo. Sin este import defensivo,
+    # `Base.metadata.create_all(engine)` no crea `recipes`/`preparations`, y
+    # la llamada de acá abajo a `app.recipes.seed.seed_recipes` revienta con
+    # `OperationalError: no such table: recipes` -- el mismo problema que
+    # `find_spec_safe` resuelve para el arranque de la API, pero para el
+    # *esquema*, no para el *import*.
+    if find_spec_safe("app.recipes.models") is not None:
+        importlib.import_module("app.recipes.models")
     Base.metadata.create_all(engine)
     db = SessionLocal()
     try:

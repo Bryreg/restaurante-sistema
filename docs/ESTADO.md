@@ -1,11 +1,23 @@
 # Restaurante Sistema — estado del proyecto
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
-Última actualización: 2026-09-15 (**pedido 1b-2 construido y verificado**, con
-`ENTREGA.md` del Maestro y cierre a mano de los tres rojos que la entrega
-declaró; con esto la fase 1b está completa. 1b-1 construido, verificado y
-recorrido en navegador real. Pedido 1a entregado y verificado el 2026-09-14;
-framework 2.1.0).
+Última actualización: 2026-09-16 (**pedido 2a, ronda 2 del conciliador**:
+cierra el bloqueante **B-1** — la nota «vuelve»/«se usó» ahora SÍ revierte el
+consumo teórico de verdad, conectada desde `app.fiscal.service.issue_note` —
+y la mitad de **B-2** de este agente, el "cero mudo congelado" de
+`_document_cost_stats`. `app/fiscal/**` pasó a territorio de
+`backend-consumo` para esta ronda, sólo para la reversión de notas. Antes
+(2026-09-15): **pedido 2a construido** — insumos, preparaciones, fichas
+técnicas, libro de movimientos, consumo teórico al enviar, mermas y costo en
+los reportes; tres agentes de backend [`backend-inventario`,
+`backend-recetas`, `backend-consumo`], sin `ENTREGA.md` del Maestro todavía —
+este agente [`backend-consumo`] deja el estado al cierre de su propia
+construcción, con la verificación completa **pendiente del orquestador
+humano**, igual que pasó con 1b-1. Antes de eso: pedido 1b-2 construido y
+verificado, con `ENTREGA.md` del Maestro y cierre a mano de los tres rojos que
+la entrega declaró; con esto la fase 1b está completa. 1b-1 construido,
+verificado y recorrido en navegador real. Pedido 1a entregado y verificado el
+2026-09-14; framework 2.1.0).
 
 **Este documento es VIVO.** Si un cambio altera una regla o un flujo descrito acá,
 se actualiza en el MISMO PR que el cambio. Un estado desactualizado miente con más
@@ -419,6 +431,124 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     request, promovida a `tests/conftest.py`; el test de carrera de `tests/shifts`
     corre sobre ella y acepta `409 SHIFT_OPEN_RACE` o `400 SHIFT_ALREADY_OPEN`),
     A-3 (`app/shifts/models.py` usa `UTCDateTime`).
+- **Pedido 2a construido** (insumos, preparaciones, fichas técnicas, libro de
+  movimientos, consumo teórico al enviar, mermas y costo en los reportes que ya
+  existían — primera mitad de la fase 2; sin `ENTREGA.md` del Maestro todavía,
+  cierre pendiente del orquestador humano, igual que 1b-1). Alembic
+  `0008 → 0009 → 0010` (**63 tablas**, verificado). Equipo de backend elegido
+  por el Maestro: `backend-inventario`, `backend-recetas`, `backend-consumo`
+  (sonnet); el frontend de este pedido (Carta y recetas/Preparaciones/
+  Inventario, producción rápida en POS/cocina) y el auditor de 2a **no
+  corrieron todavía** al momento de escribir esto — ver «Dónde retomar».
+  - **`backend-inventario`** (`app/inventory/**`, Alembic `0008`, dueño del
+    contrato numérico `app/core/quantity.py`): `Ingredient` (rendimiento,
+    costo oficial/estimado con origen, `min_stock` obligatorio > 0,
+    `consumption_untracked`, sustituto con cascada); el libro único
+    `StockMovement` con `record_movement` como **única** escritura (fusiona
+    por `(org, sede, insumo/prep, causa, ref_type, ref_id)`, nunca bloquea por
+    stock, nunca cero mudo); `Waste`; `low_stock_alerts`/
+    `negative_stock_alerts` (negativo y agotado como alertas distintas, causa
+    probable derivada de causas tipadas, nunca texto). `QTY_SCALE=1000`
+    (milésimas), `COST_SCALE=1_000_000` (millonésimas), redondeo half-up sólo
+    en el borde — probado con 1.000 casos aleatorios en
+    `tests/core/test_quantity.py`.
+  - **`backend-recetas`** (`app/recipes/**`, Alembic `0009`): `Preparation`
+    en dos modos (`batch`/`exploded`, default `exploded`) con `PrepBatch` y
+    producción rápida con `Idempotency-Key`; `Recipe`/`RecipeVersion`/
+    `RecipeLine` versionadas (las viejas se conservan); `recipe_effect`
+    (`add`/`remove`/`replace`) en opciones de modificador, que quedó en
+    `null` todo 1b; costo con propagación en cadena insumo → preparación →
+    plato; `PREP_CYCLE` con ciclo de tres saltos; `expand_consumption` —
+    **pura**, no escribe — como contrato publicado para `orders`
+    (rendimientos, `recipe_effect` y modo de preparación ya resueltos,
+    líneas del mismo insumo fusionadas, sustituto resuelto por el único
+    camino de `inventory.hooks`).
+  - **`backend-consumo`** (`app/orders/**`, `app/reports/**`, dueño único de
+    `app/main.py`/`app/core/models_registry.py`/`NOTIFICATION_TYPES`/
+    `docs/ESTADO.md`, Alembic `0010`): **paso 0** — agregó `"inventory"`/
+    `"recipes"` a `DOMAINS`/`MODEL_MODULES` (ninguno de los dos estaba
+    montado en la API real hasta acá, confirmado por los propios entregables
+    de `backend-inventario`/`backend-recetas`). Consumo teórico enganchado en
+    `app.orders.service._apply_send` (llama `_freeze_item_consumption` por
+    ítem, `ref_type="order_item"`): congela `unit_cost`/`recipe_version`/
+    `cost_source` (columna nueva) en el ítem y escribe el consumo vía
+    `record_movement(cause=SALE)` — un solo camino para venta, cortesía y
+    `staff_meal`. `WasteStub.ingredient_id` pasa a FK real (migración `0010`)
+    y se resuelve contra el libro al anular (`void_item`/`void_order`,
+    `resolved=True` siempre, insumo por insumo, varias filas si hace falta,
+    nunca repone). `GET /admin/sales` ganó
+    `theoretical_value`/`gross_contribution`/`recipe_coverage_pct`;
+    `GET /admin/orders` ganó `courtesies_theoretical_value`; `GET /admin/today`
+    ganó las cuatro alertas de la fase. Nombres sin `cost`/`margin` a
+    propósito: dos invariantes de `tests/audit/test_security_invariants.py`
+    (no tocado) barren el OpenAPI de esas rutas de *admin* buscando esas
+    subcadenas — decisión declarada en `outputs-2a/backend-consumo.md §5`.
+    Detalle completo, con los números de línea, en
+    `features/fase-2-costo-inventario/outputs-2a/backend-consumo.md`.
+  - **Ronda 2 del conciliador (2026-09-16), `backend-consumo`** — cierra
+    **B-1** (bloqueante) y su mitad de **B-2**:
+    - **B-1 — la nota «vuelve» ahora SÍ revierte de verdad.** La ronda 1 había
+      dejado el espejo (`app.orders.hooks.reverse_item_consumption`)
+      construido y probado, pero **sin conectar** — nadie lo llamaba. Esta
+      ronda amplía `app/fiscal/**` (territorio asignado SOLO para esto) y
+      conecta: `NoteLineIn` gana `returns_to_stock: bool = True` (§3.5:
+      "se usó" es la EXCEPCIÓN marcada, "vuelve" es el default);
+      `app.fiscal.service.issue_note` llama
+      `app.orders.hooks.reverse_item_consumption` por cada línea con
+      `used=True and returns_to_stock=True`, después de `emit_and_apply` y
+      antes de marcar `original.status="reversed"`; una nota `kind="debit"`
+      fuerza `returns_to_stock=False` en TODAS sus líneas (cobra más, nunca
+      devuelve producto), ignorando lo que mande el cliente, sin devolver
+      `400`. `NoteOut` gana `returned_to_stock_item_ids`. `issue_note` ahora
+      devuelve `(FiscalDocument, list[int])`; único caller
+      (`app.fiscal.router.post_note`) actualizado. 6 tests nuevos en
+      `tests/fiscal/test_notes.py` (default `True` revierte exacto;
+      `returns_to_stock=False` no revierte y no escribe `NOTE_RETURN`; ficha
+      cambiada entremedio → vuelve lo del LIBRO, no lo de la ficha de hoy;
+      mismo `Idempotency-Key` dos veces → una sola reversión, confirmado con
+      `run_idempotent`, no asumido; `inventory.perpetual` apagada → `201` sin
+      movimientos ni excepción; nota débito → nunca revierte aunque se lo
+      pidan). `tests/audit/test_consumption_invariants.py::
+      test_a_note_that_returns_the_dish_reverses_the_consumption_end_to_end`
+      (territorio del auditor, no tocado) es el mismo invariante por el
+      camino HTTP real — debería estar en verde ahora.
+    - **B-2 (mitad de este agente) — "el cero mudo congelado" en los
+      reportes.** `order_items.unit_cost` (pesos, redondeado half-up POR
+      ÍTEM) es correcto para un ítem individual, pero
+      `app.reports.service._document_cost_stats` sumaba `unit_cost * qty`
+      en PESOS a través de muchos documentos/ítems — un plato de $0,30 de
+      costo teórico congela (correctamente) `unit_cost=0`, y sumar cientos
+      de esos daba `theoretical_value=0` en vez de la plata real. Se agregó
+      `order_items.unit_cost_micros` (`BigInteger`, nullable — **no**
+      `Integer`: un costo de $10.000 ya son 10^10 micros, fuera de rango de
+      32 bits), ampliando la MISMA migración `0010` (no se creó una `0011`:
+      `tests/audit/test_migration_invariants.py:391` fija `head=="0010"`).
+      `_freeze_item_consumption` llena `unit_cost`/`unit_cost_micros`/
+      `cost_source` siempre juntos. `_document_cost_stats` ahora devuelve
+      MICROS (no pesos); `aggregate_sales` acumula
+      `_Bucket.theoretical_cost_micros` a través de TODOS los documentos del
+      bucket/total y convierte a pesos con `micros_to_pesos` una sola vez, en
+      `_to_out` — nunca por documento ni por ítem. El tipo publicado de
+      `theoretical_value` en `/admin/sales` no cambió (sigue `int` de pesos).
+      `order_items.unit_cost` no cambió de semántica ni de tipo (los
+      invariantes verdes del auditor que lo fijan en pesos enteros siguen
+      intactos). 2 tests nuevos en `tests/reports/test_cost.py` (100 platos
+      de $0,30 dan $30, no $0; el caso `== 1000` de
+      `tests/audit/test_cost_invariants.py` sigue exacto).
+    - **Hallazgo colateral, corregido, fuera del alcance nominal de B-1/B-2**:
+      al verificar, `tests/reports/test_sales.py` (5 tests) y dos tests
+      preexistentes de `tests/reports/test_cost.py` fallaban por una
+      dependencia de reloj real preexistente, no por B-1/B-2 — usaban
+      `date.today().isoformat()` como rango de `/admin/sales`, pero
+      `business_date` (`app.core.tz`, cutoff de sede) puede quedar un día
+      detrás de la fecha calendario UTC durante varias horas cada día
+      (Bogotá es UTC-5); la sesión corrió cerca de la medianoche UTC y lo
+      hizo evidente. Se reemplazó por el rango ancho fijo `2020-01-01`/
+      `2099-12-31` que ya usa `tests/audit/test_cost_invariants.py` — mismo
+      patrón, cero dependencia de la hora real. Confirmado con
+      `git blame`/lectura que la lógica de `business_date` no cambió en
+      ninguna ronda de este agente: es un defecto preexistente de los tests,
+      no del código de producción.
 - **Decisiones de implementación que todo servicio nuevo tiene que conocer**:
   - `app.core.db.UTCDateTime` en todo `Mapped[datetime]` (SQLite devuelve *naive*
     al leer `DateTime(timezone=True)`).
@@ -617,6 +747,44 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    y cuando un mandato acotado toca un modelo compartido, hay que asignarle
    también su esquema de entrada, sus tests y la pantalla que lo edita, o el
    campo queda escrito a medias en tres capas.
+
+   **2a construido** (2026-09-15, backend completo; ver la entrada de «Qué
+   está hecho» de arriba y los tres `outputs-2a/*.md`). **Ronda 2
+   (2026-09-16) cerró el punto 1** (la nota «vuelve»/«se usó» ya revierte de
+   verdad — ver la entrada «Ronda 2 del conciliador» de `backend-consumo`
+   arriba). Sigue abierto:
+   1. ~~Crítico: la nota «vuelve» no revierte inventario todavía~~ **CERRADO
+      en la ronda 2**: `app.fiscal.service.issue_note` llama
+      `app.orders.hooks.reverse_item_consumption` por cada línea
+      `used=True and returns_to_stock=True` (default `True`); nota débito
+      nunca revierte. 6 tests en `tests/fiscal/test_notes.py`. Falta que el
+      **frontend** de la nota exponga el checkbox «vuelve»/«se usó»
+      (`returns_to_stock`) — no se encontró ninguna pantalla de notas en
+      `frontend/src/features/fiscal/**` al momento de escribir esto; si ya
+      existe, sólo necesita el campo nuevo.
+   2. **`GET /admin/employees/{id}/activity`** no ganó cortesías a costo
+      (vive en `app/shifts/**`, ningún agente de 2a lo tocó).
+   3. **Frontend de 2a**: al cerrar la construcción de backend sólo existía
+      `frontend/src/features/recipes/**` (Preparaciones, producción rápida,
+      editor de líneas de componente — con tests) y las secciones de receta
+      dentro de `frontend/src/features/catalog/**` (`RecipeEditor`,
+      `RecipeEffectDialog`, `SuspiciousUnitsSection` — con tests). **No se
+      encontró ninguna pantalla de Inventario** (stock por insumo,
+      movimientos por causa, mermas, negativos con causa probable) en
+      `frontend/src/`: si el agente de frontend de este pedido todavía no
+      corrió, es el hueco más grande que queda antes de poder recorrer 2a en
+      navegador real.
+   4. **Verificación completa pendiente**: typecheck y suite de backend
+      completa (no sólo `tests/orders`/`tests/reports`/`tests/inventory`/
+      `tests/recipes`, cada uno corrido por su agente por separado), `tsc`,
+      vitest, `vite build`, Alembic desde cero **con el árbol completo de
+      2a** y recorrido en navegador real — todo eso lo corre, una sola vez
+      en serie, el paso de verificación del orquestador (regla del pedido:
+      cinco agentes no pueden correr la suite completa en paralelo sobre el
+      mismo árbol). `backend-consumo` corrió sólo lo suyo: ver
+      `outputs-2a/backend-consumo.md § Verificación corrida`.
+   5. Compras, conteos, varianza y food cost real (**2b**) siguen sin
+      empezar — dependen del consumo teórico que 2a ya deja construido.
 11. Lo que no se pudo verificar en este entorno: Postgres real (tipos, índices,
    `SELECT FOR UPDATE` del consecutivo y los `409` literales de carrera, que
    sólo el CI puede probar), el CI en sí, y WCAG más allá de Testing Library

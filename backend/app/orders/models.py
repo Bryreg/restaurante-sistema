@@ -290,10 +290,43 @@ class OrderItem(Base):
     void_after_bill: Mapped[bool] = mapped_column(sa.Boolean, default=False)
     void_minutes_since_sent: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
 
-    # Siempre NULL en 1b: los llena `catalog.recipes` (fase 2). Nunca se
-    # serializa hacia el dispositivo (`app.orders.service.order_out`).
+    # Pedido 2a: se congelan al enviar (`app.orders.service._apply_send` →
+    # `_freeze_item_consumption`), en pesos enteros (`unit_cost`, vía
+    # `app.core.quantity.micros_to_pesos`) y nunca se recalculan después —
+    # es el snapshot que hace que un reporte no revalore una venta pasada con
+    # la ficha actual. `cost_source` viaja SIEMPRE junto a `unit_cost`: sin
+    # costo es `unit_cost=None, cost_source="none"`, nunca un cero mudo.
+    # Guardado como `String` (el valor del enum `app.inventory.models.
+    # CostSource`, p. ej. `"official"`) y no como el tipo del enum en sí: este
+    # módulo no importa modelos de `app.inventory` en su DDL para no acoplar
+    # la migración de `orders` al orden en que corre la de `inventory`
+    # (mismo criterio que otros `Integer`/`String` "sin FK dura" del repo
+    # hacia una tabla de un dominio hermano). Ninguno de los dos se
+    # serializa hacia ninguna respuesta de comanda, cocina, precuenta ni
+    # comprobante (`OrderItemOut` no los declara) — sólo los leen los
+    # reportes de admin (`app.reports.service`).
     unit_cost: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     recipe_version: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    cost_source: Mapped[str | None] = mapped_column(sa.String(20), nullable=True)
+    # Ronda 2 (B-2, "el cero mudo congelado"): `unit_cost` en pesos redondea
+    # `micros_to_pesos` half-up — un plato de $0,30 congela `unit_cost=0` con
+    # `cost_source="official"` (NO un cero mudo: tiene origen), pero sumar
+    # 100 de esos ítems en pesos da $0 en vez de $30. `unit_cost_micros`
+    # guarda el mismo costo SIN redondear (millonésimas de peso,
+    # `app.core.quantity.COST_SCALE`) para que un reporte que acumula muchas
+    # líneas (`app.reports.service._document_cost_stats`) sume en micros y
+    # convierta a pesos UNA sola vez, al cerrar el total. Viaja siempre junto
+    # a `unit_cost`/`cost_source` (los tres `None` juntos, o los tres con
+    # dato): no es una columna independiente con su propio `cost_source`.
+    # `unit_cost` NO cambia de semántica ni de tipo — sigue siendo la que
+    # leen los invariantes verdes del auditor (`tests/audit/
+    # test_cost_invariants.py:120,273,284`, `test_consumption_invariants.py
+    # :266,861`); esta columna es aditiva.
+    # `BigInteger`, no `Integer`: un costo de $10.000 ya son 10^10 micros
+    # (`COST_SCALE = 1_000_000`), fuera de rango de un `Integer` de 32 bits
+    # (mismo criterio que `app.inventory.models.StockMovement.cost_micros`/
+    # `Ingredient.official_cost_micros`).
+    unit_cost_micros: Mapped[int | None] = mapped_column(sa.BigInteger, nullable=True)
 
     added_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     added_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
@@ -406,8 +439,15 @@ class OrderEvent(Base):
 
 class WasteStub(Base):
     """El stub de merma que deja anular un ítem ya enviado: no repone nada,
-    sólo constata cantidad y motivo. `ingredient_id` queda `NULL` en 1b (se
-    resuelve contra la receta en fase 2)."""
+    sólo constata cantidad y motivo. Pedido 2a: `ingredient_id` pasa a **FK
+    real** a `ingredients.id` (mismo caso que `fiscal_range_id` en 1b-2, que
+    entró como `Integer` pelado y hubo que convertirlo después: acá entra
+    bien de una, en la migración `0010`) y se resuelve contra la ficha al
+    anular (`app.orders.service._resolve_waste_stub`). Un ítem cuya ficha
+    descuenta varios insumos genera **varios `WasteStub`** — uno por insumo,
+    reutilizando esta fila para el primero —, nunca una sola fila con una
+    lista adentro: así sigue siendo trazable insumo por insumo con el mismo
+    modelo tabular que ya usa todo lo demás del repo."""
 
     __tablename__ = "waste_stubs"
 
@@ -428,7 +468,7 @@ class WasteStub(Base):
     authorized_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
     at: Mapped[datetime] = mapped_column(UTCDateTime())
 
-    ingredient_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    ingredient_id: Mapped[int | None] = mapped_column(ForeignKey("ingredients.id"), nullable=True, index=True)
     resolved: Mapped[bool] = mapped_column(sa.Boolean, default=False)
 
     __table_args__ = (CheckConstraint("qty > 0", name="ck_waste_stubs_qty_positive"),)

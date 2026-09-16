@@ -52,9 +52,17 @@ function NewNoteForm({
   const [kind, setKind] = useState<NoteKind | "">("");
   const [reason, setReason] = useState("");
   const [usedItemIds, setUsedItemIds] = useState<Set<number>>(new Set());
+  // Elección explícita por línea tildada: `true` vuelve al inventario,
+  // `false` se usó (no vuelve), `undefined` = todavía sin elegir. Nunca
+  // preseleccionado (B-1, ronda 2): que nadie devuelva un plato por default
+  // sin decidirlo.
+  const [returnsToStock, setReturnsToStock] = useState<Record<number, boolean>>({});
   const [refundEnabled, setRefundEnabled] = useState(false);
   const [refundMethod, setRefundMethod] = useState("cash");
   const [refundAmount, setRefundAmount] = useState("");
+  const [confirmation, setConfirmation] = useState<string | null>(null);
+
+  const isDebit = kind === "debit";
 
   const docQuery = useQuery({
     queryKey: ["fiscal-note-source-document", lookupId],
@@ -73,24 +81,50 @@ function NewNoteForm({
       const body: NoteCreateIn = {
         kind,
         reason: reason.trim(),
-        lines: lines.map((line) => ({ item_id: line.item_id, used: usedItemIds.has(line.item_id) })),
+        lines: lines.map((line) => {
+          const included = usedItemIds.has(line.item_id);
+          return {
+            item_id: line.item_id,
+            used: included,
+            // Nota débito: cobra más, no devuelve producto — `false` en
+            // TODAS las líneas, tildadas o no. Fuera de débito: sólo las
+            // líneas tildadas tienen una elección real; las no tildadas no
+            // son parte de la nota y van en `false` sin pedirle nada al
+            // usuario.
+            returns_to_stock: isDebit ? false : included ? (returnsToStock[line.item_id] ?? false) : false,
+          };
+        }),
         refund: refundEnabled && refundAmount !== "" ? { method: refundMethod, amount: Number(refundAmount) } : undefined,
       };
       return createNote(lookupId, body, newIdempotencyKey());
     },
-    onSuccess: () => {
+    onSuccess: (note) => {
+      const returnedIds = note.returned_to_stock_item_ids ?? [];
+      setConfirmation(
+        returnedIds.length === 0
+          ? "Ningún ítem volvió al inventario."
+          : returnedIds.length === 1
+            ? "1 ítem volvió al inventario."
+            : `${returnedIds.length} ítems volvieron al inventario.`,
+      );
       setDocumentIdInput("");
       setLookupId(null);
       setKind("");
       setReason("");
       setUsedItemIds(new Set());
+      setReturnsToStock({});
       setRefundEnabled(false);
       setRefundAmount("");
       onCreated();
     },
   });
 
-  const canSubmit = lookupId !== null && kind !== "" && reason.trim() !== "" && usedItemIds.size > 0;
+  // Cada línea tildada necesita su elección explícita (fuera de débito, que
+  // no la ofrece y ya va fija en `false`): el botón de emitir se bloquea
+  // mientras falte alguna, para que nadie devuelva un plato por default.
+  const checkedWithoutChoice = !isDebit && [...usedItemIds].some((id) => returnsToStock[id] === undefined);
+  const canSubmit =
+    lookupId !== null && kind !== "" && reason.trim() !== "" && usedItemIds.size > 0 && !checkedWithoutChoice;
 
   return (
     <div className="space-y-4 rounded-md border p-4">
@@ -101,6 +135,12 @@ function NewNoteForm({
           borrado.
         </p>
       </div>
+
+      {confirmation ? (
+        <p role="status" className="text-sm font-medium">
+          {confirmation}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
@@ -122,6 +162,8 @@ function NewNoteForm({
             setLookupId(Number.isFinite(id) && id > 0 ? id : null);
             setKind("");
             setUsedItemIds(new Set());
+            setReturnsToStock({});
+            setConfirmation(null);
           }}
         >
           Buscar
@@ -179,30 +221,91 @@ function NewNoteForm({
                     <TableHead>Descripción</TableHead>
                     <TableHead>Cant.</TableHead>
                     <TableHead>Neto</TableHead>
+                    <TableHead>Inventario</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {lines.map((line) => (
-                    <TableRow key={line.item_id}>
-                      <TableCell>
-                        <Checkbox
-                          aria-label={`Incluir ${line.description ?? "ítem"} en la nota`}
-                          checked={usedItemIds.has(line.item_id)}
-                          onCheckedChange={(checked) =>
-                            setUsedItemIds((prev) => {
-                              const next = new Set(prev);
-                              if (checked) next.add(line.item_id);
-                              else next.delete(line.item_id);
-                              return next;
-                            })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>{line.description ?? "—"}</TableCell>
-                      <TableCell>{line.qty ?? 1}</TableCell>
-                      <TableCell className="tabular-nums">{formatCOP(line.net)}</TableCell>
-                    </TableRow>
-                  ))}
+                  {lines.map((line) => {
+                    const included = usedItemIds.has(line.item_id);
+                    const choice = returnsToStock[line.item_id];
+                    const itemLabel = line.description ?? "ítem";
+                    return (
+                      <TableRow key={line.item_id}>
+                        <TableCell>
+                          <Checkbox
+                            aria-label={`Incluir ${itemLabel} en la nota`}
+                            checked={included}
+                            onCheckedChange={(checked) => {
+                              setUsedItemIds((prev) => {
+                                const next = new Set(prev);
+                                if (checked) next.add(line.item_id);
+                                else next.delete(line.item_id);
+                                return next;
+                              });
+                              if (!checked) {
+                                // Se destilda: se borra la elección previa para
+                                // que, si se vuelve a tildar, la pida de nuevo
+                                // sin preseleccionar nada.
+                                setReturnsToStock((prev) => {
+                                  const next = { ...prev };
+                                  delete next[line.item_id];
+                                  return next;
+                                });
+                              }
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell>{line.description ?? "—"}</TableCell>
+                        <TableCell>{line.qty ?? 1}</TableCell>
+                        <TableCell className="tabular-nums">{formatCOP(line.net)}</TableCell>
+                        <TableCell>
+                          {isDebit ? (
+                            <span className="text-xs text-muted-foreground">No aplica (nota débito)</span>
+                          ) : !included ? (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          ) : (
+                            <div className="space-y-1">
+                              <div
+                                role="radiogroup"
+                                aria-label={`Devolución de inventario para ${itemLabel}`}
+                                className="flex flex-wrap gap-2"
+                              >
+                                <button
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={choice === true}
+                                  className={`h-9 rounded-md border px-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring ${
+                                    choice === true ? "border-primary bg-primary/5" : "border-border"
+                                  }`}
+                                  onClick={() => setReturnsToStock((prev) => ({ ...prev, [line.item_id]: true }))}
+                                >
+                                  Vuelve al inventario
+                                </button>
+                                <button
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={choice === false}
+                                  className={`h-9 rounded-md border px-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring ${
+                                    choice === false ? "border-primary bg-primary/5" : "border-border"
+                                  }`}
+                                  onClick={() => setReturnsToStock((prev) => ({ ...prev, [line.item_id]: false }))}
+                                >
+                                  Se usó (no vuelve al inventario)
+                                </button>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                {choice === true
+                                  ? "Los insumos de este plato vuelven al stock teórico."
+                                  : choice === false
+                                    ? "Los insumos no vuelven: el plato se consumió."
+                                    : "Elegí una opción para poder emitir la nota."}
+                              </p>
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

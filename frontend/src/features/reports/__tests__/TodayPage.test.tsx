@@ -40,6 +40,10 @@ function baseToday(overrides: Partial<Awaited<ReturnType<typeof getTodayMock>>> 
     pending_refunds_count: 0,
     unreviewed_closes_count: 0,
     alerts: [],
+    ingredients_below_min: [],
+    ingredients_negative: [],
+    preps_without_production: [],
+    products_discounting_nothing: [],
     ...overrides,
   }
 }
@@ -109,5 +113,48 @@ describe("TodayPage", () => {
 
     await waitFor(() => expect(screen.getByText(/1 producto agotado/i)).toBeInTheDocument())
     expect(screen.queryByText("Producto agotado")).not.toBeInTheDocument()
+  })
+
+  it("insumos «bajo mínimo» y «negativos» son dos alertas distintas (pedido 2a), con enlaces distintos a Stock", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        ingredients_below_min: [{ ingredient_id: 1, name: "Papa criolla", qty_base: 400, min_stock: 1000, base_unit: "g" }],
+        ingredients_negative: [
+          { ingredient_id: 2, name: "Leche entera", qty_base: -400, min_stock: 2000, base_unit: "ml", negative_since: "2026-09-01T00:00:00Z", probable_cause: null },
+        ],
+      }),
+    )
+
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const belowMinTitle = await screen.findByText(/1 insumo bajo el mínimo/i)
+    const negativeTitle = await screen.findByText(/1 insumo en negativo/i)
+    expect(belowMinTitle).toBeInTheDocument()
+    expect(negativeTitle).toBeInTheDocument()
+
+    const belowMinLink = screen.getByRole("link", { name: /1 insumo bajo el mínimo/i })
+    const negativeLink = screen.getByRole("link", { name: /1 insumo en negativo/i })
+    expect(belowMinLink).toHaveAttribute("href", "/admin/inventario?tab=stock&below_min=1")
+    expect(negativeLink).toHaveAttribute("href", "/admin/inventario?tab=stock&negative=1")
+    // "deuda de registro" (negativo) nunca se confunde con "bajo mínimo": textos propios.
+    expect(screen.getByText(/deuda de registro/i)).toBeInTheDocument()
+    expect(screen.getByText(/reponé pronto/i)).toBeInTheDocument()
+  })
+
+  it("preparaciones sin producir y platos sin receta llevan a Preparaciones y a Carta respectivamente", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        preps_without_production: [{ type: "prep_no_production", preparation_id: 5, preparation_name: "Caldo base", current_stock: -200, unit: "ml" }],
+        products_discounting_nothing: [{ product_id: 9, product_name: "Sopa del día", items_sold: 3, qty_sold: 3 }],
+      }),
+    )
+
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const prepLink = await screen.findByRole("link", { name: /preparación por lote sin producir/i })
+    expect(prepLink).toHaveAttribute("href", "/admin/preparaciones")
+
+    const uncostedLink = screen.getByRole("link", { name: /plato vendido sin descontar nada/i })
+    expect(uncostedLink).toHaveAttribute("href", "/admin/carta")
   })
 })

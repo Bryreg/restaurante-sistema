@@ -45,6 +45,51 @@ describe("SalesPage", () => {
     expect(getSalesMock).toHaveBeenCalledWith(expect.objectContaining({ storeId: 1, groupBy: "business_date" }))
   })
 
+  it("pedido 2a: costo teórico, margen bruto y cobertura de receta se pintan tal cual llegan, sin recalcular", async () => {
+    getSalesMock.mockResolvedValue({
+      store_id: 1,
+      date_from: "2026-09-09",
+      date_to: "2026-09-15",
+      group_by: "business_date",
+      rows: [
+        {
+          key: "2026-09-15", label: "2026-09-15", gross: 100000, net: 92593, tax: 7407, tips: 9000, orders: 5,
+          covers: 12, avg_ticket: 18519, avg_per_cover: 7716,
+          theoretical_value: 30000, gross_contribution: 62593, recipe_coverage_pct: 40,
+        },
+      ],
+      total: {
+        key: "total", label: "total", gross: 100000, net: 92593, tax: 7407, tips: 9000, orders: 5, covers: 12,
+        avg_ticket: 18519, avg_per_cover: 7716,
+        theoretical_value: 30000, gross_contribution: 62593, recipe_coverage_pct: 40,
+      },
+    })
+
+    renderWithProviders(<SalesPage />, { me: buildMe() })
+
+    await waitFor(() => expect(screen.getAllByText("$ 30.000").length).toBeGreaterThan(0))
+    expect(screen.getAllByText("$ 62.593").length).toBeGreaterThan(0)
+    // 40% < 50%: cobertura baja, el margen de al lado se avisa como no representativo.
+    expect(screen.getAllByText("40%").length).toBeGreaterThan(0)
+    expect(screen.getByText(/no representan toda la venta/i)).toBeInTheDocument()
+  })
+
+  it("costo/margen/cobertura `null` se muestran «sin costo»/«—», nunca $0 ni 0%", async () => {
+    const bucket = {
+      key: "2026-09-15", label: "2026-09-15", gross: 0, net: 0, tax: 0, tips: 0, orders: 0, covers: null,
+      avg_ticket: null, avg_per_cover: null, theoretical_value: null, gross_contribution: null, recipe_coverage_pct: null,
+    }
+    getSalesMock.mockResolvedValue({
+      store_id: 1, date_from: "2026-09-09", date_to: "2026-09-15", group_by: "business_date", rows: [bucket], total: bucket,
+    })
+
+    renderWithProviders(<SalesPage />, { me: buildMe() })
+
+    await waitFor(() => expect(screen.getByText("Cobertura de receta")).toBeInTheDocument())
+    expect(screen.queryByText("0%")).not.toBeInTheDocument()
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0)
+  })
+
   it("cambiar de pestaña carga el informe del contador (una sola matemática: se pinta tal cual)", async () => {
     getSalesMock.mockResolvedValue({
       store_id: 1, date_from: "2026-09-09", date_to: "2026-09-15", group_by: "business_date", rows: [],

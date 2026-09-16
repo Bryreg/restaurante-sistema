@@ -290,6 +290,14 @@ class BillSplitItemsOut(BaseModel):
 
 
 class AdminOrderListItem(BaseModel):
+    """**Hallazgo (pedido 2a, no corregido: fuera de alcance)**: esta clase
+    no se usa — `GET /admin/orders` devuelve `dict[str, Any]` a mano en
+    `app.orders.service.admin_list_orders`/`app.orders.router.
+    get_admin_orders`, así que ni esta clase ni sus campos aparecen en el
+    OpenAPI. Quedó desincronizada de esa función (le faltan `table_minutes`,
+    `void_details`, `payment_methods`, etc.) desde antes de este pedido.
+    Declarado en el entregable de este agente."""
+
     id: int
     business_date: date
     shift_id: int | None

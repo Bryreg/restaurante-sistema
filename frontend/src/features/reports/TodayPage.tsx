@@ -11,7 +11,16 @@ import {
   UtensilsCrossed,
 } from "lucide-react"
 
-import { getToday, type AlertOut, type OpenOrderAgeOut, type UnavailableProductOut } from "@/api/reports"
+import {
+  getToday,
+  type AlertOut,
+  type IngredientAlertOut,
+  type NegativeStockAlertOut,
+  type OpenOrderAgeOut,
+  type PrepAlertOut,
+  type UnavailableProductOut,
+  type UncostedProductOut,
+} from "@/api/reports"
 import { useStoreSelection } from "@/app/storeContext"
 import { EmptyState } from "@/components/EmptyState"
 import { StatTile } from "@/components/StatTile"
@@ -47,6 +56,10 @@ function directAttentionItems(today: {
   unavailable_products?: UnavailableProductOut[]
   pending_refunds_count?: number
   unreviewed_closes_count?: number
+  ingredients_below_min?: IngredientAlertOut[]
+  ingredients_negative?: NegativeStockAlertOut[]
+  preps_without_production?: PrepAlertOut[]
+  products_discounting_nothing?: UncostedProductOut[]
 }): AttentionItem[] {
   const items: AttentionItem[] = []
 
@@ -112,6 +125,74 @@ function directAttentionItems(today: {
       to: "/admin/dinero",
       ctaLabel: "Ver Dinero",
       tone: "default",
+    })
+  }
+
+  // Pedido 2a: las cuatro alertas nuevas de `GET /admin/today`. Cada una
+  // enlaza a la pantalla que la resuelve, ya con el filtro puesto cuando
+  // corresponde (SPEC-NEGOCIO §9.3: "cada tarjeta lleva a la pantalla donde
+  // se resuelve"). Ninguna trae costo — sólo cantidades y causas.
+  const belowMin = today.ingredients_below_min ?? []
+  if (belowMin.length > 0) {
+    const names = belowMin.slice(0, 3).map((i) => i.name ?? `#${i.ingredient_id}`)
+    const rest = belowMin.length - names.length
+    items.push({
+      key: "ingredients-below-min",
+      title: `${belowMin.length} insumo${belowMin.length === 1 ? "" : "s"} bajo el mínimo`,
+      body: rest > 0 ? `${names.join(", ")} y ${rest} más — reponé pronto.` : `${names.join(", ")} — reponé pronto.`,
+      to: "/admin/inventario?tab=stock&below_min=1",
+      ctaLabel: "Ver Stock",
+      tone: "warning",
+    })
+  }
+
+  // Negativo NO es lo mismo que "bajo mínimo": es deuda de registro, no
+  // escasez real, y se marca distinto (rojo, no ámbar) — SPEC-NEGOCIO §5.2.
+  const negative = today.ingredients_negative ?? []
+  if (negative.length > 0) {
+    const names = negative.slice(0, 3).map((i) => i.name ?? `#${i.ingredient_id}`)
+    const rest = negative.length - names.length
+    items.push({
+      key: "ingredients-negative",
+      title: `${negative.length} insumo${negative.length === 1 ? "" : "s"} en negativo`,
+      body:
+        (rest > 0 ? `${names.join(", ")} y ${rest} más — ` : `${names.join(", ")} — `) +
+        "deuda de registro, no bloquea la venta. Revisá la causa probable en Movimientos.",
+      to: "/admin/inventario?tab=stock&negative=1",
+      ctaLabel: "Ver Stock",
+      tone: "critical",
+    })
+  }
+
+  const prepsNoProd = today.preps_without_production ?? []
+  if (prepsNoProd.length > 0) {
+    const names = prepsNoProd.slice(0, 3).map((p) => p.preparation_name ?? `#${p.preparation_id}`)
+    const rest = prepsNoProd.length - names.length
+    items.push({
+      key: "preps-without-production",
+      title: `${prepsNoProd.length} preparación${prepsNoProd.length === 1 ? "" : "es"} por lote sin producir`,
+      body:
+        (rest > 0 ? `${names.join(", ")} y ${rest} más — ` : `${names.join(", ")} — `) +
+        "quedan en stock ≤ 0; producilas o revisá si conviene pasarlas a explotada.",
+      to: "/admin/preparaciones",
+      ctaLabel: "Ver Preparaciones",
+      tone: "warning",
+    })
+  }
+
+  const uncosted = today.products_discounting_nothing ?? []
+  if (uncosted.length > 0) {
+    const names = uncosted.slice(0, 3).map((p) => p.product_name ?? `#${p.product_id}`)
+    const rest = uncosted.length - names.length
+    items.push({
+      key: "products-discounting-nothing",
+      title: `${uncosted.length} plato${uncosted.length === 1 ? "" : "s"} vendido${uncosted.length === 1 ? "" : "s"} sin descontar nada`,
+      body:
+        (rest > 0 ? `${names.join(", ")} y ${rest} más — ` : `${names.join(", ")} — `) +
+        "se vendieron sin receta ni insumo directo. La venta siguió, pero el inventario no se movió.",
+      to: "/admin/carta",
+      ctaLabel: "Ver Carta y recetas",
+      tone: "warning",
     })
   }
 

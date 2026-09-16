@@ -29,11 +29,14 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+import importlib
+
 from app.audit.models import AuditLog
 from app.catalog.models import Product
 from app.core import clock, tz
 from app.core.errors import AppError
 from app.core.modules import find_spec_safe
+from app.core.quantity import micros_to_pesos
 from app.fiscal import service as fiscal_service
 from app.fiscal.models import FiscalDocument, FiscalDocumentType
 from app.notifications.models import Notification
@@ -54,11 +57,15 @@ from app.reports.schemas import (
     AlertOut,
     EmployeeRefOut,
     HourBucketOut,
+    IngredientAlertOut,
     MethodAmountOut,
+    NegativeStockAlertOut,
     OpenOrderAgeOut,
+    PrepAlertOut,
     SalesBucketOut,
     SalesReportOut,
     TodayOut,
+    UncostedProductOut,
     UnavailableLogRowOut,
     UnavailableProductOut,
 )
@@ -125,6 +132,96 @@ class _Bucket:
     tax: int = 0
     tips: int = 0
     order_ids: set[int] = field(default_factory=set)
+    # Pedido 2a: costo teórico (desde `OrderItem.unit_cost`/`unit_cost_micros`
+    # CONGELADOS — nunca se revalora con la ficha actual), y las dos sumas de
+    # `net` que arman `recipe_coverage_pct`. `has_theoretical_cost` distingue
+    # "no hubo ningún ítem con costo" (`None` en la salida, nunca `0` mudo)
+    # de "hubo costo y dio cero" (que sólo pasaría con un `unit_cost=0` real).
+    #
+    # Ronda 2 (B-2, "el cero mudo congelado"): se acumula en MICROS
+    # (`theoretical_cost_micros`, millonésimas de peso), no en pesos — sumar
+    # `unit_cost` (pesos, ya redondeado half-up por ítem) pierde plata real
+    # cuando muchos ítems tienen un costo menor a $1 (un plato de $0,30
+    # congela `unit_cost=0`; 100 de esos daban $0 en vez de $30). Se
+    # convierte a pesos con `micros_to_pesos` UNA sola vez, al cerrar el
+    # total del bucket (`_to_out`) — `theoretical_value` en la respuesta
+    # sigue siendo `int` de pesos, sin cambiar su tipo publicado.
+    theoretical_cost_micros: int = 0
+    has_theoretical_cost: bool = False
+    costed_net: int = 0
+
+
+def _document_cost_stats(db: Session, documents: list[FiscalDocument]) -> dict[int, tuple[int | None, int, int]]:
+    """`document.id -> (theoretical_cost_micros | None, costed_net, total_net)`,
+    leído SIEMPRE de `OrderItem.unit_cost_micros` tal como quedó congelado al
+    enviar (`app.orders.service._freeze_item_consumption`, pedido 2a) —
+    nunca de la ficha actual: es la misma regla de snapshot que ya protege
+    precio e impuesto en este módulo, extendida al costo.
+
+    **Devuelve MICROS, no pesos** (ronda 2, B-2, "el cero mudo congelado"):
+    `unit_cost` (pesos) ya viene redondeado half-up POR ÍTEM al enviar — un
+    plato de $0,30 de costo real congela correctamente `unit_cost=0` (con
+    `cost_source`, no es un cero mudo), pero convertir a pesos ACÁ, por
+    documento, no alcanza cuando el período tiene muchos DOCUMENTOS baratos
+    en vez de muchos ítems dentro de uno: 100 comandas separadas de un plato
+    de $0,30 cada una redondearían a $0 por documento, y sumar cien ceros
+    sigue dando $0. Por eso el caller (`aggregate_sales`) acumula estos
+    micros en `_Bucket.theoretical_cost_micros` a través de TODOS los
+    documentos del grupo y convierte a pesos con `micros_to_pesos` una sola
+    vez, al cerrar el bucket (`_to_out`) — nunca acá.
+
+    **Aproximación declarada** para un documento de sub-cuenta (cuenta
+    dividida por ítems, `sub_account_id is not None`): `line["qty"]` ahí es
+    la cantidad de PORCIONES del ítem que le tocaron a esa sub-cuenta, no la
+    cantidad completa (`app.payments.service._sub_account_document_lines`,
+    territorio ajeno) — `of_portions` no viaja en el snapshot del documento,
+    así que no hay forma exacta de sacar la fracción del costo del ítem
+    desde acá sin volver a calcular los totales completos del pedido. Se usa
+    `unit_cost_micros * qty` igual que en un documento de comanda completa
+    (exacto para el caso común, que es la comanda sin dividir); para una
+    comanda dividida por ítems esto sobrestima el costo de cada sub-cuenta.
+    Declarado en el entregable de este agente como gap: una corrección
+    exacta necesita que `app.payments` guarde `of_portions` en la línea del
+    documento."""
+    item_ids = {int(line["item_id"]) for doc in documents for line in (doc.lines or [])}
+    if not item_ids:
+        return {}
+    unit_cost_micros_by_item: dict[int, int | None] = {
+        item_id: unit_cost_micros
+        for item_id, unit_cost_micros in db.execute(
+            select(OrderItem.id, OrderItem.unit_cost_micros).where(OrderItem.id.in_(item_ids))
+        ).all()
+    }
+
+    result: dict[int, tuple[int | None, int, int]] = {}
+    for doc in documents:
+        total_cost_micros = 0
+        any_costed = False
+        costed_net = 0
+        total_net = 0
+        for line in doc.lines or []:
+            item_id = int(line["item_id"])
+            # `line["net"]` (`app.payments.service._order_document_lines`) es
+            # el `LineTotals.net` de `app.orders.money` — con impuesto
+            # INCLUIDO (nombre compartido con `money.py`, no con este
+            # módulo). El `net` de ESTE reporte (`SalesBucketOut.net` =
+            # `gross - tax`) es sin impuesto: usar `line["base"]` (la
+            # contraparte sin impuesto de esa misma línea) es lo que hace que
+            # `costed_net`/`total_net` queden en la MISMA unidad que `net` al
+            # dividir más abajo — si no, la cobertura queda inflada por la
+            # tasa de impuesto (108 % en vez de 100 %, el bug real que este
+            # comentario documenta habiendo existido).
+            base = int(line["base"])
+            qty = int(line["qty"])
+            total_net += base
+            unit_cost_micros = unit_cost_micros_by_item.get(item_id)
+            if unit_cost_micros is None:
+                continue
+            any_costed = True
+            costed_net += base
+            total_cost_micros += unit_cost_micros * qty
+        result[doc.id] = (total_cost_micros if any_costed else None, costed_net, total_net)
+    return result
 
 
 def _order_covers_map(db: Session, order_ids: set[int]) -> dict[int, int | None]:
@@ -195,6 +292,12 @@ def aggregate_sales(
     agregación sin partir por grupo, así "Hoy" y "Ventas" nunca pueden
     mostrar un total distinto de la suma de sus filas."""
     documents = _sale_documents(db, store_id=store_id, date_from=date_from, date_to=date_to)
+    # Pedido 2a: costo teórico por documento, en MICROS, leído del
+    # `unit_cost_micros` congelado en cada ítem — nunca de la ficha actual
+    # (ver docstring de `_document_cost_stats`). Se acumula en micros a
+    # través de todos los documentos del bucket/total y se convierte a pesos
+    # una sola vez en `_to_out` (ronda 2, B-2).
+    cost_stats = _document_cost_stats(db, documents)
 
     buckets: dict[str, _Bucket] = {}
     total_bucket = _Bucket(label="total")
@@ -209,8 +312,17 @@ def aggregate_sales(
         total_bucket.tax += doc.tax_total
         total_bucket.tips += doc.tip_amount
         total_bucket.order_ids.add(doc.order_id)
+        doc_cost_micros, doc_costed_net, _doc_total_net = cost_stats.get(doc.id, (None, 0, 0))
+        if doc_cost_micros is not None:
+            total_bucket.theoretical_cost_micros += doc_cost_micros
+            total_bucket.has_theoretical_cost = True
+        total_bucket.costed_net += doc_costed_net
 
         if group_by == "method":
+            # El costo teórico no se reparte por medio de pago: un insumo no
+            # "pertenece" a un método de cobro, sólo a un plato — el total
+            # sigue exacto (se acumuló arriba), las filas por método quedan
+            # sin costo (`has_theoretical_cost=False` -> `null`, declarado).
             splits = doc.payments_snapshot or []
             amounts = [int(s.get("amount", 0)) for s in splits]
             tax_shares = money.prorate(doc.tax_total, amounts) if amounts else []
@@ -237,6 +349,10 @@ def aggregate_sales(
         bucket.tax += doc.tax_total
         bucket.tips += doc.tip_amount
         bucket.order_ids.add(doc.order_id)
+        if doc_cost_micros is not None:
+            bucket.theoretical_cost_micros += doc_cost_micros
+            bucket.has_theoretical_cost = True
+        bucket.costed_net += doc_costed_net
 
     covers_map = _order_covers_map(db, order_ids_all)
 
@@ -246,6 +362,13 @@ def aggregate_sales(
         covers_sum = sum(c for oid in bucket.order_ids if (c := covers_map.get(oid)) is not None)
         avg_ticket = money.round_half_up(net, orders_count) if orders_count > 0 and net >= 0 else None
         avg_per_cover = money.round_half_up(net, covers_sum) if covers_sum > 0 and net >= 0 else None
+        # Conversión a pesos ÚNICA, acá, después de sumar micros a través de
+        # TODOS los documentos del bucket (ronda 2, B-2) — nunca antes.
+        theoretical_value = micros_to_pesos(bucket.theoretical_cost_micros) if bucket.has_theoretical_cost else None
+        gross_contribution = (net - theoretical_value) if theoretical_value is not None else None
+        recipe_coverage_pct = (
+            money.round_half_up(bucket.costed_net * 100, net) if net > 0 and bucket.costed_net > 0 else (0 if net > 0 else None)
+        )
         return SalesBucketOut(
             key=key,
             label=bucket.label,
@@ -257,6 +380,9 @@ def aggregate_sales(
             covers=covers_sum if orders_count > 0 else None,
             avg_ticket=avg_ticket,
             avg_per_cover=avg_per_cover,
+            theoretical_value=theoretical_value,
+            gross_contribution=gross_contribution,
+            recipe_coverage_pct=recipe_coverage_pct,
         )
 
     order_key: list[str]
@@ -476,6 +602,47 @@ def _recent_alerts(db: Session, store: Store, *, limit: int = 30) -> list[AlertO
     ]
 
 
+# ---------------------------------------------------------------------------
+# Pedido 2a: las cuatro alertas de esta fase para `GET /admin/today`. Cada
+# una llama al hook del dominio DUEÑO del hecho que alertan, protegida con
+# `find_spec_safe` (nunca `importlib.util.find_spec` crudo): con los tres
+# dominios de 2a apagados o sin montar, las cuatro devuelven `[]` y `Hoy`
+# funciona exactamente como en 1b. **Negativo y agotado son alertas
+# DISTINTAS** (SPEC-NEGOCIO §5.2): `ingredients_below_min`/
+# `ingredients_negative` nunca se confunden porque son dos listas separadas,
+# cada una con su propio mensaje en el frontend.
+# ---------------------------------------------------------------------------
+
+
+def _low_stock_alerts(db: Session, store: Store) -> list[IngredientAlertOut]:
+    if find_spec_safe("app.inventory.hooks") is None:
+        return []
+    hooks = importlib.import_module("app.inventory.hooks")
+    return [IngredientAlertOut(**row) for row in hooks.low_stock_alerts(db, store_id=store.id)]
+
+
+def _negative_stock_alerts(db: Session, store: Store) -> list[NegativeStockAlertOut]:
+    if find_spec_safe("app.inventory.hooks") is None:
+        return []
+    hooks = importlib.import_module("app.inventory.hooks")
+    return [NegativeStockAlertOut(**row) for row in hooks.negative_stock_alerts(db, store_id=store.id)]
+
+
+def _prep_alerts(db: Session, store: Store) -> list[PrepAlertOut]:
+    if find_spec_safe("app.recipes.hooks") is None:
+        return []
+    hooks = importlib.import_module("app.recipes.hooks")
+    return [PrepAlertOut(**row) for row in hooks.prep_stock_alerts(db, store_id=store.id)]
+
+
+def _uncosted_products(db: Session, store: Store, *, business_date: date) -> list[UncostedProductOut]:
+    if find_spec_safe("app.recipes.hooks") is None:
+        return []
+    hooks = importlib.import_module("app.recipes.hooks")
+    rows = hooks.uncosted_products(db, store_id=store.id, date_from=business_date, date_to=business_date)
+    return [UncostedProductOut(**row) for row in rows]
+
+
 def today_report(db: Session, *, store: Store) -> TodayOut:
     now = clock.now_utc()
     business_date = tz.today_business_date(store.cutoff_hour)
@@ -546,6 +713,10 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         pending_refunds_count=_pending_refunds_count(db, store),
         unreviewed_closes_count=_unreviewed_closes_count(db, store),
         alerts=_recent_alerts(db, store),
+        ingredients_below_min=_low_stock_alerts(db, store),
+        ingredients_negative=_negative_stock_alerts(db, store),
+        preps_without_production=_prep_alerts(db, store),
+        products_discounting_nothing=_uncosted_products(db, store, business_date=business_date),
     )
 
 

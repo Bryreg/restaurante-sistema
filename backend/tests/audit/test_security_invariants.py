@@ -1688,3 +1688,182 @@ def test_every_new_business_error_of_1b2_has_exactly_one_shape(
     assert "admin" in error["message"].lower(), (
         f"el mensaje tiene que decir dónde se corrige: {error['message']!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2a: el costo entra al sistema y el operador sigue sin verlo
+#
+# Hasta 1b `order_items.unit_cost` era siempre `NULL` y el invariante de "el
+# operador no ve costos" se cumplía solo. Desde 2a hay costo real en el ítem,
+# costo por insumo, costo por lote y margen en los reportes: es el momento
+# exacto en que este control deja de ser gratis y empieza a valer algo.
+# ---------------------------------------------------------------------------
+
+
+def test_the_openapi_of_the_new_2a_routes_declares_no_cost_fields(client: Any) -> None:
+    """`AGENTS.md` y §11.10, extendido a la superficie nueva de 2a.
+
+    Las rutas de **dispositivo** que esta fase agrega (`GET /preparations`,
+    `POST /preparations/{id}/produce`, `POST /waste`, `GET /device/
+    ingredients`) las usa el operador del salón y de cocina: ninguna puede
+    declarar —ni siquiera declarar, aunque hoy no lo llene— un campo de costo
+    o de margen. Un campo declarado en el esquema es un campo que alguien va a
+    llenar.
+
+    `/admin/**` queda fuera a propósito: el administrador **sí** ve el costo,
+    es el sentido entero de la fase.
+    """
+    spec = client.get("/openapi.json").json()
+    rutas_de_dispositivo = (
+        f"{API}/preparations",
+        f"{API}/waste",
+        f"{API}/device/ingredients",
+    )
+    publicadas = {ruta for ruta in spec["paths"] if ruta.startswith(rutas_de_dispositivo)}
+    assert publicadas >= {
+        f"{API}/preparations",
+        f"{API}/preparations/{{preparation_id}}/produce",
+        f"{API}/waste",
+        f"{API}/device/ingredients",
+    }, f"faltan rutas de dispositivo de 2a en el OpenAPI: {sorted(publicadas)}"
+
+    names = _property_names_reachable_from(spec, rutas_de_dispositivo)
+    assert names, "no se encontró ningún esquema bajo las rutas de dispositivo de 2a"
+
+    leaked = {n for n in names if any(secret in n.lower() for secret in MONEY_SECRETS)}
+    assert not leaked, f"el OpenAPI de dispositivo de 2a declara campos de costo: {sorted(leaked)}"
+    assert "recipe_version" not in {n.lower() for n in names}
+
+
+def test_no_device_response_of_2a_carries_cost_margin_or_recipe_version(
+    db: Any,
+    store: Any,
+    admin_client: Any,
+    device_client: Any,
+    identify: Any,
+    employees: dict[str, Any],
+    open_shift: Any,
+    sales_products: Any,
+) -> None:
+    """El mismo control sobre la **respuesta real**, con datos cargados: un
+    esquema limpio no sirve si el endpoint devuelve un `dict` suelto.
+
+    Se recorren las cuatro superficies de dispositivo de 2a más la comanda
+    después de enviar —que es donde `unit_cost` ya NO es `NULL`— buscando
+    `cost`, `margin`, `unit_cost`, `food_cost` y `recipe_version` a cualquier
+    profundidad.
+    """
+    from tests.audit.conftest import make_ingredient, make_preparation, put_recipe, send
+
+    insumo = make_ingredient(admin_client, store, name="Insumo secreto", official_cost="99.5", min_stock="1000")
+    prep = make_preparation(
+        admin_client,
+        store,
+        name="Prep secreta",
+        mode="batch",
+        standard_yield_qty="1000",
+        standard_yield_unit="g",
+        lines=[{"ingredient_id": insumo["id"], "qty": "400", "unit": "g"}],
+    )
+    product = sales_products["inc8"]
+    put_recipe(admin_client, product.id, [{"ingredient_id": insumo["id"], "qty": "100", "unit": "g"}])
+
+    open_shift()
+    identify(device_client, employees["operator"])
+
+    orden = create_order(device_client, channel="counter").json()
+    orden = add_items(device_client, orden, [{"product_id": product.id, "qty": 2}]).json()
+    assert send(device_client, orden).status_code == 200
+
+    superficies: list[tuple[str, Any]] = [
+        ("GET /preparations", device_client.get(f"{API}/preparations")),
+        (
+            "POST /preparations/{id}/produce",
+            device_client.post(
+                f"{API}/preparations/{prep['id']}/produce",
+                json={"qty_expected": "1000", "qty_real": "1000", "employee_pin": "2222"},
+                headers=idem_headers(),
+            ),
+        ),
+        (
+            "POST /waste",
+            device_client.post(
+                f"{API}/waste",
+                json={
+                    "ingredient_id": insumo["id"],
+                    "qty": "10",
+                    "type": "breakage",
+                    "employee_pin": "2222",
+                },
+                headers=idem_headers(),
+            ),
+        ),
+        ("GET /device/ingredients", device_client.get(f"{API}/device/ingredients")),
+        ("GET /orders/{id} tras enviar", device_client.get(f"{API}/orders/{orden['id']}")),
+        ("GET /kitchen/rounds", device_client.get(f"{API}/kitchen/rounds")),
+    ]
+
+    for nombre, resp in superficies:
+        assert resp.status_code in (200, 201), f"{nombre}: {resp.status_code} {resp.text[:200]}"
+        claves = {k.lower() for k in deep_keys(resp.json())}
+        filtrado = {k for k in claves if any(secret in k for secret in MONEY_SECRETS)}
+        assert not filtrado, f"{nombre} filtró {sorted(filtrado)}"
+        assert "recipe_version" not in claves, f"{nombre} filtró la versión de receta"
+        assert "99.5" not in resp.text, f"{nombre} filtró el costo del insumo en algún texto"
+
+
+def test_a_device_session_never_reaches_the_admin_routes_of_cost_and_inventory(
+    device_client: Any, identify: Any, employees: dict[str, Any], store: Any
+) -> None:
+    """§2.2: el operador no administra la carta ni el inventario. La tablet del
+    salón la usa cualquiera del turno y su sesión dura 180 días: la barrera es
+    de rol, no de pantalla.
+
+    Las rutas de admin de 2a son las que muestran costo, margen y food cost —
+    exactamente lo que §11.10 prohíbe que llegue al dispositivo.
+    """
+    identify(device_client, employees["cashier"])
+    lecturas = [
+        (f"{API}/admin/ingredients", {"store_id": store.id}),
+        (f"{API}/admin/inventory/stock", {"store_id": store.id}),
+        (f"{API}/admin/preparations", {"store_id": store.id}),
+        (f"{API}/admin/waste", {"store_id": store.id}),
+        (f"{API}/admin/recipes/coverage", {"store_id": store.id}),
+        (f"{API}/admin/recipes/suspicious-units", {"store_id": store.id}),
+        (f"{API}/admin/products/1/recipe", None),
+    ]
+    for ruta, params in lecturas:
+        resp = device_client.get(ruta, params=params)
+        assert resp.status_code in (401, 403), (
+            f"un dispositivo leyó `{ruta}` con {resp.status_code}: {resp.text[:200]}"
+        )
+        _assert_error_shape(resp, status=resp.status_code)
+
+    escrituras = [
+        (
+            f"{API}/admin/ingredients",
+            {"store_id": store.id},
+            {
+                "name": "X",
+                "base_unit": "g",
+                "purchase_unit": "kg",
+                "purchase_factor": 1000,
+                "min_stock": "1",
+            },
+        ),
+        (
+            f"{API}/admin/inventory/adjustments",
+            {"store_id": store.id},
+            {"ingredient_id": 1, "qty_delta": "10", "reason": "x", "authorizer_pin": "9999"},
+        ),
+        (
+            f"{API}/admin/preparations",
+            {"store_id": store.id},
+            {"name": "X", "mode": "exploded", "standard_yield_qty": "1", "standard_yield_unit": "g", "lines": []},
+        ),
+    ]
+    for ruta, params, cuerpo in escrituras:
+        resp = device_client.post(ruta, params=params, json=cuerpo, headers=idem_headers())
+        assert resp.status_code in (401, 403), (
+            f"un dispositivo escribió en `{ruta}` con {resp.status_code}: {resp.text[:200]}"
+        )

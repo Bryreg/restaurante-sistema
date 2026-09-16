@@ -44,6 +44,29 @@ export function formatPercent(ratio: number | null | undefined): string {
   return `${Math.round(ratio * 100)}%`
 }
 
+/** `recipe_coverage_pct` (pedido 2a) YA llega como entero 0–100 desde el
+ * servidor (`backend/app/reports/service.py _to_out`, `round_half_up`) — a
+ * diferencia de `formatPercent`, esto NUNCA multiplica por 100: sólo agrega
+ * el signo. `null` es "sin ventas netas en el período", nunca "0 %". */
+export function formatPercentInt(pct: number | null | undefined): string {
+  if (pct === null || pct === undefined || Number.isNaN(pct)) return "—"
+  return `${pct}%`
+}
+
+/** Umbral puramente de presentación (no es un cálculo nuevo: sólo clasifica
+ * un número que YA manda el servidor, igual que `foodCostInBand` en
+ * `features/recipes/costDisplay.tsx`, territorio ajeno, con el mismo
+ * patrón). Por debajo de 50 % la mitad de la venta neta no tuvo ficha de
+ * verdad: el margen bruto de al lado deja de ser representativo. Declarado
+ * acá porque no hay un umbral de negocio para esto en la spec — es una
+ * decisión de UI, no una regla que el backend imponga. */
+export function recipeCoverageTone(pct: number | null | undefined): "default" | "warning" | "critical" {
+  if (pct === null || pct === undefined || Number.isNaN(pct)) return "default"
+  if (pct < 50) return "critical"
+  if (pct < 80) return "warning"
+  return "default"
+}
+
 export const ALERT_LEVEL_LABEL: Record<AlertLevel, string> = {
   info: "Información",
   warning: "Atención",
