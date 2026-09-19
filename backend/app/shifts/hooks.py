@@ -14,19 +14,47 @@ existir en un proyecto que no vendió nada), de `app.payments.models`.
   (CONTRATO-INTERNO-1b-1.md §2.3): `method` `cash` → `cash`/`tips_cash`,
   `card` → `card`/`tips_card`, `transfer` → `transfer`/`tips_transfer`,
   `platform`/`voucher`/`other` → `other`/`tips_other` (no entran al cajón).
+- `register_supplier_payment_expense` (pedido 2b, `features/fase-2-costo-
+  inventario/spec.md § Alcance de 2b`) lo llama
+  `app.purchases.service.create_payment` cuando un pago a proveedor sale del
+  cajón: busca el turno `OPEN` de la sede y crea el egreso con la causa
+  tipada `SUPPLIER_PAYMENT` — nunca `OTHER_EXPENSE` reciclada. Sin turno
+  abierto levanta `AppError("NO_OPEN_SHIFT", status=409)` ANTES de escribir
+  nada; quien llama valida-antes-de-escribir con esto (crea el egreso antes
+  de la fila del pago), así que sin turno abierto no queda ni el egreso ni
+  el pago.
+- `register_supplier_payment_reversal` (ronda 2 del pedido 2b, H-1
+  BLOQUEANTE) es el hermano exacto de `register_supplier_payment_expense`
+  en la otra dirección: lo llama `app.purchases.service.void_payment`
+  cuando se anula un pago que salió del cajón (`payment.from_cash_drawer`),
+  ANTES de tocar una sola línea del pago. Busca el turno `OPEN` de la sede y
+  crea un `CashMovement(kind=INCOME, cause=SUPPLIER_PAYMENT)` — nunca
+  `OTHER_INCOME` reciclada, nunca un ajuste manual — que devuelve a la caja
+  exactamente lo que el egreso original sacó. **Nada se borra ni se
+  reescribe**: el `CashMovement` del pago original queda vivo tal cual;
+  éste es un movimiento nuevo y compensatorio, en el turno abierto AL
+  MOMENTO DE ANULAR (que puede no ser el mismo turno en el que se pagó — la
+  plata vuelve al cajón HOY, que es lo que pasa físicamente; un turno ya
+  `CLOSED` es inviolable porque su conteo a ciegas ya ocurrió).
+  Sin turno abierto levanta `AppError("NO_OPEN_SHIFT", status=409)` ANTES de
+  escribir nada, con un mensaje que nombra la acción correctiva; quien llama
+  valida-antes-de-escribir con esto, así que sin turno abierto la anulación
+  se rechaza completa: ni el reintegro ni el `voided_at` del pago quedan.
 """
 
 from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import clock
+from app.core.errors import AppError
 from app.core.modules import find_spec_safe
-from app.shifts.models import Shift, ShiftRoster, ShiftStatus
+from app.shifts.models import CashMovement, CashMovementCause, CashMovementKind, Shift, ShiftRoster, ShiftStatus
 
 _OTHER_METHODS = {"platform", "voucher", "other"}
 
@@ -126,3 +154,121 @@ def on_employee_identified(db: Session, *, store_id: int, employee: object) -> N
         )
     )
     db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2b: el egreso del cajón por un pago a proveedor.
+# ---------------------------------------------------------------------------
+
+
+def register_supplier_payment_expense(
+    db: Session,
+    *,
+    organization_id: int,
+    store_id: int,
+    amount: int,
+    actor: Any,
+    note: str | None = None,
+    reference: str | None = None,
+) -> CashMovement:
+    """Egreso de caja de un pago en efectivo de una cuenta por pagar
+    (`app.purchases.service.create_payment`). Busca el turno `OPEN` de la
+    sede; sin uno, `AppError("NO_OPEN_SHIFT", status=409)` — el mensaje
+    nombra la acción correctiva (`AGENTS.md §11.18`). `amount` siempre
+    positivo (mismo contrato que el resto de `CashMovement`); el signo lo da
+    `kind=EXPENSE` al sumar en `service.compute_breakdown`, sin cambios ahí.
+    """
+    shift = db.execute(
+        select(Shift).where(Shift.store_id == store_id, Shift.status == ShiftStatus.OPEN)
+    ).scalar_one_or_none()
+    if shift is None:
+        raise AppError(
+            code="NO_OPEN_SHIFT",
+            message="No hay un turno abierto en esta sede; abrí un turno para pagar en efectivo desde el cajón, o registrá el pago por otro medio",
+            status=409,
+        )
+
+    full_note = note or "Pago a proveedor"
+    if reference:
+        full_note = f"{full_note} (ref: {reference})"
+
+    movement = CashMovement(
+        organization_id=organization_id,
+        store_id=store_id,
+        shift_id=shift.id,
+        kind=CashMovementKind.EXPENSE,
+        cause=CashMovementCause.SUPPLIER_PAYMENT,
+        amount=amount,
+        note=full_note,
+        employee_id=actor.employee_id,
+        employee_name=actor.employee_name,
+        authorized_by_employee_id=actor.employee_id,
+        authorized_by_employee_name=actor.employee_name,
+        at=clock.now_utc(),
+    )
+    db.add(movement)
+    db.flush()
+    return movement
+
+
+def register_supplier_payment_reversal(
+    db: Session,
+    *,
+    organization_id: int,
+    store_id: int,
+    amount: int,
+    actor: Any,
+    note: str | None = None,
+    reference: str | None = None,
+) -> CashMovement:
+    """Reintegro de caja cuando se anula un pago a proveedor que había
+    salido del cajón (`app.purchases.service.void_payment`, ronda 2 del
+    pedido 2b — H-1 BLOQUEANTE). Hermano exacto de
+    `register_supplier_payment_expense` en la otra dirección: busca el
+    turno `OPEN` de la sede; sin uno, `AppError("NO_OPEN_SHIFT", status=409)`
+    — el mensaje nombra la acción correctiva — y **no se escribe nada**
+    (ni este movimiento ni, aguas arriba, el `voided_at` del pago que lo
+    disparó). Con turno abierto, crea un `CashMovement(kind=INCOME,
+    cause=SUPPLIER_PAYMENT)` — causa tipada existente, nunca `OTHER_INCOME`
+    reciclada — con `amount` siempre positivo (mismo contrato que el resto
+    de `CashMovement`; el signo lo da `kind=INCOME` al sumar en
+    `service.compute_breakdown`, sin cambios ahí). El `CashMovement` del
+    egreso original NO se toca ni se borra: éste es un movimiento nuevo,
+    en el turno abierto AL MOMENTO DE ANULAR (nunca el turno original si ya
+    cerró: un turno `CLOSED` es inviolable porque su conteo a ciegas ya
+    ocurrió; la plata vuelve al cajón HOY, que es lo que pasa físicamente).
+    """
+    shift = db.execute(
+        select(Shift).where(Shift.store_id == store_id, Shift.status == ShiftStatus.OPEN)
+    ).scalar_one_or_none()
+    if shift is None:
+        raise AppError(
+            code="NO_OPEN_SHIFT",
+            message=(
+                "No hay un turno abierto en esta sede; abrí un turno para registrar el reintegro del pago "
+                "anulado, y recién ahí anulá el pago"
+            ),
+            status=409,
+        )
+
+    full_note = note or "Reintegro por anulación de pago a proveedor"
+    if reference:
+        full_note = f"{full_note} (ref: {reference})"
+
+    movement = CashMovement(
+        organization_id=organization_id,
+        store_id=store_id,
+        shift_id=shift.id,
+        kind=CashMovementKind.INCOME,
+        cause=CashMovementCause.SUPPLIER_PAYMENT,
+        amount=amount,
+        note=full_note,
+        employee_id=actor.employee_id,
+        employee_name=actor.employee_name,
+        authorized_by_employee_id=actor.employee_id,
+        authorized_by_employee_name=actor.employee_name,
+        at=clock.now_utc(),
+    )
+    db.add(movement)
+    db.flush()
+    return movement

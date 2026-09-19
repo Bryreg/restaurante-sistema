@@ -6,7 +6,9 @@ ajustes manuales. Toda escritura al libro de movimientos pasa por
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+import importlib
+from datetime import date, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -14,20 +16,56 @@ from sqlalchemy.orm import Session
 from app.auth import service as auth_service
 from app.auth.deps import Actor
 from app.auth.models import Employee
-from app.core import clock, tz
+from app.core import clock, features, tz
 from app.core.errors import AppError, NotFoundError
-from app.core.quantity import format_cost_micros, format_qty_base, parse_cost_micros, parse_qty_base
+from app.core.modules import find_spec_safe
+from app.core.quantity import (
+    format_cost_micros,
+    format_qty_base,
+    line_cost_micros,
+    micros_to_pesos,
+    parse_cost_micros,
+    parse_qty_base,
+)
 from app.core.security import verify_secret
 from app.inventory import hooks
-from app.inventory.models import BaseUnit, CostSource, Ingredient, MovementCause, StockMovement, Waste, WasteType
+from app.inventory.models import (
+    BaseUnit,
+    CostSource,
+    Ingredient,
+    MovementCause,
+    StockBatch,
+    StockCount,
+    StockCountLine,
+    StockCountScope,
+    StockCountStatus,
+    StockMovement,
+    StoreInventorySettings,
+    Waste,
+    WasteType,
+)
 from app.inventory.schemas import (
     AdjustmentIn,
     AdjustmentOut,
+    ControlHealthOut,
+    CountApplyLineOut,
+    CountApplyOut,
+    CountDetailOut,
+    CountLineOut,
+    CountLinesIn,
+    CountLinesSaveOut,
+    CountOut,
+    FoodCostOut,
     IngredientIn,
     IngredientOut,
     IngredientUpdateIn,
+    InventorySettingsIn,
+    InventorySettingsOut,
+    LotOut,
     StockMovementOut,
     StockRowOut,
+    VarianceOut,
+    VarianceRowOut,
     WasteAdminOut,
     WasteIn,
     WasteKpiOut,
@@ -537,10 +575,55 @@ def waste_admin_out(waste: Waste) -> WasteAdminOut:
     )
 
 
-def weekly_waste_kpi() -> WasteKpiOut:
-    """Mermas ÷ compras semanal. No hay compras todavía (son de 2b): `null`
-    con `"sin datos"`, nunca `0` (`0` mentiría "no hay merma")."""
-    return WasteKpiOut(ratio=None, label="sin datos")
+def weekly_waste_kpi(db: Session, *, store: Store, business_date: date) -> WasteKpiOut:
+    """Mermas ÷ compras de la semana que termina en `business_date`
+    (SPEC-NEGOCIO §5.5). **Deuda cerrada en 2b** (`outputs-2a/ENTREGA.md § 5`,
+    O-6): las compras salen del LIBRO (`cause=PURCHASE`, valorizadas con su
+    `cost_micros` propio — nunca de importar `purchases`, una sola fuente de
+    verdad). `null` con `label` legible cuando no hay compras en la semana
+    (mermas ÷ 0 no es `0`, es "sin datos"); `ratio` en puntos básicos
+    (× 10.000), **el único número no entero de la fase — ya no lo es**."""
+    week_start = business_date - timedelta(days=6)
+
+    waste_micros = 0
+    for waste in db.execute(
+        select(Waste).where(
+            Waste.store_id == store.id, Waste.business_date >= week_start, Waste.business_date <= business_date
+        )
+    ).scalars():
+        if waste.cost_micros is not None:
+            waste_micros += line_cost_micros(waste.qty_base, waste.cost_micros)
+
+    purchases_micros = 0
+    for movement in db.execute(
+        select(StockMovement).where(
+            StockMovement.store_id == store.id,
+            StockMovement.cause == MovementCause.PURCHASE,
+            StockMovement.business_date >= week_start,
+            StockMovement.business_date <= business_date,
+        )
+    ).scalars():
+        if movement.cost_micros is not None:
+            purchases_micros += line_cost_micros(movement.qty_base, movement.cost_micros)
+
+    if purchases_micros <= 0:
+        # Mismo texto que 2a (`tests/inventory/test_waste.py`, heredado):
+        # "sin datos" es el contrato ya publicado para "no hay con qué
+        # dividir" -- 2b lo sigue devolviendo tal cual cuando no hay
+        # compras en la semana, sólo que ahora también deja de devolverlo
+        # en cuanto SÍ las hay.
+        return WasteKpiOut(ratio=None, label="sin datos")
+
+    waste_pesos = micros_to_pesos(waste_micros)
+    purchases_pesos = micros_to_pesos(purchases_micros)
+    if purchases_pesos <= 0:
+        return WasteKpiOut(ratio=None, label="sin datos")
+    ratio_bp = (waste_pesos * 10000 + purchases_pesos // 2) // purchases_pesos
+    # Formateo sin `float`: `ratio_bp` son puntos básicos (1 % == 100); se
+    # arma el texto a mano, mismo estilo que `format_cost_micros`.
+    whole_pct, frac_bp = divmod(ratio_bp, 100)
+    label = f"{whole_pct}.{frac_bp:02d} % de las compras de la semana"
+    return WasteKpiOut(ratio=ratio_bp, label=label)
 
 
 # ---------------------------------------------------------------------------
@@ -594,3 +677,898 @@ def register_adjustment(db: Session, *, store: Store, actor: Actor, data: Adjust
         employee_name=authorizer.name,
         at=movement.at,
     )
+
+
+# ---------------------------------------------------------------------------
+# Umbrales de varianza (configuración de sede; pedido 2b). Vive en
+# `inventory` a propósito (ver docstring de `StoreInventorySettings`):
+# `PUT/GET /admin/stores/{store_id}/inventory-settings` las sirve el router
+# de este dominio, no `app.stores`.
+# ---------------------------------------------------------------------------
+
+DEFAULT_VARIANCE_YELLOW_BP = 200  # 2,00 puntos porcentuales
+DEFAULT_VARIANCE_RED_BP = 400  # 4,00 puntos porcentuales
+
+
+def get_inventory_settings(db: Session, store: Store) -> StoreInventorySettings:
+    """Devuelve la fila de la sede, creándola con los defaults de industria
+    (SPEC-NEGOCIO §5.4) la primera vez que se pide — así una sede recién
+    creada, antes de que nadie toque `PUT`, ya tiene semáforo con qué
+    calcular en vez de romper con `NotFoundError`."""
+    row = db.get(StoreInventorySettings, store.id)
+    if row is None:
+        row = StoreInventorySettings(
+            store_id=store.id,
+            variance_yellow_threshold_bp=DEFAULT_VARIANCE_YELLOW_BP,
+            variance_red_threshold_bp=DEFAULT_VARIANCE_RED_BP,
+            updated_at=clock.now_utc(),
+        )
+        db.add(row)
+        db.flush()
+    return row
+
+
+def update_inventory_settings(db: Session, store: Store, data: InventorySettingsIn) -> StoreInventorySettings:
+    if data.variance_red_threshold_bp <= data.variance_yellow_threshold_bp:
+        raise AppError(
+            code="VALIDATION_ERROR",
+            message="variance_red_threshold_bp: tiene que ser mayor que variance_yellow_threshold_bp",
+        )
+    row = get_inventory_settings(db, store)
+    row.variance_yellow_threshold_bp = data.variance_yellow_threshold_bp
+    row.variance_red_threshold_bp = data.variance_red_threshold_bp
+    row.updated_at = clock.now_utc()
+    db.flush()
+    return row
+
+
+def inventory_settings_out(row: StoreInventorySettings) -> InventorySettingsOut:
+    return InventorySettingsOut(
+        store_id=row.store_id,
+        variance_yellow_threshold_bp=row.variance_yellow_threshold_bp,
+        variance_red_threshold_bp=row.variance_red_threshold_bp,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Lotes y vencimientos (SPEC-NEGOCIO §5.7; pedido 2b).
+# ---------------------------------------------------------------------------
+
+LOT_EXPIRING_WINDOW_DAYS = 7
+
+
+def lot_status(batch: StockBatch, today: date) -> str:
+    """`active`/`expiring` (`<= 7` días)/`expired`/`depleted`. Un lote SIN
+    vencimiento nunca es `expiring` ni `expired` (SPEC-NEGOCIO §5.7): queda
+    `active` para siempre, hasta que se consuma."""
+    if batch.qty_remaining <= 0:
+        return "depleted"
+    if batch.expires_at is None:
+        return "active"
+    if batch.expires_at < today:
+        return "expired"
+    if (batch.expires_at - today).days <= LOT_EXPIRING_WINDOW_DAYS:
+        return "expiring"
+    return "active"
+
+
+def _lot_sort_key(batch: StockBatch) -> tuple[int, date, datetime, int]:
+    # FEFO para LISTAR (no para consumir -- eso es `hooks.consume_lots_fefo`,
+    # que hace exactamente este mismo orden en SQL): vencimiento ascendente,
+    # sin vencimiento AL FINAL, recepción ascendente como desempate.
+    return (
+        1 if batch.expires_at is None else 0,
+        batch.expires_at or date.max,
+        batch.received_at,
+        batch.id,
+    )
+
+
+def list_lots(
+    db: Session,
+    *,
+    store: Store,
+    ingredient_id: int | None = None,
+    status: str | None = None,
+    expiring_within_days: int | None = None,
+) -> list[tuple[StockBatch, str]]:
+    stmt = select(StockBatch).where(StockBatch.store_id == store.id, StockBatch.reversed_at.is_(None))
+    if ingredient_id is not None:
+        stmt = stmt.where(StockBatch.ingredient_id == ingredient_id)
+    batches = db.execute(stmt).scalars().all()
+    today = tz.today_business_date(store.cutoff_hour)
+
+    rows: list[tuple[StockBatch, str]] = []
+    for batch in sorted(batches, key=_lot_sort_key):
+        this_status = lot_status(batch, today)
+        if status is not None and this_status != status:
+            continue
+        if expiring_within_days is not None:
+            if batch.expires_at is None or (batch.expires_at - today).days > expiring_within_days:
+                continue
+        rows.append((batch, this_status))
+    return rows
+
+
+def lot_out(db: Session, batch: StockBatch, status: str) -> LotOut:
+    ingredient = db.get(Ingredient, batch.ingredient_id)
+    return LotOut(
+        id=batch.id,
+        ingredient_id=batch.ingredient_id,
+        ingredient_name=ingredient.name if ingredient is not None else "?",
+        lot_code=batch.lot_code,
+        qty_received=format_qty_base(batch.qty_received),
+        qty_remaining=format_qty_base(batch.qty_remaining),
+        unit_cost=format_cost_micros(batch.unit_cost_micros),
+        cost_source=batch.cost_source.value,  # type: ignore[arg-type]
+        expires_at=batch.expires_at.isoformat() if batch.expires_at is not None else None,
+        received_at=batch.received_at,
+        status=status,  # type: ignore[arg-type]
+        source_type=batch.source_type,
+        source_id=batch.source_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Conteos a ciegas (SPEC-NEGOCIO §5.4).
+# ---------------------------------------------------------------------------
+
+
+def _ingredients_for_count_scope(db: Session, store: Store, scope: StockCountScope) -> list[Ingredient]:
+    rows = list_ingredients(db, store=store, active_only=True)
+    if scope == StockCountScope.KEY_ITEMS:
+        rows = [i for i in rows if i.key_item]
+    return rows
+
+
+def open_count(db: Session, *, store: Store, actor: Actor, scope: StockCountScope) -> StockCount:
+    """Abre un conteo **a ciegas**: crea un renglón por insumo del alcance
+    (`key_items` -> `Ingredient.key_item`; `full` -> todos los activos), sin
+    `qty_counted`. Ninguna función de este archivo que sirva el flujo de
+    captura (acá, o `count_line_out`/`save_count_lines`) lee ni publica el
+    stock teórico -- es la garantía "a ciegas" de la spec."""
+    if actor.employee_id is None or not actor.employee_name:
+        raise AppError(code="VALIDATION_ERROR", message="No hay una persona identificada para abrir el conteo")
+    now = clock.now_utc()
+    business_date = tz.business_date_for(now, store.cutoff_hour)
+    count = StockCount(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        scope=scope,
+        status=StockCountStatus.OPEN,
+        opened_at=now,
+        business_date=business_date,
+        opened_by_employee_id=actor.employee_id,
+        opened_by_employee_name=actor.employee_name,
+        applied_at=None,
+        applied_by_employee_id=None,
+        applied_by_employee_name=None,
+    )
+    db.add(count)
+    db.flush()
+    for ingredient in _ingredients_for_count_scope(db, store, scope):
+        db.add(
+            StockCountLine(
+                count_id=count.id, ingredient_id=ingredient.id, qty_counted=None, was_counted=False, counted_at=None
+            )
+        )
+    db.flush()
+    return count
+
+
+def count_or_404(db: Session, store: Store, count_id: int) -> StockCount:
+    count = db.get(StockCount, count_id)
+    if count is None or count.store_id != store.id:
+        raise NotFoundError("El conteo no existe")
+    return count
+
+
+def _count_lines(db: Session, count: StockCount) -> list[StockCountLine]:
+    stmt = select(StockCountLine).where(StockCountLine.count_id == count.id).order_by(StockCountLine.id)
+    return list(db.execute(stmt).scalars().all())
+
+
+def count_lines_summary(db: Session, count: StockCount) -> tuple[int, int]:
+    """`(lines_total, lines_counted)` -- lo que necesita `GET /admin/counts`
+    (el listado) sin traer el detalle completo de cada renglón."""
+    lines = _count_lines(db, count)
+    return len(lines), sum(1 for l in lines if l.was_counted)
+
+
+def _previous_line_qty(
+    db: Session, *, store_id: int, ingredient_id: int, before_opened_at: datetime, exclude_count_id: int
+) -> int | None:
+    """El valor de la ÚLTIMA vez que se contó (con `was_counted = True`) este
+    insumo, en un conteo abierto ANTES de `before_opened_at` -- "la
+    referencia en pantalla es el conteo anterior" (SPEC-NEGOCIO §5.4), nunca
+    el stock teórico. Cualquier `scope` cuenta como antecedente: un insumo
+    crítico contado el martes es la referencia válida el jueves, sea el
+    conteo del jueves `key_items` o `full`."""
+    stmt = (
+        select(StockCountLine.qty_counted)
+        .join(StockCount, StockCount.id == StockCountLine.count_id)
+        .where(
+            StockCount.store_id == store_id,
+            StockCount.id != exclude_count_id,
+            StockCountLine.ingredient_id == ingredient_id,
+            StockCountLine.was_counted.is_(True),
+            StockCount.opened_at < before_opened_at,
+        )
+        .order_by(StockCount.opened_at.desc(), StockCount.id.desc())
+        .limit(1)
+    )
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def count_line_out(db: Session, count: StockCount, line: StockCountLine, ingredient: Ingredient) -> CountLineOut:
+    previous = _previous_line_qty(
+        db,
+        store_id=count.store_id,
+        ingredient_id=line.ingredient_id,
+        before_opened_at=count.opened_at,
+        exclude_count_id=count.id,
+    )
+    return CountLineOut(
+        ingredient_id=line.ingredient_id,
+        ingredient_name=ingredient.name,
+        base_unit=ingredient.base_unit.value,  # type: ignore[arg-type]
+        qty_counted=format_qty_base(line.qty_counted) if line.qty_counted is not None else None,
+        was_counted=line.was_counted,
+        previous_qty_counted=format_qty_base(previous) if previous is not None else None,
+    )
+
+
+def _ingredient_map(db: Session, ingredient_ids: list[int]) -> dict[int, Ingredient]:
+    if not ingredient_ids:
+        return {}
+    rows = db.execute(select(Ingredient).where(Ingredient.id.in_(ingredient_ids))).scalars().all()
+    return {i.id: i for i in rows}
+
+
+def count_detail_out(db: Session, count: StockCount) -> CountDetailOut:
+    lines = _count_lines(db, count)
+    ingredients = _ingredient_map(db, [l.ingredient_id for l in lines])
+    line_outs = [count_line_out(db, count, l, ingredients[l.ingredient_id]) for l in lines if l.ingredient_id in ingredients]
+    counted = sum(1 for l in lines if l.was_counted)
+    return CountDetailOut(
+        id=count.id,
+        scope=count.scope.value,  # type: ignore[arg-type]
+        status=count.status.value,  # type: ignore[arg-type]
+        opened_at=count.opened_at,
+        business_date=count.business_date.isoformat(),
+        opened_by_employee_id=count.opened_by_employee_id,
+        opened_by_employee_name=count.opened_by_employee_name,
+        applied_at=count.applied_at,
+        applied_by_employee_id=count.applied_by_employee_id,
+        applied_by_employee_name=count.applied_by_employee_name,
+        lines_total=len(lines),
+        lines_counted=counted,
+        lines=line_outs,
+    )
+
+
+def count_out(count: StockCount, *, lines_total: int, lines_counted: int) -> CountOut:
+    return CountOut(
+        id=count.id,
+        scope=count.scope.value,  # type: ignore[arg-type]
+        status=count.status.value,  # type: ignore[arg-type]
+        opened_at=count.opened_at,
+        business_date=count.business_date.isoformat(),
+        opened_by_employee_id=count.opened_by_employee_id,
+        opened_by_employee_name=count.opened_by_employee_name,
+        applied_at=count.applied_at,
+        applied_by_employee_id=count.applied_by_employee_id,
+        applied_by_employee_name=count.applied_by_employee_name,
+        lines_total=lines_total,
+        lines_counted=lines_counted,
+    )
+
+
+def list_counts(
+    db: Session,
+    *,
+    store: Store,
+    scope: StockCountScope | None,
+    date_from: date | None,
+    date_to: date | None,
+) -> list[StockCount]:
+    stmt = select(StockCount).where(StockCount.store_id == store.id)
+    if scope is not None:
+        stmt = stmt.where(StockCount.scope == scope)
+    if date_from is not None:
+        stmt = stmt.where(StockCount.business_date >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(StockCount.business_date <= date_to)
+    return list(db.execute(stmt.order_by(StockCount.opened_at.desc())).scalars().all())
+
+
+def save_count_lines(db: Session, *, count: StockCount, data: CountLinesIn) -> CountLinesSaveOut:
+    """`PUT /admin/counts/{id}/lines`. **No existe "todo coincide"**: cada
+    renglón se escribe individualmente, con su propio `was_counted`; no hay
+    ningún parámetro ni atajo acá que marque todos los renglones de una sola
+    vez. Un guardado parcial (menos líneas que `lines_total`) es válido y se
+    dice en la respuesta (`partial=True`). Un `was_counted=False` entrante
+    (un borrador) NUNCA pisa un renglón que ya tenía `was_counted=True` (una
+    confirmación anterior) -- se ignora esa línea en particular, en silencio,
+    sin abortar el resto del guardado."""
+    if count.status != StockCountStatus.OPEN:
+        raise AppError(
+            code="COUNT_ALREADY_APPLIED",
+            message="Este conteo ya se aplicó; no se puede seguir capturando",
+            status=409,
+        )
+
+    now = clock.now_utc()
+    lines_by_ingredient = {l.ingredient_id: l for l in _count_lines(db, count)}
+    for line_in in data.lines:
+        row = lines_by_ingredient.get(line_in.ingredient_id)
+        if row is None:
+            raise AppError(
+                code="VALIDATION_ERROR",
+                message=f"ingredient_id {line_in.ingredient_id}: no está en el alcance de este conteo",
+            )
+        qty = parse_qty_base(line_in.qty_counted, field="qty_counted")
+        if row.was_counted and not line_in.was_counted:
+            continue
+        row.qty_counted = qty
+        row.was_counted = line_in.was_counted
+        if line_in.was_counted:
+            row.counted_at = now
+    db.flush()
+
+    lines = _count_lines(db, count)
+    ingredients = _ingredient_map(db, [l.ingredient_id for l in lines])
+    line_outs = [count_line_out(db, count, l, ingredients[l.ingredient_id]) for l in lines if l.ingredient_id in ingredients]
+    counted = sum(1 for l in lines if l.was_counted)
+    return CountLinesSaveOut(lines=line_outs, lines_counted=counted, lines_total=len(lines), partial=counted < len(lines))
+
+
+def apply_count(db: Session, *, count: StockCount, store: Store, actor: Actor, authorizer_pin: str) -> CountApplyOut:
+    """`POST /admin/counts/{id}/apply`. **El test que más importa de la
+    misión**: aplica `stock = contado + (entradas - salidas DESDE EL
+    INSTANTE DEL CONTEO)`, nunca desde el instante de aplicar.
+
+    La cuenta se resuelve con `hooks.current_stock(..., as_of=count.
+    opened_at)` en vez de sumar entradas/salidas a mano, porque los dos
+    caminos dan el MISMO resultado por álgebra (y este evita reimplementar
+    la suma): si `target = contado + movimientos_desde_el_conteo` y
+    `ahora = stock_al_conteo + movimientos_desde_el_conteo` (el libro es
+    aditivo), entonces `ajuste = target - ahora = contado -
+    stock_al_conteo`. Los movimientos que pasaron entre el conteo y el
+    `apply` se CANCELAN en el álgebra -- por eso un conteo de las 13:07
+    aplicado a las 15:42 no puede "inventar un faltante" con lo que vendió
+    el restaurante en el medio.
+
+    `409 COUNT_ALREADY_APPLIED` si ya estaba `status="applied"` -- funciona
+    tanto si el reintento llega con la MISMA `Idempotency-Key` (la capa de
+    idempotencia lo resuelve con un replay antes de llegar acá) como con una
+    distinta (esta guarda de negocio corta antes de tocar el libro)."""
+    if count.status == StockCountStatus.APPLIED:
+        raise AppError(
+            code="COUNT_ALREADY_APPLIED", message="Este conteo ya se aplicó; no se puede aplicar dos veces", status=409
+        )
+
+    authorizer = _verify_self_authorizer(db, actor=actor, pin=authorizer_pin)
+    now = clock.now_utc()
+    business_date = tz.business_date_for(now, store.cutoff_hour)
+    authorizer_actor = Actor(
+        kind="admin",
+        organization_id=store.organization_id,
+        store_id=store.id,
+        employee_id=authorizer.id,
+        employee_name=authorizer.name,
+        role=authorizer.role,
+    )
+
+    scope_label = "crítico" if count.scope == StockCountScope.KEY_ITEMS else "completo"
+    out_lines: list[CountApplyLineOut] = []
+    for line in _count_lines(db, count):
+        if not line.was_counted or line.qty_counted is None:
+            continue
+        ingredient = hooks.get_ingredient(db, store_id=store.id, ingredient_id=line.ingredient_id)
+        if ingredient is None:
+            continue
+
+        stock_at_count_instant = hooks.current_stock(
+            db, store_id=store.id, ingredient_id=ingredient.id, as_of=count.opened_at
+        )
+        stock_now = hooks.current_stock(db, store_id=store.id, ingredient_id=ingredient.id)
+        adjustment = line.qty_counted - stock_at_count_instant
+
+        if adjustment != 0:
+            cost_micros, cost_source = hooks.resolve_ingredient_cost(db, ingredient)
+            hooks.record_movement(
+                db,
+                organization_id=store.organization_id,
+                store_id=store.id,
+                ingredient_id=ingredient.id,
+                qty_base=adjustment,
+                cause=MovementCause.COUNT_ADJUSTMENT,
+                cost_micros=cost_micros,
+                cost_source=cost_source,
+                actor=authorizer_actor,
+                business_date=business_date,
+                at=now,
+                ref_type="stock_count",
+                ref_id=count.id,
+                note=f"Conteo #{count.id} ({scope_label})",
+            )
+
+        out_lines.append(
+            CountApplyLineOut(
+                ingredient_id=ingredient.id,
+                ingredient_name=ingredient.name,
+                qty_counted=format_qty_base(line.qty_counted),
+                stock_before=format_qty_base(stock_now),
+                adjustment=format_qty_base(adjustment),
+                stock_after=format_qty_base(stock_now + adjustment),
+            )
+        )
+
+    count.status = StockCountStatus.APPLIED
+    count.applied_at = now
+    count.applied_by_employee_id = authorizer.id
+    count.applied_by_employee_name = authorizer.name
+    db.flush()
+
+    return CountApplyOut(
+        id=count.id, applied_at=now, applied_by_employee_id=authorizer.id, applied_by_employee_name=authorizer.name,
+        lines=out_lines,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Varianza (SPEC-NEGOCIO §5.4).
+# ---------------------------------------------------------------------------
+
+
+def _previous_applied_count(
+    db: Session, *, store_id: int, before_opened_at: datetime, exclude_count_id: int
+) -> StockCount | None:
+    stmt = (
+        select(StockCount)
+        .where(
+            StockCount.store_id == store_id,
+            StockCount.status == StockCountStatus.APPLIED,
+            StockCount.id != exclude_count_id,
+            StockCount.opened_at < before_opened_at,
+        )
+        .order_by(StockCount.opened_at.desc(), StockCount.id.desc())
+        .limit(1)
+    )
+    return db.execute(stmt).scalars().first()
+
+
+def _movement_sum(
+    db: Session,
+    *,
+    store_id: int,
+    ingredient_id: int,
+    window_from: datetime,
+    window_to: datetime,
+    positive: bool,
+    causes: tuple[MovementCause, ...] | None = None,
+    exclude_causes: tuple[MovementCause, ...] = (),
+) -> int:
+    stmt = select(func.coalesce(func.sum(StockMovement.qty_base), 0)).where(
+        StockMovement.store_id == store_id,
+        StockMovement.ingredient_id == ingredient_id,
+        StockMovement.at > window_from,
+        StockMovement.at <= window_to,
+    )
+    if causes is not None:
+        stmt = stmt.where(StockMovement.cause.in_(causes))
+    if exclude_causes:
+        stmt = stmt.where(StockMovement.cause.notin_(exclude_causes))
+    stmt = stmt.where(StockMovement.qty_base > 0 if positive else StockMovement.qty_base < 0)
+    return int(db.execute(stmt).scalar_one())
+
+
+def _variance_level(
+    *, pct_bp: int | None, theoretical: int, variance_qty: int, settings: StoreInventorySettings
+) -> str:
+    """Semáforo de varianza. Con `theoretical > 0`, `pct_bp` (ya calculado
+    por el llamador) manda contra los umbrales configurados de sede.
+
+    RONDA 2, hallazgo H-5: con `theoretical == 0` el porcentaje es
+    matemáticamente indefinido (`variance_pct_bp` sigue siendo `None` -- no
+    se inventa un `100 %`), pero eso NO puede pintarse siempre verde: si
+    `variance_qty` también es `0` no pasó nada (verde); si es POSITIVO
+    (`variance_qty = uso_real - uso_teórico`, `schemas.VarianceRowOut.
+    variance_qty`: "positivo = se usó más de lo esperado") desapareció stock
+    sin una sola venta ni producción que lo explique -- fuga pura -- y eso es
+    ROJO aunque no haya con qué dividir; si es NEGATIVO (se contó MÁS stock
+    del que el libro explica: opening + inflow < closing) es un error de
+    conteo del otro signo, AMARILLO.
+
+    **Nota sobre el signo, para quien audite este hallazgo contra el mandato
+    original**: el mandato describe la rama roja como "`variance_qty < 0`" y
+    la amarilla como "`variance_qty > 0`", con el mismo ejemplo verbal
+    ("faltante" = rojo) que acá. Ese mapeo de signo choca con la convención
+    YA establecida y YA probada en la ronda 1
+    (`schemas.VarianceRowOut.variance_qty`: "positivo = se usó más de lo
+    esperado"; `test_variance_identity_closes_with_a_hand_built_case`: 3 kg
+    "de más consumidos que lo esperado" = `variance_qty=+3`): con esa
+    convención, un faltante físico (opening 400, sin ventas, closing 0) da
+    `real_usage=400`, `variance_qty=+400` -- POSITIVO, nunca negativo. Un
+    faltante no puede dar `variance_qty < 0` bajo esta fórmula sin importar
+    los números que se elijan. Implementé el signo que hace cierta la
+    ORACIÓN del mandato ("400 unidades faltantes ... salen en rojo") en vez
+    de su fórmula literal, porque las dos no pueden ser ciertas a la vez con
+    la convención ya publicada y ya probada -- cambiar la convención de
+    `variance_qty` en la ronda 2 habría roto el test de la ronda 1 y el
+    contrato ya publicado del campo. Documentado también en el entregable,
+    § Ronda 2, para que el Maestro lo revise."""
+    if theoretical == 0:
+        if variance_qty == 0:
+            return "green"
+        return "red" if variance_qty > 0 else "yellow"
+    if pct_bp is None:
+        return "green"
+    if pct_bp < settings.variance_yellow_threshold_bp:
+        return "green"
+    if pct_bp < settings.variance_red_threshold_bp:
+        return "yellow"
+    return "red"
+
+
+def variance_report(db: Session, *, store: Store, count_id: int) -> VarianceOut:
+    """`GET /admin/variance?count_id`. Identidad `inicial + entradas - final
+    = uso real`, contra el uso teórico que ya está en el libro
+    (`cause=SALE` + `cause=PRODUCTION_OUT`, SPEC-NEGOCIO §5.3). `entradas`
+    EXCLUYE `count_adjustment` a propósito: el ajuste del conteo ANTERIOR ya
+    quedó absorbido en `inicial` (que es el valor CONTADO, no el del libro),
+    así que sumarlo de nuevo acá lo contaría dos veces."""
+    count = count_or_404(db, store, count_id)
+    settings = get_inventory_settings(db, store)
+    if count.status != StockCountStatus.APPLIED:
+        raise AppError(
+            code="COUNT_NOT_APPLIED", message="La varianza sólo se calcula sobre un conteo ya aplicado"
+        )
+
+    previous = _previous_applied_count(db, store_id=store.id, before_opened_at=count.opened_at, exclude_count_id=count.id)
+    if previous is None:
+        return VarianceOut(
+            count_id=count.id,
+            opening_count_id=None,
+            window_from=None,
+            window_to=count.opened_at,
+            available=False,
+            reason="No hay un conteo anterior aplicado contra el cual comparar",
+            rows=[],
+            yellow_threshold_bp=settings.variance_yellow_threshold_bp,
+            red_threshold_bp=settings.variance_red_threshold_bp,
+        )
+
+    previous_lines = {
+        l.ingredient_id: l.qty_counted
+        for l in _count_lines(db, previous)
+        if l.was_counted and l.qty_counted is not None
+    }
+    current_lines = {
+        l.ingredient_id: l.qty_counted for l in _count_lines(db, count) if l.was_counted and l.qty_counted is not None
+    }
+    ingredient_ids = sorted(set(previous_lines) & set(current_lines))
+
+    rows: list[VarianceRowOut] = []
+    for ing_id in ingredient_ids:
+        ingredient = hooks.get_ingredient(db, store_id=store.id, ingredient_id=ing_id)
+        if ingredient is None:
+            continue
+        opening = previous_lines[ing_id]
+        closing = current_lines[ing_id]
+        inflow = _movement_sum(
+            db, store_id=store.id, ingredient_id=ing_id, window_from=previous.opened_at, window_to=count.opened_at,
+            positive=True, exclude_causes=(MovementCause.COUNT_ADJUSTMENT,),
+        )
+        real_usage = opening + inflow - closing
+        theoretical = -_movement_sum(
+            db, store_id=store.id, ingredient_id=ing_id, window_from=previous.opened_at, window_to=count.opened_at,
+            positive=False, causes=(MovementCause.SALE, MovementCause.PRODUCTION_OUT),
+        )
+        variance_qty = real_usage - theoretical
+
+        cost_micros, cost_source = hooks.resolve_ingredient_cost(db, ingredient)
+        variance_value = micros_to_pesos(line_cost_micros(variance_qty, cost_micros)) if cost_micros is not None else None
+
+        if theoretical > 0:
+            numerator = abs(variance_qty) * 10000
+            variance_pct_bp: int | None = (numerator + theoretical // 2) // theoretical
+        else:
+            variance_pct_bp = None
+        level = _variance_level(
+            pct_bp=variance_pct_bp, theoretical=theoretical, variance_qty=variance_qty, settings=settings
+        )
+
+        rows.append(
+            VarianceRowOut(
+                ingredient_id=ing_id,
+                ingredient_name=ingredient.name,
+                base_unit=ingredient.base_unit.value,  # type: ignore[arg-type]
+                opening_qty=format_qty_base(opening),
+                inflow_qty=format_qty_base(inflow),
+                closing_qty=format_qty_base(closing),
+                real_usage_qty=format_qty_base(real_usage),
+                theoretical_usage_qty=format_qty_base(theoretical),
+                variance_qty=format_qty_base(variance_qty),
+                variance_value=variance_value,
+                cost_source=cost_source.value,  # type: ignore[arg-type]
+                variance_pct_bp=variance_pct_bp,
+                level=level,  # type: ignore[arg-type]
+            )
+        )
+
+    return VarianceOut(
+        count_id=count.id,
+        opening_count_id=previous.id,
+        window_from=previous.opened_at,
+        window_to=count.opened_at,
+        available=True,
+        reason=None,
+        rows=rows,
+        yellow_threshold_bp=settings.variance_yellow_threshold_bp,
+        red_threshold_bp=settings.variance_red_threshold_bp,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Food cost real (SPEC-NEGOCIO §4.1/§5.4).
+# ---------------------------------------------------------------------------
+
+
+def _sale_document_types() -> tuple[Any, ...]:
+    from app.fiscal.models import FiscalDocumentType
+
+    # Mismo criterio que `app.reports.service.SALE_DOCUMENT_TYPES`
+    # (documentos que representan una venta real cobrada; las notas quedan
+    # fuera). Se declara acá en vez de importarlo de `app.reports` para no
+    # acoplar `inventory` a un módulo que otro agente edita en paralelo en
+    # este mismo pedido -- son dos dominios leyendo la misma tabla con el
+    # mismo criterio documentado, no una segunda fuente de verdad sobre CÓMO
+    # se calcula (el criterio en sí -- qué tipos de documento son "venta" --
+    # está fijado por SPEC-NEGOCIO §8.2, no inventado acá).
+    return (
+        FiscalDocumentType.POS_EQUIVALENT,
+        FiscalDocumentType.INVOICE,
+        FiscalDocumentType.INTERNAL_RECEIPT,
+    )
+
+
+def _net_sales(db: Session, *, store_id: int, date_from: date, date_to: date) -> int:
+    from app.fiscal.models import FiscalDocument
+
+    stmt = select(func.coalesce(func.sum(FiscalDocument.total - FiscalDocument.tax_total), 0)).where(
+        FiscalDocument.store_id == store_id,
+        FiscalDocument.business_date >= date_from,
+        FiscalDocument.business_date <= date_to,
+        FiscalDocument.document_type.in_(_sale_document_types()),
+        FiscalDocument.status == "issued",
+    )
+    return int(db.execute(stmt).scalar_one())
+
+
+def _two_most_recent_consecutive_full_counts(
+    db: Session, *, store: Store, date_from: date, date_to: date
+) -> tuple[StockCount, StockCount] | None:
+    stmt = (
+        select(StockCount)
+        .where(
+            StockCount.store_id == store.id,
+            StockCount.scope == StockCountScope.FULL,
+            StockCount.status == StockCountStatus.APPLIED,
+            StockCount.business_date >= date_from,
+            StockCount.business_date <= date_to,
+        )
+        .order_by(StockCount.opened_at.asc())
+    )
+    counts = list(db.execute(stmt).scalars().all())
+    if len(counts) < 2:
+        return None
+    return counts[-2], counts[-1]
+
+
+def _count_inventory_value(db: Session, *, store: Store, count: StockCount) -> int:
+    """Valoriza, en pesos, los renglones CONTADOS de un conteo al costo
+    resuelto de HOY (`resolve_ingredient_cost`). No revalora una VENTA
+    pasada (prohibido por `AGENTS.md`): esto valoriza un CONTEO, que es una
+    foto de stock, no una venta -- el snapshot que la spec protege es el de
+    `order_items`, no éste."""
+    total_micros = 0
+    for line in _count_lines(db, count):
+        if not line.was_counted or line.qty_counted is None:
+            continue
+        ingredient = hooks.get_ingredient(db, store_id=store.id, ingredient_id=line.ingredient_id)
+        if ingredient is None:
+            continue
+        cost_micros, _source = hooks.resolve_ingredient_cost(db, ingredient)
+        if cost_micros is None:
+            continue
+        total_micros += line_cost_micros(line.qty_counted, cost_micros)
+    return micros_to_pesos(total_micros)
+
+
+def _purchases_value(db: Session, *, store: Store, window_from: datetime, window_to: datetime) -> int:
+    total_micros = 0
+    stmt = select(StockMovement).where(
+        StockMovement.store_id == store.id,
+        StockMovement.cause == MovementCause.PURCHASE,
+        StockMovement.at > window_from,
+        StockMovement.at <= window_to,
+    )
+    for movement in db.execute(stmt).scalars():
+        if movement.cost_micros is not None:
+            total_micros += line_cost_micros(movement.qty_base, movement.cost_micros)
+    return micros_to_pesos(total_micros)
+
+
+def food_cost_report(db: Session, *, store: Store, date_from: date, date_to: date) -> FoodCostOut:
+    """`GET /admin/food-cost?from&to`: `(inicial + compras - final) ÷ ventas
+    netas`, **sólo entre dos conteos completos consecutivos** dentro del
+    rango. Sin ellos, o con "inventario no confiable" (`hooks.
+    inventory_staleness` -- RONDA 2, H-4: misma fuente que `control_health`,
+    ninguno de los dos vuelve a sumar días por su cuenta), `null` **con
+    motivo** -- jamás `0`."""
+    staleness = hooks.inventory_staleness(db, store_id=store.id, cutoff_hour=store.cutoff_hour)
+    if staleness.unreliable:
+        if staleness.days_since_last_full_count is None:
+            reason = (
+                "Inventario no confiable: nunca se aplicó un conteo completo "
+                f"(hacen falta uno hace menos de {staleness.stale_days} días)"
+            )
+        else:
+            reason = (
+                f"Inventario no confiable: {staleness.days_since_last_full_count} días desde el último "
+                f"conteo completo aplicado (más de {staleness.stale_days})"
+            )
+        return FoodCostOut(
+            available=False,
+            reason=reason,
+            opening_count_id=None, closing_count_id=None, window_from=None, window_to=None,
+            opening_value=None, purchases_value=None, closing_value=None, net_sales=None, pct_bp=None,
+        )
+
+    pair = _two_most_recent_consecutive_full_counts(db, store=store, date_from=date_from, date_to=date_to)
+    if pair is None:
+        return FoodCostOut(
+            available=False,
+            reason="Hacen falta dos conteos completos aplicados y consecutivos en el período para calcular el food cost real",
+            opening_count_id=None, closing_count_id=None, window_from=None, window_to=None,
+            opening_value=None, purchases_value=None, closing_value=None, net_sales=None, pct_bp=None,
+        )
+    opening_count, closing_count = pair
+
+    opening_value = _count_inventory_value(db, store=store, count=opening_count)
+    closing_value = _count_inventory_value(db, store=store, count=closing_count)
+    purchases_value = _purchases_value(db, store=store, window_from=opening_count.opened_at, window_to=closing_count.opened_at)
+    net_sales = _net_sales(db, store_id=store.id, date_from=opening_count.business_date, date_to=closing_count.business_date)
+
+    window_from = opening_count.opened_at.isoformat()
+    window_to = closing_count.opened_at.isoformat()
+
+    if net_sales <= 0:
+        return FoodCostOut(
+            available=False,
+            reason="No hay ventas netas registradas en el período entre los dos conteos",
+            opening_count_id=opening_count.id, closing_count_id=closing_count.id,
+            window_from=window_from, window_to=window_to,
+            opening_value=opening_value, purchases_value=purchases_value, closing_value=closing_value,
+            net_sales=net_sales, pct_bp=None,
+        )
+
+    food_cost_pesos = opening_value + purchases_value - closing_value
+    pct_bp = (abs(food_cost_pesos) * 10000 + net_sales // 2) // net_sales
+    if food_cost_pesos < 0:
+        pct_bp = -pct_bp
+
+    return FoodCostOut(
+        available=True,
+        reason=None,
+        opening_count_id=opening_count.id, closing_count_id=closing_count.id,
+        window_from=window_from, window_to=window_to,
+        opening_value=opening_value, purchases_value=purchases_value, closing_value=closing_value,
+        net_sales=net_sales, pct_bp=pct_bp,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Salud del control (SPEC-NEGOCIO §5.4/§9.3).
+# ---------------------------------------------------------------------------
+
+
+def _reception_invoice_ratio(db: Session, *, store: Store, date_from: date, date_to: date) -> tuple[int | None, str | None]:
+    """Lee `app.purchases.hooks.reception_invoice_ratio` con `find_spec_safe`
+    -- NUNCA `importlib.util.find_spec` crudo (`app.purchases` puede no
+    tener ni carpeta en un checkout que no incluya ese territorio). Firma
+    publicada por `purchases` (`app/purchases/hooks.py`, confirmada contra
+    su código, no asumida): `(db, *, store_id, date_from, date_to) ->
+    tuple[int, int]` = `(con_factura, total)` -- una razón en dos enteros,
+    no un porcentaje ya calculado (mismo principio de "una sola
+    matemática": el `round`/la escala los hace quien PUBLICA el número, acá,
+    no cada consumidor por su cuenta). `total == 0` es "sin recepciones en
+    el período", `null` con motivo -- nunca `0`."""
+    if find_spec_safe("app.purchases.hooks") is None:
+        return None, "compras (purchases) todavía no está disponible en este árbol"
+    module = importlib.import_module("app.purchases.hooks")
+    fn = getattr(module, "reception_invoice_ratio", None)
+    if not callable(fn):
+        return None, "app.purchases.hooks no publica reception_invoice_ratio todavía"
+    try:
+        with_invoice, total = fn(db, store_id=store.id, date_from=date_from, date_to=date_to)
+    except TypeError:
+        return None, "app.purchases.hooks.reception_invoice_ratio no acepta la firma esperada (store_id, date_from, date_to)"
+    if total <= 0:
+        return None, "sin recepciones en el período"
+    ratio_bp = (with_invoice * 10000 + total // 2) // total
+    return ratio_bp, None
+
+
+def _batch_preps_produced_ratio(
+    db: Session, *, store: Store, week_start: date, week_end: date
+) -> tuple[int | None, str | None]:
+    if find_spec_safe("app.recipes.models") is None:
+        return None, "recetas (recipes) todavía no está disponible en este árbol"
+    if not features.is_enabled(db, store.organization_id, store.id, "catalog.preps"):
+        return None, 'la función "catalog.preps" está apagada'
+
+    from app.recipes.models import PrepBatch, PrepMode, Preparation
+
+    total = db.execute(
+        select(func.count(Preparation.id)).where(
+            Preparation.store_id == store.id, Preparation.active.is_(True), Preparation.mode == PrepMode.BATCH
+        )
+    ).scalar_one()
+    if total == 0:
+        return None, "no hay preparaciones activas en modo lote"
+
+    produced = db.execute(
+        select(func.count(func.distinct(PrepBatch.preparation_id))).where(
+            PrepBatch.store_id == store.id,
+            PrepBatch.business_date >= week_start,
+            PrepBatch.business_date <= week_end,
+        )
+    ).scalar_one()
+    ratio_bp = (produced * 10000 + total // 2) // total
+    return ratio_bp, None
+
+
+def control_health(db: Session, *, store: Store) -> ControlHealthOut:
+    """`GET /admin/control-health`. `inventory_unreliable` es la señal que
+    apaga el food cost real -- `hooks.inventory_staleness` es la ÚNICA
+    fuente de esa cuenta (RONDA 2, H-4): `food_cost_report` lee la MISMA
+    función, ninguno de los dos vuelve a sumar días por su cuenta."""
+    today = tz.today_business_date(store.cutoff_hour)
+    week_start = today - timedelta(days=6)
+
+    staleness = hooks.inventory_staleness(db, store_id=store.id, cutoff_hour=store.cutoff_hour)
+    last_full = hooks.last_applied_full_count_at(db, store_id=store.id)
+    days_since = staleness.days_since_last_full_count
+    unreliable = staleness.unreliable
+
+    invoice_ratio, invoice_reason = _reception_invoice_ratio(db, store=store, date_from=week_start, date_to=today)
+    batch_ratio, batch_reason = _batch_preps_produced_ratio(db, store=store, week_start=week_start, week_end=today)
+
+    waste_count = db.execute(
+        select(func.count(Waste.id)).where(
+            Waste.store_id == store.id, Waste.business_date >= week_start, Waste.business_date <= today
+        )
+    ).scalar_one()
+
+    return ControlHealthOut(
+        days_since_full_count=days_since,
+        last_full_count_at=last_full,
+        inventory_unreliable=unreliable,
+        reception_invoice_ratio_bp=invoice_ratio,
+        reception_invoice_ratio_reason=invoice_reason,
+        batch_preps_produced_ratio_bp=batch_ratio,
+        batch_preps_produced_reason=batch_reason,
+        waste_entries_this_week=int(waste_count),
+    )
+
+
+# ---------------------------------------------------------------------------
+# NOTA (ronda 2, H-2): `order_consumption` (la fusión de lectura de §5.3)
+# vivió acá en la ronda 1 y se SACÓ por decisión del Maestro -- ver la nota
+# equivalente en `app.inventory.schemas`, sección de arriba de
+# `InventorySettingsOut`, y `outputs-2b/backend-inventario-espejo.md § Ronda
+# 2` para el motivo completo.
+# ---------------------------------------------------------------------------

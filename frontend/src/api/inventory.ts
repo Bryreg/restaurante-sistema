@@ -25,10 +25,25 @@ export type BaseUnit = "g" | "ml" | "unit"
 export type CostSource = "official" | "weighted_average" | "last_purchase" | "estimated" | "none"
 
 /** `app.inventory.models.MovementCause` — enum cerrado, nunca texto libre.
- * Los últimos cuatro ya están en el enum del backend pero son de 2b
- * (compras, conteos, traslados): se incluyen acá para que el filtro de
- * causa sea la MISMA lista cerrada que acepta el servidor, aunque hoy no
- * los produzca ningún flujo de 2a. */
+ * `purchase`/`count_adjustment`/`transfer_in`/`transfer_out` ya estaban en
+ * el enum del backend desde 2a (sin uso hasta ahora); 2b los produce de
+ * verdad (recepciones, aplicar un conteo) y agrega `reception_reversal`
+ * (eliminar una recepción es una reversa con causa, nunca un `DELETE` —
+ * `app/inventory/models.py:75`).
+ *
+ * **GAP de contrato declarado en el entregable (§8)**: `reception_reversal`
+ * está en el enum real del backend (`MovementCause.RECEPTION_REVERSAL`,
+ * producido por `app/purchases/service.py:491`) pero falta en
+ * `MovementCauseLiteral` (`app/inventory/schemas.py:18-30`), que es el tipo
+ * que valida el filtro `cause=` de `GET /admin/ingredients/{id}/movements` Y
+ * el que tipa `StockMovementOut.cause`. Mientras ese archivo no se corrija
+ * (no es mi territorio — está asignado a otro dueño en
+ * `features/fase-2-costo-inventario/spec.md § Archivos huérfanos (2b)`):
+ * filtrar por esta causa devuelve `422`, y CUALQUIER movimiento con esta
+ * causa en el libro (en cuanto exista una recepción reversada) hace fallar
+ * la serialización de TODA la lista de movimientos de ese insumo (`500`).
+ * Se incluye igual acá, completo y honesto con el enum real, en vez de
+ * esconder la causa que el propio dominio produce. */
 export type MovementCause =
   | "sale"
   | "production_in"
@@ -39,6 +54,7 @@ export type MovementCause =
   | "manual_adjustment"
   | "purchase"
   | "count_adjustment"
+  | "reception_reversal"
   | "transfer_in"
   | "transfer_out"
 
@@ -314,8 +330,16 @@ export interface WasteAdminOut extends WasteOut {
   photo: string | null
 }
 
-/** Mermas ÷ compras semanal. `null` con `label="sin datos"` hasta 2b (no hay
- * compras todavía) — nunca `0`, que mentiría "no hay merma". */
+/** Mermas ÷ compras semanal. `ratio` es el único número no entero de toda la
+ * fase 2 — **2b lo cierra** (deuda declarada en `outputs-2a/ENTREGA.md §5`,
+ * O-6): entero en puntos básicos reales (100 = 1 %, mismo `ratio` en
+ * `app.inventory.schemas.WasteKpiOut.ratio: int | None`), nunca `float`.
+ * `null` con `label` legible cuando no hay compras en la semana (mermas ÷ 0
+ * no es `0`, es "sin datos"); deja de ser `null` en cuanto hay al menos una
+ * compra (`cause=purchase`) en el rango. Formatear con
+ * `formatBasisPoints` (`features/inventory/lib.ts`), nunca `ratio * 100`
+ * a mano (esa cuenta era correcta cuando `ratio` era una fracción 0..1 en
+ * 2a; con la escala en puntos básicos de 2b da cien veces más). */
 export interface WasteKpiOut {
   ratio: number | null
   label: string
@@ -375,4 +399,388 @@ export interface DeviceIngredientOut {
 
 export function listDeviceIngredients(): Promise<DeviceIngredientOut[]> {
   return api<DeviceIngredientOut[]>("/device/ingredients")
+}
+
+// ---------------------------------------------------------------------------
+// Umbrales de varianza (configuración de sede; pedido 2b, `inventory.
+// variance`). `GET/PUT /admin/stores/{id}/inventory-settings` vive en
+// `app.inventory` en el backend (decisión de arquitectura de ese dominio,
+// no de `app.stores`), aunque la pantalla que lo edita esté en
+// `features/settings/**` (huérfano nombrado con dueño — ver
+// `features/fase-2-costo-inventario/spec.md`). Enteros en puntos básicos
+// REALES (100 = 1 %, `backend/app/inventory/models.py::
+// StoreInventorySettings`): SPEC-NEGOCIO §5.4 los llama "puntos" (< 2 verde,
+// 2–4 revisar, > 4–5 rojo sostenido) sobre la MISMA escala que
+// `VarianceRowOut.variance_pct_bp` — nunca `float` (AGENTS.md).
+// ---------------------------------------------------------------------------
+
+export interface InventorySettingsIn {
+  variance_yellow_threshold_bp: number
+  variance_red_threshold_bp: number
+}
+
+export interface InventorySettingsOut extends InventorySettingsIn {
+  store_id: number
+}
+
+export function getInventorySettings(storeId: number): Promise<InventorySettingsOut> {
+  return api<InventorySettingsOut>(`/admin/stores/${storeId}/inventory-settings`)
+}
+
+export function putInventorySettings(storeId: number, data: InventorySettingsIn): Promise<InventorySettingsOut> {
+  return api<InventorySettingsOut>(`/admin/stores/${storeId}/inventory-settings`, { method: "PUT", body: data })
+}
+
+// ---------------------------------------------------------------------------
+// Lotes y vencimientos (pedido 2b, `inventory.lots`, SPEC-NEGOCIO §5.7).
+// ---------------------------------------------------------------------------
+
+export type LotStatus = "active" | "expiring" | "expired" | "depleted"
+
+export interface LotOut {
+  id: number
+  ingredient_id: number
+  ingredient_name: string
+  lot_code: string | null
+  qty_received: string
+  qty_remaining: string
+  unit_cost: string
+  cost_source: CostSource
+  /** Fecha ISO (`date`), o `null` == nunca vence. */
+  expires_at: string | null
+  received_at: string
+  status: LotStatus
+  source_type: string
+  source_id: number
+}
+
+export interface LotsQuery {
+  storeId: number
+  ingredientId?: number | null
+  status?: LotStatus
+  expiringWithinDays?: number | null
+}
+
+/**
+ * GAP de contrato declarado (§8 del entregable): `GET /admin/lots`
+ * (`backend/app/inventory/router.py::get_lots`) devuelve `list[LotOut]`
+ * directo — sin `Request` ni `wants_csv`/`csv_response` — así que **no
+ * soporta `format=csv`** aunque SPEC-NEGOCIO §9.3 pide "toda lista exporta".
+ * A propósito NO hay `lotsCsvUrl` acá: agregar el botón igual descargaría un
+ * archivo `.csv` con JSON adentro, roto en silencio — peor que no tenerlo.
+ */
+export function getLots(params: LotsQuery): Promise<LotOut[]> {
+  return api<LotOut[]>("/admin/lots", {
+    query: {
+      store_id: params.storeId,
+      ingredient_id: params.ingredientId,
+      status: params.status,
+      expiring_within_days: params.expiringWithinDays,
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Conteos a ciegas (pedido 2b, `inventory.counts`, SPEC-NEGOCIO §5.4).
+// ---------------------------------------------------------------------------
+
+export type CountScope = "key_items" | "full"
+export type CountStatus = "open" | "applied"
+
+export interface CountLineRefIn {
+  ingredient_id: number
+  /** Texto decimal (`parse_qty_base` en el servidor); un número JSON crudo se rechaza. */
+  qty_counted: string
+  was_counted: boolean
+}
+
+export interface CountLinesIn {
+  lines: CountLineRefIn[]
+}
+
+/**
+ * A CIEGAS por diseño (SPEC-NEGOCIO §5.4): ni un campo de stock teórico, ni
+ * una diferencia, ni un "sugerido". `previous_qty_counted` es la ÚNICA
+ * referencia en pantalla — el valor que alguien escribió en el conteo
+ * anterior, nunca un cálculo del libro. Este tipo no tiene, y no puede
+ * tener, ningún campo de stock: es el contrato que hace que "a ciegas" sea
+ * estructural, no una promesa de la pantalla.
+ */
+export interface CountLineOut {
+  ingredient_id: number
+  ingredient_name: string
+  base_unit: BaseUnit
+  qty_counted: string | null
+  was_counted: boolean
+  previous_qty_counted: string | null
+}
+
+/** Salida de `PUT /admin/counts/{id}/lines`: `partial` dice explícitamente
+ * que el guardado es PARCIAL — nunca implica "todo coincide". */
+export interface CountLinesSaveOut {
+  lines: CountLineOut[]
+  lines_counted: number
+  lines_total: number
+  partial: boolean
+}
+
+export interface CountOut {
+  id: number
+  scope: CountScope
+  status: CountStatus
+  opened_at: string
+  business_date: string
+  opened_by_employee_id: number
+  opened_by_employee_name: string
+  applied_at: string | null
+  applied_by_employee_id: number | null
+  applied_by_employee_name: string | null
+  lines_total: number
+  lines_counted: number
+}
+
+export interface CountDetailOut extends CountOut {
+  lines: CountLineOut[]
+}
+
+export interface CountApplyLineOut {
+  ingredient_id: number
+  ingredient_name: string
+  qty_counted: string
+  stock_before: string
+  adjustment: string
+  stock_after: string
+}
+
+export interface CountApplyOut {
+  id: number
+  applied_at: string
+  applied_by_employee_id: number
+  applied_by_employee_name: string
+  lines: CountApplyLineOut[]
+}
+
+export function postOpenCount(storeId: number, scope: CountScope): Promise<CountDetailOut> {
+  return api<CountDetailOut>("/admin/counts", { method: "POST", query: { store_id: storeId }, body: { scope } })
+}
+
+export interface CountsQuery {
+  storeId: number
+  scope?: CountScope
+  from?: string
+  to?: string
+}
+
+export function listCounts(params: CountsQuery): Promise<CountOut[]> {
+  return api<CountOut[]>("/admin/counts", {
+    query: { store_id: params.storeId, scope: params.scope, from: params.from, to: params.to },
+  })
+}
+
+export function countsCsvUrl(params: CountsQuery): string {
+  const query = new URLSearchParams()
+  query.set("format", "csv")
+  query.set("store_id", String(params.storeId))
+  if (params.scope) query.set("scope", params.scope)
+  if (params.from) query.set("from", params.from)
+  if (params.to) query.set("to", params.to)
+  return `/api/v1/admin/counts?${query.toString()}`
+}
+
+export function getCount(countId: number, storeId: number): Promise<CountDetailOut> {
+  return api<CountDetailOut>(`/admin/counts/${countId}`, { query: { store_id: storeId } })
+}
+
+/** `was_counted` lo escribe, renglón por renglón, quien cuenta — no existe
+ * ningún parámetro ni atajo acá que marque todo de una vez ("todo coincide"
+ * no existe: SPEC-NEGOCIO §5.4). Un `was_counted: false` entrante (un
+ * borrador) nunca pisa un renglón que el servidor ya tenía en `true`
+ * (confirmado) — el servidor lo ignora en silencio para ESA línea, sin
+ * abortar el resto del guardado. */
+export function putCountLines(countId: number, storeId: number, data: CountLinesIn): Promise<CountLinesSaveOut> {
+  return api<CountLinesSaveOut>(`/admin/counts/${countId}/lines`, {
+    method: "PUT",
+    query: { store_id: storeId },
+    body: data,
+  })
+}
+
+/** Acción explícita del administrador, una sola vez: `409
+ * COUNT_ALREADY_APPLIED` en el segundo intento, sin importar si llega con la
+ * misma `Idempotency-Key` (la capa de idempotencia la resuelve antes) o una
+ * distinta (la guarda de negocio corta antes de tocar el libro). */
+export function postApplyCount(
+  countId: number,
+  storeId: number,
+  authorizerPin: string,
+  idempotencyKey: string,
+): Promise<CountApplyOut> {
+  return api<CountApplyOut>(`/admin/counts/${countId}/apply`, {
+    method: "POST",
+    query: { store_id: storeId },
+    body: { authorizer_pin: authorizerPin },
+    idempotencyKey,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Varianza, food cost real y salud del control (pedido 2b, `inventory.
+// variance`, SPEC-NEGOCIO §5.4).
+// ---------------------------------------------------------------------------
+
+export type VarianceLevel = "green" | "yellow" | "red"
+
+export interface VarianceRowOut {
+  ingredient_id: number
+  ingredient_name: string
+  base_unit: BaseUnit
+  opening_qty: string
+  inflow_qty: string
+  closing_qty: string
+  real_usage_qty: string
+  theoretical_usage_qty: string
+  /** `real - teórico`; positivo = se usó más de lo esperado. */
+  variance_qty: string
+  /** TOTAL de plata YA CERRADO (pesos enteros con `formatCOP`) — no un costo
+   * por unidad base: nunca pasar por `formatCOPDecimal`/`CostValue`. */
+  variance_value: number | null
+  cost_source: CostSource
+  /** `|variance| / teórico`, puntos básicos reales (100 = 1 %); `null` si el
+   * uso teórico es `0` (no hay denominador, no es "0 % de diferencia"). */
+  variance_pct_bp: number | null
+  /** Semáforo YA CALCULADO por el servidor contra los umbrales de la sede
+   * (`GET/PUT /admin/stores/{id}/inventory-settings`) — el cliente nunca
+   * compara `variance_pct_bp` contra un umbral propio. */
+  level: VarianceLevel
+}
+
+export interface VarianceOut {
+  count_id: number
+  opening_count_id: number | null
+  window_from: string | null
+  window_to: string
+  /** `false` con `reason` cuando no hay un conteo completo/aplicado anterior
+   * contra el cual comparar — nunca una lista vacía sin explicación. */
+  available: boolean
+  reason: string | null
+  rows: VarianceRowOut[]
+  yellow_threshold_bp: number
+  red_threshold_bp: number
+}
+
+/** La varianza sólo existe sobre un conteo ya APLICADO
+ * (`400 COUNT_NOT_APPLIED` si no). */
+export function getVariance(params: { storeId: number; countId: number }): Promise<VarianceOut> {
+  return api<VarianceOut>("/admin/variance", { query: { store_id: params.storeId, count_id: params.countId } })
+}
+
+export function varianceCsvUrl(params: { storeId: number; countId: number }): string {
+  const query = new URLSearchParams()
+  query.set("format", "csv")
+  query.set("store_id", String(params.storeId))
+  query.set("count_id", String(params.countId))
+  return `/api/v1/admin/variance?${query.toString()}`
+}
+
+/** `(inventario inicial + compras − final) ÷ ventas netas`, **sólo entre dos
+ * conteos completos consecutivos aplicados** dentro del rango. `pct_bp` es
+ * `null` con `reason` sin esos dos conteos — o con salud del control "no
+ * confiable" — **jamás `0`**. Puede ser negativo (el inventario creció más
+ * de lo que explican compras − ventas): `formatBasisPoints` respeta el
+ * signo. */
+export interface FoodCostOut {
+  available: boolean
+  reason: string | null
+  opening_count_id: number | null
+  closing_count_id: number | null
+  window_from: string | null
+  window_to: string | null
+  /** Totales de plata (pesos enteros, `formatCOP`) — no `formatCOPDecimal`. */
+  opening_value: number | null
+  purchases_value: number | null
+  closing_value: number | null
+  net_sales: number | null
+  pct_bp: number | null
+}
+
+/** Reporte de un solo objeto, no una lista — no exporta CSV (la regla
+ * "toda lista exporta" no le aplica). */
+export function getFoodCost(params: { storeId: number; from: string; to: string }): Promise<FoodCostOut> {
+  return api<FoodCostOut>("/admin/food-cost", {
+    query: { store_id: params.storeId, from: params.from, to: params.to },
+  })
+}
+
+/** Los cuatro indicadores de SPEC-NEGOCIO §5.4/§10: días desde el último
+ * conteo completo aplicado (`> 14` apaga el food cost real), % de
+ * recepciones con factura, % de preparaciones por lote producidas esta
+ * semana, mermas registradas esta semana. Cada ratio es `null` con su
+ * `_reason` propio cuando no hay denominador — nunca `0`. */
+export interface ControlHealthOut {
+  days_since_full_count: number | null
+  last_full_count_at: string | null
+  inventory_unreliable: boolean
+  reception_invoice_ratio_bp: number | null
+  reception_invoice_ratio_reason: string | null
+  batch_preps_produced_ratio_bp: number | null
+  batch_preps_produced_reason: string | null
+  waste_entries_this_week: number
+}
+
+export function getControlHealth(storeId: number): Promise<ControlHealthOut> {
+  return api<ControlHealthOut>("/admin/control-health", { query: { store_id: storeId } })
+}
+
+// ---------------------------------------------------------------------------
+// Lectura agregada de consumo por comanda (`GET /admin/orders/{id}/
+// consumption`, corrección a SPEC-NEGOCIO §5.3 hecha realidad en 2b: la
+// fusión es de LECTURA; el libro sigue guardando una fila por ítem). **Ronda
+// 2 — retipado**: el endpoint vive en `backend/app/orders/router.py`
+// (`get_order_consumption`) y su esquema en `backend/app/orders/
+// schemas.py:322-364` (`OrderConsumptionRowOut`/`OrderConsumptionOut`) — NO
+// en `app.inventory` como se tipó en la ronda anterior contra una
+// implementación que el orquestador decidió borrar (la de `app.inventory`
+// perdió frente a la de `app.orders`, que usa el costo CONGELADO del libro
+// y el consumo NETO `SALE + NOTE_RETURN`, ver el docstring de
+// `service.order_consumption`). Sin pantalla propia en ESTE territorio —
+// "Pedidos" es `features/orders/**`, de otro agente (fuera de mi
+// territorio, ver §7 del entregable); el tipo y la función quedan acá
+// porque siguen siendo del dominio `app.orders` expuesto para admin, listos
+// para quien construya esa pantalla.
+// ---------------------------------------------------------------------------
+
+export interface OrderConsumptionRowOut {
+  ingredient_id: number | null
+  preparation_id: number | null
+  name: string
+  unit: string
+  /** Cantidad NETA consumida (`SALE` menos lo que devolvió un `NOTE_RETURN`),
+   * texto decimal ya escalado (`format_qty_base`) — NUNCA milésimas crudas.
+   * PUEDE SER NEGATIVA (salida neta) y puede ser `"0"` si una nota devolvió
+   * exactamente lo que la venta había descontado — no es un error, no se
+   * corrige a positivo acá. */
+  qty_base: string
+  /** Costo TOTAL de este renglón (suma de todas las filas del libro que
+   * aportan a este insumo/preparación), en pesos enteros — el costo
+   * CONGELADO de cada movimiento en el momento en que se escribió
+   * (`record_movement`), nunca el costo resuelto de HOY: revalorar acá
+   * violaría el snapshot que ya protege `unit_cost` en el ítem. `null`
+   * cuando NINGUNA fila del libro para este insumo tuvo costo — nunca un
+   * `0` mudo. */
+  cost: number | null
+  /** Origen de la fila de costo más reciente que sí tuvo costo; `null`
+   * junto con `cost: null` (nunca `CostSource` con un `cost` ausente). */
+  cost_source: CostSource | null
+}
+
+export interface OrderConsumptionOut {
+  order_id: number
+  rows: OrderConsumptionRowOut[]
+}
+
+/** Sin `store_id`: la ruta servida no lo pide (`current_admin` + `admin_
+ * store` resuelven la sede desde `order.store_id`, no desde la query) —
+ * mandarlo igual sería un parámetro que el servidor ignora en silencio. */
+export function getOrderConsumption(orderId: number): Promise<OrderConsumptionOut> {
+  return api<OrderConsumptionOut>(`/admin/orders/${orderId}/consumption`)
 }

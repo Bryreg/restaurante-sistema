@@ -31,6 +31,8 @@ MODEL_MODULES: list[str] = [
     # Pedido 2a: ver el mismo comentario en `app.main.DOMAINS`.
     "inventory",
     "recipes",
+    # Pedido 2b: ver el mismo comentario en `app.main.DOMAINS`.
+    "purchases",
 ]
 
 

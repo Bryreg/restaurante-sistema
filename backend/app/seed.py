@@ -29,7 +29,7 @@ from app.fiscal.models import FiscalDocumentType, FiscalRange
 from app.core.db import Base, SessionLocal, engine
 from app.core.models_registry import import_all_models
 from app.core.security import hash_secret
-from app.inventory.seed import seed_inventory
+from app.inventory.seed import seed_counts_and_purchase, seed_inventory
 from app.stores.models import (
     Organization,
     Store,
@@ -250,6 +250,24 @@ def seed(db: Session) -> None:
             seed_recipes(db, store)
             seeded_recipes_summary = "cargadas"
 
+    # Proveedores y recepciones (2b, territorio de `purchases`): puede no
+    # existir todavía — mismo patrón `find_spec_safe` de arriba, nunca
+    # `importlib.util.find_spec` crudo.
+    seeded_purchases_summary: str | None = None
+    if find_spec_safe("app.purchases.seed") is not None:
+        purchases_seed_module = importlib.import_module("app.purchases.seed")
+        seed_purchases = getattr(purchases_seed_module, "seed_purchases", None)
+        if callable(seed_purchases):
+            seed_purchases(db, store)
+            seeded_purchases_summary = "cargadas"
+
+    # Orden: insumos -> recetas -> compras -> conteo completo 1 -> movimientos
+    # -> conteo completo 2 (2b, territorio de `backend-inventario`). Dos
+    # conteos, no uno: con uno solo el food cost real queda `null` para
+    # siempre (`app/inventory/seed.py::seed_counts_and_purchase`, decisión
+    # declarada ahí). No depende de que `app.purchases` exista.
+    seeded_counts = seed_counts_and_purchase(db, store, admin)
+
     db.commit()
 
     print("Seed aplicado.")
@@ -270,6 +288,15 @@ def seed(db: Session) -> None:
         print(f"  Fichas y preparaciones: {seeded_recipes_summary} (app.recipes.seed.seed_recipes).")
     else:
         print("  Fichas y preparaciones: app.recipes todavía no existe o no las cargó.")
+    if seeded_purchases_summary is not None:
+        print(f"  Proveedores y recepciones: {seeded_purchases_summary} (app.purchases.seed.seed_purchases).")
+    else:
+        print("  Proveedores y recepciones: app.purchases todavía no existe o no las cargó.")
+    if seeded_counts:
+        print("  Inventario 2b: dos conteos completos aplicados y consecutivos, con una compra en el medio")
+        print("    (food cost real y promedio ponderado ya tienen con qué calcularse).")
+    else:
+        print("  Inventario 2b: ya existían conteos, no se repitió nada.")
 
 
 def main() -> None:

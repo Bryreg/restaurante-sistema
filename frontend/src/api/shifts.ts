@@ -30,13 +30,25 @@ export type { Denomination };
 
 export type RosterAction = "in" | "out" | "pause_start" | "pause_end";
 export type CashMovementKind = "income" | "expense";
-export type CashMovementCause =
-  | "petty_expense"
-  | "emergency_purchase"
-  | "refund"
-  | "tip_payout"
-  | "other_income"
-  | "other_expense";
+/**
+ * Lista cerrada de causas (`backend/app/shifts/schemas.py:26`), como
+ * `const` y no como unión de literales sueltos: así un consumidor puede
+ * RECORRERLA (`CASH_MOVEMENT_CAUSES.map(...)`) para, por ejemplo, exigir en
+ * un test que exista una etiqueta para cada causa — la próxima causa que
+ * el backend agregue rompe ESE test en vez de salir en blanco en pantalla
+ * (Ronda 2, H-8: `"supplier_payment"` ya la declaraba el backend y el
+ * cliente no se había enterado hasta ahora).
+ */
+export const CASH_MOVEMENT_CAUSES = [
+  "petty_expense",
+  "emergency_purchase",
+  "refund",
+  "tip_payout",
+  "supplier_payment",
+  "other_income",
+  "other_expense",
+] as const;
+export type CashMovementCause = (typeof CASH_MOVEMENT_CAUSES)[number];
 export type CashDifferenceCause =
   | "change_error"
   | "expense_without_voucher"

@@ -51,6 +51,33 @@ cada una, nunca entre sí.
   **una sola vez, al cerrar el total** — nunca por ítem, nunca por gramo,
   nunca dentro de una ficha o una cadena de preparaciones (ver el ejemplo
   numérico en su propio docstring, más abajo).
+
+**EN QUÉ ESCALA SALE UNA CANTIDAD (deuda cerrada en 2b, `outputs-2a/
+ENTREGA.md § 5`, A-5)**: la misma regla de arriba, para cantidades de insumo,
+no de plata. `app.inventory.schemas` publicó siempre texto decimal
+(`format_qty_base`); `app.reports.schemas` publicaba la MISMA magnitud como
+`int` en milésimas crudas — dos esquemas describiendo un mismo número con dos
+escalas distintas es, letra por letra, el modo de falla de B-2 (el cero mudo
+de costo) pero con cantidades: la primera pantalla que pintara ese campo de
+`reports` iba a mostrar `117648 g`, o el cliente iba a dividir por `1000` a
+mano (matemática en el lugar equivocado, y una segunda fuente de verdad para
+la misma escala).
+
+- **`format_qty_base` es la ÚNICA forma correcta de publicar una cantidad de
+  insumo** en cualquier esquema de respuesta de `inventory`, `recipes`,
+  `purchases` o `reports` (`IngredientOut.min_stock`, `StockMovementOut.
+  qty_base`, `StockRowOut.qty_base`, `WasteOut.qty`, `LotOut.qty_remaining`,
+  `CountLineOut.qty_counted`, `VarianceRowOut.*`, y cualquier campo de
+  cantidad nuevo que se agregue después). Texto decimal, nunca `int` crudo en
+  milésimas: un campo `int` de cantidad en uno de estos esquemas es, por
+  definición, milésimas sin escalar filtrándose a una respuesta HTTP — la
+  misma manifestación que un costo en micros sin `format_cost_micros`.
+  `tests/core/test_quantity.py::test_qty_base_fields_are_never_raw_int_in_published_schemas`
+  audita esto recorriendo el OpenAPI completo por nombre y anotación de
+  campo (mismo mecanismo que ya audita costos), no sólo por convención de
+  docstring — y es un test de CONTRATO, no de implementación: cubre
+  cualquier dominio que publique una cantidad, incluidos los que este mismo
+  módulo no escribe.
 """
 
 from __future__ import annotations

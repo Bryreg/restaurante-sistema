@@ -40,9 +40,16 @@ def list_audit(
     to: str | None = None,
     entity: str | None = None,
     employee_id: int | None = None,
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b, `backend-lectura-contrato`):
+    # `wants_csv` ya leía `format` de `request.query_params` sin declararlo en la
+    # firma, así que el OpenAPI no lo publicaba. Mismo patrón que
+    # `app.reports.router.get_sales`: declarado sólo para el contrato, el chequeo
+    # real sigue siendo `wants_csv(request)`.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     stmt = select(AuditLog).where(AuditLog.organization_id == actor.organization_id)
     if entity is not None:
         stmt = stmt.where(AuditLog.entity == entity)

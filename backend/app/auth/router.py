@@ -379,9 +379,14 @@ def list_employees(
     request: Request,
     store_id: int | None = None,
     active: bool | None = None,
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): `format`
+    # declarado en el contrato, no sólo leído de `request.query_params` dentro
+    # de `wants_csv` — mismo patrón que `app.reports.router.get_sales`.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     stmt = select(Employee).where(Employee.organization_id == actor.organization_id)
     if store_id is not None:
         stmt = stmt.where(Employee.store_id == store_id)
@@ -503,9 +508,13 @@ def list_authorizations(
     from_: str | None = Query(default=None, alias="from"),
     to: str | None = None,
     authorizer_id: int | None = None,
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): ver
+    # `list_employees` arriba, mismo motivo.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     stmt = select(Authorization).where(Authorization.organization_id == actor.organization_id)
     if authorizer_id is not None:
         stmt = stmt.where(Authorization.authorizer_id == authorizer_id)

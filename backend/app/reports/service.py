@@ -37,7 +37,7 @@ from app.catalog.models import Product
 from app.core import clock, features, tz
 from app.core.errors import AppError
 from app.core.modules import find_spec_safe
-from app.core.quantity import micros_to_pesos
+from app.core.quantity import format_qty_base, micros_to_pesos
 from app.fiscal import service as fiscal_service
 from app.fiscal.models import FiscalDocument, FiscalDocumentType
 from app.notifications.models import Notification
@@ -59,9 +59,11 @@ from app.reports.schemas import (
     EmployeeRefOut,
     HourBucketOut,
     IngredientAlertOut,
+    LotAlertOut,
     MethodAmountOut,
     NegativeStockAlertOut,
     OpenOrderAgeOut,
+    PayableAlertOut,
     PrepAlertOut,
     SalesBucketOut,
     SalesReportOut,
@@ -636,14 +638,28 @@ def _low_stock_alerts(db: Session, store: Store) -> list[IngredientAlertOut]:
     hooks = _hooks_if_enabled(db, store, module="app.inventory.hooks", feature="inventory.perpetual")
     if hooks is None:
         return []
-    return [IngredientAlertOut(**row) for row in hooks.low_stock_alerts(db, store_id=store.id)]
+    # `hooks.low_stock_alerts` devuelve `qty_base`/`min_stock` en milésimas
+    # crudas (contrato de `app.inventory.hooks`, territorio ajeno): la
+    # ÚNICA forma correcta de publicarlas es texto decimal
+    # (`format_qty_base`, pedido 2b — ver el comentario en
+    # `IngredientAlertOut`). Formateado acá, en el borde de publicación,
+    # nunca dentro del hook ni en el esquema.
+    return [
+        IngredientAlertOut(**{**row, "qty_base": format_qty_base(row["qty_base"]), "min_stock": format_qty_base(row["min_stock"])})
+        for row in hooks.low_stock_alerts(db, store_id=store.id)
+    ]
 
 
 def _negative_stock_alerts(db: Session, store: Store) -> list[NegativeStockAlertOut]:
     hooks = _hooks_if_enabled(db, store, module="app.inventory.hooks", feature="inventory.perpetual")
     if hooks is None:
         return []
-    return [NegativeStockAlertOut(**row) for row in hooks.negative_stock_alerts(db, store_id=store.id)]
+    return [
+        NegativeStockAlertOut(
+            **{**row, "qty_base": format_qty_base(row["qty_base"]), "min_stock": format_qty_base(row["min_stock"])}
+        )
+        for row in hooks.negative_stock_alerts(db, store_id=store.id)
+    ]
 
 
 def _prep_alerts(db: Session, store: Store) -> list[PrepAlertOut]:
@@ -659,6 +675,74 @@ def _uncosted_products(db: Session, store: Store, *, business_date: date) -> lis
         return []
     rows = hooks.uncosted_products(db, store_id=store.id, date_from=business_date, date_to=business_date)
     return [UncostedProductOut(**row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2b: los tres grupos nuevos de alertas de «Hoy» (spec.md «Reads that
+# 2a asked for», párrafo de `GET /admin/today`). Mismo patrón de arriba:
+# `_hooks_if_enabled` exige módulo montado Y función encendida PARA LA SEDE.
+# ---------------------------------------------------------------------------
+
+
+def _lot_alerts(db: Session, store: Store, *, business_date: date) -> list[LotAlertOut]:
+    hooks = _hooks_if_enabled(db, store, module="app.inventory.hooks", feature="inventory.lots")
+    if hooks is None:
+        return []
+    rows = hooks.expiring_or_expired_lots(db, store_id=store.id, today=business_date)
+    return [
+        LotAlertOut(**{**row, "qty_base": format_qty_base(row["qty_base"])})
+        for row in rows
+    ]
+
+
+def _payables_overdue(db: Session, store: Store) -> list[PayableAlertOut]:
+    hooks = _hooks_if_enabled(db, store, module="app.purchases.hooks", feature="purchases")
+    if hooks is None:
+        return []
+    return [PayableAlertOut(**row) for row in hooks.overdue_payables(db, store_id=store.id)]
+
+
+def _payables_pending_review_count(db: Session, store: Store) -> int:
+    hooks = _hooks_if_enabled(db, store, module="app.purchases.hooks", feature="purchases")
+    if hooks is None:
+        return 0
+    return int(hooks.pending_review_payables_count(db, store_id=store.id))
+
+
+def _inventory_reliability(db: Session, store: Store) -> tuple[bool | None, int | None]:
+    """`(inventory_unreliable, days_since_last_full_count)`. `(None, None)`
+    con `inventory.variance` apagada o `app.inventory` sin montar — "hay o
+    no hay control confiable" no es una pregunta que tenga sentido
+    responder sin la función encendida (mismo criterio que
+    `app.inventory.router.get_control_health`, que exige la misma flag).
+
+    RONDA 2 (hallazgo H-4): esta función YA NO CALCULA nada. En ronda 1
+    restaba instantes UTC a mano (`(now - last_applied).days`) — una
+    segunda matemática, distinta de la que usaba
+    `app.inventory.service.control_health` (fecha de negocio), que podían
+    discreparse justo en el borde en que un `cutoff_hour` de madrugada hace
+    que un instante UTC ya caiga en el día operativo siguiente. Se borró
+    junto con `_CONTROL_HEALTH_STALE_DAYS` (la constante local, otra
+    duplicación del mismo `14`). Ahora esta función es un `getattr` +
+    lectura, nada más: lee `app.inventory.hooks.inventory_staleness` — la
+    ÚNICA fuente de este cálculo, por FECHA DE NEGOCIO
+    (`app.core.tz.business_date_for` con el `cutoff_hour` real de la sede,
+    nunca restando instantes UTC) — y devuelve exactamente lo que trae, sin
+    recalcular ni redondear nada.
+
+    Si el módulo está montado pero `inventory_staleness` todavía no existe
+    (construcción en paralelo con `backend-inventario-espejo`, dueño de
+    `app/inventory/hooks.py`): `(None, None)` con `getattr` — nunca un
+    cálculo propio de reemplazo, que es exactamente el defecto que este
+    hallazgo cierra."""
+    hooks = _hooks_if_enabled(db, store, module="app.inventory.hooks", feature="inventory.variance")
+    if hooks is None:
+        return None, None
+    staleness_fn = getattr(hooks, "inventory_staleness", None)
+    if staleness_fn is None:
+        return None, None
+    staleness = staleness_fn(db, store_id=store.id, cutoff_hour=store.cutoff_hour)
+    return staleness.unreliable, staleness.days_since_last_full_count
 
 
 def today_report(db: Session, *, store: Store) -> TodayOut:
@@ -708,6 +792,8 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     shift = shifts_service.get_current_shift(db, store=store)
     expected_cash = shifts_service.compute_breakdown(db, shift)["expected"] if shift is not None else None
 
+    inventory_unreliable, days_since_last_full_count = _inventory_reliability(db, store)
+
     return TodayOut(
         store_id=store.id,
         business_date=business_date,
@@ -735,6 +821,11 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         ingredients_negative=_negative_stock_alerts(db, store),
         preps_without_production=_prep_alerts(db, store),
         products_discounting_nothing=_uncosted_products(db, store, business_date=business_date),
+        lots_expiring_or_expired=_lot_alerts(db, store, business_date=business_date),
+        payables_overdue=_payables_overdue(db, store),
+        payables_pending_review_count=_payables_pending_review_count(db, store),
+        inventory_unreliable=inventory_unreliable,
+        days_since_last_full_count=days_since_last_full_count,
     )
 
 

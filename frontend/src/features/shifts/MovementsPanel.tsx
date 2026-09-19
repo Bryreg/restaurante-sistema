@@ -32,11 +32,27 @@ import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftSummary } from "
 
 const KIND_LABEL: Record<CashMovementKind, string> = { income: "Ingreso", expense: "Egreso" };
 
-const CAUSE_LABEL: Record<CashMovementCause, string> = {
+/**
+ * Exportado (Ronda 2, H-8) para que `MovementsPanel.test.tsx` pueda
+ * recorrer `CASH_MOVEMENT_CAUSES` y exigir una etiqueta no vacía por cada
+ * miembro — sin el `export`, el `Record<CashMovementCause, string>` ya
+ * obliga a listar TODAS las causas del tipo (si no, no tipa), pero eso sólo
+ * protege contra una causa presente en `CashMovementCause` y ausente acá;
+ * no protege contra una causa que el backend ya declaró y que nadie agregó
+ * todavía ni al tipo ni acá — que es exactamente lo que pasó con
+ * `supplier_payment` hasta esta ronda. El test cierra ese segundo caso.
+ */
+export const CAUSE_LABEL: Record<CashMovementCause, string> = {
   petty_expense: "Gasto menor",
   emergency_purchase: "Compra de emergencia",
   refund: "Devolución",
   tip_payout: "Pago de propinas",
+  // La columna de `kind` ya distingue ingreso de egreso: un pago a
+  // proveedor desde el cajón llega con `kind: "expense"`, pero el
+  // reintegro de un pago anulado llega con la MISMA causa y
+  // `kind: "income"` (`backend/app/shifts/hooks.py`, pedido 2b de
+  // compras) — por eso la etiqueta no dice "Egreso" ni "Salida".
+  supplier_payment: "Pago a proveedor",
   other_income: "Otro ingreso",
   other_expense: "Otro egreso",
 };

@@ -36,6 +36,7 @@ from app.orders.schemas import (
     FavoriteOut,
     MergeIn,
     MoveIn,
+    OrderConsumptionOut,
     OrderCreateIn,
     OrderOut,
     PatchItemIn,
@@ -320,3 +321,33 @@ def get_admin_order(order_id: int, actor: Actor = Depends(current_admin), db: Se
         raise NotFoundError("La comanda no existe")
     admin_store(db, actor, order.store_id)
     return service.order_out(db, order, for_device=False)
+
+
+@router.get("/admin/orders/{order_id}/consumption")
+def get_order_consumption(
+    order_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> OrderConsumptionOut:
+    """Pedido 2b, «Reads that 2a asked for»: la corrección a §5.3 hecha
+    lectura — un renglón por insumo/preparación, sumando las filas por ítem
+    del libro (`app.orders.service.order_consumption`). Ruta de **admin**
+    pura (`current_admin` + `admin_store`, nunca `current_device`): la
+    recepción de costo es exactamente la misma frontera que ya separa
+    `/admin/ingredients` (con `cost`) de `/device/ingredients` (sin él).
+    `404` si la comanda es de otra organización o de una sede ajena a la del
+    admin.
+
+    **`assert_feature` a mano, no `dependencies=[Depends(require_feature(...))]`**
+    (mismo patrón que `app.catalog.router.set_product_availability:242`):
+    la ruta no tiene `store_id` en el path ni en la query —
+    `require_feature` como dependency resolvería la sede con
+    `_admin_store_id_from_request` (`None`, evalúa a nivel de organización,
+    no de la sede real de ESTA comanda) — así que se valida DESPUÉS de
+    resolver `order.store_id`. `400 FEATURE_DISABLED` si `inventory.
+    perpetual` está apagada para la sede real de la comanda (la comanda
+    puede existir igual: sin el libro perpetuo, no hay nada que agregar)."""
+    order = db.get(Order, order_id)
+    if order is None or order.organization_id != actor.organization_id:
+        raise NotFoundError("La comanda no existe")
+    admin_store(db, actor, order.store_id)
+    features.assert_feature(db, order.organization_id, order.store_id, "inventory.perpetual")
+    return service.order_consumption(db, order=order)

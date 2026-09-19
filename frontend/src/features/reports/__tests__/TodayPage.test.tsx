@@ -157,4 +157,73 @@ describe("TodayPage", () => {
     const uncostedLink = screen.getByRole("link", { name: /plato vendido sin descontar nada/i })
     expect(uncostedLink).toHaveAttribute("href", "/admin/carta")
   })
+
+  // ---------------------------------------------------------------------
+  // Pedido 2b: lotes por vencer/vencidos, cuentas por pagar, salud del
+  // control. Con la función apagada el backend manda `[]`/`0`/`null` — la
+  // tarjeta no se dibuja (ni vacía, ni con un 0 mudo).
+  // ---------------------------------------------------------------------
+
+  it("lotes vencidos con stock se ven distinto (crítico) de los que sólo están por vencer (advertencia), y enlazan a Lotes", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        lots_expiring_or_expired: [
+          { batch_id: 1, ingredient_id: 5, qty_base: "800", expires_at: "2026-09-10", status: "expired" },
+          { batch_id: 2, ingredient_id: 6, qty_base: "300", expires_at: "2026-09-20", status: "expiring" },
+        ],
+      }),
+    )
+
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const link = await screen.findByRole("link", { name: /2 lotes de insumo por vencer o vencido/i })
+    expect(link).toHaveAttribute("href", "/admin/inventario?tab=lotes")
+    expect(screen.getByText(/1 vencido con stock/)).toBeInTheDocument()
+    expect(screen.getByText(/1 por vencer en ≤ 7 días/)).toBeInTheDocument()
+  })
+
+  it("sin lotes por vencer ni vencidos, la tarjeta no se dibuja (ni vacía)", async () => {
+    getTodayMock.mockResolvedValue(baseToday({ lots_expiring_or_expired: [] }))
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await waitFor(() => expect(screen.getByText("Todo al día")).toBeInTheDocument())
+    expect(screen.queryByText(/lote/i)).not.toBeInTheDocument()
+  })
+
+  it("cuentas por pagar vencidas y pendientes de revisión son DOS tarjetas distintas, y enlazan a Compras (otro agente) por URL, no se duplica la pantalla", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        payables_overdue: [
+          { payable_id: 1, supplier_id: 1, supplier_name: "Distribuidora La 70", due_date: "2026-09-01", balance: 450000, days_overdue: 14 },
+        ],
+        payables_pending_review_count: 3,
+      }),
+    )
+
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const overdueLink = await screen.findByRole("link", { name: /1 cuenta por pagar vencida/i })
+    expect(overdueLink).toHaveAttribute("href", "/admin/compras?tab=cuentas-por-pagar")
+    expect(screen.getByText(/Distribuidora La 70/)).toBeInTheDocument()
+
+    const pendingLink = screen.getByRole("link", { name: /3 cuentas por pagar pendientes de revisión/i })
+    expect(pendingLink).toHaveAttribute("href", "/admin/compras?tab=cuentas-por-pagar")
+  })
+
+  it("inventario no confiable (2b) NO se dibuja con `null` (función apagada o sin dominio) — nunca se confunde con «no confiable»", async () => {
+    getTodayMock.mockResolvedValue(baseToday({ inventory_unreliable: null, days_since_last_full_count: null }))
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await waitFor(() => expect(screen.getByText("Todo al día")).toBeInTheDocument())
+    expect(screen.queryByText("Inventario no confiable")).not.toBeInTheDocument()
+  })
+
+  it("inventario no confiable (2b) se dibuja sólo cuando el backend lo AFIRMA (true), con los días y enlace a Salud del control", async () => {
+    getTodayMock.mockResolvedValue(baseToday({ inventory_unreliable: true, days_since_last_full_count: 21 }))
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const link = await screen.findByRole("link", { name: /Inventario no confiable/ })
+    expect(link).toHaveAttribute("href", "/admin/inventario?tab=salud")
+    expect(screen.getByText(/21 días sin un conteo completo aplicado/)).toBeInTheDocument()
+  })
 })

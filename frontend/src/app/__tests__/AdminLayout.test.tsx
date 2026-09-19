@@ -96,4 +96,19 @@ describe("AdminLayout: sidebar por features", () => {
     expect(await screen.findByRole("link", { name: "Inventario" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Preparaciones" })).toBeInTheDocument();
   });
+
+  it("«Compras» (purchases) — pedido 2b: apagada, no se muestra", async () => {
+    renderAdmin(buildMe({ features: { purchases: false } }));
+
+    await screen.findByRole("link", { name: "Hoy" });
+    expect(screen.queryByRole("link", { name: "Compras" })).not.toBeInTheDocument();
+  });
+
+  it("«Compras» aparece cuando purchases está encendida, y enlaza a /admin/compras", async () => {
+    renderAdmin(buildMe({ features: { purchases: true } }));
+
+    const link = await screen.findByRole("link", { name: "Compras" });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/admin/compras");
+  });
 });

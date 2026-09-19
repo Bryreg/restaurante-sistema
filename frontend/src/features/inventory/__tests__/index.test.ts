@@ -4,7 +4,7 @@ import { inventoryFeature } from "../index"
 
 describe("inventoryFeature", () => {
   it("expone Inventario (admin) detrás de inventory.perpetual y Merma (POS) detrás de inventory.waste", () => {
-    expect(inventoryFeature.adminRoutes.map((r) => r.path)).toEqual(["inventario"])
+    expect(inventoryFeature.adminRoutes.map((r) => r.path)).toEqual(["inventario", "inventario/conteos/:countId"])
     expect(inventoryFeature.posRoutes.map((r) => r.path)).toEqual(["merma"])
 
     expect(inventoryFeature.adminNav).toEqual([

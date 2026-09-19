@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { errorMessage } from "@/lib/errors"
 import { formatInstant } from "@/lib/businessDate"
 
-import { daysAgoLocal, todayLocal, WASTE_TYPE_LABEL } from "./lib"
+import { daysAgoLocal, formatBasisPoints, todayLocal, WASTE_TYPE_LABEL } from "./lib"
 
 /**
  * Admin → Inventario → Movimientos y mermas → Mermas (SPEC-NEGOCIO §5.5):
@@ -31,6 +31,13 @@ import { daysAgoLocal, todayLocal, WASTE_TYPE_LABEL } from "./lib"
  * territorio de `frontend-recetas`); si `catalog.preps` está apagada o la
  * preparación no está en esa lista, se muestra el id crudo en vez de
  * inventar un nombre.
+ *
+ * **Deuda cerrada en 2b** (`outputs-2a/ENTREGA.md §5`, O-6): `ratio` dejó de
+ * ser una fracción 0..1 y pasó a ser un entero en puntos básicos reales
+ * (`app.inventory.schemas.WasteKpiOut.ratio: int | None`, 100 = 1 %). Se
+ * formatea con `formatBasisPoints` (`./lib.ts`), nunca con
+ * `Math.round(kpi.ratio * 100)` — esa cuenta, correcta para la fracción de
+ * 2a, con la escala nueva da cien veces más (250 bp × 100 = "25000 %").
  */
 export function WasteAdminTab({ storeId, ingredients }: { storeId: number; ingredients: IngredientOut[] }): React.JSX.Element {
   const [from, setFrom] = useState(daysAgoLocal(30))
@@ -72,7 +79,7 @@ export function WasteAdminTab({ storeId, ingredients }: { storeId: number; ingre
       <div className="rounded-lg border p-4">
         <p className="text-sm text-muted-foreground">Mermas ÷ compras (semanal)</p>
         <p className="mt-1 text-2xl font-semibold tabular-nums">
-          {kpi === undefined ? "—" : kpi.ratio === null ? "Sin datos" : `${Math.round(kpi.ratio * 100)}%`}
+          {kpi === undefined ? "—" : kpi.ratio === null ? "Sin datos" : formatBasisPoints(kpi.ratio)}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           {kpi?.ratio === null || kpi === undefined

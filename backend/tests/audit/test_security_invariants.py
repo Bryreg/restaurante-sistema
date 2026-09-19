@@ -834,7 +834,31 @@ def test_the_openapi_of_orders_kitchen_payments_and_documents_declares_no_cost_f
 ) -> None:
     """El mismo control sobre el contrato publicado. Un campo declarado en el
     esquema es un campo que alguien va a llenar: el `unit_cost` del ítem tiene
-    que quedarse en la tabla y no aparecer nunca en `OrderItemOut`."""
+    que quedarse en la tabla y no aparecer nunca en `OrderItemOut`.
+
+    **Acotado en 2b, declarado.** Hasta 2a este barrido incluía también
+    `/admin/orders` y `/admin/documents` en sus prefijos. Era la misma trampa
+    que R-9 de `outputs-2a/ENTREGA.md`: un test que dice «de la venta» barre
+    rutas de **administrador**, donde el costo es la fase entera. En 2a pasaba
+    por accidente —esas dos rutas se anotan `-> Any` para servir `format=csv`,
+    así que sus esquemas nunca llegaron al OpenAPI y no había nada que
+    barrer—, y 2b lo destapó: `GET /admin/orders/{id}/consumption`, la lectura
+    agregada que la corrección a §5.3 manda construir, **sí** publica su
+    esquema, y publica `cost` y `cost_source` porque es una ruta de admin y
+    ése es su sentido.
+
+    Acotado a lo que la regla dice de verdad (`AGENTS.md`: «el operador no
+    recibe costos ni márgenes»): las cuatro superficies que sirve el
+    **dispositivo**. Qué dejó de estar cubierto acá: el costo en las
+    respuestas de administrador de la venta — que siguen vigilando
+    `tests/audit/test_reports_invariants.py::
+    test_no_report_ever_exposes_a_cost_or_a_margin` (respuestas reales, lista
+    blanca campo por campo) y
+    `tests/payments/test_documents.py::
+    test_openapi_device_responses_never_expose_cost_fields` (el barrido
+    acotado por SESIÓN, que cubre todas las rutas de dispositivo del producto,
+    no sólo estas cuatro).
+    """
     spec = client.get("/openapi.json").json()
     names = _property_names_reachable_from(
         spec,
@@ -843,8 +867,6 @@ def test_the_openapi_of_orders_kitchen_payments_and_documents_declares_no_cost_f
             f"{API}/tables",
             f"{API}/kitchen",
             f"{API}/documents",
-            f"{API}/admin/orders",
-            f"{API}/admin/documents",
         ),
     )
     assert names, "no se encontró ningún esquema bajo /orders, /kitchen ni /documents"

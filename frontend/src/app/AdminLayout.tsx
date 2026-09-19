@@ -8,6 +8,7 @@ import { customersFeature } from "@/features/customers";
 import { fiscalFeature } from "@/features/fiscal";
 import { inventoryFeature } from "@/features/inventory";
 import { ordersFeature } from "@/features/orders";
+import { purchasesFeature } from "@/features/purchases";
 import { recipesFeature } from "@/features/recipes";
 import { reportsFeature } from "@/features/reports";
 import { shiftsFeature } from "@/features/shifts";
@@ -44,7 +45,10 @@ const OWN_NAV: NavItem[] = [
  * Orden de SPEC-NEGOCIO §9.3: Hoy, Ventas, Pedidos, Carta, Preparaciones e
  * Inventario (pedido 2a) se intercalan junto a Carta, (Dinero, Turnos y
  * personal ya estaban), Documentos fiscales/Rangos/Notas/Devoluciones
- * pendientes y Clientes (pedido 1b-2) — y `OWN_NAV` cierra igual que antes.
+ * pendientes y Clientes (pedido 1b-2), **Compras** justo después de
+ * Inventario (pedido 2b: "Carta y recetas, Preparaciones, Inventario,
+ * Compras, Dinero..." — la fila de la tabla §9.3) — y `OWN_NAV` cierra
+ * igual que antes.
  */
 function buildNav(hasFeature: (key: string) => boolean): NavItem[] {
   const all = [
@@ -53,6 +57,7 @@ function buildNav(hasFeature: (key: string) => boolean): NavItem[] {
     ...catalogFeature.adminNav,
     ...recipesFeature.adminNav,
     ...inventoryFeature.adminNav,
+    ...purchasesFeature.adminNav,
     ...fiscalFeature.adminNav,
     ...shiftsFeature.adminNav,
     ...customersFeature.adminNav,

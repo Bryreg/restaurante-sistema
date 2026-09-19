@@ -15,8 +15,10 @@ import {
   getToday,
   type AlertOut,
   type IngredientAlertOut,
+  type LotAlertOut,
   type NegativeStockAlertOut,
   type OpenOrderAgeOut,
+  type PayableAlertOut,
   type PrepAlertOut,
   type UnavailableProductOut,
   type UncostedProductOut,
@@ -60,6 +62,11 @@ function directAttentionItems(today: {
   ingredients_negative?: NegativeStockAlertOut[]
   preps_without_production?: PrepAlertOut[]
   products_discounting_nothing?: UncostedProductOut[]
+  lots_expiring_or_expired?: LotAlertOut[]
+  payables_overdue?: PayableAlertOut[]
+  payables_pending_review_count?: number
+  inventory_unreliable?: boolean | null
+  days_since_last_full_count?: number | null
 }): AttentionItem[] {
   const items: AttentionItem[] = []
 
@@ -193,6 +200,74 @@ function directAttentionItems(today: {
       to: "/admin/carta",
       ctaLabel: "Ver Carta y recetas",
       tone: "warning",
+    })
+  }
+
+  // Pedido 2b: las tres alertas nuevas de `GET /admin/today` (spec.md
+  // «Reads that 2a asked for»). Con la función apagada el backend manda
+  // `[]`/`0`/`null` (nunca omite la llave): la tarjeta correspondiente
+  // simplemente no entra en `items` — no se dibuja, no se dibuja vacía
+  // (SPEC-NEGOCIO §9.3, el mandato de este reparto). Cuentas por pagar
+  // enlazan a `/admin/compras` (pantalla de otro agente: no se construye
+  // ni se duplica acá, sólo se enlaza por URL).
+  const lotsAlert = today.lots_expiring_or_expired ?? []
+  if (lotsAlert.length > 0) {
+    const expiredCount = lotsAlert.filter((l) => l.status === "expired").length
+    const expiringCount = lotsAlert.length - expiredCount
+    const parts: string[] = []
+    if (expiredCount > 0) parts.push(`${expiredCount} vencido${expiredCount === 1 ? "" : "s"} con stock`)
+    if (expiringCount > 0) parts.push(`${expiringCount} por vencer en ≤ 7 días`)
+    items.push({
+      key: "lots-expiring-or-expired",
+      title: `${lotsAlert.length} lote${lotsAlert.length === 1 ? "" : "s"} de insumo por vencer o vencido`,
+      body: `${parts.join(" · ")}. Un lote vencido no se da de baja solo — hay que registrar la merma.`,
+      to: "/admin/inventario?tab=lotes",
+      ctaLabel: "Ver Lotes",
+      tone: expiredCount > 0 ? "critical" : "warning",
+    })
+  }
+
+  const payablesOverdue = today.payables_overdue ?? []
+  if (payablesOverdue.length > 0) {
+    const names = payablesOverdue.slice(0, 3).map((p) => p.supplier_name)
+    const rest = payablesOverdue.length - names.length
+    items.push({
+      key: "payables-overdue",
+      title: `${payablesOverdue.length} cuenta${payablesOverdue.length === 1 ? "" : "s"} por pagar vencida${payablesOverdue.length === 1 ? "" : "s"}`,
+      body: rest > 0 ? `${names.join(", ")} y ${rest} más.` : names.join(", "),
+      to: "/admin/compras?tab=cuentas-por-pagar",
+      ctaLabel: "Ver Compras",
+      tone: "critical",
+    })
+  }
+
+  const payablesPendingReview = today.payables_pending_review_count ?? 0
+  if (payablesPendingReview > 0) {
+    items.push({
+      key: "payables-pending-review",
+      title: `${payablesPendingReview} cuenta${payablesPendingReview === 1 ? "" : "s"} por pagar pendiente${payablesPendingReview === 1 ? "" : "s"} de revisión`,
+      body: "No se pueden pagar hasta que un administrador las apruebe — es el control entre quien recibe y quien paga.",
+      to: "/admin/compras?tab=cuentas-por-pagar",
+      ctaLabel: "Ver Compras",
+      tone: "warning",
+    })
+  }
+
+  // `null` = la función está apagada o el dominio no está montado — no es
+  // lo mismo que "confiable" (`false`), así que sólo se dibuja la tarjeta
+  // cuando el backend afirma explícitamente que NO es confiable.
+  if (today.inventory_unreliable === true) {
+    const days = today.days_since_last_full_count
+    items.push({
+      key: "inventory-unreliable",
+      title: "Inventario no confiable",
+      body:
+        days !== null && days !== undefined
+          ? `${days} días sin un conteo completo aplicado (más de 14). El food cost real no se publica hasta que haya uno.`
+          : "Nunca se aplicó un conteo completo en esta sede. El food cost real no se publica hasta que haya uno.",
+      to: "/admin/inventario?tab=salud",
+      ctaLabel: "Ver Salud del control",
+      tone: "critical",
     })
   }
 

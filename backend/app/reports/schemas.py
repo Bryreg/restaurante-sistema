@@ -91,18 +91,28 @@ class AlertOut(BaseModel):
 
 
 class IngredientAlertOut(BaseModel):
+    # Pedido 2b (deuda declarada en `outputs-2a/ENTREGA.md § 5`, A-5): ESTA
+    # magnitud se publicaba en dos escalas distintas para el mismo dato —
+    # `app.inventory.schemas` ya la publica como texto decimal
+    # (`app.core.quantity.format_qty_base`), acá salía como `int` en
+    # milésimas crudas. Unificado a texto decimal: es el mismo modo de
+    # falla que B-2 (el cero mudo de costo) pero con cantidad — la primera
+    # pantalla que pintara `qty_base` iba a mostrar `117648 g`, o el
+    # cliente iba a dividir por 1.000 a mano (matemática en el lugar
+    # equivocado). Formateado en `app.reports.service._low_stock_alerts`;
+    # nunca aritmética en este esquema.
     ingredient_id: int
     name: str
-    qty_base: int
-    min_stock: int
+    qty_base: str
+    min_stock: str
     base_unit: str
 
 
 class NegativeStockAlertOut(BaseModel):
     ingredient_id: int
     name: str
-    qty_base: int
-    min_stock: int
+    qty_base: str
+    min_stock: str
     base_unit: str
     negative_since: str | None
     probable_cause: str | None
@@ -121,6 +131,38 @@ class UncostedProductOut(BaseModel):
     product_name: str | None
     items_sold: int
     qty_sold: int
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2b: los tres grupos nuevos de alertas de `GET /admin/today`
+# (spec.md «Reads that 2a asked for», párrafo de `GET /admin/today`). Mismo
+# patrón que las cuatro de arriba: cada uno envuelve el `dict` que devuelve
+# el hook del dominio DUEÑO (`app.inventory.hooks.expiring_or_expired_lots`/
+# `last_applied_full_count_at`, `app.purchases.hooks.overdue_payables`/
+# `pending_review_payables_count`), acotado por `find_spec_safe` **y**
+# `features.is_enabled` (`app.reports.service._hooks_if_enabled`) — con el
+# módulo ausente o la función apagada para la sede, `[]`/`0`/`None`, nunca
+# un error ni una alarma que la sede no puede resolver.
+# ---------------------------------------------------------------------------
+
+
+class LotAlertOut(BaseModel):
+    batch_id: int
+    ingredient_id: int
+    # Texto decimal (`format_qty_base`), misma regla que unifica el resto de
+    # este esquema en este mismo pedido — nunca milésimas crudas.
+    qty_base: str
+    expires_at: str
+    status: Literal["expiring", "expired"]
+
+
+class PayableAlertOut(BaseModel):
+    payable_id: int
+    supplier_id: int
+    supplier_name: str
+    due_date: str
+    balance: int
+    days_overdue: int
 
 
 class TodayOut(BaseModel):
@@ -152,6 +194,21 @@ class TodayOut(BaseModel):
     ingredients_negative: list[NegativeStockAlertOut]
     preps_without_production: list[PrepAlertOut]
     products_discounting_nothing: list[UncostedProductOut]
+    # Pedido 2b: `[]`/`0`/`None` cuando `inventory.lots`/`purchases`/
+    # `inventory.variance` están apagadas o el dominio todavía no está
+    # montado — nunca falta la llave (mismo criterio que las cuatro de
+    # arriba).
+    lots_expiring_or_expired: list[LotAlertOut]
+    payables_overdue: list[PayableAlertOut]
+    payables_pending_review_count: int
+    # `null` (no `false` mudo) cuando `inventory.variance` está apagada o el
+    # dominio no está montado: "confiable/no confiable" es una afirmación
+    # que sólo tiene sentido si la sede lleva el control. Con la función
+    # encendida: `True` sin conteo completo nunca aplicado o a más de 14
+    # días del último; `days_since_last_full_count` viaja aparte y es
+    # `None` cuando nunca hubo uno (nunca un número inventado).
+    inventory_unreliable: bool | None
+    days_since_last_full_count: int | None
 
 
 # ---------------------------------------------------------------------------

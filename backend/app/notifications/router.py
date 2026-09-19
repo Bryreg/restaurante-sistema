@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -39,9 +39,14 @@ def list_notifications(
     request: Request,
     store_id: int | None = None,
     unread_only: bool = False,
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): `format`
+    # declarado en el contrato, no sólo leído de `request.query_params` dentro
+    # de `wants_csv` — mismo patrón que `app.reports.router.get_sales`.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     stmt = select(Notification).where(Notification.organization_id == actor.organization_id)
     if store_id is not None:
         admin_store(db, actor, store_id)

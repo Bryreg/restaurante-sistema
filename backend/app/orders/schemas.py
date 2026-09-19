@@ -319,6 +319,51 @@ class AdminOrderListItem(BaseModel):
     transferred: bool
 
 
+class OrderConsumptionRowOut(BaseModel):
+    """`GET /admin/orders/{id}/consumption` (pedido 2b, corrección a §5.3):
+    un renglón por insumo o preparación, sumando las filas por ítem del
+    LIBRO (`app.inventory.models.StockMovement`) — la fusión es de LECTURA,
+    acá; el libro sigue guardando una fila por `order_item` (ver
+    `app.orders.service.order_consumption`). **Única excepción declarada al
+    docstring del módulo** ("ningún esquema de este archivo tiene `cost`"):
+    esta ruta es admin-only, nunca se monta bajo sesión de dispositivo
+    (`app.orders.router.get_order_consumption` no depende de
+    `current_device` en ningún camino), así que publicar costo acá no
+    viola "el operador no recibe costos" — sólo lo evita en TODO lo demás
+    de este módulo, que sí es compartido con el dispositivo."""
+
+    ingredient_id: int | None
+    preparation_id: int | None
+    name: str
+    unit: str
+    # Cantidad de insumo — SIEMPRE texto decimal (`app.core.quantity.
+    # format_qty_base`), nunca milésimas crudas (misma regla que unifica
+    # `app.reports.schemas` en este mismo pedido). Puede ser negativa (salida
+    # neta) o `"0"` si una nota "vuelve" revirtió exactamente lo que
+    # descontó la venta.
+    qty_base: str
+    # Cantidad de PLATA total de este renglón (TOTAL, no por unidad): mismo
+    # criterio que `SalesBucketOut.theoretical_cost` — enteros de pesos,
+    # `app.core.quantity.micros_to_pesos` aplicado UNA sola vez al cerrar la
+    # suma de todas las filas del libro que aportan a este insumo/prep.
+    # `None` cuando NINGUNA fila del libro para este insumo tuvo costo
+    # (nunca `0` mudo).
+    cost: int | None
+    # Origen del costo de la fila del libro más reciente que sí tuvo costo
+    # (`official`/`weighted_average`/`last_purchase`/`estimated`); `None`
+    # junto con `cost=None`. Declarado en el entregable: si dos filas del
+    # mismo insumo tienen orígenes distintos (precio cambió entre rondas de
+    # envío), este campo reporta el más reciente, no una mezcla — el `cost`
+    # sigue siendo la suma exacta de todas, sólo el ORIGEN mostrado es del
+    # último evento.
+    cost_source: str | None
+
+
+class OrderConsumptionOut(BaseModel):
+    order_id: int
+    rows: list[OrderConsumptionRowOut]
+
+
 # ---------------------------------------------------------------------------
 # Entradas
 # ---------------------------------------------------------------------------

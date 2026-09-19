@@ -58,9 +58,14 @@ def _store_or_404(db: Session, store_id: int) -> Store:
 def get_ranges(
     request: Request,
     store_id: int = Query(...),
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): `format`
+    # declarado en el contrato, no sólo leído de `request.query_params` dentro
+    # de `wants_csv` — mismo patrón que `app.reports.router.get_sales`.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
 ) -> list[FiscalRangeOut] | Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     admin_store(db, actor, store_id)
     rows = [service.range_out(r) for r in service.list_ranges(db, store_id=store_id)]
     if wants_csv(request):
@@ -131,9 +136,13 @@ def get_fiscal_documents(
     request: Request,
     store_id: int = Query(...),
     status: DianStatusLiteral | None = Query(default=None),
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): ver
+    # `get_ranges` arriba, mismo motivo.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
 ) -> list[AdminFiscalDocumentOut] | Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     admin_store(db, actor, store_id)
     rows = service.admin_list_fiscal_documents(db, store_id=store_id, status=status)
     if wants_csv(request):
@@ -308,9 +317,13 @@ def get_notes(
     store_id: int = Query(...),
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): ver
+    # `get_ranges` arriba, mismo motivo.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
 ) -> list[AdminNoteListItem] | Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     admin_store(db, actor, store_id)
     rows = service.admin_list_notes(db, store_id=store_id, date_from=date_from, date_to=date_to)
     if wants_csv(request):

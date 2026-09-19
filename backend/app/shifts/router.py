@@ -602,9 +602,11 @@ def admin_list_shifts(
     request: Request,
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
+    format: str | None = Query(None, description='"csv" exporta el listado como CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI (deuda de 1b-2, pedido 2b la cierra); el valor real lo lee `wants_csv(request)`.
     store = admin_store(db, actor, store_id)
     shifts = service.list_admin_shifts(db, store_id=store.id, date_from=date_from, date_to=date_to)
     rows = [_admin_shift_item(db, s) for s in shifts]
@@ -711,9 +713,11 @@ def admin_employee_activity(
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
     store_id: int | None = None,
+    format: str | None = Query(None, description='"csv" exporta el resumen como CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI (deuda de 1b-2, pedido 2b la cierra); el valor real lo lee `wants_csv(request)`.
     if store_id is not None:
         admin_store(db, actor, store_id)
     data = service.employee_activity(

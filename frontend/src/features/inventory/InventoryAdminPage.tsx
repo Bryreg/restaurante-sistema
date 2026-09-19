@@ -7,22 +7,38 @@ import { listIngredients } from "@/api/inventory"
 import { EmptyState } from "@/components/EmptyState"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+import { ControlHealthTab } from "./ControlHealthTab"
+import { CountsTab } from "./CountsTab"
 import { IngredientsTab } from "./IngredientsTab"
+import { LotsTab } from "./LotsTab"
 import { MovementsWasteTab } from "./MovementsWasteTab"
 import { StockTab } from "./StockTab"
+import { VarianceTab } from "./VarianceTab"
 
-type TabValue = "insumos" | "stock" | "movimientos"
+const ALL_TABS = ["insumos", "stock", "movimientos", "conteos", "varianza", "lotes", "salud"] as const
+type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
-  return value === "insumos" || value === "stock" || value === "movimientos"
+  return (ALL_TABS as readonly string[]).includes(value ?? "")
 }
 
 /**
  * Admin → Inventario (SPEC-NEGOCIO §9.3): Insumos, Stock, Movimientos y
- * mermas. Detrás de `inventory.perpetual` en la navegación
+ * mermas, y — pedido 2b — Conteos, Varianza, Lotes y Salud del control.
+ * Detrás de `inventory.perpetual` en la navegación
  * (`inventoryFeature.adminNav`) — si alguien llega igual a la ruta con la
  * función apagada, esta pantalla explica qué la prende en vez de romperse
  * contra un `400 FEATURE_DISABLED`.
+ *
+ * Las cuatro pestañas de 2b se arman desde `hasFeature` de la sesión, cada
+ * una detrás de SU flag (`app/core/features.py`): `inventory.counts` y
+ * `inventory.lots` (`inventory.perpetual` ya lo exige el gate de toda la
+ * página); `inventory.variance` requiere `inventory.counts`, y
+ * "Salud del control" comparte esa misma flag porque
+ * `GET /admin/control-health` está detrás de `inventory.variance` en el
+ * backend (`app/inventory/router.py::get_control_health`). Si el `tab=` de
+ * la URL apunta a una pestaña apagada, cae a "Insumos" en vez de mostrar un
+ * panel roto.
  *
  * `tab`/`below_min`/`negative` en la query string: así "Hoy" puede enlazar
  * directo a "Stock" filtrado por negativos o bajo mínimo (cada alerta de
@@ -35,8 +51,27 @@ export function InventoryAdminPage(): React.JSX.Element {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const enabled = hasFeature("inventory.perpetual")
+  // Las pestañas se arman desde los flags de la sesión (AGENTS.md): cada
+  // dependencia YA está declarada en `app/core/features.py` y acá sólo se
+  // refleja — `inventory.counts`/`inventory.lots` requieren
+  // `inventory.perpetual` (ya cubierto por el gate de toda la página);
+  // `inventory.variance` requiere `inventory.counts`.
+  const countsEnabled = hasFeature("inventory.counts")
+  const varianceEnabled = hasFeature("inventory.variance")
+  const lotsEnabled = hasFeature("inventory.lots")
+
   const tabParam = searchParams.get("tab")
-  const tab: TabValue = isTabValue(tabParam) ? tabParam : "insumos"
+  const requestedTab: TabValue = isTabValue(tabParam) ? tabParam : "insumos"
+  const tabAvailable: Record<TabValue, boolean> = {
+    insumos: true,
+    stock: true,
+    movimientos: true,
+    conteos: countsEnabled,
+    varianza: varianceEnabled,
+    lotes: lotsEnabled,
+    salud: varianceEnabled,
+  }
+  const tab: TabValue = tabAvailable[requestedTab] ? requestedTab : "insumos"
 
   const ingredientsQuery = useQuery({
     queryKey: ["inventory", "ingredients", activeStoreId, false],
@@ -75,10 +110,14 @@ export function InventoryAdminPage(): React.JSX.Element {
           setSearchParams(next, { replace: true })
         }}
       >
-        <TabsList>
+        <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="insumos">Insumos</TabsTrigger>
           <TabsTrigger value="stock">Stock</TabsTrigger>
           <TabsTrigger value="movimientos">Movimientos y mermas</TabsTrigger>
+          {countsEnabled ? <TabsTrigger value="conteos">Conteos</TabsTrigger> : null}
+          {varianceEnabled ? <TabsTrigger value="varianza">Varianza</TabsTrigger> : null}
+          {lotsEnabled ? <TabsTrigger value="lotes">Lotes</TabsTrigger> : null}
+          {varianceEnabled ? <TabsTrigger value="salud">Salud del control</TabsTrigger> : null}
         </TabsList>
         <TabsContent value="insumos" className="pt-4">
           <IngredientsTab storeId={activeStoreId} />
@@ -94,6 +133,26 @@ export function InventoryAdminPage(): React.JSX.Element {
         <TabsContent value="movimientos" className="pt-4">
           <MovementsWasteTab storeId={activeStoreId} ingredients={ingredients} />
         </TabsContent>
+        {countsEnabled ? (
+          <TabsContent value="conteos" className="pt-4">
+            <CountsTab storeId={activeStoreId} />
+          </TabsContent>
+        ) : null}
+        {varianceEnabled ? (
+          <TabsContent value="varianza" className="pt-4">
+            <VarianceTab storeId={activeStoreId} />
+          </TabsContent>
+        ) : null}
+        {lotsEnabled ? (
+          <TabsContent value="lotes" className="pt-4">
+            <LotsTab storeId={activeStoreId} ingredients={ingredients} />
+          </TabsContent>
+        ) : null}
+        {varianceEnabled ? (
+          <TabsContent value="salud" className="pt-4">
+            <ControlHealthTab storeId={activeStoreId} />
+          </TabsContent>
+        ) : null}
       </Tabs>
     </div>
   )

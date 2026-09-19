@@ -31,7 +31,7 @@ from app.catalog.models import Combo, ComboGroup, ComboOption, ModifierGroup, Mo
 from app.core import clock, features, tz
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.core.modules import find_spec_safe
-from app.core.quantity import micros_to_pesos
+from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.core.tax import TAX_RATE_BY_CODE
 from app.notifications.service import notify
 from app.orders import money
@@ -63,6 +63,8 @@ from app.orders.schemas import (
     MergeIn,
     ModifierOut,
     MoveIn,
+    OrderConsumptionOut,
+    OrderConsumptionRowOut,
     OrderCreateIn,
     OrderDiscountOut,
     OrderItemIn,
@@ -1247,18 +1249,39 @@ def _resolve_waste_stub(db: Session, *, base_stub: WasteStub) -> None:
     segundo modelo de datos.
 
     **No repone inventario** (el plato ya se cocinó): esta función nunca
-    llama `record_movement`. Decisión declarada en el entregable: no se
-    escribe tampoco un movimiento `cause=void_after_send` adicional —
-    hacerlo sin mutar la fila `SALE` ya escrita (prohibido: `record_movement`
-    es la única escritura de inventario y no ofrece "reclasificar", sólo
-    sumar) exigiría un par que se cancela exactamente (un alta y una baja
-    nuevas, mismo insumo, `cause=void_after_send`), que no cambia el saldo
-    ni aporta a ningún reporte que sume por causa (su suma da cero) y sólo
-    agrega dos filas por insumo sin ganancia real; se prefiere no escribirlas
-    y dejar `MovementCause.VOID_AFTER_SEND` declarado para cuando `app.
-    inventory` ofrezca una reclasificación real. El saldo del insumo queda
-    exactamente donde lo dejó la venta original — ver el test de propiedad
-    en `tests/orders/test_send.py`."""
+    llama `record_movement`. Decisión de 2a, REVISADA y RATIFICADA en 2b
+    (`outputs-2b/backend-lectura-contrato.md § 6`): tampoco se escribe un
+    movimiento adicional que reclasifique la baja original.
+    `record_movement` es la única escritura de inventario y no ofrece
+    "reclasificar" una fila ya escrita, sólo sumar — así que la única forma
+    de anotar esta anulación sin volver a descontar el insumo (violando "el
+    insumo se descuenta una sola vez") habría sido un par que se cancela
+    exactamente: un alta y una baja nuevas, mismo insumo, con una causa
+    dedicada a este caso.
+
+    **Por qué esa causa YA NO EXISTE EN EL ENUM, con un motivo que 2a no
+    pudo ver**: 2b agregó FEFO DENTRO de `record_movement`
+    (`app.inventory.hooks._maybe_consume_fefo`, decisión de arquitectura #3
+    del pedido 2b) — CUALQUIER llamada con `qty_base < 0` consume lotes de
+    verdad (`consume_lots_fefo`), sin importar si el saldo AGREGADO del
+    insumo termina en cero. La mitad negativa de ese par (`qty_base`
+    negativo, necesaria para que el alta+baja cancele) habría disparado una
+    SEGUNDA depleción real de `StockBatch.qty_remaining` para una cantidad
+    que YA se consumió de esos lotes al vender — corrompe la contabilidad
+    por lote aunque el saldo AGREGADO del insumo quede exacto. No era sólo
+    "sin ganancia real" (el argumento de 2a, que sigue en pie: la suma por
+    causa de un par que cancela da cero, así que un reporte que sume por
+    causa no ganaba nada): era activamente incorrecto a nivel de lote desde
+    que 2b existe. Con ese fundamento (`outputs-2b/backend-lectura-
+    contrato.md § 6`), la Ronda 2 tomó la SEGUNDA salida que el checklist
+    de 2b ofrecía: en vez de dejar la causa declarada y nunca producida,
+    se SACÓ del enum (`app/inventory/models.py`, dueño de ese archivo) —
+    un contrato no puede seguir prometiendo una causa que nadie escribe
+    nunca. El saldo del insumo queda exactamente donde lo dejó la venta
+    original — ver el test de propiedad en `tests/orders/test_send.py` y
+    la prueba explícita de esta decisión en `tests/orders/
+    test_consumption.py::
+    test_void_after_send_writes_no_new_movement_and_the_cause_is_gone_from_the_enum`."""
     if find_spec_safe("app.inventory.models") is None:
         base_stub.resolved = True
         return
@@ -2076,3 +2099,123 @@ def admin_list_orders(
         "kitchen_times_by_station": _kitchen_times_by_station(all_sent_items),
         "sent_at_payment_ratio": (total_sent_at_payment_items / total_live_items) if total_live_items else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/orders/{id}/consumption — pedido 2b, la corrección a §5.3
+# ---------------------------------------------------------------------------
+
+
+def order_consumption(db: Session, *, order: Order) -> OrderConsumptionOut:
+    """La fusión por comanda que §5.3 pedía, hecha **lectura** (spec.md
+    «Reads that 2a asked for»): un renglón por insumo o preparación, sumando
+    las filas del LIBRO (`app.inventory.models.StockMovement`) atribuidas a
+    CUALQUIER `order_item` de esta comanda (`ref_type="order_item"`,
+    `ref_id IN (...)`) — sin importar la causa (`sale`, `note_return`): el
+    libro ya las escribió UNA por ítem (`_freeze_item_consumption`), y acá
+    sólo se suman para el lector que quiere ver la comanda como unidad, no
+    el ítem. **El libro no cambia**: esta función no llama `record_movement`,
+    no escribe nada — es puramente `SELECT` + `GROUP BY` en Python. Por eso
+    el mismo test que prueba esta función también prueba, sobre el mismo
+    caso armado, que el libro sigue con una fila por `order_item`
+    (`tests/orders/test_consumption.py`).
+
+    **Snapshot, no revaloración**: el costo de cada fila es el que
+    `record_movement` congeló en ESE movimiento (`cost_micros`/
+    `cost_source`, resueltos al momento de escribirlo) — nunca se vuelve a
+    llamar `resolve_ingredient_cost` ni se re-expande la ficha vigente. Si
+    el costo del insumo cambió después de que esta comanda se sirvió, esta
+    lectura sigue mostrando lo que costó ENTONCES, exactamente la misma
+    regla que ya protege `unit_cost`/`unit_cost_micros` en el ítem.
+
+    Con `app.inventory` sin montar (`find_spec_safe`, nunca `find_spec`
+    crudo) o sin ningún movimiento para esta comanda: `rows=[]` — nunca un
+    error, la comanda puede no tener nada que descontar (`catalog.recipes`
+    apagada, o ítems sin ficha)."""
+    empty = OrderConsumptionOut(order_id=order.id, rows=[])
+    if find_spec_safe("app.inventory.models") is None:
+        return empty
+    inv_models = importlib.import_module("app.inventory.models")
+
+    item_ids = [
+        row[0]
+        for row in db.execute(select(OrderItem.id).where(OrderItem.order_id == order.id)).all()
+    ]
+    if not item_ids:
+        return empty
+
+    movements = list(
+        db.execute(
+            select(inv_models.StockMovement)
+            .where(
+                inv_models.StockMovement.store_id == order.store_id,
+                inv_models.StockMovement.ref_type == "order_item",
+                inv_models.StockMovement.ref_id.in_(item_ids),
+            )
+            .order_by(inv_models.StockMovement.at, inv_models.StockMovement.id)
+        ).scalars()
+    )
+    if not movements:
+        return empty
+
+    groups: dict[tuple[int | None, int | None], dict[str, Any]] = {}
+    for movement in movements:
+        key = (movement.ingredient_id, movement.preparation_id)
+        group = groups.setdefault(
+            key, {"qty_base": 0, "cost_micros_total": 0, "has_cost": False, "cost_source": None, "last_at": None}
+        )
+        group["qty_base"] += movement.qty_base
+        if movement.cost_micros is not None:
+            group["cost_micros_total"] += line_cost_micros(movement.qty_base, movement.cost_micros)
+            group["has_cost"] = True
+            if group["last_at"] is None or movement.at >= group["last_at"]:
+                group["last_at"] = movement.at
+                group["cost_source"] = movement.cost_source.value
+
+    ingredient_ids = {k[0] for k in groups if k[0] is not None}
+    preparation_ids = {k[1] for k in groups if k[1] is not None}
+
+    ingredient_names: dict[int, tuple[str, str]] = {}
+    if ingredient_ids:
+        ingredient_names = {
+            row[0]: (row[1], row[2].value if hasattr(row[2], "value") else str(row[2]))
+            for row in db.execute(
+                select(inv_models.Ingredient.id, inv_models.Ingredient.name, inv_models.Ingredient.base_unit).where(
+                    inv_models.Ingredient.id.in_(ingredient_ids)
+                )
+            ).all()
+        }
+
+    preparation_names: dict[int, tuple[str, str]] = {}
+    if preparation_ids and find_spec_safe("app.recipes.models") is not None:
+        rec_models = importlib.import_module("app.recipes.models")
+        preparation_names = {
+            row[0]: (row[1], row[2])
+            for row in db.execute(
+                select(
+                    rec_models.Preparation.id, rec_models.Preparation.name, rec_models.Preparation.standard_yield_unit
+                ).where(rec_models.Preparation.id.in_(preparation_ids))
+            ).all()
+        }
+
+    out_rows: list[OrderConsumptionRowOut] = []
+    for (ingredient_id, preparation_id), group in groups.items():
+        if ingredient_id is not None:
+            name, unit = ingredient_names.get(ingredient_id, ("?", "g"))
+        else:
+            assert preparation_id is not None
+            name, unit = preparation_names.get(preparation_id, ("?", "g"))
+        cost = micros_to_pesos(group["cost_micros_total"]) if group["has_cost"] else None
+        out_rows.append(
+            OrderConsumptionRowOut(
+                ingredient_id=ingredient_id,
+                preparation_id=preparation_id,
+                name=name,
+                unit=unit,
+                qty_base=format_qty_base(group["qty_base"]),
+                cost=cost,
+                cost_source=group["cost_source"],
+            )
+        )
+    out_rows.sort(key=lambda r: r.name)
+    return OrderConsumptionOut(order_id=order.id, rows=out_rows)

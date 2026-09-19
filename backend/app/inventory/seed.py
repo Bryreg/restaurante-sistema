@@ -10,16 +10,37 @@ Cubre a propósito, en un solo lote: `yield_pct` distinto de 100 (para que
 (nunca `0`, sería `400 MIN_STOCK_REQUIRED`), un `key_item`, un
 `consumption_untracked`, y un par con sustituto en cascada (leche entera ->
 deslactosada, el caso exacto de la referencia).
+
+**Pedido 2b agrega `seed_counts_and_purchase(db, store, admin_employee)`**:
+dos conteos completos aplicados y consecutivos con una compra en el medio.
+La spec de 2b pide "un conteo completo aplicado", pero con uno solo el food
+cost real (`app.inventory.service.food_cost_report`) es `null` PARA SIEMPRE
+— hacen falta DOS consecutivos para que la resta tenga con qué cerrar. Ver
+la decisión completa en `outputs-2b/backend-inventario-espejo.md § 5`.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core import clock
+from app.auth.deps import Actor
+from app.auth.models import Employee
+from app.core import clock, tz
 from app.core.quantity import parse_cost_micros, parse_qty_base
-from app.inventory.models import BaseUnit, Ingredient
+from app.inventory import hooks
+from app.inventory.models import (
+    BaseUnit,
+    CostSource,
+    Ingredient,
+    MovementCause,
+    StockCount,
+    StockCountLine,
+    StockCountScope,
+    StockCountStatus,
+)
 from app.stores.models import Store
 
 
@@ -149,3 +170,128 @@ def seed_inventory(db: Session, store: Store) -> list[Ingredient]:
 
     db.flush()
     return [chicken, lactose_free_milk]
+
+
+def seed_counts_and_purchase(db: Session, store: Store, admin_employee: Employee) -> bool:
+    """Dos conteos completos aplicados y consecutivos, con UNA compra en el
+    medio. Devuelve `True` si sembró algo (para que `app.seed` lo reporte),
+    `False` si ya existía (idempotente: si la sede ya tiene algún conteo, no
+    repite nada).
+
+    **Decisión declarada**: los dos conteos son "limpios" a propósito —
+    `qty_counted` de cada renglón es EXACTAMENTE el stock del libro en ese
+    instante (`hooks.current_stock(..., as_of=...)`), así que el ajuste de
+    aplicar cada uno da `0` para todos los insumos. Fabricar una diferencia
+    (un "faltante" de demostración) sería una elección de negocio silenciosa
+    que no le corresponde a un seed de desarrollo — y además haría que
+    `apply_count` escribiera un `count_adjustment` arbitrario que después
+    hay que explicarle a quien recorra la base. Lo que este seed necesita
+    demostrar es que el food cost real y el promedio ponderado FUNCIONAN con
+    dos conteos reales, no que haya una varianza fabricada.
+
+    No depende de que `app.purchases` exista: crea su propio `stock_batch` y
+    su propio movimiento `cause=purchase` directamente con
+    `app.inventory.hooks`, así que una base sembrada SIN el dominio de
+    compras montado todavía puede mostrar el promedio ponderado, la última
+    compra y un food cost real no nulo. Se llama DESPUÉS de
+    `seed_inventory`/`seed_recipes`/`app.purchases.seed.seed_purchases` (si
+    existe): si `purchases` ya sembró sus propias recepciones, esas quedan
+    ADEMÁS de la compra de acá (no hay conflicto: son movimientos distintos,
+    fechados en instantes distintos)."""
+    if db.execute(select(StockCount).where(StockCount.store_id == store.id)).scalars().first() is not None:
+        return False
+
+    ingredients = list(
+        db.execute(select(Ingredient).where(Ingredient.store_id == store.id, Ingredient.active.is_(True)))
+        .scalars()
+        .all()
+    )
+    if not ingredients:
+        return False
+
+    actor = Actor(
+        kind="admin",
+        organization_id=store.organization_id,
+        store_id=store.id,
+        employee_id=admin_employee.id,
+        employee_name=admin_employee.name,
+        role=admin_employee.role,
+    )
+
+    def _open_and_apply_full_count(at: datetime) -> StockCount:
+        business_date = tz.business_date_for(at, store.cutoff_hour)
+        count = StockCount(
+            organization_id=store.organization_id,
+            store_id=store.id,
+            scope=StockCountScope.FULL,
+            status=StockCountStatus.OPEN,
+            opened_at=at,
+            business_date=business_date,
+            opened_by_employee_id=admin_employee.id,
+            opened_by_employee_name=admin_employee.name,
+            applied_at=None,
+            applied_by_employee_id=None,
+            applied_by_employee_name=None,
+        )
+        db.add(count)
+        db.flush()
+        for ingredient in ingredients:
+            current = hooks.current_stock(db, store_id=store.id, ingredient_id=ingredient.id, as_of=at)
+            db.add(
+                StockCountLine(
+                    count_id=count.id, ingredient_id=ingredient.id, qty_counted=current, was_counted=True, counted_at=at
+                )
+            )
+        db.flush()
+        # Aplicar: `qty_counted == stock_at_count_instant` para todos, así
+        # que el ajuste da 0 (conteo "limpio" a propósito, ver docstring) —
+        # no hace falta pasar por `app.inventory.service.apply_count`.
+        count.status = StockCountStatus.APPLIED
+        count.applied_at = at
+        count.applied_by_employee_id = admin_employee.id
+        count.applied_by_employee_name = admin_employee.name
+        db.flush()
+        return count
+
+    now = clock.now_utc()
+    _open_and_apply_full_count(now - timedelta(days=14))
+
+    purchase_at = now - timedelta(days=7)
+    purchase_business_date = tz.business_date_for(purchase_at, store.cutoff_hour)
+    key_ingredient = next((i for i in ingredients if i.key_item), ingredients[0])
+    unit_cost_micros = key_ingredient.official_cost_micros or key_ingredient.estimated_cost_micros or 1_000_000
+    qty_purchased = 5000  # 5 (kg/L/unidades) en milésimas de la unidad base
+
+    batch = hooks.create_stock_batch(
+        db,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        ingredient_id=key_ingredient.id,
+        qty_base=qty_purchased,
+        unit_cost_micros=unit_cost_micros,
+        cost_source=CostSource.OFFICIAL,
+        lot_code="SEED-0001",
+        expires_at=None,
+        received_at=purchase_at,
+        business_date=purchase_business_date,
+        source_type="seed",
+        source_id=0,
+    )
+    hooks.record_movement(
+        db,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        ingredient_id=key_ingredient.id,
+        qty_base=qty_purchased,
+        cause=MovementCause.PURCHASE,
+        cost_micros=unit_cost_micros,
+        cost_source=CostSource.OFFICIAL,
+        actor=actor,
+        business_date=purchase_business_date,
+        at=purchase_at,
+        ref_type="stock_batch",
+        ref_id=batch.id,
+    )
+
+    _open_and_apply_full_count(now - timedelta(days=1))
+    return True

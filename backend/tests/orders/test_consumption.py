@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from app.core.quantity import QTY_SCALE, apply_yield
+from app.core.quantity import QTY_SCALE, apply_yield, format_qty_base, line_cost_micros, micros_to_pesos
 
 
 def _stock(db: Any, store: Any, ingredient: Any) -> int:
@@ -496,4 +496,436 @@ def test_void_order_also_resolves_waste_stub_and_does_not_restock(
     assert stub is not None
     assert stub.resolved is True
     assert stub.ingredient_id == ingredient_seeded.id
+    assert _stock(db, store, ingredient_seeded) == stock_after_send
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2b (`backend-lectura-contrato`): `GET /admin/orders/{id}/consumption`
+# — la corrección a §5.3 hecha realidad. Test obligatorio del spec.md: las
+# DOS mitades en la misma prueba — la lectura agrega (un renglón por
+# insumo) y la escritura no fusiona (el libro sigue con una fila por
+# `order_item`).
+# ---------------------------------------------------------------------------
+
+
+def test_order_consumption_aggregates_by_ingredient_while_the_ledger_keeps_one_row_per_item(
+    db: Any,
+    store: Any,
+    identify: Any,
+    employees: Any,
+    open_shift: Any,
+    device_client: TestClient,
+    admin_client: TestClient,
+    new_order: Any,
+    add_items: Any,
+    send_order: Any,
+    main_product: Any,
+    drink_product: Any,
+    ingredient_seeded: Any,
+    set_recipe: Any,
+) -> None:
+    # Dos platos DISTINTOS de la misma comanda, los dos con el mismo insumo
+    # en su ficha: el caso exacto que §5.3 pedía fusionar y que 2a decidió
+    # NO fusionar en el libro (`spec.md`, «Corrección a la spec de negocio
+    # §5.3»).
+    set_recipe(main_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+    set_recipe(drink_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "50", "unit": "g"}])
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(
+        order, [{"product_id": main_product.id, "qty": 1}, {"product_id": drink_product.id, "qty": 1}]
+    ).json()
+    order = send_order(order).json()
+    item_ids = [item["id"] for item in order["items"]]
+    assert len(item_ids) == 2
+
+    # LA ESCRITURA no fusiona entre ítems: el libro sigue con una fila por
+    # `order_item`, aunque los dos consuman el mismo insumo.
+    from sqlalchemy import select
+
+    from app.inventory.models import StockMovement
+
+    ledger_rows = db.execute(
+        select(StockMovement).where(
+            StockMovement.ref_type == "order_item",
+            StockMovement.ref_id.in_(item_ids),
+            StockMovement.ingredient_id == ingredient_seeded.id,
+        )
+    ).scalars().all()
+    assert len(ledger_rows) == 2, "el libro tiene que guardar UNA fila por order_item, nunca fusionar entre ítems"
+    assert {row.ref_id for row in ledger_rows} == set(item_ids)
+
+    # LA LECTURA sí agrega: un solo renglón por insumo para toda la comanda.
+    resp = admin_client.get(f"/api/v1/admin/orders/{order['id']}/consumption")
+    assert resp.status_code == 200, resp.text
+    rows = resp.json()["rows"]
+    matching = [r for r in rows if r["ingredient_id"] == ingredient_seeded.id]
+    assert len(matching) == 1, "la lectura agregada tiene que dar UN renglón por insumo, sumando las filas del libro"
+
+    expected_qty_base = -(
+        apply_yield(100 * QTY_SCALE, ingredient_seeded.yield_pct)
+        + apply_yield(50 * QTY_SCALE, ingredient_seeded.yield_pct)
+    )
+    assert matching[0]["qty_base"] == format_qty_base(expected_qty_base)
+    assert matching[0]["name"] == ingredient_seeded.name
+    assert matching[0]["preparation_id"] is None
+
+
+def test_order_consumption_uses_the_frozen_cost_not_todays_price(
+    db: Any,
+    store: Any,
+    identify: Any,
+    employees: Any,
+    open_shift: Any,
+    device_client: TestClient,
+    admin_client: TestClient,
+    new_order: Any,
+    add_items: Any,
+    send_order: Any,
+    main_product: Any,
+    ingredient_seeded: Any,
+    set_recipe: Any,
+) -> None:
+    """Snapshot (regla dura, `AGENTS.md`): la lectura agregada nunca vuelve a
+    resolver el costo vigente del insumo, lee el que quedó congelado en cada
+    fila del libro al enviar. En 2a un hallazgo rojo (A-6) fue exactamente
+    esto por el lado de `recipes.hooks.uncosted_products`; acá se prueba que
+    esta pieza nueva no repite el error."""
+    set_recipe(main_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+    frozen_cost_micros = ingredient_seeded.official_cost_micros
+    assert frozen_cost_micros is not None
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    order = send_order(order).json()
+
+    # El precio del insumo cambia DESPUÉS de enviar — la lectura de esta
+    # comanda no puede enterarse.
+    ingredient_seeded.official_cost_micros = frozen_cost_micros * 10
+    db.add(ingredient_seeded)
+    db.commit()
+
+    resp = admin_client.get(f"/api/v1/admin/orders/{order['id']}/consumption")
+    assert resp.status_code == 200, resp.text
+    row = next(r for r in resp.json()["rows"] if r["ingredient_id"] == ingredient_seeded.id)
+
+    expected_qty_base = -apply_yield(100 * QTY_SCALE, ingredient_seeded.yield_pct)
+    expected_cost = micros_to_pesos(line_cost_micros(expected_qty_base, frozen_cost_micros))
+    assert row["cost"] == expected_cost, "tiene que valer lo que costaba AL ENVIAR, no el precio de hoy"
+    assert row["cost_source"] == "official"
+
+
+def test_order_consumption_requires_inventory_perpetual_flag(
+    db: Any,
+    store: Any,
+    identify: Any,
+    employees: Any,
+    open_shift: Any,
+    device_client: TestClient,
+    admin_client: TestClient,
+    new_order: Any,
+    add_items: Any,
+    send_order: Any,
+    main_product: Any,
+    ingredient_seeded: Any,
+    set_recipe: Any,
+    set_feature: Any,
+) -> None:
+    set_recipe(main_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    order = send_order(order).json()
+
+    set_feature("inventory.perpetual", False, store_id=store.id)
+
+    resp = admin_client.get(f"/api/v1/admin/orders/{order['id']}/consumption")
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"]["code"] == "FEATURE_DISABLED"
+
+
+def test_order_consumption_other_org_order_is_404(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Any,
+    employees: Any,
+    open_shift: Any,
+    new_order: Any,
+    add_items: Any,
+    main_product: Any,
+    org_b: Any,
+    store_b: Any,
+    db: Any,
+) -> None:
+    from app.auth.models import Employee
+    from app.core import clock as clock_module
+    from app.core import security
+
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+
+    other_admin_employee = Employee(
+        organization_id=org_b.id, store_id=None, name="Otro Admin", role="admin", pin_hash=security.hash_secret("1234"),
+        email="otro-admin-consumo@test.local", password_hash=security.hash_secret("clave1234"), can_charge=False,
+        discount_limit_pct=None, document=None, active=True, failed_pin_attempts=0, pin_locked_until=None,
+        created_at=clock_module.now_utc(), updated_at=clock_module.now_utc(),
+    )
+    db.add(other_admin_employee)
+    db.commit()
+
+    other_admin = TestClient(admin_client.app)
+    login = other_admin.post(
+        "/api/v1/auth/admin/login", json={"email": "otro-admin-consumo@test.local", "password": "clave1234"}
+    )
+    assert login.status_code == 200, login.text
+
+    resp = other_admin.get(f"/api/v1/admin/orders/{order['id']}/consumption")
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+
+def test_order_consumption_route_served_by_orders_not_by_the_duplicate_in_inventory(
+    db: Any,
+    store: Any,
+    identify: Any,
+    employees: Any,
+    open_shift: Any,
+    device_client: TestClient,
+    admin_client: TestClient,
+    new_order: Any,
+    add_items: Any,
+    send_order: Any,
+    main_product: Any,
+    ingredient_seeded: Any,
+    set_recipe: Any,
+) -> None:
+    """Guarda de regresión sobre un conflicto REAL encontrado en la ronda 1
+    de este pedido (declarado en `outputs-2b/backend-lectura-contrato.md
+    § 8`, resuelto en RONDA 2 — ver también §"Ronda 2" del mismo
+    entregable): `app/inventory/router.py` publicaba OTRA ruta `GET
+    /admin/orders/{order_id}/consumption` (territorio ajeno, no tocado
+    acá), con `store_id` como query param OBLIGATORIO — la de este agente
+    nunca lo exigió (`order.store_id` ya lo resuelve solo). El Maestro
+    decidió que la implementación de este archivo es la que sobrevive
+    (snapshot correcto, consumo neto SALE+NOTE_RETURN, y ya era la que
+    despachaba en runtime); `backend-inventario-espejo` retiró su
+    duplicado en su propia ronda 2. Esta prueba, que ya pasaba en ronda 1
+    porque Starlette hacía *match* de la ruta de `orders` primero
+    (`app.main.DOMAINS`), queda como regresión permanente: sin `store_id`
+    en la query (la otra implementación lo exigía; esta nunca lo pidió) y
+    sirviendo `200`. Las dos pruebas de contrato que siguen
+    (`test_order_consumption_is_published_exactly_once_with_this_contract`,
+    `test_openapi_generation_raises_no_duplicate_operation_id_warning`)
+    son las que ahora prueban, sobre el documento publicado, que el
+    duplicado no volvió."""
+    set_recipe(main_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    order = send_order(order).json()
+
+    # Sin `store_id` en la query: la implementación de `app.inventory.router`
+    # lo exige (`Query(...)`) y respondería `422`; la de este archivo no lo
+    # pide en absoluto.
+    resp = admin_client.get(f"/api/v1/admin/orders/{order['id']}/consumption")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["order_id"] == order["id"]
+
+
+# ---------------------------------------------------------------------------
+# RONDA 2 (H-2, bloqueante): el Maestro decidió que la implementación de
+# ESTE archivo sobrevive y que `app/inventory/router.py:555` se borra (la
+# ejecuta `backend-inventario-espejo`, ya retirada — ver la NOTA en
+# `app.inventory.service` y el test de regresión de arriba). Estos dos
+# tests prueban, sobre el DOCUMENTO PUBLICADO, que el duplicado no vuelve.
+# ---------------------------------------------------------------------------
+
+
+def test_order_consumption_is_published_exactly_once_with_this_contract(client: Any) -> None:
+    """RONDA 2 (H-2, tarea (a)): invariante de contrato sobre el OpenAPI.
+    Fija las tres partes que decidió el Maestro:
+
+    1. La ruta `GET /admin/orders/{order_id}/consumption` está publicada
+       UNA sola vez.
+    2. Su respuesta es `OrderConsumptionOut`: `qty_base` como TEXTO decimal
+       (puede ser negativo — salida neta, o `"0"` si una nota «vuelve»
+       revirtió exactamente lo vendido) y `cost` entero de pesos o `null`
+       (nunca `0` mudo) — y SIN `item_count`, el campo que sólo tenía la
+       implementación descartada de `app.inventory`.
+    3. La ruta NO declara un parámetro `store_id`: la sede se resuelve de
+       `order.store_id`, una sola fuente — la implementación descartada
+       pedía `store_id` como query ADEMÁS del `order_id` del path, dos
+       fuentes que podían no coincidir."""
+    spec = client.get("/openapi.json").json()
+    ruta = "/api/v1/admin/orders/{order_id}/consumption"
+
+    ocurrencias = [p for p in spec["paths"] if p == ruta]
+    assert ocurrencias == [ruta], f"la ruta tiene que estar publicada una sola vez, encontré: {ocurrencias}"
+
+    operacion = spec["paths"][ruta]["get"]
+    nombres_de_parametro = {p["name"] for p in operacion.get("parameters", [])}
+    assert "store_id" not in nombres_de_parametro, (
+        "la ruta no puede declarar `store_id`: la sede se resuelve de `order.store_id` "
+        f"(una sola fuente) — parámetros publicados: {sorted(nombres_de_parametro)}"
+    )
+    assert nombres_de_parametro == {"order_id"}, f"parámetros inesperados: {sorted(nombres_de_parametro)}"
+
+    ref_respuesta = operacion["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+    assert ref_respuesta.rsplit("/", 1)[-1] == "OrderConsumptionOut", (
+        f"la respuesta publicada tiene que ser `OrderConsumptionOut`, no {ref_respuesta}"
+    )
+
+    esquemas = spec["components"]["schemas"]
+    order_out = esquemas["OrderConsumptionOut"]
+    assert "item_count" not in order_out["properties"], (
+        "`item_count` era del diseño descartado de `app.inventory.router` — no puede colarse acá"
+    )
+
+    ref_renglon = order_out["properties"]["rows"]["items"]["$ref"].rsplit("/", 1)[-1]
+    renglon = esquemas[ref_renglon]
+    assert "item_count" not in renglon["properties"], (
+        "`item_count` era del diseño descartado de `app.inventory.router` — no puede colarse acá"
+    )
+
+    qty_def = renglon["properties"]["qty_base"]
+    assert qty_def.get("type") == "string", (
+        "`qty_base` tiene que ser texto decimal (puede ser negativo como texto, p.ej. «-1,500»), "
+        f"no {qty_def}"
+    )
+
+    cost_def = renglon["properties"]["cost"]
+    tipos_de_costo = {cost_def.get("type")} | {
+        variante.get("type") for variante in cost_def.get("anyOf", []) if isinstance(variante, dict)
+    }
+    tipos_de_costo.discard(None)
+    assert tipos_de_costo == {"integer", "null"}, (
+        f"`cost` tiene que ser entero de pesos o `null` (nunca `0` mudo, nunca texto), publicado como {cost_def}"
+    )
+
+
+def test_openapi_generation_raises_no_duplicate_operation_id_warning(client: Any) -> None:
+    """RONDA 2 (H-2, tarea (b)): genera el OpenAPI con las `UserWarning`
+    convertidas en ERROR (`warnings.simplefilter("error", UserWarning)`) y
+    confirma que ya no aparece "Duplicate Operation ID" — la advertencia que
+    emitía `app.main.app.openapi()` en ronda 1, mientras `app.orders` y
+    `app.inventory` publicaban la misma ruta.
+
+    Fuerza la regeneración real (`app.openapi_schema = None`, antes y
+    después): `FastAPI.openapi()` cachea el resultado de la primera llamada
+    del proceso, así que sin este reset la prueba podría pasar en falso si
+    otro test ya generó el documento antes que este, y contaminaría el
+    caché para los que corren después si no lo restaura."""
+    import warnings
+
+    from app.main import app as fastapi_app
+
+    fastapi_app.openapi_schema = None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            fastapi_app.openapi()
+    except UserWarning as exc:
+        assert False, f"generar el OpenAPI sigue emitiendo un UserWarning (p. ej. Duplicate Operation ID): {exc}"
+    finally:
+        fastapi_app.openapi_schema = None
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2b (`backend-lectura-contrato`): decisión sobre
+# `MovementCause.VOID_AFTER_SEND`. En ronda 1 quedó declarada y nunca
+# emitida, con el motivo escrito acá (FEFO real dentro de `record_movement`
+# desde 2b, ver `app.orders.service._resolve_waste_stub` y `outputs-2b/
+# backend-lectura-contrato.md § 6`). En RONDA 2 el Maestro resolvió el rojo
+# declarado: la causa se SACÓ del enum (`app/inventory/models.py`, dueño de
+# ese archivo). Este territorio nunca la nombró en código ni en un import.
+# ---------------------------------------------------------------------------
+
+
+def test_void_after_send_writes_no_new_movement_and_the_cause_is_gone_from_the_enum(
+    db: Any,
+    store: Any,
+    identify: Any,
+    employees: Any,
+    open_shift: Any,
+    device_client: TestClient,
+    new_order: Any,
+    add_items: Any,
+    send_order: Any,
+    main_product: Any,
+    ingredient_seeded: Any,
+    set_recipe: Any,
+) -> None:
+    """Cierra el ítem del checklist de 2b sobre `MovementCause.
+    VOID_AFTER_SEND` — actualizado en RONDA 2. En la ronda 1 este territorio
+    (`app/orders/service.py::_resolve_waste_stub`) había documentado por qué
+    NO se produce (par alta+baja que dispararía una segunda depleción FEFO
+    real, `outputs-2b/backend-lectura-contrato.md § 6`) y había declarado
+    rojo el otro camino que el checklist ofrecía (sacarla del enum), porque
+    ese archivo es territorio de `backend-inventario-espejo`. El Maestro
+    resolvió ese rojo en Ronda 2: la causa se SACÓ del enum. Este territorio
+    nunca la nombró en código ni en un import (sólo en prosa de docstring,
+    ya actualizada) — no había nada que sacar acá. Este test fija las DOS
+    mitades que le tocan a `tests/orders`:
+
+    1. El enum ya no ofrece esa causa — si alguien la reintroduce sin un
+       dueño real que la escriba, esto avisa.
+    2. Anular un ítem ya enviado no agrega NINGUNA fila nueva al libro para
+       ese insumo (ninguna causa) y el saldo queda exactamente donde lo dejó
+       la venta original (una sola matemática, el insumo se descuenta una
+       sola vez)."""
+    set_recipe(main_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "100", "unit": "g"}])
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    order = send_order(order).json()
+    stock_after_send = _stock(db, store, ingredient_seeded)
+    assert stock_after_send < 0
+
+    from sqlalchemy import select
+
+    from app.inventory.models import MovementCause, StockMovement
+
+    assert not hasattr(MovementCause, "VOID_AFTER_SEND"), (
+        "decisión de Ronda 2: la causa se SACÓ del enum (`app/inventory/models.py`, dueño de ese "
+        "archivo) — si reaparece, tiene que venir junto con quien la escriba de verdad"
+    )
+
+    rows_before = list(
+        db.execute(
+            select(StockMovement.id).where(
+                StockMovement.store_id == store.id,
+                StockMovement.ingredient_id == ingredient_seeded.id,
+            )
+        ).scalars()
+    )
+
+    item_id = order["items"][0]["id"]
+    void_resp = device_client.post(
+        f"/api/v1/orders/{order['id']}/items/{item_id}/void",
+        json={"expected_version": order["version"], "reason": "kitchen_error", "authorizer_pin": "9999"},
+    )
+    assert void_resp.status_code == 200, void_resp.text
+
+    rows_after = list(
+        db.execute(
+            select(StockMovement.id).where(
+                StockMovement.store_id == store.id,
+                StockMovement.ingredient_id == ingredient_seeded.id,
+            )
+        ).scalars()
+    )
+    assert rows_after == rows_before, (
+        "anular un ítem ya enviado no puede agregar ninguna fila nueva al libro para este insumo "
+        "(ninguna causa) — ver el docstring de `_resolve_waste_stub`"
+    )
+    # El saldo no se movió por anular: sigue siendo la deuda de este ítem,
+    # exactamente donde la dejó la venta (regla dura: una sola matemática,
+    # el insumo se descuenta una sola vez).
     assert _stock(db, store, ingredient_seeded) == stock_after_send

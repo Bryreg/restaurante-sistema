@@ -42,6 +42,12 @@ DOMAINS: list[str] = [
     # falta de carpeta (la lección de 1b-1, ver `app.core.modules`).
     "inventory",
     "recipes",
+    # Pedido 2b (`features/fase-2-costo-inventario/spec.md § Alcance de 2b`):
+    # dominio nuevo de `backend-compras`. Paso 0 de este reparto (verificado
+    # antes de tocar esta lista): `app/purchases/__init__.py` ya existe, así
+    # que `find_spec_safe("app.purchases.router")` resuelve `None` limpio si
+    # algún día falta el archivo puntual — nunca `ModuleNotFoundError`.
+    "purchases",
 ]
 
 

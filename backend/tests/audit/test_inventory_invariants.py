@@ -811,14 +811,40 @@ def test_the_cost_source_of_the_api_is_the_same_enum_as_the_model() -> None:
     assert set(get_args(WasteTypeLiteral)) == {w.value for w in WasteType}
 
 
-def test_the_ledger_declares_the_four_causes_of_2b_without_using_them() -> None:
-    """§5.1 enumera once causas. Cuatro son de 2b (`purchase`,
-    `count_adjustment`, `transfer_in`, `transfer_out`): tienen que estar
-    **declaradas** desde ahora —para que 2b no migre el enum otra vez— pero
-    2a sólo puede producir las suyas.
+def test_the_ledger_declares_the_causes_of_section_5_1_and_nothing_else() -> None:
+    """§5.1: la causa de un movimiento es un enum cerrado, nunca un texto.
 
-    `count_adjustment` es la excepción explícita del contrato: cambiar de modo
-    una preparación con lotes abiertos los cierra con esa causa (§4.2).
+    **Acotado en 2b, declarado**: en 2a este test se llamaba «declara las
+    cuatro causas de 2b sin usarlas» y fijaba **once** valores exactos. 2b
+    agrega una duodécima, `reception_reversal`, y no es un desliz: sus
+    «Convenciones propias» la nombran una por una («Las causas nuevas
+    (`purchase`, `count_adjustment`, `reception_reversal`) se agregan al
+    enum»), y `app.purchases.service.reverse_reception` la produce porque
+    «eliminar una recepción es una reversa con causa, nunca un `DELETE` de
+    filas». Un invariante que fija un conjunto exacto tiene que moverse
+    cuando la spec mueve el conjunto — lo que NO puede es aflojarse a «que
+    contenga al menos».
+
+    **RONDA 2 — decisión del orquestador (hallazgo H-3)**: `void_after_send`
+    SALE del enum y del `Literal` publicado. Estuvo declarada desde 1b y
+    nunca se produjo ni una sola vez. El razonamiento de NO producirla es
+    correcto y quedó escrito en `app/orders/service.py::_resolve_waste_stub`
+    — producirla exigiría un par alta+baja que se cancela en el saldo, y
+    desde 2b la mitad negativa dispararía una **segunda depleción FEFO real**
+    de `StockBatch.qty_remaining` sobre cantidad que ya se consumió al
+    vender, corrompiendo la contabilidad por lote aunque el agregado quede
+    exacto. Pero un enum cerrado no puede declarar una causa que nadie
+    escribe: el lector del contrato supone que existen mermas por anulación
+    agrupables por causa, y un reporte agrupado por causa le devuelve vacío.
+    El checklist de 2b pedía «se produce o se saca»; la decisión fue sacarla.
+    Si `app.orders` alguna vez necesita producirla de verdad, se reintroduce
+    junto con quien la escriba, en el mismo pedido.
+
+    Qué sigue prohibido, igual que antes: que aparezca una causa que §5.1 no
+    enumera, y que desaparezca una que sí. `transfer_in`/`transfer_out`
+    siguen declaradas y sin uso (no hay traslados entre sedes hasta fase 3),
+    y ésa es la ÚNICA excepción tolerada a «toda causa declarada se produce»
+    — está fechada (fase 3) y tiene dueño.
     """
     from app.inventory.models import MovementCause
 
@@ -827,12 +853,12 @@ def test_the_ledger_declares_the_four_causes_of_2b_without_using_them() -> None:
         "sale",
         "production_in",
         "production_out",
-        "void_after_send",
         "waste",
         "note_return",
         "manual_adjustment",
         "purchase",
         "count_adjustment",
+        "reception_reversal",
         "transfer_in",
         "transfer_out",
     }, f"el enum de causas se apartó de §5.1: {sorted(declaradas)}"

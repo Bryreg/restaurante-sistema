@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -393,7 +393,16 @@ def set_profile(
 
 
 @router.get("/admin/stores")
-def list_stores(request: Request, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)) -> Any:
+def list_stores(
+    request: Request,
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): `format`
+    # declarado en el contrato, no sólo leído de `request.query_params` dentro
+    # de `wants_csv` — mismo patrón que `app.reports.router.get_sales`.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+) -> Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     stmt = select(Store).where(Store.organization_id == actor.organization_id).order_by(Store.name)
     stores = [_store_out(s) for s in db.execute(stmt).scalars().all()]
     if wants_csv(request):

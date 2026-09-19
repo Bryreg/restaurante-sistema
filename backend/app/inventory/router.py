@@ -23,19 +23,28 @@ from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
 from app.auth.deps import Actor, admin_store, current_admin, current_device
-from app.core import features
+from app.core import features, tz
 from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.inventory import service
-from app.inventory.models import Ingredient, MovementCause, WasteType
+from app.inventory.models import Ingredient, MovementCause, StockCountScope, WasteType
 from app.inventory.schemas import (
     AdjustmentIn,
+    CountApplyIn,
+    CountDetailOut,
+    CountLinesIn,
+    CountOpenIn,
+    CountOut,
+    CountScopeLiteral,
     DeviceIngredientOut,
     IngredientIn,
     IngredientOut,
     IngredientUpdateIn,
+    InventorySettingsIn,
+    LotOut,
+    LotStatusLiteral,
     MovementCauseLiteral,
     StockRowOut,
     WasteIn,
@@ -305,7 +314,8 @@ def get_waste_list(
     out = [service.waste_admin_out(w) for w in rows]
     if wants_csv(request):
         return csv_response([o.model_dump(mode="json") for o in out], "waste.csv")
-    kpi: WasteKpiOut = service.weekly_waste_kpi()
+    business_date = tz.today_business_date(store.cutoff_hour)
+    kpi: WasteKpiOut = service.weekly_waste_kpi(db, store=store, business_date=business_date)
     return WasteListOut(items=out, weekly_kpi=kpi)
 
 
@@ -325,3 +335,212 @@ def list_device_ingredients(
     store = _store_for_device(db, actor)
     rows: list[Ingredient] = service.list_ingredients(db, store=store, active_only=True)
     return [DeviceIngredientOut(id=i.id, name=i.name, base_unit=i.base_unit.value) for i in rows]  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Admin: lotes y vencimientos (pedido 2b, `inventory.lots`).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/lots")
+def get_lots(
+    store_id: int = Query(...),
+    ingredient_id: int | None = Query(None),
+    status: LotStatusLiteral | None = Query(None),
+    expiring_within_days: int | None = Query(None, ge=0),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.lots")),
+) -> list[LotOut]:
+    store = admin_store(db, actor, store_id)
+    rows = service.list_lots(
+        db, store=store, ingredient_id=ingredient_id, status=status, expiring_within_days=expiring_within_days
+    )
+    return [service.lot_out(db, batch, st) for batch, st in rows]
+
+
+# ---------------------------------------------------------------------------
+# Admin: umbrales de varianza (configuración de sede; vive acá por decisión
+# de arquitectura, no en `app.stores`).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/stores/{store_id}/inventory-settings")
+def get_inventory_settings(
+    store_id: int,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.variance")),
+) -> Any:
+    store = admin_store(db, actor, store_id)
+    return service.inventory_settings_out(service.get_inventory_settings(db, store))
+
+
+@router.put("/admin/stores/{store_id}/inventory-settings")
+def put_inventory_settings(
+    store_id: int,
+    body: InventorySettingsIn,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.variance")),
+) -> Any:
+    store = admin_store(db, actor, store_id)
+    before = service.inventory_settings_out(service.get_inventory_settings(db, store)).model_dump()
+    row = service.update_inventory_settings(db, store, body)
+    after = service.inventory_settings_out(row)
+    record_audit(
+        db, actor=actor, organization_id=actor.organization_id, store_id=store.id,
+        entity="inventory_settings", entity_id=store.id, action="update", before=before, after=after.model_dump(),
+    )
+    return after
+
+
+# ---------------------------------------------------------------------------
+# Admin: conteos a ciegas (`inventory.counts`).
+# ---------------------------------------------------------------------------
+
+
+@router.post("/admin/counts", status_code=201)
+def post_open_count(
+    body: CountOpenIn,
+    store_id: int,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.counts")),
+) -> Any:
+    store = admin_store(db, actor, store_id)
+    count = service.open_count(db, store=store, actor=actor, scope=StockCountScope(body.scope))
+    out = service.count_detail_out(db, count)
+    record_audit(
+        db, actor=actor, organization_id=actor.organization_id, store_id=store.id,
+        entity="stock_count", entity_id=count.id, action="open", before=None, after=out.model_dump(mode="json"),
+    )
+    return out
+
+
+@router.get("/admin/counts")
+def list_counts_route(
+    request: Request,
+    store_id: int = Query(...),
+    scope: CountScopeLiteral | None = Query(None),
+    date_from: date | None = Query(None, alias="from"),
+    date_to: date | None = Query(None, alias="to"),
+    format: str | None = Query(None),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.counts")),
+) -> Any:
+    store = admin_store(db, actor, store_id)
+    scope_enum = StockCountScope(scope) if scope is not None else None
+    counts = service.list_counts(db, store=store, scope=scope_enum, date_from=date_from, date_to=date_to)
+    out = []
+    for count in counts:
+        lines_total, lines_counted = service.count_lines_summary(db, count)
+        out.append(service.count_out(count, lines_total=lines_total, lines_counted=lines_counted))
+    if wants_csv(request):
+        return csv_response([o.model_dump(mode="json") for o in out], "counts.csv")
+    return out
+
+
+@router.get("/admin/counts/{count_id}")
+def get_count_route(
+    count_id: int,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.counts")),
+) -> CountDetailOut:
+    store = admin_store(db, actor, store_id)
+    count = service.count_or_404(db, store, count_id)
+    return service.count_detail_out(db, count)
+
+
+@router.put("/admin/counts/{count_id}/lines")
+def put_count_lines(
+    count_id: int,
+    body: CountLinesIn,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.counts")),
+) -> Any:
+    store = admin_store(db, actor, store_id)
+    count = service.count_or_404(db, store, count_id)
+    out = service.save_count_lines(db, count=count, data=body)
+    record_audit(
+        db, actor=actor, organization_id=actor.organization_id, store_id=store.id,
+        entity="stock_count", entity_id=count.id, action="save_lines", before=None, after=out.model_dump(mode="json"),
+    )
+    return out
+
+
+@router.post("/admin/counts/{count_id}/apply")
+def post_apply_count(
+    count_id: int,
+    body: CountApplyIn,
+    request: Request,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.counts")),
+) -> JSONResponse:
+    store = admin_store(db, actor, store_id)
+    count = service.count_or_404(db, store, count_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        out = service.apply_count(db, count=count, store=store, actor=actor, authorizer_pin=body.authorizer_pin)
+        record_audit(
+            db, actor=actor, organization_id=actor.organization_id, store_id=store.id,
+            entity="stock_count", entity_id=count.id, action="apply", before=None, after=out.model_dump(mode="json"),
+        )
+        return 200, out.model_dump(mode="json")
+
+    return _idempotent(
+        db, organization_id=actor.organization_id, scope="inventory.count_apply", request=request, payload=body, fn=_do
+    )
+
+
+# ---------------------------------------------------------------------------
+# Admin: varianza, food cost real y salud del control (`inventory.variance`).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/variance")
+def get_variance(
+    request: Request,
+    store_id: int = Query(...),
+    count_id: int = Query(...),
+    format: str | None = Query(None),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.variance")),
+) -> Any:
+    store = admin_store(db, actor, store_id)
+    out = service.variance_report(db, store=store, count_id=count_id)
+    if wants_csv(request):
+        return csv_response([r.model_dump(mode="json") for r in out.rows], f"variance-{count_id}.csv")
+    return out
+
+
+@router.get("/admin/food-cost")
+def get_food_cost(
+    store_id: int = Query(...),
+    date_from: date = Query(..., alias="from"),
+    date_to: date = Query(..., alias="to"),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.variance")),
+) -> Any:
+    store = admin_store(db, actor, store_id)
+    return service.food_cost_report(db, store=store, date_from=date_from, date_to=date_to)
+
+
+@router.get("/admin/control-health")
+def get_control_health(
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.variance")),
+) -> Any:
+    store = admin_store(db, actor, store_id)
+    return service.control_health(db, store=store)

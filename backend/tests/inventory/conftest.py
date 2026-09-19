@@ -50,6 +50,27 @@ def enable_inventory(set_feature: Callable[..., None]) -> Callable[[], None]:
 
 
 @pytest.fixture()
+def enable_inventory_2b(set_feature: Callable[..., None]) -> Callable[[], None]:
+    """Prende toda la cadena de flags que 2b necesita, en el orden que
+    respeta sus dependencias declaradas (`app.core.features.FEATURE_CATALOG`):
+    `inventory.perpetual` -> `inventory.counts` -> `inventory.variance`;
+    `inventory.perpetual` -> `inventory.lots`; `inventory.perpetual` ->
+    `purchases`. Un test que necesite probar una capa apagada usa
+    `set_feature` directo, no esta fixture."""
+
+    def _enable() -> None:
+        set_feature("catalog.recipes", True)
+        set_feature("inventory.perpetual", True)
+        set_feature("inventory.waste", True)
+        set_feature("inventory.counts", True)
+        set_feature("inventory.variance", True)
+        set_feature("inventory.lots", True)
+        set_feature("purchases", True)
+
+    return _enable
+
+
+@pytest.fixture()
 def create_ingredient(admin_client: TestClient, store: Store) -> Callable[..., dict[str, Any]]:
     def _create(
         *,

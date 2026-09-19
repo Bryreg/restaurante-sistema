@@ -68,6 +68,15 @@ class CashMovementCause(str, enum.Enum):
     TIP_PAYOUT = "tip_payout"
     OTHER_INCOME = "other_income"
     OTHER_EXPENSE = "other_expense"
+    # Pedido 2b (`features/fase-2-costo-inventario/spec.md § Alcance de 2b`):
+    # el egreso que deja un pago en efectivo de una cuenta por pagar desde el
+    # cajón (`app.shifts.hooks.register_supplier_payment_expense`, llamado
+    # por `app.purchases.service.create_payment`). Causa tipada NUEVA,
+    # nunca `OTHER_EXPENSE` reciclada — la migración `0011_purchases.py`
+    # recrea el CHECK del enum en `cash_movements.cause` con
+    # `batch_alter_table` para que este valor sea válido también en filas ya
+    # escritas por 1a/1b.
+    SUPPLIER_PAYMENT = "supplier_payment"
 
 
 # Causa tipada compartida por la diferencia de apertura y la de cierre

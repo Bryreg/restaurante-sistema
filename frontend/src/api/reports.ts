@@ -121,6 +121,36 @@ export interface UncostedProductOut {
   qty_sold?: number
 }
 
+// ---------------------------------------------------------------------------
+// Pedido 2b: los tres grupos nuevos de `GET /admin/today`
+// (`backend/app/reports/schemas.py`, sección "Pedido 2b"). Cada uno envuelve
+// el `dict` que devuelve el hook del dominio DUEÑO (`app.inventory.hooks.
+// expiring_or_expired_lots`/`last_applied_full_count_at`, `app.purchases.
+// hooks.overdue_payables`/`pending_review_payables_count`), acotado por
+// `find_spec_safe` Y `features.is_enabled` — con el módulo ausente o la
+// función apagada, `[]`/`0`/`null`, nunca un error ni una alerta que la
+// sede no puede resolver.
+// ---------------------------------------------------------------------------
+
+export interface LotAlertOut {
+  batch_id: number
+  ingredient_id: number
+  /** Texto decimal (`format_qty_base`) — nunca milésimas crudas. */
+  qty_base: string
+  expires_at: string
+  status: "expiring" | "expired"
+}
+
+export interface PayableAlertOut {
+  payable_id: number
+  supplier_id: number
+  supplier_name: string
+  due_date: string
+  /** Saldo en pesos enteros — ya derivado por el servidor de los pagos vivos. */
+  balance: number
+  days_overdue: number
+}
+
 export interface TodayOut {
   store_id: number
   business_date: string
@@ -154,6 +184,18 @@ export interface TodayOut {
   ingredients_negative?: NegativeStockAlertOut[]
   preps_without_production?: PrepAlertOut[]
   products_discounting_nothing?: UncostedProductOut[]
+  // Pedido 2b: `[]`/`0`/`null` cuando `inventory.lots`/`purchases`/
+  // `inventory.variance` están apagadas o el dominio todavía no está
+  // montado — nunca falta la llave (mismo criterio que las cuatro de
+  // arriba, `backend/app/reports/schemas.py::TodayOut`).
+  lots_expiring_or_expired?: LotAlertOut[]
+  payables_overdue?: PayableAlertOut[]
+  payables_pending_review_count?: number
+  /** `null` (no `false` mudo) cuando `inventory.variance` está apagada o el
+   * dominio no está montado: "confiable/no confiable" sólo tiene sentido si
+   * la sede lleva el control. */
+  inventory_unreliable?: boolean | null
+  days_since_last_full_count?: number | null
 }
 
 export function getToday(storeId: number): Promise<TodayOut> {

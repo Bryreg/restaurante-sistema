@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, current_admin
@@ -32,10 +32,15 @@ router = APIRouter()
 def admin_list_customers(
     request: Request,
     doc_number: str | None = None,
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): `format`
+    # declarado en el contrato, no sólo leído de `request.query_params` dentro
+    # de `wants_csv` — mismo patrón que `app.reports.router.get_sales`.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
     _feature: None = Depends(features.require_feature("customers")),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     rows = service.list_customers(db, organization_id=actor.organization_id, doc_number=doc_number)
     out = [CustomerOut.model_validate(r) for r in rows]
     if wants_csv(request):
@@ -73,9 +78,13 @@ def admin_add_consent(
 def admin_list_requests(
     customer_id: int,
     request: Request,
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): ver
+    # `admin_list_customers` arriba, mismo motivo.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     customer = service.get_customer_or_404(db, organization_id=actor.organization_id, customer_id=customer_id)
     rows = [DataRequestOut.model_validate(r) for r in service.list_requests(db, customer=customer)]
     if wants_csv(request):

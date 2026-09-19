@@ -137,48 +137,118 @@ def test_document_404_across_stores(
 
 
 def test_openapi_device_responses_never_expose_cost_fields() -> None:
-    """Ningún esquema alcanzable desde una ruta **de dispositivo** declara
-    `cost`, `margin` ni `unit_cost`.
+    """Ningún esquema alcanzable bajo una **sesión de dispositivo** declara un
+    campo de costo o de margen (`AGENTS.md`: «el operador no recibe costos ni
+    márgenes en ninguna respuesta de la API»; SPEC-NEGOCIO §11.10).
 
-    Este test se llamaba «device responses» pero serializaba el OpenAPI
-    ENTERO y buscaba el texto, así que prohibía el costo en todo el producto.
-    Eso era correcto mientras el sistema no tenía superficie de costo para el
-    administrador; la fase 2a existe para construir exactamente esa superficie
-    (`IngredientOut.cost`, `PreparationAdminOut.unit_cost`,
-    `PrepBatchAdminOut.unit_cost`, todos bajo `/admin/`), y un barrido global
-    la prohibía por existir. Peor: al ser inesquivable, empujó a renombrar
-    campos del contrato publicado con tal de pasarlo.
+    HISTORIA DEL RECORTE, porque este guard ya costó plata dos veces
+    (`outputs-2a/ENTREGA.md § 5`, R-9 y O-1; `spec.md § Invariantes heredados
+    que 2b toca por diseño`).
 
-    La regla real (`AGENTS.md`) es «el operador no recibe costos ni márgenes»,
-    no «el producto no tiene costos». Acá se acota a lo que la regla dice: las
-    rutas que NO son `/admin/`. El recorrido sigue los `$ref` para que un campo
-    opcional anidado no se escape.
+    - **v1 (1b)**: serializaba `app.openapi()` ENTERO y buscaba el texto
+      `"cost"`. Se llamaba «device responses» y no miraba ni rutas ni
+      sesiones: prohibía el costo en TODO el producto. Era correcto sólo
+      mientras el producto no tenía superficie de costo.
+    - **El daño**: 2a existe para construir esa superficie. Como el guard era
+      inesquivable y nadie estaba autorizado a cambiarlo, dos constructores
+      renombraron campos del **contrato publicado** de `/admin/sales`
+      (`theoretical_value` por `theoretical_cost`, `gross_contribution` por
+      `gross_margin`, `recipe_coverage_pct` por `costed_pct`) con tal de
+      pasarlo. El costo real no fue el test rojo: fue el contrato deformado.
+    - **v2 (cierre de 2a)**: acotado a `"/admin/" not in path`, con
+      coincidencia EXACTA de nombre (`cost`, `margin`, `unit_cost`,
+      `food_cost`). Cerró el rojo, pero quedó con dos agujeros que 2b
+      destapa: (a) el path no dice quién sirve la ruta — `POST /receptions`
+      es admin puro (`current_admin`) y no lleva `/admin/` en el path, así
+      que v2 lo acusa en falso por `ReceptionLineOut.unit_cost`; (b) la
+      coincidencia exacta deja pasar `theoretical_cost`, `unit_cost_micros`
+      o `gross_margin` en una ruta de dispositivo, que es exactamente el
+      nombre que un rodeo elegiría.
+    - **v3 (este, pedido 2b)**: el alcance se resuelve por **sesión**, no por
+      texto del path. Una ruta es de admin si y sólo si su árbol de
+      dependencias incluye `app.auth.deps.current_admin` (sin cookie de
+      admin, ésa levanta 401 antes de entrar al endpoint). Todo lo demás
+      bajo `/api/v1` es alcanzable con una sesión de dispositivo y entra al
+      barrido. La coincidencia pasa a ser por **subcadena** (`cost`,
+      `margin`), que es más estricta que v1 sobre el conjunto que sí manda.
+
+    **Qué dejó de estar cubierto**: el costo en respuestas de administrador,
+    que es precisamente lo que las fases 2a y 2b existen para construir, y que
+    `tests/audit/test_reports_invariants.py::
+    test_no_report_ever_exposes_a_cost_or_a_margin` sigue vigilando campo por
+    campo con una lista blanca explícita por reporte. Que un dispositivo no
+    llegue a esas rutas lo prueban
+    `tests/audit/test_security_invariants.py::
+    test_a_device_session_never_reaches_the_admin_routes_of_cost_and_inventory`
+    y el invariante hermano de este archivo,
+    `test_every_admin_path_is_served_only_under_an_admin_session`.
     """
+    from tests.audit.conftest import (
+        MONEY_LEAK_SUBSTRINGS,
+        device_reachable_paths,
+        openapi_properties_reachable_from,
+    )
+
     from app.main import app
 
-    schema = app.openapi()
-    components: dict[str, Any] = schema.get("components", {}).get("schemas", {})
-    forbidden = ("cost", "margin", "unit_cost", "food_cost")
+    device_paths = device_reachable_paths()
+    assert len(device_paths) > 30, (
+        "el barrido no encontró rutas de dispositivo: la clasificación por sesión se rompió "
+        f"y estaría pasando por vacío (encontró {len(device_paths)})"
+    )
+    # Anclas: si alguna de estas deja de estar, el recorte se volvió inútil.
+    for anchor in ("/api/v1/catalog", "/api/v1/orders/{order_id}", "/api/v1/device/ingredients", "/api/v1/waste"):
+        assert anchor in device_paths, f"{anchor} salió del alcance del barrido de dispositivo"
 
-    def _walk(node: Any, visited: set[str], where: str) -> None:
-        if isinstance(node, dict):
-            ref = node.get("$ref")
-            if ref:
-                name = ref.split("/")[-1]
-                if name not in visited:
-                    visited.add(name)
-                    _walk(components[name], visited, f"{where} -> {name}")
-                return
-            for key, value in node.items():
-                if key == "properties" and isinstance(value, dict):
-                    leaked = {p for p in value if p.lower() in forbidden}
-                    assert not leaked, f"{where} declara {sorted(leaked)} en una ruta de dispositivo"
-                _walk(value, visited, where)
-        elif isinstance(node, list):
-            for item in node:
-                _walk(item, visited, where)
+    spec = app.openapi()
+    leaked = [
+        (where, prop)
+        for where, prop in openapi_properties_reachable_from(spec, device_paths)
+        if any(secret in prop.lower() for secret in MONEY_LEAK_SUBSTRINGS)
+    ]
+    assert not leaked, (
+        "el OpenAPI declara campos de costo/margen alcanzables bajo sesión de dispositivo: "
+        + "; ".join(f"{w} :: {p}" for w, p in sorted(leaked))
+    )
 
-    device_paths = [p for p in schema["paths"] if "/admin/" not in p]
-    assert device_paths, "el OpenAPI no tiene ninguna ruta de dispositivo: el barrido no probaría nada"
-    for path in device_paths:
-        _walk(schema["paths"][path], set(), path)
+
+def test_every_admin_path_is_served_only_under_an_admin_session() -> None:
+    """La otra mitad del recorte: si el alcance del barrido de costo se
+    resuelve por sesión, entonces «lo que está bajo `/admin/`» y «lo que exige
+    `current_admin`» tienen que coincidir, o el recorte se podría ampliar solo
+    con renombrar un path.
+
+    Es además el invariante que hace **bloqueante** el punto 2 de
+    `spec.md § Invariantes heredados que 2b toca por diseño`: la recepción
+    lleva precios unitarios, así que es pantalla de administrador; si mañana
+    aparece cualquier ruta de compras, conteos o lotes servida bajo sesión de
+    dispositivo, este test la nombra antes de que el costo llegue a la tablet
+    del salón.
+    """
+    from tests.audit.conftest import admin_only_paths, device_reachable_paths
+
+    # `POST /api/v1/auth/admin/login` lleva `/admin/` en el path y es pública
+    # por definición: es la puerta por la que se CONSIGUE la sesión de admin.
+    PUBLIC_ADMIN_PATHS = {"/api/v1/auth/admin/login"}
+
+    admin = admin_only_paths()
+    device = device_reachable_paths()
+
+    sin_guard = {p for p in device if "/admin/" in p} - PUBLIC_ADMIN_PATHS
+    assert not sin_guard, (
+        "rutas bajo /admin/ que NO exigen `current_admin` (un dispositivo las alcanza): " + str(sorted(sin_guard))
+    )
+
+    # El caso inverso no es un error, pero sí tiene que estar declarado: una
+    # ruta de admin fuera de `/admin/` es una excepción del contrato y se
+    # nombra acá para que nadie la agregue sin darse cuenta.
+    DECLARED_ADMIN_PATHS_OUTSIDE_ADMIN_PREFIX = {
+        # El contrato de 2b la fija literal así (`spec.md § API contract — 2b`,
+        # "Receptions"); es admin igual (`current_admin` + `admin_store`).
+        "/api/v1/receptions",
+    }
+    fuera = {p for p in admin if "/admin/" not in p}
+    assert fuera == DECLARED_ADMIN_PATHS_OUTSIDE_ADMIN_PREFIX, (
+        "cambió el conjunto de rutas de admin que no llevan /admin/ en el path: "
+        f"{sorted(fuera)} (declaradas: {sorted(DECLARED_ADMIN_PATHS_OUTSIDE_ADMIN_PREFIX)})"
+    )

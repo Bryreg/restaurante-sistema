@@ -368,15 +368,23 @@ def test_the_consecutive_is_defended_by_unique_constraints_in_the_database(
 
 
 def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_url: str) -> None:
-    """El punto de llegada de la cadena después de 2a.
+    """El punto de llegada de la cadena después de 2a **y 2b**.
 
-    `0008_inventory` (insumos, libro de movimientos, mermas), `0009_recipes`
-    (preparaciones, lotes, fichas versionadas y `recipe_effect`) y
-    `0010_consumption` (`order_items.cost_source` y el `waste_stubs.
-    ingredient_id` que pasa a FK real). Este test es el que hay que mover
-    cuando se agregue `0011`: fijar `head` a un valor exacto es lo que
-    convierte "me olvidé de encadenar la migración" en un rojo y no en un
-    deploy roto.
+    De 2a: `0008_inventory` (insumos, libro de movimientos, mermas),
+    `0009_recipes` (preparaciones, lotes de producción, fichas versionadas y
+    `recipe_effect`) y `0010_consumption` (`order_items.cost_source` y el
+    `waste_stubs.ingredient_id` que pasa a FK real).
+    De 2b: `0011_purchases` (proveedores, recepciones, líneas, cuentas por
+    pagar y pagos) y `0012_counts_lots` (lotes de compra, conteos a ciegas y
+    los umbrales de varianza de la sede).
+
+    **Actualizado en 2b, a propósito y declarado**: este test fija `head` a un
+    valor EXACTO porque eso es lo que convierte "me olvidé de encadenar la
+    migración" en un rojo y no en un deploy roto — y por lo mismo hay que
+    moverlo en cada pedido que agregue una. La spec de 2b dice literalmente
+    «Alembic arranca en `0011`», así que el punto de llegada pasa de `0010` a
+    `0012` y el conteo de tablas de 63 a 72. No es acotar un invariante: es
+    moverle el poste al que está atado.
     """
     from sqlalchemy import text
 
@@ -388,7 +396,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0010", f"la cadena quedó en {version!r} y el pedido 2a llega hasta 0010"
+    assert version == "0012", f"la cadena quedó en {version!r} y el pedido 2b llega hasta 0012"
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
     de_las_recetas = {
@@ -401,17 +409,21 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
         "modifier_option_recipe_effects",
         "modifier_option_recipe_effect_lines",
     }
-    faltan = sorted((del_inventario | de_las_recetas) - tablas)
-    assert not faltan, f"las migraciones de 2a no crearon: {faltan}"
+    de_las_compras = {"suppliers", "receptions", "reception_lines", "payables", "purchase_payments"}
+    de_los_conteos = {"stock_batches", "stock_counts", "stock_count_lines", "store_inventory_settings"}
+    faltan = sorted((del_inventario | de_las_recetas | de_las_compras | de_los_conteos) - tablas)
+    assert not faltan, f"las migraciones de 2a/2b no crearon: {faltan}"
 
     # El conteo total, para que agregar una tabla sin querer también se vea.
     # **Sin `alembic_version`** (no es del dominio): 52 de 1a/1b + 3 de
-    # inventario + 8 de recetas = 63. Ojo al comparar con `docs/ESTADO.md`,
-    # que para 1b anotó "53 tablas" contando la de control de Alembic y para
-    # 2a anotó "63" sin contarla: son el mismo esquema contado de dos maneras.
-    assert len(tablas) == 63, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; 2a lo deja en 63 "
-        f"(52 de 1a/1b + 3 de inventario + 8 de recetas). Actualizá este número "
+    # inventario + 8 de recetas = 63 al cerrar 2a; + 5 de compras
+    # (`0011_purchases`) + 4 de conteos y lotes (`0012_counts_lots`) = 72 al
+    # cerrar 2b. Ojo al comparar con `docs/ESTADO.md`, que para 1b anotó
+    # "53 tablas" contando la de control de Alembic: es el mismo esquema
+    # contado de dos maneras.
+    assert len(tablas) == 72, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; 2b lo deja en 72 "
+        f"(63 al cerrar 2a + 5 de compras + 4 de conteos y lotes). Actualizá este número "
         f"junto con la migración que lo cambie: {sorted(tablas)}"
     )
 

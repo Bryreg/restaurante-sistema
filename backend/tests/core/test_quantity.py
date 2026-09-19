@@ -299,3 +299,99 @@ def test_recipes_cost_fields_are_published_as_decimal_strings() -> None:
     ):
         for field in fields:
             _assert_cost_field_is_decimal_string(model, field)
+
+
+# ---------------------------------------------------------------------------
+# Contrato de PUBLICACIÓN de cantidad (deuda cerrada en 2b, A-5 de
+# `outputs-2a/ENTREGA.md § 5`): igual que el bloque de arriba, pero para
+# cantidades de insumo. La misma magnitud (`qty_base`/`min_stock`) salía de
+# `app.inventory.schemas` como texto decimal y de `app.reports.schemas` como
+# `int` en milésimas crudas -- dos escalas para un mismo número, el mismo
+# modo de falla de B-2. La forma ganadora, declarada en
+# `app.core.quantity` (arriba): `format_qty_base`, texto decimal.
+#
+# `app.reports.schemas` lo corrige OTRO agente contra esta misma regla (no es
+# territorio de este dominio); mientras esa corrección no esté hecha, este
+# test es un ROJO DECLARADO -- no lo escondas bajando su severidad ni
+# comentándolo: es la prueba de que la deuda sigue abierta, y tiene que
+# ponerse en verde sola en cuanto ese agente publique `str`.
+# ---------------------------------------------------------------------------
+
+
+def _assert_qty_field_is_decimal_string(model: type, field: str) -> None:
+    annotation = model.model_fields[field].annotation  # type: ignore[attr-defined]
+    args = set(typing.get_args(annotation))
+    is_str_or_none = annotation is str or args == {str, type(None)}
+    assert is_str_or_none, (
+        f"{model.__module__}.{model.__qualname__}.{field} está anotado "
+        f"{annotation!r}, y tiene que ser `str | None`. Una cantidad de "
+        "insumo se publica SIEMPRE con `app.core.quantity.format_qty_base` "
+        "(texto decimal) -- nunca como `int` crudo en milésimas. Un `int` "
+        "acá es milésimas sin escalar filtrándose a la respuesta HTTP: "
+        "`117648` en vez de `\"117.648\"` -- la misma manifestación de B-2, "
+        "para cantidades en vez de costos."
+    )
+
+
+def test_inventory_qty_fields_are_published_as_decimal_strings() -> None:
+    from app.inventory import schemas as inv
+
+    for model, fields in (
+        (inv.IngredientOut, ("min_stock",)),
+        (inv.StockMovementOut, ("qty_base",)),
+        (inv.StockRowOut, ("qty_base", "min_stock")),
+        (inv.WasteOut, ("qty",)),
+        (inv.WasteAdminOut, ("qty",)),
+        (inv.AdjustmentOut, ("qty_delta",)),
+    ):
+        for field in fields:
+            _assert_qty_field_is_decimal_string(model, field)
+
+
+def test_reports_qty_fields_are_published_as_decimal_strings() -> None:
+    """Rojo declarado hasta que el dueño de `app/reports/schemas.py` corrija
+    `IngredientAlertOut`/`NegativeStockAlertOut` contra la misma regla (ver
+    docstring del bloque, arriba, y `outputs-2b/backend-inventario-espejo.md
+    § 8`). No se usa `find_spec_safe`: `app.reports` existe desde 1b, no es
+    un dominio opcional de este pedido."""
+    from app.reports import schemas as rep
+
+    for model, fields in (
+        (rep.IngredientAlertOut, ("qty_base", "min_stock")),
+        (rep.NegativeStockAlertOut, ("qty_base", "min_stock")),
+    ):
+        for field in fields:
+            _assert_qty_field_is_decimal_string(model, field)
+
+
+def test_openapi_has_no_raw_integer_qty_base_or_min_stock_fields() -> None:
+    """Auditoría de contrato sobre el OpenAPI COMPLETO (no sólo los esquemas
+    que este módulo conoce por nombre): ningún esquema publicado, de ningún
+    dominio montado, describe un campo llamado `qty_base` o `min_stock` como
+    `type: integer` en JSON Schema -- tiene que ser `type: string` (o
+    `anyOf` con `string`+`null`), la forma de `format_qty_base`. Cubre
+    dominios que este archivo no importa por nombre (blindaje a futuro: un
+    sexto esquema con el mismo error no necesita que alguien se acuerde de
+    agregarlo a la lista de arriba)."""
+    from app.main import app
+
+    schema = app.openapi()
+    offenders: list[str] = []
+    for name, definition in schema.get("components", {}).get("schemas", {}).items():
+        properties = definition.get("properties", {})
+        for field in ("qty_base", "min_stock"):
+            prop = properties.get(field)
+            if prop is None:
+                continue
+            types_seen: set[str] = set()
+            if "type" in prop:
+                types_seen.add(prop["type"])
+            for variant in prop.get("anyOf", []):
+                if "type" in variant:
+                    types_seen.add(variant["type"])
+            if "integer" in types_seen:
+                offenders.append(f"{name}.{field}")
+    assert offenders == [], (
+        "Estos campos publican milésimas crudas como entero en vez de texto "
+        f"decimal (`format_qty_base`): {offenders}"
+    )

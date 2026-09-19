@@ -37,7 +37,6 @@ class MovementCause(str, enum.Enum):
     SALE = "sale"
     PRODUCTION_IN = "production_in"
     PRODUCTION_OUT = "production_out"
-    VOID_AFTER_SEND = "void_after_send"
     WASTE = "waste"
     NOTE_RETURN = "note_return"
     MANUAL_ADJUSTMENT = "manual_adjustment"

@@ -165,10 +165,43 @@ describe("las cantidades no se convierten en el cliente", () => {
     // `backend/app/core/quantity.py` y NO se cruzan al frontend: la API
     // manda y recibe texto decimal ya convertido. Un `/1000` acá es la
     // escala escrita dos veces.
+    //
+    // **RONDA 2 de 2b — una excepción, con nombre propio y con precio.**
+    // El orquestador decidió (hallazgo H-7) que la calculadora de sumas de
+    // la captura de conteo se QUEDA: contar «6+8 cajas» es ergonomía real
+    // de conteo físico (`docs/SPEC-NEGOCIO.md §5.4`), y sumar en milésimas
+    // enteras es justamente lo que evita que «0.1+0.2» dé
+    // «0.30000000000000004». La excepción es UN símbolo, nombrado acá:
+    //
+    //     features/inventory/lib.ts :: COUNT_QTY_SCALE  (parseCountInput)
+    //
+    // Fundamento: el cliente manda SIEMPRE texto decimal y el servidor
+    // revalida con `app.core.quantity.parse_qty_base`, así que el espejo no
+    // es una segunda matemática de negocio sino ayuda de tecleo — su peor
+    // caso es un `422` de más, nunca un dato mal guardado. El precio de la
+    // excepción está cobrado en `purchases-counts.test.ts` → «la excepción
+    // de escala del conteo, declarada con nombre propio (H-7)»: si
+    // `parseCountInput` dejara de devolver texto decimal, o si la escala
+    // apareciera en un segundo archivo, esos tests caen.
+    //
+    // Se acota por SÍMBOLO, no por patrón de ruta: un `COUNT_QTY_SCALE` en
+    // cualquier otro archivo sigue cayendo acá, y `lib.ts` sigue barrido
+    // para todo lo demás (`micros`, `COST_SCALE`, un `/1000` suelto).
+    // `hits` devuelve "<ruta relativa a src>:<línea>: <texto>".
+    const EXCEPCION_ARCHIVO = "features/inventory/lib.ts";
     const offenders = hits(
       filesOf(COST_TERRITORY),
       /[*/]\s*1[_ ]?000[_ ]?(000)?\b|QTY_SCALE|COST_SCALE|\bmicros\b/i,
-    );
+    ).filter((linea) => {
+      const [ruta, , ...resto] = linea.split(":");
+      const texto = resto.join(":");
+      if (ruta !== EXCEPCION_ARCHIVO) return true;
+      // Dentro del archivo de la excepción, sólo se perdona la línea que
+      // NOMBRA el símbolo declarado. `COST_SCALE`, `micros` o un `/1000`
+      // suelto ahí adentro siguen siendo un hallazgo.
+      if (/COST_SCALE|\bmicros\b|\bQTY_SCALE\b/.test(texto)) return true;
+      return !/\bCOUNT_QTY_SCALE\b/.test(texto);
+    });
     expect(offenders, offenders.join("\n")).toEqual([]);
   });
 

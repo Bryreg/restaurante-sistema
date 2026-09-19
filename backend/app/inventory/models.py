@@ -60,14 +60,27 @@ class MovementCause(str, enum.Enum):
     SALE = "sale"
     PRODUCTION_IN = "production_in"
     PRODUCTION_OUT = "production_out"
-    VOID_AFTER_SEND = "void_after_send"
+    # `VOID_AFTER_SEND` existió declarada en la ronda 1 de 2b y se SACÓ en la
+    # ronda 2 (decisión del Maestro sobre el hallazgo H-3): el razonamiento de
+    # no producirla es correcto (`app/orders/service.py::_resolve_waste_stub`
+    # — producirla exigiría un par alta+baja cuya mitad negativa dispararía
+    # una segunda depleción FEFO real sobre cantidad ya consumida), pero un
+    # enum no puede seguir declarando una causa que nadie escribe nunca: eso
+    # deja al lector del contrato suponiendo mermas por anulación agrupables
+    # por causa que no existen. Si `app.orders` alguna vez necesita
+    # producirla de verdad, se reintroduce junto con quien la escriba.
     WASTE = "waste"
     NOTE_RETURN = "note_return"
     MANUAL_ADJUSTMENT = "manual_adjustment"
-    # Declaradas para que 2b no toque el enum; sin uso en 2a (compras,
-    # conteos, traslados — no hay compras ni conteos todavía).
+    # `PURCHASE` y `COUNT_ADJUSTMENT` ya estaban declaradas desde 2a (sin uso
+    # hasta ahora); 2b las produce de verdad (recepciones y aplicar un
+    # conteo) y agrega `RECEPTION_REVERSAL` (§5.6: eliminar una recepción es
+    # una reversa con causa, nunca un `DELETE` de filas — "nada financiero se
+    # borra"). `TRANSFER_IN`/`TRANSFER_OUT` siguen sin uso: no hay traslados
+    # entre sedes todavía (fase 3).
     PURCHASE = "purchase"
     COUNT_ADJUSTMENT = "count_adjustment"
+    RECEPTION_REVERSAL = "reception_reversal"
     TRANSFER_IN = "transfer_in"
     TRANSFER_OUT = "transfer_out"
 
@@ -306,4 +319,192 @@ class Waste(Base):
         ),
         Index("ix_wastes_store_date_type", "store_id", "business_date", "type"),
         Index("ix_wastes_store_ingredient_date", "store_id", "ingredient_id", "business_date"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Lotes de compra (SPEC-NEGOCIO §5.7; pedido 2b, decisión de arquitectura #1).
+#
+# `StockBatch` vive ACÁ, en `inventory`, no en `purchases`: es lo que permite
+# que la jerarquía de costo completa (`resolve_ingredient_cost`) quede dentro
+# de un solo dominio sin importar nada de compras. Es una entidad DISTINTA de
+# `app.recipes.models.PrepBatch` (el lote que produce una preparación) —
+# glosario de `docs/ESTADO.md`: "lote" (`stock_batch`) es de compra,
+# "preparación / lote" (`prep_batch`) es de producción.
+# ---------------------------------------------------------------------------
+
+
+class StockBatch(Base):
+    """Un lote de compra: nace de UNA línea de una recepción confirmada
+    (`app.purchases`, vía `app.inventory.hooks.create_stock_batch` — nunca
+    `db.add(StockBatch(...))` fuera de ahí, mismo principio que
+    `record_movement`). `qty_received` es inmutable (lo que entró);
+    `qty_remaining` es lo que queda, decrementado por
+    `app.inventory.hooks.consume_lots_fefo` (FEFO, §5.7) y puesto a `0` por
+    `app.inventory.hooks.reverse_stock_batch` cuando se revierte la
+    recepción que lo originó (nunca un `DELETE`: `reversed_at` queda como el
+    rastro de que se anuló, "nada financiero se borra").
+
+    **El promedio ponderado NO se guarda acá ni en ningún lado**: se deriva
+    leyendo estas filas (`app.inventory.hooks.weighted_average_cost_micros`,
+    decisión de arquitectura #2 del pedido 2b) — la misma regla que ya rige
+    el saldo de una cuenta por pagar y los saldos de caja: una sola
+    matemática, una sola fuente de verdad."""
+
+    __tablename__ = "stock_batches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    ingredient_id: Mapped[int] = mapped_column(ForeignKey("ingredients.id"), index=True)
+
+    qty_received: Mapped[int] = mapped_column(sa.Integer)
+    qty_remaining: Mapped[int] = mapped_column(sa.Integer)
+
+    # Costo por unidad base ENTERA (`app.core.quantity.COST_SCALE`), YA con
+    # el IVA bajo INC sumado como mayor valor del costo cuando corresponda
+    # (SPEC-NEGOCIO §4.1) — esa suma la hace `app.purchases` al llamar acá;
+    # este módulo guarda el número que le pasan, no lo recalcula.
+    unit_cost_micros: Mapped[int] = mapped_column(sa.BigInteger)
+    cost_source: Mapped[CostSource] = mapped_column(_enum(CostSource, length=20))
+
+    lot_code: Mapped[str | None] = mapped_column(sa.String(100), nullable=True)
+    # `NULL` = nunca vence (SPEC-NEGOCIO §5.7): el FEFO lo ordena al final,
+    # nunca al principio (`consume_lots_fefo`).
+    expires_at: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
+
+    received_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    business_date: Mapped[date] = mapped_column(sa.Date)
+
+    # Sin FK dura a propósito: `purchases` (recepciones) es territorio de
+    # otro agente de este mismo pedido 2b y su tabla `receptions` puede no
+    # existir todavía cuando esta migración corre — mismo patrón que
+    # `Ingredient.supplier_id` (`app/inventory/models.py`, arriba) y que
+    # `StockMovement.preparation_id` antes de que `recipes` existiera en 2a.
+    # `source_type` es `"reception"` desde `app.purchases`, o `"seed"` desde
+    # el seed de desarrollo de este mismo archivo.
+    source_type: Mapped[str] = mapped_column(sa.String(30))
+    source_id: Mapped[int] = mapped_column(sa.Integer)
+
+    # `NULL` = vigente. Puesto por `reverse_stock_batch`; nunca por un
+    # `UPDATE` a mano. Un lote reversado se excluye de FEFO, del promedio
+    # ponderado, de "última compra" y de `GET /admin/lots`.
+    reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("qty_received > 0", name="ck_stock_batches_qty_received_positive"),
+        CheckConstraint("qty_remaining >= 0", name="ck_stock_batches_qty_remaining_nonneg"),
+        CheckConstraint("qty_remaining <= qty_received", name="ck_stock_batches_qty_remaining_le_received"),
+        CheckConstraint("unit_cost_micros >= 0", name="ck_stock_batches_unit_cost_nonneg"),
+        Index("ix_stock_batches_store_ingredient_expiry", "store_id", "ingredient_id", "expires_at"),
+        Index("ix_stock_batches_store_ingredient_received", "store_id", "ingredient_id", "received_at"),
+        Index("ix_stock_batches_source", "source_type", "source_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Conteos a ciegas y varianza (SPEC-NEGOCIO §5.4).
+# ---------------------------------------------------------------------------
+
+
+class StockCountScope(str, enum.Enum):
+    KEY_ITEMS = "key_items"
+    FULL = "full"
+
+
+class StockCountStatus(str, enum.Enum):
+    OPEN = "open"
+    APPLIED = "applied"
+
+
+class StockCount(Base):
+    """Un conteo (SPEC-NEGOCIO §5.4): `key_items` toma los insumos con
+    `Ingredient.key_item = True`; `full`, todos los activos. `opened_at` es
+    **el instante del conteo** (lo que la spec llama "el instante del
+    conteo", distinto de cuándo se aplica): tanto `apply_count`
+    (`app.inventory.service`) como la varianza miden entradas/salidas desde
+    ACÁ, nunca desde `applied_at`. Mientras `status = "open"` es un conteo a
+    ciegas: ninguna ruta de captura devuelve el stock teórico."""
+
+    __tablename__ = "stock_counts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+
+    scope: Mapped[StockCountScope] = mapped_column(_enum(StockCountScope, length=16))
+    status: Mapped[StockCountStatus] = mapped_column(
+        _enum(StockCountStatus, length=16), default=StockCountStatus.OPEN
+    )
+
+    opened_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    business_date: Mapped[date] = mapped_column(sa.Date)
+    opened_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    opened_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
+
+    applied_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    applied_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    applied_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    __table_args__ = (
+        Index("ix_stock_counts_store_status", "store_id", "status"),
+        Index("ix_stock_counts_store_scope_opened", "store_id", "scope", "opened_at"),
+    )
+
+
+class StockCountLine(Base):
+    """Un renglón de conteo, uno por insumo incluido. `qty_counted` es
+    `NULL` hasta que alguien lo cuenta; `was_counted` lo escribe la persona
+    que cuenta, **renglón por renglón** — no existe una acción que marque
+    todos los renglones de una vez (SPEC-NEGOCIO §5.4: "no existe 'todo
+    coincide'"; en la referencia esa marca borró un faltante real de
+    −10.065 g). Un guardado parcial (`PUT /admin/counts/{id}/lines` con sólo
+    algunos renglones) no toca los que no vinieron; un valor con
+    `was_counted = True` nunca se pisa con un valor `False` después (un
+    borrador no revierte una confirmación)."""
+
+    __tablename__ = "stock_count_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    count_id: Mapped[int] = mapped_column(ForeignKey("stock_counts.id"), index=True)
+    ingredient_id: Mapped[int] = mapped_column(ForeignKey("ingredients.id"), index=True)
+
+    qty_counted: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    was_counted: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    counted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    __table_args__ = (
+        sa.UniqueConstraint("count_id", "ingredient_id", name="uq_stock_count_lines_count_ingredient"),
+        CheckConstraint("qty_counted IS NULL OR qty_counted >= 0", name="ck_stock_count_lines_qty_nonneg"),
+        Index("ix_stock_count_lines_ingredient", "ingredient_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Umbrales de varianza (configuración de sede que vive en `inventory` —
+# decisión de arquitectura #4 del pedido 2b: NO toca `app.stores`, que es el
+# modelo compartido donde 1b-2 dejó un campo escrito a medias en tres capas).
+# ---------------------------------------------------------------------------
+
+
+class StoreInventorySettings(Base):
+    """Semáforo de varianza (SPEC-NEGOCIO §5.4/§9.3), con defaults de
+    industria (`< 2` puntos verde, `2–4` revisar, `>= 4` rojo) que **nunca**
+    se hardcodean en el cálculo — `app.inventory.service.variance_report` los
+    lee de acá. En puntos básicos (× 100: `2.00 %` = `200`) para no usar
+    `float` (AGENTS.md, "cantidades sin float en ninguna parte")."""
+
+    __tablename__ = "store_inventory_settings"
+
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), primary_key=True)
+    variance_yellow_threshold_bp: Mapped[int] = mapped_column(sa.Integer, default=200)
+    variance_red_threshold_bp: Mapped[int] = mapped_column(sa.Integer, default=400)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (
+        CheckConstraint("variance_yellow_threshold_bp > 0", name="ck_store_inv_settings_yellow_positive"),
+        CheckConstraint(
+            "variance_red_threshold_bp > variance_yellow_threshold_bp",
+            name="ck_store_inv_settings_red_gt_yellow",
+        ),
     )

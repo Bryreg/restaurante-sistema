@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -91,8 +91,16 @@ def get_catalog(
 
 @router.get("/admin/categories")
 def list_categories(
-    request: Request, store_id: int, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+    request: Request,
+    store_id: int,
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): `format`
+    # declarado en el contrato, no sólo leído de `request.query_params` dentro
+    # de `wants_csv` — mismo patrón que `app.reports.router.get_sales`.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     admin_store(db, actor, store_id)
     rows = (
         db.execute(select(Category).where(Category.store_id == store_id).order_by(Category.sort_order, Category.name))
@@ -159,9 +167,13 @@ def list_products(
     store_id: int,
     category_id: int | None = None,
     search: str | None = None,
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): ver
+    # `list_categories` arriba, mismo motivo.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     admin_store(db, actor, store_id)
     stmt = select(Product).where(Product.store_id == store_id)
     if category_id is not None:
@@ -348,10 +360,14 @@ def set_modifier_option_availability(
 def list_combos(
     request: Request,
     store_id: int,
+    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): ver
+    # `list_categories` arriba, mismo motivo.
+    format: str | None = Query(None, description='"csv" exporta como CSV'),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
     _feature: None = Depends(features.require_feature("pos.combos")),
 ) -> Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     admin_store(db, actor, store_id)
     rows = db.execute(select(Combo).where(Combo.store_id == store_id).order_by(Combo.name)).scalars().all()
     out = [service.combo_admin_out(db, c) for c in rows]

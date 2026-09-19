@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -579,3 +580,288 @@ def produce(
         json={"qty_expected": qty_expected, "qty_real": qty_real, "employee_pin": pin},
         headers=headers or idem_headers(),
     )
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2b — helpers de compras, lotes y conteos.
+#
+# Mismo criterio que los helpers de 2a de arriba: todo entra por HTTP, por la
+# puerta real, para que un invariante no se saltee la validación que existe
+# para defender. Las dos excepciones declaradas son lecturas del libro y de
+# los lotes (`stock_of`, `lots_of`): leerlas por HTTP obligaría a parsear el
+# texto decimal de la respuesta y mezclaría "el saldo está bien" con "el
+# borde lo formatea bien" en una sola aserción.
+# ---------------------------------------------------------------------------
+
+
+def make_supplier(
+    admin_client: Any,
+    store: Any,
+    *,
+    name: str = "Distribuidora del Centro",
+    nit: str | None = "900111222",
+    payment_term_days: int = 30,
+    invoices_required: bool = True,
+    expect: int | None = 201,
+    **extra: Any,
+) -> Any:
+    resp = admin_client.post(
+        f"{API_V1}/admin/suppliers?store_id={store.id}",
+        json={
+            "name": name,
+            "nit": nit,
+            "payment_term_days": payment_term_days,
+            "invoices_required": invoices_required,
+            **extra,
+        },
+    )
+    if expect is not None:
+        assert resp.status_code == expect, resp.text
+    return resp.json() if resp.status_code == 201 else resp
+
+
+def reception_line(
+    ingredient_id: int,
+    *,
+    qty_received: str = "10000",
+    qty_invoiced: str | None = None,
+    purchase_unit_price: str = "12000",
+    tax_base: int = 120_000,
+    tax_rate: int = 19,
+    tax_amount: int = 22_800,
+    lot_code: str | None = None,
+    expires_at: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "ingredient_id": ingredient_id,
+        "qty_received": qty_received,
+        "qty_invoiced": qty_invoiced if qty_invoiced is not None else qty_received,
+        "purchase_unit_price": purchase_unit_price,
+        "tax_base": tax_base,
+        "tax_rate": tax_rate,
+        "tax_amount": tax_amount,
+        "lot_code": lot_code,
+        "expires_at": expires_at,
+    }
+
+
+def post_reception(
+    admin_client: Any,
+    store: Any,
+    lines: list[dict[str, Any]],
+    *,
+    supplier_id: int,
+    invoice_number: str | None = "F-001",
+    invoice_date: str = "2026-01-15",
+    no_invoice: bool = False,
+    received_by_pin: str = "1111",
+    confirm_price: bool = False,
+    headers: Any = None,
+    expect: int | None = 201,
+) -> Any:
+    resp = admin_client.post(
+        f"{API_V1}/receptions?store_id={store.id}",
+        headers=headers or idem_headers(),
+        json={
+            "supplier_id": supplier_id,
+            "invoice_number": invoice_number,
+            "invoice_date": invoice_date,
+            "no_invoice": no_invoice,
+            "received_by_pin": received_by_pin,
+            "confirm_price": confirm_price,
+            "lines": lines,
+        },
+    )
+    if expect is not None:
+        assert resp.status_code == expect, resp.text
+    return resp.json() if resp.status_code == 201 else resp
+
+
+def lots_of(db: Any, store: Any, *, ingredient_id: int) -> list[Any]:
+    from sqlalchemy import select
+
+    from app.inventory.models import StockBatch
+
+    return list(
+        db.execute(
+            select(StockBatch)
+            .where(StockBatch.store_id == store.id, StockBatch.ingredient_id == ingredient_id)
+            .order_by(StockBatch.id)
+        ).scalars()
+    )
+
+
+def open_count(admin_client: Any, store: Any, *, scope: str = "full", expect: int | None = 201) -> Any:
+    resp = admin_client.post(f"{API_V1}/admin/counts?store_id={store.id}", json={"scope": scope})
+    if expect is not None:
+        assert resp.status_code == expect, resp.text
+    return resp.json() if resp.status_code == 201 else resp
+
+
+def save_count_lines(admin_client: Any, store: Any, count_id: int, lines: list[dict[str, Any]], *, expect: int | None = 200) -> Any:
+    resp = admin_client.put(
+        f"{API_V1}/admin/counts/{count_id}/lines?store_id={store.id}", json={"lines": lines}
+    )
+    if expect is not None:
+        assert resp.status_code == expect, resp.text
+    return resp.json() if resp.status_code == 200 else resp
+
+
+def apply_count(
+    admin_client: Any, store: Any, count_id: int, *, pin: str = "9999", headers: Any = None, expect: int | None = 200
+) -> Any:
+    resp = admin_client.post(
+        f"{API_V1}/admin/counts/{count_id}/apply?store_id={store.id}",
+        json={"authorizer_pin": pin},
+        headers=headers or idem_headers(),
+    )
+    if expect is not None:
+        assert resp.status_code == expect, resp.text
+    return resp.json() if resp.status_code == 200 else resp
+
+
+def set_iva_regime(db: Any, store: Any) -> None:
+    """Pasa la sede a responsable de IVA (no de INC): el impuesto de una
+    compra deja de ser mayor valor del costo (SPEC-NEGOCIO §4.1)."""
+    from sqlalchemy import select
+
+    from app.stores.models import StoreFiscalConfig
+
+    row = db.execute(
+        select(StoreFiscalConfig).where(StoreFiscalConfig.store_id == store.id).order_by(StoreFiscalConfig.valid_from.desc())
+    ).scalars().first()
+    assert row is not None, "la sede de test no tiene configuración fiscal"
+    row.inc_responsible = False
+    row.iva_responsible = True
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Clasificación de rutas por SESIÓN (el recorte de los barridos heredados,
+# pedido 2b). Ver el docstring de
+# `tests/payments/test_documents.py::test_openapi_device_responses_never_expose_cost_fields`
+# para el porqué del recorte; acá vive la mecánica, compartida por los tres
+# barridos para que no vuelvan a divergir entre sí.
+# ---------------------------------------------------------------------------
+
+
+def _dependency_calls(dependant: Any, acc: set[Any]) -> set[Any]:
+    for sub in dependant.dependencies:
+        if sub.call is not None:
+            acc.add(sub.call)
+        _dependency_calls(sub, acc)
+    return acc
+
+
+def iter_api_routes(routes: Any = None, prefix: str = "") -> Any:
+    """Todas las `APIRoute` de la app con su path COMPLETO.
+
+    FastAPI 0.141 no clona las rutas al `include_router`: deja un
+    `_IncludedRouter` que apunta al router original y aplica el prefijo al
+    resolver. Recorrer `app.routes` a secas devuelve UNA sola ruta (el
+    fallback de la SPA) — por eso se baja por `original_router.routes`
+    acumulando el prefijo del `include_context`."""
+    from fastapi.routing import APIRoute
+
+    from app.main import app
+
+    if routes is None:
+        routes = app.routes
+    for route in routes:
+        if isinstance(route, APIRoute):
+            yield prefix + route.path, route
+        original = getattr(route, "original_router", None)
+        if original is not None:
+            context = getattr(route, "include_context", None)
+            sub_prefix = getattr(context, "prefix", "") if context is not None else ""
+            yield from iter_api_routes(original.routes, prefix + (sub_prefix or ""))
+
+
+def admin_only_paths() -> set[str]:
+    """Las rutas que exigen `current_admin`: un dispositivo NO puede
+    alcanzarlas (sin cookie de admin, `current_admin` levanta 401 antes de
+    entrar al endpoint)."""
+    from app.auth.deps import current_admin
+
+    return {
+        path
+        for path, route in iter_api_routes()
+        if current_admin in _dependency_calls(route.dependant, set())
+    }
+
+
+def device_reachable_paths() -> set[str]:
+    """Todo lo demás de `/api/v1`: lo que una sesión de dispositivo puede
+    alcanzar, sea con `current_device`, `current_operator`,
+    `current_device_session`, `current_actor` o sin sesión (login). Es la
+    definición ESTRICTA de "el operador no ve costos" — más estricta que
+    mirar el prefijo `/admin/` del path, porque caza una ruta bajo `/admin/`
+    a la que se le olvidó `current_admin`, y no acusa en falso a una ruta
+    de admin que no lleva `/admin/` en el path (`POST /receptions`)."""
+    admin = admin_only_paths()
+    return {path for path, _ in iter_api_routes() if path.startswith("/api/v1") and path not in admin}
+
+
+MONEY_LEAK_SUBSTRINGS = ("cost", "margin")
+
+
+def openapi_properties_reachable_from(spec: dict[str, Any], paths: set[str]) -> list[tuple[str, str]]:
+    """`[(dónde, propiedad)]` de todo esquema alcanzable desde `paths`,
+    siguiendo `$ref` anidados (un campo de costo escondido tres niveles
+    abajo también cuenta)."""
+    components: dict[str, Any] = spec.get("components", {}).get("schemas", {})
+    found: list[tuple[str, str]] = []
+
+    def walk(node: Any, seen: set[str], where: str) -> None:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if ref:
+                name = ref.split("/")[-1]
+                if name in seen or name not in components:
+                    return
+                seen.add(name)
+                walk(components[name], seen, f"{where} -> {name}")
+                return
+            for key, value in node.items():
+                if key == "properties" and isinstance(value, dict):
+                    for prop in value:
+                        found.append((where, prop))
+                walk(value, seen, where)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, seen, where)
+
+    for path in sorted(paths):
+        if path in spec.get("paths", {}):
+            walk(spec["paths"][path], set(), path)
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Barridos de AST sobre `app/` (ronda 2).
+#
+# Tres invariantes distintos recorren el árbol de `app/**` buscando una
+# construcción prohibida (una causa retirada que vuelve, una constante de
+# negocio escrita dos veces, un `float` filtrado). Compartir el recorrido
+# evita que se separen — que es exactamente el modo de falla que destapó H-4:
+# la misma pregunta respondida dos veces, con dos fórmulas.
+# ---------------------------------------------------------------------------
+
+APP_ROOT = Path(__file__).resolve().parents[2] / "app"
+
+
+def app_source_files() -> list[tuple[str, Any]]:
+    """`[(ruta relativa a `backend/`, árbol de AST)]` de todo `app/**/*.py`.
+
+    Excluye `__pycache__` y los `.pyc`. La ruta se devuelve relativa para
+    que el mensaje de un rojo sea copiable tal cual en un `sed -n`.
+    """
+    import ast
+
+    out: list[tuple[str, Any]] = []
+    for archivo in sorted(APP_ROOT.rglob("*.py")):
+        if "__pycache__" in archivo.parts:
+            continue
+        relativa = str(archivo.relative_to(APP_ROOT.parent))
+        out.append((relativa, ast.parse(archivo.read_text(encoding="utf-8"), filename=str(archivo))))
+    return out

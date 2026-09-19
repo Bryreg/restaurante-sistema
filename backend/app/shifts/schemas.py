@@ -15,7 +15,15 @@ from pydantic import BaseModel, ConfigDict, Field
 RosterActionLiteral = Literal["in", "out", "pause_start", "pause_end"]
 CashMovementKindLiteral = Literal["income", "expense"]
 CashMovementCauseLiteral = Literal[
-    "petty_expense", "emergency_purchase", "refund", "tip_payout", "other_income", "other_expense"
+    "petty_expense",
+    "emergency_purchase",
+    "refund",
+    "tip_payout",
+    "other_income",
+    "other_expense",
+    # Pedido 2b: pago en efectivo de una cuenta por pagar desde el cajón
+    # (`app.shifts.hooks.register_supplier_payment_expense`).
+    "supplier_payment",
 ]
 CashDifferenceCauseLiteral = Literal[
     "change_error", "expense_without_voucher", "tips_mixed", "unrecorded_sale", "counting_error", "unknown"

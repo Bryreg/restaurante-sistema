@@ -37,9 +37,9 @@ vi.mock("@/features/orders", () => ({
 
 // `paymentsFeature` es este mismo territorio — se deja real: es la
 // verificación de que `router.tsx` lo integra tal como lo exporta
-// `src/features/payments/index.ts`. `inventoryFeature` (este territorio) y
-// `recipesFeature` (`frontend-recetas`, pedido 2a) también se dejan reales
-// por el mismo motivo.
+// `src/features/payments/index.ts`. `inventoryFeature`, `recipesFeature`
+// (`frontend-recetas`, pedido 2a) y `purchasesFeature` (este territorio,
+// pedido 2b) también se dejan reales por el mismo motivo.
 
 const { router } = await import("../router");
 
@@ -100,6 +100,21 @@ describe("router — integra shiftsFeature, catalogFeature, ordersFeature y paym
 
     expect(findChild(children, "merma")).toBeDefined();
     expect(findChild(children, "produccion")).toBeDefined();
+  });
+
+  it("/admin monta compras (purchasesFeature) — pedido 2b", () => {
+    const adminRoute = router.routes.find((r) => r.path === "/admin");
+    const children = adminRoute?.children ?? [];
+
+    expect(findChild(children, "compras")).toBeDefined();
+  });
+
+  it("/pos NO monta ninguna ruta de compras — la recepción lleva precios y es pantalla de administrador (invariante heredado #2)", () => {
+    const posRoute = router.routes.find((r) => r.path === "/pos");
+    const children = posRoute?.children ?? [];
+
+    expect(findChild(children, "compras")).toBeUndefined();
+    expect(children.some((r) => typeof r.path === "string" && r.path.includes("compras"))).toBe(false);
   });
 
   it("la ruta índice de /admin redirige a «hoy» — es la pantalla por la que el dueño abre el admin", () => {
