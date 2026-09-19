@@ -182,7 +182,7 @@ export function RecipeEffectDialog({
           <Label htmlFor={`effect-type-${optionId}`}>Tipo de efecto</Label>
           <Select value={effect} onValueChange={(value) => setEffect(value as RecipeEffectType)}>
             <SelectTrigger id={`effect-type-${optionId}`} className="w-full">
-              <SelectValue>{(value) => EFFECT_TYPE_LABEL[value as RecipeEffectType] ?? String(value)}</SelectValue>
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {(Object.keys(EFFECT_TYPE_LABEL) as RecipeEffectType[]).map((t) => (
@@ -256,7 +256,7 @@ export function RecipeEffectDialog({
                     }
                   >
                     <SelectTrigger id={`effect-unit-${optionId}-${index}`} className="w-full">
-                      <SelectValue>{(value) => LINE_UNIT_LABEL[value as LineUnit] ?? String(value)}</SelectValue>
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {(Object.keys(LINE_UNIT_LABEL) as LineUnit[]).map((u) => (

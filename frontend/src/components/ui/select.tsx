@@ -5,7 +5,46 @@ import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { cn } from "cn"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 
-const Select = SelectPrimitive.Root
+/** Recorre los hijos buscando `SelectItem` y arma el mapa valor -> etiqueta
+ * que Base UI necesita para pintar el valor ELEGIDO. */
+function recolectarItems(
+  nodo: React.ReactNode,
+  acc: Record<string, React.ReactNode>,
+): Record<string, React.ReactNode> {
+  React.Children.forEach(nodo, (hijo) => {
+    if (!React.isValidElement(hijo)) return
+    const props = hijo.props as { value?: unknown; children?: React.ReactNode }
+    if (hijo.type === SelectItem && typeof props.value === "string") {
+      acc[props.value] = props.children
+    }
+    if (props.children) recolectarItems(props.children, acc)
+  })
+  return acc
+}
+
+/** `Select.Root` de Base UI, que además le pasa `items` derivado de los
+ * propios `SelectItem`.
+ *
+ * Sin eso, `Select.Value` sabe la etiqueta del ítem que el usuario ACABA de
+ * clickear, pero no la del valor inicial: pinta el código crudo. Se veía
+ * «Medio: cash» con el desplegable abierto diciendo «Efectivo», «Alcance:
+ * key_items», «Causa: all», «business_date», «month», «org» — nueve
+ * selectores medidos recorriendo el admin entero, más los de los diálogos.
+ *
+ * Se resuelve acá y no en los 25 sitios de llamada por la misma razón de
+ * siempre: veinticinco listas a mano se separan, una no. Un sitio que pase
+ * `items` explícito manda sobre esto. */
+function Select({ items, children, ...props }: SelectPrimitive.Root.Props<string>) {
+  const derivados = React.useMemo(
+    () => (items !== undefined ? items : recolectarItems(children, {})),
+    [items, children],
+  )
+  return (
+    <SelectPrimitive.Root items={derivados} {...props}>
+      {children}
+    </SelectPrimitive.Root>
+  )
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (

@@ -224,12 +224,7 @@ function RegisterPaymentForm({
           <Label htmlFor="pay-method">Medio</Label>
           <Select value={method} onValueChange={(value) => setMethod(value as SupplierPaymentMethod)}>
             <SelectTrigger id="pay-method" className="w-full">
-              {/* `SelectValue` sin hijos pinta el VALOR crudo (`cash`), no la
-                  etiqueta del ítem elegido: el desplegable abierto decía
-                  «Efectivo» y el cerrado decía `cash`. */}
-              <SelectValue>
-                {(value) => SUPPLIER_PAYMENT_METHOD_LABEL[value as SupplierPaymentMethod] ?? String(value)}
-              </SelectValue>
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {(Object.keys(SUPPLIER_PAYMENT_METHOD_LABEL) as SupplierPaymentMethod[]).map((m) => (

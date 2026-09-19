@@ -67,7 +67,11 @@ describe("ComponentLinesEditor", () => {
     await user.click(await screen.findByRole("option", { name: "Preparación" }))
 
     await user.click(screen.getByRole("combobox", { name: "Preparación" }))
-    expect(screen.getByRole("option", { name: "Hogao" })).toBeInTheDocument()
+    // El popup vive en un portal: con los 89 entornos jsdom compitiendo por
+    // CPU todavía no está montado cuando un `getByRole` síncrono pregunta, y
+    // el test pasa solo pero falla en la suite. Tercera vez que aparece este
+    // patrón en el proyecto (WastePage, MovementsPanel): siempre `find*`.
+    expect(await screen.findByRole("option", { name: "Hogao" })).toBeInTheDocument()
   })
 
   it("una línea sin cantidad no se manda: no cuenta como línea completa", () => {
