@@ -1072,3 +1072,59 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    - **Alcance real**: ruta que acepte la sede por parámetro, generación del
      QR en Configuración, y —si se elige el token— tabla, emisión, consumo y
      expiración. No es una pantalla: es una capacidad.
+21. **Recorrido en navegador real de 2a y 2b** (2026-09-19, Chromium sobre la
+   app servida desde `frontend/dist`, contra **Postgres** con la base sembrada
+   desde cero). Es el renglón **#29** del checklist —«1024 px sin scroll
+   horizontal, foco visible»— que venía abierto desde 1a, y el primer recorrido
+   de las pantallas que 2a y 2b construyeron.
+   **Siete defectos, ninguno visible para 1.395 tests.** Los cinco primeros
+   están en los puntos 19-20 y en los commits; los dos del final salieron de los
+   cuatro caminos de plata:
+   - Registrar un pago a proveedor **devolvía `500`**: el `datetime-local` manda
+     la hora sin zona. El mismo defecto dormía desde 1b en la hora prometida de
+     un pedido para llevar.
+   - **Ningún diálogo tenía alto máximo ni scroll**: a 1024×800 el detalle de
+     una cuenta por pagar salía de la pantalla y el botón «Anular» era
+     inalcanzable.
+   - **Nueve selectores** pintaban el código (`cash`, `key_items`, `all`,
+     `business_date`, `org`) en vez del texto.
+   - **Seis insumos del seed** tenían la alerta de mínimo apagada por un
+     error de escala.
+   - La cronología del turno decía **«Egreso (supplier_payment)»**.
+   - **El cero pegado, otra vez**: teclear sobre los campos de impuesto de una
+     recepción daba «062400», «08», «04992». Es el mismo que apareció contando
+     efectivo en el POS. `MoneyInput` no podía arreglarlo en el `onFocus`
+     porque al enfocar CAMBIA lo que muestra y React borra la selección.
+   - **No había camino visible desde el login hasta activar un dispositivo.**
+   **Los cuatro caminos de plata, verificados contra la base:**
+   - **Venta que mueve inventario**: dos gaseosas vendidas desde un teléfono →
+     **una fila del libro por ítem**, cada una atribuida a su `order_item` (la
+     corrección a §5.3, funcionando), stock 0 → −2 sin bloquear la venta (§5.2),
+     y el ítem con `unit_cost=2500` y `recipe_version=1` **congelados**.
+   - **Recepción desde la pantalla**, con PIN de quien recibió: movimiento
+     `PURCHASE` +24, lote, cuenta por pagar en `pending_review` y stock −2 → +22,
+     todo en una transacción. **El IVA bajo INC entró al costo**: $2.600 +
+     $4.992÷24 = **$2.808**, y el `payable` dio $67.392 = la factura.
+   - **Conteo a ciegas**: la pantalla muestra el conteo ANTERIOR y no el stock
+     teórico (que era −1529,412 y no aparece por ningún lado), no existe ningún
+     «todo coincide», el guardado parcial se declara, y aplicar dice al usuario
+     la fórmula exacta y que se hace una sola vez. Los ajustes salieron −205 g y
+     +1.529,412, dejando el stock en lo contado, con `ref_type=stock_count`.
+   - **Varianza**: `inicial + entradas − final = uso real` cierra, se valoriza
+     con el origen del costo, y el caso de **fuga pura** —205 g de uso real sin
+     uso teórico— sale **Rojo** con el porcentaje en «—», no en `0`. Era el
+     hallazgo H-5 del auditor, cerrado de verdad.
+   - **Merma desde el POS**: con responsable, sin ningún costo en pantalla, y en
+     el libro con `ref_type=waste`.
+   **Dos observaciones menores, sin arreglar:**
+   - Varias pantallas **piden el endpoint de una función apagada** y reciben un
+     `400 FEATURE_DISABLED` que manejan bien en la UI, pero que ensucia la
+     consola (visto en «Salud del control» y en Merma, las dos con
+     `catalog.preps` apagada). Un `400` esperado enseña a ignorar los `400`.
+   - `/admin/features` es la única ruta del admin en inglés; el resto está en
+     español (`/admin/hoy`, `/admin/compras`, `/admin/carta`).
+   **Y una decisión de producto que dejo planteada, no tomada**: los tres campos
+   de impuesto de la recepción arrancan en **cero** en vez de vacíos. En una
+   pantalla de transcripción un cero precargado invita a saltear el impuesto, y
+   bajo INC eso subestima el costo del insumo. Cambiarlo rompe seis tests que
+   codifican el cero como deliberado, así que es del dueño de la spec.
