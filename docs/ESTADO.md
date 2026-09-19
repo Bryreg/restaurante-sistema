@@ -867,7 +867,7 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
 15. **El pedido 2b arrancó** (2026-09-16), sobre el commit `8116135`, que es el
    que escribe su delimitación. **La spec de 2b ya está escrita**:
    `features/fase-2-costo-inventario/spec.md § Alcance de 2b`, con su contrato
-   de API, sus invariantes heredados y un checklist de entrega de 31 puntos.
+   de API, sus invariantes heredados y un checklist de entrega de 30 puntos.
    ```js
    Workflow({
      scriptPath: '.claude/workflows/orquestador-general.js',
@@ -899,3 +899,123 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    **Sigue abierta la única decisión que espera al dueño de la spec**: A-1 de
    1b-2, si la supresión de habeas data alcanza `pending_refunds`. No bloquea
    2b, pero es deuda legal y no se arregla sola.
+16. **Verificación final del pedido 2b** (2026-09-19, orquestador humano, árbol
+   quieto, en serie): `python -m mypy app` limpio (**113 archivos**); suite de
+   backend completa **970 passed, 0 failed** (SQLite, 46:58); `tsc` limpio;
+   vitest **405/405** (89 archivos); `vite build` OK; Alembic desde cero
+   `0001 → 0012` (**73 tablas**), seed idempotente y `downgrade base` limpio.
+   La corrida previa a los arreglos daba **4 failed, 966 passed**, y los cuatro
+   eran **exactamente** los que `outputs-2b/ENTREGA.md § 5` declaraba, con los
+   mismos nombres: **tercer pedido seguido en que el reporte del Maestro es
+   honesto**.
+   **El run se cortó por límite semanal** después de la ronda 2 de los
+   constructores, en la ronda 2 del auditor, la conciliación y la ENTREGA. Se
+   retomó con `resumeFromRunId` tres días después: los catorce agentes
+   terminados volvieron de caché y sólo corrieron los tres que faltaban. El
+   mecanismo funciona; lo que hay que recordar es **commitear el árbol antes**,
+   no después (acá quedaron 134 archivos sin commitear tres días).
+   **Los cinco rojos, cerrados a mano. Tres no eran lo que el informe suponía**:
+   - **R-1**: `tests/recipes/conftest.py` montaba el router de recetas por
+     segunda vez. Su guard sólo evitaba montarlo dos veces **desde ahí**; no
+     preguntaba si el dominio ya estaba en `DOMAINS`, que es justo lo que sí
+     hace su vecino `tests/inventory/conftest.py`. **Es la regresión que el
+     commit `228747b` ya cerró una vez en 1b-2** y que volvió con el dominio
+     nuevo de 2a. Producía dos rojos, y sólo se ve con la suite entera en un
+     proceso. La app real no tenía rutas duplicadas: era la instalación de
+     tests.
+   - **R-2**: el test de lotes derivaba su `today` de UTC mientras el servidor
+     usa la fecha de negocio de la sede. **El código de producción estaba bien;
+     el test violaba la regla dura de zona horaria**, y era rojo 11 horas por
+     día (00:00–10:59 UTC). Un CI nocturno habría fallado todas las noches.
+   - **R-3**: el `days=14` del seed **no era el umbral repetido a mano**. Es el
+     conteo completo de apertura de la ventana de food cost real, y coincidía
+     con `INVENTORY_STALE_DAYS` por casualidad, justo sobre su borde. El remedio
+     que proponía el auditor (`INVENTORY_STALE_DAYS - 7`) lo habría puesto a 7
+     días, **encima de la compra sembrada**, rompiendo la ventana. Quedó como
+     `SEED_OPENING_FULL_COUNT_DAYS_AGO = 21`, con escrito que no tiene relación
+     con el umbral.
+   - **R-4**: tocaba **cuatro** archivos, no tres. Sacar `void_after_send` del
+     cliente rompe también el test que afirmaba que el desplegable contiene
+     «Anulación tras envío». Y la lista a mano del invariante heredado se
+     **borró** en vez de parchearse: exigía una causa que 2b sacó y no exigía la
+     que 2b agregó, así que daba **a la vez** un rojo imposible de cerrar y un
+     verde falso. La reemplaza el cruce genérico que lee
+     `app/inventory/schemas.py::MovementCauseLiteral` en las dos direcciones.
+   - **R-5**: `getByRole` síncrono sobre el popup de un portal, mismo patrón que
+     `WastePage.test.tsx`.
+   **Y dos comentarios que describían un árbol que ya no existe**:
+   `api/inventory.ts` anunciaba como GAP abierto el `500` que la ronda 2 cerró;
+   `api/reports.ts` decía que el backend **no** usa
+   `theoretical_cost`/`gross_margin`/`costed_pct` cuando las tres propiedades
+   declaradas seis líneas más abajo se llaman exactamente así — el fósil de la
+   deformación de contrato de 2a. Completado también
+   `tests/recipes/_inventory_stub.py`, que declaraba diez causas contra once.
+17. **La lección de 2b, para el próximo reparto.** Nombrar dueño a los archivos
+   huérfanos **volvió a funcionar**: once nombrados, ninguno falló. **Lo que
+   falla es el CRUCE entre dos dueños**, y falla en los dos sentidos: un
+   contrato de ida construido sin la mitad de vuelta. El mismo espejo
+   backend↔cliente se rompió **cuatro veces** en este pedido, con dueños
+   distintos cada vez, y el typecheck no vio ninguna:
+   - **H-0** (bloqueante): `inventory` agregó la causa nueva al **modelo**
+     porque la spec se lo pidió, `purchases` la **produjo** porque la spec se lo
+     pidió, y **nadie era dueño del `Literal` publicado** —que vive en
+     `inventory` pero sólo se rompe cuando `purchases` escribe—. Revertir una
+     recepción dejaba el libro de ese insumo ilegible con un `500`.
+   - **H-8**: el backend **agregó** una causa y el cliente no tenía etiqueta.
+   - **H-11**: el backend **quitó** una causa y el cliente dejó la etiqueta, así
+     que el desplegable ofrecía un filtro que el servidor rechaza con `422`.
+   - **R-4 bis**: dos invariantes del propio auditor, contradictorios entre sí.
+   - **H-2** es el mismo patrón sin culpa de nadie: `orders` e `inventory`
+     construyeron la **misma** ruta porque la spec la menciona en la sección de
+     `inventory` y el dato vive en `orders`. Los dos creyeron que era suyo.
+   **La regla para el próximo pedido: cuando una capacidad cruza dos dominios,
+   el reparto tiene que nombrar el CONTRATO, no sólo los archivos** — quién
+   publica, quién llama, y **qué pasa cuando se deshace**. Y el invariante
+   barato que lo cobra ya está probado: uno que **lee el contrato del otro lado**
+   en vez de repetir una lista a mano.
+18. **Abierto al cerrar 2b. Lo que pide decisión del dueño de la spec:**
+   - **O-5 — el monto de la cuenta por pagar no se arma con los números de la
+     factura.** `app/purchases/service.py` calcula `Σ (cantidad facturada ×
+     precio) + IVA`, no `Σ (base + IVA)`, que es lo que dice el papel. Con
+     precios redondos coinciden; con una factura que redondea, **el número que
+     el administrador aprueba difiere en pesos del documento que tiene en la
+     mano**. Recomendación: manda el papel, y si `cantidad × precio` no coincide
+     con el total facturado, **esa diferencia es lo que el control tiene que
+     mostrar**, no algo que el sistema tape recalculando por su cuenta.
+   - **«Sostenido» del semáforo rojo** (§5.4: «> 4–5 sostenido rojo»): hoy hay
+     semáforo por conteo individual. La spec no lo define con precisión
+     suficiente para implementarlo sin inventar el criterio.
+   - Sigue abierta desde 1b-2: si la supresión de habeas data alcanza
+     `pending_refunds`.
+   **Lo que es trabajo, priorizado:**
+   - **`GET /admin/payables/{id}/payments` no existe.** Se puede registrar un
+     pago y anular uno por id, pero **no listarlos**: un administrador que
+     vuelve al día siguiente no ve qué se pagó, y no puede anular nada porque no
+     tiene de dónde sacar el `payment_id`. Es el hueco de producto más grande
+     que dejó el pedido, y **no es culpa de los constructores: falta en el
+     contrato de la spec de 2b**.
+   - `GET /admin/suppliers` no declara `format=csv`; las guardas de tecleo no
+     devuelven el valor de referencia estructurado; `PayableOut`/`ReceptionOut`
+     no traen `supplier_name`; los filtros de «Hoy» → Cuentas por pagar no están
+     enganchados.
+   - **O-6, que conviene documentar antes de que alguien lo lea como un bug**:
+     los lotes y el libro **se separan hacia abajo por diseño**. FEFO consume
+     lotes en cada salida, pero **ninguna entrada que no sea una compra crea
+     lote**: una nota «vuelve» y un ajuste de conteo positivo suben el saldo del
+     libro y no devuelven nada a los lotes. `Σ qty_remaining` queda por debajo
+     de `current_stock` y `GET /admin/lots` sub-reporta. **Nadie debe sumar
+     lotes para cuadrar un conteo.**
+   - El bundle del frontend pesa 1,22 MB en un solo chunk (340 kB gzip), sobre
+     el umbral de aviso. Sin code splitting.
+   **Lo que este entorno no puede cerrar**: Postgres real (la atomicidad de la
+   recepción se probó con un fallo **inyectado**, no con una carrera; faltan
+   `SELECT FOR UPDATE`, índices parciales y los `409` de concurrencia), el CI, y
+   el renglón **#29** del checklist (1024 px sin scroll horizontal, foco
+   visible, contraste AA con un medidor real) — **el único de los 30 que cierra
+   como no cubierto**, y viene abierto desde 1a. Tampoco se recorrió 2b en
+   navegador real. Dos cosas que ahí se van a ver raras y **no son bugs**: la
+   primera recepción de un insumo con costo oficial puesto se corta con
+   `409 PRICE_JUMP` si el precio real se aparta más de 15 % (la guarda pregunta,
+   no corrige), y **el perfil `standard` del seed deja `inventory.variance` e
+   `inventory.lots` apagadas**, así que Food cost, Salud del control y Lotes
+   responden `400 FEATURE_DISABLED` hasta encenderlas en Admin → Funciones.
