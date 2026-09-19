@@ -39,3 +39,24 @@ def business_date_for(instant_utc: datetime, cutoff_hour: int) -> date:
 def today_business_date(cutoff_hour: int) -> date:
     """Fecha de negocio "ahora", según el reloj del sistema (mockeable en tests)."""
     return business_date_for(clock.now_utc(), cutoff_hour)
+
+
+def from_bogota_wall_clock(local_naive: datetime) -> datetime:
+    """Una hora de pared que escribió una persona -> instante aware en UTC.
+
+    Es el inverso de `to_bogota`, y existe por un defecto real: un
+    `<input type="datetime-local">` entrega `"2026-09-19T03:14"`, **sin
+    zona**. Pydantic lo acepta como `datetime` naive, y `UTCDateTime`
+    (`app/core/db.py`) lo rechaza al guardarlo — así que el usuario recibía
+    un `500` y el dato no entraba. Pasaba en el pago a proveedor (2b) y en la
+    hora prometida de un pedido para llevar (1b); ninguna suite lo vio porque
+    los tests arman el JSON a mano y escriben la `Z`.
+
+    La zona la pone el SERVIDOR, nunca el navegador: la regla dura de
+    `AGENTS.md` sobre fecha de negocio existe precisamente porque el reloj y
+    la zona del dispositivo no son confiables. Un `datetime` que ya viene
+    aware se respeta tal cual.
+    """
+    if local_naive.tzinfo is not None:
+        return local_naive.astimezone(ZoneInfo("UTC"))
+    return local_naive.replace(tzinfo=BOGOTA).astimezone(ZoneInfo("UTC"))

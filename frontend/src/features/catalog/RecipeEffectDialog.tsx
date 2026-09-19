@@ -31,7 +31,25 @@ const EFFECT_LABEL: Record<RecipeEffectType, string> = {
   replace: "Reemplaza una línea de la ficha base por otra",
 }
 
+/** Etiqueta corta del tipo de efecto. `EFFECT_LABEL` (arriba) describe qué
+ * hace cada uno y es para el texto explicativo; ésta es la del desplegable.
+ * Se usa para pintar los ítems Y el valor elegido: una sola lista, porque dos
+ * a mano se separan sin avisar. */
+const EFFECT_TYPE_LABEL: Record<RecipeEffectType, string> = {
+  add: "Agrega",
+  remove: "Quita",
+  replace: "Reemplaza",
+}
+
 type LineUnit = "g" | "kg" | "ml" | "l" | "unit"
+
+const LINE_UNIT_LABEL: Record<LineUnit, string> = {
+  g: "g",
+  kg: "kg",
+  ml: "ml",
+  l: "l",
+  unit: "unidad",
+}
 
 interface EffectLineDraft {
   key: string
@@ -164,12 +182,14 @@ export function RecipeEffectDialog({
           <Label htmlFor={`effect-type-${optionId}`}>Tipo de efecto</Label>
           <Select value={effect} onValueChange={(value) => setEffect(value as RecipeEffectType)}>
             <SelectTrigger id={`effect-type-${optionId}`} className="w-full">
-              <SelectValue />
+              <SelectValue>{(value) => EFFECT_TYPE_LABEL[value as RecipeEffectType] ?? String(value)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="add">Agrega</SelectItem>
-              <SelectItem value="remove">Quita</SelectItem>
-              <SelectItem value="replace">Reemplaza</SelectItem>
+              {(Object.keys(EFFECT_TYPE_LABEL) as RecipeEffectType[]).map((t) => (
+                <SelectItem key={t} value={t}>
+                  {EFFECT_TYPE_LABEL[t]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -236,14 +256,14 @@ export function RecipeEffectDialog({
                     }
                   >
                     <SelectTrigger id={`effect-unit-${optionId}-${index}`} className="w-full">
-                      <SelectValue />
+                      <SelectValue>{(value) => LINE_UNIT_LABEL[value as LineUnit] ?? String(value)}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="g">g</SelectItem>
-                      <SelectItem value="kg">kg</SelectItem>
-                      <SelectItem value="ml">ml</SelectItem>
-                      <SelectItem value="l">l</SelectItem>
-                      <SelectItem value="unit">unidad</SelectItem>
+                      {(Object.keys(LINE_UNIT_LABEL) as LineUnit[]).map((u) => (
+                        <SelectItem key={u} value={u}>
+                          {LINE_UNIT_LABEL[u]}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

@@ -727,7 +727,12 @@ def create_payment(db: Session, *, actor: Actor, payable: Payable, payload: Any)
         payable_id=payable.id,
         amount=payload.amount,
         method=PaymentMethod(payload.method),
-        paid_at=payload.paid_at,
+        # Una hora de pared sin zona (la que entrega `<input
+        # type="datetime-local">`) se interpreta como hora de la sede, acá y
+        # no en el navegador. Sin esto, `UTCDateTime` la rechaza al guardar y
+        # el usuario recibe un `500`: registrar un pago desde la pantalla NO
+        # funcionaba, y los tests no lo veían porque arman el JSON con `Z`.
+        paid_at=tz.from_bogota_wall_clock(payload.paid_at),
         reference=payload.reference,
         from_cash_drawer=payload.from_cash_drawer,
         cash_movement_id=cash_movement_id,

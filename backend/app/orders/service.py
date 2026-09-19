@@ -658,7 +658,15 @@ def create_order(db: Session, *, actor: Actor, store: Store, payload: OrderCreat
         note=payload.note,
         takeout_customer_name=payload.takeout.customer_name if payload.takeout else None,
         takeout_phone=payload.takeout.phone if payload.takeout else None,
-        promised_at=payload.takeout.promised_at if payload.takeout else None,
+        # Mismo defecto que el pago a proveedor, sembrado en 1b: el
+        # `datetime-local` de «hora prometida» llega sin zona y `UTCDateTime`
+        # lo rechaza al guardar, así que crear un pedido para llevar CON hora
+        # prometida devolvía `500`. La zona la pone el servidor.
+        promised_at=(
+            tz.from_bogota_wall_clock(payload.takeout.promised_at)
+            if payload.takeout and payload.takeout.promised_at is not None
+            else None
+        ),
         consumed_by_employee_id=consumed_by.id if consumed_by else None,
         consumed_by_employee_name=consumed_by.name if consumed_by else None,
         opened_by_employee_id=actor.employee_id,  # type: ignore[arg-type]
