@@ -1043,6 +1043,7 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    - De paso, `create_payable` se movió de `test_payables.py` al conftest de
      `tests/purchases/`: dos copias de una fixture se separan sin avisar, que es
      exactamente la lección que este pedido ya pagó cuatro veces.
-   **Verificación**: `tests/purchases` **45 passed**; `tsc` limpio; vitest
-   **408/408** (89 archivos). La suite completa de backend quedó corriendo al
-   escribir esto — el número va en la anotación siguiente, no acá.
+   **Verificación** (2026-09-19, árbol quieto, en serie): `python -m mypy app`
+   limpio (113 archivos); `tests/purchases` **45 passed**; suite de backend
+   completa **976 passed, 0 failed** (SQLite, 42:36); `tsc` limpio; vitest
+   **408/408** (89 archivos).
