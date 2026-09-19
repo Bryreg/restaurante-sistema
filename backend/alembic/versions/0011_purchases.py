@@ -13,12 +13,21 @@ todavía cuando esta migración corre — mismo patrón que
 sí es FK real: `stock_movements` ya existe desde 2a.
 
 También agrega `CashMovementCause.SUPPLIER_PAYMENT` (misión de este agente,
-"el egreso del cajón" — `app/shifts/**`): `cash_movements.cause` se recrea
-con `batch_alter_table(..., recreate="always")` para que el `CHECK` del
-enum (`native_enum=False`) acepte el valor nuevo en SQLite **y** en
-Postgres (`recreate="always"` fuerza la reconstrucción completa de la tabla
-en cualquier dialecto, no sólo en SQLite — ver `_enum` en
-`0008_inventory.py` para el mismo patrón de enum no nativo).
+"el egreso del cajón" — `app/shifts/**`), y eso **no requiere DDL**: ver la
+nota en el `upgrade`.
+
+**Corregido al primer CI contra Postgres real.** Esta migración recreaba
+`cash_movements` entera con `batch_alter_table(..., recreate="always")`,
+creyendo que hacía falta para que el `CHECK` del enum aceptara el valor
+nuevo. Ese `CHECK` no existe —`_enum` no pide `create_constraint`, así que
+la columna es un `VARCHAR(32)` pelado en los dos motores— y la recreación
+no arreglaba nada. En SQLite pasaba igual, porque recrear una tabla ahí es
+barato y nada se opone. En Postgres, recrear obliga a soltar la clave
+primaria, y `pending_refunds.settled_cash_movement_id` (de 1b) y
+`purchase_payments.cash_movement_id` (de esta misma migración) dependen de
+su índice: `DependentObjectsStillExist`, y `alembic upgrade head` no pasa
+de acá. Es decir que esta fase **no podía desplegarse**, y ninguna suite
+sobre SQLite podía verlo.
 
 Revision ID: 0011
 Revises: 0010
@@ -27,14 +36,12 @@ Create Date: 2026-09-16
 
 from __future__ import annotations
 
-import enum
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 from app.purchases.models import PayableStatus, PaymentMethod, ReceptionStatus
-from app.shifts.models import CashMovementCause
 
 # revision identifiers, used by Alembic.
 revision: str = "0011"
@@ -45,23 +52,6 @@ depends_on: Sequence[str] | None = None
 
 def _enum(pyenum: type, *, length: int = 32) -> sa.Enum:
     return sa.Enum(pyenum, native_enum=False, length=length, validate_strings=True)
-
-
-class _CashMovementCauseBefore0011(str, enum.Enum):
-    """Copia congelada de `CashMovementCause` tal como estaba ANTES de esta
-    migración (sin `SUPPLIER_PAYMENT`), sólo para que `downgrade()` recree
-    el `CHECK` original de verdad — importar el enum vivo de
-    `app.shifts.models` acá abajo daría el conjunto de HOY (con
-    `SUPPLIER_PAYMENT` todavía adentro), que no es lo que esta sede tenía
-    antes de aplicar `0011`. Mismo motivo por el que `upgrade()` sí puede
-    importar el enum vivo: ahí el conjunto final ES el de hoy."""
-
-    PETTY_EXPENSE = "petty_expense"
-    EMERGENCY_PURCHASE = "emergency_purchase"
-    REFUND = "refund"
-    TIP_PAYOUT = "tip_payout"
-    OTHER_INCOME = "other_income"
-    OTHER_EXPENSE = "other_expense"
 
 
 def upgrade() -> None:
@@ -208,21 +198,17 @@ def upgrade() -> None:
     op.create_index("ix_purchase_payments_store_created", "purchase_payments", ["store_id", "created_at"])
 
     # -- cash_movements.cause gana SUPPLIER_PAYMENT ----------------------
-    with op.batch_alter_table("cash_movements", recreate="always") as batch_op:
-        batch_op.alter_column(
-            "cause",
-            existing_type=_enum(CashMovementCause),
-            type_=_enum(CashMovementCause),
-        )
+    # Sin DDL, a propósito. `_enum` construye
+    # `sa.Enum(..., native_enum=False, validate_strings=True)` SIN
+    # `create_constraint=True`, y el default de SQLAlchemy 2.x es no crearla:
+    # la columna es un `VARCHAR(32)` pelado en Postgres **y** en SQLite, y la
+    # validación del valor vive en Python, no en la base. Verificado en las
+    # dos: el único CHECK de `cash_movements` es el de `amount > 0`.
+    # Agregar un valor al enum de Python no necesita tocar el esquema.
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("cash_movements", recreate="always") as batch_op:
-        batch_op.alter_column(
-            "cause",
-            existing_type=_enum(CashMovementCause),
-            type_=_enum(_CashMovementCauseBefore0011),
-        )
+    # Simétrico al upgrade: estrechar el enum tampoco toca el esquema.
     op.drop_table("purchase_payments")
     op.drop_table("payables")
     op.drop_table("reception_lines")
