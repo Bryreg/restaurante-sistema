@@ -71,7 +71,11 @@ jobs:
   frontend:
     name: frontend (typecheck, tests, build)
     runs-on: ubuntu-latest
-    needs: backend
+    # Sin `needs: backend`, a propósito. Esperaba al backend para no gastar
+    # minutos cuando el repositorio era privado y se cobraban; ahora que es
+    # público son gratis, y esa dependencia sólo cuesta 46 minutos de espera
+    # y ESCONDE la señal del frontend cada vez que el backend falla — que es
+    # justo cuando más conviene saber si además hay algo roto del otro lado.
     defaults:
       run:
         working-directory: frontend
