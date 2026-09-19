@@ -1400,11 +1400,19 @@ def list_business_days(db: Session, *, store_id: int, date_from: date | None, da
 
 
 _MOVEMENT_KIND_LABEL = {"income": "Ingreso", "expense": "Egreso"}
+#: Etiqueta legible de cada causa de movimiento de caja, para la cronología
+#: del turno. **Tiene que cubrir el enum entero**: `_movement_cause_label`
+#: cae al valor crudo si falta una, y esa degradación es SILENCIOSA — así
+#: llegó `supplier_payment` (2b) a pintarse como «Egreso (supplier_payment)
+#: por $150.000» en la pantalla de Dinero, que es exactamente el defecto que
+#: 1a ya había arreglado una vez para las otras seis. Hay un test que recorre
+#: `CashMovementCause` y exige una etiqueta por miembro.
 _MOVEMENT_CAUSE_LABEL = {
     "petty_expense": "Gasto menor",
     "emergency_purchase": "Compra de emergencia",
     "refund": "Devolución",
     "tip_payout": "Pago de propinas",
+    "supplier_payment": "Pago a proveedor",
     "other_income": "Otro ingreso",
     "other_expense": "Otro egreso",
 }
