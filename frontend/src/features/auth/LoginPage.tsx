@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { adminLogin } from "@/api/auth";
@@ -98,6 +98,20 @@ export default function LoginPage(): React.JSX.Element {
               {isSubmitting ? "Ingresando…" : "Ingresar"}
             </Button>
           </form>
+          {/* La pantalla de activación existía y estaba bien hecha, pero sólo
+              llegaba quien ya sabía la URL: la raíz manda acá, y acá no había
+              nada que mencionara el POS. El dueño que monta una tablet abre
+              el navegador, ve un formulario que le pide correo y contraseña de
+              administrador —que no es lo que tiene que hacer— y no concluye
+              «me falta un dato»: concluye que el producto no sirve. Pasa una
+              vez por aparato, pero es la PRIMERA vez.
+              No regala nada: activar sigue exigiendo el PIN de sede. */}
+          <p className="mt-6 border-t pt-4 text-center text-sm text-muted-foreground">
+            ¿Es una tablet o un PC del salón?{" "}
+            <Link to="/pos/activate" className="font-medium text-foreground underline underline-offset-4">
+              Activá este dispositivo
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </div>

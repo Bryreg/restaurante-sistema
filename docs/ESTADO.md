@@ -1047,3 +1047,28 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    limpio (113 archivos); `tests/purchases` **45 passed**; suite de backend
    completa **976 passed, 0 failed** (SQLite, 42:36); `tsc` limpio; vitest
    **408/408** (89 archivos).
+20. **Pedido anotado, sin construir: activar una tablet con un código QR.**
+   Encontrado en el recorrido en navegador del 19-09. La raíz de la app manda
+   al login de administrador, y hasta hoy **no había ningún camino visible
+   hacia `/pos/activate`**: quien montaba una tablet tenía que adivinar la
+   URL. Se cerró con un enlace en el login («¿Es una tablet o un PC del
+   salón? Activá este dispositivo»), que resuelve el problema y cuesta tres
+   líneas.
+   **Lo que queda pendiente es el escalón siguiente**, y sólo vale la pena
+   cuando haya un cliente con varios aparatos: que el administrador genere un
+   **QR desde Configuración** y lo escanee con cada tablet.
+   - **Lo que de verdad resuelve** no es el enlace —ése ya está— sino el
+     campo **«Número de sede»**: hoy el dueño tiene que saber que su sede es
+     la «1». Es el punto donde la gente se traba, y de hecho ya pasó una vez
+     en este proyecto (se tecleó el PIN de seis dígitos en ese campo). Un QR
+     que lleve la sede adentro lo elimina.
+   - **Lo que hay que decidir antes de construirlo**: el QR **no puede llevar
+     el PIN de sede**. Si lo lleva, una foto del cartel pegado en la pared
+     activa un dispositivo ajeno, y el PIN de sede es lo único que separa al
+     salón de cualquiera con el enlace. Las dos salidas razonables son un QR
+     que sólo precargue la sede (y el PIN se sigue tecleando), o un token de
+     activación de un solo uso y con vencimiento, emitido desde el admin —
+     que es más seguro y bastante más trabajo.
+   - **Alcance real**: ruta que acepte la sede por parámetro, generación del
+     QR en Configuración, y —si se elige el token— tabla, emisión, consumo y
+     expiración. No es una pantalla: es una capacidad.
