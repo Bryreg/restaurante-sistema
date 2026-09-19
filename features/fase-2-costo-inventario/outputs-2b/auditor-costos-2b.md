@@ -10,9 +10,20 @@ Todo lo que afirmo acá apunta a `archivo:línea` y lo verifiqué **leyendo el
 código**, no los informes de los constructores (lección de `outputs-2a/ENTREGA.md
 §3`: los reportes nacen viejos porque el árbol se mueve mientras se escriben).
 
-**Veredicto en una línea: 81 invariantes nuevos, 27 de los 30 renglones del
-checklist de 2b en verde con test nombrado (1 rojo, 1 no cubierto, 1 que le
-toca al orquestador), y diez hallazgos — dos de ellos bloqueantes.**
+**VEREDICTO DE HOY (ronda 2), en una línea: los diez hallazgos de la ronda 1
+están cerrados —los dos bloqueantes con implementación, no con un test
+ablandado—, escribí once invariantes nuevos para que no puedan volver, y quedan
+dos rojos, los dos nuevos, los dos con dueño nombrado (H-10 y H-11). Mi
+territorio: 1 rojo y 310 verdes en backend, 1 rojo y 78 verdes en frontend,
+mypy y `tsc` limpios.** El detalle está en **[Ronda 2](#ronda-2)**.
+
+Lo que sigue, hasta el separador, es el veredicto de la **ronda 1**, que se
+deja como registro.
+
+**Veredicto de la ronda 1, en una línea: 81 invariantes nuevos, 27 de los 30
+renglones del checklist de 2b en verde con test nombrado (1 rojo, 1 no
+cubierto, 1 que le toca al orquestador), y diez hallazgos — dos de ellos
+bloqueantes.**
 
 - **H-0** (bloqueante): después de revertir una recepción, `GET /admin/ingredients/{id}/movements`
   devuelve **500** y el libro de ese insumo queda ilegible para siempre.
@@ -31,7 +42,7 @@ y 69 verdes** en frontend. Los siete rojos de backend son los seis defectos de
 > que el árbol era el día que se escribieron. Lo que vale hoy está en la
 > sección **[Ronda 2](#ronda-2)**, al final: ahí están los diez hallazgos de
 > §4 cerrados uno por uno, los invariantes que cambiaron por decisión del
-> orquestador, los doce invariantes nuevos, la excepción de escala declarada y
+> orquestador, los once invariantes nuevos, la excepción de escala declarada y
 > los dos hallazgos nuevos. **Donde §4 y Ronda 2 discrepen, manda Ronda 2.**
 
 ---
@@ -883,3 +894,461 @@ exactamente lo que destapó H-0. Un invariante acotado por una cadena de
 texto se vuelve a romper en cuanto una ruta legítima no sigue la convención de
 nombres — que es exactamente lo que hizo `POST /receptions`, con el contrato de
 la spec de su lado.
+
+## Ronda 2
+
+**Veredicto de la ronda 2, en una línea: los diez hallazgos de la ronda 1 están
+cerrados —los dos bloqueantes con implementación, no con un test ablandado—,
+escribí once invariantes nuevos para que no puedan volver, y quedan dos rojos,
+los dos nuevos, los dos con dueño nombrado.**
+
+Mi territorio, corrido entero, **dos veces, en serie**, con el árbol quieto:
+
+| Corrida | Backend (`tests/audit` + `tests/payments/test_documents.py`) | Frontend (`src/audit`) |
+|---|---|---|
+| 1.ª | **1 failed, 310 passed** — 311 casos, 17:25 | **1 failed, 78 passed** — 79 casos, 4,4 s |
+| 2.ª | **1 failed, 310 passed** — 17:23, **el mismo rojo** | **1 failed, 78 passed**, **el mismo rojo** |
+
+Las dos corridas son idénticas, caso por caso: ningún test de mi territorio es
+inestable.
+
+```
+export TMPDIR=/tmp/pt-auditor          # propio, para no borrarle el temporal a nadie
+cd backend   && python -m pytest -q -p no:cacheprovider tests/audit tests/payments/test_documents.py
+cd backend   && python -m mypy tests/audit/test_purchases_invariants.py \
+                 tests/audit/test_counts_invariants.py tests/audit/test_contract_2b_invariants.py \
+                 tests/audit/test_inventory_invariants.py tests/payments/test_documents.py \
+                 tests/audit/conftest.py
+   -> Success: no issues found in 6 source files
+cd frontend  && npx vitest run src/audit
+cd frontend  && npx tsc --noEmit
+   -> limpio (salida vacía, exit 0)
+```
+
+**No corrí la suite completa, ni `npm run test` sin argumentos, ni
+`npm run build`**: eso lo corre el orquestador una vez, en serie, con el árbol
+quieto.
+
+Un apunte de honestidad sobre el orden: después de la 1.ª corrida actualicé
+**tres docstrings** que seguían diciendo «ROJO A PROPÓSITO» sobre hallazgos ya
+cerrados (`test_purchases_invariants.py:822` — H-1,
+`test_counts_invariants.py:832` — H-4, `test_contract_2b_invariants.py:760` —
+H-0). Son cambios **sólo de texto**: no toqué una sola aserción ni un solo
+`assert`. Lo verifiqué después con `pytest --collect-only` (**311 tests
+collected**, el mismo número que corre) y con `mypy` (limpio), para que nadie
+tenga que confiar en mi palabra.
+
+El único rojo de backend es **H-10** y el único de frontend es **H-11**: los
+dos son hallazgos **nuevos de esta ronda**, los dos están escritos como rojo a
+propósito y **no les bajé la severidad**. Ninguno de los siete rojos de la
+ronda 1 sigue abierto y **ninguno quedó tapado** (§R2.6, donde lo verifico uno
+por uno en vez de afirmarlo).
+
+Una corrección al bloque que encabeza este documento: ahí escribí «doce
+invariantes nuevos» mientras los estaba escribiendo. **Son once** — seis de
+backend y cinco de frontend. Los conté contra el delta real de casos de las dos
+corridas (backend 305 → 311, frontend 74 → 79), no contra mi memoria.
+
+---
+
+### R2.0 El checklist de 2b: los renglones que cambiaron de estado
+
+§2 queda como registro de la ronda 1. Esto es el **delta**, y con él el
+checklist queda así: **28 de los 30 renglones en verde con test nombrado, 1 no
+cubierto (#29) y 1 que le toca al orquestador (#30). Ningún renglón del
+checklist está en rojo.** Los dos rojos que quedan (H-10 y H-11) son
+invariantes que escribí **además** del checklist.
+
+| # | Renglón | Estado en §2 (ronda 1) | Estado hoy | Test |
+|---|---|---|---|---|
+| 7 | El saldo se deriva; no existe columna `balance` | verde **con salvedad H-1** | **verde, sin salvedad** | `test_the_payable_has_no_stored_balance_column`, `test_voiding_a_payment_returns_it_to_the_derived_balance`, + `:819`, `:943`, `:1036` |
+| 10 | Eliminar una recepción revierte todo o falla con nombre propio | verde **con salvedad H-0** | **verde, sin salvedad** | los tres de la ronda 1 + `test_the_ledger_can_be_read_after_a_reception_is_reversed` |
+| 16 | > 14 días sin conteo completo: inventario no confiable y el food cost no se publica | verde **con salvedad H-4** | **verde, sin salvedad** | `test_past_14_days_without_a_full_count_...` + `test_on_the_14_day_border_...` + `test_the_14_day_threshold_is_declared_exactly_once_in_the_whole_app` |
+| 18 | Los umbrales del semáforo son configuración de sede | verde **con salvedad H-5** | **verde, sin salvedad** | `test_the_traffic_light_thresholds_are_store_configuration` + `test_variance_without_theoretical_usage_is_never_green_when_stock_is_missing` |
+| 21 | `GET /admin/orders/{id}/consumption` agrega; el libro no fusiona | verde **con salvedad H-2** | **verde, sin salvedad** | `:187` (re-apuntado) + `:293` (SALE + NOTE_RETURN, costo congelado) + `:395` (publicada una sola vez) |
+| 25 | `MovementCause.VOID_AFTER_SEND` se produce o se saca | **ROJO (H-3)** | **verde**: se sacó | `test_void_after_send_is_gone_from_the_enum_and_from_the_published_literal` |
+| 28 | Zona horaria: recepción a las 00:30 sellada con el día del turno | verde **con salvedad H-6** | **verde, sin salvedad** | `test_a_reception_at_0030_is_sealed_with_the_business_day_of_the_shift` + `purchases-counts.test.ts:315` |
+| 29 | Admin en 1024 px sin scroll horizontal; foco visible; contraste AA | no cubierto | **no cubierto** (§R2.8) | — |
+| 30 | Typecheck, suite completa y build, una vez, en serie | no me corresponde | **no me corresponde** | — |
+
+Los otros 21 renglones no cambiaron de estado: estaban verdes con test
+nombrado en §2 y siguen verdes en las dos corridas de esta ronda.
+
+---
+
+### R2.1 Qué invariantes cambiaron por decisión del orquestador, y por qué
+
+Cinco. Ninguno cambió de severidad; tres cambiaron de **enunciado** porque la
+decisión movió lo que es correcto, y dos se **re-apuntaron** al contrato que
+sobrevivió. En los cinco casos el invariante quedó **igual de estricto o más**:
+esa es la vara con la que hay que leer un invariante que se mueve.
+
+| # | Test (archivo:línea) | Qué exigía en la ronda 1 | Qué exige ahora | Decisión que lo movió |
+|---|---|---|---|---|
+| 1 | `tests/audit/test_inventory_invariants.py:814` `test_the_ledger_declares_the_causes_of_section_5_1_and_nothing_else` | El conjunto **exacto** de doce causas, con `void_after_send` adentro y `reception_reversal` adentro | El conjunto **exacto** de **once**: `void_after_send` **fuera**, `reception_reversal` adentro. El docstring deja escrito por qué se retiró (`:828-841`): nunca se produjo, y producirla dispararía una segunda depleción FEFO real sobre cantidad ya consumida al vender | **H-3** |
+| 2 | `tests/audit/test_contract_2b_invariants.py:508` `test_void_after_send_is_gone_from_the_enum_and_from_the_published_literal` (antes: `..._is_either_produced_or_removed_from_the_enum`) | «Se produce **o** se saca» — aceptaba las dos salidas | La causa **no existe**: ni en `MovementCause`, ni en `MovementCauseLiteral`, **ni como código ejecutable en todo `app/`** (barrido de AST sobre `ast.Attribute` y `ast.Constant`, `:560-571`). **Más estricto que el anterior**: el de la ronda 1 se cerraba produciéndola una vez | **H-3** |
+| 3 | `tests/audit/test_contract_2b_invariants.py:187` `test_the_order_consumption_read_aggregates_while_the_ledger_keeps_one_row_per_item` | Un renglón por insumo en la lectura y una fila por ítem en el libro, contra la implementación que se sirviera | Lo mismo **más la forma del contrato de `app.orders`, campo por campo**: sin `store_id` (ni en path ni en query), `qty_base` texto decimal **que puede ser negativo**, `cost` entero de pesos o `null`, `unit` presente, `item_count` **ausente** (si reaparece, alguien resucitó la implementación descartada) | **H-2** |
+| 4 | `tests/audit/test_counts_invariants.py:464` `test_variance_without_theoretical_usage_is_never_green_when_stock_is_missing` (antes: `..._is_painted_green`) | Un caso: con uso teórico `0` y faltante, el semáforo no puede ser verde | **Tres casos en el mismo test**: faltante → `red`, sobrante → `yellow`, cero → `green`, y `variance_pct_bp` en `null` en los tres. «No es verde» a secas dejaría pasar un semáforo que pinta todo rojo y deja de distinguir | **H-5** |
+| 5 | `frontend/src/audit/inventory.test.ts:163` «nadie multiplica ni divide por la escala de cantidades o de costos» | Cero ocurrencias de `QTY_SCALE`/`COST_SCALE`/`micros`/`*1000` en todo el territorio de costo del cliente | Lo mismo, **con una excepción de un solo símbolo** (§R2.3). Dentro del archivo de la excepción siguen cayendo `COST_SCALE`, `micros`, `QTY_SCALE` y cualquier `/1000` suelto; fuera de él, también `COUNT_QTY_SCALE` | **H-7** |
+
+Los tres invariantes heredados que acoté en la **ronda 1** (§3.9 —
+`test_security_invariants.py:832`, el enum de causas y el punto de llegada de
+la cadena de Alembic) **no volvieron a tocarse**: la decisión del orquestador
+no los afectó. Y el barrido de costo recortado por sesión
+(`tests/payments/test_documents.py:139`, §3.2-3.5) sigue **verde con las rutas
+de 2b montadas**, sin una sola excepción por nombre de ruta.
+
+---
+
+### R2.2 Los once invariantes nuevos, con su modo de falla
+
+Cada uno existe porque un defecto **concreto** de la ronda 1 llegó hasta acá
+sin que ningún test lo viera. El modo de falla es el del defecto, no una
+abstracción.
+
+#### Backend — seis
+
+| # | Test (archivo:línea) | Qué caza, y qué pasa si falta |
+|---|---|---|
+| 1 | `tests/audit/test_purchases_invariants.py:943` `test_voiding_a_cash_drawer_payment_restores_the_expected_with_a_typed_reintegro` | Anular un pago hecho desde el cajón deja el `expected` del turno **exactamente** como estaba antes del pago, y el reintegro es `kind=income` **con causa `supplier_payment`**. Falla si alguien recicla `other_income` o un ajuste manual: el esperado cuadraría igual, pero el responsable de caja vería un ingreso que no puede explicar y la trazabilidad pago↔reintegro se perdería. Es el par exacto de **H-1** |
+| 2 | `tests/audit/test_purchases_invariants.py:1036` `test_voiding_a_cash_drawer_payment_without_an_open_shift_is_409_and_writes_nothing` | Sin turno abierto la anulación responde `409` y **nada quedó escrito**: `voided_at` sigue `None` **y** el saldo derivado del `payable` no se movió. Falla si alguien escribe `voided_at` primero y compensa después (el patrón obvio): ahí un `409` dejaría el pago anulado y la caja intacta — el mismo descuadre de H-1, ahora con un error en la cara del usuario |
+| 3 | `tests/audit/test_counts_invariants.py:895` `test_on_the_14_day_border_today_control_health_and_food_cost_use_the_same_threshold` | En el **borde exacto** de los 14 días, con el reloj puesto a una hora de Bogotá que en UTC **ya es el día siguiente**, `GET /admin/today`, `GET /admin/control-health` y `GET /admin/food-cost` dicen **lo mismo**. Es el caso que H-4 producía: una fórmula restaba fechas de negocio y la otra instantes UTC truncados, y se separaban justo en el borde — el tablero decía «confiable» mientras el número ya no se publicaba |
+| 4 | `tests/audit/test_counts_invariants.py:1045` `test_the_14_day_threshold_is_declared_exactly_once_in_the_whole_app` | El número `14` está declarado **una sola vez** en todo `app/`, y en su dueño (`app.inventory.hooks.INVENTORY_STALE_DAYS`). Barrido de AST, no `grep`. Consolidar el cálculo no alcanza si el número sigue escrito en tres lados: eso fue exactamente H-4 |
+| 5 | `tests/audit/test_counts_invariants.py:1072` `test_nobody_rewrites_the_14_day_threshold_as_a_bare_day_count` | Nadie vuelve a escribir `14` **como cantidad de días** fuera del dueño de la constante. **Rojo hoy = H-10** |
+| 6 | `tests/audit/test_contract_2b_invariants.py:395` `test_the_order_consumption_operation_is_published_exactly_once` | La operación está registrada **una sola vez** en el árbol real de FastAPI, se sirve desde `app.orders.router`, y **generar el OpenAPI no levanta ningún `UserWarning` de `Duplicate Operation ID`**. En la ronda 1 ese warning salía en cada corrida que tocara el documento y nadie lo leía, porque un warning no rompe nada. Acá sí rompe |
+
+Y un séptimo que **no es nuevo sino re-apuntado**, y que da la señal que faltaba:
+`tests/audit/test_contract_2b_invariants.py:293`
+`test_the_order_consumption_read_sums_sale_and_note_return_with_the_frozen_cost`
+—suma `SALE + NOTE_RETURN` (la implementación descartada sumaba sólo `SALE`,
+así que reportaba consumo que ya había vuelto) y exige el **costo congelado del
+libro**: una revaluación con el costo de hoy lo hace fallar. Es la regla de
+snapshot aplicada a la lectura que H-2 dejó ambigua.
+
+#### Frontend — cinco
+
+| # | Test (`frontend/src/audit/`) | Qué caza, y qué pasa si falta |
+|---|---|---|
+| 7 | `purchases-counts.test.ts:345` «toda causa de caja declarada por el backend tiene etiqueta no vacía en el cliente» | **El cruce que en la ronda 1 no tenía nadie.** Lee `CashMovementCauseLiteral` de `backend/app/shifts/schemas.py` y exige, por cada valor, una entrada en `api/shifts.ts::CashMovementCause` **y** una etiqueta no vacía en `features/shifts/MovementsPanel.tsx::CAUSE_LABEL`. H-8 fue un caso particular: el typecheck no lo caza porque `Record<CashMovementCause, string>` sólo es exhaustivo sobre la unión, y la unión era lo que quedó viejo. **La causa número ocho, la que agregue fase 3, cae sola** |
+| 8 | `purchases-counts.test.ts:486` «el cliente declara EXACTAMENTE las causas de movimiento que el backend publica» | El mismo cruce, del otro lado del libro, y en **las dos direcciones**: una causa del backend que falte se pinta sin nombre; una causa del cliente que el backend no declare se vuelve una opción del desplegable de filtro que **siempre falla** (`?cause=<esa>` → `422` antes de entrar al endpoint). **Rojo hoy = H-11** |
+| 9 | `purchases-counts.test.ts:429` «la excepción vive en UN solo símbolo, con el nombre exacto que se declaró» | `COUNT_QTY_SCALE` existe, vale `1000`, y **no apareció en un segundo archivo** del territorio de 2b. Una excepción que no se enumera es una excepción que se expande sola |
+| 10 | `purchases-counts.test.ts:448` «lo que sale de la calculadora es texto decimal, nunca milésimas» | `parseCountInput` devuelve **texto**, no el entero escalado. Si devolviera milésimas, la escala del cliente dejaría de ser ayuda de tecleo y pasaría a ser el dato que se guarda — y ahí la excepción de H-7 se cae sola |
+| 11 | `purchases-counts.test.ts:468` «la captura de conteo manda el valor como texto, no como número JSON» | La pantalla de captura no manda `qty_counted: Number(...)`. Un `float` en el borde de un conteo es una varianza inventada tres pantallas más adelante |
+
+---
+
+### R2.3 La excepción de escala, declarada por escrito (H-7)
+
+Está escrita **dos veces a propósito**: en el barrido que la perdona
+(`frontend/src/audit/inventory.test.ts:163-206`) y en el archivo que le cobra
+el precio (`frontend/src/audit/purchases-counts.test.ts:400-474`). Un lector
+que llegue por cualquiera de los dos lados encuentra la decisión completa.
+
+**Qué prohíbe el invariante.** `QTY_SCALE = 1000` y `COST_SCALE = 1_000_000`
+viven en `backend/app/core/quantity.py:31` y **no se cruzan al frontend**: la
+API manda y recibe texto decimal ya convertido. Un `* 1000` en el cliente es la
+escala escrita dos veces, y el día que cambie la precisión base sólo cambia
+una.
+
+**Qué lo rompe, con nombre y apellido.**
+
+> `frontend/src/features/inventory/lib.ts :: COUNT_QTY_SCALE` (línea 136),
+> usado por `parseCountInput` (línea 138).
+
+Es la calculadora que deja teclear `10+20+5` al capturar un conteo
+(`docs/SPEC-NEGOCIO.md §5.4`). Suma en milésimas **enteras** justamente para no
+acumular `float`: `0.1 + 0.2` tiene que dar `0.3`, no `0.30000000000000004`. Y
+para sumar en milésimas enteras necesita la escala.
+
+**La decisión del orquestador, y su fundamento.** La calculadora **se queda**
+—contar «6+8 cajas» es ergonomía real de un conteo físico— y la matemática
+autoritativa sigue siendo la del servidor: el cliente manda **siempre** texto
+decimal y el servidor lo revalida con `app.core.quantity.parse_qty_base`. Por
+eso el espejo **no es una segunda matemática de negocio, es ayuda de tecleo**:
+su peor caso es un `422` de más, nunca un dato mal guardado.
+
+**Cómo se acotó, y por qué así.** Por **símbolo**, no por patrón de ruta. El
+barrido sigue corriendo sobre `features/inventory/lib.ts` entero: `COST_SCALE`,
+`micros`, `QTY_SCALE` y cualquier `/1000` suelto **ahí adentro** siguen siendo
+un hallazgo, y un `COUNT_QTY_SCALE` en **cualquier otro archivo** también cae.
+Acotar por ruta habría apagado el guard para un archivo entero, que es la forma
+silenciosa de perderlo — la misma lección que el recorte de §3.
+
+**Qué dejó de estar cubierto.** Exactamente una línea: la que multiplica por
+`COUNT_QTY_SCALE` dentro de `parseCountInput`. **El precio de la excepción está
+cobrado** con los tres tests #9, #10 y #11 de §R2.2: mientras los tres pasen, la
+excepción es legítima; si alguno cae, deja de serlo y hay que volver a decidir.
+
+---
+
+### R2.4 Los diez hallazgos de la ronda 1, uno por uno
+
+| # | Severidad declarada | Estado | Qué lo cerró (`archivo:línea`, verificado leyendo el código) | Test que lo prueba hoy |
+|---|---|---|---|---|
+| **H-0** | **Bloqueante** | **CERRADO** | `app/inventory/schemas.py:26` declara `"reception_reversal"` en `MovementCauseLiteral`. Una línea, como estaba previsto | `test_inventory_invariants.py::test_the_cost_source_of_the_api_is_the_same_enum_as_the_model` **verde** + `test_contract_2b_invariants.py:757::test_the_ledger_can_be_read_after_a_reception_is_reversed` **verde** |
+| **H-1** | **Bloqueante** | **CERRADO** (salida 1: compensar) | `app/purchases/service.py:779-804` llama `app.shifts.hooks.register_supplier_payment_reversal` (`app/shifts/hooks.py:214`) **antes** de tocar `voided_at`: `CashMovement(kind=INCOME, cause=SUPPLIER_PAYMENT)` en el turno **abierto al momento de anular**; sin turno abierto, `409 NO_OPEN_SHIFT` y la anulación se rechaza completa. El `CashMovement` original **queda vivo** (nada financiero se borra) | `test_purchases_invariants.py:819` (**sin ablandar**, sigue aceptando las dos salidas) + los dos nuevos `:943` y `:1036` — los tres **verdes** |
+| **H-2** | Advertencia alta | **CERRADO** | La ruta quedó **sólo** en `app/orders/router.py:326`; la de `app/inventory` se borró entera, con su esquema, su servicio y `tests/inventory/test_order_consumption.py`. Ya no hay `Duplicate Operation ID` | `test_contract_2b_invariants.py:395` (registro único + cero `UserWarning` + forma del contrato) y `:187`, `:293` — **verdes** |
+| **H-3** | Advertencia | **CERRADO** (salida: sacarla) | `app/inventory/models.py:63-73` documenta el retiro; el valor no está ni en el enum ni en `MovementCauseLiteral` ni como código ejecutable en `app/`. `tests/recipes/_inventory_stub.py` también quedó al día para esta causa | `test_contract_2b_invariants.py:508` y `test_inventory_invariants.py:814` — **verdes**. **Abrió H-11 en el cliente** |
+| **H-4** | Advertencia | **CERRADO** | `app.inventory.hooks.inventory_staleness` (`app/inventory/hooks.py:729`) es la única matemática, con `INVENTORY_STALE_DAYS = 14` (`:712`) como única constante; `app/inventory/service.py:1411` y `:1542` la consumen, y `app/reports/service.py:741` la lee **borrando su copia** | `test_counts_invariants.py:829` (**verde**), `:895` (**verde**), `:1045` (**verde**). **Abrió H-10** |
+| **H-5** | Advertencia | **CERRADO** | `app/inventory/service.py:1202-1205`: con `theoretical == 0`, `variance_qty == 0 → green`, `> 0 → red`, `< 0 → yellow`, y `variance_pct_bp` sigue en `null` | `test_counts_invariants.py:464`, ahora con los **tres** casos — **verde** |
+| **H-6** | Advertencia | **CERRADO** | Las tres pantallas usan hoy `@/lib/businessDate` y `features/purchases/lib.ts:109` (`daysAgoInBogota`/`todayInBogota` de `features/reports/lib.ts`). **No queda un solo `toISOString().slice(0, 10)` en `frontend/src/features/**`** — sólo aparece en comentarios que explican por qué no se usa | `security.test.ts` «no usa `toISOString().slice(0, 10)`» y `purchases-counts.test.ts:318` — **verdes** |
+| **H-7** | Advertencia | **CERRADO por decisión** (la calculadora se queda; excepción declarada) | `frontend/src/features/inventory/lib.ts:136` (`COUNT_QTY_SCALE`), con la excepción escrita en §R2.3 y su precio cobrado por tres tests | `inventory.test.ts:163` — **verde con la excepción**; `purchases-counts.test.ts:429/448/468` — **verdes** |
+| **H-8** | Advertencia | **CERRADO** | `frontend/src/features/shifts/MovementsPanel.tsx:55` declara `supplier_payment: "Pago a proveedor"`, y el comentario de `:50-54` explica por qué la etiqueta no dice «egreso» (el reintegro de H-1 llega con la **misma** causa y `kind: "income"`) | `purchases-counts.test.ts:345`, ahora **genérico sobre el `Literal` del backend** — **verde** |
+| **H-9** | Advertencia baja | **CERRADO** | `frontend/src/features/purchases/PayableDetailDialog.tsx:183-190`: `if (amount === null) return Promise.reject(...)`. La guarda dejó de estar 74 líneas más arriba y pasó a ser el primer renglón del `mutationFn` | `purchases-counts.test.ts` «ningún costo, saldo, porcentaje ni razón se reemplaza por cero al pintarlo» — **verde** |
+
+**Diez de diez cerrados. Los dos bloqueantes, con implementación.**
+
+---
+
+### R2.5 Los dos rojos que quedan, con dueño
+
+**Los dos son defectos reales, no invariantes mal escritos.** Lo digo
+explícitamente porque es la pregunta que el orquestador tiene que poder
+responder sin volver a leer el código: en los dos casos verifiqué el modo de
+falla contra el árbol —la línea exacta que lo produce y el camino por el que un
+usuario lo alcanza— antes de escribir el test, y en los dos el remedio es de
+una o dos líneas **en código de producción**, no en el test. Si alguno de los
+dos se cerrara tocando mi test en vez del código, eso sí sería taparlo.
+
+
+#### H-10 — Advertencia baja. El umbral de 14 días vuelve a escribirse a mano en el seed
+
+**Dónde**: `backend/app/inventory/seed.py:257`,
+`_open_and_apply_full_count(now - timedelta(days=14))`.
+
+**Modo de falla, dos**:
+
+1. Si el umbral cambia a 10, **la base de demostración arranca declarando el
+   inventario no confiable** y el food cost real desaparece de la demo, sin que
+   nadie toque el seed y sin que ningún test lo avise.
+2. El número está **exactamente sobre el borde** (`unreliable = días > 14`, así
+   que 14 justo pasa). Cualquier diferencia de un día en la fecha de negocio
+   —un `cutoff_hour` distinto, el seed corrido de madrugada— apaga el food cost
+   real de la demo **el día que se siembra**.
+
+**Qué toca**: no mueve plata. Es señal, y es la regla «una sola matemática» del
+lado del número en vez del lado de la fórmula — la mitad de H-4 que la
+consolidación no alcanzó a cubrir.
+
+**Remedio, una línea**: importar `INVENTORY_STALE_DAYS` y restarle margen
+explícito (`days=INVENTORY_STALE_DAYS - 7`), en vez de repetir el número.
+
+**Test**: `tests/audit/test_counts_invariants.py:1072::test_nobody_rewrites_the_14_day_threshold_as_a_bare_day_count`.
+**Dueño**: `app/inventory/seed.py` → `backend-inventario-espejo`.
+
+#### H-11 — Advertencia. El cliente sigue ofreciendo un filtro por una causa que el backend ya no acepta
+
+**Dónde**: `frontend/src/api/inventory.ts:51` (`| "void_after_send"` en la unión
+`MovementCause`) y `frontend/src/features/inventory/lib.ts:25`
+(`void_after_send: "Anulación tras envío"` en `CAUSE_LABEL`).
+
+**Modo de falla, concreto**: `features/inventory/MovementsPanel.tsx:80` arma el
+desplegable de filtro con `Object.entries(CAUSE_LABEL)`. El administrador ve la
+opción **«Anulación tras envío»**, la elige, el cliente manda
+`?cause=void_after_send` a `GET /admin/ingredients/{id}/movements`, y FastAPI la
+rechaza con `422` **antes de entrar al endpoint**
+(`app/inventory/router.py:187`, `cause: MovementCauseLiteral | None`). Un filtro
+que siempre falla es peor que no tener el filtro: el administrador concluye que
+el libro está roto.
+
+**Por qué apareció ahora**: es **la contracara exacta de H-8**. H-3 sacó la
+causa del backend y el cliente no se enteró. En H-8 el backend agregó y el
+cliente no tenía la etiqueta; acá el backend quitó y el cliente dejó la
+etiqueta. **El mismo cruce, el mismo día, los dos sentidos.** El typecheck no
+caza ninguno de los dos: `Record<MovementCause, string>` es exhaustivo sobre la
+unión, y la unión es lo que quedó viejo.
+
+**Qué toca**: no mueve plata. Degrada la lectura del **libro**, que es la
+herramienta con la que se explica un faltante.
+
+**Remedio, dos líneas**: borrar el valor de la unión y la entrada del mapa.
+
+**Test**: `frontend/src/audit/purchases-counts.test.ts:486` → «el cliente
+declara EXACTAMENTE las causas de movimiento que el backend publica».
+**Dueño**: `frontend/src/api/inventory.ts` + `frontend/src/features/inventory/lib.ts`
+→ `frontend-inventario-conteos`.
+
+#### Dos observaciones que NO escribí como test
+
+- **O-8 — comentario podrido en `frontend/src/api/inventory.ts:34-46`.** Declara
+  como «GAP de contrato» que `reception_reversal` está en el enum del backend
+  pero **falta** en `MovementCauseLiteral`, y anuncia el `500` de H-0. **H-0 se
+  cerró**: hoy la causa está publicada (`app/inventory/schemas.py:26`). El
+  comentario describe un árbol que ya no existe y le dice al próximo lector que
+  filtrar por esa causa devuelve `422`. Se borra junto con H-11, que vive nueve
+  líneas más abajo. Territorio ajeno; severidad advertencia baja.
+- **O-9 — `backend/tests/recipes/_inventory_stub.py:36-46` declara diez causas
+  y el enum real tiene once**: le falta `reception_reversal`. Hoy **no rompe
+  nada** (el stub sólo se usa cuando `app.inventory` no está montado, y ningún
+  test de recetas produce esa causa) y **no hay ninguna aserción de igualdad**
+  entre el stub y el enum, así que no hay rojo que lo avise. Lo declaro porque
+  es un espejo del contrato sin invariante que lo sostenga: es la misma forma de
+  H-0 y de H-11, esperando su turno. Territorio ajeno (`backend-recetas`).
+- **O-2 sigue abierta, y la re-verifiqué contra el código de hoy.**
+  `frontend/src/api/reports.ts:224-225` sigue diciendo *«El backend los nombra
+  así (no `theoretical_cost`/`gross_margin`/`costed_pct`) para no chocar con
+  dos invariantes de OpenAPI»* mientras las tres propiedades que declara seis
+  líneas más abajo (`:231`, `:233`, `:235`) **ya se llaman exactamente así**.
+  El backend usa los nombres de la spec desde el commit `17f5a28`
+  (`backend/app/reports/schemas.py:238-240`), y en todo `backend/app/` y
+  `frontend/src/` **no queda una sola ocurrencia** de `theoretical_value`,
+  `gross_contribution` ni `recipe_coverage_pct` fuera de un comentario
+  histórico (`backend/app/reports/schemas.py:10`). Es documentación podrida que
+  le dice al próximo lector que el contrato publicado diverge de la spec cuando
+  ya no diverge — **exactamente el rastro que el punto 5 de mi mandato pedía no
+  borrar**, y por eso lo vuelvo a dejar escrito en vez de arreglarlo
+  (territorio ajeno, severidad advertencia baja). Mi recorte no lo tapa: la
+  lista blanca de `tests/audit/test_reports_invariants.py:441` nombra
+  `theoretical_cost` y `gross_margin` uno por uno, así que un renombre futuro
+  se pone rojo por el lado contrario.
+
+---
+
+### R2.6 ¿Quedó algún rojo de la ronda 1 tapado en vez de cerrado?
+
+Lo pregunté explícitamente sobre cada cierre, porque un verde conseguido
+borrando el caso se ve idéntico a un verde conseguido arreglando el código.
+**Revisé los seis cierres que podían haberse tapado, y ninguno lo está.** Lo
+que sigue es la prueba de cada uno, no la afirmación.
+
+1. **H-1 (bloqueante) — NO está tapado, y es el que más podía estarlo.** El
+   test que lo cazó (`test_purchases_invariants.py:819`) **no se tocó en una
+   sola aserción**: sigue aceptando cualquiera de las dos salidas correctas, y
+   sigue siendo el que fallaría si el saldo volviera y la caja no se enterara.
+   Cuál de las dos se tomó lo fijan **dos tests nuevos**, no una relajación del
+   viejo. Lo verifiqué además contra el código: `app/purchases/service.py:806`
+   escribe `voided_at` **después** del reintegro, no antes.
+2. **H-0 (bloqueante) — NO está tapado.** Lo cazaban dos tests: uno estático
+   heredado de 2a y uno de comportamiento mío. **Los dos siguen existiendo, con
+   sus aserciones intactas**, y los dos están verdes. El estático compara el
+   enum contra el `Literal` con `==`, no con `⊇`: si mañana alguien agrega al
+   enum sin publicar, vuelve a rojo.
+3. **H-2 — el test de la ronda 1 desapareció, y lo reemplazó uno MÁS
+   estricto.** `test_the_order_consumption_route_is_registered_exactly_once` ya
+   no existe; en su lugar está
+   `test_the_order_consumption_operation_is_published_exactly_once`, que hace
+   **lo mismo y tres cosas más** (dueño del módulo, cero `UserWarning` de
+   `Duplicate Operation ID`, y forma del contrato publicado). **Declaro el
+   reemplazo explícitamente** porque un test que desaparece es exactamente lo
+   que hay que mirar dos veces.
+4. **H-2, la otra mitad: `tests/inventory/test_order_consumption.py` se borró
+   entero.** Eso **no es tapar un rojo**: es la consecuencia declarada de la
+   decisión del orquestador (se borró la implementación que ese archivo
+   probaba, con su esquema y su servicio). Lo dejo escrito porque en la lectura
+   de un `git diff` un archivo de tests borrado se parece mucho a un rojo
+   escondido, y acá no lo es. **Lo que sí conviene verificar en la corrida
+   final es que `tests/orders/test_consumption.py` cubra lo que ese archivo
+   cubría**; es territorio ajeno y no lo corrí.
+5. **H-5 — el test se renombró y ganó casos, no los perdió.** De un caso
+   (faltante no puede ser verde) a tres (faltante `red`, sobrante `yellow`,
+   cero `green`). Un renombre que **amplía** el conjunto probado.
+6. **H-7 — la excepción NO borró el barrido.** Es el recorte que más fácil se
+   degrada a «borrar el test». Sigue corriendo sobre el archivo de la
+   excepción para todo lo demás, sigue cazando el símbolo en cualquier otro
+   archivo, y **paga un precio de tres tests nuevos** (§R2.3). Un recorte que se
+   limitara a borrar el test sería un recorte fallido, y esto no lo es.
+
+**Y un cierre que arrastró un defecto nuevo, declarado como tal**: H-3 se cerró
+bien en el backend y **abrió H-11** en el cliente. No lo cuento como «H-3 mal
+cerrado» —la decisión era correcta y está bien ejecutada del lado del
+servidor— sino como lo que es: el cruce backend→cliente otra vez, que es
+exactamente el hueco que el invariante nuevo #8 existe para tapar de ahora en
+más. **El invariante que lo caza lo escribí yo en esta misma ronda, y lo cazó
+en su primera corrida.**
+
+---
+
+### R2.7 Predicción de la corrida final, actualizada
+
+En la ronda 1 predije 7 rojos de backend y 5 de frontend, con nombre y
+apellido, y salieron **exactamente** esos. La predicción de esta ronda, sobre
+**mi territorio**:
+
+| # | Test | Hallazgo | Severidad |
+|---|---|---|---|
+| 1 | `tests/audit/test_counts_invariants.py::test_nobody_rewrites_the_14_day_threshold_as_a_bare_day_count` | **H-10** | advertencia baja |
+| 2 | `frontend/src/audit/purchases-counts.test.ts` → «el cliente declara EXACTAMENTE las causas de movimiento que el backend publica» | **H-11** | advertencia |
+
+**Predigo 1 rojo en backend y 1 en frontend, y ningún otro.** No es una
+predicción a ciegas: es la corrida, hecha dos veces en serie con el árbol
+quieto. Los otros **310 casos de backend y 78 de frontend** están verdes.
+
+**Fuera de mi territorio** sigo sin predecir nada (no lo corrí), pero dejo
+cuatro avisos que la corrida completa del orquestador va a encontrar y que
+conviene no confundir con defectos nuevos:
+
+- **`tests/inventory/test_order_consumption.py` ya no existe** (H-2). Si la
+  suite completa acusa un import roto que lo nombre, es el rastro de esa
+  decisión, no un defecto.
+- **`app/shifts/hooks.py` ganó `register_supplier_payment_reversal`** y
+  `app/purchases/service.py::void_payment` puede ahora responder
+  `409 NO_OPEN_SHIFT`. Cualquier test heredado de `tests/purchases/**` que
+  anulara un pago del cajón **sin turno abierto** y esperara `200` se pone rojo
+  **correctamente**: el contrato cambió por decisión, y ése es el rojo que hay
+  que actualizar, no revertir.
+- **`MovementCause.VOID_AFTER_SEND` ya no existe.** Cualquier test de otro
+  territorio que la nombre revienta con `AttributeError`.
+  `tests/orders/test_consumption.py:850` y `tests/recipes/_inventory_stub.py`
+  ya están al día; no encontré ningún otro uso con un barrido sobre todo
+  `backend/**/*.py`.
+- **El `UserWarning: Duplicate Operation ID` ya no aparece.** Si vuelve a
+  aparecer en la corrida final, es que se montó una segunda ruta nueva — y mi
+  invariante #6 la va a nombrar.
+
+---
+
+### R2.8 Lo que sigue sin poder verificarse en este entorno
+
+Sin cambios respecto de §5, con dos precisiones que esta ronda agregó:
+
+- **El `409 NO_OPEN_SHIFT` de la anulación se probó sin concurrencia real.**
+  Mi test cierra el turno y después anula; una carrera real (anular mientras
+  otro cierra el turno) depende del bloqueo de Postgres, y eso queda para el
+  CI. El patrón validar-antes-de-escribir es correcto, pero la garantía
+  transaccional bajo carga sigue sin probarse en SQLite.
+- **El borde de los 14 días se probó con el reloj inyectado**, no con el reloj
+  del sistema en `America/Bogota`. El caso que armé (hora de Bogotá que en UTC
+  ya es el día siguiente) es el que importa y es determinista, pero un
+  despliegue con el `TZ` del contenedor mal puesto no lo detecta ningún test
+  de nodo.
+- **Ítem 29 del checklist** (1024 px, foco visible, contraste AA) sigue sin
+  cubrirse: hace falta un navegador real. Es el único renglón del checklist de
+  2b que cierro como **no cubierto**, y lo cierro así a propósito.
+
+---
+
+### R2.9 La lección de la ronda 2, medible
+
+En §7 propuse una regla para el próximo reparto: **cuando una capacidad cruza
+dos dominios, el reparto tiene que nombrar el CONTRATO, no sólo los archivos**
+—quién publica, quién llama, y **qué pasa cuando se deshace**— porque los cinco
+hallazgos de cruce de la ronda 1 eran, los cinco, «la mitad de ida construida
+sin la mitad de vuelta».
+
+Esta ronda le puso número a esa propuesta, y el número no es mío: es H-11.
+
+- **H-8** (ronda 1): el backend **agregó** una causa de caja y el cliente no
+  tenía la etiqueta.
+- **H-11** (ronda 2): el backend **quitó** una causa del libro y el cliente
+  dejó la etiqueta.
+
+El mismo cruce, en los dos sentidos, en dos rondas seguidas, con dueños
+distintos cada vez y sin que el typecheck viera ninguno de los dos. **Un enum
+publicado por un dominio y espejado por otro no tiene dueño: tiene dos mitades,
+y cada pedido rompe la que no le toca.** El invariante #8 de §R2.2 es la forma
+barata de cerrarlo para siempre —lee el `Literal` del backend y exige igualdad
+exacta en las dos direcciones, sin nombrar ninguna causa— y lo escribí después
+de H-8 sin saber que iba a cazar H-11 en su primera corrida. Ésa es la prueba
+de que la regla se puede convertir en test, que es lo único que la hace
+sobrevivir a un reparto.
+
+Queda un tercer espejo del mismo contrato **sin invariante que lo sostenga**:
+`backend/tests/recipes/_inventory_stub.py` (O-9). No rompe nada hoy. Es el
+mismo hueco, esperando el pedido que lo pise.
+
+Y la lección de 2a sobre los invariantes que envejecen se sostuvo una vez más,
+con un matiz nuevo: **acotar un invariante y cerrarlo no son lo mismo, y el que
+se acota hay que cobrarle el precio**. La excepción de escala de H-7 es
+legítima porque tres tests nuevos la vigilan (§R2.3); si mañana alguien borra
+esos tres, la excepción se vuelve el agujero que el barrido existía para tapar,
+y nadie se va a enterar. Un recorte sin precio es un borrado con buena prensa.

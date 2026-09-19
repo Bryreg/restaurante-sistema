@@ -829,10 +829,16 @@ def test_an_expired_lot_is_never_written_off_automatically(
 def test_today_and_control_health_agree_on_the_days_since_the_last_full_count(
     admin_client: Any, store: Any, clock: Any
 ) -> None:
-    """**ROJO A PROPÓSITO — advertencia: la misma pregunta con dos cuentas.**
+    """**VERDE DESDE LA RONDA 2 — nació rojo (H-4): la misma pregunta con
+    dos cuentas.** Se cerró consolidando la matemática en
+    `app.inventory.hooks.inventory_staleness` (`app/inventory/hooks.py:729`)
+    con la constante única `INVENTORY_STALE_DAYS` (`:712`); `app/reports`
+    la consume (`app/reports/service.py:741`) y borró su copia. El test se
+    queda tal cual. Lo que sigue es el modo de falla original, como
+    registro.
 
-    «Inventario no confiable» se responde en DOS endpoints y cada uno la
-    calcula distinto:
+    «Inventario no confiable» se respondía en DOS endpoints y cada uno la
+    calculaba distinto:
 
     - `app/inventory/service.py:1505-1507` (`control_health`) resta **fechas
       de negocio** (`tz.business_date_for`, corte de la sede).

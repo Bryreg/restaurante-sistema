@@ -757,8 +757,13 @@ def test_the_new_2b_causes_are_produced_and_typed(
 def test_the_ledger_can_be_read_after_a_reception_is_reversed(
     admin_client: Any, store: Any, db: Any, clock: Any
 ) -> None:
-    """**ROJO A PROPÓSITO — BLOQUEANTE: el libro de un insumo deja de poder
-    leerse después de revertir una recepción.**
+    """**VERDE DESDE LA RONDA 2 — nació rojo, y era BLOQUEANTE (H-0): el
+    libro de un insumo dejaba de poder leerse después de revertir una
+    recepción.** Se cerró agregando `"reception_reversal"` a
+    `MovementCauseLiteral` (`app/inventory/schemas.py:26`, dueño
+    `backend-inventario-espejo`). El test se queda tal cual, sin bajarle una
+    sola aserción: es la contraprueba de que el desfase no vuelve. Lo que
+    sigue es el modo de falla original, como registro.
 
     `app/inventory/models.py:75` declara `MovementCause.RECEPTION_REVERSAL` y
     `app/purchases/service.py:485-499` la **produce** al revertir una

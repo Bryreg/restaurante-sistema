@@ -819,9 +819,22 @@ def test_no_purchases_route_is_reachable_under_a_device_session(
 def test_voiding_a_cash_drawer_payment_does_not_leave_the_till_short(
     admin_client: Any, store: Any, db: Any, open_shift: Any, expected_of: Any
 ) -> None:
-    """**ROJO A PROPÓSITO — BLOQUEANTE: toca plata contada en el cajón.**
+    """**VERDE DESDE LA RONDA 2 — nació rojo, y era BLOQUEANTE (H-1): tocaba
+    plata contada en el cajón.** Se cerró por la salida (1): `void_payment`
+    (`app/purchases/service.py:744-823`) compensa el egreso con
+    `app.shifts.hooks.register_supplier_payment_reversal`
+    (`app/shifts/hooks.py:214`), `kind=INCOME`, causa tipada
+    `SUPPLIER_PAYMENT`, en el turno ABIERTO al momento de anular, y sin
+    turno abierto rechaza la anulación completa con `409 NO_OPEN_SHIFT`.
 
-    `app/purchases/service.py:744-773` (`void_payment`) cambia `voided_at`,
+    **Este test NO se toca**: sigue aceptando cualquiera de las dos salidas,
+    justamente para que no pueda cerrarse ablandando el invariante. Cuál de
+    las dos se tomó lo fijan los dos tests nuevos de la ronda 2
+    (`test_voiding_a_cash_drawer_payment_restores_the_expected_with_a_typed_reintegro`
+    y `..._without_an_open_shift_is_409_and_writes_nothing`). Lo que sigue es
+    el modo de falla original, como registro.
+
+    `app/purchases/service.py:744-773` (`void_payment`) cambiaba `voided_at`,
     `voided_reason` y el autorizador, y **nunca toca
     `Payment.cash_movement_id`** (`app/purchases/models.py:288`). Entonces,
     al anular un pago que salió del cajón:
