@@ -283,6 +283,10 @@ export interface PaymentOut {
   created_at: string
   voided_at: string | null
   voided_reason: string | null
+  /** Quién anuló. Anular un pago a proveedor devuelve plata al cajón, y eso
+   * tiene responsable: sin este campo el historial dice que se anuló y no
+   * dice quién. */
+  voided_by_employee_name: string | null
 }
 
 export interface PaymentVoidIn {
@@ -326,6 +330,22 @@ export function payablesCsvUrl(params: PayablesQuery): string {
 
 export function approvePayable(payableId: number, data: PayableApproveIn): Promise<PayableOut> {
   return api<PayableOut>(`/admin/payables/${payableId}/approve`, { method: "POST", body: data })
+}
+
+/** El historial de pagos de una cuenta por pagar, del más viejo al más nuevo.
+ *
+ * Los anulados vienen INCLUIDOS y marcados: son parte del historial, y
+ * esconderlos dejaría al administrador viendo dos pagos contra un saldo
+ * calculado sobre otra cosa. El saldo lo sigue derivando el servidor de los
+ * pagos vivos (`PayableOut.balance`) y este cliente nunca lo recalcula. */
+export function listPayablePayments(payableId: number, params: { includeVoided?: boolean } = {}): Promise<PaymentOut[]> {
+  return api<PaymentOut[]>(`/admin/payables/${payableId}/payments`, {
+    query: { include_voided: params.includeVoided },
+  })
+}
+
+export function payablePaymentsCsvUrl(payableId: number): string {
+  return `/api/v1/admin/payables/${payableId}/payments?format=csv`
 }
 
 export function createPayment(payableId: number, data: PaymentIn, idempotencyKey: string): Promise<PaymentOut> {

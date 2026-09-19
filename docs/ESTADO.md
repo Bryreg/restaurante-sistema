@@ -988,12 +988,8 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    - Sigue abierta desde 1b-2: si la supresión de habeas data alcanza
      `pending_refunds`.
    **Lo que es trabajo, priorizado:**
-   - **`GET /admin/payables/{id}/payments` no existe.** Se puede registrar un
-     pago y anular uno por id, pero **no listarlos**: un administrador que
-     vuelve al día siguiente no ve qué se pagó, y no puede anular nada porque no
-     tiene de dónde sacar el `payment_id`. Es el hueco de producto más grande
-     que dejó el pedido, y **no es culpa de los constructores: falta en el
-     contrato de la spec de 2b**.
+   - ~~**`GET /admin/payables/{id}/payments` no existe.**~~ **CERRADO** el
+     mismo día (ver punto 19).
    - `GET /admin/suppliers` no declara `format=csv`; las guardas de tecleo no
      devuelven el valor de referencia estructurado; `PayableOut`/`ReceptionOut`
      no traen `supplier_name`; los filtros de «Hoy» → Cuentas por pagar no están
@@ -1019,3 +1015,34 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    no corrige), y **el perfil `standard` del seed deja `inventory.variance` e
    `inventory.lots` apagadas**, así que Food cost, Salud del control y Lotes
    responden `400 FEATURE_DISABLED` hasta encenderlas en Admin → Funciones.
+19. **Cerrado el hueco de los pagos** (2026-09-19, después del cierre de 2b).
+   `GET /admin/payables/{id}/payments` ya existe, y con él la cuenta por pagar
+   deja de estar a medias: se podía registrar un pago y anular uno por id, pero
+   **no verlos**, así que un administrador que volvía al día siguiente no sabía
+   qué se había pagado y **no podía anular nada**, porque el `payment_id` sólo
+   había existido en la respuesta del `POST` que lo creó.
+   **No era culpa de los constructores: faltaba en el contrato que escribí yo.**
+   La spec de 2b queda corregida con la ruta y con el motivo escrito, para que
+   la próxima lectura del contrato no repita la omisión.
+   - El historial viene del más viejo al más nuevo e **incluye los anulados,
+     marcados** con motivo y con **quién anuló** (`voided_by_employee_name`,
+     nuevo en `PaymentOut`): anular un pago a proveedor devuelve plata al cajón
+     y eso tiene responsable. Esconderlos habría dejado al administrador viendo
+     dos pagos contra un saldo calculado sobre otra cosa. El saldo lo sigue
+     derivando `payable_balance` de los pagos vivos, que es el único que decide.
+   - `include_voided=false` filtra, y **los vivos suman exactamente lo que el
+     saldo dice que ya se pagó**: hay un test que lo cobra, porque si esas dos
+     lecturas no cierran, una miente.
+   - Declara `format` en el contrato publicado, no lo lee de
+     `request.query_params` — la regla de 2b, cumplida por la ruta nueva.
+   - **La pantalla dejaba ver el rodeo**: `PayableDetailDialog.tsx` guardaba los
+     pagos **en memoria de la sesión** y lo decía en pantalla («esta tabla sólo
+     muestra los pagos que se registraron con esta pantalla abierta»). Ahora lee
+     del servidor, dice cuando no pudo cargar en vez de dibujar una tabla vacía
+     que parece «no hay pagos», y muestra el estado de cada pago.
+   - De paso, `create_payable` se movió de `test_payables.py` al conftest de
+     `tests/purchases/`: dos copias de una fixture se separan sin avisar, que es
+     exactamente la lección que este pedido ya pagó cuatro veces.
+   **Verificación**: `tests/purchases` **45 passed**; `tsc` limpio; vitest
+   **408/408** (89 archivos). La suite completa de backend quedó corriendo al
+   escribir esto — el número va en la anotación siguiente, no acá.

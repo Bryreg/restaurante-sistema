@@ -624,6 +624,25 @@ def list_payables(
     return rows
 
 
+def list_payments(db: Session, *, payable_id: int, include_voided: bool = True) -> list[Payment]:
+    """El historial de pagos de una cuenta por pagar, del más viejo al más
+    nuevo.
+
+    Los anulados vienen INCLUIDOS por default y marcados: son parte del
+    historial, y esconderlos dejaría un saldo que no cierra contra lo que la
+    pantalla muestra —el administrador vería tres pagos y un saldo calculado
+    sobre dos—. `payable_balance` sigue siendo el único que decide cuánto se
+    debe, y sólo cuenta los vivos.
+
+    Sin esta lectura, `POST .../payments/{id}/void` era inusable al día
+    siguiente: el `payment_id` sólo existía en la respuesta del `POST` que lo
+    creó, así que anular un pago de una sesión anterior era imposible."""
+    stmt = select(Payment).where(Payment.payable_id == payable_id)
+    if not include_voided:
+        stmt = stmt.where(Payment.voided_at.is_(None))
+    return list(db.execute(stmt.order_by(Payment.paid_at, Payment.id)).scalars())
+
+
 def approve_payable(db: Session, *, actor: Actor, payable: Payable, authorizer_pin: str) -> Payable:
     if payable.status == PayableStatus.APPROVED:
         raise AppError(code="PAYABLE_ALREADY_APPROVED", message="Esta cuenta por pagar ya está aprobada", status=400)

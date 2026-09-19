@@ -14,11 +14,19 @@
  * es el que el servidor devuelve — ese es correcto y completo, esté o no
  * la lista de pagos.
  */
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
 
 import { ApiError, newIdempotencyKey } from "@/api/client"
-import { approvePayable, createPayment, voidPayment, type PayableOut, type PaymentOut, type SupplierPaymentMethod } from "@/api/purchases"
+import {
+  approvePayable,
+  createPayment,
+  listPayablePayments,
+  voidPayment,
+  type PayableOut,
+  type PaymentOut,
+  type SupplierPaymentMethod,
+} from "@/api/purchases"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,30 +54,15 @@ import { formatCOP } from "@/lib/money"
 
 import { PAYABLE_STATUS_LABEL, SUPPLIER_PAYMENT_METHOD_LABEL } from "./lib"
 
-function sessionPaymentsKey(payableId: number) {
-  return ["purchases", "payables", payableId, "session-payments"] as const
-}
-
-function useSessionPayments(payableId: number) {
-  const queryClient = useQueryClient()
-  const [payments, setPayments] = useState<PaymentOut[]>(
-    () => queryClient.getQueryData<PaymentOut[]>(sessionPaymentsKey(payableId)) ?? [],
-  )
-  function addPayment(payment: PaymentOut) {
-    setPayments((prev) => {
-      const next = [payment, ...prev]
-      queryClient.setQueryData(sessionPaymentsKey(payableId), next)
-      return next
-    })
-  }
-  function replacePayment(payment: PaymentOut) {
-    setPayments((prev) => {
-      const next = prev.map((p) => (p.id === payment.id ? payment : p))
-      queryClient.setQueryData(sessionPaymentsKey(payableId), next)
-      return next
-    })
-  }
-  return { payments, addPayment, replacePayment }
+/** El historial de pagos viene del servidor.
+ *
+ * Hasta el cierre de 2b esta pantalla guardaba los pagos en memoria de la
+ * sesión, porque `GET /admin/payables/{id}/payments` no existía: faltaba en
+ * el contrato de la spec. El resultado era que un administrador que volvía
+ * al día siguiente no veía nada, y no podía anular un pago porque el
+ * `payment_id` sólo había existido en la respuesta del `POST` que lo creó. */
+function paymentsKey(payableId: number) {
+  return ["purchases", "payables", payableId, "payments"] as const
 }
 
 function ApproveAction({ payable, onApproved }: { payable: PayableOut; onApproved: () => void }): React.JSX.Element {
@@ -114,8 +107,10 @@ function VoidPaymentAction({
     },
   })
 
+  // La anulación, con su motivo y su responsable, la muestra la columna
+  // «Estado» de la tabla. Acá sólo queda no ofrecer el botón dos veces.
   if (payment.voided_at) {
-    return <span className="text-xs text-muted-foreground">Anulado: {payment.voided_reason ?? "—"}</span>
+    return <span className="text-xs text-muted-foreground">—</span>
   }
 
   return (
@@ -283,7 +278,14 @@ export function PayableDetailDialog({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const queryClient = useQueryClient()
-  const { payments, addPayment, replacePayment } = useSessionPayments(payable.id)
+  const paymentsQuery = useQuery({
+    queryKey: paymentsKey(payable.id),
+    queryFn: () => listPayablePayments(payable.id),
+    // Sólo cuando el diálogo está abierto: una tabla por cuenta por pagar en
+    // el listado serían N consultas para datos que nadie está mirando.
+    enabled: open,
+  })
+  const payments = paymentsQuery.data ?? []
 
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: ["purchases", "payables"] })
@@ -339,8 +341,7 @@ export function PayableDetailDialog({
           {payable.status === "approved" && payable.balance > 0 ? (
             <RegisterPaymentForm
               payable={payable}
-              onPaid={(payment) => {
-                addPayment(payment)
+              onPaid={() => {
                 invalidate()
               }}
             />
@@ -350,13 +351,15 @@ export function PayableDetailDialog({
           ) : null}
 
           <div className="space-y-2">
-            <p className="text-sm font-medium">Pagos registrados en esta sesión</p>
-            <p className="text-xs text-muted-foreground">
-              El sistema no ofrece todavía una forma de listar los pagos ya existentes de una cuenta (hueco de
-              contrato declarado). Esta tabla sólo muestra los pagos que se registraron con esta pantalla abierta.
-            </p>
-            {payments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Ninguno todavía en esta sesión.</p>
+            <p className="text-sm font-medium">Pagos</p>
+            {paymentsQuery.isPending ? (
+              <p className="text-sm text-muted-foreground">Cargando los pagos…</p>
+            ) : paymentsQuery.isError ? (
+              <p role="alert" className="text-sm text-destructive">
+                No se pudieron cargar los pagos de esta cuenta. Volvé a abrirla antes de registrar uno nuevo.
+              </p>
+            ) : payments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Todavía no se registró ningún pago.</p>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
@@ -366,6 +369,7 @@ export function PayableDetailDialog({
                       <TableHead>Medio</TableHead>
                       <TableHead>Fecha</TableHead>
                       <TableHead>Cajón</TableHead>
+                      <TableHead>Estado</TableHead>
                       <TableHead />
                     </TableRow>
                   </TableHeader>
@@ -377,11 +381,23 @@ export function PayableDetailDialog({
                         <TableCell>{formatInstant(payment.paid_at)}</TableCell>
                         <TableCell>{payment.from_cash_drawer ? "Sí" : "No"}</TableCell>
                         <TableCell>
+                          {payment.voided_at ? (
+                            <div className="space-y-0.5">
+                              <Badge variant="destructive">Anulado</Badge>
+                              <p className="text-xs text-muted-foreground">
+                                {payment.voided_reason}
+                                {payment.voided_by_employee_name ? ` · ${payment.voided_by_employee_name}` : ""}
+                              </p>
+                            </div>
+                          ) : (
+                            <Badge variant="secondary">Vigente</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
                           <VoidPaymentAction
                             payableId={payable.id}
                             payment={payment}
-                            onVoided={(voided) => {
-                              replacePayment(voided)
+                            onVoided={() => {
                               invalidate()
                             }}
                           />

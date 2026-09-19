@@ -328,6 +328,37 @@ def approve_payable(
     return _payable_out(db, row)
 
 
+@router.get("/admin/payables/{payable_id}/payments")
+def list_payments(
+    payable_id: int,
+    request: Request,
+    include_voided: bool = Query(True, description="incluir los pagos anulados, marcados como tales"),
+    format: str | None = Query(None, description='"csv" exporta el listado como CSV'),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> Any:
+    """El historial de pagos de una cuenta por pagar.
+
+    Faltaba en el contrato de 2b, y sin él la cuenta por pagar estaba a
+    medias: se podía registrar un pago y anular uno por id, pero no VERLOS.
+    Un administrador que volvía al día siguiente no sabía qué se había
+    pagado, y no podía anular nada porque el `payment_id` sólo había
+    existido en la respuesta del `POST` que lo creó.
+
+    Los anulados vienen incluidos y marcados (`voided_at`/`voided_reason`/
+    `voided_by_employee_name`): son parte del historial. El saldo lo sigue
+    derivando `payable_balance` de los pagos vivos, y es el único que lo
+    decide."""
+    del format
+    payable = service.get_payable_or_404(db, organization_id=actor.organization_id, payable_id=payable_id)
+    admin_store(db, actor, payable.store_id)
+    rows = service.list_payments(db, payable_id=payable.id, include_voided=include_voided)
+    out = [PaymentOut.model_validate(r) for r in rows]
+    if wants_csv(request):
+        return csv_response([r.model_dump(mode="json") for r in out], filename=f"payable-{payable.id}-payments.csv")
+    return out
+
+
 @router.post("/admin/payables/{payable_id}/payments", status_code=201)
 def create_payment(
     payable_id: int,

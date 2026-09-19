@@ -288,6 +288,7 @@ Same conventions as 1a/1b/2a. All routes under `/api/v1`.
 - `GET /admin/payables?status&supplier_id&overdue&from&to&format` → balance **derived** from live payments.
 - `POST /admin/payables/{id}/approve` `{authorizer_pin}` → `pending_review` → `approved`. Paying an unapproved payable → `409 PAYABLE_NOT_APPROVED`: this is the minimum control between whoever receives and whoever pays.
 - `POST /admin/payables/{id}/payments` (Idempotency-Key) `{amount, method, paid_at, reference?, from_cash_drawer, authorizer_pin}` → a cash payment out of the drawer creates the shift expense **in the same transaction**; with no open shift → `409 NO_OPEN_SHIFT` and no payment is left behind.
+- `GET /admin/payables/{id}/payments?include_voided&format` → the payment history, oldest first. **Added when closing 2b: this route was missing from the contract above, and without it the payable was half-built** — a payment could be registered and voided by id, but never *seen*, so an administrator returning the next day could not void anything (the `payment_id` only ever existed in the response of the `POST` that created it). Voided payments are listed and marked (`voided_at`, `voided_reason`, `voided_by_employee_name`): nothing financial disappears, and the balance stays derived from the live ones alone.
 - `POST /admin/payables/{id}/payments/{payment_id}/void` `{reason, authorizer_pin}` — never a delete.
 
 ### Lots and expiry

@@ -20,40 +20,6 @@ def _idem() -> dict[str, str]:
     return {"Idempotency-Key": str(uuid4())}
 
 
-@pytest.fixture()
-def create_payable(admin_client: TestClient, store: Store, create_supplier: Callable[..., Any], ingredient_seeded: Any) -> Callable[..., dict[str, Any]]:
-    def _create(*, amount_line_pesos: str = "14500", qty: str = "1000") -> dict[str, Any]:
-        supplier = create_supplier()
-        payload = {
-            "supplier_id": supplier["id"],
-            "invoice_number": "FE-9",
-            "invoice_date": "2026-01-05",
-            "no_invoice": False,
-            "received_by_pin": "2222",
-            "lines": [
-                {
-                    "ingredient_id": ingredient_seeded.id,
-                    "qty_received": qty,
-                    "qty_invoiced": qty,
-                    "purchase_unit_price": amount_line_pesos,
-                    "tax_base": 0,
-                    "tax_rate": 0,
-                    "tax_amount": 0,
-                    "lot_code": "L-9",
-                    "expires_at": "2026-06-01",
-                }
-            ],
-        }
-        resp = admin_client.post(f"/api/v1/receptions?store_id={store.id}", json=payload, headers=_idem())
-        assert resp.status_code == 201, resp.text
-        body = resp.json()
-        payable = admin_client.get(f"/api/v1/admin/payables?store_id={store.id}").json()
-        row = next(p for p in payable if p["id"] == body["payable_id"])
-        return row
-
-    return _create
-
-
 def test_payable_balance_equals_amount_before_any_payment(create_payable: Callable[..., dict[str, Any]]) -> None:
     payable = create_payable()
     assert payable["balance"] == payable["amount"]

@@ -190,6 +190,11 @@ class PaymentOut(OutModel):
     created_at: datetime
     voided_at: datetime | None
     voided_reason: str | None
+    # Quién anuló. Sin esto el historial dice que un pago se anuló y no dice
+    # quién, que es justo el dato por el que existe el historial: anular un
+    # pago a proveedor devuelve plata al cajón (`register_supplier_payment_
+    # reversal`) y eso tiene responsable.
+    voided_by_employee_name: str | None
 
 
 class PaymentVoidIn(BaseModel):
