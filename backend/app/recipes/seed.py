@@ -35,12 +35,29 @@ from app.recipes.models import (
     RecipeLine,
     RecipeVersion,
 )
+from app.core.quantity import QTY_SCALE
 from app.recipes.units import to_base_qty
 from app.stores.models import Store
 
 
 def _get_or_create_ingredient(db: Session, store: Store, *, name: str, **kwargs: object) -> Any:
+    """`min_stock` se recibe en UNIDAD BASE (g, ml, unidad) y se guarda en
+    milésimas, que es la escala de `app/core/quantity.py`.
+
+    Antes se pasaba el entero crudo a la columna, que está en milésimas: el
+    pollo quedaba con un mínimo de **2 gramos** en vez de 2 kg, el limón con
+    **0,05 unidades** en vez de 50, y la gaseosa con **0,024 botellas** en vez
+    de 24. Seis insumos con el umbral mil veces más chico, o sea con la
+    alerta de «bajo mínimo» apagada — que es textualmente el defecto que
+    SPEC-NEGOCIO §4.1 existe para evitar («en la referencia 55 de 56
+    productos quedaron con el motor de alertas apagado»).
+
+    `app/inventory/seed.py` ya lo hacía bien, pasando por `parse_qty_base`.
+    Eran dos seeds con dos escalas para la misma columna."""
     from app.inventory.models import Ingredient
+
+    if "min_stock" in kwargs:
+        kwargs["min_stock"] = int(kwargs["min_stock"]) * QTY_SCALE  # type: ignore[call-overload,arg-type]
 
     existing = db.execute(
         select(Ingredient).where(Ingredient.store_id == store.id, Ingredient.name == name)
