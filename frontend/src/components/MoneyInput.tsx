@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { formatCOP, parseCOP } from "@/lib/money";
@@ -30,6 +30,19 @@ export function MoneyInput({
 }: MoneyInputProps): React.JSX.Element {
   const [text, setText] = useState(value === null ? "" : String(value));
   const [focused, setFocused] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+
+  // Seleccionar el contenido al enfocar, DESPUÉS del render.
+  //
+  // Al tomar foco el campo cambia lo que muestra: de `formatCOP(value)`
+  // («$ 0») al texto crudo («0»). Seleccionar dentro del `onFocus` no sirve
+  // —React vuelve a renderizar enseguida y borra la selección—, así que
+  // tecleando sobre un campo en cero salía «062400» en vez de «62400». Es el
+  // mismo defecto que apareció contando efectivo en el POS, y acá cae en los
+  // campos de impuesto de una recepción.
+  useEffect(() => {
+    if (focused) ref.current?.select();
+  }, [focused]);
 
   useEffect(() => {
     if (!focused) {
@@ -39,6 +52,7 @@ export function MoneyInput({
 
   return (
     <Input
+      ref={ref}
       id={id}
       type="text"
       inputMode="numeric"
@@ -46,6 +60,11 @@ export function MoneyInput({
       disabled={disabled}
       placeholder={placeholder}
       value={focused ? text : value === null ? "" : formatCOP(value)}
+      // Seleccionar al enfocar: si el campo ya trae un número, teclear lo
+      // REEMPLAZA en vez de pegarse adelante. Sin esto, tocar un campo con
+      // «$ 0» y teclear 2600 daba «02600» — el defecto que apareció primero
+      // contando efectivo en el POS y después en los impuestos de una
+      // recepción. Vale para todos los campos de plata de la app.
       onFocus={() => setFocused(true)}
       onChange={(event) => setText(event.target.value)}
       onBlur={() => {

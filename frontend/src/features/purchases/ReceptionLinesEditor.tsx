@@ -210,6 +210,10 @@ export function ReceptionLinesEditor({
                   max={100}
                   value={line.taxRate}
                   onChange={(event) => updateLine(line.key, { taxRate: event.target.value })}
+                  // Arranca en «0»: sin esto, teclear 8 encima daba «08».
+                  // Los de plata lo resuelven dentro de `MoneyInput`; éste es
+                  // un input numérico común y necesita lo suyo.
+                  onFocus={(event) => event.target.select()}
                   disabled={disabled}
                 />
               </div>
