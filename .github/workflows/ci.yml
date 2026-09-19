@@ -1,8 +1,27 @@
 name: CI
 
+# Este repositorio es PRIVADO, así que los minutos de Actions se cobran contra
+# la cuota de la cuenta. Con `on: push` sin filtrar, cada push a cualquier rama
+# disparaba la suite entera —el backend solo tarda unos diez minutos—, y el
+# 14-09-2026 la cuota se agotó a mitad de una corrida: el trabajo de backend
+# terminó en verde y el de frontend ya no consiguió máquina. Desde entonces
+# ninguna corrida arrancó (fallan en dos segundos, sin runner y sin log), así
+# que 2a y 2b se construyeron enteros sin que el CI los mirara nunca.
+#
+# Ahora corre donde la señal importa: en `main`, que es lo que se despliega, y
+# en cada pull request. Un push a una rama de trabajo SIN pull request abierto
+# no dispara nada — si querés el verde antes de fusionar, abrí el pull request.
 on:
   push:
+    branches: [main]
   pull_request:
+
+# Si llegan dos pushes seguidos a la misma referencia, la corrida vieja queda
+# obsoleta pero sigue quemando minutos hasta terminar. Acá se cancela: el único
+# resultado que importa es el del último commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
