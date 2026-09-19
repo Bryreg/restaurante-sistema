@@ -42,6 +42,12 @@ class MovementCause(str, enum.Enum):
     MANUAL_ADJUSTMENT = "manual_adjustment"
     PURCHASE = "purchase"
     COUNT_ADJUSTMENT = "count_adjustment"
+    # Faltaba: el stub declaraba diez causas y el enum real tiene once. No
+    # rompía nada todavía porque ningún test compara los dos por igualdad —
+    # es el mismo espejo sin invariante que en este pedido se rompió cuatro
+    # veces (H-0, H-8, H-11 y el par de invariantes contradictorios del
+    # cliente), esperando al pedido que lo pise.
+    RECEPTION_REVERSAL = "reception_reversal"
     TRANSFER_IN = "transfer_in"
     TRANSFER_OUT = "transfer_out"
 

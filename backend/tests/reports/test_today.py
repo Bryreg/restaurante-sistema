@@ -237,11 +237,20 @@ def test_lots_alert_respects_flag_and_reports_expiring_and_expired(
 ) -> None:
     from datetime import timedelta
 
-    from app.core import clock
+    from app.core import clock, tz
     from app.inventory import hooks as inventory_hooks
     from app.inventory.models import CostSource
 
-    today = clock.now_utc().date()
+    # La fecha de negocio de la sede, NO el día UTC. El servidor compara los
+    # vencimientos contra `tz.today_business_date(store.cutoff_hour)` (Bogotá,
+    # corte a las 06:00), y derivar el `today` del test de UTC lo ponía rojo
+    # todas las noches entre las 00:00 y las 10:59 UTC: en esa ventana el día
+    # UTC ya avanzó y el de Bogotá no, así que el lote sembrado como «vencido
+    # ayer» todavía estaba `expiring` para el servidor. El código de
+    # producción era el correcto; el test era el que violaba la regla dura de
+    # zona horaria de AGENTS.md. Es la misma clase de defecto que H-6, del
+    # lado del backend.
+    today = tz.today_business_date(store.cutoff_hour)
 
     def _make_lot(expires_at: Any) -> Any:
         return inventory_hooks.create_stock_batch(

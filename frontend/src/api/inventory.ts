@@ -24,31 +24,24 @@ import { api } from "@/api/client"
 export type BaseUnit = "g" | "ml" | "unit"
 export type CostSource = "official" | "weighted_average" | "last_purchase" | "estimated" | "none"
 
-/** `app.inventory.models.MovementCause` — enum cerrado, nunca texto libre.
- * `purchase`/`count_adjustment`/`transfer_in`/`transfer_out` ya estaban en
- * el enum del backend desde 2a (sin uso hasta ahora); 2b los produce de
- * verdad (recepciones, aplicar un conteo) y agrega `reception_reversal`
- * (eliminar una recepción es una reversa con causa, nunca un `DELETE` —
- * `app/inventory/models.py:75`).
+/** Espejo EXACTO de `app/inventory/schemas.py::MovementCauseLiteral` — enum
+ * cerrado, nunca texto libre. Ese `Literal` es el que tipa
+ * `StockMovementOut.cause` **y** el que valida el query `?cause=` de
+ * `GET /admin/ingredients/{id}/movements`, así que la igualdad tiene que ser
+ * exacta en las dos direcciones, y hay un invariante que la cobra
+ * (`src/audit/purchases-counts.test.ts`).
  *
- * **GAP de contrato declarado en el entregable (§8)**: `reception_reversal`
- * está en el enum real del backend (`MovementCause.RECEPTION_REVERSAL`,
- * producido por `app/purchases/service.py:491`) pero falta en
- * `MovementCauseLiteral` (`app/inventory/schemas.py:18-30`), que es el tipo
- * que valida el filtro `cause=` de `GET /admin/ingredients/{id}/movements` Y
- * el que tipa `StockMovementOut.cause`. Mientras ese archivo no se corrija
- * (no es mi territorio — está asignado a otro dueño en
- * `features/fase-2-costo-inventario/spec.md § Archivos huérfanos (2b)`):
- * filtrar por esta causa devuelve `422`, y CUALQUIER movimiento con esta
- * causa en el libro (en cuanto exista una recepción reversada) hace fallar
- * la serialización de TODA la lista de movimientos de ese insumo (`500`).
- * Se incluye igual acá, completo y honesto con el enum real, en vez de
- * esconder la causa que el propio dominio produce. */
+ * Las dos direcciones se rompieron una vez cada una en este pedido, con
+ * dueños distintos y sin que el typecheck viera ninguna: el backend AGREGÓ
+ * `reception_reversal` y el cliente no tenía etiqueta (un `500` al leer el
+ * libro de un insumo con una recepción reversada), y el backend QUITÓ
+ * `void_after_send` —nunca llegó a producirse— mientras el cliente seguía
+ * ofreciéndola en el desplegable del filtro, que devolvía `422`. Un filtro
+ * que siempre falla es peor que no tener el filtro. */
 export type MovementCause =
   | "sale"
   | "production_in"
   | "production_out"
-  | "void_after_send"
   | "waste"
   | "note_return"
   | "manual_adjustment"

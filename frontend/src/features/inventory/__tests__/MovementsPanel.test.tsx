@@ -46,7 +46,7 @@ function renderPanel() {
 }
 
 describe("MovementsPanel — la causa es un enum cerrado, nunca texto libre", () => {
-  it("el filtro de causa es una lista desplegable con las 11 causas del backend, sin campo de texto", async () => {
+  it("el filtro de causa es una lista desplegable con las causas del backend, sin campo de texto", async () => {
     getIngredientMovementsMock.mockResolvedValue([])
     const user = userEvent.setup()
     renderPanel()
@@ -54,9 +54,19 @@ describe("MovementsPanel — la causa es un enum cerrado, nunca texto libre", ()
     await waitFor(() => expect(getIngredientMovementsMock).toHaveBeenCalled())
     await user.click(screen.getByRole("combobox", { name: "Causa" }))
 
+    // El popup se monta en un portal: con la suite entera compitiendo por
+    // CPU no está montado todavía cuando un `getAllByRole` síncrono
+    // pregunta. Se espera una opción concreta primero. (Mismo patrón que
+    // `WastePage.test.tsx`: un verde que depende de la carga de la máquina
+    // enseña a ignorar el rojo de la suite.)
+    await screen.findByRole("option", { name: "Merma" })
     const options = screen.getAllByRole("option").map((o) => o.textContent)
+    // «Anulación tras envío» NO está: `void_after_send` se sacó del enum en
+    // 2b porque estaba declarada y nunca se producía, y una opción de filtro
+    // que el servidor rechaza con `422` es peor que no tener el filtro.
+    expect(options).not.toContain("Anulación tras envío")
     expect(options).toEqual(
-      expect.arrayContaining(["Todas", "Venta", "Entrada por producción", "Salida por producción", "Anulación tras envío", "Merma", "Nota — vuelve", "Ajuste manual"]),
+      expect.arrayContaining(["Todas", "Venta", "Entrada por producción", "Salida por producción", "Merma", "Nota — vuelve", "Ajuste manual", "Reversa de recepción"]),
     )
     // Nunca un <input type="text"> libre para la causa.
     expect(screen.queryByPlaceholderText(/causa/i)).not.toBeInTheDocument()
@@ -69,7 +79,7 @@ describe("MovementsPanel — la causa es un enum cerrado, nunca texto libre", ()
 
     await waitFor(() => expect(getIngredientMovementsMock).toHaveBeenCalled())
     await user.click(screen.getByRole("combobox", { name: "Causa" }))
-    await user.click(screen.getByRole("option", { name: "Merma" }))
+    await user.click(await screen.findByRole("option", { name: "Merma" }))
 
     await waitFor(() =>
       expect(getIngredientMovementsMock).toHaveBeenLastCalledWith(expect.objectContaining({ ingredientId: 7, cause: "waste" })),

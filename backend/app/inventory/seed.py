@@ -43,6 +43,15 @@ from app.inventory.models import (
 )
 from app.stores.models import Store
 
+#: Hace cuántos días siembra el seed el conteo completo de APERTURA de la
+#: ventana de food cost real. Deliberadamente NO es `INVENTORY_STALE_DAYS`:
+#: son dos números sin relación, y cuando este valía 14 —el mismo que el
+#: umbral, y justo sobre su borde— cualquiera lo leía como el umbral repetido
+#: a mano. Lo único que tiene que cumplir es quedar antes de la compra
+#: sembrada (7 días atrás), para que la ventana entre los dos conteos la
+#: contenga y el food cost real de la demo dé un número en vez de `null`.
+SEED_OPENING_FULL_COUNT_DAYS_AGO = 21
+
 
 def seed_inventory(db: Session, store: Store) -> list[Ingredient]:
     if db.execute(select(Ingredient).where(Ingredient.store_id == store.id)).scalars().first() is not None:
@@ -254,7 +263,15 @@ def seed_counts_and_purchase(db: Session, store: Store, admin_employee: Employee
         return count
 
     now = clock.now_utc()
-    _open_and_apply_full_count(now - timedelta(days=14))
+    # Conteo completo de APERTURA de la ventana de food cost real. El único
+    # requisito es que quede ANTES de la compra sembrada (7 días atrás) para
+    # que la ventana entre los dos conteos la contenga; no tiene ninguna
+    # relación con `INVENTORY_STALE_DAYS`. Va como constante con nombre
+    # porque antes era `days=14` —el mismo número que el umbral de
+    # «inventario no confiable», y además justo sobre su borde (`unreliable =
+    # días > 14`)—, y un lector razonable lo leía como el umbral repetido a
+    # mano. Lo era por coincidencia, que es la peor forma de serlo.
+    _open_and_apply_full_count(now - timedelta(days=SEED_OPENING_FULL_COUNT_DAYS_AGO))
 
     purchase_at = now - timedelta(days=7)
     purchase_business_date = tz.business_date_for(purchase_at, store.cutoff_hour)

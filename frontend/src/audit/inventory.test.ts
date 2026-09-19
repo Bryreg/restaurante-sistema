@@ -277,24 +277,21 @@ describe("la causa de un movimiento es una lista cerrada", () => {
     expect(offenders, offenders.join("\n")).toEqual([]);
   });
 
-  it("las etiquetas de causa cubren el enum completo del backend", () => {
-    const lib = readFileSync(path.join(SRC, "features/inventory/lib.ts"), "utf8");
-    const causas = [
-      "sale",
-      "production_in",
-      "production_out",
-      "void_after_send",
-      "waste",
-      "note_return",
-      "manual_adjustment",
-      "purchase",
-      "count_adjustment",
-      "transfer_in",
-      "transfer_out",
-    ];
-    const faltan = causas.filter((c) => !new RegExp(`\\b${c}\\b`).test(lib));
-    expect(faltan, `causas sin etiqueta en la UI: ${faltan.join(", ")}`).toEqual([]);
-  });
+  // BORRADO en el cierre de 2b: «las etiquetas de causa cubren el enum
+  // completo del backend», que enumeraba las once causas A MANO.
+  //
+  // Una lista a mano de un enum ajeno envejece sin avisar, y ésta envejeció
+  // en las dos direcciones a la vez: exigía `void_after_send`, que 2b sacó
+  // del enum, y no exigía `reception_reversal`, que 2b agregó. Así que a la
+  // vez daba un rojo imposible de cerrar —`CAUSE_LABEL` está tipado
+  // `Record<MovementCause, string>`, o sea que sacar la causa OBLIGA a sacar
+  // la etiqueta, y al sacarla este test se ponía rojo— y un verde falso por
+  // la causa que le faltaba. Dos invariantes que no pueden estar verdes con
+  // el mismo árbol no son dos invariantes: es uno roto.
+  //
+  // Lo reemplaza `src/audit/purchases-counts.test.ts`, que LEE
+  // `app/inventory/schemas.py::MovementCauseLiteral` y compara en las dos
+  // direcciones, sin lista a mano que mantener.
 
   it("no existe un tipo de merma de «consumo de personal»", () => {
     // §5.5, literal: «no existe "consumo de personal" como merma: es una

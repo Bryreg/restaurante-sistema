@@ -22,7 +22,6 @@ export const CAUSE_LABEL: Record<MovementCause, string> = {
   sale: "Venta",
   production_in: "Entrada por producción",
   production_out: "Salida por producción",
-  void_after_send: "Anulación tras envío",
   waste: "Merma",
   note_return: "Nota — vuelve",
   manual_adjustment: "Ajuste manual",

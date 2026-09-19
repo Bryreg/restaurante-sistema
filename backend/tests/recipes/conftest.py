@@ -95,18 +95,32 @@ from app.stores.models import Organization, Store  # noqa: E402
 
 
 def _mount_recipes_router() -> None:
-    """`app.main.DOMAINS` todavía no incluye `"recipes"` (lo agrega otro
-    agente, ver `docs/ESTADO.md`/misión, PASO 0) — sin eso, `admin_client`/
-    `device_client`/`client` (que usan el singleton `app.main.app`) responden
-    `405` a cualquier ruta de este dominio, aunque el router esté bien
-    escrito. Acá se monta sobre ESE MISMO singleton (mismo objeto que
-    `tests/conftest.py` ya importó) para que los tests HTTP de este
-    directorio no dependan de que otro equipo actualice `app/main.py`
-    primero. No toca `app/main.py` en disco; `app.recipes.router` importado
-    dos veces (por dos ejecuciones de pytest en el mismo proceso) se guarda
-    con un flag para no registrar las rutas por duplicado."""
+    """Monta el router de recetas sobre el singleton `app.main.app` SÓLO si
+    `create_app()` no lo montó ya.
+
+    Nació cuando `"recipes"` todavía no estaba en `app.main.DOMAINS`: sin el
+    montaje, `admin_client`/`device_client`/`client` respondían `405` a
+    cualquier ruta del dominio aunque el router estuviera bien escrito. **2a
+    agregó `"recipes"` a `DOMAINS` y desde entonces este montaje sobra**, así
+    que la primera condición de abajo lo apaga.
+
+    Esa condición no es prolijidad. Sin ella, importar este conftest registra
+    las rutas de recetas por SEGUNDA vez sobre el mismo objeto, y como el
+    montaje ocurre al importar, para cuando corre el primer test la app global
+    ya está duplicada: cualquier test posterior que genere el OpenAPI ve doce
+    `Duplicate Operation ID`. El flag de estado que viene después no alcanza
+    —sólo evita montar dos veces DESDE ACÁ, no sabe nada de `DOMAINS`—, y es
+    exactamente el guard que su vecino `tests/inventory/conftest.py` sí tiene.
+
+    Es la misma regresión que el commit `228747b` («1b-2: quitar el doble
+    montaje de routers en tests») ya cerró una vez, que volvió con el dominio
+    nuevo de 2a y que nadie vio porque sólo se manifiesta con la suite entera
+    corriendo en un proceso."""
+    import app.main as main_module
     from app.main import app as main_app
 
+    if "recipes" in main_module.DOMAINS:
+        return
     if getattr(main_app.state, "_recipes_router_mounted", False):
         return
     from app.recipes.router import router as recipes_router

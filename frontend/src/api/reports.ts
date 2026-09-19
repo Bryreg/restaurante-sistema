@@ -221,12 +221,16 @@ export interface SalesBucketOut {
   avg_per_cover?: number | null
   // Pedido 2a (`backend/app/reports/schemas.py`, `_document_cost_stats`):
   // leídos de `OrderItem.unit_cost` CONGELADO al enviar, nunca de la ficha
-  // actual. El backend los nombra así (no `theoretical_cost`/`gross_margin`/
-  // `costed_pct`) para no chocar con dos invariantes de OpenAPI de
-  // `tests/audit` que barren `/admin/sales` buscando esas subcadenas en
-  // rutas de admin — mismo dato que pide la spec, sólo cambia la llave
-  // (decisión declarada en ese archivo). `null` cuando NINGÚN documento del
-  // grupo tuvo costo todavía (nunca `0` mudo).
+  // actual. `null` cuando NINGÚN documento del grupo tuvo costo todavía
+  // (nunca `0` mudo).
+  //
+  // Se llaman como los nombra la spec. Durante 2a estuvieron publicados con
+  // otras llaves para esquivar dos invariantes de OpenAPI que barrían
+  // `/admin/sales` buscando la subcadena `cost` en rutas de admin: el
+  // barrido era más viejo que la superficie de costo que 2a existía para
+  // construir, así que se acotaron los barridos y volvieron los nombres de
+  // la spec. Deformar un contrato publicado para pasar un test es arreglar
+  // el termómetro.
   /** = costo teórico (spec: `theoretical_cost`). */
   theoretical_cost?: number | null
   /** = margen bruto teórico (spec: `gross_margin`): `net − theoretical_cost`. */
