@@ -33,6 +33,26 @@ MODEL_MODULES: list[str] = [
     "recipes",
     # Pedido 2b: ver el mismo comentario en `app.main.DOMAINS`.
     "purchases",
+    # Pedido 2c (`features/fase-2c-canales-cocina/spec.md`), CONTRATO C5.
+    # `backend-dinero-canales` es el ÚNICO dueño de este archivo y de
+    # `app.main.DOMAINS`, y registra DOS dominios, no uno:
+    #
+    # - `channels` es suyo (plataformas, comisiones, cuenta por cobrar y
+    #   liquidación del efectivo de domicilios). Paso 0 hecho:
+    #   `app/channels/__init__.py` existe desde antes de esta línea.
+    # - `kitchen` NO es suyo: lo escribe `backend-kds`, que en 2c le agrega
+    #   `app/kitchen/models.py` (hasta 2b ese dominio no tenía modelos, por
+    #   eso nunca estuvo acá) y que tiene PROHIBIDO tocar este archivo.
+    #   Sin esta línea las tablas del KDS no entran a `Base.metadata`, y por
+    #   lo tanto no existen ni para Alembic ni para `create_all` en los
+    #   tests, y su dueño no podría arreglarlo desde su territorio. Es H-0 de
+    #   2b en su forma exacta —uno agrega al modelo, otro produce, nadie es
+    #   dueño del contrato publicado— resuelto de antemano.
+    #   `find_spec_safe` ya devolvía `None` para `app.kitchen.models` (la
+    #   carpeta existe desde 1b-1), así que registrarlo es inofensivo aunque
+    #   el archivo todavía no esté escrito.
+    "channels",
+    "kitchen",
 ]
 
 

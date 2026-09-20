@@ -67,6 +67,23 @@ class CustomerIn(BaseModel):
     consent: CustomerConsentIn
 
 
+class DeliveryCashIn(BaseModel):
+    """Pedido 2c — `delivery?` de `POST /orders/{id}/payments`.
+
+    El efectivo de un domicilio propio lo tiene el DOMICILIARIO, no el
+    cajón (SPEC-NEGOCIO §3.3). Mandar este bloque marca los `splits` en
+    efectivo de este cobro como sostenidos por esa persona: quedan fuera
+    del efectivo esperado del turno hasta que liquida.
+
+    Sólo aplica al canal `delivery` y sólo a los `splits` con
+    `method="cash"` (un domicilio pagado con tarjeta en la puerta no tiene
+    nada pendiente). El servidor lo hace cumplir: el POS no puede declarar
+    "esto lo tiene el domiciliario" sobre una venta de mesa.
+    """
+
+    courier_employee_id: int
+
+
 class PaymentIn(BaseModel):
     expected_version: int | None = None
     sub_account_id: int | None = None
@@ -75,6 +92,15 @@ class PaymentIn(BaseModel):
     splits: list[PaymentSplitIn] = Field(default_factory=list)
     customer: CustomerIn | None = None
     requests_invoice: bool = False
+    # Pedido 2c: la plataforma que cobró, cuando algún `split` usa el medio
+    # `platform`. Si la comanda ya trae `platform_id` (lo pone
+    # `backend-canales-comanda` al abrirla) este campo es redundante y el
+    # servidor usa el de la comanda; se acepta acá para que el cobro no
+    # dependa de una columna que otro dominio está escribiendo en paralelo.
+    # `null` ≠ 0: sin plataforma resuelta, el cobro con medio `platform` se
+    # rechaza con `400`, nunca se cae a una plataforma "cero".
+    platform_id: int | None = None
+    delivery: DeliveryCashIn | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +134,16 @@ class PaymentOut(BaseModel):
     change: int
     paid_at: datetime
     order: OrderOut
+    # -- Pedido 2c -------------------------------------------------------
+    # `platform_commission` es el COSTO registrado por esta venta, NUNCA
+    # restado de `total`, `tip_amount` ni `amount_due`: la venta es la
+    # venta. `None` cuando no hubo cobro por plataforma — `null` ≠ 0, que
+    # significaría "plataforma sin comisión".
+    platform_commission: int | None = None
+    platform_receivable_id: int | None = None
+    # Efectivo que quedó en manos del domiciliario (fuera del cajón) por
+    # este cobro. `None` cuando no es un domicilio con efectivo pendiente.
+    delivery_cash_pending: int | None = None
 
 
 # ---------------------------------------------------------------------------

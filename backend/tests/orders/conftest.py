@@ -136,6 +136,112 @@ def drink_product(db: Session, store: Store) -> Product:
 
 
 @pytest.fixture()
+def channel_priced_product(db: Session, store: Store) -> Product:
+    """Producto con precio de domicilio Y de plataforma PROPIOS, distintos
+    del de mesa (pedido 2c, §4.3) — para probar el camino "el canal tiene su
+    propio precio", complementario al fallback que ya cubren `main_product`/
+    `drink_product` (`price_delivery=None`)."""
+    now = clock_module.now_utc()
+    category = Category(
+        organization_id=store.organization_id, store_id=store.id, name="Fuertes 2c", sort_order=2,
+        default_course="main", default_station="hot_kitchen", active=True,
+    )
+    db.add(category)
+    db.flush()
+    row = Product(
+        organization_id=store.organization_id, store_id=store.id, category_id=category.id, name="Pescado frito",
+        description=None, station="hot_kitchen", default_course="main", price_dine_in=34_000, price_takeout=None,
+        price_delivery=38_000, price_platform=40_000, tax_code="inc_8", active=True, available=True, daily_count=None,
+        daily_remaining=None, unavailable_by_employee_id=None, unavailable_by_employee_name=None, unavailable_at=None,
+        created_at=now, updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@pytest.fixture()
+def zero_priced_delivery_product(db: Session, store: Store) -> Product:
+    """`price_delivery = 0`: un precio de canal en `0` es un precio de `0`
+    pesos DE VERDAD (se respeta), no el `NULL` que cae al de mesa (§4.3,
+    `null` ≠ 0)."""
+    now = clock_module.now_utc()
+    category = Category(
+        organization_id=store.organization_id, store_id=store.id, name="Promos 2c", sort_order=3,
+        default_course="beverage", default_station=None, active=True,
+    )
+    db.add(category)
+    db.flush()
+    row = Product(
+        organization_id=store.organization_id, store_id=store.id, category_id=category.id, name="Cortesía de bienvenida",
+        description=None, station=None, default_course="beverage", price_dine_in=5_000, price_takeout=None,
+        price_delivery=0, price_platform=None, tax_code="inc_8", active=True, available=True, daily_count=None,
+        daily_remaining=None, unavailable_by_employee_id=None, unavailable_by_employee_name=None, unavailable_at=None,
+        created_at=now, updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@pytest.fixture()
+def delivery_fee_product(db: Session, store: Store) -> Product:
+    """El producto real marcado `is_delivery_fee` (§4.3): sin él,
+    `create_order` rechaza cualquier comanda `delivery` con
+    `DELIVERY_FEE_NOT_CONFIGURED`."""
+    now = clock_module.now_utc()
+    category = Category(
+        organization_id=store.organization_id, store_id=store.id, name="Servicio", sort_order=9,
+        default_course=None, default_station=None, active=True,
+    )
+    db.add(category)
+    db.flush()
+    row = Product(
+        organization_id=store.organization_id, store_id=store.id, category_id=category.id, name="Cargo de domicilio",
+        description=None, station=None, default_course=None, price_dine_in=4_500, price_takeout=None,
+        price_delivery=None, price_platform=None, tax_code="inc_8", is_delivery_fee=True, active=True, available=True,
+        daily_count=None, daily_remaining=None, unavailable_by_employee_id=None, unavailable_by_employee_name=None,
+        unavailable_at=None, created_at=now, updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@pytest.fixture()
+def courier(employees: dict[str, Employee]) -> Employee:
+    return employees["operator2"]
+
+
+@pytest.fixture()
+def platform(db: Session, store: Store) -> Any:
+    """Una `app.channels.models.DeliveryPlatform` real (CONTRATO C2), para
+    probar el camino completo `create_order` -> `app.channels.hooks.
+    get_platform` con el código real del dominio hermano, no un doble.
+    También deja habilitado el medio de pago `platform`
+    (`app.channels.service.ensure_platform_payment_method`, lo mismo que
+    hace `app.channels.seed.seed_channels`) para que un test pueda cobrar
+    con ese medio sin repetir el paso a mano."""
+    from app.channels.models import DeliveryPlatform
+    from app.channels.service import ensure_platform_payment_method
+
+    now = clock_module.now_utc()
+    row = DeliveryPlatform(
+        organization_id=store.organization_id, store_id=store.id, name="Rappi", code="rappi",
+        commission_bp=1_800, active=True, created_at=now, updated_at=now,
+    )
+    db.add(row)
+    db.flush()
+    ensure_platform_payment_method(db, store=store)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@pytest.fixture()
 def new_order(device_client: TestClient) -> Callable[..., dict[str, Any]]:
     def _create(*, channel: str = "counter", expect_status: int = 201, **body: Any) -> Any:
         payload: dict[str, Any] = {"channel": channel, **body}

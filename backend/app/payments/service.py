@@ -16,6 +16,7 @@ escribir nada.
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -29,7 +30,7 @@ from app.audit.service import record_audit
 from app.auth import service as auth_service
 from app.auth.deps import Actor
 from app.auth.models import Employee
-from app.core import clock, features
+from app.core import clock, features, modules
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.fiscal import service as fiscal_service
 from app.fiscal.models import DianStatus, DocumentReprint, FiscalDocument, FiscalDocumentType, FiscalRange
@@ -359,6 +360,134 @@ def _payments_snapshot(splits: list[_SplitResult], methods_by_code: dict[str, di
 
 
 # ---------------------------------------------------------------------------
+# Pedido 2c: los dos canales nuevos, validados ANTES de escribir.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _ChannelResolution:
+    """Lo que 2c agrega al cobro, resuelto durante la VALIDACIÓN.
+
+    `platform_id` sólo puede venir resuelto en una comanda de canal
+    `platform`; `courier` sólo en una de canal `delivery`. Los dos son
+    `None` en el resto de los casos, que es el 100 % de lo que 1b y 2a/2b
+    ya hacían: sin `platform` en los `splits` y sin `delivery` en el body,
+    esta resolución no cambia una coma del cobro de mesa.
+    """
+
+    platform_id: int | None = None
+    courier: Employee | None = None
+    external_id: str | None = None
+
+
+def _resolve_channels(
+    db: Session, *, order: Order, store: Store, payload: Any, split_results: list[_SplitResult]
+) -> _ChannelResolution:
+    """Valida plataforma y domiciliario **antes** del punto sin retorno.
+
+    Las tres reglas que hace cumplir, y que el POS no puede sortear:
+
+    1. El medio `platform` SÓLO se usa en una comanda de canal `platform`
+       (`400 PLATFORM_METHOD_WRONG_CHANNEL`). Si no, cualquier venta de
+       mesa podría salir del efectivo esperado del turno declarándose
+       "cobrada por la plataforma".
+    2. Una comanda de plataforma cobrada con ese medio necesita una
+       plataforma **activa y de esta sede**: se resuelve por el CONTRATO
+       C2 (`app.channels.hooks.get_platform`) y, ante `None`,
+       `400 PLATFORM_NOT_FOUND`. Nunca se cae a un id "0".
+    3. `delivery` en el body SÓLO en una comanda de canal `delivery`
+       (`400 DELIVERY_ONLY_ON_DELIVERY_CHANNEL`) y con la función
+       `pos.delivery` encendida.
+    """
+    platform_id: int | None = None
+    external_id: str | None = None
+    courier: Employee | None = None
+
+    uses_platform_method = any(s.method == "platform" for s in split_results)
+    channel_value = order.channel.value if hasattr(order.channel, "value") else str(order.channel)
+
+    if uses_platform_method:
+        if channel_value != "platform":
+            raise AppError(
+                "PLATFORM_METHOD_WRONG_CHANNEL",
+                "El medio de pago por plataforma sólo se usa en una comanda de plataforma; "
+                "cobrá esta comanda con un medio real",
+                status=400,
+            )
+        features.assert_feature(db, order.organization_id, store.id, "pos.platforms")
+
+        # La comanda manda; el body es el respaldo mientras
+        # `backend-canales-comanda` termina de escribir la columna.
+        #
+        # Ronda 3, cierre de H-5: esto resolvía con `or`, que trata el `0`
+        # como ausencia. Es la regla dura `null` ≠ 0 en el lugar donde se
+        # decide QUÉ plataforma cobró una venta: un `platform_id = 0` de la
+        # comanda habría caído silenciosamente al del body. Los dos
+        # candidatos se chequean con `is not None`, la comanda primero.
+        from_order = getattr(order, "platform_id", None)
+        from_payload = getattr(payload, "platform_id", None)
+        candidate = from_order if from_order is not None else from_payload
+        if candidate is None:
+            raise AppError(
+                "PLATFORM_REQUIRED",
+                "Indicá la plataforma que cobró este pedido antes de cerrarlo",
+                status=400,
+            )
+        if modules.find_spec_safe("app.channels.hooks") is not None:
+            channels_hooks = importlib.import_module("app.channels.hooks")
+            platform_ref = channels_hooks.get_platform(db, store_id=store.id, platform_id=int(candidate))
+            if platform_ref is None:
+                raise AppError(
+                    "PLATFORM_NOT_FOUND",
+                    "La plataforma no existe en esta sede o está inactiva; revisá Configuración → Plataformas",
+                    status=400,
+                )
+            platform_id = platform_ref.id
+        else:  # pragma: no cover - `app.channels` es de este mismo agente
+            platform_id = int(candidate)
+        # `platform_external_id` es el número del pedido en la plataforma,
+        # cargado a mano al abrir la comanda (la integración por API es
+        # fase 3). Es el dato con el que se concilia después.
+        external_id = getattr(order, "platform_external_id", None)
+
+    delivery_in = getattr(payload, "delivery", None)
+    if delivery_in is not None and channel_value != "delivery":
+        raise AppError(
+            "DELIVERY_ONLY_ON_DELIVERY_CHANNEL",
+            "Sólo una comanda de domicilio puede dejar el efectivo en manos de un domiciliario",
+            status=400,
+        )
+
+    if channel_value == "delivery":
+        # **El domiciliario sale de la COMANDA por defecto**, no del body.
+        # La comanda de domicilio ya lo lleva obligatorio desde que se crea
+        # (`app.orders.service.create_order`), y §3.3 dice que ese efectivo
+        # queda pendiente hasta que él liquida: hacerlo depender de que el
+        # POS se acuerde de mandar un bloque extra convertiría la regla en
+        # una opción, y el turno cuadraría de más justo cuando alguien se
+        # olvidó. El body sólo sirve para CORREGIR quién entregó de verdad.
+        #
+        # Deliberadamente SIN `assert_feature` cuando se deriva de la
+        # comanda: apagar `pos.delivery` con un domicilio abierto no puede
+        # dejar esa venta sin poder cobrarse. El gate se exige sólo cuando
+        # el cliente manda el bloque explícito, que es una acción nueva.
+        candidate_courier_id = getattr(order, "courier_employee_id", None)
+        if delivery_in is not None:
+            features.assert_feature(db, order.organization_id, store.id, "pos.delivery")
+            candidate_courier_id = delivery_in.courier_employee_id
+        if candidate_courier_id is not None:
+            courier = db.get(Employee, candidate_courier_id)
+            if courier is None or courier.organization_id != order.organization_id or not courier.active:
+                raise AppError(
+                    "COURIER_NOT_FOUND",
+                    "El domiciliario no existe (o está inactivo) en esta organización",
+                    status=400,
+                )
+
+    return _ChannelResolution(platform_id=platform_id, courier=courier, external_id=external_id)
+
+
+# ---------------------------------------------------------------------------
 # pay_order
 # ---------------------------------------------------------------------------
 
@@ -395,6 +524,12 @@ def pay_order(
     methods_by_code = _payment_methods_by_code(db, store.id)
     split_results = _validate_and_allocate_splits(
         payload.splits, methods_by_code=methods_by_code, total=totals.total, tip_amount=tip.amount
+    )
+    # Pedido 2c: plataforma y domiciliario se resuelven ACÁ, entre las
+    # validaciones, porque pueden levantar `400` y `get_db` comitea también
+    # ante `AppError`. Validar antes de escribir.
+    channels = _resolve_channels(
+        db, order=order, store=store, payload=payload, split_results=split_results
     )
 
     # `business_date`/`shift_row` son lecturas puras (sin escritura): se
@@ -467,6 +602,11 @@ def pay_order(
     orders_service.claim_payment(db, order, sub_account=sub_account, actor=actor, now=now)
 
     document: FiscalDocument | None = None
+    # Pedido 2c: `None` (no `0`) cuando no hubo cobro por plataforma ni
+    # efectivo en manos de un domiciliario. `null` ≠ 0.
+    platform_commission: int | None = None
+    platform_receivable_id: int | None = None
+    delivery_cash_pending = 0
     if split_results:
         payments_snapshot = _payments_snapshot(split_results, methods_by_code)
         tip_snapshot = fiscal_service.TipSnapshot(
@@ -527,29 +667,78 @@ def pay_order(
                 )
             )
 
+        platform_amount = 0
+        platform_tip = 0
+        delivery_cash_pending = 0
+        first_platform_payment: Payment | None = None
         for split in split_results:
-            db.add(
-                Payment(
+            # Pedido 2c. Sólo el efectivo de un domicilio queda en manos del
+            # domiciliario: una tarjeta cobrada en la puerta ya está en la
+            # cuenta del negocio, y no tiene nada pendiente que liquidar.
+            is_delivery_cash = channels.courier is not None and split.method == "cash"
+            is_platform = split.method == "platform"
+            row = Payment(
+                organization_id=order.organization_id,
+                store_id=store.id,
+                shift_id=shift_row.id,
+                order_id=order.id,
+                sub_account_id=sub_account.id if sub_account is not None else None,
+                document_id=document.id,
+                method=split.method,
+                amount=split.amount,
+                tip_amount=split.tip_amount,
+                tendered=split.tendered,
+                change=split.change,
+                reference=split.reference,
+                employee_id=employee.id,
+                employee_name=employee.name,
+                business_date=business_date,
+                at=now,
+                voided_at=None,
+                delivery_courier_employee_id=(
+                    channels.courier.id if is_delivery_cash and channels.courier is not None else None
+                ),
+                delivery_courier_employee_name=(
+                    channels.courier.name if is_delivery_cash and channels.courier is not None else None
+                ),
+                delivery_settlement_id=None,
+                platform_id=channels.platform_id if is_platform else None,
+            )
+            db.add(row)
+            if is_delivery_cash:
+                delivery_cash_pending += split.amount + split.tip_amount
+            if is_platform:
+                platform_amount += split.amount
+                platform_tip += split.tip_amount
+                if first_platform_payment is None:
+                    first_platform_payment = row
+        db.flush()
+
+        # La cuenta por cobrar y la COMISIÓN de la plataforma. La comisión
+        # se REGISTRA, no se resta: ni `totals`, ni `tip`, ni el documento
+        # fiscal, ni `amount_due` la conocen. Vive en `app.channels`.
+        if channels.platform_id is not None and platform_amount + platform_tip > 0:
+            if modules.find_spec_safe("app.channels.service") is not None:
+                channels_service = importlib.import_module("app.channels.service")
+                record = channels_service.record_platform_sale(
+                    db,
                     organization_id=order.organization_id,
                     store_id=store.id,
-                    shift_id=shift_row.id,
+                    platform_id=channels.platform_id,
                     order_id=order.id,
-                    sub_account_id=sub_account.id if sub_account is not None else None,
                     document_id=document.id,
-                    method=split.method,
-                    amount=split.amount,
-                    tip_amount=split.tip_amount,
-                    tendered=split.tendered,
-                    change=split.change,
-                    reference=split.reference,
-                    employee_id=employee.id,
-                    employee_name=employee.name,
+                    payment_id=first_platform_payment.id if first_platform_payment is not None else None,
+                    shift_id=shift_row.id,
+                    external_id=channels.external_id,
+                    amount=platform_amount,
+                    tip_amount=platform_tip,
+                    actor=actor,
                     business_date=business_date,
-                    at=now,
-                    voided_at=None,
+                    now=now,
                 )
-            )
-        db.flush()
+                if record is not None:
+                    platform_commission = record.commission_amount
+                    platform_receivable_id = record.receivable_id
 
     record_audit(
         db,
@@ -599,6 +788,9 @@ def pay_order(
         change=change_total,
         paid_at=order.paid_at or now,
         order=orders_service.order_out(db, order, for_device=True),
+        platform_commission=platform_commission,
+        platform_receivable_id=platform_receivable_id,
+        delivery_cash_pending=delivery_cash_pending or None,
     )
 
 

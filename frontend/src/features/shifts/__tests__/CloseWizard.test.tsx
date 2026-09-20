@@ -3,15 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
-import type { CloseCountResult, CloseReview } from "@/api/shifts";
+import type { CloseCountResult, CloseReview, ShiftTips } from "@/api/shifts";
 import { renderWithProviders } from "@/test/utils";
 
 import { CloseWizard } from "../CloseWizard";
 
-const { closeCountMock, getCloseReviewMock, confirmCloseMock } = vi.hoisted(() => ({
+const { closeCountMock, getCloseReviewMock, confirmCloseMock, getShiftTipsMock } = vi.hoisted(() => ({
   closeCountMock: vi.fn(),
   getCloseReviewMock: vi.fn(),
   confirmCloseMock: vi.fn(),
+  getShiftTipsMock: vi.fn(),
 }));
 
 vi.mock("@/api/shifts", async () => {
@@ -21,6 +22,7 @@ vi.mock("@/api/shifts", async () => {
     closeCount: closeCountMock,
     getCloseReview: getCloseReviewMock,
     confirmClose: confirmCloseMock,
+    getShiftTips: getShiftTipsMock,
   };
 });
 
@@ -46,6 +48,20 @@ const CHANGED_REVIEW: CloseReview = { ...NO_CAUSE_REVIEW, difference: -8_000 };
 describe("CloseWizard — cierre a ciegas en tres pasos", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getShiftTipsMock.mockResolvedValue({ cash_out: 12_345 } satisfies ShiftTips);
+  });
+
+  it("iteración 3 (H-8): pinta el cash_out de GET /shifts/{id}/tips como referencia, sin recalcularlo", async () => {
+    closeCountMock.mockResolvedValueOnce({ count_id: 7 } satisfies CloseCountResult);
+    getCloseReviewMock.mockResolvedValue(FIRST_REVIEW);
+
+    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+
+    await waitFor(() => expect(getShiftTipsMock).toHaveBeenCalledWith(1));
+    // El monto que llega de `cash_out` se pinta tal cual (formatCOP de 12.345), no recalculado.
+    await waitFor(() => expect(screen.getByText(/12\.345/)).toBeInTheDocument());
+    // El rótulo deja claro que es una referencia, no un dato que se use para calcular nada.
+    expect(screen.getByText(/Referencia del sistema/)).toBeInTheDocument();
   });
 
   it("el paso 1 no muestra el esperado ni llama a la revisión antes de tener count_id", async () => {

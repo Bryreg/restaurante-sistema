@@ -27,7 +27,7 @@ import { errorMessage } from "@/lib/errors";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
 import { PhotoCaptureField } from "./PhotoCaptureField";
-import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey } from "./hooks";
+import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftTips } from "./hooks";
 
 const CAUSE_LABEL: Record<CashDifferenceCause, string> = {
   change_error: "Error al dar cambio",
@@ -52,6 +52,12 @@ type Step = 1 | 2 | 3 | "done";
  * disparado por otra cosa). El paso 3 manda `difference_seen` exactamente
  * como lo mostró el paso 2; si el servidor responde `400 DIFFERENCE_CHANGED`
  * vuelve al paso 2 con la review nueva que trae el propio error.
+ *
+ * **Iteración 3 (H-8)**: al lado del campo de propinas del paso 1 se
+ * muestra, como REFERENCIA de sólo lectura, `cash_out` de `GET
+ * /shifts/{id}/tips` (`useShiftTips`) — lo que el servidor calcula que sale
+ * del cajón como propina. No se usa para calcular ni validar
+ * `tipsCashOut`: sólo se pinta.
  */
 export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element {
   const queryClient = useQueryClient();
@@ -78,6 +84,13 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
   const [result, setResult] = useState<{ to_deposit?: number; closes_day?: boolean } | null>(null);
 
   const step1KeyRef = useRef(newIdempotencyKey());
+
+  // Iteración 3 (H-8): sólo REFERENCIA de sólo lectura junto al campo de
+  // propinas — `GET /shifts/{id}/tips` es alcanzable con sesión de
+  // dispositivo (`app/shifts/router.py:339` usa `current_actor`, admite
+  // device con persona identificada). `cash_out` se pinta tal cual llega,
+  // nunca se suma ni se resta contra `tipsCashOut`.
+  const tipsQuery = useShiftTips(shiftId);
 
   const countMutation = useMutation({
     mutationFn: () => {
@@ -200,6 +213,10 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
           <div className="space-y-1">
             <Label htmlFor="close-tips">Propinas en efectivo retiradas</Label>
             <MoneyInput id="close-tips" value={tipsCashOut} onChange={setTipsCashOut} />
+            <p className="text-xs text-muted-foreground">
+              Referencia del sistema (no se usa para calcular nada acá): lo que el sistema calcula que sale del
+              cajón como propina es {formatCOP(tipsQuery.data?.cash_out)}.
+            </p>
           </div>
         </div>
         <PhotoCaptureField value={photo} onChange={setPhoto} required={photoRequired} />

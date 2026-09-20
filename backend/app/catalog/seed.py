@@ -47,6 +47,10 @@ def seed_catalog(db: Session, store: Store) -> None:
         description: str | None = None,
         station: str | None = None,
         course: str | None = None,
+        price_takeout: int | None = None,
+        price_delivery: int | None = None,
+        price_platform: int | None = None,
+        is_delivery_fee: bool = False,
     ) -> Product:
         row = Product(
             organization_id=org_id,
@@ -57,10 +61,11 @@ def seed_catalog(db: Session, store: Store) -> None:
             station=station if station is not None else category.default_station,
             default_course=course if course is not None else category.default_course,
             price_dine_in=price_dine_in,
-            price_takeout=None,
-            price_delivery=None,
-            price_platform=None,
+            price_takeout=price_takeout,
+            price_delivery=price_delivery,
+            price_platform=price_platform,
             tax_code=default_tax,
+            is_delivery_fee=is_delivery_fee,
             active=True,
             available=True,
             daily_count=None,
@@ -140,7 +145,12 @@ def seed_catalog(db: Session, store: Store) -> None:
     _modifier_option(modifier_group_pechuga, "Ensalada", 0)
 
     arroz_con_pollo = _product(fuertes, "Arroz con pollo", 26_000)
-    pescado = _product(fuertes, "Pescado frito (mojarra)", 34_000)
+    # Pedido 2c (§4.3): precio por canal — éste tiene delivery y platform
+    # PROPIOS (distintos del de mesa); el resto de la carta (arriba y abajo)
+    # se queda sin ellos a propósito, para que el fallback al precio de mesa
+    # también se vea sembrado (`test_delivery_and_platform_prices_fallback_
+    # to_dine_in`, `tests/orders/test_channel_prices.py`).
+    pescado = _product(fuertes, "Pescado frito (mojarra)", 34_000, price_delivery=38_000, price_platform=40_000)
 
     lomo = _product(fuertes, "Lomo al trapo", 42_000)
     modifier_group_lomo = _modifier_group(lomo, "Término de la carne", required=True, min_=1, max_=1)
@@ -262,5 +272,20 @@ def seed_catalog(db: Session, store: Store) -> None:
     db.flush()
     for product in (jugo_mango, limonada):
         _combo_option(grupo_jugo, product)
+
+    # -- Pedido 2c: el cargo de domicilio, como producto real (§4.3) --------
+    # `app.orders.service.create_order` lo busca por sede
+    # (`app.catalog.service.get_delivery_fee_product`) y lo agrega solo al
+    # crear una comanda `delivery`; `GET /catalog` (device) lo excluye del
+    # menú (`is_delivery_fee`). Sin ficha técnica a propósito: no debe
+    # descontar inventario ni tener costo.
+    servicio = _category("Servicio", 6, None, None)
+    _product(
+        servicio,
+        "Cargo de domicilio",
+        5_000,
+        description="Costo del envío a domicilio (se agrega solo al crear la comanda)",
+        is_delivery_fee=True,
+    )
 
     db.flush()

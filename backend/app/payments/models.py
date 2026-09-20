@@ -61,10 +61,55 @@ class Payment(Base):
     at: Mapped[datetime] = mapped_column(UTCDateTime())
     voided_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
+    # -- Pedido 2c: el efectivo de domicilios se arquea APARTE ------------
+    # (`features/fase-2c-canales-cocina/spec.md § Convenciones`, SPEC-NEGOCIO
+    # §3.3). Un cobro en efectivo de un domicilio propio lo tiene el
+    # DOMICILIARIO, no el cajón. El medio sigue siendo `cash` —la plata ES
+    # efectivo, y el código DIAN del documento no cambia por quién lo
+    # sostenga—; lo que cambia es el BOLSILLO, y eso es un dato aparte:
+    #
+    # - `delivery_courier_employee_id` no nulo  -> lo tiene el domiciliario.
+    # - `delivery_settlement_id` nulo           -> todavía no liquidó.
+    #
+    # `app.shifts.hooks.get_sales_totals` saca estos pagos de `.cash` (y su
+    # propina de `.tips_cash`) SIEMPRE, liquidados o no, y los publica en
+    # `delivery_cash` / `delivery_cash_pending`. La plata entra al cajón por
+    # un único camino: el `CashMovement(kind=INCOME,
+    # cause=DELIVERY_SETTLEMENT)` que escribe la liquidación en el turno
+    # abierto. Así `compute_breakdown` sigue siendo la única matemática del
+    # esperado y nada se cuenta dos veces.
+    #
+    # `null` ≠ 0: un pago sin domiciliario es un cobro normal del cajón, no
+    # "un domicilio con domiciliario cero".
+    # **Las tres son `Integer` SIN FK dura, y no es descuido.** Estas
+    # columnas se agregan a una tabla que ya existe, y `ALTER TABLE ... ADD
+    # COLUMN ... REFERENCES` no lo soporta el dialecto SQLite de Alembic
+    # ("No support for ALTER of constraints in SQLite dialect"); la salida
+    # que propone —`batch_alter_table`, que copia y recrea `payments`— es
+    # EXACTAMENTE el DDL que `0011_purchases.py` dejó escrito como lección
+    # cara: recrear una tabla referenciada rompió `alembic upgrade head`
+    # contra Postgres real con `DependentObjectsStillExist`, y ninguna
+    # suite sobre SQLite pudo verlo. Entre una FK declarativa y una cadena
+    # de migraciones que corre en los dos motores, manda la cadena.
+    # Precedente del repo para lo mismo: `reception_lines.stock_batch_id`
+    # (`0011`) y `StockMovement.preparation_id` (`0008`).
+    # La integridad la sostiene el único camino de escritura:
+    # `app.payments.service.pay_order` valida el domiciliario contra
+    # `employees` antes de escribir, y `app.channels.service` es lo único
+    # que llena `delivery_settlement_id`.
+    delivery_courier_employee_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True, index=True)
+    delivery_courier_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    delivery_settlement_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True, index=True)
+    # Plataforma que cobró (medio `platform`). También `null` para todo lo
+    # demás; quien la lee pasa por el CONTRATO C2
+    # (`app.channels.hooks.get_platform`).
+    platform_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True, index=True)
+
     __table_args__ = (
         Index("ix_payments_shift", "shift_id"),
         Index("ix_payments_order", "order_id"),
         Index("ix_payments_shift_method", "shift_id", "method"),
+        Index("ix_payments_delivery_pending", "shift_id", "delivery_courier_employee_id"),
         CheckConstraint("amount >= 0", name="ck_payments_amount_nonneg"),
         CheckConstraint("tip_amount >= 0", name="ck_payments_tip_amount_nonneg"),
         CheckConstraint("change >= 0", name="ck_payments_change_nonneg"),

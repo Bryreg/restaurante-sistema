@@ -38,8 +38,10 @@ vi.mock("@/features/orders", () => ({
 // `paymentsFeature` es este mismo territorio — se deja real: es la
 // verificación de que `router.tsx` lo integra tal como lo exporta
 // `src/features/payments/index.ts`. `inventoryFeature`, `recipesFeature`
-// (`frontend-recetas`, pedido 2a) y `purchasesFeature` (este territorio,
-// pedido 2b) también se dejan reales por el mismo motivo.
+// (`frontend-recetas`, pedido 2a), `purchasesFeature` (este territorio,
+// pedido 2b) y `kitchenFeature` (este territorio, pedido 2c) también se
+// dejan reales por el mismo motivo — es exactamente el "contra el router
+// REAL, sin mockear" que pide CONTRATO C8 de la spec de 2c.
 
 const { router } = await import("../router");
 
@@ -107,6 +109,15 @@ describe("router — integra shiftsFeature, catalogFeature, ordersFeature y paym
     const children = adminRoute?.children ?? [];
 
     expect(findChild(children, "compras")).toBeDefined();
+  });
+
+  it("/pos monta kds (kitchenFeature) — pedido 2c, CONTRATO C8", () => {
+    const posRoute = router.routes.find((r) => r.path === "/pos");
+    const children = posRoute?.children ?? [];
+
+    expect(findChild(children, "kds")).toBeDefined();
+    // La vista mínima de 1b sigue viniendo de `ordersFeature`, sin tocar.
+    expect(findChild(children, "cocina")).toBeDefined();
   });
 
   it("/pos NO monta ninguna ruta de compras — la recepción lleva precios y es pantalla de administrador (invariante heredado #2)", () => {

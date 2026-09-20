@@ -98,6 +98,12 @@ export interface ProductAdminOut {
   available: boolean
   daily_count?: number | null
   daily_remaining?: number | null
+  /** Pedido 2c: este producto ES el cargo de domicilio de la sede (§4.3).
+   * A lo sumo uno activo por sede — el backend corta con `409
+   * DELIVERY_FEE_ALREADY_CONFIGURED` si ya hay otro. Nunca se agrega a
+   * mano a una comanda (`400 DELIVERY_FEE_NOT_ORDERABLE`): el servidor lo
+   * suma solo, como línea, al crear una comanda de domicilio. */
+  is_delivery_fee: boolean
   modifier_groups?: ModifierGroupOut[]
 }
 
@@ -110,6 +116,7 @@ export interface ProductIn {
   prices: ProductPricesIn
   tax_code?: TaxCode | null
   daily_count?: number | null
+  is_delivery_fee?: boolean
 }
 
 export interface ProductUpdateIn {
@@ -121,6 +128,7 @@ export interface ProductUpdateIn {
   prices?: ProductPricesIn
   tax_code?: TaxCode | null
   active?: boolean
+  is_delivery_fee?: boolean
 }
 
 export interface ProductAvailabilityIn {

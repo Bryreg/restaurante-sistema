@@ -865,3 +865,192 @@ def app_source_files() -> list[tuple[str, Any]]:
         relativa = str(archivo.relative_to(APP_ROOT.parent))
         out.append((relativa, ast.parse(archivo.read_text(encoding="utf-8"), filename=str(archivo))))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2c — canales y cocina.
+#
+# Mismo criterio que los helpers de 2a/2b: todo entra por HTTP, por la puerta
+# real, para que un invariante no se saltee la validación que existe para
+# defender. Las excepciones declaradas siguen siendo lecturas del libro
+# (`stock_of`, `movements_of`) y las lecturas de tablas nuevas de `channels`
+# (`receivables_of`, `commissions_of`): leerlas por HTTP obligaría a pasar por
+# una ruta de admin y mezclaría "el asiento está bien" con "el borde lo
+# serializa bien" en una sola aserción.
+# ---------------------------------------------------------------------------
+
+CHANNEL_FEATURES_2C = ("pos.delivery", "pos.platforms", "pos.courses", "kitchen.kds")
+
+
+@pytest.fixture()
+def enable_2c(set_feature: Any) -> Callable[..., None]:
+    """Enciende las cuatro funciones de 2c **y sus dependencias declaradas**
+    (`app/core/features.py`): `pos.delivery -> pos.takeout`,
+    `pos.courses -> kitchen.view`, `kitchen.kds -> kitchen.view`."""
+
+    def _enable(*keys: str) -> None:
+        wanted = list(keys) if keys else list(CHANNEL_FEATURES_2C)
+        deps = {
+            "pos.delivery": ["pos.takeout"],
+            "pos.courses": ["kitchen.view"],
+            "kitchen.kds": ["kitchen.view"],
+        }
+        for key in wanted:
+            for dep in deps.get(key, []):
+                set_feature(dep, True)
+            set_feature(key, True)
+
+    return _enable
+
+
+@pytest.fixture()
+def courier(db: Any, org: Any, store: Any) -> Any:
+    """Un domiciliario de la sede propia."""
+    from app.auth.models import Employee
+    from app.core import clock as clock_module
+    from app.core import security
+
+    now = clock_module.now_utc()
+    row = Employee(
+        organization_id=org.id,
+        store_id=store.id,
+        name="Domiciliario Uno",
+        role="operator",
+        pin_hash=security.hash_secret("4141"),
+        active=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@pytest.fixture()
+def delivery_fee_product(db: Any, store: Any) -> Any:
+    """El producto marcado `is_delivery_fee` de la sede: el cargo de
+    domicilio ES una línea de la carta (§3.3), no un campo aparte."""
+    from app.catalog.models import Category, Product
+    from app.core import clock as clock_module
+
+    now = clock_module.now_utc()
+    category = Category(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        name="Servicio (auditoría)",
+        sort_order=90,
+        default_course="main",
+        default_station=None,
+        active=True,
+    )
+    db.add(category)
+    db.flush()
+    row = Product(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        category_id=category.id,
+        name="Cargo de domicilio",
+        description=None,
+        station=None,
+        default_course="main",
+        price_dine_in=5_000,
+        price_takeout=None,
+        price_delivery=None,
+        price_platform=None,
+        tax_code="inc_8",
+        active=True,
+        available=True,
+        daily_count=None,
+        daily_remaining=None,
+        unavailable_by_employee_id=None,
+        unavailable_by_employee_name=None,
+        unavailable_at=None,
+        is_delivery_fee=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@pytest.fixture()
+def platform(db: Any, store: Any) -> Any:
+    """Una plataforma activa con 18 % de comisión, y el medio de pago
+    `platform` disponible en la configuración de ventas de la sede.
+
+    Se arma con el código REAL de `app.channels.service`
+    (`ensure_platform_payment_method`), no con un doble: un invariante que
+    siembra el medio a mano no prueba que el camino real lo siembre.
+    """
+    from app.channels import service as channels_service
+    from app.channels.models import DeliveryPlatform
+    from app.core import clock as clock_module
+
+    now = clock_module.now_utc()
+    row = DeliveryPlatform(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        name="Rappi (auditoría)",
+        code="rappi_audit",
+        commission_bp=1_800,
+        active=True,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(row)
+    db.flush()
+    channels_service.ensure_platform_payment_method(db, store=store)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def receivables_of(db: Any, store: Any) -> list[Any]:
+    from sqlalchemy import select
+
+    from app.channels.models import PlatformReceivable
+
+    return list(
+        db.execute(
+            select(PlatformReceivable)
+            .where(PlatformReceivable.store_id == store.id)
+            .order_by(PlatformReceivable.id)
+        ).scalars()
+    )
+
+
+def commissions_of(db: Any, store: Any) -> list[Any]:
+    from sqlalchemy import select
+
+    from app.channels.models import PlatformCommission
+
+    return list(
+        db.execute(
+            select(PlatformCommission)
+            .where(PlatformCommission.store_id == store.id)
+            .order_by(PlatformCommission.id)
+        ).scalars()
+    )
+
+
+def wastes_of(db: Any, store: Any) -> list[Any]:
+    from sqlalchemy import select
+
+    from app.inventory.models import Waste
+
+    return list(db.execute(select(Waste).where(Waste.store_id == store.id).order_by(Waste.id)).scalars())
+
+
+def cash_movements_of(db: Any, shift_id: int) -> list[Any]:
+    from sqlalchemy import select
+
+    from app.shifts.models import CashMovement
+
+    return list(
+        db.execute(
+            select(CashMovement).where(CashMovement.shift_id == shift_id).order_by(CashMovement.id)
+        ).scalars()
+    )

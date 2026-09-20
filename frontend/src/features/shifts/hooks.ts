@@ -7,7 +7,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 
-import { getCurrentShift, getShiftSummary } from "@/api/shifts";
+import { getCurrentShift, getShiftSummary, getShiftTips, listPendingDeliveryCash } from "@/api/shifts";
 
 export const CURRENT_SHIFT_QUERY_KEY = ["shifts", "current"] as const;
 
@@ -34,6 +34,35 @@ export function useShiftSummary(shiftId: number | null | undefined) {
   return useQuery({
     queryKey: shiftSummaryQueryKey(shiftId),
     queryFn: () => getShiftSummary(shiftId as number),
+    enabled: shiftId !== null && shiftId !== undefined,
+  });
+}
+
+/** `GET /delivery-settlements/pending` (`pos.delivery`, pedido 2c). */
+export const DELIVERY_PENDING_QUERY_KEY = ["delivery-settlements", "pending"] as const;
+
+export function usePendingDeliveryCash(enabled: boolean) {
+  return useQuery({
+    queryKey: DELIVERY_PENDING_QUERY_KEY,
+    queryFn: listPendingDeliveryCash,
+    enabled,
+    refetchInterval: POLL_MS,
+  });
+}
+
+export function shiftTipsQueryKey(shiftId: number | null | undefined) {
+  return ["shifts", "tips", shiftId] as const;
+}
+
+/**
+ * `GET /shifts/{id}/tips` (iteración 3, H-8): sólo se usa hoy para mostrar,
+ * como REFERENCIA de sólo lectura junto al campo de propinas del cierre, el
+ * `cash_out` que calcula el servidor — nunca se recalcula acá.
+ */
+export function useShiftTips(shiftId: number | null | undefined) {
+  return useQuery({
+    queryKey: shiftTipsQueryKey(shiftId),
+    queryFn: () => getShiftTips(shiftId as number),
     enabled: shiftId !== null && shiftId !== undefined,
   });
 }

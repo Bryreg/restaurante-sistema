@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { deviceRelease } from "@/api/auth";
 import { Button } from "@/components/ui/button";
 import { inventoryFeature } from "@/features/inventory";
+import { kitchenFeature } from "@/features/kitchen";
 import { ordersFeature } from "@/features/orders";
 import { recipesFeature } from "@/features/recipes";
 import { shiftsFeature } from "@/features/shifts";
@@ -16,14 +17,18 @@ import type { NavItem } from "./nav";
 import { useSession } from "./session";
 
 /** [...ordersFeature.posNav, ...shiftsFeature.posNav, ...recipesFeature.posNav,
- * ...inventoryFeature.posNav] (CONTRATO-INTERNO-1b-1.md §6.2; los últimos
- * dos, pedido 2a: "Producir" y "Merma"). */
+ * ...inventoryFeature.posNav, ...kitchenFeature.posNav] (CONTRATO-INTERNO-1b-1.md
+ * §6.2; los del medio, pedido 2a: "Producir" y "Merma"; el último, pedido 2c
+ * (CONTRATO C8): "KDS", detrás de `kitchen.kds` — la vista mínima de 1b
+ * ("Cocina", `kitchen.view`) sigue viniendo de `ordersFeature.posNav`, sin
+ * tocar). */
 function buildPosNav(hasFeature: (key: string) => boolean): NavItem[] {
   const all: NavItem[] = [
     ...ordersFeature.posNav,
     ...shiftsFeature.posNav,
     ...recipesFeature.posNav,
     ...inventoryFeature.posNav,
+    ...kitchenFeature.posNav,
   ];
   return all.filter((item) => !item.feature || hasFeature(item.feature));
 }

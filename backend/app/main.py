@@ -48,6 +48,15 @@ DOMAINS: list[str] = [
     # que `find_spec_safe("app.purchases.router")` resuelve `None` limpio si
     # algún día falta el archivo puntual — nunca `ModuleNotFoundError`.
     "purchases",
+    # Pedido 2c (`features/fase-2c-canales-cocina/spec.md`): dominio nuevo de
+    # `backend-dinero-canales` (plataformas, comisiones, cuenta por cobrar y
+    # liquidación del efectivo de domicilios). **Paso 0 de este reparto,
+    # ejecutado ANTES de tocar esta lista**: `app/channels/__init__.py` ya
+    # existe, así que `find_spec_safe("app.channels.router")` resuelve `None`
+    # limpio si algún día falta el archivo puntual — nunca
+    # `ModuleNotFoundError` por falta de carpeta (la lección de 1b-1, ver
+    # `app.core.modules`).
+    "channels",
 ]
 
 

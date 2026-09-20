@@ -24,6 +24,7 @@ const { PRODUCTS } = vi.hoisted(() => ({
       available: true,
       daily_count: null,
       daily_remaining: null,
+      is_delivery_fee: false,
       modifier_groups: [],
     },
   ] satisfies ProductAdminOut[],
@@ -39,7 +40,7 @@ vi.mock("@/api/catalog", async () => {
 })
 
 describe("ProductsTab", () => {
-  it("muestra los precios formateados y '—' cuando falta el opcional", async () => {
+  it("muestra los precios formateados y dice 'Igual que mesa' cuando falta el opcional", async () => {
     renderWithProviders(<ProductsTab storeId={1} />, { me: { kind: "admin", features: {} } })
 
     await waitFor(() => expect(screen.getByText("Bandeja paisa")).toBeInTheDocument())
@@ -50,7 +51,16 @@ describe("ProductsTab", () => {
     // Nombre, Mesa, Para llevar, Domicilio, Plataforma, Disponible, acciones.
     expect(cells[1].textContent).toContain("38.000")
     expect(cells[2].textContent).toContain("35.000")
-    expect(cells[3].textContent).toBe("—")
-    expect(cells[4].textContent).toBe("—")
+    // No un "—" ambiguo (SPEC-NEGOCIO §4.3): un precio opcional vacío CAE al
+    // de mesa, nunca a 0 ni a "sin dato" a secas.
+    expect(cells[3].textContent).toBe("Igual que mesa")
+    expect(cells[4].textContent).toBe("Igual que mesa")
+  })
+
+  it("marca el producto que es el cargo de domicilio de la sede", async () => {
+    renderWithProviders(<ProductsTab storeId={1} />, { me: { kind: "admin", features: {} } })
+
+    await waitFor(() => expect(screen.getByText("Bandeja paisa")).toBeInTheDocument())
+    expect(screen.queryByText("Cargo de domicilio")).not.toBeInTheDocument()
   })
 })

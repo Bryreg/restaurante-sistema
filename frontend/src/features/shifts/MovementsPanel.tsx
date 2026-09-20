@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ApiError, newIdempotencyKey } from "@/api/client";
 import {
   createCashMovement,
+  SYSTEM_ONLY_MOVEMENT_CAUSES,
   type CashMovementCause,
   type CashMovementIn,
   type CashMovementKind,
@@ -55,7 +56,23 @@ export const CAUSE_LABEL: Record<CashMovementCause, string> = {
   supplier_payment: "Pago a proveedor",
   other_income: "Otro ingreso",
   other_expense: "Otro egreso",
+  // Pedido 2c: nunca se teclea a mano (ver `MANUAL_CAUSE_ENTRIES` abajo) —
+  // la etiqueta existe para que el movimiento no aparezca en blanco al
+  // listarse (`CAUSE_LABEL[movement.cause]` en la tabla de abajo).
+  delivery_settlement: "Liquidación de domicilios",
 };
+
+/**
+ * Opciones del desplegable de causa MANUAL (pedido 2c): excluye las que el
+ * backend rechaza con `400 CAUSE_NOT_MANUAL`
+ * (`app/shifts/service.py::_SYSTEM_ONLY_MOVEMENT_CAUSES`) — ofrecerlas acá
+ * garantizaría ese error. `CAUSE_LABEL` completo (arriba) sigue siendo lo
+ * que pinta la columna "Causa" de la tabla, donde un movimiento generado
+ * por el sistema sí puede aparecer.
+ */
+const MANUAL_CAUSE_ENTRIES = Object.entries(CAUSE_LABEL).filter(
+  ([value]) => !SYSTEM_ONLY_MOVEMENT_CAUSES.includes(value as CashMovementCause),
+) as [CashMovementCause, string][];
 
 /**
  * Movimientos de caja (spec § "Business day & shifts", `POST
@@ -150,7 +167,7 @@ export function MovementsPanel({ shiftId }: { shiftId: number }): React.JSX.Elem
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(CAUSE_LABEL).map(([value, label]) => (
+              {MANUAL_CAUSE_ENTRIES.map(([value, label]) => (
                 <SelectItem key={value} value={value}>
                   {label}
                 </SelectItem>

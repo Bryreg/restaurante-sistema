@@ -2,16 +2,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Me } from "@/api/auth";
 import { ApiError } from "@/api/client";
+import type { ShiftTips } from "@/api/shifts";
 import { SessionContext, type SessionContextValue } from "@/app/session";
 
 import { SingleStepCloseForm } from "../SingleStepCloseForm";
 
-const { closeSingleStepMock } = vi.hoisted(() => ({
+const { closeSingleStepMock, getShiftTipsMock } = vi.hoisted(() => ({
   closeSingleStepMock: vi.fn(),
+  getShiftTipsMock: vi.fn(),
 }));
 
 vi.mock("@/api/shifts", async () => {
@@ -19,6 +21,7 @@ vi.mock("@/api/shifts", async () => {
   return {
     ...actual,
     closeSingleStep: closeSingleStepMock,
+    getShiftTips: getShiftTipsMock,
   };
 });
 
@@ -59,6 +62,10 @@ function renderWithRefreshSpy(ui: React.ReactElement, refresh: () => Promise<voi
  * pueda cambiar al wizard.
  */
 describe("SingleStepCloseForm — 400 BLIND_CLOSE_REQUIRED", () => {
+  beforeEach(() => {
+    getShiftTipsMock.mockReset().mockResolvedValue({ cash_out: 9_876 } satisfies ShiftTips);
+  });
+
   it("no reintenta /close, muestra el mensaje del servidor y refresca los flags", async () => {
     closeSingleStepMock.mockRejectedValueOnce(
       new ApiError(400, "BLIND_CLOSE_REQUIRED", "Esta sede exige el cierre a ciegas en tres pasos.", {
@@ -81,5 +88,22 @@ describe("SingleStepCloseForm — 400 BLIND_CLOSE_REQUIRED", () => {
     // No hay reintento automático: esperar un tick más no dispara un segundo POST.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(closeSingleStepMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SingleStepCloseForm — iteración 3 (H-8)", () => {
+  beforeEach(() => {
+    getShiftTipsMock.mockReset().mockResolvedValue({ cash_out: 9_876 } satisfies ShiftTips);
+  });
+
+  it("pinta el cash_out de GET /shifts/{id}/tips como referencia, sin recalcularlo", async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    renderWithRefreshSpy(<SingleStepCloseForm shiftId={1} />, refresh);
+
+    await waitFor(() => expect(getShiftTipsMock).toHaveBeenCalledWith(1));
+    // El monto que llega de `cash_out` se pinta tal cual (formatCOP de 9.876), no recalculado.
+    await waitFor(() => expect(screen.getByText(/9\.876/)).toBeInTheDocument());
+    // El rótulo deja claro que es una referencia, no un dato que se use para calcular nada.
+    expect(screen.getByText(/Referencia del sistema/)).toBeInTheDocument();
   });
 });

@@ -45,6 +45,7 @@ const PRODUCTS: ProductAdminOut[] = [
     tax_code: "inc_8",
     active: true,
     available: true,
+    is_delivery_fee: false,
   },
 ]
 

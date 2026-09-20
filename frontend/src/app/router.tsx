@@ -9,6 +9,7 @@ import { customersFeature } from "@/features/customers";
 import { fiscalFeature } from "@/features/fiscal";
 import FeaturesPage from "@/features/features/FeaturesPage";
 import { inventoryFeature } from "@/features/inventory";
+import { kitchenFeature } from "@/features/kitchen";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import { ordersFeature } from "@/features/orders";
 import { paymentsFeature } from "@/features/payments";
@@ -57,6 +58,8 @@ function RequireDevice({ children }: { children: React.ReactElement }): React.Re
  * decide entre Mesas y Comanda nueva según `pos.tables`. La ruta índice de
  * `/admin` es "Hoy" (`reportsFeature`): es la pantalla por la que el dueño
  * abre el admin (SPEC-NEGOCIO §9.3, "pulso de hoy" primero).
+ * `kitchenFeature` (pedido 2c, CONTRATO C8): sólo `posRoutes` — el KDS es
+ * puramente de dispositivo (§9.2), sin pantalla de admin propia.
  */
 const routes: RouteObject[] = [
   { path: "/", element: <Navigate to="/login" replace /> },
@@ -108,6 +111,7 @@ const routes: RouteObject[] = [
       ...paymentsFeature.posRoutes,
       ...inventoryFeature.posRoutes,
       ...recipesFeature.posRoutes,
+      ...kitchenFeature.posRoutes,
     ],
   },
   { path: "*", element: <Navigate to="/login" replace /> },

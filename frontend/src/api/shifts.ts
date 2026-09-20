@@ -47,8 +47,21 @@ export const CASH_MOVEMENT_CAUSES = [
   "supplier_payment",
   "other_income",
   "other_expense",
+  // Pedido 2c: el efectivo que entrega el domiciliario al liquidar
+  // (`income`), y su espejo al deshacer la liquidación (`expense`). El
+  // backend la rechaza con `400 CAUSE_NOT_MANUAL` en
+  // `POST /shifts/{id}/cash-movements` (`app/shifts/service.py::
+  // _SYSTEM_ONLY_MOVEMENT_CAUSES`): nadie la teclea a mano, sólo la
+  // escribe `POST /delivery-settlements`. Sigue en esta lista para que el
+  // movimiento tenga ETIQUETA al listarse (`CAUSE_LABEL`, MovementsPanel.tsx)
+  // — `MovementsPanel` la excluye aparte del desplegable de causa manual.
+  "delivery_settlement",
 ] as const;
 export type CashMovementCause = (typeof CASH_MOVEMENT_CAUSES)[number];
+/** Causas que sólo produce el sistema (espejo de `_SYSTEM_ONLY_MOVEMENT_CAUSES`
+ * en `app/shifts/service.py`): nunca se ofrecen en un desplegable de causa
+ * manual, aunque tengan etiqueta para mostrarse una vez registradas. */
+export const SYSTEM_ONLY_MOVEMENT_CAUSES: readonly CashMovementCause[] = ["delivery_settlement"];
 export type CashDifferenceCause =
   | "change_error"
   | "expense_without_voucher"
@@ -93,6 +106,14 @@ export interface ShiftCurrent {
   roster?: RosterEntry[];
   /** Sólo viaja para admin o el responsable de caja; ausente ≠ 0. */
   expected_cash?: number | null;
+  /**
+   * Efectivo de domicilios sin liquidar (pedido 2c, `pos.delivery`):
+   * renglón PROPIO y separado del cajón, `null` (nunca `0`) cuando quien
+   * pregunta no puede verlo todavía (`cash.blind_close` antes del paso 2
+   * del cierre) — "no te lo puedo mostrar" no es "no hay". NUNCA se suma a
+   * `expected_cash`: es plata que todavía no está en el cajón.
+   */
+  delivery_cash_pending?: number | null;
   is_stale?: boolean;
   cash_over_threshold?: boolean;
 }
@@ -171,6 +192,9 @@ export interface Breakdown {
   expenses?: number;
   pickups?: number;
   expected?: number;
+  /** Informativo, FUERA de `expected` (`app/shifts/service.py::compute_breakdown`,
+   * pedido 2c): plata de domicilios que el domiciliario todavía no entregó. */
+  delivery_cash_pending?: number;
 }
 
 /** El desglose congelado que devuelve el servidor: nunca se recalcula acá. */
@@ -433,6 +457,8 @@ export interface ShiftSummary {
   handovers?: Handover[];
   /** El operador no lo ve si no es el responsable — ausente ≠ 0. */
   expected_cash?: number | null;
+  /** Ver `ShiftCurrent.delivery_cash_pending` — mismo criterio, mismo `null` ≠ 0. */
+  delivery_cash_pending?: number | null;
   counted_cash?: number | null;
   difference?: number | null;
   close_cause?: CashDifferenceCause | null;
@@ -446,6 +472,71 @@ export interface ShiftSummary {
 /** `GET /shifts/{id}` — resumen completo (device: su turno; admin: cualquiera de su organización). */
 export function getShiftSummary(shiftId: number): Promise<ShiftSummary> {
   return api<ShiftSummary>(`/shifts/${shiftId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Propinas del turno (1b-2; renglón de domicilio agregado en 2c, rondas 2 y 3)
+// ---------------------------------------------------------------------------
+
+export interface SalesByMethod {
+  cash?: number;
+  card?: number;
+  transfer?: number;
+  other?: number;
+}
+
+export interface TipsByEmployee {
+  employee_id: number;
+  employee_name?: string;
+  cash?: number;
+  card?: number;
+  transfer?: number;
+  other?: number;
+  /**
+   * Propina en efectivo de un domicilio, por persona. Aditivo (2c): a
+   * propósito NO distingue liquidada de pendiente — es «cuánta propina de
+   * domicilio generó esta persona», no «cuánta se le puede pagar hoy». Eso
+   * lo dice `ShiftTips.cash_out` (agregado, no por persona).
+   */
+  delivery?: number;
+  total?: number;
+}
+
+export interface ShiftTips {
+  by_method?: SalesByMethod;
+  by_employee?: TipsByEmployee[];
+  /**
+   * Ronda 3 (H-8): lo que SALE del cajón al cierre como propina — propina en
+   * efectivo de mostrador MÁS propina de domicilio YA LIQUIDADA (identidad
+   * publicada por el servidor, `app/shifts/tips.py::get_shift_tips`:
+   * `cash_out == by_method.cash + delivery_tips_settled`). Se PINTA tal
+   * cual: no se suma, no se resta (AGENTS.md § "una sola matemática, en el
+   * backend").
+   */
+  cash_out?: number;
+  electronic_liability?: number;
+  /** Toda la propina de domicilio del turno (liquidada + pendiente). */
+  delivery_tips?: number;
+  /** La que el domiciliario todavía no entregó: no está en el cajón ni en `cash_out`. */
+  delivery_tips_pending?: number;
+  /**
+   * La ya liquidada: SÍ está físicamente en el cajón (el domiciliario
+   * entrega venta + propina) y SÍ está incluida en `cash_out`. La publica el
+   * servidor para que ningún cliente la derive restando `delivery_tips -
+   * delivery_tips_pending` por su cuenta.
+   */
+  delivery_tips_settled?: number;
+}
+
+/**
+ * `GET /shifts/{id}/tips` — a diferencia de `expected_cash`, esta ruta NO
+ * aplica el gate de `_can_see_expected`: es alcanzable con sesión de
+ * dispositivo (`current_actor` en `app/shifts/router.py:339` acepta admin O
+ * device con persona identificada por PIN), no sólo admin — verificado antes
+ * de consumirla desde el POS (iteración 3, ver entregable).
+ */
+export function getShiftTips(shiftId: number): Promise<ShiftTips> {
+  return api<ShiftTips>(`/shifts/${shiftId}/tips`);
 }
 
 // ---------------------------------------------------------------------------
@@ -649,4 +740,109 @@ export function authorizationsCsvUrl(filters: AuthorizationFilters = {}): string
   if (filters.to) params.set("to", filters.to);
   if (filters.authorizerId !== undefined) params.set("authorizer_id", String(filters.authorizerId));
   return `/api/v1/admin/authorizations?${params.toString()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Domicilio propio: efectivo pendiente y liquidación (`pos.delivery`, §3.3).
+//
+// Estos endpoints viven en `app/channels/router.py` (territorio de
+// `backend-dinero-canales`), no en `app/shifts/router.py`: se publican
+// ACÁ, en `api/shifts.ts`, porque la pantalla que los consume es "el
+// efectivo de domicilios en el turno" (misión de este agente, `features/
+// shifts/**`) y no la de canales/plataformas. Mismo criterio que
+// `payments.ts` llamando rutas fuera de `app/payments/**`.
+// ---------------------------------------------------------------------------
+
+export interface CourierPending {
+  courier_employee_id: number;
+  courier_employee_name?: string;
+  payments_count?: number;
+  amount?: number;
+  tip_amount?: number;
+  total?: number;
+}
+
+export interface DeliveryPendingList {
+  store_id?: number;
+  couriers?: CourierPending[];
+  amount?: number;
+  tip_amount?: number;
+  total?: number;
+}
+
+/**
+ * `GET /delivery-settlements/pending` — efectivo de domicilios por
+ * liquidar, agrupado por domiciliario. **No es una deuda del empleado**
+ * (CST art. 149): es plata de la sede que todavía no llegó al cajón.
+ */
+export function listPendingDeliveryCash(): Promise<DeliveryPendingList> {
+  return api<DeliveryPendingList>("/delivery-settlements/pending");
+}
+
+export interface DeliverySettlementIn {
+  courier_employee_id: number;
+  /** `undefined`/`null` = liquidar TODO lo pendiente de ese domiciliario.
+   * Una lista vacía la rechaza el backend con `400` (`null` ≠ `[]`). */
+  payment_ids?: number[] | null;
+  note?: string;
+}
+
+export type DeliverySettlementStatus = "settled" | "voided";
+
+export interface DeliverySettlement {
+  id: number;
+  store_id?: number;
+  courier_employee_id?: number;
+  courier_employee_name?: string;
+  shift_id?: number;
+  cash_movement_id?: number | null;
+  amount?: number;
+  tip_amount?: number;
+  total?: number;
+  payments_count?: number;
+  status?: DeliverySettlementStatus;
+  note?: string | null;
+  business_date?: string;
+  at?: string;
+  /** Quién registró la liquidación (no confundir con `courier_employee_name`). */
+  employee_name?: string;
+  voided_at?: string | null;
+  voided_reason?: string | null;
+  voided_by_employee_name?: string | null;
+  void_shift_id?: number | null;
+  void_cash_movement_id?: number | null;
+}
+
+/**
+ * `POST /delivery-settlements` — el domiciliario entrega el efectivo: entra
+ * al turno ABIERTO como ingreso de causa `delivery_settlement`. Exige
+ * `Idempotency-Key` (mueve plata) y turno abierto (`409 NO_OPEN_SHIFT` si no).
+ */
+export function createDeliverySettlement(
+  body: DeliverySettlementIn,
+  idempotencyKey: string,
+): Promise<DeliverySettlement> {
+  return api<DeliverySettlement>("/delivery-settlements", { method: "POST", body, idempotencyKey });
+}
+
+export interface DeliverySettlementVoidIn {
+  reason: string;
+}
+
+/**
+ * `POST /delivery-settlements/{id}/void` — deshacer una liquidación: el
+ * movimiento espejo (egreso, misma causa) se escribe en el turno abierto al
+ * momento de deshacerla; el original queda vivo (nada financiero se borra)
+ * y los cobros vuelven a "pendiente". Sin turno abierto, `409`.
+ */
+export function voidDeliverySettlement(
+  settlementId: number,
+  body: DeliverySettlementVoidIn,
+  idempotencyKey: string,
+): Promise<DeliverySettlement> {
+  return api<DeliverySettlement>(`/delivery-settlements/${settlementId}/void`, {
+    method: "POST",
+    body,
+    idempotencyKey,
+  });
 }

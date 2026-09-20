@@ -32,6 +32,12 @@ vi.mock("@/components/EmployeePicker", () => ({
   ),
 }))
 
+// CONTRATO C7: `@/api/channels` lo publica `frontend-kds-config`. Se mockea
+// acá con la forma acordada (declarada en el entregable de este agente) para
+// no depender de esa ruta real en este test de territorio.
+const { listDevicePlatformsMock } = vi.hoisted(() => ({ listDevicePlatformsMock: vi.fn() }))
+vi.mock("@/api/channels", () => ({ listDevicePlatforms: listDevicePlatformsMock }))
+
 describe("NewOrderPage", () => {
   it("sólo ofrece los canales habilitados por flag", () => {
     renderWithProviders(<NewOrderPage />, {
@@ -83,5 +89,73 @@ describe("NewOrderPage", () => {
     await waitFor(() =>
       expect(createOrderMock).toHaveBeenCalledWith(expect.objectContaining({ channel: "staff_meal", consumed_by_employee_id: 77 })),
     )
+  })
+
+  it("domicilio exige dirección, teléfono y domiciliario, y manda el cargo lo pone el servidor", async () => {
+    const created: OrderOut = buildOrder({ id: 91, channel: "delivery" })
+    createOrderMock.mockResolvedValue(created)
+
+    const user = userEvent.setup()
+    renderWithProviders(<NewOrderPage />, { me: deviceMe({ "pos.delivery": true, "pos.takeout": true }) })
+
+    await user.click(screen.getByRole("radio", { name: "Domicilio" }))
+    await user.click(screen.getByRole("button", { name: /crear comanda/i }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(/dirección y el teléfono/i)
+    expect(createOrderMock).not.toHaveBeenCalled()
+
+    await user.type(screen.getByLabelText("Dirección"), "Calle 10 # 20-30")
+    await user.type(screen.getByLabelText("Teléfono"), "3001234567")
+    await user.click(screen.getByRole("button", { name: /crear comanda/i }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(/quién reparte/i)
+
+    await user.click(screen.getByRole("button", { name: "Domiciliario" }))
+    await user.click(screen.getByRole("button", { name: /crear comanda/i }))
+
+    await waitFor(() =>
+      expect(createOrderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "delivery",
+          delivery: { address: "Calle 10 # 20-30", phone: "3001234567", courier_employee_id: 77 },
+        }),
+      ),
+    )
+    // El cargo de domicilio no se manda como campo: no hay ni un monto ni
+    // una plata en el body — lo agrega el servidor como ítem al crear.
+    const [body] = createOrderMock.mock.calls[0]
+    expect(body).not.toHaveProperty("delivery_fee")
+    expect(body).not.toHaveProperty("delivery_charge")
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/pos/comanda/91"))
+  })
+
+  it("plataforma exige elegir plataforma y external_id, con el selector consumido de @/api/channels (C7)", async () => {
+    listDevicePlatformsMock.mockResolvedValue([
+      { id: 3, name: "Rappi", code: "rappi" },
+      { id: 4, name: "Didi Food", code: "didi" },
+    ])
+    const created: OrderOut = buildOrder({ id: 92, channel: "platform" })
+    createOrderMock.mockResolvedValue(created)
+
+    const user = userEvent.setup()
+    renderWithProviders(<NewOrderPage />, { me: deviceMe({ "pos.platforms": true }) })
+
+    await user.click(screen.getByRole("radio", { name: "Plataforma" }))
+    await user.click(screen.getByRole("button", { name: /crear comanda/i }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(/elegí la plataforma/i)
+    expect(createOrderMock).not.toHaveBeenCalled()
+
+    await user.click(await screen.findByLabelText("Plataforma"))
+    await user.click(await screen.findByRole("option", { name: "Rappi" }))
+    await user.click(screen.getByRole("button", { name: /crear comanda/i }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(/número del pedido/i)
+
+    await user.type(screen.getByLabelText("Número de pedido en la plataforma"), "RP-778899")
+    await user.click(screen.getByRole("button", { name: /crear comanda/i }))
+
+    await waitFor(() =>
+      expect(createOrderMock).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: "platform", platform: { platform_id: 3, external_id: "RP-778899" } }),
+      ),
+    )
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/pos/comanda/92"))
   })
 })

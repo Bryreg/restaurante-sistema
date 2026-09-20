@@ -10,13 +10,16 @@ import { renderWithProviders } from "@/test/utils"
 import { OrderPage } from "../OrderPage"
 import { buildCatalog, buildOrder, deviceMe } from "./fixtures"
 
-const { getOrderMock, voidItemMock, addItemsMock, listFavoritesMock, getCatalogMock } = vi.hoisted(() => ({
-  getOrderMock: vi.fn(),
-  voidItemMock: vi.fn(),
-  addItemsMock: vi.fn(),
-  listFavoritesMock: vi.fn().mockResolvedValue([]),
-  getCatalogMock: vi.fn(),
-}))
+const { getOrderMock, voidItemMock, addItemsMock, listFavoritesMock, getCatalogMock, fireCourseMock } = vi.hoisted(
+  () => ({
+    getOrderMock: vi.fn(),
+    voidItemMock: vi.fn(),
+    addItemsMock: vi.fn(),
+    listFavoritesMock: vi.fn().mockResolvedValue([]),
+    getCatalogMock: vi.fn(),
+    fireCourseMock: vi.fn(),
+  }),
+)
 
 vi.mock("@/api/orders", async () => {
   const actual = await vi.importActual<typeof import("@/api/orders")>("@/api/orders")
@@ -26,6 +29,7 @@ vi.mock("@/api/orders", async () => {
     voidItem: voidItemMock,
     addItems: addItemsMock,
     listFavorites: listFavoritesMock,
+    fireCourse: fireCourseMock,
   }
 })
 
@@ -116,5 +120,66 @@ describe("OrderPage", () => {
     expect(secondBody.authorizer_pin).toBe("1234")
     const [, , firstKey] = addItemsMock.mock.calls[0]
     expect(secondKey).not.toBe(firstKey)
+  })
+
+  it("muestra dirección, teléfono y domiciliario de una comanda de domicilio, nunca el cargo sumado a mano", async () => {
+    getOrderMock.mockResolvedValue(
+      buildOrder({
+        channel: "delivery",
+        delivery: { address: "Calle 10 # 20-30", phone: "3001234567", courier: { id: 9, name: "Luis" } },
+      }),
+    )
+    renderOrderPage(501, {})
+
+    await waitFor(() => expect(screen.getByText(/calle 10 # 20-30/i)).toBeInTheDocument())
+    expect(screen.getByText(/3001234567/)).toBeInTheDocument()
+    expect(screen.getByText(/domiciliario: luis/i)).toBeInTheDocument()
+  })
+
+  it("muestra la plataforma y el número de pedido de una comanda de plataforma", async () => {
+    getOrderMock.mockResolvedValue(
+      buildOrder({ channel: "platform", platform: { id: 3, name: "Rappi", external_id: "RP-778899" } }),
+    )
+    renderOrderPage(501, {})
+
+    await waitFor(() => expect(screen.getByText(/rappi/i)).toBeInTheDocument())
+    expect(screen.getByText(/pedido rp-778899/i)).toBeInTheDocument()
+  })
+
+  describe("«Marchar» (pos.courses)", () => {
+    it("sin pos.courses no existe ningún botón Marchar", async () => {
+      getOrderMock.mockResolvedValue(buildOrder())
+      renderOrderPage(501, { "pos.courses": false })
+
+      await waitFor(() => expect(screen.getByText(/limonada de coco/i)).toBeInTheDocument())
+      expect(screen.queryByText(/^marchar$/i)).not.toBeInTheDocument()
+    })
+
+    it("marcha un curso pendiente y, una vez marchado, no deja marcharlo de nuevo", async () => {
+      const order = buildOrder({ courses_fired: [] })
+      const fired = buildOrder({
+        version: 2,
+        courses_fired: [{ course: "beverage", fired_at: "2026-09-15T18:10:00Z", fired_by: { id: 2, name: "Ana" } }],
+      })
+      getOrderMock.mockResolvedValueOnce(order).mockResolvedValue(fired)
+      fireCourseMock.mockResolvedValue(fired)
+
+      const user = userEvent.setup()
+      renderOrderPage(501, { "pos.courses": true })
+
+      const button = await screen.findByRole("button", { name: /marchar bebida/i })
+      await user.click(button)
+
+      await waitFor(() => expect(fireCourseMock).toHaveBeenCalledTimes(1))
+      const [orderId, course, body] = fireCourseMock.mock.calls[0]
+      expect(orderId).toBe(501)
+      expect(course).toBe("beverage")
+      expect(body).toEqual({ expected_version: 1 })
+
+      // Una vez marchado, la UI refleja el gate del backend: ya no hay
+      // botón para "Marchar" de nuevo, sólo el aviso de que ya se marchó.
+      expect(await screen.findByText(/bebida marchado/i)).toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: /marchar bebida/i })).not.toBeInTheDocument()
+    })
   })
 })

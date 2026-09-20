@@ -27,6 +27,7 @@ const { SHIFT, SUMMARY } = vi.hoisted(() => ({
     cash_responsible: { id: 1, name: "Ana" },
     opening_cash_total: 200_000,
     cash_reserve: 50_000,
+    delivery_cash_pending: 45_000,
     roster: [],
     movements: [],
     swaps: [],
@@ -93,5 +94,29 @@ describe("ShiftPage — pestañas opcionales por flag", () => {
     const expectedRow = expectedLabel.parentElement as HTMLElement;
     expect(expectedRow.textContent).toContain("—");
     expect(expectedRow.textContent).not.toContain("0");
+  });
+
+  it("sin pos.delivery no muestra el renglón de efectivo de domicilios pendiente", async () => {
+    renderWithProviders(<ShiftPage />, { me: deviceMe({}) });
+
+    await waitFor(() => expect(screen.getByText("Resumen")).toBeInTheDocument());
+    expect(screen.queryByText(/efectivo de domicilios pendiente/i)).not.toBeInTheDocument();
+  });
+
+  it("con pos.delivery muestra el efectivo de domicilios pendiente APARTE del esperado", async () => {
+    renderWithProviders(<ShiftPage />, { me: deviceMe({ "pos.delivery": true }) });
+
+    const label = await screen.findByText(/efectivo de domicilios pendiente/i);
+    const row = label.parentElement as HTMLElement;
+    // El renglón parte en "—" (sondeo de `GET /shifts/current`) y se
+    // completa cuando llega `GET /shifts/{id}` con `delivery_cash_pending`.
+    await waitFor(() => expect(row.textContent).toContain("45.000"));
+
+    // El renglón de "Esperado" no lo incluye (compute_breakdown lo deja
+    // fuera a propósito): con `expected_cash` ausente en `SHIFT`, la fila
+    // sigue mostrando "—", nunca los 45.000 del domicilio pendiente.
+    const expectedRow = screen.getByText("Esperado").parentElement as HTMLElement;
+    expect(expectedRow.textContent).toContain("—");
+    expect(expectedRow.textContent).not.toContain("45.000");
   });
 });

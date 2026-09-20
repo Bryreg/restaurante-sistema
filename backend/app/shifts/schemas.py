@@ -24,6 +24,19 @@ CashMovementCauseLiteral = Literal[
     # Pedido 2b: pago en efectivo de una cuenta por pagar desde el cajón
     # (`app.shifts.hooks.register_supplier_payment_expense`).
     "supplier_payment",
+    # Pedido 2c: el efectivo de domicilios que entrega el domiciliario al
+    # liquidar (`income`), y su espejo al deshacer la liquidación
+    # (`expense`). **Contrato publicado hacia el cliente**: el cruce
+    # backend→cliente de las causas lo cobra
+    # `frontend/src/audit/purchases-counts.test.ts`, que LEE este `Literal`
+    # y exige una etiqueta por cada valor — así que agregar esta causa
+    # obliga a `frontend/src/api/shifts.ts` (`CashMovementCause`) y a
+    # `frontend/src/features/shifts/MovementsPanel.tsx` (`CAUSE_LABEL`) a
+    # sumar `delivery_settlement: "Liquidación de domicilios"`. Es el cruce
+    # H-8/H-11 de 2b, nombrado de entrada en vez de descubierto después.
+    # Nadie la puede teclear a mano: `app.shifts.service` la rechaza con
+    # `400 CAUSE_NOT_MANUAL` en `POST /shifts/{id}/cash-movements`.
+    "delivery_settlement",
 ]
 CashDifferenceCauseLiteral = Literal[
     "change_error", "expense_without_voucher", "tips_mixed", "unrecorded_sale", "counting_error", "unknown"
@@ -89,6 +102,12 @@ class ShiftCurrentOut(BaseModel):
     expected_cash: int | None = None
     sales: SalesByMethodOut | None = None
     tips: SalesByMethodOut | None = None
+    # Pedido 2c: el efectivo de domicilios sin liquidar, aparte del cajón.
+    # `None` (no `0`) cuando quien pregunta no puede ver el esperado — con
+    # `cash.blind_close` encendida el responsable de caja no ve plata
+    # derivada hasta el paso 2 del cierre. `null` ≠ 0: "no te lo puedo
+    # mostrar" no es "no hay".
+    delivery_cash_pending: int | None = None
     is_stale: bool
     cash_over_threshold: bool
 
@@ -151,6 +170,12 @@ class BreakdownOut(BaseModel):
     expenses: int
     pickups: int
     expected: int
+    # Pedido 2c (SPEC-NEGOCIO §3.3): el efectivo de domicilios que el
+    # domiciliario todavía no entregó. Renglón PROPIO y separado: **no está
+    # sumado en `expected`** y no cambia su significado — es plata de la
+    # sede que no está en el cajón. Cuando el domiciliario liquida, entra
+    # por `incomes` como cualquier otro ingreso y este número baja.
+    delivery_cash_pending: int = 0
 
 
 class HandoverOut(BaseModel):
@@ -338,6 +363,8 @@ class ShiftSummaryOut(BaseModel):
     expected_cash: int | None = None
     sales: SalesByMethodOut | None = None
     tips: SalesByMethodOut | None = None
+    # Pedido 2c: ver `ShiftCurrentOut.delivery_cash_pending`.
+    delivery_cash_pending: int | None = None
     counted_cash: int | None = None
     difference: int | None = None
     close_cause: CashDifferenceCauseLiteral | None = None
@@ -489,22 +516,71 @@ class EmployeeActivityOut(BaseModel):
 
 
 class TipsByEmployeeOut(BaseModel):
+    """Propina del turno por persona, repartida con **la misma función** que
+    reparte `by_method`: `app.shifts.hooks.payment_bucket` (ronda 2 de 2c,
+    cierre de H-2). Por eso `sum(by_employee[*].cash)` es exactamente
+    `by_method.cash`, y lo mismo para `card`/`transfer`/`other`.
+
+    `delivery` (2c, aditivo con default `0`) es la propina en EFECTIVO de un
+    domicilio: mientras el domiciliario no liquida la tiene él, no el cajón,
+    así que no está en `cash`. **`delivery` no distingue liquidada de
+    pendiente a propósito** — es «cuánta propina de domicilio generó esta
+    persona» —; cuánto se puede sacar del cajón hoy lo dice `cash_out`, que
+    desde la ronda 3 (H-8) suma la propina de domicilio ya liquidada y se
+    publica una sola vez, en el cuerpo, no por persona.
+
+    `total` es "cuánta propina generó esta persona", no "cuánta se le puede
+    pagar hoy".
+    """
+
     employee_id: int
     employee_name: str
     cash: int
     card: int
     transfer: int
     other: int
+    # Pedido 2c: propina en efectivo de domicilios. Aditivo: default `0`.
+    delivery: int = 0
     total: int
 
 
 class ShiftTipsOut(BaseModel):
     by_method: SalesByMethodOut
     by_employee: list[TipsByEmployeeOut]
-    # Efectivo: sale del cajón al cierre. Electrónicas: pasivo con el
-    # personal (Ley 1935 de 2018) — `by_method.card + transfer + other`.
+    # `cash_out` es **lo que sale del cajón al cierre**: propina en efectivo
+    # de mostrador MÁS propina de domicilio YA LIQUIDADA. Una vez que el
+    # domiciliario liquidó, esa propina está FÍSICAMENTE en el cajón (la
+    # liquidación entrega venta + propina, `DeliverySettlement.tip_amount`),
+    # y la lectura que autoriza sacarla tiene que decirlo: es pasivo con la
+    # persona (Ley 1935 de 2018), no venta a consignar. `to_deposit`
+    # (`app/shifts/service.py:1035`) resta exactamente esto, así que el
+    # sobrante del conteo a ciegas queda siendo justo la propina en efectivo
+    # que hay en el cajón. Identidad publicada, cerrada por el servidor:
+    #
+    #     cash_out == by_method.cash + delivery_tips_settled
+    #
+    # Electrónicas: pasivo con el personal — `by_method.card + transfer + other`.
     cash_out: int
     electronic_liability: int
+    # Pedido 2c (aditivo, default `0`): la propina en EFECTIVO de domicilios
+    # del turno. **Todo lo de este esquema es PROPINA, nunca venta** — por
+    # eso el prefijo `delivery_tips_` y no `delivery_cash_` (ronda 3, cierre
+    # de H-7): `BreakdownOut.delivery_cash_pending` (:178) y
+    # `ShiftSummaryOut.delivery_cash_pending` (:367) son venta + propina
+    # pendientes, otra cantidad; la misma clave con dos significados es lo
+    # que hacía que alguien mostrara un número por otro.
+    #
+    # - `delivery_tips`: toda la propina de domicilio del turno.
+    # - `delivery_tips_pending`: la que el domiciliario todavía no entregó,
+    #   que por eso NO está en el cajón ni en `cash_out`.
+    # - `delivery_tips_settled`: la ya liquidada, **publicada por el
+    #   servidor** para que ningún cliente la derive restando (una sola
+    #   matemática, y en el backend).
+    #
+    # Enteros, como toda la plata del sistema.
+    delivery_tips: int = 0
+    delivery_tips_pending: int = 0
+    delivery_tips_settled: int = 0
 
 
 class TipPayoutDistributionIn(BaseModel):

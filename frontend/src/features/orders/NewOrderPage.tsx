@@ -1,6 +1,7 @@
-import { ShoppingBag, Store, UtensilsCrossed, Users2 } from "lucide-react"
+import { Bike, ShoppingBag, Smartphone, Store, UtensilsCrossed, Users2 } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { useQuery } from "@tanstack/react-query"
 
 import { useSession } from "@/app/session"
 import { createOrder, type OrderChannel } from "@/api/orders"
@@ -8,12 +9,19 @@ import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/EmptyState"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
 // `EmployeePicker` lo escribe `frontend-cobro` (CONTRATO-INTERNO-1b-1.md § 1,
 // § 0): si todavía no existe cuando esto corre, queda declarado en `gaps` del
 // entregable, tal como pide la misión.
 import { EmployeePicker } from "@/components/EmployeePicker"
+// CONTRATO C7 (spec de este pedido, 2c): la lista de plataformas activas de
+// la sede NO es de este agente — la publica `frontend-kds-config` en
+// `@/api/channels`. Se IMPORTA acá, no se copia el tipo ni el fetch. Si ese
+// archivo no existe todavía cuando esto corre, el typecheck y este import
+// lo cobran — declarado en el entregable ("qué asumí de C7"), a propósito.
+import { listDevicePlatforms, type DevicePlatformOut } from "@/api/channels"
 
 interface ChannelOption {
   channel: OrderChannel
@@ -26,6 +34,8 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
   { channel: "counter", label: "Mostrador", icon: Store, feature: "pos.counter" },
   { channel: "dine_in", label: "Mesa", icon: Users2, feature: "pos.tables" },
   { channel: "takeout", label: "Para llevar", icon: ShoppingBag, feature: "pos.takeout" },
+  { channel: "delivery", label: "Domicilio", icon: Bike, feature: "pos.delivery" },
+  { channel: "platform", label: "Plataforma", icon: Smartphone, feature: "pos.platforms" },
   { channel: "staff_meal", label: "Consumo de personal", icon: UtensilsCrossed, feature: "pos.staff_meal" },
 ]
 
@@ -44,8 +54,20 @@ export function NewOrderPage(): React.JSX.Element {
   const [phone, setPhone] = useState("")
   const [promisedAt, setPromisedAt] = useState("")
   const [consumedBy, setConsumedBy] = useState<number | null>(null)
+  const [deliveryAddress, setDeliveryAddress] = useState("")
+  const [deliveryPhone, setDeliveryPhone] = useState("")
+  const [courierId, setCourierId] = useState<number | null>(null)
+  const [platformId, setPlatformId] = useState<number | null>(null)
+  const [externalId, setExternalId] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+
+  const platformsQuery = useQuery({
+    queryKey: ["device", "platforms"] as const,
+    queryFn: listDevicePlatforms,
+    enabled: channel === "platform",
+  })
+  const platforms: DevicePlatformOut[] = platformsQuery.data ?? []
 
   const available = CHANNEL_OPTIONS.filter((option) => hasFeature(option.feature))
 
@@ -53,7 +75,7 @@ export function NewOrderPage(): React.JSX.Element {
     return (
       <EmptyState
         title="No hay ningún canal de venta habilitado"
-        description="Activá al menos uno (Mostrador, Mesas, Para llevar o Consumo de personal) en Admin → Funciones."
+        description="Activá al menos uno (Mostrador, Mesas, Para llevar, Domicilio, Plataforma o Consumo de personal) en Admin → Funciones."
       />
     )
   }
@@ -71,6 +93,26 @@ export function NewOrderPage(): React.JSX.Element {
       setError("Elegí quién consume.")
       return
     }
+    if (channel === "delivery") {
+      if (deliveryAddress.trim() === "" || deliveryPhone.trim() === "") {
+        setError("Ingresá la dirección y el teléfono del domicilio.")
+        return
+      }
+      if (courierId === null) {
+        setError("Elegí quién reparte este domicilio.")
+        return
+      }
+    }
+    if (channel === "platform") {
+      if (platformId === null) {
+        setError("Elegí la plataforma.")
+        return
+      }
+      if (externalId.trim() === "") {
+        setError("Ingresá el número del pedido en la plataforma.")
+        return
+      }
+    }
 
     setPending(true)
     try {
@@ -82,7 +124,30 @@ export function NewOrderPage(): React.JSX.Element {
             ? {
                 customer_name: customerName.trim(),
                 phone: phone.trim() === "" ? undefined : phone.trim(),
-                promised_at: promisedAt === "" ? undefined : new Date(promisedAt).toISOString(),
+                // Se manda TAL COMO la entrega el input (sin zona), nunca
+                // `new Date(...).toISOString()`: eso interpreta la hora de
+                // pared con la zona del NAVEGADOR, que en un dispositivo mal
+                // configurado no es Bogotá. El servidor la interpreta con
+                // `app/core/tz.py::from_bogota_wall_clock` (AGENTS.md, "toda
+                // fecha de negocio... nunca del navegador").
+                promised_at: promisedAt === "" ? undefined : promisedAt,
+              }
+            : undefined,
+        delivery:
+          channel === "delivery"
+            ? {
+                address: deliveryAddress.trim(),
+                phone: deliveryPhone.trim(),
+                // Validado arriba: `courierId` no es `null` en esta rama.
+                courier_employee_id: courierId as number,
+              }
+            : undefined,
+        platform:
+          channel === "platform"
+            ? {
+                // Validado arriba: `platformId` no es `null` en esta rama.
+                platform_id: platformId as number,
+                external_id: externalId.trim(),
               }
             : undefined,
         consumed_by_employee_id: channel === "staff_meal" ? (consumedBy ?? undefined) : undefined,
@@ -158,6 +223,82 @@ export function NewOrderPage(): React.JSX.Element {
                   className="h-11"
                   value={promisedAt}
                   onChange={(event) => setPromisedAt(event.target.value)}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {channel === "delivery" ? (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <Label htmlFor="delivery-address">Dirección</Label>
+                <Input
+                  id="delivery-address"
+                  className="h-11"
+                  value={deliveryAddress}
+                  onChange={(event) => setDeliveryAddress(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="delivery-phone">Teléfono</Label>
+                <Input
+                  id="delivery-phone"
+                  className="h-11"
+                  value={deliveryPhone}
+                  onChange={(event) => setDeliveryPhone(event.target.value)}
+                />
+              </div>
+              <EmployeePicker value={courierId} onChange={(id) => setCourierId(id)} label="Domiciliario" />
+              <p className="text-xs text-muted-foreground">
+                El cargo de domicilio se agrega solo, como un ítem más de la comanda, con su impuesto ya
+                calculado.
+              </p>
+            </div>
+          ) : null}
+
+          {channel === "platform" ? (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <Label htmlFor="platform-select">Plataforma</Label>
+                {platformsQuery.isLoading ? (
+                  <p className="text-sm text-muted-foreground">Cargando plataformas…</p>
+                ) : platformsQuery.isError ? (
+                  <EmptyState
+                    role="alert"
+                    title="No se pudieron cargar las plataformas"
+                    description={errorMessage(platformsQuery.error)}
+                    action={{ label: "Reintentar", onClick: () => void platformsQuery.refetch() }}
+                  />
+                ) : platforms.length === 0 ? (
+                  <EmptyState
+                    title="Esta sede no tiene plataformas activas"
+                    description="Configurá al menos una plataforma en Admin → Configuración antes de cargar un pedido."
+                  />
+                ) : (
+                  <Select
+                    value={platformId === null ? undefined : String(platformId)}
+                    onValueChange={(value) => setPlatformId(value ? Number(value) : null)}
+                  >
+                    <SelectTrigger id="platform-select" className="h-11 w-full">
+                      <SelectValue placeholder="Elegí la plataforma" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {platforms.map((platform) => (
+                        <SelectItem key={platform.id} value={String(platform.id)}>
+                          {platform.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="platform-external-id">Número de pedido en la plataforma</Label>
+                <Input
+                  id="platform-external-id"
+                  className="h-11"
+                  value={externalId}
+                  onChange={(event) => setExternalId(event.target.value)}
                 />
               </div>
             </div>

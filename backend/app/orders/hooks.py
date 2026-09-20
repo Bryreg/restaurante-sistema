@@ -22,9 +22,19 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.audit.service import record_audit
 from app.core import clock
+from app.core.errors import ConflictError, NotFoundError
 from app.core.modules import find_spec_safe
-from app.orders.models import Order, OrderEvent, OrderItem, OrderStatus
+from app.orders.models import (
+    Order,
+    OrderChannel,
+    OrderCourseFire,
+    OrderEvent,
+    OrderItem,
+    OrderItemStatus,
+    OrderStatus,
+)
 
 if TYPE_CHECKING:
     from app.auth.deps import Actor
@@ -209,3 +219,168 @@ def reverse_item_consumption(
             )
         )
     return reversed_rows
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2c — CONTRATO C1: lo que publica este agente para el KDS
+# (`kitchen.kds`, territorio de `backend-kds`, que LLAMA estas cuatro
+# funciones). Regla del contrato, escrita acá y en la misión de
+# `backend-kds`: `backend-kds` NUNCA escribe `OrderItem.status` ni ningún
+# campo de `app.orders.models` a mano — todas sus escrituras pasan por acá.
+# Si alguna firma cambia, es este agente quien lo declara en su entregable
+# con el nombre del agente afectado (`backend-kds`).
+# ---------------------------------------------------------------------------
+
+
+def bump_item(db: Session, *, item_id: int, store_id: int, actor: "Actor", now: datetime) -> bool:
+    """El «bump» de un ítem desde el KDS: `sent -> ready` — reutiliza
+    EXACTAMENTE la transición de `app.orders.service.mark_ready` (no se
+    duplica; este módulo no importa `service` para evitar el ciclo del
+    docstring de arriba, así que la transición se repite acá a mano, pero es
+    la misma lógica: sólo avanza desde `sent`).
+
+    Idempotente: si el ítem ya está `ready`/`served`/`voided` (o `pending`,
+    nunca enviado) devuelve `False` sin tocar nada y sin error — un bump
+    repetido en hora pico no puede romper nada. `item_id`/`store_id` que no
+    resuelven a un ítem real de esta sede son un error real (`404`), no un
+    "ya estaba hecho": el KDS mandó una clave que no existe."""
+    item = db.get(OrderItem, item_id)
+    if item is None or item.store_id != store_id:
+        raise NotFoundError("El ítem no existe en esta sede")
+    if item.status != OrderItemStatus.SENT:
+        return False
+    item.status = OrderItemStatus.READY
+    item.ready_at = now
+    db.flush()
+    return True
+
+
+def unbump_item(db: Session, *, item_id: int, store_id: int, actor: "Actor", now: datetime) -> bool:
+    """Deshacer un `bump_item`: `ready -> sent`, misma semántica idempotente
+    ("qué pasa cuando se deshace" — existe porque un bump equivocado en hora
+    pico es inevitable). `False` sin error si el ítem no está `ready` (ya
+    fue más allá, o nunca se bumpeó)."""
+    item = db.get(OrderItem, item_id)
+    if item is None or item.store_id != store_id:
+        raise NotFoundError("El ítem no existe en esta sede")
+    if item.status != OrderItemStatus.READY:
+        return False
+    item.status = OrderItemStatus.SENT
+    item.ready_at = None
+    db.flush()
+    return True
+
+
+def expedite_order(db: Session, *, order_id: int, store_id: int, actor: "Actor", now: datetime) -> list[int]:
+    """Expedición de la comanda completa: bumpea TODOS los ítems `sent` de la
+    comanda a `ready` en un solo golpe (equivalente a `bump_item` ítem por
+    ítem, pero atómico). Devuelve los ids que DE VERDAD cambiaron — una
+    comanda sin ítems `sent` (ya expedida, o ninguno enviado todavía)
+    devuelve `[]` sin error: no hay nada que expedir no es un fallo."""
+    items = list(
+        db.execute(
+            select(OrderItem).where(
+                OrderItem.order_id == order_id,
+                OrderItem.store_id == store_id,
+                OrderItem.status == OrderItemStatus.SENT,
+            )
+        ).scalars()
+    )
+    changed_ids: list[int] = []
+    for item in items:
+        item.status = OrderItemStatus.READY
+        item.ready_at = now
+        changed_ids.append(item.id)
+    if changed_ids:
+        db.flush()
+    return changed_ids
+
+
+def fired_at_by_course(db: Session, *, order_id: int) -> dict[str, datetime]:
+    """Lectura pura de `app.orders.models.OrderCourseFire` (`{course:
+    fired_at}`) para que el KDS ordene por marchado sin duplicar este
+    modelo. `app.orders.service.fire_course` es la única escritura."""
+    rows = db.execute(
+        select(OrderCourseFire.course, OrderCourseFire.fired_at).where(OrderCourseFire.order_id == order_id)
+    ).all()
+    return {course: fired_at for course, fired_at in rows}
+
+
+# ---------------------------------------------------------------------------
+# Pedido 2c — CONTRATO C4: lo que llama `backend-dinero-canales` cuando una
+# venta de plataforma se cancela DESPUÉS de preparar. Es la regla más fácil
+# de romper de todo el pedido (SPEC-NEGOCIO §3.3, checklist de la spec):
+# compensa la VENTA, nunca genera una merma. El insumo ya se descontó al
+# enviar (`app.orders.service._freeze_item_consumption`, dentro de
+# `_apply_send`) y se QUEDA descontado — por diseño esta función no importa
+# `void_item` ni `_resolve_waste_stub` (`app.orders.service`, ninguno de los
+# dos existe en este módulo) ni `app.inventory` de ningún modo: no escribe
+# NINGÚN `StockMovement`, ni revierte, ni repone. Confundirlo metería en el
+# reporte de mermas algo que no lo es y falsearía el KPI de mermas ÷ compras
+# que 2b acaba de construir — es exactamente el test que este agente deja en
+# `tests/orders/test_platform_cancel.py`.
+# ---------------------------------------------------------------------------
+
+
+def mark_platform_order_cancelled(
+    db: Session, *, order: Order, actor: "Actor", now: datetime, reason: str
+) -> Order:
+    """Deja la comanda en `OrderStatus.COMPENSATED` con motivo y
+    auditoría — nunca en `VOIDED` (ver el docstring de ese estado en
+    `app.orders.models`: `void_order`/`void_item` sólo trabajan sobre
+    `OPEN`/`TO_PAY` y crean `WasteStub`; una venta de plataforma cancelada
+    después de preparar suele llegar acá `PAID`, porque la plataforma ya
+    cobró). NO toca `OrderItem` en absoluto: lo que se preparó, se preparó,
+    y su `status`/`sent_at`/consumo teórico quedan intactos — es el registro
+    de lo que de verdad pasó en cocina, y "compensar la venta" es un asunto
+    del pedido y del documento fiscal (territorio de quien llama), no de los
+    ítems.
+
+    Idempotente: si la comanda YA está `COMPENSATED`, devuelve la
+    comanda tal cual, sin duplicar el evento ni la auditoría. `409` si la
+    comanda ya está cerrada por otro camino (`VOIDED`/`MERGED`): esos son
+    caminos incompatibles con "compensar", no algo que este hook pueda
+    resolver silenciosamente."""
+    if order.channel != OrderChannel.PLATFORM:
+        raise ConflictError("Esta comanda no es de una plataforma", code="NOT_A_PLATFORM_ORDER")
+    if order.status == OrderStatus.COMPENSATED:
+        return order
+    if order.status in (OrderStatus.VOIDED, OrderStatus.MERGED):
+        raise ConflictError("Esta comanda ya está cerrada por otro camino", code="ORDER_NOT_CANCELLABLE")
+
+    order.status = OrderStatus.COMPENSATED
+    order.platform_cancelled_at = now
+    order.platform_cancel_reason = reason
+    order.platform_cancelled_by_employee_id = actor.employee_id if actor else None
+    order.platform_cancelled_by_employee_name = actor.employee_name if actor else None
+    order.updated_at = now
+    order.version += 1
+    db.add(
+        OrderEvent(
+            organization_id=order.organization_id,
+            store_id=order.store_id,
+            order_id=order.id,
+            kind="platform_cancelled",
+            payload={"reason": reason},
+            employee_id=actor.employee_id if actor else None,
+            employee_name=actor.employee_name if actor else None,
+            authorized_by_employee_id=None,
+            authorized_by_employee_name=None,
+            after_bill=order.bill_presented_at is not None,
+            at=now,
+        )
+    )
+    db.flush()
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=order.organization_id,
+        store_id=order.store_id,
+        entity="order",
+        entity_id=order.id,
+        action="platform_cancel",
+        before=None,
+        after={"reason": reason},
+        reason=reason,
+    )
+    return order

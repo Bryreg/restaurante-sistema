@@ -18,18 +18,24 @@ from __future__ import annotations
 import importlib
 import importlib.util
 from datetime import timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.models import Employee
-from app.core import clock
+from app.catalog import service as catalog_service
+from app.catalog.models import Product
+from app.core import clock, tz
 from app.core.modules import find_spec_safe
+from app.core.tax import rate_for_code
 from app.fiscal.models import FiscalDocumentType, FiscalRange
 from app.core.db import Base, SessionLocal, engine
 from app.core.models_registry import import_all_models
 from app.core.security import hash_secret
 from app.inventory.seed import seed_counts_and_purchase, seed_inventory
+from app.orders.models import Order, OrderChannel, OrderItem, OrderItemStatus, OrderStatus
+from app.stores import service as stores_service
 from app.stores.models import (
     Organization,
     Store,
@@ -56,6 +62,174 @@ ADMIN_PIN = "9000"
 STORE_PIN = "123456"  # seis dígitos: el teclado de activación del POS pide 6
 SUPERVISOR_PIN = "5001"
 OPERATOR_PINS = ["6001", "6002", "6003", "6004"]  # el primero (6001) puede cobrar
+
+
+def _seed_channel_orders(
+    db: Session, *, org: Organization, store: Store, admin: Employee, courier: Employee
+) -> dict[str, bool]:
+    """Pedido 2c: un pedido de DOMICILIO (con su cargo como línea) y uno de
+    PLATAFORMA (con `external_id`), para que una base recién sembrada
+    muestre el camino nuevo — sin esto, `docs/ESTADO.md` § "el seed corre
+    dos veces sin duplicar nada" vale igual, pero nadie ve una comanda de
+    domicilio o de plataforma hasta crear una a mano.
+
+    Construidos por ORM directo, como el resto de este archivo (no llama
+    `app.orders.service.create_order`): un turno de caja es "una caja por
+    turno con responsable" (`docs/SPEC-NEGOCIO.md §11.1`) y dejar uno
+    abierto acá bloquearía el primer turno REAL que alguien abra desde el
+    POS con `OPEN_SHIFT_EXISTS` — `shift_id=NULL` dejan las dos comandas en
+    el mismo estado que una comanda `open` trasladada
+    (`app.orders.hooks.detach_open_orders`), no en un estado nuevo.
+
+    CONTRATO C4-bis: la plataforma con comisión la siembra
+    `app.channels.seed.seed_channels(db, *, organization, store, admin) ->
+    {"platform_id": int}` (territorio de `backend-dinero-canales`),
+    protegido con `find_spec_safe` — si `app.channels` no está montado
+    todavía, se siembra igual el pedido de domicilio y se SALTA el de
+    plataforma, sin romper el seed."""
+    now = clock.now_utc()
+    business_date = tz.today_business_date(store.cutoff_hour)
+    fiscal = stores_service.current_fiscal(db, store.id)
+    price_includes_tax = fiscal.price_includes_tax if fiscal is not None else True
+
+    def _line(order: Order, product: Product, *, unit_price: int, station: str | None) -> OrderItem:
+        return OrderItem(
+            organization_id=org.id,
+            store_id=store.id,
+            order_id=order.id,
+            product_id=product.id,
+            combo_id=None,
+            name=product.name,
+            qty=1,
+            seat=None,
+            course=product.default_course or "main",
+            station=station,
+            list_price=unit_price,
+            unit_price=unit_price,
+            tax_code=product.tax_code,
+            tax_rate=rate_for_code(product.tax_code),
+            price_includes_tax=price_includes_tax,
+            modifiers=[],
+            modifiers_text=None,
+            combo_selections=None,
+            note=None,
+            status=OrderItemStatus.PENDING,
+            discount_amount=0,
+            unit_cost=None,
+            recipe_version=None,
+            added_by_employee_id=admin.id,
+            added_by_employee_name=admin.name,
+            created_at=now,
+        )
+
+    # "Pescado frito (mojarra)" es a propósito el producto sembrado con
+    # `price_delivery`/`price_platform` PROPIOS (`app.catalog.seed`): las dos
+    # comandas de acá lo usan para que la base sembrada también ejercite el
+    # camino "el canal tiene su propio precio", no sólo el fallback a mesa.
+    main_product = (
+        db.execute(
+            select(Product).where(Product.store_id == store.id, Product.name == "Pescado frito (mojarra)")
+        )
+        .scalars()
+        .first()
+    )
+    if main_product is None:
+        main_product = (
+            db.execute(
+                select(Product)
+                .where(Product.store_id == store.id, Product.is_delivery_fee.is_(False))
+                .order_by(Product.id)
+            )
+            .scalars()
+            .first()
+        )
+    fee_product = catalog_service.get_delivery_fee_product(db, store.id)
+
+    seeded_delivery = False
+    if main_product is not None and fee_product is not None:
+        delivery_order = Order(
+            organization_id=org.id,
+            store_id=store.id,
+            shift_id=None,
+            business_date=business_date,
+            channel=OrderChannel.DELIVERY,
+            status=OrderStatus.OPEN,
+            version=1,
+            covers=None,
+            note="Sembrado por 2c: domicilio de referencia",
+            delivery_address="Calle 45 # 12-30, Apto 301",
+            delivery_phone="3001234567",
+            courier_employee_id=courier.id,
+            courier_employee_name=courier.name,
+            opened_by_employee_id=admin.id,
+            opened_by_employee_name=admin.name,
+            opened_at=now,
+            bill_print_count=0,
+            kitchen_view_enabled=True,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(delivery_order)
+        db.flush()
+        main_price = main_product.price_delivery if main_product.price_delivery is not None else main_product.price_dine_in
+        fee_price = fee_product.price_delivery if fee_product.price_delivery is not None else fee_product.price_dine_in
+        db.add(_line(delivery_order, main_product, unit_price=main_price, station=main_product.station))
+        # El cargo: la MISMA función `_line`, `station=None` a propósito
+        # (nunca pasa por cocina) — es exactamente el camino de
+        # `app.orders.service._build_delivery_fee_item`, repetido a mano
+        # acá porque este archivo no llama `app.orders.service` (mismo
+        # criterio que el resto del seed: construcción directa por ORM).
+        db.add(_line(delivery_order, fee_product, unit_price=fee_price, station=None))
+        db.flush()
+        seeded_delivery = True
+
+    seeded_platform = False
+    if main_product is not None and find_spec_safe("app.channels.seed") is not None:
+        channels_seed_module = importlib.import_module("app.channels.seed")
+        seed_channels = getattr(channels_seed_module, "seed_channels", None)
+        platform_id: int | None = None
+        if callable(seed_channels):
+            result = seed_channels(db, organization=org, store=store, admin=admin)
+            platform_id = result.get("platform_id") if isinstance(result, dict) else None
+
+        if platform_id is not None:
+            platform_ref: Any = None
+            if find_spec_safe("app.channels.hooks") is not None:
+                channels_hooks = importlib.import_module("app.channels.hooks")
+                get_platform_fn = getattr(channels_hooks, "get_platform", None)
+                if callable(get_platform_fn):
+                    platform_ref = get_platform_fn(db, store_id=store.id, platform_id=platform_id)
+
+            platform_order = Order(
+                organization_id=org.id,
+                store_id=store.id,
+                shift_id=None,
+                business_date=business_date,
+                channel=OrderChannel.PLATFORM,
+                status=OrderStatus.OPEN,
+                version=1,
+                covers=None,
+                note="Sembrado por 2c: pedido de plataforma de referencia",
+                platform_id=platform_id,
+                platform_name=getattr(platform_ref, "name", None),
+                platform_commission_bp=getattr(platform_ref, "commission_bp", None),
+                platform_external_id="RAPPI-DEV-0001",
+                opened_by_employee_id=admin.id,
+                opened_by_employee_name=admin.name,
+                opened_at=now,
+                bill_print_count=0,
+                kitchen_view_enabled=True,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(platform_order)
+            db.flush()
+            platform_price = main_product.price_platform if main_product.price_platform is not None else main_product.price_dine_in
+            db.add(_line(platform_order, main_product, unit_price=platform_price, station=main_product.station))
+            db.flush()
+            seeded_platform = True
+
+    return {"delivery": seeded_delivery, "platform": seeded_platform}
 
 
 def seed(db: Session) -> None:
@@ -195,26 +369,27 @@ def seed(db: Session) -> None:
     db.add_all([admin, supervisor])
 
     operator_names = ["Operador 1", "Operador 2", "Operador 3", "Operador 4"]
+    operators: list[Employee] = []
     for i, (name, pin) in enumerate(zip(operator_names, OPERATOR_PINS)):
-        db.add(
-            Employee(
-                organization_id=org.id,
-                store_id=store.id,
-                name=name,
-                role="operator",
-                pin_hash=hash_secret(pin),
-                email=None,
-                password_hash=None,
-                can_charge=(i == 0),
-                discount_limit_pct=None,
-                document=None,
-                active=True,
-                failed_pin_attempts=0,
-                pin_locked_until=None,
-                created_at=now,
-                updated_at=now,
-            )
+        operator_row = Employee(
+            organization_id=org.id,
+            store_id=store.id,
+            name=name,
+            role="operator",
+            pin_hash=hash_secret(pin),
+            email=None,
+            password_hash=None,
+            can_charge=(i == 0),
+            discount_limit_pct=None,
+            document=None,
+            active=True,
+            failed_pin_attempts=0,
+            pin_locked_until=None,
+            created_at=now,
+            updated_at=now,
         )
+        db.add(operator_row)
+        operators.append(operator_row)
 
     zone_salon = Zone(store_id=store.id, name="Salón", sort_order=1, active=True)
     zone_terraza = Zone(store_id=store.id, name="Terraza", sort_order=2, active=True)
@@ -268,6 +443,10 @@ def seed(db: Session) -> None:
     # declarada ahí). No depende de que `app.purchases` exista.
     seeded_counts = seed_counts_and_purchase(db, store, admin)
 
+    # Pedido 2c: comandas de domicilio y de plataforma (§3.3). Corre al
+    # final, después de que la carta (con el cargo de domicilio) ya existe.
+    seeded_channel_orders = _seed_channel_orders(db, org=org, store=store, admin=admin, courier=operators[1])
+
     db.commit()
 
     print("Seed aplicado.")
@@ -297,6 +476,14 @@ def seed(db: Session) -> None:
         print("    (food cost real y promedio ponderado ya tienen con qué calcularse).")
     else:
         print("  Inventario 2b: ya existían conteos, no se repitió nada.")
+    if seeded_channel_orders.get("delivery"):
+        print("  Pedido 2c: una comanda de DOMICILIO sembrada, con el cargo de domicilio como línea.")
+    else:
+        print("  Pedido 2c: no se sembró la comanda de domicilio (falta un producto o el cargo de domicilio en la carta).")
+    if seeded_channel_orders.get("platform"):
+        print("  Pedido 2c: una comanda de PLATAFORMA sembrada (app.channels.seed.seed_channels).")
+    else:
+        print("  Pedido 2c: app.channels todavía no existe o no sembró una plataforma; no se cargó el pedido de plataforma.")
 
 
 def main() -> None:

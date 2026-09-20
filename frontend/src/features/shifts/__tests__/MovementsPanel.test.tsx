@@ -88,4 +88,27 @@ describe("MovementsPanel — CAUSE_LABEL cubre toda causa cerrada", () => {
     expect(CAUSE_LABEL.supplier_payment).toBe("Pago a proveedor");
     expect(CAUSE_LABEL.supplier_payment.toLowerCase()).not.toMatch(/egreso|salida/);
   });
+
+  it("delivery_settlement (2c) tiene la etiqueta que pide app/shifts/schemas.py", () => {
+    expect(CAUSE_LABEL.delivery_settlement).toBe("Liquidación de domicilios");
+  });
+});
+
+/**
+ * Pedido 2c: `delivery_settlement` el backend la rechaza con
+ * `400 CAUSE_NOT_MANUAL` (`app/shifts/service.py::_SYSTEM_ONLY_MOVEMENT_
+ * CAUSES`) — así que, a diferencia de cualquier otra causa, NO puede
+ * aparecer en el desplegable de un movimiento manual, aunque sí tenga
+ * etiqueta para mostrarse una vez registrada (test de arriba).
+ */
+describe("MovementsPanel — una causa de sólo-sistema no se ofrece a mano", () => {
+  it("el desplegable de causa no incluye 'delivery_settlement'", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<MovementsPanel shiftId={1} />, { me: { kind: "device", features: {} } });
+
+    await user.click(screen.getByLabelText("Causa"));
+    // Sanity check: el desplegable sí se abrió y sí lista otras causas.
+    expect(await screen.findByRole("option", { name: "Gasto menor" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Liquidación de domicilios" })).not.toBeInTheDocument();
+  });
 });

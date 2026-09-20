@@ -22,7 +22,7 @@ import { errorMessage } from "@/lib/errors";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
 import { PhotoCaptureField } from "./PhotoCaptureField";
-import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey } from "./hooks";
+import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftTips } from "./hooks";
 
 const CAUSE_LABEL: Record<CashDifferenceCause, string> = {
   change_error: "Error al dar cambio",
@@ -58,6 +58,10 @@ function emptyDenominations(): Denomination[] {
  * `useSession()` (vuelve a pedir `GET /auth/me`) para que `me.features` se
  * actualice y `ShiftPage` cambie de `SingleStepCloseForm` a `CloseWizard`
  * en el próximo render.
+ *
+ * **Iteración 3 (H-8)**: mismo agregado que `CloseWizard` — al lado del
+ * campo de propinas se muestra, como REFERENCIA de sólo lectura, el
+ * `cash_out` de `GET /shifts/{id}/tips` (`useShiftTips`).
  */
 export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX.Element {
   const queryClient = useQueryClient();
@@ -78,6 +82,10 @@ export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX
   );
 
   const idempotencyKeyRef = useRef(newIdempotencyKey());
+
+  // Iteración 3 (H-8): misma referencia de sólo lectura que `CloseWizard` —
+  // ver el comentario ahí. `cash_out` se pinta tal cual llega.
+  const tipsQuery = useShiftTips(shiftId);
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -157,6 +165,10 @@ export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX
         <div className="space-y-1">
           <Label htmlFor="single-close-tips">Propinas en efectivo retiradas</Label>
           <MoneyInput id="single-close-tips" value={tipsCashOut} onChange={setTipsCashOut} />
+          <p className="text-xs text-muted-foreground">
+            Referencia del sistema (no se usa para calcular nada acá): lo que el sistema calcula que sale del
+            cajón como propina es {formatCOP(tipsQuery.data?.cash_out)}.
+          </p>
         </div>
       </div>
       <PhotoCaptureField value={photo} onChange={setPhoto} required={photoRequired} />

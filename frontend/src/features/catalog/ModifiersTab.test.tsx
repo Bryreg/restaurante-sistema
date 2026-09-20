@@ -12,7 +12,7 @@ const { PRODUCTS, GROUPS } = vi.hoisted(() => ({
     {
       id: 1, category_id: 1, name: "Bandeja paisa", description: null, station: null, default_course: null,
       prices: { dine_in: 38_000, takeout: null, delivery: null, platform: null }, tax_code: "inc_8" as const,
-      active: true, available: true,
+      active: true, available: true, is_delivery_fee: false,
     },
   ] satisfies ProductAdminOut[],
   GROUPS: [

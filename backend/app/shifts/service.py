@@ -232,6 +232,23 @@ def compute_breakdown(db: Session, shift: Shift) -> dict[str, int]:
     (rescate) reescribe `opening_cash_total`/`cash_reserve` y lo derivado se
     recalcula llamando de nuevo a esta misma función: no hay una segunda
     fórmula en ningún otro lado.
+
+    **Pedido 2c — lo que NO cambió, que es lo importante.** La fórmula es la
+    misma letra por letra. Los dos medios que 2c agrega llegan al esperado
+    (o no llegan) sin tocarla:
+
+    - Una venta cobrada por **plataforma** es una cuenta por cobrar, no
+      plata en el cajón: `get_sales_totals` la manda a `.other` (el
+      `_OTHER_METHODS` de `hooks` ya lo hacía desde 1b-1) y `.other` nunca
+      se suma acá. El esperado **no se mueve**, y hay un test que lo cobra
+      leyendo el esperado antes y después de vender.
+    - El **efectivo de domicilios** que todavía tiene el domiciliario sale
+      de `.cash` (ver `SalesTotals` en `hooks`) y entra al cajón recién al
+      liquidar, por `incomes`, que ya existía. `delivery_cash_pending` se
+      publica acá como **renglón propio e informativo**: es plata de la
+      sede que todavía no está en el cajón, y por eso NO se suma a
+      `expected`. Sumarlo sería una segunda matemática del esperado y
+      además mentiría: el billete no está.
     """
 
     sales = hooks.get_sales_totals(db, shift.id)
@@ -247,6 +264,9 @@ def compute_breakdown(db: Session, shift: Shift) -> dict[str, int]:
         "expenses": expenses,
         "pickups": pickups,
         "expected": expected,
+        # Informativo, FUERA de `expected` (ver el docstring). Renglón
+        # propio del desglose: "el efectivo de domicilios se arquea aparte".
+        "delivery_cash_pending": sales.delivery_cash_pending + sales.tips_delivery_pending,
     }
 
 
@@ -625,10 +645,32 @@ def create_handover(db: Session, *, actor: Actor, shift: Shift, store: Store, pa
 # ---------------------------------------------------------------------------
 
 
+# Causas que produce SÓLO un camino del sistema y que nadie puede teclear a
+# mano en `POST /shifts/{id}/cash-movements`. Si se pudieran, habría dos
+# puertas hacia el mismo efectivo y el cajón cuadraría el doble: una
+# liquidación de domicilios cargada a mano sumaría lo mismo que ya sumó la
+# liquidación real, y nada lo detectaría hasta el conteo a ciegas.
+#
+# `supplier_payment` (2b) tiene exactamente el mismo problema y NO está en
+# esta lista a propósito: agregarla cambiaría el comportamiento publicado de
+# otro pedido sin su dueño presente. Queda declarado como observación en el
+# entregable de este agente, no corregido en silencio.
+_SYSTEM_ONLY_MOVEMENT_CAUSES = {"delivery_settlement"}
+
+
 def create_cash_movement(
     db: Session, *, actor: Actor, shift: Shift, store: Store, payload: CashMovementIn
 ) -> CashMovement:
     _require_open(shift)
+
+    if payload.cause in _SYSTEM_ONLY_MOVEMENT_CAUSES:
+        raise AppError(
+            "CAUSE_NOT_MANUAL",
+            "La liquidación de domicilios no se carga como movimiento de caja: registrala en Domicilios "
+            "y el ingreso al turno lo escribe el sistema",
+            status=400,
+            extra={"cause": payload.cause},
+        )
 
     authorizer: Employee | None = None
     if payload.kind == "expense":
@@ -903,6 +945,12 @@ def review_close(db: Session, *, shift: Shift, store: Store, count: ShiftCloseCo
         "expenses": ev.breakdown["expenses"],
         "pickups": ev.breakdown["pickups"],
         "expected": ev.expected,
+        # Pedido 2c: el paso 2 del cierre a ciegas es EL momento en que hay
+        # que ver que el efectivo de domicilios no está en el cajón —
+        # quien cuenta acaba de contar y le van a preguntar por una
+        # diferencia—. Va como renglón propio, FUERA de `expected`: la
+        # ecuación del esperado no cambió.
+        "delivery_cash_pending": ev.breakdown["delivery_cash_pending"],
     }
     return {
         "count_id": count.id,
@@ -1413,6 +1461,11 @@ _MOVEMENT_CAUSE_LABEL = {
     "refund": "Devolución",
     "tip_payout": "Pago de propinas",
     "supplier_payment": "Pago a proveedor",
+    # Pedido 2c: el efectivo que entrega el domiciliario al liquidar (y, con
+    # `kind=expense`, la salida al deshacer esa liquidación). `kind` ya
+    # distingue ingreso de egreso: la etiqueta no repite "Ingreso"/"Egreso"
+    # (misma lección que dejó `supplier_payment` en el recorrido de 2b).
+    "delivery_settlement": "Liquidación de domicilios",
     "other_income": "Otro ingreso",
     "other_expense": "Otro egreso",
 }

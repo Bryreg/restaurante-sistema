@@ -85,6 +85,25 @@ class Product(Base):
         nullable=False,
     )
 
+    # Pedido 2c (§4.3, "el cargo de domicilio es una línea de la comanda, no
+    # un campo"): el cargo de domicilio se modela como un producto REAL de
+    # la carta —mismo criterio que SPEC-NEGOCIO §3.3 ya usaba para "no existe
+    # producto de precio abierto: si hace falta, es un producto real creado
+    # por el administrador"— marcado con esta bandera, en vez de una tabla de
+    # configuración nueva en `app.stores` (territorio ajeno de este pedido).
+    # `app.orders.service.create_order` lo busca (`app.catalog.service.
+    # get_delivery_fee_product`) y lo agrega como ítem al crear una comanda
+    # `delivery`; nunca lo agrega el operador a mano
+    # (`app.orders.service._build_product_item` lo rechaza con
+    # `DELIVERY_FEE_NOT_ORDERABLE`) y `GET /catalog` lo excluye del menú del
+    # dispositivo. A lo sumo un producto activo con esta bandera por sede
+    # (`app.catalog.service._assert_single_delivery_fee`, `409` si se intenta
+    # un segundo). Sin ficha técnica: nunca se le crea una receta, así que
+    # `_freeze_item_consumption` lo deja en `unit_cost=None`/`cost_source=None`
+    # por el camino normal de "cobertura de recetas" (§4.3), nunca un cero
+    # mudo.
+    is_delivery_fee: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Agotados del día (SPEC-NEGOCIO §3.3 "Agotado del día («86»)"): `available`

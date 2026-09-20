@@ -56,6 +56,30 @@ class OrderStatus(str, enum.Enum):
     PAID = "paid"
     MERGED = "merged"
     VOIDED = "voided"
+    # Pedido 2c (§3.3, C4): cancelar una venta de PLATAFORMA después de
+    # preparar compensa la VENTA, nunca una merma. Es un estado propio y no
+    # una reutilización de `VOIDED` a propósito: `void_order`/`void_item`
+    # (`app.orders.service`) sólo trabajan sobre `OPEN`/`TO_PAY` y crean
+    # `WasteStub` — una comanda de plataforma cancelada llega acá casi
+    # siempre `PAID` (la plataforma ya cobró) y JAMÁS pasa por esa función
+    # (`app.orders.hooks.mark_platform_order_cancelled`, que no importa
+    # `void_item` ni `_resolve_waste_stub`). Verificado antes de agregarlo:
+    # `OrderStatus` no se compara nunca en un `match`/if-elif exhaustivo
+    # fuera de `app.orders` (`app.reports.service` y
+    # `app.shifts.activity_metrics` sólo preguntan por valores puntuales:
+    # `OPEN`/`TO_PAY`/`PAID`), así que un miembro nuevo no rompe ningún
+    # camino ajeno en silencio.
+    #
+    # Nombre y valor cortos A PROPÓSITO (`COMPENSATED`/`"compensated"`, 11
+    # caracteres): `sa.Enum(OrderStatus, length=16)` valida contra el largo
+    # del NOMBRE del miembro (no de su `.value`) y `orders.status` es
+    # `VARCHAR(16)` desde `0004_orders.py` — un nombre más descriptivo como
+    # `PLATFORM_CANCELLED` (18) revienta esa validación al importar el
+    # módulo, y ensanchar una columna existente con `ALTER COLUMN` es
+    # exactamente el tipo de DDL que `0011_purchases.py` dejó escrito como
+    # lección cara contra Postgres real. "compensated" nombra lo mismo que
+    # la spec: la venta se compensa, no se anula.
+    COMPENSATED = "compensated"
 
 
 class OrderItemStatus(str, enum.Enum):
@@ -107,6 +131,9 @@ ORDER_EVENT_KINDS = (
     "transferred_in",
     "voided",
     "split",
+    # Pedido 2c.
+    "course_fired",
+    "platform_cancelled",
 )
 
 
@@ -143,6 +170,44 @@ class Order(Base):
     # staff_meal
     consumed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     consumed_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    # delivery (pedido 2c, §3.3): los tres datos propios del canal, exigidos
+    # al crear (`app.orders.service.create_order`) — dirección y teléfono
+    # como texto libre (el cliente los da por teléfono, no hay geocodificación
+    # en este pedido), y el domiciliario con la regla propia del proyecto
+    # (`docs/ESTADO.md`, "Atribución con FK real"): FK real a `employees` +
+    # nombre CONGELADO, porque los empleados se desactivan pero nunca se
+    # borran y una comanda vieja tiene que seguir diciendo quién entregó
+    # aunque ese empleado ya no esté activo.
+    delivery_address: Mapped[str | None] = mapped_column(sa.String(300), nullable=True)
+    delivery_phone: Mapped[str | None] = mapped_column(sa.String(30), nullable=True)
+    courier_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    courier_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    # platform (pedido 2c, §3.3): `platform_id` es una referencia SUAVE (sin
+    # FK dura) a la plataforma configurada en `app.channels` (dominio de
+    # `backend-dinero-canales`, CONTRATO C2) — mismo criterio que
+    # `OrderSubAccount.document_id` con `app.fiscal` en 1b-1: ese dominio
+    # puede no existir todavía cuando corre esta migración, y una FK cruzada
+    # ataría el orden de las dos migraciones hermanas. `platform_name` y
+    # `platform_commission_bp` son el SNAPSHOT al crear la comanda (igual que
+    # precio/impuesto/receta en `OrderItem`): si mañana cambia el nombre o la
+    # comisión de la plataforma en `app.channels`, esta comanda sigue
+    # contando lo que era cierto el día que se vendió. `platform_external_id`
+    # es el número de pedido en la plataforma, tecleado a mano (la
+    # integración por API es fase 3 — spec.md, "no entra").
+    platform_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    platform_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    platform_commission_bp: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    platform_external_id: Mapped[str | None] = mapped_column(sa.String(100), nullable=True)
+
+    # Cancelación de plataforma DESPUÉS de preparar (§3.3, C4): campos
+    # propios, nunca los de `void_*` de más abajo — ver el docstring de
+    # `OrderStatus.COMPENSATED`.
+    platform_cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    platform_cancel_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    platform_cancelled_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    platform_cancelled_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
     opened_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     opened_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
@@ -472,3 +537,29 @@ class WasteStub(Base):
     resolved: Mapped[bool] = mapped_column(sa.Boolean, default=False)
 
     __table_args__ = (CheckConstraint("qty > 0", name="ck_waste_stubs_qty_positive"),)
+
+
+class OrderCourseFire(Base):
+    """El sello de «marchar» (pedido 2c, `pos.courses`): una fila por curso
+    marchado de una comanda, nunca una columna en `Order` — «nada se borra» y
+    marchar dos veces el mismo curso tiene que ser idempotente sin mover el
+    primer `fired_at` (§ checklist de la spec). `UNIQUE(order_id, course)` es
+    la defensa de base para eso: la aplicación ya no vuelve a escribir sobre
+    una fila existente (`app.orders.service.fire_course` lee primero y
+    devuelve tal cual si ya existe), así que esta constraint es la red de
+    seguridad, no el camino principal. `app.orders.hooks.fired_at_by_course`
+    la publica de sólo lectura para que el KDS (`kitchen.kds`, dominio
+    ajeno) ordene por marchado sin duplicar este modelo."""
+
+    __tablename__ = "order_course_fires"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    course: Mapped[str] = mapped_column(sa.String(50))
+    fired_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    fired_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    fired_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
+
+    __table_args__ = (UniqueConstraint("order_id", "course", name="uq_order_course_fires_order_course"),)

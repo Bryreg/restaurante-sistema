@@ -3,6 +3,7 @@ import { PeopleSection } from "@/features/people/PeopleSection";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { CashSection } from "./CashSection";
+import { ChannelsSection } from "./ChannelsSection";
 import { FiscalSection } from "./FiscalSection";
 import { InventorySection } from "./InventorySection";
 import { OrganizationSection } from "./OrganizationSection";
@@ -32,6 +33,7 @@ export default function SettingsPage(): React.JSX.Element {
           <TabsTrigger value="fiscal">Fiscal</TabsTrigger>
           <TabsTrigger value="cash">Caja</TabsTrigger>
           <TabsTrigger value="sales">Ventas</TabsTrigger>
+          <TabsTrigger value="channels">Canales y plataformas</TabsTrigger>
           <TabsTrigger value="uvt">UVT</TabsTrigger>
           <TabsTrigger value="zones">Zonas y mesas</TabsTrigger>
           <TabsTrigger value="inventory">Inventario</TabsTrigger>
@@ -51,6 +53,9 @@ export default function SettingsPage(): React.JSX.Element {
         </TabsContent>
         <TabsContent value="sales" className="pt-4">
           <SalesSection storeId={activeStoreId} />
+        </TabsContent>
+        <TabsContent value="channels" className="pt-4">
+          <ChannelsSection storeId={activeStoreId} />
         </TabsContent>
         <TabsContent value="uvt" className="pt-4">
           <UvtSection />

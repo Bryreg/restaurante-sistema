@@ -5,6 +5,7 @@ import { errorMessage } from "@/lib/errors";
 
 import { CashSwapPanel } from "./CashSwapPanel";
 import { CloseWizard } from "./CloseWizard";
+import { DeliverySettlementPanel } from "./DeliverySettlementPanel";
 import { HandoverPanel } from "./HandoverPanel";
 import { MovementsPanel } from "./MovementsPanel";
 import { OpenShiftForm } from "./OpenShiftForm";
@@ -48,6 +49,7 @@ export default function ShiftPage(): React.JSX.Element {
   const showPickups = hasFeature("cash.pickups");
   const showHandovers = hasFeature("cash.handovers");
   const showBlindClose = hasFeature("cash.blind_close");
+  const showDelivery = hasFeature("pos.delivery");
 
   return (
     <div className="space-y-4">
@@ -57,6 +59,7 @@ export default function ShiftPage(): React.JSX.Element {
           <TabsTrigger value="movimientos">Movimientos</TabsTrigger>
           {showSwaps ? <TabsTrigger value="cambio">Cambio</TabsTrigger> : null}
           {showPickups ? <TabsTrigger value="retiros">Retiros</TabsTrigger> : null}
+          {showDelivery ? <TabsTrigger value="domicilios">Domicilios</TabsTrigger> : null}
           {showHandovers ? <TabsTrigger value="relevo">Relevo</TabsTrigger> : null}
           <TabsTrigger value="cierre">Cierre</TabsTrigger>
         </TabsList>
@@ -67,6 +70,11 @@ export default function ShiftPage(): React.JSX.Element {
         <TabsContent value="movimientos">
           <MovementsPanel shiftId={shift.id} />
         </TabsContent>
+        {showDelivery ? (
+          <TabsContent value="domicilios">
+            <DeliverySettlementPanel shiftId={shift.id} />
+          </TabsContent>
+        ) : null}
         {showSwaps ? (
           <TabsContent value="cambio">
             <CashSwapPanel shiftId={shift.id} />

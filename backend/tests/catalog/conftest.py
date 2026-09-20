@@ -41,6 +41,8 @@ def create_product(
         daily_count: int | None = None,
         category: int | None = None,
         tax_code: str | None = None,
+        is_delivery_fee: bool = False,
+        expect_status: int = 200,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "category_id": category if category is not None else category_id,
@@ -51,8 +53,10 @@ def create_product(
             payload["daily_count"] = daily_count
         if tax_code is not None:
             payload["tax_code"] = tax_code
+        if is_delivery_fee:
+            payload["is_delivery_fee"] = True
         resp = admin_client.post(f"/api/v1/admin/products?store_id={store.id}", json=payload)
-        assert resp.status_code == 200, resp.text
+        assert resp.status_code == expect_status, resp.text
         return resp.json()
 
     return _create

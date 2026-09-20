@@ -32,7 +32,7 @@ from app.core import clock, features, tz
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.core.modules import find_spec_safe
 from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
-from app.core.tax import TAX_RATE_BY_CODE
+from app.core.tax import rate_for_code
 from app.notifications.service import notify
 from app.orders import money
 from app.orders.models import (
@@ -40,6 +40,7 @@ from app.orders.models import (
     DiscountReason,
     Order,
     OrderChannel,
+    OrderCourseFire,
     OrderDiscount,
     OrderEvent,
     OrderItem,
@@ -55,8 +56,10 @@ from app.orders.models import (
 from app.orders.schemas import (
     AddItemsIn,
     ComboSelectionOut,
+    CourseFireOut,
     CourtesyItemIn,
     CourtesyOut,
+    DeliveryOut,
     DiscountIn,
     EmployeeRef,
     FavoriteOut,
@@ -72,6 +75,7 @@ from app.orders.schemas import (
     OrderOut,
     OrderRoundOut,
     PatchItemIn,
+    PlatformOut,
     PreBillLineOut,
     PreBillOut,
     SplitGroupIn,
@@ -445,6 +449,48 @@ def order_out(db: Session, order: Order, *, for_device: bool) -> OrderOut:
     if order.channel == OrderChannel.TAKEOUT and order.takeout_customer_name is not None:
         takeout = TakeoutOut(customer_name=order.takeout_customer_name, phone=order.takeout_phone, promised_at=order.promised_at)
 
+    delivery = None
+    if order.channel == OrderChannel.DELIVERY and order.delivery_address is not None:
+        # H-4 (ronda 3): `courier_employee_id` es nullable y sólo se exige AL
+        # CREAR — una fila que llegue con la columna en NULL no inventa un
+        # empleado `id: 0`. `null` no es 0 (AGENTS.md): el bloque `delivery`
+        # sigue existiendo, `courier` se vuelve `None`.
+        delivery = DeliveryOut(
+            address=order.delivery_address,
+            phone=order.delivery_phone or "",
+            courier=(
+                EmployeeRef(id=order.courier_employee_id, name=order.courier_employee_name or "")
+                if order.courier_employee_id is not None
+                else None
+            ),
+        )
+
+    platform = None
+    if order.channel == OrderChannel.PLATFORM and order.platform_id is not None:
+        # Mismo barrido que `courier` arriba: `platform_name`/
+        # `platform_external_id` son nullable y sólo se llenan AL CREAR;
+        # `id` no pasa por este tratamiento porque nunca usó `or` (el bloque
+        # entero ya está condicionado a `platform_id is not None`).
+        platform = PlatformOut(
+            id=order.platform_id,
+            name=order.platform_name,
+            external_id=order.platform_external_id,
+        )
+
+    courses_fired_rows = list(
+        db.execute(
+            select(OrderCourseFire).where(OrderCourseFire.order_id == order.id).order_by(OrderCourseFire.fired_at)
+        ).scalars()
+    )
+    courses_fired = [
+        CourseFireOut(
+            course=row.course,
+            fired_at=row.fired_at,
+            fired_by=EmployeeRef(id=row.fired_by_employee_id, name=row.fired_by_employee_name),
+        )
+        for row in courses_fired_rows
+    ]
+
     consumed_by = EmployeeRef(id=order.consumed_by_employee_id, name=order.consumed_by_employee_name or "") if order.consumed_by_employee_id else None
     paid_by = EmployeeRef(id=order.paid_by_employee_id, name=order.paid_by_employee_name or "") if order.paid_by_employee_id else None
 
@@ -462,6 +508,9 @@ def order_out(db: Session, order: Order, *, for_device: bool) -> OrderOut:
         covers=order.covers,
         note=order.note,
         takeout=takeout,
+        delivery=delivery,
+        platform=platform,
+        courses_fired=courses_fired,
         consumed_by=consumed_by,
         opened_by=EmployeeRef(id=order.opened_by_employee_id, name=order.opened_by_employee_name),
         opened_at=order.opened_at,
@@ -582,7 +631,31 @@ _CHANNEL_FEATURE: dict[OrderChannel, str] = {
     OrderChannel.DINE_IN: "pos.tables",
     OrderChannel.TAKEOUT: "pos.takeout",
     OrderChannel.STAFF_MEAL: "pos.staff_meal",
+    OrderChannel.DELIVERY: "pos.delivery",
+    OrderChannel.PLATFORM: "pos.platforms",
 }
+
+
+def _get_platform(db: Session, *, store_id: int, platform_id: int) -> Any:
+    """CONTRATO C2: `app.channels.hooks.get_platform(db, *, store_id,
+    platform_id)` (publica `backend-dinero-canales`, llamamos nosotros).
+    Protegido con `find_spec_safe` (nunca un import directo — la lección de
+    1b-1): si `app.channels` no está montado todavía, o no publica
+    `get_platform`, devuelve `None` exactamente igual que "la plataforma no
+    existe" — `create_order` lo traduce a `400 PLATFORM_NOT_CONFIGURED`,
+    nunca a un `500` ni a un `source` mudo aceptado sin validar. Si la firma
+    de `get_platform` cambia de forma incompatible, esta llamada revienta con
+    `TypeError`, que `POST /orders` no atrapa: el error del typecheck/test es
+    la señal de que el contrato se rompió, a propósito — no hay fallback
+    silencioso posible para "la plataforma que dice la comanda ya no existe
+    de esa forma"."""
+    if find_spec_safe("app.channels.hooks") is None:
+        return None
+    channels_hooks = importlib.import_module("app.channels.hooks")
+    get_platform_fn = getattr(channels_hooks, "get_platform", None)
+    if get_platform_fn is None:
+        return None
+    return get_platform_fn(db, store_id=store_id, platform_id=platform_id)
 
 
 def _load_active_tables(db: Session, store_id: int, table_ids: list[int]) -> list[Table]:
@@ -641,6 +714,49 @@ def create_order(db: Session, *, actor: Actor, store: Store, payload: OrderCreat
         if consumed_by.store_id is not None and consumed_by.store_id != store.id:
             raise NotFoundError("El empleado no existe en esta sede")
 
+    # delivery (pedido 2c, §3.3): dirección, teléfono y domiciliario, los
+    # tres obligatorios al crear (`DeliveryIn` no es opcional-por-campo). La
+    # dependencia `pos.delivery -> pos.takeout` ya la hace cumplir
+    # `app.stores.router` al ENCENDER el flag (no se puede prender
+    # `pos.delivery` con `pos.takeout` apagado, ni apagar `pos.takeout` con
+    # `pos.delivery` prendido) — este `assert_feature` de acá es la
+    # DEFENSA EN PROFUNDIDAD para un estado que un `set_feature` de test (o
+    # un `UPDATE` a mano) puede dejar inconsistente sin pasar por ese
+    # router, no una segunda fuente de verdad.
+    courier: Employee | None = None
+    fee_product: Product | None = None
+    if channel == OrderChannel.DELIVERY:
+        features.assert_feature(db, store.organization_id, store.id, "pos.takeout")
+        if payload.delivery is None:
+            raise AppError("DELIVERY_INFO_REQUIRED", "Indicá dirección, teléfono y domiciliario para una comanda de domicilio")
+        courier = db.get(Employee, payload.delivery.courier_employee_id)
+        if courier is None or courier.organization_id != store.organization_id or not courier.active:
+            raise NotFoundError("El domiciliario no existe")
+        if courier.store_id is not None and courier.store_id != store.id:
+            raise NotFoundError("El domiciliario no existe en esta sede")
+        # El cargo de domicilio ES una línea (§3.3): sin un producto real
+        # marcado `is_delivery_fee` en la carta de esta sede, no hay a qué
+        # precio vender la línea y la comanda no se crea — nunca se inventa
+        # un monto en el servidor ni se cae a un campo aparte.
+        fee_product = catalog_service.get_delivery_fee_product(db, store.id)
+        if fee_product is None:
+            raise AppError(
+                "DELIVERY_FEE_NOT_CONFIGURED",
+                "Configurá el producto de cargo de domicilio en Admin → Carta antes de vender por domicilio",
+            )
+
+    # platform (pedido 2c, §3.3): `source` no es texto libre — CONTRATO C2.
+    platform_ref: Any = None
+    if channel == OrderChannel.PLATFORM:
+        if payload.platform is None:
+            raise AppError("PLATFORM_INFO_REQUIRED", "Indicá la plataforma y el número de pedido (external_id)")
+        platform_ref = _get_platform(db, store_id=store.id, platform_id=payload.platform.platform_id)
+        if platform_ref is None or not getattr(platform_ref, "active", False):
+            raise AppError(
+                "PLATFORM_NOT_CONFIGURED",
+                "Esa plataforma no existe o no está activa en esta sede: configurala en Admin → Configuración → Plataformas",
+            )
+
     now = clock.now_utc()
     business_date = business_date_for_sale(db, shift, store, now)
     covers = payload.covers if payload.covers is not None else (sum(t.seats for t in tables) if tables else None)
@@ -667,6 +783,14 @@ def create_order(db: Session, *, actor: Actor, store: Store, payload: OrderCreat
             if payload.takeout and payload.takeout.promised_at is not None
             else None
         ),
+        delivery_address=payload.delivery.address if payload.delivery and channel == OrderChannel.DELIVERY else None,
+        delivery_phone=payload.delivery.phone if payload.delivery and channel == OrderChannel.DELIVERY else None,
+        courier_employee_id=courier.id if courier else None,
+        courier_employee_name=courier.name if courier else None,
+        platform_id=payload.platform.platform_id if payload.platform and channel == OrderChannel.PLATFORM else None,
+        platform_name=getattr(platform_ref, "name", None) if platform_ref is not None else None,
+        platform_commission_bp=getattr(platform_ref, "commission_bp", None) if platform_ref is not None else None,
+        platform_external_id=payload.platform.external_id if payload.platform and channel == OrderChannel.PLATFORM else None,
         consumed_by_employee_id=consumed_by.id if consumed_by else None,
         consumed_by_employee_name=consumed_by.name if consumed_by else None,
         opened_by_employee_id=actor.employee_id,  # type: ignore[arg-type]
@@ -709,6 +833,11 @@ def create_order(db: Session, *, actor: Actor, store: Store, payload: OrderCreat
         )
     )
     db.flush()
+
+    if channel == OrderChannel.DELIVERY and fee_product is not None:
+        db.add(_build_delivery_fee_item(db, order, fee_product, actor, now))
+        db.flush()
+
     record_audit(
         db,
         actor=actor,
@@ -738,8 +867,19 @@ def _normalize_station(value: str | None) -> str | None:
 
 
 def _channel_list_price(product: Product, channel: OrderChannel) -> int:
+    """Precio por canal (SPEC-NEGOCIO §4.3): mesa es obligatorio
+    (`price_dine_in`, `NOT NULL`); para llevar, domicilio y plataforma son
+    opcionales y CAEN al de mesa cuando son `NULL` — nunca a `0`, nunca a
+    `NULL`. `is not None` es la comparación correcta a propósito: un precio
+    de canal en `0` es un precio de `0` pesos de verdad (se respeta tal
+    cual), y sólo la AUSENCIA del dato (`NULL`) cae al de mesa. Lo decide
+    el servidor: el cliente nunca manda un precio, sólo `product_id`/`qty`."""
     if channel == OrderChannel.TAKEOUT:
         return product.price_takeout if product.price_takeout is not None else product.price_dine_in
+    if channel == OrderChannel.DELIVERY:
+        return product.price_delivery if product.price_delivery is not None else product.price_dine_in
+    if channel == OrderChannel.PLATFORM:
+        return product.price_platform if product.price_platform is not None else product.price_dine_in
     return product.price_dine_in
 
 
@@ -781,6 +921,16 @@ def _build_product_item(db: Session, order: Order, item_in: OrderItemIn, actor: 
     product = db.get(Product, item_in.product_id)
     if product is None or product.organization_id != order.organization_id or product.store_id != order.store_id:
         raise NotFoundError("El producto no existe")
+    if product.is_delivery_fee:
+        # Pedido 2c: el cargo de domicilio se agrega SOLO al crear la
+        # comanda (`create_order` -> `_build_delivery_fee_item`); nunca a
+        # mano, ni siquiera en una comanda `delivery` (evita dos cargos, o
+        # un cargo en una comanda que no es de domicilio).
+        raise AppError(
+            "DELIVERY_FEE_NOT_ORDERABLE",
+            "El cargo de domicilio se agrega solo al crear una comanda de domicilio",
+            extra={"product_id": product.id},
+        )
     if not product.active or not product.available:
         raise AppError("PRODUCT_UNAVAILABLE", f'"{product.name}" no está disponible', extra={"product_id": product.id, "remaining": product.daily_remaining})
 
@@ -800,7 +950,7 @@ def _build_product_item(db: Session, order: Order, item_in: OrderItemIn, actor: 
     tax_code = catalog_service.resolve_tax_code(db, order.store_id, product.tax_code)
     fiscal = stores_service.current_fiscal(db, order.store_id)
     price_includes_tax = fiscal.price_includes_tax if fiscal is not None else True
-    tax_rate = TAX_RATE_BY_CODE.get(tax_code, 0)
+    tax_rate = rate_for_code(tax_code)
 
     is_staff_meal = order.channel == OrderChannel.STAFF_MEAL
     unit_price = 0 if is_staff_meal else (list_price + delta_sum)
@@ -878,7 +1028,7 @@ def _build_combo_item(db: Session, order: Order, item_in: OrderItemIn, actor: Ac
     tax_code = catalog_service.resolve_tax_code(db, order.store_id, None)
     fiscal = stores_service.current_fiscal(db, order.store_id)
     price_includes_tax = fiscal.price_includes_tax if fiscal is not None else True
-    tax_rate = TAX_RATE_BY_CODE.get(tax_code, 0)
+    tax_rate = rate_for_code(tax_code)
 
     is_staff_meal = order.channel == OrderChannel.STAFF_MEAL
     list_price = combo.price
@@ -907,6 +1057,66 @@ def _build_combo_item(db: Session, order: Order, item_in: OrderItemIn, actor: Ac
         modifiers_text=None,
         combo_selections=selections_out,
         note=item_in.note,
+        status=OrderItemStatus.PENDING,
+        discount_amount=0,
+        unit_cost=None,
+        recipe_version=None,
+        added_by_employee_id=actor.employee_id,  # type: ignore[arg-type]
+        added_by_employee_name=actor.employee_name,  # type: ignore[arg-type]
+        created_at=now,
+    )
+
+
+def _build_delivery_fee_item(db: Session, order: Order, fee_product: Product, actor: Actor, now: datetime) -> OrderItem:
+    """El cargo de domicilio como LÍNEA de verdad (§4.3, la regla que más
+    fácil se rompe de este pedido): mismo `OrderItem`, mismo snapshot de
+    `unit_price`/`tax_code`/`tax_rate` que cualquier producto vendido, así
+    que entra a `compute_totals` (`app.orders.money`) por el MISMO camino
+    que cualquier ítem, sin una suma nueva — y por lo tanto aparece SOLO en
+    el documento fiscal (`app.fiscal` arma sus líneas desde los ítems; este
+    agente no toca `app/fiscal/**`). `tax_rate` sale de
+    `app.core.tax.rate_for_code`, nunca a mano: bajo INC el cargo entra a la
+    base gravable al 8 % igual que cualquier otro consumo (art. 512-1 y
+    512-9 ET).
+
+    `station=None` siempre, sin mirar `fee_product.station`: el cargo nunca
+    pasa por cocina (SPEC-NEGOCIO §3.3, "un producto sin estación... pasa de
+    enviado a entregado sin pasar por cocina, para no ensuciar los
+    tiempos") — un admin que por error le pone estación al producto de
+    cargo no le ensucia el reporte de tiempos de cocina.
+
+    Sin receta (`unit_cost=None`, `recipe_version=None`): el mismo camino de
+    "cobertura de recetas" que ya usa cualquier producto sin ficha
+    (`_freeze_item_consumption` lo deja igual, vía `expand_consumption`
+    devolviendo `unit_cost_micros=None` — verificado con test, nunca un cero
+    mudo) hace que no descuente inventario y quede sin costo con origen
+    `None`, nunca `0`."""
+    tax_code = catalog_service.resolve_tax_code(db, order.store_id, fee_product.tax_code)
+    fiscal = stores_service.current_fiscal(db, order.store_id)
+    price_includes_tax = fiscal.price_includes_tax if fiscal is not None else True
+    tax_rate = rate_for_code(tax_code)
+    amount = _channel_list_price(fee_product, order.channel)
+
+    return OrderItem(
+        organization_id=order.organization_id,
+        store_id=order.store_id,
+        order_id=order.id,
+        product_id=fee_product.id,
+        combo_id=None,
+        name=fee_product.name,
+        qty=1,
+        seat=None,
+        course=fee_product.default_course or "main",
+        station=None,
+        list_price=amount,
+        unit_price=amount,
+        tax_code=tax_code,
+        tax_rate=tax_rate,
+        price_includes_tax=price_includes_tax,
+        modifiers=[],
+        modifiers_text=None,
+        combo_selections=None,
+        note=None,
         status=OrderItemStatus.PENDING,
         discount_amount=0,
         unit_cost=None,
@@ -1237,6 +1447,70 @@ def mark_served(db: Session, *, order: Order, item_id: int, actor: Actor) -> Ord
         item.status = OrderItemStatus.SERVED
         item.served_at = clock.now_utc()
         db.flush()
+    return order
+
+
+# ---------------------------------------------------------------------------
+# Curso y «marchar» (pedido 2c, `pos.courses`, requiere `kitchen.view`).
+# ---------------------------------------------------------------------------
+
+
+def fire_course(db: Session, *, order: Order, course: str, actor: Actor, expected_version: int) -> Order:
+    """«Marchar» un curso: sella `OrderCourseFire.fired_at` la PRIMERA vez.
+
+    Idempotente por construcción, sin necesitar atrapar `IntegrityError` de
+    la carrera: dos tablets marchando el mismo curso mandan la MISMA
+    `expected_version` sólo si ninguna ganó todavía — la que llega segunda
+    con una versión vieja recibe `409 STALE_VERSION` de `_check_version`
+    (como cualquier otra escritura de la comanda); una segunda llamada
+    LEGÍTIMA, con la versión ya actualizada tras la primera, encuentra la
+    fila existente y devuelve la comanda tal cual, sin mover `fired_at` ni
+    bumpear la versión otra vez. `UniqueConstraint(order_id, course)` en el
+    modelo es la red de seguridad de la base, no el camino principal."""
+    _check_version(db, order, expected_version, actor=actor)
+    if order.status not in _OPEN_ORDER_STATUSES:
+        raise AppError("ORDER_NOT_OPEN", "La comanda no está abierta")
+
+    existing = db.execute(
+        select(OrderCourseFire).where(OrderCourseFire.order_id == order.id, OrderCourseFire.course == course)
+    ).scalars().first()
+    if existing is not None:
+        return order
+
+    now = clock.now_utc()
+    db.add(
+        OrderCourseFire(
+            organization_id=order.organization_id,
+            store_id=order.store_id,
+            order_id=order.id,
+            course=course,
+            fired_at=now,
+            fired_by_employee_id=actor.employee_id,  # type: ignore[arg-type]
+            fired_by_employee_name=actor.employee_name,  # type: ignore[arg-type]
+        )
+    )
+    order.version += 1
+    order.updated_at = now
+    db.add(
+        OrderEvent(
+            organization_id=order.organization_id,
+            store_id=order.store_id,
+            order_id=order.id,
+            kind="course_fired",
+            payload={"course": course},
+            employee_id=actor.employee_id,
+            employee_name=actor.employee_name,
+            authorized_by_employee_id=None,
+            authorized_by_employee_name=None,
+            after_bill=order.bill_presented_at is not None,
+            at=now,
+        )
+    )
+    db.flush()
+    record_audit(
+        db, actor=actor, organization_id=order.organization_id, store_id=order.store_id, entity="order",
+        entity_id=order.id, action="fire_course", before=None, after={"course": course, "fired_at": now.isoformat()},
+    )
     return order
 
 

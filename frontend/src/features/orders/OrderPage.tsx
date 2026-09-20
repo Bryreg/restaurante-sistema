@@ -8,6 +8,7 @@ import {
   addDiscount,
   addItems,
   courtesyItem,
+  fireCourse,
   patchItem,
   presentBill,
   sendOrder,
@@ -44,7 +45,7 @@ import {
   useOrder,
   useOrderMutationHandler,
 } from "./hooks"
-import { CHANNEL_LABEL, ORDER_STATUS_LABEL } from "./lib"
+import { CHANNEL_LABEL, courseLabel, ORDER_STATUS_LABEL } from "./lib"
 
 type ItemTarget = { product?: CatalogProductOut; combo?: CatalogComboOut }
 type VoidTarget = { scope: "order" } | { scope: "item"; item: OrderItemOut }
@@ -77,6 +78,7 @@ export function OrderPage(): React.JSX.Element {
   const [preBill, setPreBill] = useState<PreBillOut | null>(null)
   const [preBillPending, setPreBillPending] = useState(false)
   const [busyItemId, setBusyItemId] = useState<number | null>(null)
+  const [firingCourse, setFiringCourse] = useState<string | null>(null)
 
   function saveOrder(updated: NonNullable<typeof order>) {
     if (orderId !== null) queryClient.setQueryData(orderQueryKey(orderId), updated)
@@ -94,6 +96,15 @@ export function OrderPage(): React.JSX.Element {
 
   const items = order.items ?? []
   const pendingCount = items.filter((item) => item.status === "pending").length
+  // «Marchar» (pos.courses): un curso por cada valor distinto entre los
+  // ítems vivos (no anulados) que lo tienen — el orden es el de primera
+  // aparición, nunca alfabético ni inventado.
+  const coursesInOrder: string[] = []
+  for (const item of items) {
+    if (item.status === "voided" || !item.course) continue
+    if (!coursesInOrder.includes(item.course)) coursesInOrder.push(item.course)
+  }
+  const firedCourses = new Map((order.courses_fired ?? []).map((fire) => [fire.course, fire]))
   const isOrderOpenish = order.status === "open" || order.status === "to_pay"
 
   // ---------------------------------------------------------------------
@@ -236,6 +247,22 @@ export function OrderPage(): React.JSX.Element {
   }
 
   // ---------------------------------------------------------------------
+  // «Marchar» un curso (pos.courses, requiere kitchen.view).
+  // ---------------------------------------------------------------------
+  async function handleFireCourse(course: string) {
+    if (!order) return
+    setFiringCourse(course)
+    try {
+      const updated = await fireCourse(order.id, course, { expected_version: order.version ?? 0 }, newIdempotencyKey())
+      saveOrder(updated)
+    } catch (err) {
+      handleError(err, { retry: () => void handleFireCourse(course) })
+    } finally {
+      setFiringCourse(null)
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Presentar cuenta / reimprimir precuenta.
   // ---------------------------------------------------------------------
   async function handlePresentBill() {
@@ -257,6 +284,17 @@ export function OrderPage(): React.JSX.Element {
   if (order.channel === "dine_in" && tablesLabel) subtitleParts.push(`Mesa ${tablesLabel}`)
   if (order.channel === "takeout" && order.takeout?.customer_name) subtitleParts.push(order.takeout.customer_name)
   if (order.channel === "staff_meal" && order.consumed_by?.name) subtitleParts.push(order.consumed_by.name)
+  // Domicilio y plataforma (pedido 2c): dirección/teléfono/domiciliario, o
+  // plataforma/número de pedido — sólo texto informativo, ningún cálculo.
+  if (order.channel === "delivery" && order.delivery) {
+    if (order.delivery.address) subtitleParts.push(order.delivery.address)
+    if (order.delivery.phone) subtitleParts.push(order.delivery.phone)
+    if (order.delivery.courier?.name) subtitleParts.push(`Domiciliario: ${order.delivery.courier.name}`)
+  }
+  if (order.channel === "platform" && order.platform) {
+    if (order.platform.name) subtitleParts.push(order.platform.name)
+    if (order.platform.external_id) subtitleParts.push(`Pedido ${order.platform.external_id}`)
+  }
   if (order.covers) subtitleParts.push(`${order.covers} comensales`)
 
   return (
@@ -311,6 +349,36 @@ export function OrderPage(): React.JSX.Element {
           onDiscount={(item) => setDiscountTarget({ scope: "item", item })}
         />
       </section>
+
+      {hasFeature("pos.courses") && coursesInOrder.length > 0 ? (
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium text-muted-foreground">Marchar</h2>
+          <ul className="flex flex-wrap gap-2">
+            {coursesInOrder.map((course) => {
+              const fired = firedCourses.get(course)
+              return (
+                <li key={course}>
+                  {fired ? (
+                    <Badge variant="secondary" className="h-11 items-center px-3 text-sm">
+                      {courseLabel(course)} marchado · {formatInstant(fired.fired_at)}
+                    </Badge>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-11"
+                      disabled={firingCourse === course || !isOrderOpenish}
+                      onClick={() => void handleFireCourse(course)}
+                    >
+                      {firingCourse === course ? "Marchando…" : `Marchar ${courseLabel(course)}`}
+                    </Button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="space-y-2 rounded-lg border p-4">
         <h2 className="text-sm font-medium text-muted-foreground">Totales</h2>

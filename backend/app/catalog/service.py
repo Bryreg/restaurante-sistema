@@ -50,7 +50,7 @@ from app.catalog.schemas import (
     ProductUpdateIn,
 )
 from app.core import clock, tz
-from app.core.errors import AppError, NotFoundError
+from app.core.errors import AppError, ConflictError, NotFoundError
 from app.notifications.service import notify
 from app.stores import service as stores_service
 
@@ -234,7 +234,44 @@ def product_admin_out(db: Session, product: Product) -> ProductAdminOut:
         available=product.available,
         daily_count=product.daily_count,
         daily_remaining=product.daily_remaining,
+        is_delivery_fee=product.is_delivery_fee,
         modifier_groups=modifier_groups_out(db, product.id),
+    )
+
+
+def _assert_single_delivery_fee(db: Session, store_id: int, *, exclude_product_id: int | None = None) -> None:
+    """A lo sumo un producto `is_delivery_fee` ACTIVO por sede (pedido 2c,
+    §4.3): `app.orders.service.create_order` busca uno solo
+    (`get_delivery_fee_product`) y no tiene con qué desempatar dos."""
+    stmt = select(func.count()).select_from(Product).where(
+        Product.store_id == store_id,
+        Product.is_delivery_fee.is_(True),
+        Product.active.is_(True),
+    )
+    if exclude_product_id is not None:
+        stmt = stmt.where(Product.id != exclude_product_id)
+    if db.execute(stmt).scalar_one() > 0:
+        raise ConflictError(
+            "Ya hay un producto marcado como cargo de domicilio para esta sede: desactivalo antes de crear otro",
+            code="DELIVERY_FEE_ALREADY_CONFIGURED",
+        )
+
+
+def get_delivery_fee_product(db: Session, store_id: int) -> Product | None:
+    """El producto real (§4.3) que `app.orders.service.create_order` agrega
+    como línea al crear una comanda `delivery`. `None` si la sede todavía no
+    configuró uno — el llamador corta con `400 DELIVERY_FEE_NOT_CONFIGURED`,
+    nunca inventa un monto."""
+    return (
+        db.execute(
+            select(Product).where(
+                Product.store_id == store_id,
+                Product.is_delivery_fee.is_(True),
+                Product.active.is_(True),
+            )
+        )
+        .scalars()
+        .first()
     )
 
 
@@ -244,6 +281,8 @@ def create_product(db: Session, *, organization_id: int, store_id: int, data: Pr
         raise NotFoundError("La categoría no existe")
     if category.store_id != store_id:
         raise NotFoundError("La categoría no existe en esta sede")
+    if data.is_delivery_fee:
+        _assert_single_delivery_fee(db, store_id)
 
     now = clock.now_utc()
     tax_code = resolve_tax_code(db, store_id, data.tax_code)
@@ -261,6 +300,7 @@ def create_product(db: Session, *, organization_id: int, store_id: int, data: Pr
         price_delivery=data.prices.delivery,
         price_platform=data.prices.platform,
         tax_code=tax_code,
+        is_delivery_fee=data.is_delivery_fee,
         active=True,
         available=True,
         daily_count=daily_count,
@@ -301,6 +341,10 @@ def update_product(db: Session, product: Product, data: ProductUpdateIn) -> Prod
         product.tax_code = data.tax_code
     if data.active is not None:
         product.active = data.active
+    if data.is_delivery_fee is not None:
+        product.is_delivery_fee = data.is_delivery_fee
+    if product.is_delivery_fee and product.active:
+        _assert_single_delivery_fee(db, product.store_id, exclude_product_id=product.id)
     product.updated_at = clock.now_utc()
     db.flush()
     return product
@@ -814,7 +858,15 @@ def get_catalog(
     products = (
         db.execute(
             select(Product)
-            .where(Product.store_id == store_id, Product.active.is_(True))
+            # `is_delivery_fee`: pedido 2c, no es un plato del menú — se
+            # agrega solo al crear una comanda `delivery`
+            # (`app.orders.service.create_order`), nunca lo elige el
+            # operador desde la carta.
+            .where(
+                Product.store_id == store_id,
+                Product.active.is_(True),
+                Product.is_delivery_fee.is_(False),
+            )
             .order_by(Product.name)
         )
         .scalars()

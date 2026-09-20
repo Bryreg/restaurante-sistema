@@ -34,3 +34,21 @@ def test_sale_past_cutoff_on_stale_shift_seals_with_today(device_client: TestCli
     identify(device_client, employees["operator"])
     order = new_order().json()
     assert order["business_date"] == "2026-01-17"
+
+
+def test_platform_order_at_0030_seals_with_the_shift_business_day(
+    device_client: TestClient, identify: Any, employees: Any, open_shift: Any, new_order: Any, clock: Any, store: Any, platform: Any,
+) -> None:
+    """Pedido 2c, checklist de la spec: "un pedido de plataforma cargado a
+    las 00:30 queda sellado con el día del turno". `business_date_for_sale`
+    (`app.orders.service`) no mira el canal — este test lo confirma desde el
+    lado del canal nuevo, mismo escenario que
+    `test_sale_at_0030_falls_on_shift_business_day` arriba."""
+    clock.set(datetime(2026, 1, 15, 20, 0, tzinfo=timezone.utc))  # 15:00 Bogotá
+    shift = open_shift()
+
+    clock.advance(hours=5, minutes=30)  # ~00:30 Bogotá del día 16
+    identify(device_client, employees["operator"])
+    order = new_order(channel="platform", platform={"platform_id": platform.id, "external_id": "RAPPI-0030"}).json()
+    assert order["business_date"] == "2026-01-15"
+    assert order["shift_id"] == shift["id"]

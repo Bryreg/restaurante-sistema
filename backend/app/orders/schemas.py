@@ -12,7 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 Channel = Literal["counter", "dine_in", "takeout", "delivery", "platform", "staff_meal"]
-OrderStatusLiteral = Literal["open", "to_pay", "paid", "merged", "voided"]
+OrderStatusLiteral = Literal["open", "to_pay", "paid", "merged", "voided", "compensated"]
 ItemStatusLiteral = Literal["pending", "sent", "ready", "served", "voided"]
 VoidReasonLiteral = Literal[
     "customer_changed_mind",
@@ -50,6 +50,46 @@ class TakeoutOut(BaseModel):
     customer_name: str
     phone: str | None
     promised_at: datetime | None
+
+
+class DeliveryOut(BaseModel):
+    address: str
+    phone: str
+    # `courier` es `None` cuando `Order.courier_employee_id` es NULL —
+    # columna nullable (`0013_channels_orders`) que `create_order` sólo
+    # exige AL CREAR (H-4, ronda 3): una fila que llegue con la columna en
+    # NULL (una `UPDATE` a mano, un futuro endpoint de reasignación) no
+    # inventa un empleado `id: 0`. `null` no es 0 (AGENTS.md). El bloque
+    # `delivery` sigue existiendo igual; sólo `courier` se vuelve opcional.
+    courier: EmployeeRef | None = None
+
+
+class PlatformOut(BaseModel):
+    """Nunca lleva `commission_bp`: es plata que corre por fuera de la
+    venta ("la venta es la venta, la comisión es un costo") y este esquema
+    es el mismo que ve el dispositivo — mismo criterio que `OrderItemOut` sin
+    `unit_cost`. La comisión congelada vive en `Order.platform_commission_bp`
+    para que un reporte de admin (territorio ajeno) la lea directo del
+    modelo si la necesita.
+
+    `name`/`external_id` son `str | None` por el MISMO motivo que
+    `DeliveryOut.courier` (ronda 3, H-4 barrido): `Order.platform_name` y
+    `Order.platform_external_id` son columnas nullable que `create_order`
+    sólo llena AL CREAR — nada en este dominio las vuelve a escribir después,
+    pero una fila que llegue con la columna en NULL por fuera del servicio
+    (una `UPDATE` a mano) no se disfraza de string vacío. `id` no lleva este
+    tratamiento: nunca pasó por `or` — el bloque entero sólo se arma cuando
+    `order.platform_id is not None` (ver `order_out`)."""
+
+    id: int
+    name: str | None = None
+    external_id: str | None = None
+
+
+class CourseFireOut(BaseModel):
+    course: str
+    fired_at: datetime
+    fired_by: EmployeeRef
 
 
 class ModifierOut(BaseModel):
@@ -189,6 +229,9 @@ class OrderOut(BaseModel):
     covers: int | None
     note: str | None
     takeout: TakeoutOut | None
+    delivery: DeliveryOut | None
+    platform: PlatformOut | None
+    courses_fired: list[CourseFireOut]
     consumed_by: EmployeeRef | None
     opened_by: EmployeeRef
     opened_at: datetime
@@ -375,11 +418,37 @@ class TakeoutIn(BaseModel):
     promised_at: datetime | None = None
 
 
+class DeliveryIn(BaseModel):
+    """Los tres datos propios de un canal `delivery` (§3.3): dirección,
+    teléfono y domiciliario, los tres obligatorios al crear — es la lectura
+    literal de la spec ("validá que crear una comanda delivery exige los
+    datos que la spec pide"). Asignar o cambiar el domiciliario después de
+    creada la comanda (p. ej. el mesero abre el pedido antes de saber quién
+    va a repartirlo) queda declarado como gap en el entregable: no hay
+    endpoint separado para eso en este pedido."""
+
+    address: str = Field(min_length=1, max_length=300)
+    phone: str = Field(min_length=1, max_length=30)
+    courier_employee_id: int
+
+
+class PlatformOrderIn(BaseModel):
+    """`platform_id` referencia la plataforma configurada en `app.channels`
+    (CONTRATO C2, territorio de `backend-dinero-canales`); `external_id` es
+    el número del pedido en la plataforma, tecleado a mano (la integración
+    por API es fase 3)."""
+
+    platform_id: int
+    external_id: str = Field(min_length=1, max_length=100)
+
+
 class OrderCreateIn(BaseModel):
     channel: Channel
     table_ids: list[int] | None = None
     covers: int | None = Field(default=None, ge=1)
     takeout: TakeoutIn | None = None
+    delivery: DeliveryIn | None = None
+    platform: PlatformOrderIn | None = None
     consumed_by_employee_id: int | None = None
     note: str | None = None
 
@@ -418,6 +487,10 @@ class PatchItemIn(BaseModel):
 
 
 class ExpectedVersionIn(BaseModel):
+    expected_version: int
+
+
+class FireCourseIn(BaseModel):
     expected_version: int
 
 

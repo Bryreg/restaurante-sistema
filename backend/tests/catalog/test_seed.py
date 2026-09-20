@@ -1,5 +1,6 @@
-"""`seed_catalog` es idempotente y deja veinte productos, un combo fijo y un
-menú del día con opciones activas hoy."""
+"""`seed_catalog` es idempotente y deja veintiún productos (pedido 2c: se
+agregó el cargo de domicilio), un combo fijo y un menú del día con opciones
+activas hoy."""
 
 from __future__ import annotations
 
@@ -19,12 +20,25 @@ def test_seed_catalog_creates_expected_shape(db: Session, store: Store) -> None:
     categories = db.execute(select(Category).where(Category.store_id == store.id)).scalars().all()
     combos = db.execute(select(Combo).where(Combo.store_id == store.id)).scalars().all()
 
-    assert len(products) == 20
-    assert 4 <= len(categories) <= 5
+    assert len(products) == 21
+    assert len(categories) == 6  # 5 de la carta + "Servicio" (pedido 2c)
     assert len(combos) == 2  # el combo fijo y el corrientazo
 
     products_with_modifiers = [p for p in products if p.name in {"Bandeja paisa", "Pechuga a la plancha", "Lomo al trapo"}]
     assert len(products_with_modifiers) == 3
+
+    fee_product = next(p for p in products if p.name == "Cargo de domicilio")
+    assert fee_product.is_delivery_fee is True
+    non_fee_delivery_flags = [p.is_delivery_fee for p in products if p.name != "Cargo de domicilio"]
+    assert not any(non_fee_delivery_flags)
+
+    pescado = next(p for p in products if p.name == "Pescado frito (mojarra)")
+    assert pescado.price_delivery == 38_000 and pescado.price_platform == 40_000
+    assert pescado.price_delivery != pescado.price_dine_in
+
+    # Al menos un producto sin precios propios de canal, para que el
+    # fallback al precio de mesa quede sembrado también (§4.3).
+    assert any(p.price_delivery is None and p.name != "Cargo de domicilio" for p in products)
 
     corrientazo = next(c for c in combos if c.name == "Corrientazo del día")
     # `ComboOption` no tiene `combo_id` directo (cuelga de `ComboGroup`); se
@@ -46,4 +60,4 @@ def test_seed_catalog_is_idempotent(db: Session, store: Store) -> None:
     db.flush()
     second_count = len(db.execute(select(Product).where(Product.store_id == store.id)).scalars().all())
 
-    assert first_count == second_count == 20
+    assert first_count == second_count == 21

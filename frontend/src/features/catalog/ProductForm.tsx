@@ -2,6 +2,7 @@ import { useState } from "react"
 
 import type { ProductAdminOut, ProductIn, ProductUpdateIn, TaxCode } from "@/api/catalog"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   DialogClose,
   DialogFooter,
@@ -30,6 +31,7 @@ export interface ProductFormValues {
   platform: number | null
   taxCode: TaxCode | ""
   dailyCount: number | null
+  isDeliveryFee: boolean
 }
 
 function toFormValues(product?: ProductAdminOut): ProductFormValues {
@@ -45,6 +47,7 @@ function toFormValues(product?: ProductAdminOut): ProductFormValues {
     platform: product?.prices.platform ?? null,
     taxCode: product?.tax_code ?? "",
     dailyCount: product?.daily_count ?? null,
+    isDeliveryFee: product?.is_delivery_fee ?? false,
   }
 }
 
@@ -63,6 +66,7 @@ export function formValuesToProductIn(values: ProductFormValues): ProductIn {
     },
     tax_code: values.taxCode === "" ? null : values.taxCode,
     daily_count: values.dailyCount,
+    is_delivery_fee: values.isDeliveryFee,
   }
 }
 
@@ -80,6 +84,7 @@ export function formValuesToProductUpdateIn(values: ProductFormValues): ProductU
       platform: values.platform,
     },
     tax_code: values.taxCode === "" ? null : values.taxCode,
+    is_delivery_fee: values.isDeliveryFee,
   }
 }
 
@@ -202,6 +207,21 @@ export function ProductForm({
           </div>
         </div>
       </fieldset>
+
+      <label className="flex min-h-11 items-start gap-2 rounded-md border p-3 text-sm">
+        <Checkbox
+          checked={values.isDeliveryFee}
+          onCheckedChange={(checked) => setValues((v) => ({ ...v, isDeliveryFee: checked === true }))}
+        />
+        <span className="space-y-0.5">
+          <span className="block font-medium">Es el cargo de domicilio de esta sede</span>
+          <span className="block text-muted-foreground">
+            El servidor lo agrega solo, como línea, a cada comanda de domicilio (§4.3, con impuesto
+            incluido); no se vende a mano desde el POS. A lo sumo un producto activo puede marcarse así por
+            sede.
+          </span>
+        </span>
+      </label>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">

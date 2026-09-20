@@ -86,6 +86,10 @@ class ProductIn(BaseModel):
     prices: ProductPricesIn
     tax_code: TaxCode | None = None
     daily_count: int | None = Field(default=None, ge=0)
+    # Pedido 2c: marca este producto como EL cargo de domicilio de la sede
+    # (§4.3). A lo sumo uno activo por sede — `create_product` corta con
+    # `409 DELIVERY_FEE_ALREADY_CONFIGURED` si ya hay otro.
+    is_delivery_fee: bool = False
 
 
 class ProductUpdateIn(BaseModel):
@@ -97,6 +101,7 @@ class ProductUpdateIn(BaseModel):
     prices: ProductPricesIn | None = None
     tax_code: TaxCode | None = None
     active: bool | None = None
+    is_delivery_fee: bool | None = None
 
 
 class ModifierOptionIn(BaseModel):
@@ -157,6 +162,7 @@ class ProductAdminOut(BaseModel):
     available: bool
     daily_count: int | None
     daily_remaining: int | None
+    is_delivery_fee: bool
     modifier_groups: list[ModifierGroupOut] = []
 
 

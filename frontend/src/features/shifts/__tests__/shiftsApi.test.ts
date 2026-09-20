@@ -6,6 +6,7 @@ import {
   createCashMovement,
   createHandover,
   createPickup,
+  getShiftTips,
   openShift,
 } from "@/api/shifts";
 
@@ -69,5 +70,30 @@ describe("src/api/shifts.ts — Idempotency-Key", () => {
   it("createHandover manda Idempotency-Key", async () => {
     await createHandover(1, { kind: "spot_check", counted_cash: { denominations: [], total: 0 } }, "key-handover");
     expect(headerFromLastCall()["Idempotency-Key"]).toBe("key-handover");
+  });
+});
+
+/**
+ * Iteración 3 (H-8): `getShiftTips` es un `GET` — no lleva `Idempotency-Key`
+ * (no mueve plata, sólo lee lo que ya calculó el servidor).
+ */
+describe("src/api/shifts.ts — getShiftTips (GET /shifts/{id}/tips)", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse(200, { cash_out: 12_345 }));
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("pide la ruta exacta y devuelve el cuerpo tal cual, sin transformarlo", async () => {
+    const result = await getShiftTips(1);
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const [url] = calls[calls.length - 1];
+    expect(String(url)).toContain("/shifts/1/tips");
+    expect(result).toEqual({ cash_out: 12_345 });
   });
 });

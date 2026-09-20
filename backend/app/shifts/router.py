@@ -165,8 +165,18 @@ def _shift_summary(db: Session, shift: Shift, actor: Actor) -> ShiftSummaryOut:
     expected_cash: int | None = None
     sales: SalesByMethodOut | None = None
     tips: SalesByMethodOut | None = None
+    # Pedido 2c: el efectivo de domicilios sin liquidar se publica en su
+    # propio renglón, gateado por el MISMO predicado que el esperado
+    # (`_can_see_expected`): es una cifra de plata derivada, y el cierre a
+    # ciegas no se puede sortear leyéndola. `None` cuando no se puede ver
+    # —nunca `0`, que sería "no hay"—. La lista operativa por domiciliario,
+    # que el operador sí necesita para recibir la plata, vive en
+    # `GET /delivery-settlements/pending` (`app.channels.router`).
+    delivery_cash_pending: int | None = None
     if show_expected:
-        expected_cash = shift.expected_cash if shift.status != ShiftStatus.OPEN else service.compute_breakdown(db, shift)["expected"]
+        breakdown = service.compute_breakdown(db, shift)
+        expected_cash = shift.expected_cash if shift.status != ShiftStatus.OPEN else breakdown["expected"]
+        delivery_cash_pending = breakdown["delivery_cash_pending"]
         sales, tips = _sales_and_tips(db, shift)
 
     return ShiftSummaryOut(
@@ -204,6 +214,7 @@ def _shift_summary(db: Session, shift: Shift, actor: Actor) -> ShiftSummaryOut:
         expected_cash=expected_cash,
         sales=sales,
         tips=tips,
+        delivery_cash_pending=delivery_cash_pending,
         counted_cash=shift.counted_cash,
         difference=shift.difference,
         close_cause=shift.close_cause.value if shift.close_cause else None,
@@ -262,8 +273,11 @@ def get_current(actor: Actor = Depends(current_device), db: Session = Depends(ge
     expected: int | None = None
     sales: SalesByMethodOut | None = None
     tips: SalesByMethodOut | None = None
+    delivery_cash_pending: int | None = None
     if show_expected:
-        expected = service.compute_breakdown(db, shift)["expected"]
+        breakdown = service.compute_breakdown(db, shift)
+        expected = breakdown["expected"]
+        delivery_cash_pending = breakdown["delivery_cash_pending"]
         sales, tips = _sales_and_tips(db, shift)
 
     return ShiftCurrentOut(
@@ -275,6 +289,7 @@ def get_current(actor: Actor = Depends(current_device), db: Session = Depends(ge
         expected_cash=expected,
         sales=sales,
         tips=tips,
+        delivery_cash_pending=delivery_cash_pending,
         is_stale=is_stale,
         cash_over_threshold=over,
     )

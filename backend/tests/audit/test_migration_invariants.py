@@ -378,6 +378,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     pagar y pagos) y `0012_counts_lots` (lotes de compra, conteos a ciegas y
     los umbrales de varianza de la sede).
 
+    De 2c: `0013_channels_orders` (precio por canal, los doce campos de
+    domicilio/plataforma/cancelación en `orders`, y `order_course_fires`),
+    `0014_channels_money` (plataformas, comisiones, cuenta por cobrar y
+    liquidación del efectivo de domicilios, más cuatro columnas en `payments`)
+    y `0015_kitchen_kds` (`kitchen_bump_events`, `kitchen_print_jobs`).
+
     **Actualizado en 2b, a propósito y declarado**: este test fija `head` a un
     valor EXACTO porque eso es lo que convierte "me olvidé de encadenar la
     migración" en un rojo y no en un deploy roto — y por lo mismo hay que
@@ -385,6 +391,18 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     «Alembic arranca en `0011`», así que el punto de llegada pasa de `0010` a
     `0012` y el conteo de tablas de 63 a 72. No es acotar un invariante: es
     moverle el poste al que está atado.
+
+    **Re-apuntado en 2c** (`auditor-canales-2c`, mismo criterio y por escrito
+    en el informe): la spec de 2c dice «Alembic arranca en `0013`», y la
+    cadena llega a `0015`. El conteo pasa de **72 a 79**: `order_course_fires`
+    (`0013`), `delivery_platforms`/`delivery_settlements`/
+    `platform_receivables`/`platform_commissions` (`0014`) y
+    `kitchen_bump_events`/`kitchen_print_jobs` (`0015`). **Medido corriendo la
+    cadena completa, no estimado.** Lo que se movió es el POSTE (una igualdad
+    exacta que apunta a otro número); lo que NO se tocó es la forma del
+    invariante: sigue siendo `==`, nunca «que contenga al menos». Qué dejó de
+    estar cubierto: **nada** — el conjunto enumerado creció con los siete
+    nombres nuevos, así que una tabla de más o de menos sigue siendo roja.
     """
     from sqlalchemy import text
 
@@ -396,7 +414,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0012", f"la cadena quedó en {version!r} y el pedido 2b llega hasta 0012"
+    assert version == "0015", f"la cadena quedó en {version!r} y el pedido 2c llega hasta 0015"
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
     de_las_recetas = {
@@ -411,20 +429,32 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     }
     de_las_compras = {"suppliers", "receptions", "reception_lines", "payables", "purchase_payments"}
     de_los_conteos = {"stock_batches", "stock_counts", "stock_count_lines", "store_inventory_settings"}
-    faltan = sorted((del_inventario | de_las_recetas | de_las_compras | de_los_conteos) - tablas)
-    assert not faltan, f"las migraciones de 2a/2b no crearon: {faltan}"
+    # Pedido 2c: los siete nombres nuevos, enumerados igual que los de 2a/2b.
+    de_los_canales = {
+        "order_course_fires",
+        "delivery_platforms",
+        "delivery_settlements",
+        "platform_receivables",
+        "platform_commissions",
+    }
+    del_kds = {"kitchen_bump_events", "kitchen_print_jobs"}
+    faltan = sorted(
+        (del_inventario | de_las_recetas | de_las_compras | de_los_conteos | de_los_canales | del_kds) - tablas
+    )
+    assert not faltan, f"las migraciones de 2a/2b/2c no crearon: {faltan}"
 
     # El conteo total, para que agregar una tabla sin querer también se vea.
     # **Sin `alembic_version`** (no es del dominio): 52 de 1a/1b + 3 de
     # inventario + 8 de recetas = 63 al cerrar 2a; + 5 de compras
     # (`0011_purchases`) + 4 de conteos y lotes (`0012_counts_lots`) = 72 al
-    # cerrar 2b. Ojo al comparar con `docs/ESTADO.md`, que para 1b anotó
-    # "53 tablas" contando la de control de Alembic: es el mismo esquema
-    # contado de dos maneras.
-    assert len(tablas) == 72, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; 2b lo deja en 72 "
-        f"(63 al cerrar 2a + 5 de compras + 4 de conteos y lotes). Actualizá este número "
-        f"junto con la migración que lo cambie: {sorted(tablas)}"
+    # cerrar 2b; + 1 de «marchar» (`0013`) + 4 de plataformas y liquidación
+    # (`0014`) + 2 del KDS (`0015`) = **79** al cerrar 2c. Ojo al comparar con
+    # `docs/ESTADO.md`, que para 1b anotó "53 tablas" contando la de control
+    # de Alembic: es el mismo esquema contado de dos maneras.
+    assert len(tablas) == 79, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; 2c lo deja en 79 "
+        f"(72 al cerrar 2b + 1 de «marchar» + 4 de plataformas + 2 del KDS). Actualizá este "
+        f"número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 
 

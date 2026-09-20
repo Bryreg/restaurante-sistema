@@ -77,6 +77,17 @@ class CashMovementCause(str, enum.Enum):
     # `batch_alter_table` para que este valor sea válido también en filas ya
     # escritas por 1a/1b.
     SUPPLIER_PAYMENT = "supplier_payment"
+    # Pedido 2c (`features/fase-2c-canales-cocina/spec.md`): el efectivo de
+    # domicilios se arquea APARTE del cajón (SPEC-NEGOCIO §3.3). Cuando el
+    # domiciliario liquida, esa plata entra al turno ABIERTO como un
+    # `INCOME` con esta causa tipada —nunca `OTHER_INCOME` reciclada—, y
+    # deshacer la liquidación escribe el ESPEJO (`EXPENSE`, misma causa) en
+    # el turno abierto al momento de deshacerla. Es el patrón exacto con que
+    # 2b cerró H-1 (`SUPPLIER_PAYMENT` en los dos sentidos).
+    # No requiere DDL: `_enum` no pide `create_constraint`, así que la
+    # columna es un `VARCHAR(32)` pelado en los dos motores (ver la nota en
+    # `alembic/versions/0011_purchases.py`, corregida contra Postgres real).
+    DELIVERY_SETTLEMENT = "delivery_settlement"
 
 
 # Causa tipada compartida por la diferencia de apertura y la de cierre

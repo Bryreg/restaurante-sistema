@@ -34,6 +34,7 @@ from app.orders.schemas import (
     DiscountIn,
     ExpectedVersionIn,
     FavoriteOut,
+    FireCourseIn,
     MergeIn,
     MoveIn,
     OrderConsumptionOut,
@@ -193,6 +194,22 @@ def post_item_served(order_id: int, item_id: int, request: Request, actor: Actor
         return 200, service.order_out(db, updated, for_device=True).model_dump(mode="json")
 
     return _idempotent(db, organization_id=actor.organization_id, scope="orders.served", request=request, extra={"order_id": order_id, "item_id": item_id}, payload=None, fn=_do)
+
+
+@router.post("/orders/{order_id}/courses/{course}/fire", dependencies=[Depends(features.require_feature("pos.courses"))])
+def post_fire_course(
+    order_id: int, course: str, payload: FireCourseIn, request: Request, actor: Actor = Depends(current_operator), db: Session = Depends(get_db)
+) -> JSONResponse:
+    order = service.get_order_or_404(db, actor=actor, order_id=order_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        updated = service.fire_course(db, order=order, course=course, actor=actor, expected_version=payload.expected_version)
+        return 200, service.order_out(db, updated, for_device=True).model_dump(mode="json")
+
+    return _idempotent(
+        db, organization_id=actor.organization_id, scope="orders.fire_course", request=request,
+        extra={"order_id": order_id, "course": course}, payload=payload, fn=_do,
+    )
 
 
 @router.post("/orders/{order_id}/items/{item_id}/void")

@@ -27,8 +27,14 @@ import { formatCOP } from "@/lib/money"
 
 import { formValuesToProductIn, formValuesToProductUpdateIn, ProductForm } from "./ProductForm"
 
+/**
+ * Un canal opcional en `null` no es "sin precio": cae al de mesa (§4.3). Se
+ * dice así, sin ambigüedad — un "—" a secas se lee fácil como "no tiene
+ * precio", que es un mensaje distinto y más grave (regalaría el producto si
+ * alguien lo confundiera con `0`).
+ */
 function priceCell(value: number | null): string {
-  return value === null ? "—" : formatCOP(value)
+  return value === null ? "Igual que mesa" : formatCOP(value)
 }
 
 export function ProductsTab({ storeId }: { storeId: number }) {
@@ -140,7 +146,14 @@ export function ProductsTab({ storeId }: { storeId: number }) {
           <TableBody>
             {products.map((product) => (
               <TableRow key={product.id}>
-                <TableCell>{product.name}</TableCell>
+                <TableCell>
+                  {product.name}
+                  {product.is_delivery_fee ? (
+                    <Badge variant="outline" className="ml-2">
+                      Cargo de domicilio
+                    </Badge>
+                  ) : null}
+                </TableCell>
                 <TableCell>{formatCOP(product.prices.dine_in)}</TableCell>
                 <TableCell>{priceCell(product.prices.takeout)}</TableCell>
                 <TableCell>{priceCell(product.prices.delivery)}</TableCell>
