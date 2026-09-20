@@ -55,3 +55,56 @@ tipográfico con su URL de Google Fonts, efectos, lista de «avoid» y checklist
 de pre-entrega. Si devuelve `Found: 0 results`, la consulta no pegó en la base
 — **eso no es un resultado vacío, es una consulta equivocada**, y la propia
 skill lo dice.
+
+## La trampa del idioma — leer esto antes de consultar
+
+**La base está indexada en inglés. Una consulta en español falla, y falla en
+silencio.** No devuelve «menos resultados»: detecta mal el dominio, busca en
+el CSV equivocado y devuelve cero.
+
+```
+$ search.py "restaurante colombiano carta de platos cocina meseros hospitalidad"
+  Domain: style (auto-detected)     ← mal, tendría que ser «product»
+  Source: styles.csv                ← el archivo equivocado
+  Found: 0 results
+
+$ search.py "colombian restaurant menu dishes kitchen waitstaff hospitality"
+  Domain: product (auto-detected)   ← bien
+  Source: products.csv
+  Found: 3 results → Restaurant/Food Service
+```
+
+Quien no lo sabe cree que la herramienta no tiene nada para este producto,
+cae de vuelta en sus propios gustos, y no se entera. Pasó: dos rondas de
+diseño enteras se hicieron así.
+
+**Consultá siempre en inglés**, aunque todo lo demás del proyecto esté en
+español.
+
+## La consulta es la palanca, no un detalle
+
+El mismo producto devuelve sistemas de diseño completamente distintos según
+cómo se lo describa, y **todas las descripciones son ciertas**:
+
+| Consulta | Estilo | Fondo | Tipografía |
+|---|---|---|---|
+| `restaurant food ordering` | Vibrant & Block-based | `#FEF2F2` claro | Playfair Display SC / Karla |
+| `point of sale tablet cashier` | Flat Design | `#020617` oscuro | JetBrains Mono |
+| `cash control blind reconciliation audit` | Dark Mode (OLED) | `#020617` oscuro | Fira Code / Fira Sans |
+| `owner dashboard daily sales KPIs` | Data-Dense Dashboard | azul `#1E40AF` | Fira Code / Fira Sans |
+
+Por eso el método que funcionó fue: **correr tres a seis descripciones
+distintas, comparar lo que devuelve cada una, y recién ahí elegir** — dejando
+anotado cuál se eligió y por qué.
+
+## El catálogo se contradice, y hay que leerlo entero
+
+`products.csv` recomienda para *Restaurant/Food Service* los estilos
+*Vibrant & Block-based* y *Motion-Driven*. La columna **«Do Not Use For»** de
+esos mismos estilos, en `styles.csv`, los veta para «financial institutions»,
+«data dashboards» y «elderly». Este producto es mitad restaurante y mitad
+instrumento de plata, así que las dos cosas aplican.
+
+No es un error a corregir: es información. **Siempre leer la columna «Do Not
+Use For» de los estilos que la herramienta recomienda**, porque es donde dice
+en qué caso su propia recomendación no sirve.
