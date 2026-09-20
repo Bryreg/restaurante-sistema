@@ -324,6 +324,20 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "3",
     ),
     FeatureDef(
+        "analytics.menu_engineering",
+        "Ingeniería de menú: clasificación de platos por popularidad y margen, y varianza por plato prorrateada",
+        ["catalog.recipes"],
+        {"basic": False, "standard": False, "full": True},
+        "3",
+    ),
+    FeatureDef(
+        "inventory.replenishment",
+        "Reposición sugerida y mínimo propuesto por consumo x lead time del proveedor",
+        ["inventory.perpetual", "purchases"],
+        {"basic": False, "standard": False, "full": True},
+        "3",
+    ),
+    FeatureDef(
         "multi_store",
         "Selector de sede y comparativo entre sedes",
         [],

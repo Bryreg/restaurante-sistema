@@ -53,6 +53,13 @@ MODEL_MODULES: list[str] = [
     #   el archivo todavía no esté escrito.
     "channels",
     "kitchen",
+    # Fase 3 (`features/fase-3-dinero-control/spec.md § 2`): ver el mismo
+    # comentario en `app.main.DOMAINS`. Registrados por el orquestador humano
+    # en el paso 0; ningún agente de la fase toca este archivo.
+    "banking",
+    "expenses",
+    "payroll",
+    "analytics",
 ]
 
 

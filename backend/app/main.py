@@ -57,6 +57,21 @@ DOMAINS: list[str] = [
     # `ModuleNotFoundError` por falta de carpeta (la lección de 1b-1, ver
     # `app.core.modules`).
     "channels",
+    # Fase 3 (`features/fase-3-dinero-control/spec.md § 2`): CUATRO dominios
+    # nuevos, uno por territorio de backend. Los registró el **orquestador
+    # humano en el paso 0**, antes de lanzar el equipo, justamente para que
+    # cuatro agentes en paralelo no se peleen este archivo: la spec les dice
+    # explícitamente que no lo toquen.
+    #
+    # Paso 0 hecho para los cuatro: `app/<dominio>/__init__.py` existe desde
+    # antes de esta línea, así que `find_spec_safe("app.<dominio>.router")`
+    # resuelve `None` limpio mientras el router todavía no está escrito —
+    # nunca `ModuleNotFoundError` por falta de carpeta (lección de 1b-1, ver
+    # `app.core.modules`).
+    "banking",
+    "expenses",
+    "payroll",
+    "analytics",
 ]
 
 

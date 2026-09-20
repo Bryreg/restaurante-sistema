@@ -1,32 +1,16 @@
 # Restaurante Sistema — estado del proyecto
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
-Última actualización: 2026-09-16 (**pedido 2a cerrado y verificado** por el
-orquestador humano: suite de backend **770/770**, vitest **280/280**, mypy y
-`tsc` limpios, build OK, Alembic desde cero `0001 → 0010` con 63 tablas. Los
-nueve rojos que declaró la entrega están cerrados —ocho eran advertencias del
-auditor y el noveno era un invariante heredado mal acotado que además había
-deformado el contrato publicado de `/admin/sales`—. Además **el repositorio ya
-tiene despliegue**: `render.yaml` en la raíz y `main` al día con todo el código.
-Lo que sigue: **2b**. Lo de abajo quedó escrito por un agente a mitad de la
-construcción y se conserva por su detalle técnico, no por su estado.
-—— Nota original del agente: **pedido 2a, ronda 2 del conciliador**:
-cierra el bloqueante **B-1** — la nota «vuelve»/«se usó» ahora SÍ revierte el
-consumo teórico de verdad, conectada desde `app.fiscal.service.issue_note` —
-y la mitad de **B-2** de este agente, el "cero mudo congelado" de
-`_document_cost_stats`. `app/fiscal/**` pasó a territorio de
-`backend-consumo` para esta ronda, sólo para la reversión de notas. Antes
-(2026-09-15): **pedido 2a construido** — insumos, preparaciones, fichas
-técnicas, libro de movimientos, consumo teórico al enviar, mermas y costo en
-los reportes; tres agentes de backend [`backend-inventario`,
-`backend-recetas`, `backend-consumo`], sin `ENTREGA.md` del Maestro todavía —
-este agente [`backend-consumo`] deja el estado al cierre de su propia
-construcción, con la verificación completa **pendiente del orquestador
-humano**, igual que pasó con 1b-1. Antes de eso: pedido 1b-2 construido y
-verificado, con `ENTREGA.md` del Maestro y cierre a mano de los tres rojos que
-la entrega declaró; con esto la fase 1b está completa. 1b-1 construido,
-verificado y recorrido en navegador real. Pedido 1a entregado y verificado el
-2026-09-14; framework 2.1.0).
+Última actualización: 2026-09-20 (**pedido 2c cerrado y verificado** por el
+orquestador humano, con H-3 cerrado y sus tres piezas juntas: suite de backend
+**1.226 passed** —el único rojo era el poste de Alembic, corregido y
+reverificado—, vitest **493/493**, mypy y `tsc` limpios, build OK, y la cadena
+`0001 → 0016` corrida contra **Postgres 16 real** con una sola cabeza y
+`downgrade base` limpio. Framework **2.2.0**. **Lo que sigue: la fase 3
+completa en un solo pedido**, con el paso 0 hecho y las cuatro decisiones de
+negocio tomadas por escrito — ver los puntos 22 a 24 de «Dónde retomar». Las
+notas más viejas de esta cabecera se conservan abajo por su detalle técnico,
+no por su estado).
 
 **Este documento es VIVO.** Si un cambio altera una regla o un flujo descrito acá,
 se actualiza en el MISMO PR que el cambio. Un estado desactualizado miente con más
@@ -1134,3 +1118,103 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
    pantalla de transcripción un cero precargado invita a saltear el impuesto, y
    bajo INC eso subestima el costo del insumo. Cambiarlo rompe seis tests que
    codifican el cero como deliberado, así que es del dueño de la spec.
+
+22. **Verificación final del pedido 2c y cierre de H-3** (2026-09-20, orquestador
+    humano, árbol quieto, en serie). Números medidos, no estimados:
+    `python -m mypy app` limpio (**123 archivos**; 127 después del paso 0 de la
+    fase 3); suite de backend **1.226 passed + 1 failed** en 54:32, y ese único
+    rojo era el poste de la cadena de Alembic, corregido y reverificado aparte
+    (12/12); `tsc` limpio; vitest **493/493** en **100 archivos**; `vite build`
+    OK (2.571 módulos). **Y por primera vez la cadena de migraciones se verificó
+    contra Postgres 16 real, no sólo SQLite**: `0001 → 0016` limpio, **80 tablas**
+    contando `alembic_version` (79 de dominio), `alembic heads` con **una sola
+    cabeza**, `downgrade base` deja el esquema vacío, y `python -m app.seed`
+    corrido **dos veces** deja 1 organización, 1 sede, 6 empleados, 21 productos.
+    Esa es exactamente la verificación que faltó en la fase 2 y que dejó la fase
+    entera sin poder desplegarse.
+
+    **El rojo que destapó el cierre de H-3, y por qué el arreglo no fue parchear
+    tests.** Extender la guarda de `create_order` a `delivery`/`platform` puso en
+    rojo **nueve invariantes** de 2c: la sede de prueba nacía con
+    `["counter", "dine_in", "takeout"]` —los tres canales que se gateaban antes—
+    así que todo test que vendía por los canales nuevos recibía
+    `400 CHANNEL_DISABLED`. Agregarle `activate_channels(...)` a cada test habría
+    funcionado y habría sido el arreglo equivocado: el problema no eran nueve
+    tests, era **un default**. La sede de prueba ahora es una **sede ya
+    configurada** (los cinco canales), que es lo que la migración `0016` deja en
+    toda sede existente el día del deploy. El único invariante que necesita el
+    caso contrario —función encendida y canal apagado, los dos interruptores
+    distintos de §9.3— arma esa precondición él mismo con `deactivate_channels`.
+    **La lección, escrita para no repetirla: una precondición heredada del default
+    de un fixture deja el test verde por la razón equivocada el día que el default
+    se mueve.**
+
+    **El segundo rojo fue un invariante haciendo su trabajo.** El test que fija
+    `head` a un valor EXACTO existe para que «agregué una migración y me olvidé de
+    encadenarla» sea un rojo y no un deploy desalineado. Agregué `0016` y no moví
+    el poste; se puso rojo. Movido a `0016`, con el porqué al lado como hicieron
+    2b y 2c. El conteo de tablas **no cambia** (79): `0016` toca datos, no esquema.
+
+23. **Framework sistemas-maestros 2.2.0, promovido desde este proyecto.** El
+    Conciliador verificaba contra `git diff` en vez de contra el árbol de trabajo.
+    Como en este framework **los agentes nunca commitean** —commitea el
+    orquestador humano después de revisar—, cuando el Conciliador corre el trabajo
+    del equipo está sin commitear, y un dominio nuevo está además **sin trackear**:
+    `git status` muestra la carpeta y no los archivos, y `git diff` no lo muestra
+    en absoluto. El `DIFF_HINT` anterior afirmaba justo lo contrario («el trabajo
+    YA ESTÁ COMMITEADO»), así que en el pedido 2c declaró `coherente: false` con
+    **tres bloqueantes que decían «no está commiteado»** sobre ocho archivos que
+    existían y estaban completos, y el Maestro lo repitió al repartir ajustes
+    porque el prompt le pedía no cuestionar el veredicto. Una ronda entera gastada
+    en arreglar algo que no estaba roto. Corregido en tres piezas que van juntas:
+    `ARBOL_ES_LA_VERDAD` reemplaza al `DIFF_HINT`; guardrail en `conciliador.md`
+    («no está commiteado» nunca es un conflicto); y **una sola excepción** a «no
+    modifiques el veredicto del Conciliador»: todo conflicto que afirme que algo
+    falta se verifica abriendo el archivo antes de mandar a nadie a rehacerlo.
+
+24. **La fase 3 va en UN SOLO PEDIDO, y el contexto por agente bajó de ~193 KB a
+    ~60 KB.** El método por workflow estaba gastando de más por una razón que es
+    mía: a cada agente le iban `docs/ESTADO.md` (78 KB de bitácora) y una ENTREGA
+    vieja de 21 KB. Ahora va **`docs/CONTEXTO-AGENTES.md`** (20 KB): el sistema
+    como está hoy —costuras, contratos numéricos, convenciones, los ocho errores
+    que más veces se repitieron—, sin una línea de historia. Este documento sigue
+    siendo la bitácora y **no hace falta leerlo para construir**.
+
+    **Antes de lanzar seis agentes leí contra el código las costuras que la spec
+    daba por supuestas, y cuatro ya estaban construidas.** Sin decirlo, el equipo
+    habría escrito duplicados — y un duplicado de una fórmula de plata es la
+    «segunda matemática» que las reglas duras prohíben:
+    - **`Shift.to_deposit` ya existe**, escrito al cerrar el turno con la fórmula
+      de §6.1 (`contado − base fija − propinas en efectivo`). La spec le pedía a
+      T1 derivarlo otra vez. Ahora dice: leelo. Lo que T1 sí deriva es el **saldo**
+      (`to_deposit − consignado`), que es lo que no puede ser columna.
+    - **`TipPayout`, `TipPayoutDistribution` y `register_tip_payout` existen desde
+      1b-2**, con el docstring que dice «el cálculo del reparto es **manual** en
+      esta fase». Fase 3 es la fase del cálculo: T3 computa la propuesta y confirma
+      por la puerta que ya está, **sin tablas nuevas**.
+    - **«Cobro por mesero» ya está**: `GET /admin/sales?group_by=employee` agrupa
+      por `charged_by_employee_id` desde 1b-2. No lleva ruta nueva.
+    - **El margen bruto ya lo agrega `app/reports/`**: T2 lo lee en vez de volver a
+      sumar documentos de venta.
+
+    **Las cuatro decisiones que estaban abiertas quedaron tomadas por escrito** en
+    `features/fase-3-dinero-control/spec.md § 1`, con el razonamiento a la vista
+    para poder discutirlas después: **D-1** «sostenido» = la brecha de food cost
+    supera el umbral rojo en **2 de las últimas 3 ventanas** (con menos de dos,
+    `null` con motivo, nunca verde), y **no se toca `_variance_level`**; **D-2** la
+    cuenta por pagar guarda **las dos** cifras —`invoice_total` del papel y el
+    `amount` calculado— y **nombra la diferencia**, con el patrón `confirm_price`
+    que `create_reception` ya usa; **D-3** los tres métodos de reparto, default
+    **por horas**, como propuesta que alguien confirma; **D-4** la supresión por
+    habeas data **sí** alcanza a `pending_refunds`: anonimiza la identidad y deja
+    intacto el asiento, igual que ya se resolvió para el documento fiscal.
+
+    **Paso 0 hecho antes de lanzar** (y una lección propia): los archivos que
+    cuatro backends en paralelo se pelearían —`app/main.py`,
+    `app/core/models_registry.py`, `app/core/features.py`— los dejó listos el
+    orquestador humano, más los cuatro paquetes nuevos. Al hacerlo **se me cayeron
+    `"channels"` y `"kitchen"` de las dos listas** por una sustitución con ancla
+    demasiado corta; lo agarró `test_seed_is_idempotent` con un «no such table:
+    delivery_platforms» treinta segundos después. Por eso el paso 0 se verifica
+    con una corrida de humo (`tests/core tests/stores tests/channels tests/kitchen`
+    + el invariante de migraciones: 163 passed) antes de lanzar a nadie.
