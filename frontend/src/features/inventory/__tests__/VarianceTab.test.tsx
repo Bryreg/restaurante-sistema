@@ -62,6 +62,10 @@ describe("VarianceTab — el semáforo lo calcula el servidor, nunca un umbral d
     await waitFor(() => expect(listCountsMock).toHaveBeenCalled())
     await user.click(screen.getByRole("combobox", { name: "Conteo aplicado" }))
 
+    // El popup vive en un portal: con casi cien entornos jsdom compitiendo
+    // por CPU no está montado cuando un `getAllByRole` síncrono pregunta.
+    // Se espera una opción concreta primero.
+    await screen.findByRole("option", { name: /#20/ })
     const options = screen.getAllByRole("option").map((o) => o.textContent)
     expect(options.some((t) => t?.includes("#20"))).toBe(true)
     expect(options.some((t) => t?.includes("#21"))).toBe(false)

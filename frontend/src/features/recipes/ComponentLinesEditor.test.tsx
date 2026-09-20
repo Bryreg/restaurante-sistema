@@ -53,8 +53,8 @@ describe("ComponentLinesEditor", () => {
     await user.click(await screen.findByRole("option", { name: "Leche entera (ml)" }))
 
     await user.click(screen.getByRole("combobox", { name: "Unidad" }))
-    expect(screen.getByRole("option", { name: "ml" })).toBeInTheDocument()
-    expect(screen.getByRole("option", { name: "l" })).toBeInTheDocument()
+    expect(await screen.findByRole("option", { name: "ml" })).toBeInTheDocument()
+    expect(await screen.findByRole("option", { name: "l" })).toBeInTheDocument()
     expect(screen.queryByRole("option", { name: "g" })).not.toBeInTheDocument()
     expect(screen.queryByRole("option", { name: "kg" })).not.toBeInTheDocument()
   })

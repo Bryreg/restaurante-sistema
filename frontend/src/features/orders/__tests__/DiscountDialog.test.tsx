@@ -15,7 +15,7 @@ import { DiscountDialog } from "../DiscountDialog"
  */
 async function fillReason(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByLabelText("Motivo"))
-  await user.click(screen.getByRole("option", { name: "Promoción" }))
+  await user.click(await screen.findByRole("option", { name: "Promoción" }))
 }
 
 describe("DiscountDialog — O-1, enteros sin redondeo silencioso", () => {
@@ -42,7 +42,7 @@ describe("DiscountDialog — O-1, enteros sin redondeo silencioso", () => {
     )
 
     await user.click(screen.getByLabelText("Tipo"))
-    await user.click(screen.getByRole("option", { name: "Monto fijo" }))
+    await user.click(await screen.findByRole("option", { name: "Monto fijo" }))
     await user.type(screen.getByLabelText("Monto ($)"), "1500.5")
     await fillReason(user)
     await user.click(screen.getByRole("button", { name: "Aplicar descuento" }))

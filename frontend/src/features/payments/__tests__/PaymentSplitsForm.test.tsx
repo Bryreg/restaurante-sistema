@@ -44,7 +44,7 @@ describe("PaymentSplitsForm — medios de pago de la sede", () => {
     // montado todavía cuando `getByRole` síncrono pregunta. Esperar acá alcanza;
     // las aserciones siguientes ya encuentran el popup montado.
     expect(await screen.findByRole("option", { name: "Efectivo" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Transferencia" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Transferencia" })).toBeInTheDocument();
     // "Tarjeta"/"Bono"/"Plataforma"/"Otro" no están habilitados en la sede: no se ofrecen.
     expect(screen.queryByRole("option", { name: "Tarjeta" })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Bono" })).not.toBeInTheDocument();

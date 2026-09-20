@@ -73,7 +73,7 @@ describe("NotesPage", () => {
     expect(await screen.findByText(/FE-000900/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("combobox", { name: "Tipo de nota" }));
-    await user.click(screen.getByRole("option", { name: "Nota crédito" }));
+    await user.click(await screen.findByRole("option", { name: "Nota crédito" }));
     await user.type(screen.getByLabelText("Motivo"), "Cliente devolvió la hamburguesa");
 
     // Todavía nadie tildó ninguna línea: no hay nada que emitir.
@@ -129,7 +129,7 @@ describe("NotesPage", () => {
     expect(await screen.findByText(/FE-000901/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("combobox", { name: "Tipo de nota" }));
-    await user.click(screen.getByRole("option", { name: "Nota débito" }));
+    await user.click(await screen.findByRole("option", { name: "Nota débito" }));
     await user.type(screen.getByLabelText("Motivo"), "Cobro adicional del domicilio");
     await user.click(screen.getByLabelText("Incluir Servicio a domicilio en la nota"));
 
