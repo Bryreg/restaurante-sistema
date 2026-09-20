@@ -1,9 +1,16 @@
 # AGENTS.md — Restaurante Sistema
 
 Hereda todas las reglas globales de `.claude/AGENTS.md` (framework
-sistemas-maestros 2.0.0). **Acá va únicamente lo que este proyecto hace
+sistemas-maestros 2.2.0). **Acá va únicamente lo que este proyecto hace
 DISTINTO**, y cada excepción con su por qué: una regla global que se aparta en
 silencio es una regla que no existe.
+
+**Si sos un agente y vas a construir**, el otro documento que tenés que leer es
+`docs/CONTEXTO-AGENTES.md`: el sistema como está hoy, con las costuras que
+reusás y las convenciones que no podés romper. `docs/ESTADO.md` es la bitácora
+del proyecto (cómo se llegó hasta acá) y `docs/SPEC-NEGOCIO.md` es la spec de
+negocio completa; ninguno de los dos hace falta leerlo entero para construir, y
+`CONTEXTO-AGENTES.md` te dice a qué sección ir cuando sí hace falta.
 
 ## Dominio
 

@@ -53,9 +53,34 @@ const CONTEXTO_FILES = (args && args.contexto) || []
 // marcan todo lo declarado como conflicto. Nació en restaurante-sistema
 // (pedido 1a): el primer run se conciliaba contra tres snapshots ya pusheados.
 const BASE = (args && args.base) || null
+
+// LA FUENTE DE VERDAD ES EL ÁRBOL DE TRABAJO, NO EL DIFF.
+//
+// En este framework **los agentes NUNCA commitean** (lo dice CONTEXTO, abajo):
+// commitea el orquestador humano, después de revisar. Así que en el momento en
+// que corre el Conciliador, lo que el equipo construyó está, casi siempre, SIN
+// COMMITEAR — y un dominio nuevo está además SIN TRACKEAR, que es el peor caso:
+// `git status` muestra el directorio, no los archivos de adentro, y
+// `git diff <base>` no lo muestra en absoluto.
+//
+// Nació en restaurante-sistema (pedido 2c): el Conciliador declaró
+// `coherente: false` con tres conflictos "bloqueantes" que decían que los
+// dominios nuevos "no están commiteados". Los ocho archivos existían y estaban
+// completos. Verificó contra el diff en vez del árbol, y el Maestro repitió el
+// error. Un run entero de iteraciones gastado en un conflicto inexistente.
+//
+// `args.base` sigue siendo útil (el orquestador humano puede ir commiteando
+// snapshots a mitad de run, y entonces el diff contra la base sí muestra parte
+// del trabajo), pero es el COMPLEMENTO, no la fuente.
+const ARBOL_ES_LA_VERDAD =
+  'CÓMO VERIFICAR CONTRA EL CÓDIGO REAL (leelo entero antes de declarar un conflicto): ' +
+  'la fuente de verdad es **el árbol de trabajo**, no el diff. En este framework los agentes NO commitean — commitea el orquestador humano después de revisar —, así que lo que el equipo acaba de construir está normalmente SIN COMMITEAR, y un directorio de dominio nuevo está SIN TRACKEAR: `git status` te muestra la carpeta y no los archivos, y `git diff` no te lo muestra para nada. ' +
+  'Para ver si algo existe: `ls <directorio>`, `cat <archivo>`, `grep`. Para ver el panorama: `git status --porcelain --untracked-files=all`. ' +
+  '**Que un archivo declarado no aparezca en un `git diff` NO es evidencia de que falte: abrilo antes de declarar nada.** Un conflicto bloqueante que dice "no está commiteado" es, por definición, un conflicto mal levantado — en este framework nada del equipo está commiteado todavía.'
+
 const DIFF_HINT = BASE
-  ? 'El trabajo del equipo YA ESTÁ COMMITEADO en la rama actual: el commit base del pedido es ' + BASE + '. Para ver el código real usá `git diff ' + BASE + ' --stat`, `git diff ' + BASE + ' -- <directorio>` y `git status` (para lo aún no commiteado); un `git diff` pelado contra HEAD NO muestra el trabajo.'
-  : 'git diff --stat y git diff sobre los directorios tocados'
+  ? ARBOL_ES_LA_VERDAD + ' Como complemento, el orquestador humano puede haber commiteado snapshots a mitad de run: el commit base del pedido es ' + BASE + ', y `git diff ' + BASE + ' --stat` te muestra lo que sí quedó commiteado. Un `git diff` pelado contra HEAD no muestra nada del trabajo.'
+  : ARBOL_ES_LA_VERDAD
 
 const CONTEXTO = [
   'CONTEXTO OBLIGATORIO — leé estos archivos ANTES de trabajar:',
@@ -232,7 +257,9 @@ for (let iter = 1; iter <= MAX_ITERATIONS; iter++) {
     'Sos el MAESTRO ORCHESTRATOR (Fable). Vos armaste este equipo: ' + JSON.stringify(plan.equipo.map(a => ({ id: a.id, nombre: a.nombre, tipo: a.tipo }))) + '\n' +
     'El Conciliador (fuente de verdad de coherencia — no modifiques su veredicto) reportó en la ronda ' + iter + ':\n' + JSON.stringify(veredicto.conflicts) + '\n' +
     'Resúmenes de los agentes: ' + JSON.stringify(latest) + '\n' +
-    'Para cada conflicto BLOQUEANTE decidí qué agente(s) del equipo deben ajustar su trabajo y redactá instrucciones PRECISAS y accionables. Usá exactamente los ids del equipo. Mantené a cada agente en su rol. Un solo bloque de instrucciones por agente.',
+    'ANTES de repartir nada: todo conflicto que afirme que algo FALTA o NO EXISTE lo verificás vos abriendo el archivo (`ls`, `cat`, `grep`). ' + ARBOL_ES_LA_VERDAD + ' ' +
+    'Si el archivo existe y está completo, el conflicto está MAL LEVANTADO: no se lo mandes a nadie, decilo en las instrucciones del agente más cercano como nota y no le pidas rehacer trabajo que ya está hecho. Es la única excepción a "no modifiques el veredicto del Conciliador", y existe porque mandar a un agente a rehacer algo que ya construyó quema una ronda entera.\n' +
+    'Para cada conflicto BLOQUEANTE que SÍ verificaste, decidí qué agente(s) del equipo deben ajustar su trabajo y redactá instrucciones PRECISAS y accionables. Usá exactamente los ids del equipo. Mantené a cada agente en su rol. Un solo bloque de instrucciones por agente.',
     { label: 'maestro:ajustes r' + iter, phase: 'Iteración', schema: AJUSTES_SCHEMA }
   )
   ajustesPorAgente = {}

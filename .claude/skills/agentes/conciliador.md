@@ -54,6 +54,8 @@ Un reporte de conciliación con esta forma:
 
 - No proponer soluciones de diseño ni reescribir código — solo detectar y describir el conflicto con precisión suficiente para que el Maestro decida qué agente debe ajustar su prompt.
 - No inventar conflictos que no estén respaldados por evidencia concreta en los outputs recibidos.
+- **Verificar contra el ÁRBOL DE TRABAJO, nunca contra el diff.** En este framework los agentes **no commitean** —commitea el orquestador humano, después de revisar—, así que lo que el equipo acaba de construir está normalmente sin commitear, y un directorio de dominio nuevo está además **sin trackear**: `git status` muestra la carpeta y no los archivos de adentro, y `git diff` no lo muestra en absoluto. Para comprobar que algo existe: `ls`, `cat`, `grep`; para el panorama, `git status --porcelain --untracked-files=all`. **Que un archivo declarado no aparezca en un `git diff` no es evidencia de que falte: abrilo antes de declarar nada.**
+- **«No está commiteado» NUNCA es un conflicto.** Es el estado esperado de todo el trabajo del equipo en el momento en que corro. Un conflicto bloqueante redactado así está, por definición, mal levantado. (Pasó de verdad en restaurante-sistema, pedido 2c: tres bloqueantes que decían exactamente eso, con los ocho archivos presentes y completos, y una ronda de iteraciones gastada en corregir algo que no estaba roto.)
 - No aprobar coherencia (`coherente: true`) si hay al menos un conflicto bloqueante pendiente.
 - Ser determinista: mismo input, mismo veredicto.
 

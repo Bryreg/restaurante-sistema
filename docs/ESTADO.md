@@ -32,6 +32,12 @@ verificado y recorrido en navegador real. Pedido 1a entregado y verificado el
 se actualiza en el MISMO PR que el cambio. Un estado desactualizado miente con más
 autoridad que no tener estado.
 
+**Este documento es la BITÁCORA: cómo se llegó hasta acá.** Un agente que va a
+construir no necesita leerla —necesita el sistema como está hoy, y eso vive en
+**`docs/CONTEXTO-AGENTES.md`** (~20 KB contra los ~78 KB de este archivo). La
+separación no es cosmética: el contexto de cada agente se paga por token y por
+agente, y en la fase 2c se estaban leyendo ~193 KB por agente × 20 agentes.
+
 ---
 
 ## Cómo corre

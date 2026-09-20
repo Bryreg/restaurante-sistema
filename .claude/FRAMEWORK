@@ -1,5 +1,8 @@
-sistemas-maestros 2.1.0
-adoptado: 2026-09-14 (2.0.0); actualizado a 2.1.0 el 2026-09-14 (args.base del orquestador, promovido desde este proyecto)
+sistemas-maestros 2.2.0
+adoptado: 2026-09-14 (2.0.0); actualizado a 2.1.0 el 2026-09-14 (args.base del
+orquestador, promovido desde este proyecto); actualizado a 2.2.0 el 2026-09-20
+(el Conciliador verifica contra el árbol de trabajo y no contra el diff —
+también promovido desde este proyecto, pedido 2c).
 
 Este proyecto adoptó el framework en esta versión. Si el repo del framework está
 más adelante, este proyecto está ATRÁS — lo cual está bien mientras sea una

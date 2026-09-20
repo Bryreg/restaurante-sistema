@@ -927,6 +927,24 @@ def activate_channels(db: Any, store: Any) -> Callable[..., None]:
 
 
 @pytest.fixture()
+def deactivate_channels(db: Any, store: Any) -> Callable[..., None]:
+    """Quita canales de `stores.active_channels` de la sede de prueba.
+
+    La sede de prueba nace con los cinco canales que `create_order` hace
+    cumplir, igual que una sede real después de la migración `0016`. El
+    invariante que necesita el caso contrario —la función encendida y el canal
+    apagado, que son los DOS interruptores distintos de §9.3— arma esa
+    condición acá, a la vista, en vez de apoyarse en un default del fixture:
+    un default que se mueve deja el test verde por la razón equivocada."""
+
+    def _deactivate(*canales: str) -> None:
+        store.active_channels = [c for c in (store.active_channels or []) if c not in canales]
+        db.flush()
+
+    return _deactivate
+
+
+@pytest.fixture()
 def courier(db: Any, org: Any, store: Any) -> Any:
     """Un domiciliario de la sede propia."""
     from app.auth.models import Employee

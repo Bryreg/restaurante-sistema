@@ -474,54 +474,50 @@ def test_the_active_channels_of_the_store_gate_every_channel_and_not_only_three(
     enable_2c: Any,
     set_feature: Any,
     open_shift: Any,
+    deactivate_channels: Any,
     db: Any,
     store: Any,
     courier: Any,
     platform: Any,
     delivery_fee_product: Any,
 ) -> None:
-    """**HALLAZGO H-3 (ADVERTENCIA).** «Canales activos» es configuración de
-    sede (SPEC-NEGOCIO §9.3) y `create_order` la hace cumplir sólo para
-    `counter`, `dine_in` y `takeout` (`app/orders/service.py:673-680`).
-    `delivery` y `platform` **no** se miran contra `store.active_channels`.
+    """**HALLAZGO H-3 — CERRADO.**
 
-    Consecuencia concreta: una sede cuyo `active_channels` es
-    `["counter", "dine_in", "takeout"]` —el default del alta de sede— acepta
-    comandas de domicilio y de plataforma en cuanto alguien enciende la flag,
-    sin haber activado el canal. Los dos interruptores que §9.3 y §1.2
-    describen como distintos («funciones» y «canales activos») quedan
-    colapsados en uno solo para los canales nuevos, y el administrador no
-    tiene forma de apagar un canal sin apagar la función entera.
+    «Canales activos» es configuración de sede (SPEC-NEGOCIO §9.3) y es un
+    interruptor **distinto** de la función habilitable de §1.2: la función dice
+    si el plan incluye la capacidad, «canales activos» dice si ESTA sede la
+    usa. Cuando se levantó, `create_order` hacía cumplir la lista sólo para
+    `counter`, `dine_in` y `takeout`: `delivery` y `platform` la esquivaban, y
+    una sede aceptaba domicilios en cuanto alguien encendía la flag, sin haber
+    activado el canal.
 
-    **Remedio**: extender la guarda de `create_order` a `DELIVERY`/`PLATFORM`
-    (y, si `active_channels` no debe gatear los canales nuevos, decirlo por
-    escrito en la spec: hoy el código dice dos cosas distintas para la misma
-    lista). **Dueño**: `backend-canales-comanda` (`app/orders/service.py`).
+    Quedó diferido en la ronda 3 del pedido 2c por una razón correcta: gatear
+    los canales nuevos **sin un backfill** habría dejado a toda sede existente
+    sin vender por domicilio el día del deploy, y la casilla para reactivarlos
+    era territorio de otro pedido. El remedio parcial rompía sedes vivas.
 
-    ---
+    Se cerró con las tres piezas juntas, que es como tenía que hacerse:
+    (a) la guarda de `create_order` extendida a los cinco canales que la lista
+    gobierna; (b) la migración `0016_active_channels_backfill`, que agrega
+    `delivery`/`platform` a `active_channels` de toda sede que ya existía, de
+    modo que el deploy no cambia el comportamiento de nadie; y (c) las cinco
+    casillas en `StoreFormDialog.tsx` —antes ofrecía una «Domicilio» muerta y
+    **no** ofrecía `counter`, así que el mensaje «activalo en Configuración»
+    apuntaba a una pantalla que no podía arreglarlo—.
 
-    **RONDA 3 — DECISIÓN DIFERIDA DEL MAESTRO. Este test QUEDA ROJO a
-    propósito.** No se ablanda, no se acota y no se borra: es el marcador de
-    una deuda aceptada, no un defecto que nadie vio.
-
-    Razón de la diferición, tal como me la pasó el Maestro: gatear
-    `delivery`/`platform` por `active_channels` **sin un backfill** dejaría a
-    toda sede ya existente sin poder vender por domicilio el día del deploy
-    —el default del alta es `["counter", "dine_in", "takeout"]`—, y la
-    casilla que el administrador necesitaría para activarlos
-    (`StoreFormDialog.tsx`) es territorio de otro pedido.
-
-    **Deuda, con dueño y remedio, para que no se pierda**: `backend-canales-comanda`
-    extiende la guarda de `create_order` a `DELIVERY`/`PLATFORM` **junto con**
-    (a) una migración que agregue `delivery`/`platform` a `active_channels`
-    de las sedes que ya tengan la función encendida, y (b) la casilla en
-    `StoreFormDialog.tsx`. Mientras las tres no vayan juntas, el remedio
-    parcial rompe sedes vivas. Cuando se haga, este test se pone verde solo.
+    Este test mide el gate, no el remedio: sede con la función encendida y el
+    canal apagado, la comanda se rechaza. `src/audit/active-channels.test.ts`
+    cuida el otro lado —que la lista gateada y la lista marcable no se
+    separen—.
     """
     open_shift()
     identify(device_client, employees["operator"])
     enable_2c()
     set_feature("pos.takeout", True)
+    # La precondición se arma acá, a la vista: una sede con la FUNCIÓN encendida
+    # y el CANAL apagado. Antes se heredaba del default del fixture, y un
+    # default que se mueve deja el test verde por la razón equivocada.
+    deactivate_channels("delivery", "platform")
     assert "delivery" not in (store.active_channels or []), "el test se armó mal"
     assert "platform" not in (store.active_channels or []), "el test se armó mal"
 
@@ -539,9 +535,9 @@ def test_the_active_channels_of_the_store_gate_every_channel_and_not_only_three(
     assert not colados, (
         "la sede tiene `active_channels` = "
         f"{store.active_channels} y aun así acepta comandas de los canales nuevos: {colados}. "
-        "`app/orders/service.py:673-680` sólo mira la lista para `counter`/`dine_in`/`takeout`; "
-        "`delivery` y `platform` la esquivan (SPEC-NEGOCIO §9.3 pone «canales activos» en Configuración, "
-        "distinto de la función habilitable de §1.2)"
+        "la guarda de `create_order` volvió a mirar la lista sólo para algunos canales "
+        "(SPEC-NEGOCIO §9.3 pone «canales activos» en Configuración, distinto de la función "
+        "habilitable de §1.2: son dos interruptores, no uno)"
     )
 
 

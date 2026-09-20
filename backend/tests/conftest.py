@@ -182,7 +182,12 @@ def store(db: Session, org: Organization) -> Store:
         municipality_dane="11001",
         opening_hours=[],
         cutoff_hour=6,
-        active_channels=["counter", "dine_in", "takeout"],
+        # Los CINCO canales que `create_order` hace cumplir contra esta lista
+        # desde H-3. La sede de prueba es una sede YA CONFIGURADA, que es lo
+        # que la migración `0016` deja en toda sede existente el día del
+        # deploy; un test que necesite el caso contrario —función encendida y
+        # canal apagado— lo arma explícitamente con `deactivate_channels`.
+        active_channels=["counter", "dine_in", "takeout", "delivery", "platform"],
         store_pin_hash=security.hash_secret(STORE_PIN),
         active=True,
         created_at=now,
