@@ -18,13 +18,13 @@ describe("SustainedHealthTab — D-1: sustained_red es null con motivo, NUNCA ve
     const notEnough: SustainedHealthOut = {
       sustained_red: null,
       windows_evaluated: 1,
-      reason: "sin historial suficiente: hacen falta al menos dos conteos completos aplicados",
+      reason: "sin historial suficiente: hacen falta al menos TRES conteos completos aplicados (dos períodos entre conteos) para saber si la brecha se sostiene",
     }
     getControlHealthSustainedMock.mockResolvedValue(notEnough)
     renderWithProviders(<SustainedHealthTab storeId={1} />)
 
     expect(await screen.findByText("Sin historial suficiente")).toBeInTheDocument()
-    expect(screen.getByText("sin historial suficiente: hacen falta al menos dos conteos completos aplicados")).toBeInTheDocument()
+    expect(screen.getByText("sin historial suficiente: hacen falta al menos TRES conteos completos aplicados (dos períodos entre conteos) para saber si la brecha se sostiene")).toBeInTheDocument()
     expect(screen.queryByText("Sí")).not.toBeInTheDocument()
     expect(screen.queryByText("No")).not.toBeInTheDocument()
   })

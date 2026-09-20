@@ -520,7 +520,10 @@ def control_health_sustained(db: Session, *, store: Store) -> SustainedOut:
             store_id=store.id,
             sustained_red=None,
             windows_evaluated=len(windows_out),
-            reason="sin historial suficiente: hacen falta al menos dos conteos completos aplicados",
+            reason=(
+                "sin historial suficiente: hacen falta al menos TRES conteos completos "
+                "aplicados (dos períodos entre conteos) para saber si la brecha se sostiene"
+            ),
             red_threshold_bp=red_threshold_bp,
             windows=windows_out,
         )
