@@ -1229,6 +1229,14 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     `features/fase-3-dinero-control/outputs/`). Las **once capacidades** de la
     fila 3 de §14 en un solo pedido, como pidió el dueño.
 
+    **Verificación final** (2026-09-20, árbol quieto, en serie): `python -m mypy
+    app` limpio (**147 archivos**); suite de backend **1.522 passed, 1 skipped,
+    0 failed** (1:08:09); `tsc` limpio; vitest **555/555** en 117 archivos;
+    `vite build` OK (2.609 módulos). Sobre **Postgres 16 real**: `0001 → 0020`
+    limpio, `alembic heads` con **una sola cabeza**, **93 tablas** de dominio,
+    `python -m app.seed` corrido dos veces sin duplicar, y `downgrade base`
+    deja el esquema vacío.
+
     **Lo que entró**: consignaciones y saldo por consignar, libro del banco, mano
     del dueño, conciliación de datáfono y de plataformas (dominio `banking`,
     Alembic `0017`); gastos, obligaciones agendadas, punto de equilibrio y
