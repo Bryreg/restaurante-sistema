@@ -17,14 +17,19 @@ def _open(db: Session) -> Shift:
     return shift
 
 
-def _count(device_client, shift_id: int, *, total: int, photo: str | None = "foto.jpg") -> int:
+def _count(
+    device_client, shift_id: int, *, total: int, photo: str | None = "foto.jpg", card: int | None = None
+) -> int:
+    cuerpo: dict = {
+        "counted_cash": {"denominations": [{"value": 10000, "count": total // 10000}], "total": total},
+        "tips_cash_out": 0,
+        "photo": photo,
+    }
+    if card is not None:
+        cuerpo["counted_card"] = card
     resp = device_client.post(
         f"/api/v1/shifts/{shift_id}/close/count",
-        json={
-            "counted_cash": {"denominations": [{"value": 10000, "count": total // 10000}], "total": total},
-            "tips_cash_out": 0,
-            "photo": photo,
-        },
+        json=cuerpo,
         headers=idem(),
     )
     assert resp.status_code in (200, 201), resp.text
@@ -222,3 +227,59 @@ def test_one_step_close_is_refused_while_blind_close_flag_is_on(device_client, o
 
     db.refresh(shift)
     assert shift.status == "open"
+
+
+# ---------------------------------------------------------------------------
+# El lote del datáfono trae la propina adentro
+# ---------------------------------------------------------------------------
+#
+# Encontrado jugando un día de venta: se cobró una mesa con tarjeta, $116.000
+# de venta y $10.741 de propina, y al cerrar el datáfono marcaba $126.741 —
+# porque eso es lo que se le pasó a la tarjeta—. El cierre comparaba contra
+# `sales.card` sola y reportaba una diferencia de $10.741, al peso la propina.
+# Una diferencia que aparece TODOS los días enseña a ignorar las diferencias,
+# que es justo lo que el arqueo a ciegas existe para evitar.
+#
+# El esperado del EFECTIVO no se toca: la propina en efectivo se salda por
+# `tips_cash_out`/`to_deposit`, como siempre.
+
+
+def _pagar_con_tarjeta_y_propina(device_client, db: Session, *, venta: int, propina: int) -> None:
+    from tests.shifts.test_tips import _make_product, _pay_with_tip
+    from app.stores.models import Store
+
+    store = db.query(Store).first()
+    assert store is not None
+    product_id = _make_product(db, store, price=venta)
+    _pay_with_tip(device_client, product_id, method="card", tip_amount=propina)
+
+
+def test_card_expected_includes_card_tips(device_client, open_shift, db: Session) -> None:
+    open_shift(total=200_000, denominations=[{"value": 10000, "count": 20}])
+    shift = _open(db)
+    _pagar_con_tarjeta_y_propina(device_client, db, venta=116_000, propina=10_741)
+
+    count_id = _count(device_client, shift.id, total=200_000, card=126_741)
+    body = device_client.get(f"/api/v1/shifts/{shift.id}/close/{count_id}/review").json()
+
+    assert body["card"]["registered"] == 126_741, "el lote del datáfono trae la propina adentro"
+    assert body["card"]["sales"] == 116_000
+    assert body["card"]["tips"] == 10_741
+    assert body["card"]["difference"] == 0, "un turno sin errores no puede cerrar con la propina como diferencia"
+
+    # Y el efectivo no se movió: la propina fue por tarjeta, no salió del cajón.
+    assert body["expected"] == 200_000
+    assert body["difference"] == 0
+
+
+def test_card_difference_still_catches_a_real_gap(device_client, open_shift, db: Session) -> None:
+    """El arreglo no puede tapar un faltante de verdad."""
+    open_shift(total=200_000, denominations=[{"value": 10000, "count": 20}])
+    shift = _open(db)
+    _pagar_con_tarjeta_y_propina(device_client, db, venta=116_000, propina=10_741)
+
+    count_id = _count(device_client, shift.id, total=200_000, card=120_000)
+    body = device_client.get(f"/api/v1/shifts/{shift.id}/close/{count_id}/review").json()
+
+    assert body["card"]["registered"] == 126_741
+    assert body["card"]["difference"] == -6_741

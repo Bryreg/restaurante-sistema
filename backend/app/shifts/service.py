@@ -889,9 +889,13 @@ class CloseEvaluation:
     counted: int
     difference: int
     card_registered: int
+    card_sales: int
+    card_tips: int
     card_counted: int | None
     card_difference: int | None
     transfer_registered: int
+    transfer_sales: int
+    transfer_tips: int
     transfer_counted: int | None
     transfer_difference: int | None
     requires_cause: bool
@@ -905,18 +909,35 @@ def _evaluate_close(db: Session, shift: Shift, store: Store, count: ShiftCloseCo
     settings = stores_service.get_cash_settings(db, store.id)
 
     difference = count.counted_cash_total - breakdown["expected"]
-    card_difference = None if count.counted_card is None else count.counted_card - sales.card
-    transfer_difference = None if count.counted_transfer is None else count.counted_transfer - sales.transfer
+
+    # Lo que tiene que marcar el lote del datáfono es lo que se le pasó a la
+    # tarjeta: la venta MÁS la propina cobrada con tarjeta. Contra `sales.card`
+    # solo, todo turno con propinas de tarjeta cerraba con una diferencia
+    # igual, al peso, a esas propinas — y una diferencia que aparece todos los
+    # días enseña a ignorar las diferencias, que es justo lo que el arqueo a
+    # ciegas existe para evitar. El esperado del EFECTIVO no se toca: la
+    # propina en efectivo se salda por `tips_cash_out`/`to_deposit`, como
+    # siempre.
+    card_registered = sales.card + sales.tips_card
+    transfer_registered = sales.transfer + sales.tips_transfer
+    card_difference = None if count.counted_card is None else count.counted_card - card_registered
+    transfer_difference = (
+        None if count.counted_transfer is None else count.counted_transfer - transfer_registered
+    )
 
     return CloseEvaluation(
         breakdown=breakdown,
         expected=breakdown["expected"],
         counted=count.counted_cash_total,
         difference=difference,
-        card_registered=sales.card,
+        card_registered=card_registered,
+        card_sales=sales.card,
+        card_tips=sales.tips_card,
         card_counted=count.counted_card,
         card_difference=card_difference,
-        transfer_registered=sales.transfer,
+        transfer_registered=transfer_registered,
+        transfer_sales=sales.transfer,
+        transfer_tips=sales.tips_transfer,
         transfer_counted=count.counted_transfer,
         transfer_difference=transfer_difference,
         requires_cause=difference != 0,
@@ -957,9 +978,17 @@ def review_close(db: Session, *, shift: Shift, store: Store, count: ShiftCloseCo
         "expected": ev.expected,
         "difference": ev.difference,
         "equation": equation,
-        "card": {"registered": ev.card_registered, "counted": ev.card_counted, "difference": ev.card_difference},
+        "card": {
+            "registered": ev.card_registered,
+            "sales": ev.card_sales,
+            "tips": ev.card_tips,
+            "counted": ev.card_counted,
+            "difference": ev.card_difference,
+        },
         "transfer": {
             "registered": ev.transfer_registered,
+            "sales": ev.transfer_sales,
+            "tips": ev.transfer_tips,
             "counted": ev.transfer_counted,
             "difference": ev.transfer_difference,
         },
@@ -1096,9 +1125,12 @@ def create_close_count(db: Session, *, actor: Actor, shift: Shift, store: Store,
     total = money.validate_denominations(denominations, payload.counted_cash.total)
 
     sales = hooks.get_sales_totals(db, shift.id)
-    if sales.card > 0 and payload.counted_card is None:
+    # `+ tips_*`: una cuenta de cortesía con propina de tarjeta deja venta 0 y
+    # propina > 0. El lote del datáfono la muestra igual, así que hay que
+    # pedir el total.
+    if sales.card + sales.tips_card > 0 and payload.counted_card is None:
         raise AppError("CARD_TOTAL_REQUIRED", "Ingresá el total del datáfono: hubo ventas registradas con tarjeta", status=400)
-    if sales.transfer > 0 and payload.counted_transfer is None:
+    if sales.transfer + sales.tips_transfer > 0 and payload.counted_transfer is None:
         raise AppError(
             "TRANSFER_TOTAL_REQUIRED", "Ingresá el total de transferencias: hubo ventas registradas por transferencia", status=400
         )

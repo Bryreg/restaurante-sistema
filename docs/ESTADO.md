@@ -1468,3 +1468,85 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     entrar; en el salón, activar con PIN de sede, identificarse, cancelar la
     confirmación no desactiva nada, confirmar borra `device_session` y `/pos`
     manda a `/pos/activate`. Sin desborde horizontal a 390 px.
+
+33. **Una demo de un día de venta, y lo que encontró** (2026-09-20). Jugué
+    nueve situaciones reales en la interfaz —abrir turno contando la base,
+    mesa que pide y paga con datáfono, mostrador en efectivo con vuelto,
+    anular un plato ya enviado, descuento por encima del tope, cortesía,
+    retiro de efectivo, cierre a ciegas contando mal a propósito, y el admin
+    mirando el día— verificando **la plata contra la base**, no contra la
+    pantalla. Informe con capturas:
+    <https://claude.ai/artifact/RPNtm2BhoquTfBHcSLtFtj>.
+
+    **El defecto grave: un descuento rechazado quedaba aplicado.** El
+    operador con tope del 10 % pedía 40 %, el sistema respondía `400
+    DISCOUNT_LIMIT_EXCEEDED` «pedí el PIN de un supervisor», él no lo pedía —
+    y el descuento entraba. Sin fila en `order_discounts` y sin auditoría, o
+    sea invisible para cualquier reporte de descuentos por autorizador.
+    Repitiendo el rechazo cuatro veces, un plato de $26.000 quedaba en $0.
+    `test_discount_over_limit_needs_authorizer` no lo veía porque miraba el
+    código de error y después el caso autorizado: **nunca miró la plata**.
+
+    La causa estaba en `add_discount`: sumaba a `item.discount_amount` y ocho
+    líneas después comprobaba el tope. `app/core/db.py` hace `commit()` al
+    levantar un `AppError` —a propósito, y documentado ahí mismo: si no, cinco
+    PIN fallidos nunca bloquean nada—. El precio de esa decisión es un
+    contrato que ese servicio rompía: **para cuando un servicio escribe, la
+    operación ya tiene que estar decidida**.
+
+    **Y no estaba solo.** Un barrido por caminos de ejecución —no por líneas—
+    encontró cuatro más: `add_items` (dos platos, el segundo inválido: el
+    primero entra igual, y después sale dos veces a cocina),
+    `update_ingredient` (nombre y costo oficial guardados en un 400),
+    `update_platform` (la comisión, que mueve plata, cambiada tras un 409) y
+    `_upsert_combo_options`. Todos arreglados, con
+    `tests/audit/test_write_before_reject.py` como invariante: recorre `app/`
+    entero y falla si alguien vuelve a escribir antes de validar. Los caminos
+    legítimos están declarados con su motivo (`verify_authorizer` resultó NO
+    serlo: escribe recién al final).
+
+    **El otro de plata, más silencioso: la caja descuadraba en datáfono todos
+    los días, por el monto exacto de las propinas.** El operador teclea lo que
+    marca el lote ($126.741) y el cierre comparaba contra la venta sola
+    ($116.000): diferencia $10.741, al peso la propina de tarjeta. No se
+    pierde plata, pero una diferencia que aparece siempre enseña a ignorar las
+    diferencias, que es justo lo que el arqueo a ciegas existe para evitar.
+    Ahora `card_registered = sales.card + sales.tips_card` (ídem
+    transferencias), y la pantalla dice de qué se compone: «Registrado = venta
+    $116.000 + propina $10.741». **El esperado del efectivo no se tocó**: la
+    propina en efectivo se sigue saldando por `tips_cash_out`/`to_deposit`.
+
+    **Un mensaje que pedía algo que la pantalla no ofrecía.** Con comandas
+    abiertas, el cierre decía «Cobrá o anulá las comandas abiertas, o marcá
+    trasladarlas al turno siguiente». El backend soportaba
+    `transfer_open_orders` y lo implementaba bien; el wizard mandaba `false`
+    fijo y no tenía la casilla en ninguna parte. Es la misma familia que el
+    botón de salir del renglón 32: una capacidad del servidor sin llamador en
+    la interfaz. Agregada en los dos cierres — en el de tres pasos se muestra
+    desde la review (`open_orders`), en el de un solo paso aparece recién
+    cuando el servidor contesta `OPEN_ORDERS_EXIST`, que es cuando se sabe.
+
+    **Dos de acabado**: el botón de cerrar de todos los diálogos decía
+    «Close», en una interfaz que es toda en español (y es el único nombre que
+    tiene para un lector de pantalla); y cada selector con causa tipada
+    avisaba por consola que pasaba de no controlado a controlado — el estado
+    controlado «sin valor» de Base UI es `null`, no `undefined`, y se
+    normaliza una sola vez en el envoltorio de `Select`, no en los
+    veinticinco sitios de llamada.
+
+    **Y el monto que el sistema ya sabía.** En cada cobro en efectivo había
+    que teclear a mano un total que estaba en pantalla; los botones rápidos
+    llenan «Recibido», no «Monto». Ahora la primera fila arranca con lo que
+    hay que cobrar y «Agregar pago» trae el saldo — editable, que es como se
+    arma un pago dividido.
+
+    **Lo que aguantó**, probado intentando romperlo: impuesto por ítem con el
+    peso de redondeo hacia el lado seguro ($8.594 contra $8.593 sobre el
+    agregado); la propina preguntada como manda la Ley 1935 y bloqueando el
+    cobro hasta que alguien responda; anulación de un plato enviado con
+    supervisor, las dos personas guardadas por separado y los minutos desde el
+    envío; **el insumo que NO vuelve al inventario** cuando se anula un plato
+    ya cocinado; topes de descuento acumulados; retiro que exige administrador
+    y rechaza al supervisor por nombre; cierre a ciegas que no filtra el
+    esperado ni en la columna de retiros; y el documento equivalente POS
+    consecutivo y completo.

@@ -122,3 +122,89 @@ def test_order_discount_prorates_and_remove_restores(device_client: TestClient, 
     assert removed.status_code == 200, removed.text
     assert removed.json()["totals"]["discount_total"] == 0
     assert removed.json()["discounts"] == []
+
+
+# ---------------------------------------------------------------------------
+# Un rechazo no puede dejar nada escrito
+# ---------------------------------------------------------------------------
+#
+# Encontrado jugando una venta real en el navegador: el total de una comanda
+# no cuadraba con el libro de descuentos. `add_discount` sumaba a
+# `item.discount_amount` ANTES de comprobar el límite del empleado, y
+# `get_db` hace `commit()` cuando se levanta un `AppError` —a propósito, para
+# que un intento fallido de PIN sobreviva—. Resultado: el operador pedía un
+# descuento por encima de su límite, el sistema le decía 400 «pedí el PIN de
+# un supervisor», él no lo pedía, y **el descuento quedaba aplicado igual**,
+# sin fila en `order_discounts` y sin nada en la auditoría. Repitiendo el
+# rechazo se llegaba a un total de $0.
+#
+# `test_discount_over_limit_needs_authorizer` no lo veía porque sólo miraba
+# el código de error y después el caso autorizado: nunca miró la plata.
+
+
+def test_rejected_discount_leaves_nothing_applied(device_client: TestClient, identify: Any, employees: Any, open_shift: Any, set_feature: Any, new_order: Any, add_items: Any, main_product: Any) -> None:
+    set_feature("pos.discounts", True)
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    item_id = order["items"][0]["id"]
+    total_antes = order["totals"]["total"]
+
+    over = device_client.post(
+        f"/api/v1/orders/{order['id']}/discounts",
+        json={"expected_version": order["version"], "scope": "item", "item_id": item_id, "kind": "percent", "value": 40, "reason": "promo"},
+    )
+    assert over.status_code == 400
+    assert over.json()["error"]["code"] == "DISCOUNT_LIMIT_EXCEEDED"
+
+    after = device_client.get(f"/api/v1/orders/{order['id']}").json()
+    assert after["items"][0]["discount"] == 0, "el descuento rechazado quedó aplicado al ítem"
+    assert after["discounts"] == [], "hay un descuento sin fila que lo justifique"
+    assert after["totals"]["discount_total"] == 0
+    assert after["totals"]["total"] == total_antes, "el cliente paga menos por un descuento que el sistema rechazó"
+
+
+def test_rejected_discount_does_not_accumulate(device_client: TestClient, identify: Any, employees: Any, open_shift: Any, set_feature: Any, new_order: Any, add_items: Any, main_product: Any) -> None:
+    """Cuatro «no» seguidos dejaban el plato gratis."""
+    set_feature("pos.discounts", True)
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    item_id = order["items"][0]["id"]
+    total_antes = order["totals"]["total"]
+
+    for _ in range(4):
+        resp = device_client.post(
+            f"/api/v1/orders/{order['id']}/discounts",
+            json={"expected_version": order["version"], "scope": "item", "item_id": item_id, "kind": "percent", "value": 30, "reason": "promo"},
+        )
+        assert resp.status_code == 400
+
+    after = device_client.get(f"/api/v1/orders/{order['id']}").json()
+    assert after["totals"]["total"] == total_antes
+    assert after["items"][0]["discount"] == 0
+
+
+def test_authorized_discount_is_exactly_what_was_authorized(device_client: TestClient, identify: Any, employees: Any, open_shift: Any, set_feature: Any, new_order: Any, add_items: Any, main_product: Any) -> None:
+    """El rechazo previo no se suma al descuento que sí se autorizó."""
+    set_feature("pos.discounts", True)
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    item_id = order["items"][0]["id"]
+
+    device_client.post(
+        f"/api/v1/orders/{order['id']}/discounts",
+        json={"expected_version": order["version"], "scope": "item", "item_id": item_id, "kind": "percent", "value": 50, "reason": "promo"},
+    )
+    ok = device_client.post(
+        f"/api/v1/orders/{order['id']}/discounts",
+        json={"expected_version": order["version"], "scope": "item", "item_id": item_id, "kind": "percent", "value": 50, "reason": "promo", "authorizer_pin": "9999"},
+    )
+    assert ok.status_code == 200, ok.text
+    esperado = round(main_product.price_dine_in * 0.50)
+    assert ok.json()["items"][0]["discount"] == esperado
+    assert ok.json()["totals"]["discount_total"] == esperado

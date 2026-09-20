@@ -32,12 +32,14 @@ interface SplitRow {
   amount: number | null;
   tendered: number | null;
   reference: string;
+  /** `true` en cuanto alguien escribe el monto: deja de seguir al total. */
+  amountTouched: boolean;
 }
 
 let rowSeq = 0;
-function newRow(method: PaymentMethod, amount: number | null = null): SplitRow {
+function newRow(method: PaymentMethod, amount: number | null = null, amountTouched = false): SplitRow {
   rowSeq += 1;
-  return { key: rowSeq, method, amount, tendered: null, reference: "" };
+  return { key: rowSeq, method, amount, tendered: null, reference: "", amountTouched };
 }
 
 export interface InitialSplit {
@@ -106,10 +108,27 @@ export function PaymentSplitsForm({
     seededRef.current = true;
     setSplits(
       initialSplits && initialSplits.length > 0
-        ? initialSplits.map((s) => newRow(s.method, s.amount))
-        : [newRow(methods[0].code)],
+        ? initialSplits.map((s) => newRow(s.method, s.amount, true))
+        : // La primera fila arranca con lo que hay que cobrar. El sistema ya
+          // sabe el total: obligar a teclearlo de nuevo en cada venta de
+          // mostrador es un paso de más, y es el número que más fácil se
+          // teclea mal con cola en la caja. Sigue siendo editable — un pago
+          // dividido se arma bajándolo y agregando otra fila.
+          [newRow(methods[0].code, totalDue > 0 ? totalDue : null)],
     );
-  }, [methods, initialSplits]);
+  }, [methods, initialSplits, totalDue]);
+
+  // Si el total cambia después de sembrar (p. ej. se modifica la propina), la
+  // fila que nadie tocó lo sigue; una que ya se editó a mano, nunca.
+  useEffect(() => {
+    if (!seededRef.current) return;
+    setSplits((prev) => {
+      if (prev.length !== 1 || prev[0]!.amountTouched) return prev;
+      const fila = prev[0]!;
+      const monto = totalDue > 0 ? totalDue : null;
+      return fila.amount === monto ? prev : [{ ...fila, amount: monto }];
+    });
+  }, [totalDue]);
 
   const [error, setError] = useState<string | null>(null);
   const idempotencyKeyRef = useRef(newIdempotencyKey());
@@ -199,7 +218,10 @@ export function PaymentSplitsForm({
           type="button"
           variant="outline"
           className="h-11"
-          onClick={() => setSplits((prev) => [...prev, newRow(methods[0].code)])}
+          onClick={() =>
+            // Lo que falta, que es lo que casi siempre va en la fila nueva.
+            setSplits((prev) => [...prev, newRow(methods[0].code, remaining > 0 ? remaining : null)])
+          }
         >
           Agregar pago
         </Button>
@@ -228,7 +250,7 @@ export function PaymentSplitsForm({
               <MoneyInput
                 id={`amount-${row.key}`}
                 value={row.amount}
-                onChange={(value) => updateRow(row.key, { amount: value })}
+                onChange={(value) => updateRow(row.key, { amount: value, amountTouched: true })}
               />
             </div>
             <div className="flex items-end">

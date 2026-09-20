@@ -350,7 +350,11 @@ export function closeCount(shiftId: number, body: CloseCountIn, idempotencyKey: 
 }
 
 export interface CardTransferReview {
+  /** Lo que tiene que marcar el lote: venta + propina de ese medio. */
   registered?: number;
+  /** La composición de `registered`, para poder mostrarla sin derivarla acá. */
+  sales?: number;
+  tips?: number;
   counted?: number | null;
   difference?: number | null;
 }
@@ -366,6 +370,8 @@ export interface CloseReview {
   requires_identified_cause?: boolean;
   is_critical?: boolean;
   closes_day_suggested?: boolean;
+  /** Comandas que siguen abiertas: el paso 3 ofrece trasladarlas. */
+  open_orders?: number;
 }
 
 /** `GET /shifts/{id}/close/{count_id}/review` — recién acá aparece el esperado. */

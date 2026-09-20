@@ -1186,6 +1186,15 @@ def add_items(db: Session, *, order: Order, actor: Actor, payload: AddItemsIn) -
             else _build_product_item(db, order, item_in, actor, now, modifiers_enabled=modifiers_enabled)
         )
         new_rows.append(row)
+
+    # El `db.add` va DESPUÉS del bucle, no dentro. `get_db` hace `commit()`
+    # al levantar un `AppError`, así que agregando dentro del bucle un
+    # pedido de dos platos cuyo segundo es inválido respondía 400 y dejaba
+    # el primero metido en la comanda igual: el operador ve el error,
+    # reintenta, y el plato sale dos veces a cocina y se cobra dos veces.
+    # `_build_product_item` y `_build_combo_item` no escriben en la sesión
+    # —sólo construyen la fila—, así que armar todo primero es seguro.
+    for row in new_rows:
         db.add(row)
 
     order.version += 1
@@ -1834,7 +1843,15 @@ def add_discount(db: Session, *, order: Order, actor: Actor, payload: DiscountIn
         amount = money.round_half_up(gross_full * payload.value, 100) if payload.kind == "percent" else payload.value
         if item.discount_amount + amount > gross_full:
             raise AppError("DISCOUNT_EXCEEDS_LINE", "El descuento supera el valor de la línea")
-        item.discount_amount += amount
+        # OJO: `item.discount_amount` NO se toca todavía. `get_db` hace
+        # `commit()` cuando se levanta un `AppError` —a propósito— así que
+        # escribir acá deja aplicado un descuento que el control de límite,
+        # ocho líneas más abajo, todavía puede rechazar. Pasó de verdad: el
+        # operador pedía 40%, el sistema le decía «pedí el PIN de un
+        # supervisor», él no lo pedía, y el descuento quedaba igual, sin
+        # fila en `order_discounts` y sin auditoría. Repitiendo el rechazo se
+        # llegaba a un total de $0. La escritura va abajo, cuando ya no
+        # queda nada que pueda decir que no.
     else:
         remaining_base = totals_before.subtotal - totals_before.discount_total
         amount = money.round_half_up(remaining_base * payload.value, 100) if payload.kind == "percent" else payload.value
@@ -1859,6 +1876,11 @@ def add_discount(db: Session, *, order: Order, actor: Actor, payload: DiscountIn
                 extra={"limit_pct": limit_pct, "requested_pct": round(requested_pct, 2)},
             )
         authorizer = auth_service.verify_authorizer(db, organization_id=order.organization_id, store_id=order.store_id, pin=payload.authorizer_pin, action="discount_over_limit", requested_by=actor)
+
+    # A partir de acá la operación está decidida: ya pasó el límite y, si
+    # hacía falta, el PIN del autorizador (que también puede rechazar).
+    if item is not None:
+        item.discount_amount += amount
 
     discount_row = OrderDiscount(
         organization_id=order.organization_id, store_id=order.store_id, order_id=order.id,

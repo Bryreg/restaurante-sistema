@@ -39,8 +39,16 @@ function Select({ items, children, ...props }: SelectPrimitive.Root.Props<string
     () => (items !== undefined ? items : recolectarItems(children, {})),
     [items, children],
   )
+  // `value={causa || undefined}` es el patrón natural para «todavía no eligió
+  // nada», y hace que Base UI vea el selector primero SIN controlar y después
+  // controlado — el aviso «changing the uncontrolled value state of Select to
+  // be controlled» que aparecía en cada diálogo con causa tipada. El estado
+  // controlado «sin valor» de Base UI es `null`, no `undefined`. Se normaliza
+  // acá, por la misma razón que `items`: un sitio, no veinticinco.
+  const normalizados =
+    "value" in props && props.value === undefined ? { ...props, value: null } : props
   return (
-    <SelectPrimitive.Root items={derivados} {...props}>
+    <SelectPrimitive.Root items={derivados} {...normalizados}>
       {children}
     </SelectPrimitive.Root>
   )

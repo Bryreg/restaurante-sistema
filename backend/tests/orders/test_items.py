@@ -252,3 +252,35 @@ def test_bill_presented_needs_auth_to_add_items(device_client: TestClient, ident
     authorized = add_items(current, [{"product_id": main_product.id, "qty": 1}], authorizer_pin="9999")
     assert authorized.status_code == 200, authorized.text
     assert len(authorized.json()["items"]) == 2
+
+
+def test_rejected_batch_adds_nothing(device_client: TestClient, identify: Any, employees: Any, open_shift: Any, new_order: Any, main_product: Any) -> None:
+    """Dos platos, el segundo inválido: no entra ninguno.
+
+    `add_items` hacía `db.add(row)` dentro del bucle y `get_db` hace
+    `commit()` al levantar un `AppError`, así que el primer plato quedaba
+    metido en la comanda aunque la respuesta fuera 400. El operador ve el
+    error, reintenta, y el plato sale dos veces a cocina y se cobra dos
+    veces.
+    """
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+
+    resp = device_client.post(
+        f"/api/v1/orders/{order['id']}/items",
+        json={
+            "expected_version": order["version"],
+            "items": [
+                {"product_id": main_product.id, "qty": 1},
+                {"qty": 1},  # sin product_id ni combo_id: inválido
+            ],
+        },
+        headers={"Idempotency-Key": "lote-rechazado-1"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    after = device_client.get(f"/api/v1/orders/{order['id']}").json()
+    assert after["items"] == [], "el primer plato del lote quedó agregado pese al rechazo"
+    assert after["totals"]["total"] == 0

@@ -122,20 +122,29 @@ describe("CheckoutPage", () => {
     expect(screen.queryByRole("button", { name: "Por ítems" })).not.toBeInTheDocument();
   });
 
-  it("splits: agregar pagos, muestra «faltan $X» y luego «Completo»", async () => {
+  it("arranca completo con el total puesto, y la guía «faltan $X» aparece al bajarlo", async () => {
+    // El monto ya no arranca vacío: la primera fila viene con lo que hay que
+    // cobrar, porque el sistema ya lo sabe y obligar a teclearlo en cada venta
+    // de mostrador era un paso de más (y el número que más fácil se teclea mal
+    // con cola en la caja). La guía de saldo sigue existiendo — se ve cuando
+    // alguien baja el monto para armar un pago dividido.
     vi.mocked(getOrder).mockResolvedValue(buildOrder());
     const user = userEvent.setup();
 
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": false });
 
     await screen.findByText("Pagos");
-    expect(screen.getByText(/faltan \$\s?50\.000/i)).toBeInTheDocument();
+    expect(await screen.findByText("Completo")).toBeInTheDocument();
+    expect(screen.queryByText(/faltan/i)).not.toBeInTheDocument();
 
     const amountInput = screen.getByLabelText("Monto");
-    await user.click(amountInput);
+    await user.clear(amountInput);
+    await user.type(amountInput, "20000");
+    expect(await screen.findByText(/faltan \$\s?30\.000/i)).toBeInTheDocument();
+
+    await user.clear(amountInput);
     await user.type(amountInput, "50000");
     await user.tab();
-
     expect(await screen.findByText("Completo")).toBeInTheDocument();
   });
 
@@ -148,10 +157,7 @@ describe("CheckoutPage", () => {
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": false });
 
     await screen.findByText("Pagos");
-    const amountInput = screen.getByLabelText("Monto");
-    await user.click(amountInput);
-    await user.type(amountInput, "50000");
-    await user.tab();
+    // El monto llega puesto: el cajero sólo teclea su PIN.
     await screen.findByText("Completo");
 
     await user.keyboard("1234");
@@ -188,10 +194,6 @@ describe("CheckoutPage", () => {
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": false });
 
     await screen.findByText("Pagos");
-    const amountInput = screen.getByLabelText("Monto");
-    await user.click(amountInput);
-    await user.type(amountInput, "50000");
-    await user.tab();
     await screen.findByText(/ingresá tu pin para cobrar/i);
 
     await user.keyboard("1234");

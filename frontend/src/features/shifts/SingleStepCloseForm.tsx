@@ -76,6 +76,12 @@ export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX
   const [cause, setCause] = useState<CashDifferenceCause | "">("");
   const [note, setNote] = useState("");
   const [closesDay, setClosesDay] = useState(false);
+  // El cierre en un solo paso no sabe de antemano cuántas comandas quedaron
+  // abiertas: se entera por `400 OPEN_ORDERS_EXIST`. Recién ahí ofrece
+  // trasladarlas — que es lo que el propio mensaje del servidor pide y hasta
+  // ahora ninguna pantalla sabía hacer.
+  const [openOrders, setOpenOrders] = useState(0);
+  const [transferOpenOrders, setTransferOpenOrders] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ to_deposit?: number; closes_day?: boolean; expected?: number; difference?: number } | null>(
     null,
@@ -101,6 +107,7 @@ export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX
           cause: cause === "" ? undefined : cause,
           note: note.trim() === "" ? undefined : note.trim(),
           closes_day: closesDay,
+          transfer_open_orders: transferOpenOrders,
         },
         idempotencyKeyRef.current,
       );
@@ -124,9 +131,16 @@ export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX
       }
       if (
         err instanceof ApiError &&
-        (err.code === "PHOTO_REQUIRED" || err.code === "CAUSE_REQUIRED" || err.code === "IDENTIFIED_CAUSE_REQUIRED")
+        (err.code === "PHOTO_REQUIRED" ||
+          err.code === "CAUSE_REQUIRED" ||
+          err.code === "IDENTIFIED_CAUSE_REQUIRED" ||
+          err.code === "OPEN_ORDERS_EXIST")
       ) {
         if (err.code === "PHOTO_REQUIRED") setPhotoRequired(true);
+        if (err.code === "OPEN_ORDERS_EXIST") {
+          const cuantas = err.extra?.open_orders;
+          setOpenOrders(typeof cuantas === "number" && cuantas > 0 ? cuantas : 1);
+        }
         // El próximo intento va a llevar un campo más: clave nueva.
         idempotencyKeyRef.current = newIdempotencyKey();
       }
@@ -191,6 +205,20 @@ export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX
         <Label htmlFor="single-close-note">Nota</Label>
         <Textarea id="single-close-note" value={note} onChange={(event) => setNote(event.target.value)} />
       </div>
+      {openOrders > 0 ? (
+        <label className="flex items-start gap-2 rounded-md border border-dashed p-3 text-sm">
+          <Checkbox
+            checked={transferOpenOrders}
+            onCheckedChange={(checked) => setTransferOpenOrders(Boolean(checked))}
+          />
+          <span>
+            Trasladar al turno siguiente {openOrders === 1 ? "la comanda abierta" : `las ${openOrders} comandas abiertas`}
+            <span className="block text-muted-foreground">
+              Quedan a la espera y las adopta quien abra el próximo turno.
+            </span>
+          </span>
+        </label>
+      ) : null}
       <label className="flex items-center gap-2 text-sm">
         <Checkbox checked={closesDay} onCheckedChange={(checked) => setClosesDay(Boolean(checked))} />
         Este cierre también cierra el día operativo

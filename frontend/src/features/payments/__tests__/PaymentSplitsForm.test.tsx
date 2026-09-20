@@ -81,3 +81,62 @@ describe("PaymentSplitsForm — medios de pago de la sede", () => {
     expect(screen.queryByText("Pagos")).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// El monto que el sistema ya sabe
+// ---------------------------------------------------------------------------
+//
+// Encontrado jugando una venta de mostrador: el campo «Monto» arrancaba
+// vacío aunque el total estuviera en pantalla, y los botones rápidos llenan
+// «Recibido», no «Monto». Mientras estuviera vacío la pantalla decía «Faltan
+// $X» y el teclado del PIN quedaba bloqueado — seguro, pero dos pasos de más
+// en cada venta, y es el número que más fácil se teclea mal con cola en la
+// caja.
+
+describe("PaymentSplitsForm — el monto arranca con lo que hay que cobrar", () => {
+  const soloEfectivo = [{ code: "cash" as const, label: "Efectivo", dian_code: "10", requires_reference: false }];
+
+  it("la primera fila viene con el total, sin teclear nada", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue(soloEfectivo);
+    renderForm();
+
+    const monto = await screen.findByLabelText<HTMLInputElement>("Monto");
+    await waitFor(() => expect(monto.value).toBe("$ 50.000"));
+    expect(screen.queryByText(/Faltan/)).not.toBeInTheDocument();
+  });
+
+  it("se puede bajar para armar un pago dividido, y la fila nueva trae lo que falta", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue(soloEfectivo);
+    renderForm();
+
+    const monto = await screen.findByLabelText<HTMLInputElement>("Monto");
+    await waitFor(() => expect(monto.value).toBe("$ 50.000"));
+
+    const user = userEvent.setup();
+    await user.clear(monto);
+    await user.type(monto, "20000");
+    await waitFor(() => expect(screen.getByText(/Faltan .*30\.000/)).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Agregar pago" }));
+    const montos = await screen.findAllByLabelText<HTMLInputElement>("Monto");
+    expect(montos).toHaveLength(2);
+    await waitFor(() => expect(montos[1]!.value).toBe("$ 30.000"));
+    expect(screen.queryByText(/Faltan/)).not.toBeInTheDocument();
+  });
+
+  it("una fila que ya se editó no vuelve a seguir al total", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue(soloEfectivo);
+    renderForm();
+
+    const monto = await screen.findByLabelText<HTMLInputElement>("Monto");
+    await waitFor(() => expect(monto.value).toBe("$ 50.000"));
+
+    const user = userEvent.setup();
+    await user.clear(monto);
+    await user.type(monto, "20000");
+    await waitFor(() => expect(monto.value).toBe("20000"));
+    // Sin más interacción, lo tecleado se queda: nada lo pisa.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(monto.value).toBe("20000");
+  });
+});

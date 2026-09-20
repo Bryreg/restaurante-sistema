@@ -111,3 +111,83 @@ describe("CloseWizard — cierre a ciegas en tres pasos", () => {
     expect(screen.queryByRole("button", { name: /confirmar cierre/i })).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Lo que encontró la demo de un día de venta
+// ---------------------------------------------------------------------------
+
+describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getShiftTipsMock.mockResolvedValue({ cash_out: 0 } satisfies ShiftTips);
+  });
+
+  const conTarjeta: CloseReview = {
+    ...NO_CAUSE_REVIEW,
+    card: { registered: 126_741, sales: 116_000, tips: 10_741, counted: 126_741, difference: 0 },
+  };
+
+  it("muestra de qué se compone lo que tiene que marcar el datáfono", async () => {
+    // El defecto: el cierre comparaba contra la venta sola, así que todo
+    // turno con propinas de tarjeta descuadraba por el monto exacto de las
+    // propinas. Ahora el esperado las incluye — y se dice de dónde sale,
+    // para que el número no parezca inventado.
+    closeCountMock.mockResolvedValueOnce({ count_id: 7 } satisfies CloseCountResult);
+    getCloseReviewMock.mockResolvedValue(conTarjeta);
+
+    const user = userEvent.setup();
+    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    await user.click(screen.getByRole("button", { name: /continuar/i }));
+
+    await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
+    expect(screen.getByText(/Registrado = venta .*116\.000.* propina .*10\.741/)).toBeInTheDocument();
+  });
+
+  it("sin propinas de tarjeta no agrega la línea de composición", async () => {
+    closeCountMock.mockResolvedValueOnce({ count_id: 7 } satisfies CloseCountResult);
+    getCloseReviewMock.mockResolvedValue(NO_CAUSE_REVIEW);
+
+    const user = userEvent.setup();
+    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    await user.click(screen.getByRole("button", { name: /continuar/i }));
+
+    await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
+    expect(screen.queryByText(/Registrado = venta/)).not.toBeInTheDocument();
+  });
+
+  it("ofrece trasladar las comandas abiertas y lo manda al confirmar", async () => {
+    // El backend ya sabía hacerlo (`transfer_open_orders`) y su propio
+    // mensaje de error se lo pedía al operador — pero la pantalla mandaba
+    // `false` fijo y no tenía la casilla en ninguna parte.
+    closeCountMock.mockResolvedValueOnce({ count_id: 7 } satisfies CloseCountResult);
+    getCloseReviewMock.mockResolvedValue({ ...NO_CAUSE_REVIEW, open_orders: 3 });
+    confirmCloseMock.mockResolvedValue({ to_deposit: 0, closes_day: false });
+
+    const user = userEvent.setup();
+    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /continuar/i }));
+
+    const casilla = await screen.findByRole("checkbox", { name: /trasladar al turno siguiente las 3 comandas/i });
+    await user.click(casilla);
+    await user.click(screen.getByRole("button", { name: /confirmar cierre/i }));
+
+    await waitFor(() => expect(confirmCloseMock).toHaveBeenCalledTimes(1));
+    expect(confirmCloseMock.mock.calls[0]![2]).toMatchObject({ transfer_open_orders: true });
+  });
+
+  it("sin comandas abiertas no ofrece el traslado", async () => {
+    closeCountMock.mockResolvedValueOnce({ count_id: 7 } satisfies CloseCountResult);
+    getCloseReviewMock.mockResolvedValue({ ...NO_CAUSE_REVIEW, open_orders: 0 });
+
+    const user = userEvent.setup();
+    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /continuar/i }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /confirmar cierre/i })).toBeInTheDocument());
+    expect(screen.queryByRole("checkbox", { name: /trasladar/i })).not.toBeInTheDocument();
+  });
+});

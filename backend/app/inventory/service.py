@@ -158,12 +158,53 @@ def create_ingredient(db: Session, *, organization_id: int, store_id: int, data:
 
 
 def update_ingredient(db: Session, ingredient: Ingredient, data: IngredientUpdateIn) -> Ingredient:
+    """Primero se valida TODO, después se escribe.
+
+    `get_db` hace `commit()` cuando se levanta un `AppError`, así que una
+    actualización que se rechaza a mitad de camino deja escrito lo que
+    alcanzó a asignar antes del rechazo: la API responde 400 y el insumo
+    quedó con el nombre nuevo y el costo oficial nuevo igual. Por eso el
+    parseo de costos, el `min_stock` y el sustituto se resuelven arriba, en
+    variables locales, y las asignaciones van todas juntas al final.
+    """
+    # --- validación: nada de esto toca `ingredient` -----------------------
+    official_cost_micros: int | None = None
+    if data.clear_official_cost:
+        official_cost_micros = None
+    elif data.official_cost is not None:
+        official_cost_micros = parse_cost_micros(data.official_cost, field="official_cost")
+
+    estimated_cost_micros: int | None = None
+    if data.clear_estimated_cost:
+        estimated_cost_micros = None
+    elif data.estimated_cost is not None:
+        estimated_cost_micros = parse_cost_micros(data.estimated_cost, field="estimated_cost")
+
+    min_stock = _parsed_min_stock(data.min_stock) if data.min_stock is not None else None
+
+    substitute_id: int | None = None
+    if not data.clear_substitute and data.substitute_ingredient_id is not None:
+        if data.substitute_ingredient_id == ingredient.id:
+            raise AppError(
+                code="VALIDATION_ERROR",
+                message="substitute_ingredient_id: un insumo no puede ser su propio sustituto",
+            )
+        substitute = hooks.get_ingredient(
+            db, store_id=ingredient.store_id, ingredient_id=data.substitute_ingredient_id
+        )
+        if substitute is None:
+            raise NotFoundError("El insumo sustituto no existe")
+        substitute_id = data.substitute_ingredient_id
+
+    base_unit = BaseUnit(data.base_unit) if data.base_unit is not None else None
+
+    # --- a partir de acá ya no queda nada que pueda decir que no ----------
     if data.name is not None:
         ingredient.name = data.name
     if data.category is not None:
         ingredient.category = data.category
-    if data.base_unit is not None:
-        ingredient.base_unit = BaseUnit(data.base_unit)
+    if base_unit is not None:
+        ingredient.base_unit = base_unit
     if data.purchase_unit is not None:
         ingredient.purchase_unit = data.purchase_unit
     if data.purchase_factor is not None:
@@ -171,18 +212,12 @@ def update_ingredient(db: Session, ingredient: Ingredient, data: IngredientUpdat
     if data.yield_pct is not None:
         ingredient.yield_pct = data.yield_pct
 
-    if data.clear_official_cost:
-        ingredient.official_cost_micros = None
-    elif data.official_cost is not None:
-        ingredient.official_cost_micros = parse_cost_micros(data.official_cost, field="official_cost")
-
-    if data.clear_estimated_cost:
-        ingredient.estimated_cost_micros = None
-    elif data.estimated_cost is not None:
-        ingredient.estimated_cost_micros = parse_cost_micros(data.estimated_cost, field="estimated_cost")
-
-    if data.min_stock is not None:
-        ingredient.min_stock = _parsed_min_stock(data.min_stock)
+    if data.clear_official_cost or data.official_cost is not None:
+        ingredient.official_cost_micros = official_cost_micros
+    if data.clear_estimated_cost or data.estimated_cost is not None:
+        ingredient.estimated_cost_micros = estimated_cost_micros
+    if min_stock is not None:
+        ingredient.min_stock = min_stock
 
     if data.lead_time_days is not None:
         ingredient.lead_time_days = data.lead_time_days
@@ -195,18 +230,8 @@ def update_ingredient(db: Session, ingredient: Ingredient, data: IngredientUpdat
 
     if data.clear_substitute:
         ingredient.substitute_ingredient_id = None
-    elif data.substitute_ingredient_id is not None:
-        if data.substitute_ingredient_id == ingredient.id:
-            raise AppError(
-                code="VALIDATION_ERROR",
-                message="substitute_ingredient_id: un insumo no puede ser su propio sustituto",
-            )
-        substitute = hooks.get_ingredient(
-            db, store_id=ingredient.store_id, ingredient_id=data.substitute_ingredient_id
-        )
-        if substitute is None:
-            raise NotFoundError("El insumo sustituto no existe")
-        ingredient.substitute_ingredient_id = data.substitute_ingredient_id
+    elif substitute_id is not None:
+        ingredient.substitute_ingredient_id = substitute_id
 
     if data.supplier_id is not None:
         ingredient.supplier_id = data.supplier_id

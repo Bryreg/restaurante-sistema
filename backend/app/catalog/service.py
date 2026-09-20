@@ -668,12 +668,21 @@ def _upsert_combo_options(db: Session, group: ComboGroup, options_in: list[Any])
             select(ComboOption).where(ComboOption.combo_group_id == group.id)
         ).scalars().all()
     }
+    # Primero se resuelven TODOS los productos: `get_db` hace `commit()` al
+    # levantar un error de negocio, así que escribir dentro del bucle deja
+    # media lista guardada cuando la segunda opción apunta a un producto que
+    # no existe — el combo queda con un grupo a medio armar y la respuesta
+    # dice 404.
+    resueltos: list[tuple[Any, Product]] = []
     for opt_in in options_in:
         product = db.get(Product, opt_in.product_id)
         if product is None or product.organization_id != group.organization_id:
             raise NotFoundError("El producto no existe")
         if product.store_id != group.store_id:
             raise NotFoundError("El producto no existe en esta sede")
+        resueltos.append((opt_in, product))
+
+    for opt_in, product in resueltos:
         if opt_in.id is not None and opt_in.id in existing:
             existing[opt_in.id].product_id = product.id
         else:

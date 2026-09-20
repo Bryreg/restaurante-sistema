@@ -7,6 +7,7 @@ import {
   closeCount,
   confirmClose,
   getCloseReview,
+  type CardTransferReview,
   type CashDifferenceCause,
   type CloseReview,
 } from "@/api/shifts";
@@ -28,6 +29,35 @@ import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
 import { PhotoCaptureField } from "./PhotoCaptureField";
 import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftTips } from "./hooks";
+
+/**
+ * Un medio contado contra lo que el sistema espera.
+ *
+ * `registered` es lo que tiene que marcar el lote del datáfono: **venta más
+ * propina**. Antes se comparaba contra la venta sola y todo turno con
+ * propinas de tarjeta cerraba con una diferencia igual, al peso, a esas
+ * propinas; una diferencia que aparece todos los días enseña a ignorar las
+ * diferencias. Cuando hay propina se muestra la composición, para que el
+ * número esperado no parezca salido de la nada.
+ */
+function MedioContado({ titulo, medio }: { titulo: string; medio?: CardTransferReview }): React.JSX.Element {
+  const propina = medio?.tips ?? 0;
+  return (
+    <div className="rounded-md border p-3 text-sm">
+      <p className="font-medium">{titulo}</p>
+      <p className="text-muted-foreground">
+        Registrado <span className="tabular-nums">{formatCOP(medio?.registered)}</span> · Contado{" "}
+        <span className="tabular-nums">{formatCOP(medio?.counted)}</span> · Diferencia{" "}
+        <span className="tabular-nums">{formatCOP(medio?.difference)}</span>
+      </p>
+      {propina > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Registrado = venta {formatCOP(medio?.sales)} + propina {formatCOP(propina)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 const CAUSE_LABEL: Record<CashDifferenceCause, string> = {
   change_error: "Error al dar cambio",
@@ -82,6 +112,7 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
   const [closesDayTouched, setClosesDayTouched] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [result, setResult] = useState<{ to_deposit?: number; closes_day?: boolean } | null>(null);
+  const [transferOpenOrders, setTransferOpenOrders] = useState(false);
 
   const step1KeyRef = useRef(newIdempotencyKey());
 
@@ -155,7 +186,7 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
         cause: cause === "" ? undefined : cause,
         note: note.trim() === "" ? undefined : note.trim(),
         closes_day: closesDay,
-        transfer_open_orders: false,
+        transfer_open_orders: transferOpenOrders,
       });
     },
     onSuccess: (out) => {
@@ -281,20 +312,8 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
           </div>
         </dl>
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-md border p-3 text-sm">
-            <p className="font-medium">Datáfono</p>
-            <p className="text-muted-foreground">
-              Registrado {formatCOP(review.card?.registered)} · Contado {formatCOP(review.card?.counted)} · Diferencia{" "}
-              {formatCOP(review.card?.difference)}
-            </p>
-          </div>
-          <div className="rounded-md border p-3 text-sm">
-            <p className="font-medium">Transferencias</p>
-            <p className="text-muted-foreground">
-              Registrado {formatCOP(review.transfer?.registered)} · Contado {formatCOP(review.transfer?.counted)} ·
-              Diferencia {formatCOP(review.transfer?.difference)}
-            </p>
-          </div>
+          <MedioContado titulo="Datáfono" medio={review.card} />
+          <MedioContado titulo="Transferencias" medio={review.transfer} />
         </div>
         {review.is_critical ? (
           <p role="alert" className="rounded-md bg-destructive/10 p-2 text-sm font-medium text-destructive">
@@ -312,6 +331,7 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
   if (!review) {
     return <p className="text-sm text-muted-foreground">Volvé al paso anterior: no hay revisión cargada.</p>;
   }
+  const openOrders = review.open_orders ?? 0;
   const requiresCause = Boolean(review.requires_cause);
   const requiresIdentified = Boolean(review.requires_identified_cause);
   const causeOptions = requiresIdentified
@@ -353,6 +373,22 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
             <Textarea id="close-cause-note" value={note} onChange={(event) => setNote(event.target.value)} />
           </div>
         </div>
+      ) : null}
+
+      {openOrders > 0 ? (
+        <label className="flex items-start gap-2 rounded-md border border-dashed p-3 text-sm">
+          <Checkbox
+            checked={transferOpenOrders}
+            onCheckedChange={(checked) => setTransferOpenOrders(Boolean(checked))}
+          />
+          <span>
+            Trasladar al turno siguiente {openOrders === 1 ? "la comanda abierta" : `las ${openOrders} comandas abiertas`}
+            <span className="block text-muted-foreground">
+              Quedan a la espera y las adopta quien abra el próximo turno. Sin esto hay que cobrarlas o anularlas
+              antes de cerrar.
+            </span>
+          </span>
+        </label>
       ) : null}
 
       <label className="flex items-center gap-2 text-sm">

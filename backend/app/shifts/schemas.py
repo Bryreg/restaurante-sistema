@@ -294,7 +294,13 @@ class CloseCountOut(BaseModel):
 
 
 class CardTransferReview(BaseModel):
+    """`registered` es lo que tiene que marcar el lote: venta + propina de ese
+    medio. `sales` y `tips` publican la composición para que la pantalla no
+    tenga que derivarla — una sola matemática, en el backend."""
+
     registered: int
+    sales: int
+    tips: int
     counted: int | None
     difference: int | None
 

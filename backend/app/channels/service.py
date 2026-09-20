@@ -196,25 +196,30 @@ def update_platform(db: Session, *, actor: Any, platform: DeliveryPlatform, data
         "commission_bp": platform.commission_bp,
         "active": platform.active,
     }
+    # El choque de código se comprueba ANTES de asignar nada: `get_db` hace
+    # `commit()` al levantar un `ConflictError`, así que reactivar una
+    # plataforma con el código tomado respondía 409 y dejaba guardados el
+    # nombre y la comisión nuevos igual. La comisión mueve plata.
+    if data.active is not None and data.active and not platform.active:
+        clash = db.execute(
+            select(DeliveryPlatform).where(
+                DeliveryPlatform.store_id == platform.store_id,
+                DeliveryPlatform.code == platform.code,
+                DeliveryPlatform.active.is_(True),
+                DeliveryPlatform.id != platform.id,
+            )
+        ).scalar_one_or_none()
+        if clash is not None:
+            raise ConflictError(
+                f'Ya hay otra plataforma activa con el código "{platform.code}" en esta sede',
+                code="PLATFORM_CODE_TAKEN",
+            )
+
     if data.name is not None:
         platform.name = data.name
     if data.commission_bp is not None:
         platform.commission_bp = data.commission_bp
     if data.active is not None:
-        if data.active and not platform.active:
-            clash = db.execute(
-                select(DeliveryPlatform).where(
-                    DeliveryPlatform.store_id == platform.store_id,
-                    DeliveryPlatform.code == platform.code,
-                    DeliveryPlatform.active.is_(True),
-                    DeliveryPlatform.id != platform.id,
-                )
-            ).scalar_one_or_none()
-            if clash is not None:
-                raise ConflictError(
-                    f'Ya hay otra plataforma activa con el código "{platform.code}" en esta sede',
-                    code="PLATFORM_CODE_TAKEN",
-                )
         platform.active = data.active
     platform.updated_at = clock.now_utc()
     db.flush()
