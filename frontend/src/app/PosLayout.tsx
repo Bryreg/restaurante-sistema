@@ -1,9 +1,19 @@
-import { LayoutGrid, Users } from "lucide-react";
+import { LayoutGrid, LogOut, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
-import { deviceRelease } from "@/api/auth";
+import { deviceDeactivate, deviceRelease } from "@/api/auth";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { inventoryFeature } from "@/features/inventory";
 import { kitchenFeature } from "@/features/kitchen";
@@ -63,6 +73,80 @@ function PosNavBar({ hasFeature }: { hasFeature: (key: string) => boolean }): Re
   );
 }
 
+/**
+ * La otra salida del salón, la del dispositivo. «Cambiar de persona» libera
+ * a la persona y el dispositivo sigue activado; esto desactiva el
+ * dispositivo entero y exige el PIN de sede para volver — es lo que hay que
+ * hacer para mover la tablet a otra sede, o cuando se activó la sede
+ * equivocada, y hasta hoy no existía en ninguna pantalla.
+ *
+ * Va detrás de una confirmación y no pegado a «Cambiar de persona»: en una
+ * tablet compartida, tocarlo por error deja al salón sin poder vender hasta
+ * que aparezca alguien con el PIN de sede. El backend no pide PIN para
+ * desactivar (`POST /auth/device/deactivate` sólo exige la sesión del
+ * dispositivo) y la interfaz **no inventa un gate que el servidor no hace
+ * cumplir** (AGENTS.md): la confirmación explica la consecuencia, no
+ * autoriza.
+ */
+function DeactivateDeviceButton({ storeName }: { storeName: string }): React.JSX.Element {
+  const { clear } = useSession();
+  const [open, setOpen] = useState(false);
+  const [saliendo, setSaliendo] = useState(false);
+
+  async function handleDeactivate() {
+    setSaliendo(true);
+    try {
+      await deviceDeactivate();
+      // El guard `RequireDevice` de `router.tsx` redirige a `/pos/activate`.
+      clear();
+    } catch (err) {
+      toast.error(errorMessage(err));
+      setSaliendo(false);
+      setOpen(false);
+    }
+  }
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        className="ml-2 h-11 gap-2 text-muted-foreground"
+        onClick={() => setOpen(true)}
+      >
+        <LogOut className="size-4" aria-hidden="true" />
+        Desactivar este dispositivo
+      </Button>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Desactivar este dispositivo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {storeName} deja de estar activada acá y no se puede vender hasta activarlo de nuevo
+              con el PIN de sede. Si sólo querés que atienda otra persona, usá «Cambiar de persona».
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {/* `h-11`: es una tablet, y el botón de confirmar no puede ser
+                más chico que el dedo que lo toca. */}
+            <AlertDialogCancel className="h-11" disabled={saliendo}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              className="h-11"
+              disabled={saliendo}
+              onClick={() => void handleDeactivate()}
+            >
+              Desactivar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 const POLL_MS = 5_000;
 
 const ROLE_LABEL: Record<string, string> = {
@@ -72,7 +156,8 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 /**
- * Barra superior del salón: persona activa, "Cambiar de persona" y el aviso
+ * Barra superior del salón: persona activa, "Cambiar de persona",
+ * "Desactivar este dispositivo" y el aviso
  * de expiración por inactividad; sondea `GET /auth/me` cada 5 s
  * (SPEC-NEGOCIO § 9.1). El día operativo y el estado del turno los pinta
  * `<shiftsFeature.ShiftStatusStrip/>` — ese dato vive en `GET
@@ -136,16 +221,19 @@ export default function PosLayout(): React.JSX.Element | null {
             </span>
           ) : null}
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-11 gap-2"
-          onClick={handleChangePerson}
-          disabled={releasing}
-        >
-          <Users className="size-4" aria-hidden="true" />
-          Cambiar de persona
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 gap-2"
+            onClick={handleChangePerson}
+            disabled={releasing}
+          >
+            <Users className="size-4" aria-hidden="true" />
+            Cambiar de persona
+          </Button>
+          <DeactivateDeviceButton storeName={me.store?.name ?? "Esta sede"} />
+        </div>
       </header>
       <div className="border-b bg-muted/30 px-3 py-2">
         <shiftsFeature.ShiftStatusStrip />

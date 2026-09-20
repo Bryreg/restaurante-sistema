@@ -10,14 +10,25 @@ export interface RenderWithProvidersOptions {
   /** `null` simula "sin sesión" (por defecto). */
   me?: Me | null;
   route?: string;
+  /**
+   * Reemplaza partes del valor de sesión — p. ej. un `clear` espía, para
+   * comprobar que una pantalla sólo olvida la sesión cuando el servidor ya
+   * la cerró.
+   */
+  session?: Partial<SessionContextValue>;
 }
 
-function buildSessionValue(me: Me | null): SessionContextValue {
+function buildSessionValue(
+  me: Me | null,
+  overrides: Partial<SessionContextValue>,
+): SessionContextValue {
   return {
     me,
     loading: false,
     refresh: async () => {},
+    clear: () => {},
     hasFeature: (key: string) => Boolean(me?.features?.[key]),
+    ...overrides,
   };
 }
 
@@ -28,7 +39,7 @@ function buildSessionValue(me: Me | null): SessionContextValue {
  */
 export function renderWithProviders(
   ui: ReactElement,
-  { me = null, route = "/" }: RenderWithProvidersOptions = {},
+  { me = null, route = "/", session = {} }: RenderWithProvidersOptions = {},
 ): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -36,7 +47,9 @@ export function renderWithProviders(
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[route]}>
-        <SessionContext.Provider value={buildSessionValue(me)}>{ui}</SessionContext.Provider>
+        <SessionContext.Provider value={buildSessionValue(me, session)}>
+          {ui}
+        </SessionContext.Provider>
       </MemoryRouter>
     </QueryClientProvider>,
   );

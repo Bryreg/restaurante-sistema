@@ -41,6 +41,7 @@ function renderWithRefreshSpy(ui: React.ReactElement, refresh: () => Promise<voi
     me,
     loading: false,
     refresh,
+    clear: () => {},
     hasFeature: (key: string) => Boolean(me.features?.[key]),
   };
   return render(

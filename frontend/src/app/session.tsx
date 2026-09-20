@@ -15,6 +15,15 @@ export interface SessionContextValue {
   /** `true` sólo durante la primera carga; `refresh()` no la vuelve a poner en `true`. */
   loading: boolean;
   refresh: () => Promise<void>;
+  /**
+   * Olvida la sesión del lado del cliente para que los guards de
+   * `router.tsx` redirijan ya mismo. **La cookie la borra el servidor**: esto
+   * se llama DESPUÉS de que `POST /auth/logout` o `/auth/device/deactivate`
+   * respondieron bien, nunca antes. Limpiar acá con la cookie todavía viva
+   * deja a la persona «afuera» hasta que recarga y vuelve a entrar sola, que
+   * es peor que no haber salido.
+   */
+  clear: () => void;
   hasFeature: (key: string) => boolean;
 }
 
@@ -50,6 +59,8 @@ export function SessionProvider({ children }: { children: ReactNode }): React.JS
     void refresh();
   }, [refresh]);
 
+  const clear = useCallback(() => setMe(null), []);
+
   useEffect(() => {
     const onExpired = () => setMe(null);
     window.addEventListener("session:expired", onExpired);
@@ -59,8 +70,8 @@ export function SessionProvider({ children }: { children: ReactNode }): React.JS
   const hasFeature = useCallback((key: string) => Boolean(me?.features?.[key]), [me]);
 
   const value = useMemo<SessionContextValue>(
-    () => ({ me, loading, refresh, hasFeature }),
-    [me, loading, refresh, hasFeature],
+    () => ({ me, loading, refresh, clear, hasFeature }),
+    [me, loading, refresh, clear, hasFeature],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

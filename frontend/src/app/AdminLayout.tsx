@@ -1,6 +1,9 @@
-import { Bell, LayoutGrid, Menu, ScrollText, Settings, ToggleLeft } from "lucide-react";
+import { Bell, LayoutGrid, LogOut, Menu, ScrollText, Settings, ToggleLeft } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import { toast } from "sonner";
+
+import { logout } from "@/api/auth";
 
 import { NotificationBell } from "@/features/notifications/NotificationBell";
 import { analyticsFeature } from "@/features/analytics";
@@ -31,6 +34,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 import type { NavItem } from "./nav";
@@ -135,6 +139,50 @@ function StoreSwitcher() {
   );
 }
 
+/**
+ * La salida del admin. Existía `logout()` en `src/api/auth.ts` desde la fase
+ * 1a y **ninguna pantalla la llamaba**: se podía entrar al admin y no había
+ * forma de salir salvo borrar la cookie a mano. Con las credenciales del
+ * seed publicadas, además, «cerrar sesión» es lo primero que alguien
+ * necesita en una PC compartida.
+ *
+ * Si el servidor falla, la sesión del cliente NO se limpia: la cookie sigue
+ * viva, así que dar por cerrada una sesión que no se cerró es peor que
+ * avisar del error — al recargar volvería a entrar sola.
+ */
+function LogoutButton(): React.JSX.Element {
+  const { clear } = useSession();
+  const [saliendo, setSaliendo] = useState(false);
+
+  async function handleLogout() {
+    setSaliendo(true);
+    try {
+      await logout();
+      // `clear()` deja `me` en `null` y el guard `RequireAdmin` de
+      // `router.tsx` redirige a `/login`; no hace falta navegar a mano.
+      clear();
+    } catch (err) {
+      toast.error(errorMessage(err));
+      setSaliendo(false);
+    }
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="h-9 gap-2"
+      title="Cerrar sesión"
+      onClick={() => void handleLogout()}
+      disabled={saliendo}
+    >
+      <LogOut className="size-4" aria-hidden="true" />
+      Salir
+    </Button>
+  );
+}
+
 function AdminChrome(): React.JSX.Element {
   const { me, hasFeature } = useSession();
   const { activeStoreId } = useStoreSelection();
@@ -176,6 +224,7 @@ function AdminChrome(): React.JSX.Element {
           <div className="flex items-center gap-1">
             <NotificationBell storeId={activeStoreId} />
             <ThemeToggle />
+            <LogoutButton />
           </div>
         </header>
         <main className="min-w-0 flex-1 p-4 md:p-6">

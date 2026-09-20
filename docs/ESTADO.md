@@ -1423,3 +1423,48 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       arrancan en cero en vez de vacíos (decisión del dueño de la spec, rompe
       seis tests que codifican el cero como deliberado), y el QR de activación
       de tablet, que no puede llevar el PIN de sede.
+
+32. **No había botón de salir** (2026-09-20). Lo encontró el dueño usando la
+    app, no un test: en `/admin` **no existía ninguna forma de cerrar sesión**.
+    `logout()` estaba en `src/api/auth.ts` desde la fase 1a y
+    `deviceDeactivate()` desde 1b; las dos tipaban bien, las dos apuntaban a un
+    endpoint que existe y funciona, y **ninguna tenía un solo llamador en toda
+    la app**. Un envoltorio de API sin llamador no rompe `tsc`, no rompe ningún
+    test de pantalla —nadie renderiza lo que no existe— y no aparece en ninguna
+    cobertura: simplemente la capacidad no existe para quien usa el producto.
+
+    Con las credenciales del seed publicadas en un repositorio público y
+    vivas en la instancia de Render, «cerrar sesión» además no es una comodidad.
+
+    Lo que se agregó:
+
+    - **Admin**: botón «Salir» en el encabezado, junto a la campana y el tema.
+    - **Salón**: «Desactivar este dispositivo», que es la salida que faltaba del
+      otro lado. «Cambiar de persona» libera a la persona y el dispositivo sigue
+      activado; para mover la tablet a otra sede —o corregir la sede
+      equivocada— hay que desactivar el dispositivo, y eso no estaba en ninguna
+      pantalla. Va detrás de una confirmación y visualmente apagado al lado de
+      «Cambiar de persona»: tocarlo por error deja al salón sin vender hasta que
+      aparezca alguien con el PIN de sede. **La confirmación explica la
+      consecuencia, no autoriza**: el backend no pide PIN para desactivar y la
+      interfaz no inventa un gate que el servidor no hace cumplir.
+
+    **La regla que se llevó el arreglo**: la sesión del cliente se olvida
+    DESPUÉS de que el servidor respondió bien, nunca antes. La cookie es
+    `httpOnly` y la borra el servidor; limpiar `me` igual dejaría a la persona
+    en `/login` con la sesión todavía viva, y al recargar volvería a entrar
+    sola creyendo que había salido. Hay un test para cada lado que lo fija.
+
+    **El invariante nuevo** (`src/audit/session-exits.test.ts`): por cada forma
+    de entrar a una sesión —admin, dispositivo, persona— la función que la
+    cierra tiene que llamarse desde un módulo de pantalla. Es la primera
+    versión que mide lo único que falló acá, que es que nadie la llamara.
+    Verificado a la inversa: con los dos layouts restaurados a su versión
+    anterior, los 9 tests nuevos caen y el tercer renglón —persona /
+    `deviceRelease`, que nunca estuvo roto— queda verde.
+
+    Recorrido en navegador real contra el backend con el seed: admin entra,
+    «Salir» borra `admin_session`, vuelve a `/login` y `/admin` ya no deja
+    entrar; en el salón, activar con PIN de sede, identificarse, cancelar la
+    confirmación no desactiva nada, confirmar borra `device_session` y `/pos`
+    manda a `/pos/activate`. Sin desborde horizontal a 390 px.
