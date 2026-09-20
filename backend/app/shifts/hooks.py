@@ -124,6 +124,32 @@ def payment_bucket(method: Any, courier_employee_id: int | None) -> str:
     return bucket
 
 
+def methods_in_bucket(bucket: str) -> tuple[str, ...]:
+    """Los medios de pago que caen en `bucket`, **derivados de la autoridad**.
+
+    Existe por R-3 del cierre de la fase 3. `app/banking/` necesita saber qué
+    medios son «tarjeta» y cuáles «transferencia» para la conciliación y el
+    libro del banco. Lo estaba derivando bien —recorriendo
+    `PAYMENT_METHOD_VALUES` y preguntándole a `payment_bucket`— pero para
+    hacerlo tenía que escribir `... == "card"` en su propio módulo, y un
+    invariante que barre literales de medios de pago fuera de `app/shifts/`
+    lo marcaba, con razón de forma: desde afuera no se distingue «comparo la
+    salida de la autoridad» de «clasifico por mi cuenta», y la segunda es el
+    defecto que costó H-2 y H-4.
+
+    La derivación vive acá, al lado de la única función que decide. Un medio
+    nuevo en `PAYMENT_METHOD_VALUES` entra solo, sin que ningún otro módulo
+    se entere: si `payment_bucket` lo manda a `"card"`, aparece acá.
+
+    Se calcula en cada llamada a propósito (son seis medios): una constante a
+    nivel de módulo se congelaría al importar, y la gracia es justamente que
+    siga el catálogo.
+    """
+    from app.payments.models import PAYMENT_METHOD_VALUES
+
+    return tuple(m for m in PAYMENT_METHOD_VALUES if payment_bucket(m, None) == bucket)
+
+
 @dataclass(frozen=True)
 class SalesTotals:
     """Ventas y propinas del turno por medio de pago. Sin `app.payments`

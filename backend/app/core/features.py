@@ -325,7 +325,16 @@ FEATURE_CATALOG: list[FeatureDef] = [
     ),
     FeatureDef(
         "analytics.menu_engineering",
-        "Ingeniería de menú: clasificación de platos por popularidad y margen, y varianza por plato prorrateada",
+        # A-7 del cierre de la fase 3: esta descripción decía "y varianza por
+        # plato prorrateada", pero `GET /admin/variance/by-dish` y
+        # `GET /admin/control-health/sustained` quedaron detrás de
+        # `inventory.variance` —la misma clave con la que `app/inventory/`
+        # gatea sus rutas hermanas—, para que la varianza siga alcanzable con
+        # la ingeniería de menú apagada. El catálogo tiene que decir lo mismo
+        # que el gate: si describe algo que la función no habilita, el
+        # administrador la prende esperando una capacidad que no llega.
+        "Ingeniería de menú: clasificación de platos por popularidad y margen "
+        "(la varianza por plato va con «Varianza de inventario»)",
         ["catalog.recipes"],
         {"basic": False, "standard": False, "full": True},
         "3",

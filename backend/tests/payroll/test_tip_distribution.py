@@ -376,3 +376,59 @@ def test_tips_feature_gate(admin_client: TestClient, store: Store, set_feature: 
     set_feature("pos.tips", True)
     resp = admin_client.get(f"{API}/admin/tips/settings", params={"store_id": store.id})
     assert resp.status_code == 200, resp.text
+
+
+def test_proposal_accepts_shift_id_alone_and_rejects_neither(
+    device_client: TestClient, admin_client: TestClient, open_shift: Any, identify: Any,
+    employees: dict[str, Any], db: Session, store: Store, set_feature: Any, clock: Any,
+    roster_action: Any,
+) -> None:
+    """**R-4 del cierre de la fase 3.**
+
+    `shift_id` estaba documentado como «override opcional», pero `from`/`to`
+    eran obligatorios: pedir la propuesta de un turno puntual exigía mandar
+    igual un rango **que después se ignoraba**. Eso no es un override, es un
+    formulario que pide un dato para tirarlo — y el invariante que medía «la
+    propuesta no escribe nada» nunca llegaba a medirlo, porque se quedaba en
+    el `400` de validación.
+
+    Se fija el contrato de las dos puntas: con `shift_id` solo alcanza, y sin
+    ninguno de los dos el error lo **nombra** en vez de pedir un campo suelto.
+    """
+    shift = _setup_shift_with_tip(
+        admin_client, device_client, open_shift, identify, db, store, set_feature=set_feature, tip_amount=4000
+    )
+    # El responsable de caja no sale por el roster (`NOT_CASH_RESPONSIBLE`):
+    # las horas las marca un operador, como en los tests hermanos.
+    operator = employees["operator"]
+    _worked(device_client, roster_action, shift_id=shift["id"], employee=operator, clock=clock, hours=2)
+    identify(device_client, employees["cashier"])
+    _close_shift(device_client, shift_id=shift["id"])
+
+    # (a) El override, solo, alcanza.
+    solo_turno = admin_client.get(
+        f"{API}/admin/tips/distribution/proposal",
+        params={"store_id": store.id, "shift_id": shift["id"]},
+    )
+    assert solo_turno.status_code == 200, solo_turno.text
+    body = solo_turno.json()
+    assert body["shift_ids"] == [shift["id"]]
+    assert body["available"] is True
+
+    # Y da exactamente lo mismo que pedirlo por el período de ese turno.
+    por_periodo = admin_client.get(
+        f"{API}/admin/tips/distribution/proposal",
+        params={"store_id": store.id, "from": shift["business_date"], "to": shift["business_date"]},
+    )
+    assert por_periodo.status_code == 200, por_periodo.text
+    assert por_periodo.json()["rows"] == body["rows"]
+    assert por_periodo.json()["total"] == body["total"]
+
+    # (b) Sin período y sin turnos: error de negocio con código propio, nunca
+    # un 422 genérico de "falta un campo".
+    sin_nada = admin_client.get(
+        f"{API}/admin/tips/distribution/proposal", params={"store_id": store.id}
+    )
+    assert sin_nada.status_code == 400, sin_nada.text
+    assert sin_nada.json()["error"]["code"] == "PERIOD_OR_SHIFT_REQUIRED"
+    assert "shift_id" in sin_nada.json()["error"]["message"]

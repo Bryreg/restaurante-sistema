@@ -149,6 +149,12 @@ class OwnerHandOut(BaseModel):
     withdrawn_from_shift_close: int
     spent_on_tips: int
     spent_on_refunds: int
+    # A-2: cuántos turnos cerrados SIN CONTEO quedaron fuera de `withdrawn`.
+    # No es una cifra de plata y no puede serlo: el monto de esos turnos sale
+    # del libro y no de un arqueo, y publicarlo sería volver a afirmar lo que
+    # nadie contó. Publicar el CONTEO deja la exclusión a la vista en vez de
+    # silenciosa — "todo sesgo se declara" (SPEC-NEGOCIO §6.1).
+    uncounted_shifts: int
 
 
 # ---------------------------------------------------------------------------

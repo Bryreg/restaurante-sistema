@@ -195,3 +195,84 @@ def test_owner_hand_counts_refunds_settled_from_owner_as_spent(
     assert body["spent_on_refunds"] == 12_000
     assert body["spent"] == 12_000
     assert body["balance"] == 0 - 0 - 12_000
+
+
+def test_owner_hand_does_not_count_cash_that_nobody_counted(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Callable[..., Any],
+    employees: dict[str, Any],
+    open_shift: Callable[..., dict],
+    close_shift: Callable[..., dict],
+    clock: Any,
+    store: Any,
+) -> None:
+    """**A-2 del cierre de la fase 3.**
+
+    Un turno cerrado ADMINISTRATIVAMENTE no tuvo arqueo: su `to_deposit` sale
+    del libro, no de que alguien abriera el cajón y contara. Sumarlo a la
+    mano del dueño publicaba como «plata retirada» una cifra que nadie contó,
+    y con el sesgo que este proyecto **no** tolera: mostrando MÁS plata de la
+    que se contó.
+
+    Que era mentira ya lo sabía el propio dominio y por partida doble:
+    `GET /admin/deposits/pending` publica `to_deposit: null` con motivo para
+    esos mismos turnos, y `create_deposit` **rechaza** imputarles una
+    consignación (`400 SHIFT_CLOSED_WITHOUT_COUNT`). Eran dos respuestas
+    distintas a la misma pregunta.
+
+    Este test fija las dos mitades del remedio: la cifra se excluye, **y la
+    exclusión no es silenciosa** — `uncounted_shifts` la deja a la vista.
+
+    La precondición se arma acá, explícita: el cierre administrativo exige un
+    turno abandonado (`SHIFT_NOT_STALE` si no), así que el reloj se adelanta
+    con `app/core/clock.py`. La fecha de negocio se toma ANTES de adelantarlo
+    — nunca se deriva «hoy» de un timestamp corrido (error repetido nº1).
+    """
+    bd = today_business_date(store)
+
+    # Turno 1: cerrado con conteo de verdad. SÍ entra.
+    contado = open_shift(total=200_000)
+    close_shift(contado["id"], counted_cash=260_000)
+
+    # Turno 2: abierto el mismo día operativo y abandonado. NO entra.
+    sin_contar = open_shift(total=200_000)
+    clock.advance(days=1)
+    rescate = admin_client.post(
+        f"{API}/admin/shifts/{sin_contar['id']}/close-administrative",
+        json={"reason": "El cajero se fue sin cerrar"},
+        headers=idem(),
+    )
+    assert rescate.status_code in (200, 201), rescate.text
+
+    resp = admin_client.get(
+        f"{API}/admin/bank/owner-hand",
+        params={"store_id": store.id, "from": bd.isoformat(), "to": bd.isoformat()},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    # Sólo el turno contado aporta: 260.000 - 200.000 = 60.000.
+    assert body["withdrawn_from_shift_close"] == 60_000, (
+        "la mano del dueño está contando plata de un turno que nadie contó: "
+        f"{body['withdrawn_from_shift_close']}"
+    )
+    assert body["withdrawn"] == body["withdrawn_from_pickups"] + body["withdrawn_from_shift_close"]
+
+    # Y lo excluido se dice, no se calla.
+    assert body["uncounted_shifts"] == 1, (
+        "la exclusión quedó silenciosa: quien lee la mano del dueño no tiene "
+        "forma de saber que hubo un turno sin arqueo en el período"
+    )
+
+    # La misma pregunta, desde la otra ruta, sigue dando la misma respuesta.
+    pendientes = admin_client.get(
+        f"{API}/admin/deposits/pending",
+        params={"store_id": store.id, "from": bd.isoformat(), "to": bd.isoformat()},
+    )
+    assert pendientes.status_code == 200, pendientes.text
+    sin_dato = [r for r in pendientes.json() if r["shift_id"] == sin_contar["id"]]
+    assert sin_dato and sin_dato[0]["to_deposit"] is None, (
+        "`deposits/pending` y `owner-hand` volvieron a decir cosas distintas "
+        "sobre el mismo turno"
+    )

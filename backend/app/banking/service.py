@@ -49,9 +49,9 @@ from app.banking.schemas import (
 from app.channels.models import DeliveryPlatform, PlatformReceivable, PlatformReceivableStatus
 from app.core import clock, tz
 from app.core.errors import AppError, NotFoundError
-from app.payments.models import PAYMENT_METHOD_VALUES, Payment
+from app.payments.models import Payment
 from app.refunds.models import PendingRefund, PendingRefundStatus, SettleFrom
-from app.shifts.hooks import payment_bucket
+from app.shifts.hooks import methods_in_bucket
 from app.shifts.models import BusinessDay, CashPickup, Shift, ShiftStatus, TipPayout
 from app.stores.models import Store
 
@@ -66,8 +66,13 @@ from app.stores.models import Store
 # usa `Payment` (`PAYMENT_METHOD_VALUES`) y preguntándole a `payment_bucket`
 # cuáles caen en cada bolsillo — así, si mañana se agrega un medio, lo
 # clasifica la única autoridad y este módulo no lo omite en silencio.
-CARD_PAYMENT_METHODS = tuple(m for m in PAYMENT_METHOD_VALUES if payment_bucket(m, None) == "card")
-TRANSFER_PAYMENT_METHODS = tuple(m for m in PAYMENT_METHOD_VALUES if payment_bucket(m, None) == "transfer")
+# R-3 del cierre: la derivación se mudó a `app.shifts.hooks.methods_in_bucket`,
+# al lado de la autoridad. Este módulo ya no escribe el nombre de ningún medio
+# de pago — ni para compararlo contra la salida de `payment_bucket`—, así que
+# el invariante que barre literales fuera de `app/shifts/` deja de tener que
+# distinguir "comparo la salida de la autoridad" de "clasifico por mi cuenta".
+CARD_PAYMENT_METHODS = methods_in_bucket("card")
+TRANSFER_PAYMENT_METHODS = methods_in_bucket("transfer")
 
 # ---------------------------------------------------------------------------
 # Consignaciones.
@@ -544,11 +549,47 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
                 Shift.store_id == store.id,
                 Shift.status == ShiftStatus.CLOSED,
                 Shift.to_deposit.is_not(None),
+                # A-2 del cierre de la fase 3: un turno cerrado
+                # ADMINISTRATIVAMENTE, sin conteo, tiene `to_deposit`
+                # calculado desde el libro y no desde un arqueo — nadie abrió
+                # ese cajón. Sumarlo acá publicaba como "plata en la mano del
+                # dueño" una cifra que nadie contó, y con el sesgo que este
+                # proyecto NO tolera: mostrando MÁS plata de la que se contó.
+                #
+                # El propio dominio ya sabía que esa cifra no es confiable:
+                # `create_deposit` rechaza imputarle una consignación a uno de
+                # estos turnos (`400 SHIFT_CLOSED_WITHOUT_COUNT`), y
+                # `pending_deposits` publica `to_deposit: null` con motivo
+                # para los mismos turnos. Eran dos respuestas distintas a la
+                # misma pregunta; ahora es una sola.
+                #
+                # Se EXCLUYE (el sesgo pasa a mostrar menos plata, que es el
+                # tolerado) y la exclusión NO es silenciosa: `uncounted_shifts`
+                # dice cuántos turnos quedaron afuera. El monto de esos turnos
+                # no se publica a propósito — es justamente la cifra de la que
+                # estamos diciendo que no se puede responder.
+                Shift.closed_without_count.is_(False),
                 BusinessDay.business_date >= date_from,
                 BusinessDay.business_date <= date_to,
             )
         ).scalar_one()
         or 0
+    )
+
+    uncounted_shifts = int(
+        db.execute(
+            select(func.count())
+            .select_from(Shift)
+            .join(BusinessDay, BusinessDay.id == Shift.business_day_id)
+            .where(
+                Shift.organization_id == store.organization_id,
+                Shift.store_id == store.id,
+                Shift.status == ShiftStatus.CLOSED,
+                Shift.closed_without_count.is_(True),
+                BusinessDay.business_date >= date_from,
+                BusinessDay.business_date <= date_to,
+            )
+        ).scalar_one()
     )
 
     withdrawn = pickups_total + close_total
@@ -606,6 +647,7 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
         "withdrawn_from_shift_close": close_total,
         "spent_on_tips": spent_on_tips,
         "spent_on_refunds": spent_on_refunds,
+        "uncounted_shifts": uncounted_shifts,
     }
 
 

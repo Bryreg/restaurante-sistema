@@ -930,8 +930,8 @@ def get_tip_proposal_for_period(
     db: Session,
     *,
     store: Store,
-    date_from: date,
-    date_to: date,
+    date_from: date | None,
+    date_to: date | None,
     shift_ids: list[int] | None,
     method: str | None,
 ) -> tuple[list[int], TipProposalResult]:
@@ -950,11 +950,17 @@ def get_tip_proposal_for_period(
     la respuesta HTTP tiene que nombrar (`TipProposalOut.shift_ids`), porque
     el cliente los reusa para el "confirmar" (`POST /admin/tips/payouts`).
     """
-    resolved_ids = (
-        list(shift_ids)
-        if shift_ids
-        else resolve_period_shift_ids(db, store=store, date_from=date_from, date_to=date_to)
-    )
+    if shift_ids:
+        # Override explícito: el período ni se mira. R-4 del cierre: por eso
+        # `from`/`to` son opcionales cuando viene `shift_id` — pedir un rango
+        # que después se ignora no es un override, es un formulario mentiroso.
+        resolved_ids = list(shift_ids)
+    else:
+        assert date_from is not None and date_to is not None, (
+            "el router garantiza que sin `shift_id` vienen `from` y `to` "
+            "(`PERIOD_OR_SHIFT_REQUIRED`)"
+        )
+        resolved_ids = resolve_period_shift_ids(db, store=store, date_from=date_from, date_to=date_to)
     if not resolved_ids:
         resolved_method = (
             TipDistributionMethod(method) if method is not None else get_tip_settings(db, store_id=store.id).method

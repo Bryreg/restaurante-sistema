@@ -54,6 +54,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, admin_store, current_admin
 from app.core import hours as hours_mod
+from app.core.errors import AppError
 from app.core.db import get_db
 from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
@@ -399,14 +400,32 @@ def post_run(
 @router.get("/admin/tips/distribution/proposal", dependencies=[Depends(require_feature("pos.tips"))])
 def get_tip_proposal(
     store_id: int,
-    date_from: date = Query(..., alias="from"),
-    date_to: date = Query(..., alias="to"),
+    date_from: date | None = Query(default=None, alias="from"),
+    date_to: date | None = Query(default=None, alias="to"),
     shift_id: list[int] | None = Query(default=None, alias="shift_id"),
     method: str | None = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> TipProposalOut:
+    """La propuesta de reparto: **nunca escribe nada** (D-3). El «confirmar»
+    sigue siendo `POST /admin/tips/payouts`, que existe desde 1b-2.
+
+    Se pide **o** por período (`from`/`to`) **o** por turnos puntuales
+    (`shift_id`, repetible). R-4 del cierre de la fase 3: `shift_id` estaba
+    documentado como «override opcional» pero `from`/`to` eran obligatorios,
+    así que el override no se podía usar solo — se pedía un rango que después
+    se ignoraba. O era opcional de verdad, o había que dejar de llamarlo
+    override; es lo primero.
+    """
     store = admin_store(db, actor, store_id)
+    if not shift_id and (date_from is None or date_to is None):
+        raise AppError(
+            code="PERIOD_OR_SHIFT_REQUIRED",
+            message=(
+                "Pedí la propuesta por período (`from` y `to`) o por turnos puntuales "
+                "(`shift_id`); sin ninguno de los dos no hay de dónde sacar las propinas"
+            ),
+        )
     shift_ids, result = service.get_tip_proposal_for_period(
         db, store=store, date_from=date_from, date_to=date_to, shift_ids=shift_id, method=method
     )
