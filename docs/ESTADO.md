@@ -1,16 +1,18 @@
 # Restaurante Sistema — estado del proyecto
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
-Última actualización: 2026-09-20 (**pedido 2c cerrado y verificado** por el
-orquestador humano, con H-3 cerrado y sus tres piezas juntas: suite de backend
-**1.226 passed** —el único rojo era el poste de Alembic, corregido y
-reverificado—, vitest **493/493**, mypy y `tsc` limpios, build OK, y la cadena
-`0001 → 0016` corrida contra **Postgres 16 real** con una sola cabeza y
-`downgrade base` limpio. Framework **2.2.0**. **Lo que sigue: la fase 3
-completa en un solo pedido**, con el paso 0 hecho y las cuatro decisiones de
-negocio tomadas por escrito — ver los puntos 22 a 24 de «Dónde retomar». Las
-notas más viejas de esta cabecera se conservan abajo por su detalle técnico,
-no por su estado).
+Última actualización: 2026-09-20 (**FASE 3 CONSTRUIDA, VERIFICADA Y CAMINADA**:
+las once capacidades de «dinero y control» en un solo pedido —banco,
+obligaciones, nómina y analítica—, seis agentes, dos rondas, Conciliador
+coherente. Cadena `0001 → 0020` contra **Postgres 16 real** con una sola cabeza
+y 93 tablas. Los cinco rojos que la entrega declaró están cerrados, y también
+A-1, A-2 y A-7. El **recorrido en navegador real** encontró cuatro defectos más
+—ninguno en código de la fase 3— y los cinco quedaron fijados por invariantes
+nuevos. El objetivo de la fase, visto funcionando: punto de equilibrio
+**$3.049.400** con margen 98,38 % sobre ventas reales cobradas por la puerta
+del POS. Lo que sigue y lo que queda abierto, con dueño y razón, en los puntos
+25 a 28 de «Dónde retomar». Las notas más viejas de esta cabecera se conservan
+abajo por su detalle técnico, no por su estado).
 
 **Este documento es VIVO.** Si un cambio altera una regla o un flujo descrito acá,
 se actualiza en el MISMO PR que el cambio. Un estado desactualizado miente con más
@@ -1218,3 +1220,129 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     delivery_platforms» treinta segundos después. Por eso el paso 0 se verifica
     con una corrida de humo (`tests/core tests/stores tests/channels tests/kitchen`
     + el invariante de migraciones: 163 passed) antes de lanzar a nadie.
+
+25. **FASE 3 CONSTRUIDA, VERIFICADA Y CAMINADA** (2026-09-20, run
+    `wf_daf94f61-089` sobre el commit base `14256d6`; seis agentes —T1 `banking`,
+    T2 `expenses`, T3 `payroll`, T4 `analytics`, T5 frontend, T6 auditor—, dos
+    rondas, veredicto del Conciliador **coherente**, cero conflictos finales;
+    outputs por agente y `ENTREGA.md` en
+    `features/fase-3-dinero-control/outputs/`). Las **once capacidades** de la
+    fila 3 de §14 en un solo pedido, como pidió el dueño.
+
+    **Lo que entró**: consignaciones y saldo por consignar, libro del banco, mano
+    del dueño, conciliación de datáfono y de plataformas (dominio `banking`,
+    Alembic `0017`); gastos, obligaciones agendadas, punto de equilibrio y
+    utilidad del período (`expenses`, `0018` y `0019`); jornada, tablas de
+    recargos **con vigencia**, liquidación de nómina y reparto de propinas en los
+    tres métodos de D-3 (`payroll`, `0020`, más `app/core/hours.py` con la escala
+    entera de las horas); ingeniería de menú, varianza por plato prorrateada,
+    reposición sugerida y «sostenido» (`analytics`, **sin modelos a propósito**:
+    todo derivado, que es lo que §6.1 pide). Cadena `0001 → 0020` corrida contra
+    **Postgres 16 real**: una sola cabeza, **93 tablas** de dominio,
+    `downgrade base` deja el esquema vacío, seed idempotente.
+
+    **La honestidad del reporte, otra vez.** La ENTREGA declaró **5 rojos y 8
+    conflictos abiertos** en vez de dar la fase por cerrada, y los cinco rojos
+    eran exactamente los que yo medí. Dos de ellos eran **míos**: el poste de la
+    cadena de Alembic, y su contraparte en `test_contract_2c_invariants.py`, que
+    dejé desalineada al cerrar H-3. Por qué no la vi entonces vale la pena
+    escribirlo: **un test que lee el código fuente de otro archivo mide el árbol
+    en el instante en que corre**, y yo edité el archivo medido a mitad de
+    corrida, así que ese test leyó la versión vieja y pasó.
+
+    **A-1, el hallazgo más caro, y no lo levantó ningún agente**: 18 rutas de
+    backend que ninguna pantalla consumía, y tres de ellas eran la **puerta de
+    entrada** de un dato sin el cual la capacidad no da un número — costos fijos,
+    tarifa por hora, liquidaciones del datáfono. El backend respondía `null` con
+    motivo, correctamente; el dato no tenía por dónde entrar. Es el **costo
+    conocido del arranque simultáneo**: T5 construyó contra el contrato mínimo,
+    los cuatro backends agregaron rutas fuera de él y las declararon, y nadie
+    tenía el mandato de volver a cruzar las dos listas al final. **Para la
+    próxima fase: ese cruce es un paso del cierre, con dueño.**
+
+26. **El recorrido en navegador real de la fase 3, y los cuatro defectos que
+    2.070 tests no vieron.** Instancia real (Postgres para migrar, SQLite
+    sembrada, uvicorn + vite + Chromium), las 20 pantallas nuevas, registrando
+    toda respuesta `>= 400` y todo error de consola. Las 20 cargan limpias.
+    **Ninguno de los cuatro defectos estaba en código de la fase 3**:
+
+    - **`MoneyInput` sólo avisaba el monto al SALIR del campo.** Los formularios
+      que habilitan su botón según el monto —18 archivos— dejaban el botón gris
+      mientras el campo tuviera el foco, y **hacer clic en un botón deshabilitado
+      no saca el foco del campo** en Chromium. La persona teclea y no tiene cómo
+      destrabarlo salvo adivinar que primero hay que tocar en otro lado.
+    - **`PinPad` se comía las teclas de cualquier otro campo**: su atajo escucha
+      en `window` sin mirar dónde está el foco. Al arreglar el anterior quedó a
+      la vista: tecleando «50000» en el monto de un pago a proveedor, el primer
+      dígito habilita el PIN y el teclado se traga los cuatro ceros siguientes —
+      cuatro dígitos es un PIN completo, así que **dispara el pago solo, con un
+      PIN inventado**, y el PIN equivocado cuenta para el bloqueo por intentos.
+    - **Tres clientes sin `Idempotency-Key`** en rutas que pasan por
+      `run_idempotent`: `400` garantizado. Los tests no lo vieron porque llaman
+      al cliente con el mock puesto, no al backend real.
+    - **Un literal inventado**: el cliente decía `SettlementStatus = "pending"` y
+      el servidor publica `recorded`. El botón «Conciliar» no se renderizaba
+      nunca. `tsc` no lo ve: los dos lados son literales válidos, cada uno en su
+      lenguaje.
+
+    **Y un mensaje que le ponía el nombre de una función de Python en la pantalla
+    al dueño de un restaurante** (`reason: "app.payroll.hooks.period_payroll_cost
+    no tiene datos suficientes"`), más otro que nombraba a dos agentes del equipo
+    y dos heredados de la fase 2.
+
+    Los cinco quedan fijados por invariantes nuevos:
+    `frontend/src/audit/pin-and-money-inputs.test.tsx`,
+    `frontend/src/audit/api-literal-types.test.ts` (cruza cada
+    `export type X` del cliente contra el `XLiteral` del esquema; **verificado
+    reintroduciendo el defecto a propósito**) y
+    `backend/tests/audit/test_user_facing_messages.py`.
+
+27. **El objetivo de la fase, visto funcionando contra el producto corriendo.**
+    Cargué costos fijos por $3.000.000 desde la pantalla y vendí dos platos por
+    la puerta real del POS (activar dispositivo con PIN de sede, identificarse,
+    abrir turno, comanda, propina **preguntada** —el gate `TIP_NOT_ASKED` cortó
+    el primer intento—, cobro, documento fiscal emitido):
+
+        GET /admin/break-even -> margen 98,38 %, punto de equilibrio $3.049.400
+        GET /admin/profit     -> ventas netas $88.888, costo $1.440
+
+    La aritmética cierra: `3.000.000 / 0,9838 = 3.049.400`.
+
+    **Y de paso quedó demostrada la regla del snapshot**: el primer plato se
+    vendió **sin ficha técnica**, su costo se congeló en «sin costo», y ponerle
+    la ficha después **no revaloró esa venta** — hubo que vender de nuevo para
+    que el período tuviera costo. Es exactamente lo que manda `AGENTS.md`, visto
+    en vivo y no por un test.
+
+28. **Lo que queda abierto de la fase 3, con dueño y razón.** No son olvidos:
+
+    - **A-3 · el origen de una propina pagada en efectivo.** `TipPayout` no
+      distingue si el dueño la pagó **del cajón** (donde ya redujo el
+      `to_deposit` de ese turno) o **de la mano**, así que se cuenta como gastada
+      de la mano: doble resta. El sesgo va al lado **tolerado** (muestra menos
+      plata). **Por qué no lo cerré**: el remedio es un campo nuevo en
+      `TipPayout` (`app/shifts/`), y las filas que ya existen **no tienen
+      respuesta** — un backfill tendría que inventarla. Eso es una decisión del
+      dueño de la spec, no de la verificación.
+    - **A-4 · los valores de las tablas legales son un supuesto declarado.** La
+      migración `0020` siembra seis vigencias; la spec cita tres cambios con su
+      norma y el resto lo puso el equipo como supuesto. Son editables por API sin
+      tocar código —que es lo que había que garantizar— pero hoy son **datos en
+      la base que nadie con firma revisó**. Es el único punto con consecuencia
+      legal abierto: **antes de producción los confirma quien tenga la norma
+      adelante.**
+    - **A-5 · la nómina no implementa la fórmula CST completa.** Cada minuto paga
+      base más recargos aditivos e independientes; la fórmula legal los combina
+      en ocho categorías (HED/HEN/HEDD/HEND). Es auditable recargo por recargo,
+      pero **no es la liquidación legal**. Alcance que nunca estuvo escrito; no
+      corresponde improvisarlo.
+    - **A-6 · dos invariantes que el auditor no alcanzó a armar**: el cruce
+      **dinámico** del costo congelado (hoy probado por AST, no por
+      comportamiento) y la aritmética del prorrateo de varianza por plato. El
+      tercero que el informe pedía —el caso positivo de D-1— **sí existe**:
+      `tests/analytics/test_sustained.py` lo cubre con dos conteos completos
+      aplicados y ventas reales. El informe subestimó su propia cobertura.
+    - **Heredado, sin cambios**: los tres campos de impuesto de una recepción
+      arrancan en cero en vez de vacíos (decisión del dueño de la spec, rompe
+      seis tests que codifican el cero como deliberado), y el QR de activación
+      de tablet, que no puede llevar el PIN de sede.

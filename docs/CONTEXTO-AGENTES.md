@@ -99,12 +99,16 @@ dueño por pedido** — si no sos vos, pedilo, no lo edites en paralelo.
 `src/app/router.tsx` y los layouts sólo conocen las pantallas por ahí. Una
 pantalla nueva no se cuelga a mano del router.
 
-**Estado actual** (endpoints / modelos por dominio): `orders` 24/16 ·
-`shifts` 24/17 · `stores` 25/9 · `inventory` 21/13 · `catalog` 17/7 ·
-`purchases` 15/8 · `auth` 13/3 · `channels` 13/7 · `recipes` 12/10 ·
-`fiscal` 8/6 · `kitchen` 6/3 · `payments` 6/2 · `customers` 5/5 ·
-`notifications` 4/2 · `reports` 4/0 · `refunds` 2/3 · `audit` 1/1.
-Alembic va por `0016`. Todo bajo `/api/v1`.
+**Estado actual** (endpoints / modelos por dominio): `stores` 25/9 ·
+`orders` 24/16 · `shifts` 24/17 · `inventory` 21/13 · `catalog` 17/7 ·
+`banking` 16/6 · `purchases` 16/8 · `payroll` 15/8 · `auth` 13/3 ·
+`channels` 13/7 · `recipes` 12/10 · `expenses` 11/7 · `fiscal` 8/6 ·
+`kitchen` 6/3 · `payments` 6/2 · `customers` 5/5 · `notifications` 4/2 ·
+`reports` 4/0 · `analytics` 4/0 · `refunds` 2/3 · `audit` 1/1.
+Alembic va por `0020`, **93 tablas de dominio**. Todo bajo `/api/v1`.
+
+`analytics` y `reports` **no tienen modelos a propósito**: son derivados. Si tu
+dominio puede serlo, que lo sea («derivar en vez de almacenar», §6.1).
 
 ---
 
@@ -237,6 +241,21 @@ consume número.
 **Prorrateo** — `app/orders/money.py: prorate(...)` reparte exacto en enteros, sin
 residuo perdido. Usalo; no escribas otro.
 
+**Plata fuera del cajón** (fase 3) — `app/banking/`:
+- **`Shift.to_deposit` no se recalcula nunca.** Lo escribe `app/shifts/service.py`
+  al cerrar el turno (`contado − base fija − propinas en efectivo`) y es un
+  snapshot de cierre. Lo que sí se deriva es el **saldo**:
+  `Σ to_deposit − Σ consignado`.
+- Un turno cerrado **sin conteo** (`Shift.closed_without_count`) no aporta a la
+  mano del dueño: su cifra sale del libro, no de un arqueo. Se excluye y la
+  exclusión se publica (`uncounted_shifts`).
+- `app/shifts/hooks.py: methods_in_bucket(bucket)` da los medios de pago de un
+  bolsillo, derivados de `payment_bucket`. **Ningún módulo fuera de
+  `app/shifts/` escribe el nombre de un medio de pago.**
+
+**Horas** — `app/core/hours.py` fija la escala entera de las horas, igual que
+`QTY_SCALE` hizo con las cantidades. Las horas no son pesos.
+
 ---
 
 ## 9. Reglas de plata que se rompen sin que se vea en pantalla
@@ -360,5 +379,25 @@ cliente `customer` · cambio/sencilla `cash_swap` · devolución pendiente
 6. **Una dependencia de función validada después del gate de sede**, produciendo el
    mensaje equivocado.
 7. **Un cero mudo**: `0` publicado donde correspondía `null` con motivo.
-8. **Un recorrido en navegador real encontró siete defectos que 1.395 tests
-   automáticos no vieron.** No se cierra una fase sin caminarla.
+8. **Un componente compartido que se porta distinto con una persona usándolo.**
+   `MoneyInput` sólo avisaba el monto al SALIR del campo, así que todo botón
+   que dependía de él quedaba gris mientras el campo tuviera el foco — y hacer
+   clic en un botón deshabilitado no saca el foco. `PinPad` escuchaba el
+   teclado en `window` sin mirar dónde estaba el foco, y se comía los dígitos
+   que alguien tecleaba en un campo de plata: cuatro dígitos es un PIN
+   completo, así que disparaba la operación solo.
+9. **Un literal inventado en el cliente.** `SettlementStatus = "pending"`
+   cuando el servidor publica `recorded`: la rama de la pantalla que lo
+   comparaba estaba muerta y `tsc` no lo ve, porque los dos lados son
+   literales válidos cada uno en su lenguaje. Lo cuida
+   `src/audit/api-literal-types.test.ts`.
+10. **Un mensaje con el nombre de una función de Python adentro.** Quien lo lee
+   es el dueño de un restaurante. Lo cuida
+   `tests/audit/test_user_facing_messages.py`.
+11. **Una ruta de backend que ninguna pantalla consume.** Si es la puerta de
+   entrada de un dato, la capacidad entera queda muerta aunque las dos mitades
+   estén bien. **Al cerrar un pedido se cruzan las rutas contra los clientes**;
+   es un paso del cierre, no una casualidad.
+12. **Un recorrido en navegador real encontró siete defectos en la fase 2 y
+   cuatro más en la fase 3** que 2.070 tests automáticos no vieron. **No se
+   cierra una fase sin caminarla.**
