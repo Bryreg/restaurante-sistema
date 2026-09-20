@@ -1,18 +1,18 @@
 # Restaurante Sistema — estado del proyecto
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
-Última actualización: 2026-09-20 (**FASE 3 CONSTRUIDA, VERIFICADA Y CAMINADA**:
-las once capacidades de «dinero y control» en un solo pedido —banco,
-obligaciones, nómina y analítica—, seis agentes, dos rondas, Conciliador
-coherente. Cadena `0001 → 0020` contra **Postgres 16 real** con una sola cabeza
-y 93 tablas. Los cinco rojos que la entrega declaró están cerrados, y también
-A-1, A-2 y A-7. El **recorrido en navegador real** encontró cuatro defectos más
-—ninguno en código de la fase 3— y los cinco quedaron fijados por invariantes
-nuevos. El objetivo de la fase, visto funcionando: punto de equilibrio
-**$3.049.400** con margen 98,38 % sobre ventas reales cobradas por la puerta
-del POS. Lo que sigue y lo que queda abierto, con dueño y razón, en los puntos
-25 a 28 de «Dónde retomar». Las notas más viejas de esta cabecera se conservan
-abajo por su detalle técnico, no por su estado).
+Última actualización: 2026-09-20 (**FASE 3 CERRADA**: las once capacidades de
+«dinero y control» construidas, verificadas y caminadas, **y los tres puntos
+que la fase había dejado abiertos —A-3, A-4 y A-5— cerrados también**. Suite de
+backend **1.526 passed, 0 failed**; vitest **557/557**; mypy y `tsc` limpios;
+build OK. Cadena `0001 → 0021` contra **Postgres 16 real**, una sola cabeza, 93
+tablas, seed idempotente y el respaldo de `paid_from` leído de vuelta por el
+modelo. El objetivo de la fase, visto funcionando: punto de equilibrio
+**$3.049.400** con margen 98,38 % sobre ventas cobradas por la puerta del POS.
+Los recorridos en navegador encontraron **siete defectos** que las suites no
+vieron, ninguno en código de la fase. Lo que sigue abierto, con dueño y razón,
+en los puntos 25 a 31 de «Dónde retomar». Las notas más viejas de esta cabecera
+se conservan abajo por su detalle técnico, no por su estado).
 
 **Este documento es VIVO.** Si un cambio altera una regla o un flujo descrito acá,
 se actualiza en el MISMO PR que el cambio. Un estado desactualizado miente con más
@@ -1391,7 +1391,17 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     sistema lo dice con `SURCHARGE_TABLE_MISSING` y ahora apunta a la pantalla
     correcta, pero es un paso de alta que conviene tener presente.
 
-30. **Lo que queda abierto de la fase 3, con dueño y razón.** Lo que sigue NO son olvidos:
+30. **Verificación final, con A-3/A-4/A-5 cerrados** (2026-09-20, árbol quieto,
+    en serie): `python -m mypy app` limpio (147 archivos); suite de backend
+    **1.526 passed, 1 skipped, 0 failed** (1:13:57); `tsc` limpio; vitest
+    **557/557** en 117 archivos; `vite build` OK (2.609 módulos). Sobre
+    **Postgres 16 real**: `0001 → 0021` limpio, una sola cabeza, **93 tablas**
+    de dominio (`0021` agrega una columna, no una tabla), seed corrido dos
+    veces sin duplicar, `downgrade base` deja el esquema vacío, y el respaldo
+    de `paid_from` leído de vuelta por el modelo sobre una fila insertada
+    **antes** de que la columna existiera.
+
+31. **Lo que queda abierto de la fase 3, con dueño y razón.** Lo que sigue NO son olvidos:
 
     - **Los valores legales siguen esperando una firma.** A-4 está cerrado como
       defecto de producto —el sistema ya dice cuáles no revisó nadie— pero eso
