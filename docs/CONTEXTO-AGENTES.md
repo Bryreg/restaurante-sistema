@@ -398,9 +398,11 @@ cliente `customer` · cambio/sencilla `cash_swap` · devolución pendiente
    comparaba estaba muerta y `tsc` no lo ve, porque los dos lados son
    literales válidos cada uno en su lenguaje. Lo cuida
    `src/audit/api-literal-types.test.ts`.
-10. **Un mensaje con el nombre de una función de Python adentro.** Quien lo lee
-   es el dueño de un restaurante. Lo cuida
-   `tests/audit/test_user_facing_messages.py`.
+10. **Un mensaje escrito para un programador.** El nombre de una función de
+   Python, o —diez veces, en cinco dominios— **una ruta de API**: «cargá una en
+   `POST /admin/payroll/surcharge-tables`». Quien lo lee es el dueño de un
+   restaurante y no tiene cómo hacer un POST: el mensaje nombra **la
+   pantalla**. Lo cuida `tests/audit/test_user_facing_messages.py`.
 11. **Una ruta de backend que ninguna pantalla consume.** Si es la puerta de
    entrada de un dato, la capacidad entera queda muerta aunque las dos mitades
    estén bien. **Al cerrar un pedido se cruzan las rutas contra los clientes**;

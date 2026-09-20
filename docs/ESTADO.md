@@ -1366,7 +1366,32 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       El literal deja lugar para `"cst_full"` el día que se implemente, y las
       liquidaciones viejas van a seguir diciendo con cuál se calcularon.
 
-29. **Lo que queda abierto de la fase 3, con dueño y razón.** Lo que sigue NO son olvidos:
+29. **Diez mensajes le nombraban una ruta de API al dueño del restaurante**, y
+    fue el recorrido de A-3/A-4/A-5 el que los destapó. Al liquidar una nómina
+    en una sede recién creada, el sistema contestó «cargá una en
+    `POST /admin/payroll/surcharge-tables`». Esa persona no tiene cómo hacer un
+    POST.
+
+    Es **el hallazgo A-1 en su forma original** —el motivo del punto de
+    equilibrio nombraba la ruta que faltaba— y yo había arreglado la pantalla
+    sin arreglar el mensaje: media lección aprendida. El barrido encontró diez,
+    en cinco dominios. Todos reescritos para nombrar la pantalla, y el
+    invariante de mensajes ahora también barre rutas de API.
+
+    **Y un defecto de ubicación en mi propio arreglo de A-5**: el aviso de «no
+    es la liquidación legal» lo puse DENTRO del detalle de una liquidación, así
+    que con cero liquidaciones no se veía nunca — justo cuando más importa, que
+    es antes de liquidar por primera vez. Movido a la pestaña. El test pasaba;
+    la pantalla no servía. Es exactamente para eso que existe el recorrido.
+
+    **Algo que conviene saber de la migración `0020`**: siembra las vigencias
+    de recargos para las sedes que **existían al migrar**. Una sede creada
+    después —la del seed, o una real dada de alta por un administrador— nace
+    **sin ninguna tabla**, y no puede liquidar hasta que alguien las cargue. El
+    sistema lo dice con `SURCHARGE_TABLE_MISSING` y ahora apunta a la pantalla
+    correcta, pero es un paso de alta que conviene tener presente.
+
+30. **Lo que queda abierto de la fase 3, con dueño y razón.** Lo que sigue NO son olvidos:
 
     - **Los valores legales siguen esperando una firma.** A-4 está cerrado como
       defecto de producto —el sistema ya dice cuáles no revisó nadie— pero eso
