@@ -108,8 +108,17 @@ publica:
 - `Payable.amount` **no cambia de significado**: sigue siendo la cifra calculada, y
   es la que alimenta el costo del inventario.
 - Cuando hay `invoice_total` y difiere, la cuenta publica
-  `invoice_discrepancy: int | None` (= `invoice_total − amount`) y la cuenta **no
-  se aprueba sola**: queda en `pending_review` con el motivo a la vista.
+  `invoice_discrepancy: int | None` (= `invoice_total − amount`), y **aprobarla
+  exige reconocer la diferencia explícitamente**: `POST
+  /admin/payables/{id}/approve` corta con `409 INVOICE_DISCREPANCY` y un mensaje
+  que nombra las dos cifras, salvo que venga `confirm_discrepancy: true`, que
+  queda registrado con quién lo confirmó.
+
+  **Esto no es un patrón nuevo**: es exactamente el de `confirm_price` que
+  `create_reception` ya usa para un precio que se sale del promedio ponderado
+  (`409` + repetir con la confirmación, y `price_confirmed_by_employee_*`
+  guardado). Copialo, no inventes otro: dos formas distintas de decir «sí, ya
+  sé, seguí» son dos formas de que alguien no entienda ninguna.
 - **Se le paga al proveedor contra el papel** (`invoice_total` cuando existe); el
   inventario **se costea contra el cálculo**. Son dos preguntas distintas y tienen
   dos respuestas distintas.
@@ -134,6 +143,12 @@ derivado en la salida de la cuenta, y su migración. **Nada más de `purchases`.
 **Decisión.** Se construyen **los tres**, configurables por sede
 (`tip_distribution_method`), con **«por horas» de default**, y el reparto es
 **una propuesta que alguien confirma**, nunca una transferencia automática.
+
+El «confirmar» **ya está construido** desde 1b-2 (`app/shifts/tips.py::
+register_tip_payout` y `POST /admin/tips/payouts`, con sus tablas `tip_payouts` y
+`tip_payout_distributions`). Lo que falta, y lo que esta fase agrega, es **el
+cálculo de la propuesta** — que es exactamente lo que el docstring de `TipPayout`
+dejó anotado como pendiente de fase 3.
 
 **Por qué «por horas» de default.** Es el único de los tres que es proporcional al
 trabajo realmente hecho en el turno, es el único que se le puede explicar a quien
@@ -185,12 +200,34 @@ Cinco territorios de construcción y uno de auditoría. **Un archivo, un dueño.
 - **Excepción D-4**: la supresión de datos personales en `app/refunds/service.py`
   y su test. Nada más de esos dominios.
 
-**Construye:** consignaciones con comprobante; «por consignar» **derivado** del
-turno cerrado (`contado − base fija − propinas en efectivo retiradas`, §6.1), nunca
-una columna almacenada; libro del banco (consignaciones, liquidaciones del datáfono
-con rezago/comisión/retenciones, transferencias); **mano del dueño** (lo retirado y
-todavía no consignado ni gastado); conciliación del datáfono y de **plataformas**
-contra lo que `app/channels/` ya registró como cuenta por cobrar; D-4.
+**Construye:** consignaciones con comprobante; el **saldo por consignar**; libro
+del banco (consignaciones, liquidaciones del datáfono con rezago/comisión/
+retenciones, transferencias); **mano del dueño** (lo retirado y todavía no
+consignado ni gastado); conciliación del datáfono y de **plataformas** contra lo
+que `app/channels/` ya registró como cuenta por cobrar; D-4.
+
+**LO QUE YA EXISTE Y NO SE RECALCULA (esto es lo más fácil de romper de todo el
+pedido):**
+- **`Shift.to_deposit` ya existe** y lo escribe `app/shifts/service.py` al cerrar
+  el turno: `counted_cash_total − opening_cash_fixed − tips_cash_out`. Es la
+  fórmula de §6.1, **ya implementada**, y es un **snapshot de cierre** (como el
+  total de un documento): una vez cerrado el turno no vuelve a moverse.
+- **Lo LEÉS, no lo recalculás.** Si escribís esa resta otra vez en
+  `app/banking/`, acabás de crear la segunda matemática que las reglas duras del
+  proyecto prohíben, y el día que alguien cambie la definición de `tips_cash_out`
+  vas a tener dos respuestas distintas a la misma pregunta.
+- Lo que **sí** derivás, y que **no** puede ser una columna almacenada, es el
+  **saldo**: `Σ to_deposit de los turnos cerrados del período − Σ consignaciones
+  vivas imputadas a esos turnos`. Ése es el «por consignar» que se mueve, y es
+  exactamente el tipo de columna que §6.1 dice que fue la única que se
+  desincronizó en la referencia.
+- `CashPickup` (retiros con snapshot) y `CashMovementCause.TIP_PAYOUT` ya existen:
+  la mano del dueño se arma con ellos, no con tablas nuevas de retiro.
+
+**La llave anti doble conteo de este territorio** —la que §6.1 pide diseñar antes
+que las pantallas— es **retiro vs consignación**: una consignación se imputa a
+turnos concretos y un mismo peso no puede estar «en la mano» y «en el banco» a la
+vez. Escribila en tu entregable antes de la primera pantalla.
 
 **Flags:** `money.deposits`, `money.bank` (con su dependencia `money.deposits`).
 
@@ -211,6 +248,14 @@ fórmula del esperado) y `app/shifts/hooks.py` (`get_sales_totals`,
 **Construye:** gastos y **obligaciones agendadas** (arriendo, servicios, impuestos)
 con su vencimiento y su estado; el arrastre de las **cuentas por pagar** de 2b al
 resultado del período; **punto de equilibrio** y **utilidad** del período; D-2.
+
+**LO QUE YA EXISTE Y NO SE RECALCULA:** las ventas netas y el costo teórico del
+período los agrega `app/reports/service.py` (§6.4: el MVP ya calcula **margen
+bruto** = ventas netas − costo teórico de lo vendido). **Leé esa agregación; no
+vuelvas a sumar documentos de venta.** Lo que la utilidad agrega encima es lo de
+abajo de esa línea: gastos, obligaciones, nómina. Y `CashMovementCause` ya tiene
+`PETTY_EXPENSE`, `EMERGENCY_PURCHASE` y `OTHER_EXPENSE` para el gasto que **sí**
+sale del cajón: no inventes una causa nueva para eso.
 
 **Flags:** `money.obligations`.
 
@@ -233,6 +278,28 @@ propinas** según D-3 (los tres métodos, default por horas, como propuesta que 
 confirma).
 
 **Flags:** `payroll`. El reparto de propinas va bajo `pos.tips` (ya existe).
+
+**LO QUE YA EXISTE Y NO SE REESCRIBE (leelo antes de diseñar nada):**
+- `app/shifts/models.py` ya tiene **`TipPayout` y `TipPayoutDistribution`**, y su
+  docstring dice literalmente que «el cálculo del reparto es **manual** en esta
+  fase: esta tabla sólo deja constancia de quién, cuánto y cuándo — nunca lo
+  calcula». **Fase 3 es la fase en que llega el cálculo.** Así que D-3 **no crea
+  tablas de reparto**: calcula la propuesta y la asienta en las que ya están.
+- `app/shifts/tips.py` ya tiene **`get_shift_tips`** (propinas por medio, por
+  persona y por comanda: de ahí sale el monto a repartir) y
+  **`register_tip_payout(...)`**, que es la **única** puerta de escritura del
+  reparto — con su endpoint `POST /admin/tips/payouts` ya publicado desde 1b-2.
+- `app/shifts/models.py` ya tiene **`ShiftRoster`** con `in_at`, `out_at` y
+  `pauses` (`[{"start": ..., "end": ...}]`): ésa es la jornada, no hay que
+  capturarla de nuevo.
+- `CashMovementCause.TIP_PAYOUT` ya existe desde 1b-1 para el egreso de caja
+  cuando el dueño paga las propinas del cajón.
+
+**Entonces tu trabajo es el cálculo, no la plomería**: `app/payroll/` computa la
+**propuesta** (los tres métodos de D-3) leyendo `get_shift_tips` y `ShiftRoster`,
+y el «confirmar» llama a `tips.register_tip_payout` tal cual. **`app/shifts/` no
+es tu territorio y no lo tocás**: importás sus modelos y llamás a su función,
+igual que `purchases` llama a `shifts.hooks.register_supplier_payment_expense`.
 
 **Las tablas legales van parametrizadas, con fecha de vigencia, NUNCA quemadas en
 código** (§7): nocturno 19:00–06:00 desde dic-2025; dominical 80/90/100 % en
@@ -258,8 +325,23 @@ margen, sobre el costo **congelado en el ítem**, nunca revalorando con la carta
 hoy); **varianza por plato**, que §5.4 define explícitamente como «sólo estimación
 prorrateada» — decilo así en la respuesta y en pantalla, con el método a la vista;
 **reposición sugerida** y mínimo propuesto por consumo × lead time del proveedor;
-**«sostenido»** según D-1; **cobro por mesero** (el reporte de lo cobrado por cada
-quien, que §7 ya nombra como cierre de mesero y acá se consolida por período).
+**«sostenido»** según D-1.
+
+**LO QUE YA EXISTE Y NO SE DUPLICA:**
+- **«Cobro por mesero» YA ESTÁ CONSTRUIDO.** `GET /admin/sales?group_by=employee`
+  agrupa por `charged_by_employee_id` desde 1b-2, y el «cierre de mesero» de §7
+  (sus comandas, ventas por medio, propinas, anulaciones y descuentos) está desde
+  1b. **No construyas un segundo reporte.** Caminalo; si al período le falta algo
+  —por ejemplo la propina por mesero al lado de la venta— **declaralo como gap**:
+  `app/reports/` no es territorio de nadie en este pedido.
+- El costo congelado que necesita la ingeniería de menú **ya está en el ítem**:
+  `OrderItem.unit_cost` (pesos, redondeado) y `unit_cost_micros` /
+  `theoretical_cost_micros` (millonésimas). **Usá los micros y redondeá una sola
+  vez al final** — `app/reports/service.py` ya documenta por qué sumar `unit_cost`
+  en pesos pierde plata real con platos de costo menor a $1.
+- **`GroupBy` NO tiene `"product"`** (`business_date`, `shift`, `method`,
+  `channel`, `employee`, `hour`, `zone`): la agregación por plato es tuya y la
+  hacés en `app/analytics/` sobre los `OrderItem`, sin tocar `app/reports/`.
 
 **Flags:** `analytics.menu_engineering` (requiere `catalog.recipes`) e
 `inventory.replenishment` (requiere `inventory.perpetual` y `purchases`), **ya
@@ -286,7 +368,7 @@ que T5 necesita para existir y lo que el checklist va a medir.
 |---|---|
 | `GET /admin/deposits` | consignaciones del período (`from`/`to`), con comprobante |
 | `POST /admin/deposits` | registra una consignación (`Idempotency-Key`) |
-| `GET /admin/deposits/pending` | **lo por consignar, derivado** por turno cerrado: `shift_id`, `business_date`, `amount`, y `amount: null` con `reason` cuando el turno no cerró |
+| `GET /admin/deposits/pending` | saldo por consignar por turno cerrado: `shift_id`, `business_date`, `to_deposit` (**leído de `Shift.to_deposit`**), `deposited`, `outstanding`; `to_deposit: null` con `reason` cuando el turno cerró sin conteo |
 | `GET /admin/bank/ledger` | libro del banco del período: consignaciones, liquidaciones de datáfono, transferencias |
 | `GET /admin/bank/owner-hand` | mano del dueño: `withdrawn`, `deposited`, `spent`, `balance` |
 | `GET /admin/reconciliation/card` · `.../platform` | conciliación: lo esperado, lo liquidado, la diferencia, y `matched`/`unmatched` |
@@ -301,6 +383,7 @@ que T5 necesita para existir y lo que el checklist va a medir.
 | `GET /admin/break-even` | `fixed_costs`, `contribution_margin_pct_bp`, `break_even_amount`, `available: bool`, `reason: str \| null`. **Sin costos fijos cargados: `break_even_amount: null` con `reason`, jamás `0`.** |
 | `GET /admin/profit` | resultado del período: ventas netas, costo, gastos, obligaciones, nómina, `profit`, con los mismos `available`/`reason` |
 | `GET /admin/payables/{id}` (extensión D-2) | gana `invoice_total: int \| null` e `invoice_discrepancy: int \| null` |
+| `POST /admin/payables/{id}/approve` (extensión D-2) | acepta `confirm_discrepancy: bool`; sin él y con diferencia, `409 INVOICE_DISCREPANCY` |
 
 **T3 — payroll**
 | Ruta | Qué devuelve / recibe |
@@ -308,8 +391,8 @@ que T5 necesita para existir y lo que el checklist va a medir.
 | `GET /admin/payroll/hours` | jornada por persona del período: ordinarias, nocturnas, dominicales, festivas, extras |
 | `GET`/`POST /admin/payroll/surcharge-tables` | tablas de recargos **con `valid_from`** |
 | `GET /admin/payroll/runs` · `POST /admin/payroll/runs` | liquidación del período; la respuesta nombra **qué tabla vigente** usó |
-| `GET /admin/tips/distribution` | **propuesta** de reparto: `method`, `rows[{employee_id, employee_name, basis, amount}]`, `total`. Nunca mueve plata. |
-| `POST /admin/tips/distribution/confirm` | registra el reparto confirmado (`Idempotency-Key`) |
+| `GET /admin/tips/distribution/proposal` | **propuesta** de reparto: `method`, `rows[{employee_id, employee_name, basis, amount}]`, `total`. Nunca mueve plata. |
+| `POST /admin/tips/payouts` | **YA EXISTE** (1b-2, `app/shifts/`): es el «confirmar». No lo reescribas ni lo dupliques. |
 | `GET`/`PATCH /admin/tips/settings` | `method` ∈ `equal_shares` \| `by_hours` \| `by_area`, default `by_hours` (D-3) |
 
 **T4 — analytics**
@@ -319,7 +402,9 @@ que T5 necesita para existir y lo que el checklist va a medir.
 | `GET /admin/variance/by-dish` | varianza por plato, con `method: "prorated"` **explícito** en la respuesta (§5.4) |
 | `GET /admin/control-health/sustained` | D-1: `sustained_red: bool \| null`, `windows_evaluated`, `reason` cuando son menos de dos |
 | `GET /admin/replenishment` | reposición sugerida: por insumo, `suggested_qty`, `suggested_min`, `lead_time_days`, `based_on` |
-| `GET /admin/sales/by-server` | cobro por mesero del período |
+
+«Cobro por mesero» **no lleva ruta nueva**: es `GET /admin/sales?group_by=employee`,
+que existe desde 1b-2. T5 lo alcanza desde la pantalla de Ventas que ya está.
 
 **Reglas que valen para todas.** Rango de período con `from`/`to` en **fecha de
 negocio** (nunca timestamps UTC). Plata en **enteros de pesos**. Porcentajes en

@@ -403,6 +403,17 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     invariante: sigue siendo `==`, nunca «que contenga al menos». Qué dejó de
     estar cubierto: **nada** — el conjunto enumerado creció con los siete
     nombres nuevos, así que una tabla de más o de menos sigue siendo roja.
+
+    **Re-apuntado otra vez al cerrar H-3** (orquestador humano): la cadena
+    llega a **`0016_active_channels_backfill`**, la migración que acompaña a la
+    guarda extendida de `create_order` marcando `delivery`/`platform` como
+    canales activos en toda sede que ya existía. **El conteo de tablas NO
+    cambia y se queda en 79**: `0016` es un respaldo de DATOS, no de esquema —
+    no crea ni borra una sola tabla. Y ese es justamente el caso que este test
+    existe para cubrir: agregué la migración y me olvidé del poste, así que la
+    suite se puso roja acá en vez de dejar pasar un `head` desalineado. Medido
+    con la cadena completa sobre Postgres 16 (`0001 → 0016`, 80 tablas
+    contando `alembic_version`, una sola cabeza, y `downgrade base` limpio).
     """
     from sqlalchemy import text
 
@@ -414,7 +425,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0015", f"la cadena quedó en {version!r} y el pedido 2c llega hasta 0015"
+    assert version == "0016", (
+        f"la cadena quedó en {version!r}; el punto de llegada después de 2c y del "
+        "cierre de H-3 es 0016 (`0016_active_channels_backfill`). Si agregaste una "
+        "migración, movele el poste acá y decí por qué, como hicieron 2b, 2c y H-3"
+    )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
     de_las_recetas = {
@@ -448,9 +463,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # inventario + 8 de recetas = 63 al cerrar 2a; + 5 de compras
     # (`0011_purchases`) + 4 de conteos y lotes (`0012_counts_lots`) = 72 al
     # cerrar 2b; + 1 de «marchar» (`0013`) + 4 de plataformas y liquidación
-    # (`0014`) + 2 del KDS (`0015`) = **79** al cerrar 2c. Ojo al comparar con
-    # `docs/ESTADO.md`, que para 1b anotó "53 tablas" contando la de control
-    # de Alembic: es el mismo esquema contado de dos maneras.
+    # (`0014`) + 2 del KDS (`0015`) = **79** al cerrar 2c. `0016` (el respaldo
+    # de «canales activos» del cierre de H-3) NO mueve este número: toca datos,
+    # no esquema. Ojo al comparar con `docs/ESTADO.md`, que para 1b anotó
+    # "53 tablas" contando la de control de Alembic: es el mismo esquema
+    # contado de dos maneras.
     assert len(tablas) == 79, (
         f"el esquema quedó con {len(tablas)} tablas de dominio; 2c lo deja en 79 "
         f"(72 al cerrar 2b + 1 de «marchar» + 4 de plataformas + 2 del KDS). Actualizá este "
