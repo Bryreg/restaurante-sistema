@@ -312,6 +312,16 @@ que lo exige con un test.
 igual que `QTY_SCALE` hizo con las cantidades. Un recargo calculado con `float` es
 un error que nadie encuentra.
 
+**LA LÍNEA QUE NO SE CRUZA, y la nómina es donde alguien va a intentar cruzarla:**
+**el sistema NUNCA calcula una deuda del empleado ni genera un descuento de
+nómina** por un faltante de caja (SPEC-NEGOCIO §3.2 y §11.16; CST art. 149
+prohíbe deducir del salario sin orden escrita para cada caso). Ya hay un
+invariante que barre las respuestas de turno buscando `debt`, `deuda`, `owes` y
+`payroll_deduction` (`tests/audit/test_cash_invariants.py`); tu liquidación
+**tampoco** puede tener un renglón así, ni siquiera opcional, ni siquiera en cero.
+Un faltante de caja se resuelve con la causa tipada y la conversación que
+corresponda, no descontándoselo a alguien.
+
 ### T4 — `backend-analitica` · qué conviene vender
 
 **Escribe:**
@@ -439,8 +449,14 @@ que lo hace cumplir sobre todo el repo.
 
 ### T6 — `auditor-fase3` (opus) · invariantes ejecutables
 
-**Escribe:** `backend/tests/audit/test_fase3_invariants.py` y
-`frontend/src/audit/fase3-*.test.ts`. **Ningún archivo de producción, nunca.**
+**Escribe:** `backend/tests/audit/test_contract_fase3_invariants.py` (el mismo
+patrón de nombre que `test_contract_2b_invariants.py` y
+`test_contract_2c_invariants.py`, que ya están) y, en `frontend/src/audit/`,
+archivos con nombre **por tema** como los que ya hay (`active-channels.test.ts`,
+`cost-display.test.tsx`, `portal-queries.test.ts`): p. ej.
+`money-after-drawer.test.ts`, `break-even.test.ts`, `payroll.test.ts`,
+`menu-engineering.test.ts`. **Ningún archivo de producción, nunca**, y ningún
+nombre que pise uno existente.
 
 **Tu trabajo no es confirmar que el equipo hizo lo que dijo: es encontrar dónde
 mintieron los números.** Un hallazgo se escribe como **un test rojo a propósito**,
