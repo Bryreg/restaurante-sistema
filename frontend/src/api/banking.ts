@@ -239,3 +239,133 @@ export function settleCardReconciliation(
     idempotencyKey,
   })
 }
+
+// ---------------------------------------------------------------------------
+// Liquidaciones del datáfono y de plataformas — REGISTRAR y CONCILIAR.
+//
+// Hallazgo A-1 del cierre de la fase 3: `POST /admin/reconciliation/card`,
+// `POST .../platform`, `GET .../settlements` y `POST .../{id}/settle`
+// estaban construidos y probados, y ninguna pantalla los consumía. Sin
+// registrar una liquidación, `settled` es siempre 0 y TODO aparece como no
+// conciliado — la capacidad 3 de la fase no se podía completar.
+//
+// El flujo es de DOS PASOS a propósito: primero se registra lo que liquidó el
+// datáfono (bruto, comisión, retención, fecha de venta y fecha de abono), y
+// después se concilia esa liquidación contra lo esperado. La fila de
+// `GET /admin/reconciliation/card` agrupa POR DÍA y trae `settlement_ids`, no
+// un `id`: el botón «Conciliar» va sobre la liquidación concreta de esta
+// lista, no sobre la fila agrupada.
+// ---------------------------------------------------------------------------
+
+export type SettlementStatus = "pending" | "matched" | "reversed"
+
+export interface CardSettlementIn {
+  sales_business_date: string
+  settled_business_date: string
+  gross_amount: number
+  commission_amount: number
+  retention_amount: number
+  reference?: string | null
+  note?: string | null
+}
+
+export interface CardSettlementOut {
+  id: number
+  store_id: number
+  sales_business_date: string
+  settled_business_date: string
+  lag_days: number
+  gross_amount: number
+  commission_amount: number
+  retention_amount: number
+  net_amount: number
+  reference: string | null
+  note: string | null
+  status: SettlementStatus
+  employee_name: string
+  created_at: string
+  matched_at?: string | null
+  matched_by_employee_name?: string | null
+  reversed_at?: string | null
+  reversed_reason?: string | null
+}
+
+export function createCardSettlement(
+  storeId: number,
+  data: CardSettlementIn,
+  idempotencyKey: string,
+): Promise<CardSettlementOut> {
+  return api<CardSettlementOut>("/admin/reconciliation/card", {
+    method: "POST",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
+}
+
+export function listCardSettlements(params: PeriodQuery & { status?: string }): Promise<CardSettlementOut[]> {
+  return api<CardSettlementOut[]>("/admin/reconciliation/card/settlements", {
+    query: { store_id: params.storeId, from: params.from, to: params.to, status: params.status },
+  })
+}
+
+export interface PlatformSettlementIn {
+  platform_id: number
+  period_from: string
+  period_to: string
+  gross_amount: number
+  commission_amount: number
+  reference?: string | null
+  note?: string | null
+}
+
+export interface PlatformSettlementOut {
+  id: number
+  store_id: number
+  platform_id: number
+  period_from: string
+  period_to: string
+  gross_amount: number
+  commission_amount: number
+  net_amount: number
+  reference: string | null
+  note: string | null
+  status: SettlementStatus
+  employee_name: string
+  created_at: string
+  matched_at?: string | null
+  matched_by_employee_name?: string | null
+}
+
+export function createPlatformSettlement(
+  storeId: number,
+  data: PlatformSettlementIn,
+  idempotencyKey: string,
+): Promise<PlatformSettlementOut> {
+  return api<PlatformSettlementOut>("/admin/reconciliation/platform", {
+    method: "POST",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
+}
+
+export function listPlatformSettlements(
+  params: PeriodQuery & { status?: string },
+): Promise<PlatformSettlementOut[]> {
+  return api<PlatformSettlementOut[]>("/admin/reconciliation/platform/settlements", {
+    query: { store_id: params.storeId, from: params.from, to: params.to, status: params.status },
+  })
+}
+
+export function settlePlatformSettlement(
+  id: number,
+  data: SettleReconciliationIn,
+  idempotencyKey: string,
+): Promise<PlatformSettlementOut> {
+  return api<PlatformSettlementOut>(`/admin/reconciliation/platform/${id}/settle`, {
+    method: "POST",
+    body: data,
+    idempotencyKey,
+  })
+}

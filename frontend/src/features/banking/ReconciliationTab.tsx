@@ -13,7 +13,15 @@
  * propio — sólo `settlement_ids` (las liquidaciones ya registradas que caen
  * en ese día). El contrato mínimo sólo fija la RUTA `.../{id}/settle`, no
  * de dónde sale ese `id`; esta pantalla no inventa uno: oculta "Conciliar"
- * cuando la fila no trae ninguno (ver gaps del entregable).
+ * cuando la fila no trae ninguno.
+ *
+ * **Hallazgo A-1 del cierre, cerrado acá**: no había forma de REGISTRAR una
+ * liquidación, así que `settled` era siempre 0 y todo salía como no
+ * conciliado. `SettlementsSection` —abajo de la tabla agrupada— registra las
+ * liquidaciones y ofrece «Conciliar» sobre cada una, que es donde el `id`
+ * existe de verdad. También para plataformas: `POST
+ * /admin/reconciliation/platform/{id}/settle` existe desde la construcción de
+ * la fase, sólo que el contrato mínimo no lo nombraba.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
@@ -32,6 +40,7 @@ import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
+import { SettlementsSection } from "./SettlementsSection"
 import { daysAgoLocal, todayLocal } from "./lib"
 
 function SettleDialog({
@@ -153,6 +162,8 @@ export function ReconciliationTab({ storeId, kind }: { storeId: number; kind: "c
           </Table>
         </div>
       )}
+
+      <SettlementsSection storeId={storeId} kind={kind} from={from} to={to} />
     </div>
   )
 }

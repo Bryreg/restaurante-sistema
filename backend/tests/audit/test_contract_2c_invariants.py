@@ -432,13 +432,30 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
     igualdad exacta, no un «que contenga al menos». Este test existe para que
     el número quede cobrado desde dos archivos distintos: si alguien "arregla"
     el heredado poniéndole un `>=`, éste sigue exigiendo el conjunto exacto.
+
+    **Re-apuntado dos veces más, y la segunda vez porque ESTE test hizo su
+    trabajo** (orquestador humano):
+
+    - Al cerrar **H-3** moví el poste del archivo heredado a `"0016"` y
+      **me olvidé de esta contraparte**. Y no lo vi en la corrida completa,
+      por una razón que vale la pena dejar escrita: la suite ya había pasado
+      por este archivo (corre mucho antes, alfabéticamente) cuando edité el
+      otro a mitad de corrida, así que leyó la versión vieja y pasó. Un test
+      que lee el CÓDIGO FUENTE de otro archivo mide el árbol en el instante en
+      que corre, no el árbol final — si se toca el archivo medido durante la
+      corrida, el resultado no vale.
+    - En la **fase 3** la cadena llega a `"0020"` (`0017` banco, `0018`
+      obligaciones, `0019` la columna `invoice_total` de D-2, `0020` nómina) y
+      el conteo pasa a **93** tablas de dominio: 79 + 4 + 3 + 7. `0019` no
+      suma porque agrega una columna, no una tabla, y `analytics` no suma
+      porque no tiene modelos a propósito. Medido sobre Postgres 16 real.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0015"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: 2c llega a 0015"
+    assert 'version == "0020"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la fase 3 llega a 0020"
     )
-    assert "len(tablas) == 79" in fuente, (
-        "el conteo de tablas sigue en el número de 2b: 2c lo deja en 79 (72 + 7)"
+    assert "len(tablas) == 93" in fuente, (
+        "el conteo de tablas sigue en un número viejo: la fase 3 lo deja en 93 (79 + 4 + 3 + 7)"
     )
     assert ">=" not in fuente.split("def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory")[1].split("\ndef ")[0], (
         "el invariante de la cadena se aflojó a una desigualdad: un conjunto exacto se MUEVE, no se afloja"

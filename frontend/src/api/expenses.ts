@@ -132,6 +132,37 @@ export function settleObligation(
 }
 
 // ---------------------------------------------------------------------------
+// GET/PATCH /admin/expenses/settings — los costos fijos de la sede.
+//
+// Es la PUERTA DE ENTRADA del punto de equilibrio: sin esto cargado,
+// `GET /admin/break-even` responde `available: false` para siempre y el motivo
+// que devuelve le nombra al dueño una ruta de API que no puede abrir. Las dos
+// rutas existían desde la construcción de la fase; lo que faltaba era la
+// pantalla (hallazgo A-1 de la ENTREGA).
+// ---------------------------------------------------------------------------
+
+export interface ExpensesSettingsOut {
+  store_id: number
+  fixed_costs: number | null
+  updated_at: string | null
+}
+
+export function getExpensesSettings(storeId: number): Promise<ExpensesSettingsOut> {
+  return api<ExpensesSettingsOut>("/admin/expenses/settings", { query: { store_id: storeId } })
+}
+
+export function updateExpensesSettings(
+  storeId: number,
+  data: { fixed_costs: number | null },
+): Promise<ExpensesSettingsOut> {
+  return api<ExpensesSettingsOut>("/admin/expenses/settings", {
+    method: "PATCH",
+    query: { store_id: storeId },
+    body: data,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // GET /admin/break-even — punto de equilibrio del período.
 // ---------------------------------------------------------------------------
 

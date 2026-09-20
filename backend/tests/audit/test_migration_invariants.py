@@ -414,6 +414,16 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     suite se puso roja acá en vez de dejar pasar un `head` desalineado. Medido
     con la cadena completa sobre Postgres 16 (`0001 → 0016`, 80 tablas
     contando `alembic_version`, una sola cabeza, y `downgrade base` limpio).
+
+    **Re-apuntado en la FASE 3** (orquestador humano): la cadena llega a
+    **`0020_payroll`** y el conteo pasa de **79 a 93**: 4 de banco (`0017`),
+    3 de obligaciones (`0018`) y 7 de nómina (`0020`). `0019_invoice_total`
+    (la decisión D-2) **no mueve el conteo**: agrega `receptions.invoice_total`,
+    una columna, no una tabla. Y `analytics` (T4) no aparece porque **no tiene
+    modelos a propósito**: toda la analítica es derivada, que es lo que §6.1
+    pide («derivar en vez de almacenar»). Medido con la cadena completa sobre
+    Postgres 16 real (`0001 → 0020`, una sola cabeza, 93 tablas de dominio, y
+    `downgrade base` deja el esquema vacío), no estimado sumando `create_table`.
     """
     from sqlalchemy import text
 
@@ -425,10 +435,10 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0016", (
-        f"la cadena quedó en {version!r}; el punto de llegada después de 2c y del "
-        "cierre de H-3 es 0016 (`0016_active_channels_backfill`). Si agregaste una "
-        "migración, movele el poste acá y decí por qué, como hicieron 2b, 2c y H-3"
+    assert version == "0020", (
+        f"la cadena quedó en {version!r}; el punto de llegada después de la fase 3 "
+        "es 0020 (`0020_payroll`). Si agregaste una migración, movele el poste acá "
+        "y decí por qué, como hicieron 2b, 2c, H-3 y la fase 3"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -453,10 +463,40 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
         "platform_commissions",
     }
     del_kds = {"kitchen_bump_events", "kitchen_print_jobs"}
+    # Fase 3: los catorce nombres nuevos, enumerados igual que los anteriores.
+    # `0019_invoice_total` (D-2) no aparece acá porque no crea tabla: agrega
+    # `receptions.invoice_total`, y eso lo cubre el test de paridad DDL/modelos.
+    del_banco = {
+        "bank_deposits",
+        "bank_deposit_allocations",
+        "card_settlements",
+        "platform_settlements",
+    }
+    de_las_obligaciones = {"expenses", "obligations", "store_expenses_settings"}
+    de_la_nomina = {
+        "payroll_surcharge_tables",
+        "payroll_holidays",
+        "payroll_wage_rates",
+        "payroll_area_assignments",
+        "payroll_tip_distribution_settings",
+        "payroll_runs",
+        "payroll_run_lines",
+    }
     faltan = sorted(
-        (del_inventario | de_las_recetas | de_las_compras | de_los_conteos | de_los_canales | del_kds) - tablas
+        (
+            del_inventario
+            | de_las_recetas
+            | de_las_compras
+            | de_los_conteos
+            | de_los_canales
+            | del_kds
+            | del_banco
+            | de_las_obligaciones
+            | de_la_nomina
+        )
+        - tablas
     )
-    assert not faltan, f"las migraciones de 2a/2b/2c no crearon: {faltan}"
+    assert not faltan, f"las migraciones de 2a/2b/2c/fase 3 no crearon: {faltan}"
 
     # El conteo total, para que agregar una tabla sin querer también se vea.
     # **Sin `alembic_version`** (no es del dominio): 52 de 1a/1b + 3 de
@@ -465,12 +505,15 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # cerrar 2b; + 1 de «marchar» (`0013`) + 4 de plataformas y liquidación
     # (`0014`) + 2 del KDS (`0015`) = **79** al cerrar 2c. `0016` (el respaldo
     # de «canales activos» del cierre de H-3) NO mueve este número: toca datos,
-    # no esquema. Ojo al comparar con `docs/ESTADO.md`, que para 1b anotó
-    # "53 tablas" contando la de control de Alembic: es el mismo esquema
-    # contado de dos maneras.
-    assert len(tablas) == 79, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; 2c lo deja en 79 "
-        f"(72 al cerrar 2b + 1 de «marchar» + 4 de plataformas + 2 del KDS). Actualizá este "
+    # no esquema. Fase 3: + 4 de banco (`0017`) + 3 de obligaciones (`0018`)
+    # + 7 de nómina (`0020`) = **93**. `0019_invoice_total` tampoco lo mueve
+    # (agrega una columna, no una tabla), y `analytics` (T4) no tiene modelos
+    # a propósito: es todo derivado. Ojo al comparar con `docs/ESTADO.md`, que
+    # para 1b anotó "53 tablas" contando la de control de Alembic: es el mismo
+    # esquema contado de dos maneras.
+    assert len(tablas) == 93, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; la fase 3 lo deja en 93 "
+        f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina). Actualizá este "
         f"número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 

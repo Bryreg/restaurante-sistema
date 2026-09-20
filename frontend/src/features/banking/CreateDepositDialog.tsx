@@ -32,7 +32,6 @@ import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/MoneyInput"
 import { PhotoCaptureField } from "@/components/PhotoCaptureField"
 import { errorMessage } from "@/lib/errors"
-import { formatCOP } from "@/lib/money"
 
 import { todayLocal } from "./lib"
 
@@ -82,14 +81,13 @@ export function CreateDepositDialog({
     shift_id: number
     amount: number
   }[]
-  const allocatedSum = validAllocations.reduce((sum, a) => sum + a.amount, 0)
-  // Ayuda de CAPTURA, nunca una cifra del sistema: el número que manda es el
-  // `unallocated_amount` que devuelve el servidor (DepositOut, ver
-  // `app/banking/router.py`), no lo que este formulario resta en el cliente
-  // mientras la persona todavía está tecleando (AGENTS.md § "una sola
-  // matemática, en el backend").
-  const remainder = amount !== null ? amount - allocatedSum : null
-  const allocationsExceedAmount = remainder !== null && remainder < 0
+  // Acá NO se calcula ningún remanente. Se intentó como "ayuda de captura,
+  // no es una cifra del sistema", y un invariante lo marcó con razón: una
+  // diferencia de plata restada en el cliente es una segunda matemática por
+  // más que se la rotule (AGENTS.md § "una sola matemática, en el backend").
+  // Quien manda es el servidor: rechaza con `ALLOCATION_EXCEEDS_DEPOSIT`
+  // nombrando las dos cifras, y publica `unallocated_amount` en `DepositOut`
+  // una vez creada la consignación.
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -125,7 +123,7 @@ export function CreateDepositDialog({
   // obligatorios; si Σ imputaciones > monto, se bloquea el envío con
   // mensaje propio — el servidor sigue siendo la autoridad
   // (`ALLOCATION_EXCEEDS_DEPOSIT`/`DEPOSIT_EXCEEDS_PENDING` via `errorMessage`).
-  const canSubmit = amount !== null && amount > 0 && photo !== null && businessDate.trim() !== "" && !allocationsExceedAmount
+  const canSubmit = amount !== null && amount > 0 && photo !== null && businessDate.trim() !== ""
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -204,17 +202,10 @@ export function CreateDepositDialog({
               Cada turno consignado no puede volver a aparecer «en la mano»: es la llave anti doble conteo de este
               territorio (spec.md § T1).
             </p>
-            {amount !== null ? (
-              <p className={`text-sm ${allocationsExceedAmount ? "text-destructive" : "text-muted-foreground"}`}>
-                Remanente sin imputar (ayuda de captura, no es una cifra del sistema): {formatCOP(remainder)}
-              </p>
-            ) : null}
-            {allocationsExceedAmount ? (
-              <p role="alert" className="text-sm text-destructive">
-                Las imputaciones suman más que el monto consignado. Ajustá los montos de los turnos o el monto
-                consignado antes de guardar.
-              </p>
-            ) : null}
+            <p className="text-xs text-muted-foreground">
+              Podés dejar turnos sin imputar: el servidor publica cuánto quedó sin imputar cuando se guarda. Si las
+              imputaciones suman más que el monto consignado, lo rechaza y te lo dice.
+            </p>
           </div>
 
           <PhotoCaptureField value={photo} onChange={setPhoto} label="Foto del comprobante (obligatoria)" required />

@@ -160,14 +160,113 @@ export interface PayrollRunIn {
   date_to: string
 }
 
-export function getPayrollRuns(params: PeriodQuery): Promise<PayrollRunOut[]> {
-  return api<PayrollRunOut[]>("/admin/payroll/runs", {
+/**
+ * Fila del LISTADO. `GET /admin/payroll/runs` devuelve `PayrollRunSummaryOut`,
+ * que **no trae `lines` ni `tables_used`** (su docstring en
+ * `app/payroll/schemas.py` lo dice). Tiparlo como el detalle fue el hallazgo
+ * A-1: la pantalla pintaba el detalle desde la fila del listado y afirmaba
+ * «esta liquidación no informó qué tabla de recargos usó» cuando el backend
+ * sí las informa — en `GET /admin/payroll/runs/{id}`.
+ */
+export interface PayrollRunSummaryOut {
+  id: number
+  store_id?: number
+  date_from?: string
+  date_to?: string
+  total_amount: number | null
+  available: boolean
+  reason: string | null
+  computed_at?: string
+}
+
+export function getPayrollRuns(params: PeriodQuery): Promise<PayrollRunSummaryOut[]> {
+  return api<PayrollRunSummaryOut[]>("/admin/payroll/runs", {
     query: { store_id: params.storeId, from: params.from, to: params.to },
   })
 }
 
+/** El detalle: acá sí viven `lines` y `tables_used`. */
+export function getPayrollRun(runId: number): Promise<PayrollRunOut> {
+  return api<PayrollRunOut>(`/admin/payroll/runs/${runId}`)
+}
+
 export function createPayrollRun(storeId: number, data: PayrollRunIn): Promise<PayrollRunOut> {
   return api<PayrollRunOut>("/admin/payroll/runs", { method: "POST", query: { store_id: storeId }, body: data })
+}
+
+// ---------------------------------------------------------------------------
+// Tarifas, festivos y áreas — las tres PUERTAS DE ENTRADA que la fase
+// construyó y que ninguna pantalla consumía (hallazgo A-1).
+//
+// Sin tarifa por hora, `POST /admin/payroll/runs` liquida con
+// `total_amount: null`; sin festivos, la columna «festivas» es siempre cero;
+// sin áreas, el reparto de propinas `by_area` no tiene con qué agrupar. Y la
+// tarifa arrastra además a `GET /admin/profit`, que es el objetivo textual de
+// la fase.
+// ---------------------------------------------------------------------------
+
+export interface WageRateOut {
+  id: number
+  store_id: number
+  employee_id: number
+  employee_name: string
+  hourly_wage_pesos: number
+  valid_from: string
+  created_at: string
+}
+
+export interface WageRateIn {
+  employee_id: number
+  hourly_wage_pesos: number
+  valid_from: string
+}
+
+export function getWages(storeId: number): Promise<WageRateOut[]> {
+  return api<WageRateOut[]>("/admin/payroll/wages", { query: { store_id: storeId } })
+}
+
+export function createWage(storeId: number, data: WageRateIn): Promise<WageRateOut> {
+  return api<WageRateOut>("/admin/payroll/wages", { method: "POST", query: { store_id: storeId }, body: data })
+}
+
+export interface HolidayOut {
+  id: number
+  store_id: number
+  holiday_date: string
+  name: string
+}
+
+export interface HolidayIn {
+  holiday_date: string
+  name: string
+}
+
+export function getHolidays(storeId: number): Promise<HolidayOut[]> {
+  return api<HolidayOut[]>("/admin/payroll/holidays", { query: { store_id: storeId } })
+}
+
+export function createHoliday(storeId: number, data: HolidayIn): Promise<HolidayOut> {
+  return api<HolidayOut>("/admin/payroll/holidays", { method: "POST", query: { store_id: storeId }, body: data })
+}
+
+export interface AreaAssignmentOut {
+  employee_id: number
+  employee_name: string
+  area: string
+  updated_at: string
+}
+
+export interface AreaAssignmentIn {
+  employee_id: number
+  area: string
+}
+
+export function getAreas(storeId: number): Promise<AreaAssignmentOut[]> {
+  return api<AreaAssignmentOut[]>("/admin/payroll/areas", { query: { store_id: storeId } })
+}
+
+export function setArea(storeId: number, data: AreaAssignmentIn): Promise<AreaAssignmentOut> {
+  return api<AreaAssignmentOut>("/admin/payroll/areas", { method: "POST", query: { store_id: storeId }, body: data })
 }
 
 // ---------------------------------------------------------------------------

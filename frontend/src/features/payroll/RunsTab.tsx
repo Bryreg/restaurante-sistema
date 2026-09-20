@@ -6,11 +6,19 @@
  * pantalla"). Campos verificados por lectura directa de `app/payroll/
  * schemas.py::PayrollRunOut` (`tables_used`/`lines`, no `surcharge_table_
  * used`/`rows` como asumía la primera versión de este archivo).
+ *
+ * **Hallazgo A-1 del cierre, corregido acá**: el detalle se pintaba con la
+ * fila del LISTADO, y `GET /admin/payroll/runs` devuelve `PayrollRunSummaryOut`,
+ * que no trae `lines` ni `tables_used`. Resultado: toda liquidación vieja
+ * afirmaba «esta liquidación no informó qué tabla de recargos usó» cuando el
+ * backend sí las informa. Una pantalla que dice algo falso es peor que una
+ * pantalla que falta. Ahora el detalle se pide a `GET /admin/payroll/runs/{id}`,
+ * y sólo cuando alguien lo despliega.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { createPayrollRun, getPayrollRuns, type PayrollRunOut } from "@/api/payroll"
+import { createPayrollRun, getPayrollRun, getPayrollRuns } from "@/api/payroll"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
@@ -24,9 +32,29 @@ import { formatBasisPoints } from "@/features/inventory/lib"
 
 import { daysAgoLocal, todayLocal } from "./lib"
 
-function RunDetail({ run }: { run: PayrollRunOut }): React.JSX.Element {
-  const tables = run.tables_used ?? []
-  const lines = run.lines ?? []
+function RunDetail({ runId }: { runId: number }): React.JSX.Element {
+  // El detalle vive en su propia ruta y se pide sólo al desplegarlo: el
+  // listado no lo trae, y asumir que sí era la mentira que corrigió A-1.
+  const query = useQuery({
+    queryKey: ["payroll", "run", runId],
+    queryFn: () => getPayrollRun(runId),
+  })
+
+  if (query.isLoading) return <p className="text-sm text-muted-foreground">Cargando el detalle…</p>
+  if (query.isError) {
+    return (
+      <EmptyState
+        role="alert"
+        title="No se pudo cargar el detalle de la liquidación"
+        description={errorMessage(query.error)}
+        action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+      />
+    )
+  }
+
+  const run = query.data
+  const tables = run?.tables_used ?? []
+  const lines = run?.lines ?? []
   return (
     <div className="space-y-3">
       {tables.length > 0 ? (
@@ -92,7 +120,10 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
 
   const mutation = useMutation({
     mutationFn: () => createPayrollRun(storeId, { date_from: from, date_to: to }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["payroll", "runs"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["payroll", "runs"] })
+      void queryClient.invalidateQueries({ queryKey: ["payroll", "run"] })
+    },
   })
 
   return (
@@ -142,7 +173,7 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
               </div>
               {expandedId === run.id ? (
                 <div className="mt-3 overflow-x-auto">
-                  <RunDetail run={run} />
+                  <RunDetail runId={run.id} />
                 </div>
               ) : null}
             </div>

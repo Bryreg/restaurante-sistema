@@ -14,6 +14,7 @@ import { StatTile } from "@/components/StatTile"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
+import { FixedCostsCard } from "./FixedCostsCard"
 import { daysAgoLocal, formatBasisPoints, todayLocal } from "./lib"
 
 export function BreakEvenTab({ storeId }: { storeId: number }): React.JSX.Element {
@@ -28,6 +29,11 @@ export function BreakEvenTab({ storeId }: { storeId: number }): React.JSX.Elemen
   return (
     <div className="space-y-4">
       <DateRangeFilter idPrefix="break-even" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
+
+      {/* La carga de costos fijos vive acá, en la misma pantalla que avisa que
+          faltan: era el hallazgo A-1 —las dos rutas existían y ninguna pantalla
+          las consumía—, así que la capacidad no se podía completar. */}
+      <FixedCostsCard storeId={storeId} />
 
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Calculando el punto de equilibrio…</p>

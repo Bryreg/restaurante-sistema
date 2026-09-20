@@ -17,9 +17,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { HoursTab } from "./HoursTab"
 import { RunsTab } from "./RunsTab"
 import { SurchargeTablesTab } from "./SurchargeTablesTab"
+import { WagesCalendarTab } from "./WagesCalendarTab"
 import { TipsTab } from "./TipsTab"
 
-const ALL_TABS = ["horas", "recargos", "liquidaciones", "propinas"] as const
+const ALL_TABS = ["horas", "tarifas", "recargos", "liquidaciones", "propinas"] as const
 type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
@@ -39,6 +40,7 @@ export function PayrollAdminPage(): React.JSX.Element {
   const requestedTab: TabValue = isTabValue(tabParam) ? tabParam : payrollEnabled ? "horas" : "propinas"
   const tabAvailable: Record<TabValue, boolean> = {
     horas: payrollEnabled,
+    tarifas: payrollEnabled,
     recargos: payrollEnabled,
     liquidaciones: payrollEnabled,
     propinas: tipsEnabled,
@@ -76,6 +78,7 @@ export function PayrollAdminPage(): React.JSX.Element {
       >
         <TabsList className="h-auto flex-wrap">
           {payrollEnabled ? <TabsTrigger value="horas">Horas</TabsTrigger> : null}
+          {payrollEnabled ? <TabsTrigger value="tarifas">Tarifas y calendario</TabsTrigger> : null}
           {payrollEnabled ? <TabsTrigger value="recargos">Tablas de recargos</TabsTrigger> : null}
           {payrollEnabled ? <TabsTrigger value="liquidaciones">Liquidaciones</TabsTrigger> : null}
           {tipsEnabled ? <TabsTrigger value="propinas">Propinas</TabsTrigger> : null}
@@ -83,6 +86,11 @@ export function PayrollAdminPage(): React.JSX.Element {
         {payrollEnabled ? (
           <TabsContent value="horas" className="pt-4">
             <HoursTab storeId={activeStoreId} />
+          </TabsContent>
+        ) : null}
+        {payrollEnabled ? (
+          <TabsContent value="tarifas" className="pt-4">
+            <WagesCalendarTab storeId={activeStoreId} />
           </TabsContent>
         ) : null}
         {payrollEnabled ? (

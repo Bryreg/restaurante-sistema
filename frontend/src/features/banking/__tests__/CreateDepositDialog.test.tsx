@@ -82,10 +82,9 @@ describe("CreateDepositDialog — C5/H-6: el monto nunca sale de sumar allocatio
     await user.type(screen.getByLabelText("Monto de este turno"), "200000")
     await user.click(screen.getByRole("button", { name: "Adjuntar comprobante (stub)" }))
 
-    // El remanente que se ve en pantalla es una ayuda de captura del
-    // cliente, nunca la cifra del sistema (`unallocated_amount` sale del
-    // servidor) — pero mientras es >= 0 no bloquea el envío.
-    expect(screen.getByText(/Remanente sin imputar/)).toHaveTextContent("$ 300.000")
+    // La pantalla NO muestra ningún remanente calculado acá: `unallocated_amount`
+    // lo publica el servidor en `DepositOut`. Ver el test de abajo.
+    expect(screen.queryByText(/Remanente sin imputar/)).not.toBeInTheDocument()
 
     const submitButton = screen.getByRole("button", { name: "Registrar consignación" })
     expect(submitButton).toBeEnabled()
@@ -97,7 +96,17 @@ describe("CreateDepositDialog — C5/H-6: el monto nunca sale de sumar allocatio
     expect(body.allocations).toEqual([{ shift_id: 11, amount: 200_000 }])
   })
 
-  it("si las imputaciones superan el monto consignado, bloquea el envío con mensaje propio (el servidor sigue siendo la autoridad)", async () => {
+  it("si las imputaciones superan el monto consignado, la pantalla NO decide: manda y muestra el rechazo del servidor", async () => {
+    // Antes, el cliente restaba `amount - Σ allocations`, mostraba el
+    // remanente y deshabilitaba el botón cuando daba negativo. El invariante
+    // `src/audit/money-after-drawer.test.ts` lo marcó y tenía razón: una
+    // diferencia de plata restada en el cliente es una segunda matemática por
+    // más que se la rotule «ayuda de captura» (AGENTS.md § "una sola
+    // matemática, en el backend"). La autoridad es `ALLOCATION_EXCEEDS_DEPOSIT`,
+    // que nombra las dos cifras, y la pantalla muestra ESE mensaje.
+    createDepositMock.mockRejectedValue(
+      new Error("Las imputaciones suman $200000 pero la consignación es de $100000"),
+    )
     const user = userEvent.setup()
     renderWithProviders(<CreateDepositDialog storeId={1} triggerLabel="Abrir formulario" />)
 
@@ -108,8 +117,13 @@ describe("CreateDepositDialog — C5/H-6: el monto nunca sale de sumar allocatio
     await user.type(screen.getByLabelText("Monto de este turno"), "200000")
     await user.click(screen.getByRole("button", { name: "Adjuntar comprobante (stub)" }))
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/imputaciones suman más que el monto consignado/i)
-    expect(screen.getByRole("button", { name: "Registrar consignación" })).toBeDisabled()
-    expect(createDepositMock).not.toHaveBeenCalled()
+    const submitButton = screen.getByRole("button", { name: "Registrar consignación" })
+    expect(submitButton).toBeEnabled()
+    await user.click(submitButton)
+
+    expect(createDepositMock).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Las imputaciones suman \$200000 pero la consignación es de \$100000/,
+    )
   })
 })
