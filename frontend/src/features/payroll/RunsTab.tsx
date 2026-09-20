@@ -57,12 +57,6 @@ function RunDetail({ runId }: { runId: number }): React.JSX.Element {
   const lines = run?.lines ?? []
   return (
     <div className="space-y-3">
-      <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-        <strong>Esta cifra es para control interno, no es la liquidación legal.</strong> Paga la base más cada recargo
-        (nocturno, dominical y festivo, hora extra) por separado, que es lo que la hace auditable renglón por renglón.
-        La fórmula del Código Sustantivo del Trabajo los combina en ocho categorías, y esa todavía no está
-        implementada: antes de pagar, revisalo con tu contador.
-      </p>
       {tables.some((t) => t.confirmed_by_person === false) ? (
         <p role="status" className="text-sm text-muted-foreground">
           <strong>Esta liquidación se calculó con una tabla de recargos sin revisar.</strong> Los valores los cargó la
@@ -141,6 +135,16 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
 
   return (
     <div className="space-y-4">
+      {/* A-5. Va ACÁ y no dentro del detalle de una liquidación: el primer
+          intento lo puso adentro, y el recorrido en navegador mostró que con
+          cero liquidaciones no se veía nunca — justo cuando más importa, que
+          es antes de apretar «Liquidar» por primera vez. */}
+      <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+        <strong>Esta cifra es para control interno, no es la liquidación legal.</strong> Paga la base más cada recargo
+        (nocturno, dominical y festivo, hora extra) por separado, que es lo que la hace auditable renglón por renglón.
+        La fórmula del Código Sustantivo del Trabajo los combina en ocho categorías, y esa todavía no está
+        implementada: antes de pagarle a alguien con este número, revisalo con tu contador.
+      </p>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <DateRangeFilter idPrefix="payroll-runs" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
         <Button type="button" className="h-11" disabled={mutation.isPending} onClick={() => mutation.mutate()}>

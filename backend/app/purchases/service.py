@@ -720,7 +720,7 @@ def create_payment(db: Session, *, actor: Actor, payable: Payable, payload: Any)
     if payable.status != PayableStatus.APPROVED:
         raise AppError(
             code="PAYABLE_NOT_APPROVED",
-            message="Aprobá la cuenta por pagar antes de registrar un pago (POST /admin/payables/{id}/approve)",
+            message="Aprobá la cuenta por pagar antes de registrar un pago, en Admin → Gastos → Cuentas por pagar",
             status=409,
         )
     if payload.amount <= 0:

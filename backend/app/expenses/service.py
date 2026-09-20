@@ -98,8 +98,8 @@ def _validate_cash_movement_reference(db: Session, *, store_id: int, cash_moveme
     movement = db.get(CashMovement, cash_movement_id)
     if movement is None or movement.store_id != store_id:
         raise NotFoundError(
-            "El movimiento de caja no existe en esta sede; registrá primero el egreso desde el turno "
-            "(POST /shifts/{id}/cash-movements) y repetí con su id"
+            "El movimiento de caja no existe en esta sede; registrá primero el egreso en el turno, "
+            "desde el POS, y volvé con ese movimiento"
         )
     cause_value = movement.cause.value if hasattr(movement.cause, "value") else str(movement.cause)
     if movement.kind != CashMovementKind.EXPENSE or cause_value not in _EXPENSE_CASH_MOVEMENT_CAUSES:
@@ -119,8 +119,8 @@ def _validate_source(*, source: str, cash_movement_id: int | None, db: Session, 
             raise AppError(
                 code="VALIDATION_ERROR",
                 message=(
-                    "cash_movement_id: obligatorio cuando source es cash_drawer; registrá primero el egreso "
-                    "desde el turno (POST /shifts/{id}/cash-movements)"
+                    "Un gasto pagado del cajón tiene que apuntar al egreso de caja que lo respalda: "
+                    "registralo primero en el turno, desde el POS"
                 ),
                 status=400,
             )
@@ -481,7 +481,7 @@ def compute_break_even(db: Session, *, store: Store, date_from: date, date_to: d
             contribution_margin_pct_bp=margin_bp,
             break_even_amount=None,
             available=False,
-            reason="Todavía no cargaste los costos fijos de esta sede (PATCH /admin/expenses/settings).",
+            reason="Todavía no cargaste los costos fijos de esta sede; se cargan en esta misma pantalla.",
         )
     if margin_bp is None:
         return BreakEvenResult(

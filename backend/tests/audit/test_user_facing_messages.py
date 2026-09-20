@@ -38,6 +38,16 @@ APP = Path(__file__).resolve().parents[2] / "app"
 RUTA_DE_MODULO = re.compile(r"\bapp\.[a-z_]+\.[a-z_]+")
 ARCHIVO_PY = re.compile(r"\b[a-z_]+\.py\b")
 ID_DE_AGENTE = re.compile(r"\bbackend-[a-z-]+|\bfrontend-[a-z0-9-]+|\bauditor-[a-z0-9-]+")
+# Una RUTA DE API. Es la misma falla con otra cara, y fue la más repetida de
+# todas: diez mensajes en cinco dominios le decían al dueño de un restaurante
+# «cargá una en POST /admin/payroll/surcharge-tables». Esa persona no tiene
+# cómo hacer un POST. El mensaje tiene que nombrar la PANTALLA.
+#
+# Fue también el hallazgo A-1 de la fase 3 en su forma original: el motivo del
+# punto de equilibrio nombraba la ruta que le faltaba, y la pantalla para
+# cargarla no existía. Arreglar la pantalla sin arreglar el mensaje habría
+# dejado media lección aprendida.
+RUTA_DE_API = re.compile(r"\b(GET|POST|PATCH|PUT|DELETE) /[a-z]")
 
 # Llamadas cuyo argumento de texto ES un nombre de módulo o una clave interna,
 # no un mensaje: ahí la ruta es legítima.
@@ -123,7 +133,12 @@ class _Recolector(ast.NodeVisitor):
         # clave, un `scope`, un nombre de columna.
         if " " not in texto.strip():
             return
-        if RUTA_DE_MODULO.search(texto) or ARCHIVO_PY.search(texto) or ID_DE_AGENTE.search(texto):
+        if (
+            RUTA_DE_MODULO.search(texto)
+            or ARCHIVO_PY.search(texto)
+            or ID_DE_AGENTE.search(texto)
+            or RUTA_DE_API.search(texto)
+        ):
             self.sospechosos.append((node.lineno, texto))
 
 
@@ -156,9 +171,10 @@ def test_no_user_facing_message_names_a_python_module_or_an_agent() -> None:
             hallazgos.append(f"{relativo}:{linea}: {texto[:150]}")
 
     assert not hallazgos, (
-        "hay textos con nombres de módulos, archivos .py o ids de agentes que pueden llegar a "
-        "una pantalla. Quien los lee es el dueño de un restaurante: el mensaje tiene que decir "
-        "QUÉ FALTA y EN QUÉ PANTALLA se arregla (AGENTS.md; SPEC-NEGOCIO §11.18). Si el texto es "
-        "para el equipo y no para una persona, va al logger, no a la respuesta.\n  - "
+        "hay textos con nombres de módulos, archivos .py, rutas de API o ids de agentes que "
+        "pueden llegar a una pantalla. Quien los lee es el dueño de un restaurante: no tiene cómo "
+        "hacer un POST, y el mensaje tiene que decir QUÉ FALTA y EN QUÉ PANTALLA se arregla "
+        "(AGENTS.md; SPEC-NEGOCIO §11.18). Si el texto es para el equipo y no para una persona, "
+        "va al logger, no a la respuesta.\n  - "
         + "\n  - ".join(hallazgos)
     )

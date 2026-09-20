@@ -595,7 +595,7 @@ def post_close_single(
     if features.is_enabled(db, actor.organization_id, actor.store_id, "cash.blind_close"):
         raise AppError(
             code="BLIND_CLOSE_REQUIRED",
-            message="Esta sede cierra a ciegas en tres pasos; usá el conteo de cierre (POST /shifts/{id}/close/count)",
+            message="Esta sede cierra a ciegas en tres pasos; usá el conteo de cierre del turno",
             extra={"feature": "cash.blind_close"},
         )
 

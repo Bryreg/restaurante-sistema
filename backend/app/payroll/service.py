@@ -598,7 +598,7 @@ def get_hours(
             available=False,
             reason=(
                 "No hay ninguna tabla de recargos configurada en esta sede; "
-                "cargá una en POST /admin/payroll/surcharge-tables antes de consultar la jornada."
+                "cargá una en Admin → Nómina y propinas → Tablas de recargos antes de consultar la jornada."
             ),
         )
     by_employee, _ = _employee_pieces(
@@ -709,7 +709,7 @@ def _compute_employee_pay(pieces: list[_Piece], rates_sorted: list[PayrollWageRa
             overtime_pay=None,
             total=None,
             pay_reason=(
-                "Sin tarifa por hora configurada (POST /admin/payroll/wages) para parte o todo el período."
+                "Sin tarifa por hora para parte o todo el período; cargala en Admin → Nómina y propinas → Tarifas y calendario."
             ),
         )
 
@@ -748,7 +748,7 @@ def create_run(db: Session, *, actor: Actor, store: Store, date_from: date, date
         raise AppError(
             "SURCHARGE_TABLE_MISSING",
             "No hay ninguna tabla de recargos configurada en esta sede; "
-            "cargá una en POST /admin/payroll/surcharge-tables antes de liquidar.",
+            "cargá una en Admin → Nómina y propinas → Tablas de recargos antes de liquidar.",
         )
 
     by_employee, tables_used = _employee_pieces(

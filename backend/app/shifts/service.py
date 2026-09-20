@@ -506,7 +506,7 @@ def roster_action(db: Session, *, actor: Actor, shift: Shift, payload: RosterAct
     if payload.action == "out" and employee.id == shift.cash_responsible_id:
         raise AppError(
             "NOT_CASH_RESPONSIBLE",
-            "El responsable de caja no sale por acá: hacé un relevo (POST /shifts/{id}/handovers) antes de salir",
+            "El responsable de caja no sale por acá: hacé un relevo del turno antes de salir",
             status=400,
         )
 

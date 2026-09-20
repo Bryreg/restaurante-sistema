@@ -112,3 +112,49 @@ describe("TipsTab — D-3: la propuesta NUNCA mueve plata sola", () => {
     )
   })
 })
+
+describe("A-3 — de dónde salió la plata de un reparto en efectivo", () => {
+  it("con efectivo lo pregunta, y el body lo manda", async () => {
+    // Sin este dato, `owner_hand` restaba de la mano del dueño una plata que
+    // ya había salido por el `to_deposit` del turno: la misma plata dos veces.
+    getTipsSettingsMock.mockResolvedValue(SETTINGS)
+    getTipsDistributionProposalMock.mockResolvedValue(PROPOSAL)
+    createTipPayoutMock.mockResolvedValue({
+      id: 1, shift_ids: [11, 12], paid_at: "2026-09-20T10:00", method: "cash",
+      paid_from: "drawer", total_amount: 90_000, created_at: "2026-09-20T10:00:00Z", distribution: [],
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders(<TipsTab storeId={1} />)
+    await screen.findByText("$ 60.000")
+    await user.click(screen.getByRole("button", { name: "Confirmar reparto" }))
+
+    // El método arranca en efectivo, así que la pregunta tiene que estar.
+    const origen = screen.getByLabelText("¿De dónde salió la plata?")
+    expect(origen).toBeInTheDocument()
+
+    await user.click(origen)
+    await user.click(await screen.findByRole("option", { name: /Del cajón/i }))
+    await user.click(screen.getByRole("button", { name: "Registrar entrega" }))
+
+    await waitFor(() => expect(createTipPayoutMock).toHaveBeenCalledTimes(1))
+    const [, body] = createTipPayoutMock.mock.calls[0]!
+    expect(body.paid_from).toBe("drawer")
+    expect(body.method).toBe("cash")
+  })
+
+  it("con transferencia NO lo pregunta: ahí no significa nada", async () => {
+    getTipsSettingsMock.mockResolvedValue(SETTINGS)
+    getTipsDistributionProposalMock.mockResolvedValue(PROPOSAL)
+
+    const user = userEvent.setup()
+    renderWithProviders(<TipsTab storeId={1} />)
+    await screen.findByText("$ 60.000")
+    await user.click(screen.getByRole("button", { name: "Confirmar reparto" }))
+
+    await user.click(screen.getByLabelText("Método"))
+    await user.click(await screen.findByRole("option", { name: /Transferencia/i }))
+
+    expect(screen.queryByLabelText("¿De dónde salió la plata?")).not.toBeInTheDocument()
+  })
+})
