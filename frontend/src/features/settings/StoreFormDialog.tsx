@@ -24,10 +24,23 @@ const WEEKDAYS = [
   { value: 6, label: "Domingo" },
 ];
 
+/** Los cinco canales de VENTA que `create_order` gatea contra
+ * `active_channels`. Tienen que estar TODOS: un canal que el servidor exige y
+ * esta pantalla no ofrece deja al administrador con un error que le dice
+ * «activalo en Configuración» y una Configuración donde no puede activarlo.
+ *
+ * Faltaban dos. `counter` se exigía desde 1b y nunca fue tildable —quedaba
+ * congelado en lo que trajera el alta—; `platform` llegó con 2c. Y «Domicilio»
+ * estaba de adorno: el administrador la tildaba y el servidor no la miraba.
+ *
+ * `staff_meal` NO va: no es un canal que la sede elija, es el consumo del
+ * personal, y su único interruptor es la función `pos.staff_meal`. */
 const CHANNELS = [
+  { value: "counter", label: "Mostrador" },
   { value: "dine_in", label: "Mesas" },
   { value: "takeout", label: "Para llevar" },
   { value: "delivery", label: "Domicilio" },
+  { value: "platform", label: "Plataformas" },
 ];
 
 export interface StoreFormValues {

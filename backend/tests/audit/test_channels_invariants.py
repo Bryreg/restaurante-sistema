@@ -233,7 +233,8 @@ def test_the_declared_dependencies_of_the_four_2c_features_are_the_ones_the_cata
 
 
 def test_a_delivery_order_is_refused_when_its_declared_dependency_is_off(
-    device_client: Any, identify: Any, employees: dict[str, Any], set_feature: Any, open_shift: Any, courier: Any
+    device_client: Any, identify: Any, employees: dict[str, Any], set_feature: Any, open_shift: Any, courier: Any,
+    activate_channels: Any,
 ) -> None:
     """Checklist #1, la dependencia declarada: `pos.delivery` **requiere**
     `pos.takeout`. Con la dependencia apagada (estado que un `UPDATE` a mano
@@ -300,6 +301,7 @@ def test_a_product_without_a_channel_price_is_sold_at_the_dine_in_price(
     delivery_fee_product: Any,
     channel: str,
     price_field: str,
+    activate_channels: Any,
 ) -> None:
     """Checklist #6: los tres canales opcionales. Sin precio propio se vende
     al precio de MESA — nunca `0`, nunca `null` — y lo decide el servidor
@@ -307,6 +309,8 @@ def test_a_product_without_a_channel_price_is_sold_at_the_dine_in_price(
     open_shift()
     identify(device_client, employees["operator"])
     enable_2c()
+    activate_channels("delivery", "platform")
+    activate_channels("delivery", "platform")
     set_feature("pos.takeout", True)
     product = _priced_product(db, store, price_dine_in=30_000)
     assert getattr(product, price_field) is None
@@ -344,6 +348,7 @@ def test_a_channel_price_set_to_zero_is_respected_and_does_not_fall_back(
     delivery_fee_product: Any,
     channel: str,
     price_field: str,
+    activate_channels: Any,
 ) -> None:
     """Checklist #6, el caso que separa `null` de `0`: un precio de canal
     fijado **en 0** es un precio de cero pesos de verdad y se respeta. Si
@@ -352,6 +357,7 @@ def test_a_channel_price_set_to_zero_is_respected_and_does_not_fall_back(
     open_shift()
     identify(device_client, employees["operator"])
     enable_2c()
+    activate_channels("delivery", "platform")
     set_feature("pos.takeout", True)
     product = _priced_product(db, store, price_dine_in=30_000, **{price_field: 0})
 
@@ -549,6 +555,7 @@ def test_a_delivery_order_never_publishes_a_courier_with_id_zero(
     store: Any,
     courier: Any,
     delivery_fee_product: Any,
+    activate_channels: Any,
 ) -> None:
     """**HALLAZGO H-4 (ADVERTENCIA) — cero mudo.**
     `app/orders/service.py:457` serializa el domiciliario como
@@ -579,6 +586,7 @@ def test_a_delivery_order_never_publishes_a_courier_with_id_zero(
     open_shift()
     identify(device_client, employees["operator"])
     enable_2c()
+    activate_channels("delivery", "platform")
     resp = _delivery_order(device_client, courier)
     assert resp.status_code in (200, 201), resp.text
     order_id = resp.json()["id"]

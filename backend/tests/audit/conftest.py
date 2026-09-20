@@ -904,6 +904,29 @@ def enable_2c(set_feature: Any) -> Callable[..., None]:
 
 
 @pytest.fixture()
+def activate_channels(db: Any, store: Any) -> Callable[..., None]:
+    """Agrega canales a `stores.active_channels` de la sede de prueba.
+
+    Existe aparte de `enable_2c` a propósito: son los DOS interruptores que
+    §9.3 describe como distintos —la función dice si el plan incluye la
+    capacidad, «canales activos» dice si ESTA sede la usa— y hay un invariante
+    (`test_the_active_channels_of_the_store_gate_every_channel_and_not_only_three`)
+    que necesita justamente la combinación de función encendida y canal
+    apagado. Si `enable_2c` activara los canales, ese invariante no se podría
+    escribir.
+
+    En producción el equivalente es la migración `0016`, que marca
+    `delivery`/`platform` activos en toda sede que ya existía."""
+
+    def _activate(*canales: str) -> None:
+        actuales = list(store.active_channels or [])
+        store.active_channels = actuales + [c for c in canales if c not in actuales]
+        db.flush()
+
+    return _activate
+
+
+@pytest.fixture()
 def courier(db: Any, org: Any, store: Any) -> Any:
     """Un domiciliario de la sede propia."""
     from app.auth.models import Employee

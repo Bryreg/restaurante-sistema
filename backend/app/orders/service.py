@@ -681,8 +681,36 @@ def create_order(db: Session, *, actor: Actor, store: Store, payload: OrderCreat
     if channel not in _CHANNEL_FEATURE:
         raise AppError("CHANNEL_DISABLED", "Este canal no está disponible en este pedido", extra={"channel": channel.value})
     features.assert_feature(db, store.organization_id, store.id, _CHANNEL_FEATURE[channel])
+    # Dependencia declarada del canal, junto al resto de las verificaciones de
+    # FUNCIÓN y ANTES de la de sede: «tu plan no incluye esto» tiene que ganarle
+    # a «esta sede no lo usa», porque es el problema más de fondo y el mensaje
+    # que le sirve a quien lo lee. `app.stores.router` ya impide encender
+    # `pos.delivery` con `pos.takeout` apagado; esto es defensa en profundidad
+    # para un estado que un `UPDATE` a mano puede dejar inconsistente.
+    for dependencia in features.FEATURE_BY_KEY[_CHANNEL_FEATURE[channel]].requires:
+        features.assert_feature(db, store.organization_id, store.id, dependencia)
 
-    if channel in (OrderChannel.COUNTER, OrderChannel.DINE_IN, OrderChannel.TAKEOUT):
+    # Los canales de VENTA se gatean contra «canales activos» de la sede
+    # (§9.3). Son dos interruptores distintos a propósito: la FUNCIÓN dice si
+    # el plan de la organización incluye la capacidad, y «canales activos»
+    # dice si ESTA sede la usa (§1.1, perfiles con override por sede).
+    #
+    # `delivery` y `platform` faltaban acá, así que para ellos los dos
+    # interruptores quedaban colapsados en uno y el administrador no podía
+    # apagar el canal sin apagar la función entera. Entran con la migración
+    # `0016`, que los marca activos en toda sede existente: antes de esa
+    # migración «activo» no significaba nada para ellos, así que ésa es la
+    # única posición que preserva el comportamiento de hoy.
+    #
+    # `staff_meal` NO entra: no es un canal de venta que la sede elija, es el
+    # consumo del personal, y su único interruptor es `pos.staff_meal`.
+    if channel in (
+        OrderChannel.COUNTER,
+        OrderChannel.DINE_IN,
+        OrderChannel.TAKEOUT,
+        OrderChannel.DELIVERY,
+        OrderChannel.PLATFORM,
+    ):
         if channel.value not in (store.active_channels or []):
             raise AppError(
                 "CHANNEL_DISABLED",
@@ -726,7 +754,6 @@ def create_order(db: Session, *, actor: Actor, store: Store, payload: OrderCreat
     courier: Employee | None = None
     fee_product: Product | None = None
     if channel == OrderChannel.DELIVERY:
-        features.assert_feature(db, store.organization_id, store.id, "pos.takeout")
         if payload.delivery is None:
             raise AppError("DELIVERY_INFO_REQUIRED", "Indicá dirección, teléfono y domiciliario para una comanda de domicilio")
         courier = db.get(Employee, payload.delivery.courier_employee_id)
