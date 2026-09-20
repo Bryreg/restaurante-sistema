@@ -55,8 +55,36 @@ export function PinPad({ length = 4, label, onSubmit, disabled = false, errorMes
   }, [value, length, onSubmit]);
 
   useEffect(() => {
+    // El atajo de teclado escucha en `window` para que no haga falta enfocar
+    // el teclado numérico antes de teclear el PIN. Eso obliga a una guarda:
+    // **si el foco está en otro campo, la tecla es de ese campo, no del PIN.**
+    //
+    // Sin la guarda, cualquier dígito tecleado en un input de la misma
+    // pantalla se lo comía el PIN. El caso real, encontrado en el recorrido
+    // en navegador de la fase 3: pagar una cuenta por pagar. Se teclea el
+    // monto «50000»; en cuanto el primer dígito hace válido el monto, el
+    // teclado de PIN se habilita y se traga los CUATRO ceros siguientes —
+    // cuatro dígitos es un PIN completo, así que **dispara el pago solo, con
+    // un PIN inventado**. Y un PIN equivocado cuenta para el bloqueo por
+    // intentos fallidos (`PIN_LOCK_ATTEMPTS`), así que además deja a la
+    // persona fuera.
+    //
+    // Estaba tapado porque `MoneyInput` sólo avisaba del monto al salir del
+    // campo, así que el teclado de PIN todavía estaba deshabilitado mientras
+    // se tecleaba. Al arreglar eso, el defecto quedó a la vista. No lo creó
+    // ese arreglo: cualquier pantalla con un PIN y un campo numérico
+    // habilitados a la vez lo tenía.
+    function focoEnOtroCampo(): boolean {
+      const activo = document.activeElement as HTMLElement | null;
+      if (activo === null) return false;
+      if (activo.isContentEditable) return true;
+      const tag = activo.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    }
+
     function onKeyDown(event: KeyboardEvent) {
       if (disabled) return;
+      if (focoEnOtroCampo()) return;
       if (event.key >= "0" && event.key <= "9") {
         append(event.key);
       } else if (event.key === "Backspace") {

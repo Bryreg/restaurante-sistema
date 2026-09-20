@@ -46,6 +46,7 @@ cual — nunca vuelven a iterar `FiscalDocument`/`OrderItem`.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -131,6 +132,8 @@ def _validate_source(*, source: str, cash_movement_id: int | None, db: Session, 
             status=400,
         )
 
+
+logger = logging.getLogger("app.expenses")
 
 # ---------------------------------------------------------------------------
 # Gastos.
@@ -534,14 +537,29 @@ def _period_payroll_cost(db: Session, *, store: Store, date_from: date, date_to:
     module = importlib.import_module("app.payroll.hooks")
     fn = getattr(module, "period_payroll_cost", None)
     if fn is None:
+        # Esto sólo puede pasar con el dominio a medio construir. Al usuario
+        # se le dice lo único que puede hacer; el detalle técnico va al log.
+        logger.warning("app.payroll.hooks no publica period_payroll_cost; la utilidad queda sin nómina")
         return None, (
-            "app.payroll.hooks todavía no publica period_payroll_cost(db, *, store_id, date_from, date_to) "
-            "— costura declarada por backend-obligaciones, pendiente del lado de backend-nomina-propinas."
+            "La nómina del período no está disponible en este momento. "
+            "Apagá «Nómina» en Admin → Funciones si no la usás, o avisá a soporte."
         )
 
     result: Any = fn(db, store_id=store.id, date_from=date_from, date_to=date_to)
     if result is None:
-        return None, "app.payroll.hooks.period_payroll_cost no tiene datos suficientes para este período."
+        # `period_payroll_cost` devuelve `None` por dos causas, y las dos se
+        # arreglan desde la misma pantalla. No se inventa cuál es: se nombran
+        # las dos, porque el mensaje tiene que servirle a quien lo lee.
+        #
+        # Antes acá decía "app.payroll.hooks.period_payroll_cost no tiene
+        # datos suficientes para este período", que es el nombre de una
+        # función de Python en la pantalla de un dueño de restaurante. Lo
+        # encontró el recorrido en navegador real de la fase 3.
+        return None, (
+            "Falta un dato de nómina para calcular la utilidad: o no hay tablas de recargos "
+            "cargadas, o alguien que trabajó en el período no tiene tarifa por hora. "
+            "Las dos se cargan en Admin → Nómina y propinas."
+        )
     return int(result), None
 
 

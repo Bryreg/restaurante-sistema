@@ -19,8 +19,9 @@
  * recalcularse con lo que regía ese mes, igual que las tablas de recargos.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useRef, useState } from "react"
 
+import { newIdempotencyKey } from "@/api/client"
 import { listEmployees } from "@/api/employees"
 import {
   createHoliday,
@@ -60,6 +61,7 @@ function WagesSection({ storeId }: { storeId: number }): React.JSX.Element {
   const [employeeId, setEmployeeId] = useState<string>("")
   const [wage, setWage] = useState<number | null>(null)
   const [validFrom, setValidFrom] = useState(todayLocal())
+  const idemRef = useRef(newIdempotencyKey())
 
   const query = useQuery({
     queryKey: ["payroll", "wages", storeId],
@@ -68,12 +70,13 @@ function WagesSection({ storeId }: { storeId: number }): React.JSX.Element {
 
   const mutation = useMutation({
     mutationFn: () =>
-      createWage(storeId, {
-        employee_id: Number(employeeId),
-        hourly_wage_pesos: wage ?? 0,
-        valid_from: validFrom,
-      }),
+      createWage(
+        storeId,
+        { employee_id: Number(employeeId), hourly_wage_pesos: wage ?? 0, valid_from: validFrom },
+        idemRef.current,
+      ),
     onSuccess: () => {
+      idemRef.current = newIdempotencyKey()
       setWage(null)
       void queryClient.invalidateQueries({ queryKey: ["payroll", "wages", storeId] })
       // La liquidación y la utilidad dependen de esto.
@@ -174,6 +177,7 @@ function HolidaysSection({ storeId }: { storeId: number }): React.JSX.Element {
   const queryClient = useQueryClient()
   const [holidayDate, setHolidayDate] = useState(todayLocal())
   const [name, setName] = useState("")
+  const idemRef = useRef(newIdempotencyKey())
 
   const query = useQuery({
     queryKey: ["payroll", "holidays", storeId],
@@ -181,8 +185,9 @@ function HolidaysSection({ storeId }: { storeId: number }): React.JSX.Element {
   })
 
   const mutation = useMutation({
-    mutationFn: () => createHoliday(storeId, { holiday_date: holidayDate, name: name.trim() }),
+    mutationFn: () => createHoliday(storeId, { holiday_date: holidayDate, name: name.trim() }, idemRef.current),
     onSuccess: () => {
+      idemRef.current = newIdempotencyKey()
       setName("")
       void queryClient.invalidateQueries({ queryKey: ["payroll", "holidays", storeId] })
       void queryClient.invalidateQueries({ queryKey: ["payroll", "hours"] })
@@ -272,6 +277,7 @@ function AreasSection({ storeId }: { storeId: number }): React.JSX.Element {
   const employees = useStoreEmployees(storeId)
   const [employeeId, setEmployeeId] = useState<string>("")
   const [area, setAreaText] = useState("")
+  const idemRef = useRef(newIdempotencyKey())
 
   const query = useQuery({
     queryKey: ["payroll", "areas", storeId],
@@ -279,8 +285,9 @@ function AreasSection({ storeId }: { storeId: number }): React.JSX.Element {
   })
 
   const mutation = useMutation({
-    mutationFn: () => setArea(storeId, { employee_id: Number(employeeId), area: area.trim() }),
+    mutationFn: () => setArea(storeId, { employee_id: Number(employeeId), area: area.trim() }, idemRef.current),
     onSuccess: () => {
+      idemRef.current = newIdempotencyKey()
       setAreaText("")
       void queryClient.invalidateQueries({ queryKey: ["payroll", "areas", storeId] })
       void queryClient.invalidateQueries({ queryKey: ["payroll", "tips"] })

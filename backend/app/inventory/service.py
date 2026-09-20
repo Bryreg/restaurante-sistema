@@ -6,6 +6,8 @@ ajustes manuales. Toda escritura al libro de movimientos pasa por
 
 from __future__ import annotations
 
+import logging
+
 import importlib
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -73,6 +75,8 @@ from app.inventory.schemas import (
 )
 from app.notifications.service import notify
 from app.stores.models import Store
+
+logger = logging.getLogger("app.inventory")
 
 # Alerta si la merma de un insumo supera 1,5x la de la semana anterior
 # (SPEC-NEGOCIO §5.5). Constante en código a propósito: el umbral
@@ -1491,11 +1495,12 @@ def _reception_invoice_ratio(db: Session, *, store: Store, date_from: date, date
     module = importlib.import_module("app.purchases.hooks")
     fn = getattr(module, "reception_invoice_ratio", None)
     if not callable(fn):
-        return None, "app.purchases.hooks no publica reception_invoice_ratio todavía"
+        return None, "compras (purchases) todavía no está disponible en este árbol"
     try:
         with_invoice, total = fn(db, store_id=store.id, date_from=date_from, date_to=date_to)
     except TypeError:
-        return None, "app.purchases.hooks.reception_invoice_ratio no acepta la firma esperada (store_id, date_from, date_to)"
+        logger.warning("reception_invoice_ratio no acepta la firma esperada (store_id, date_from, date_to)")
+        return None, "el porcentaje de recepciones con factura no se pudo calcular en este momento"
     if total <= 0:
         return None, "sin recepciones en el período"
     ratio_bp = (with_invoice * 10000 + total // 2) // total

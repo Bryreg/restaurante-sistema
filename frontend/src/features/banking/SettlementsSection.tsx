@@ -52,7 +52,7 @@ type Kind = "card" | "platform"
 function StatusBadge({ status }: { status: string }): React.JSX.Element {
   if (status === "matched") return <Badge variant="secondary">Conciliada</Badge>
   if (status === "reversed") return <Badge variant="outline">Reversada</Badge>
-  return <Badge>Pendiente</Badge>
+  return <Badge>Registrada, sin conciliar</Badge>
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +314,7 @@ export function SettlementsSection({
                       <StatusBadge status={r.status} />
                     </TableCell>
                     <TableCell>
-                      {r.status === "pending" ? <SettleButton id={r.id} kind={kind} onDone={refresh} /> : null}
+                      {r.status === "recorded" ? <SettleButton id={r.id} kind={kind} onDone={refresh} /> : null}
                     </TableCell>
                   </TableRow>
                 )

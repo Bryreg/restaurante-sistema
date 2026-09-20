@@ -66,7 +66,26 @@ export function MoneyInput({
       // contando efectivo en el POS y después en los impuestos de una
       // recepción. Vale para todos los campos de plata de la app.
       onFocus={() => setFocused(true)}
-      onChange={(event) => setText(event.target.value)}
+      // Se AVISA en cada tecla, no sólo al salir del campo.
+      //
+      // Antes sólo se avisaba en `onBlur`, y eso dejaba una trampa que el
+      // recorrido en navegador real de la fase 3 encontró: un formulario que
+      // habilita su botón según el monto (casi todos los de plata de esta app)
+      // seguía con el botón DESHABILITADO mientras el campo tuviera el foco.
+      // Y hacer clic en un botón deshabilitado **no saca el foco del campo**
+      // en Chromium: el mousedown se descarta. Así que la persona teclea el
+      // monto, ve el botón gris, y no tiene forma de destrabarlo salvo
+      // adivinar que primero hay que tocar en otro lado.
+      //
+      // Avisar en cada tecla no rompe nada de lo que `onBlur` defendía: el
+      // segundo `useEffect` sólo copia `value` -> `text` cuando el campo NO
+      // tiene foco, así que lo que la persona está escribiendo no se le
+      // reescribe a mitad. El `onBlur` se conserva para el caso en que el
+      // texto quede en algo que `parseCOP` normaliza distinto.
+      onChange={(event) => {
+        setText(event.target.value);
+        onChange(parseCOP(event.target.value));
+      }}
       onBlur={() => {
         setFocused(false);
         onChange(parseCOP(text));

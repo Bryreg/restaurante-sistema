@@ -225,8 +225,21 @@ export function getWages(storeId: number): Promise<WageRateOut[]> {
   return api<WageRateOut[]>("/admin/payroll/wages", { query: { store_id: storeId } })
 }
 
-export function createWage(storeId: number, data: WageRateIn): Promise<WageRateOut> {
-  return api<WageRateOut>("/admin/payroll/wages", { method: "POST", query: { store_id: storeId }, body: data })
+export function createWage(
+  storeId: number,
+  data: WageRateIn,
+  idempotencyKey: string,
+): Promise<WageRateOut> {
+  // Las escrituras de `payroll` pasan por `run_idempotent`: sin el encabezado
+  // responden `400 IDEMPOTENCY_KEY_REQUIRED`. Lo encontró el recorrido en
+  // navegador — ningún test lo vio porque los tests llaman al cliente con el
+  // mock puesto, no al backend real.
+  return api<WageRateOut>("/admin/payroll/wages", {
+    method: "POST",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
 }
 
 export interface HolidayOut {
@@ -245,8 +258,17 @@ export function getHolidays(storeId: number): Promise<HolidayOut[]> {
   return api<HolidayOut[]>("/admin/payroll/holidays", { query: { store_id: storeId } })
 }
 
-export function createHoliday(storeId: number, data: HolidayIn): Promise<HolidayOut> {
-  return api<HolidayOut>("/admin/payroll/holidays", { method: "POST", query: { store_id: storeId }, body: data })
+export function createHoliday(
+  storeId: number,
+  data: HolidayIn,
+  idempotencyKey: string,
+): Promise<HolidayOut> {
+  return api<HolidayOut>("/admin/payroll/holidays", {
+    method: "POST",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
 }
 
 export interface AreaAssignmentOut {
@@ -265,8 +287,17 @@ export function getAreas(storeId: number): Promise<AreaAssignmentOut[]> {
   return api<AreaAssignmentOut[]>("/admin/payroll/areas", { query: { store_id: storeId } })
 }
 
-export function setArea(storeId: number, data: AreaAssignmentIn): Promise<AreaAssignmentOut> {
-  return api<AreaAssignmentOut>("/admin/payroll/areas", { method: "POST", query: { store_id: storeId }, body: data })
+export function setArea(
+  storeId: number,
+  data: AreaAssignmentIn,
+  idempotencyKey: string,
+): Promise<AreaAssignmentOut> {
+  return api<AreaAssignmentOut>("/admin/payroll/areas", {
+    method: "POST",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
 }
 
 // ---------------------------------------------------------------------------

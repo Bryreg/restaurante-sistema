@@ -257,7 +257,14 @@ export function settleCardReconciliation(
 // lista, no sobre la fila agrupada.
 // ---------------------------------------------------------------------------
 
-export type SettlementStatus = "pending" | "matched" | "reversed"
+/** Espejo exacto de `app/banking/schemas.py::SettlementStatusLiteral`.
+ * `recorded` = está el asiento de lo que el banco dice que pagó;
+ * `matched` = se concilió explícitamente contra lo esperado;
+ * `reversed` = baja lógica de un registro cargado por error.
+ * (La primera versión de este archivo puso `"pending"`, que no existe: el
+ * botón «Conciliar» no se renderizaba nunca. Lo encontró el recorrido en
+ * navegador real.) */
+export type SettlementStatus = "recorded" | "matched" | "reversed"
 
 export interface CardSettlementIn {
   sales_business_date: string
