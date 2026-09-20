@@ -795,6 +795,7 @@ def admin_create_tip_payout(
             distribution=payload.distribution,
             paid_at=payload.paid_at,
             method=payload.method,
+            paid_from=payload.paid_from,
             now=clock.now_utc(),
         )
         out = tips_service.tip_payout_out(db, payout=payout)

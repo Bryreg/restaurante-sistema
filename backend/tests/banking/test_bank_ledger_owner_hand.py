@@ -276,3 +276,153 @@ def test_owner_hand_does_not_count_cash_that_nobody_counted(
         "`deposits/pending` y `owner-hand` volvieron a decir cosas distintas "
         "sobre el mismo turno"
     )
+
+
+def test_owner_hand_does_not_subtract_a_tip_payout_that_came_out_of_the_drawer(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Callable[..., Any],
+    employees: dict[str, Any],
+    open_shift: Callable[..., dict],
+    close_shift: Callable[..., dict],
+    store: Any,
+) -> None:
+    """**A-3 del cierre de la fase 3: la misma plata restada dos veces.**
+
+    Un reparto de propinas pagado **del cajón** ya redujo el `to_deposit` de
+    su turno, y `withdrawn_from_shift_close` suma justamente ese `to_deposit`.
+    Volver a restarlo como «gastado de la mano» contaba la misma plata dos
+    veces. El sesgo iba al lado tolerado —mostraba MENOS plata de la que
+    había— y por eso no rompía ninguna identidad publicada: el invariante del
+    auditor estaba verde con el defecto adentro. Seguía siendo un número
+    equivocado en pantalla.
+
+    Este test fija las dos mitades: `drawer` **no** resta, `owner_hand` sí, y
+    el balance publicado es el mismo antes y después de registrar el reparto
+    del cajón.
+    """
+    bd = today_business_date(store)
+
+    shift = open_shift(total=200_000)
+    # Contado 260.000 con 10.000 de propina en efectivo retirada al cierre:
+    # `to_deposit = 260.000 - 200.000 - 10.000 = 50.000`. Esos 10.000 YA
+    # salieron del cajón acá.
+    close_body = close_shift(shift["id"], counted_cash=260_000, tips_cash_out=10_000)
+    assert close_body["to_deposit"] == 50_000
+
+    def mano() -> dict:
+        resp = admin_client.get(
+            f"{API}/admin/bank/owner-hand",
+            params={"store_id": store.id, "from": bd.isoformat(), "to": bd.isoformat()},
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    antes = mano()
+
+    # El reparto de esos mismos 10.000, declarado como pagado DEL CAJÓN.
+    del_cajon = admin_client.post(
+        f"{API}/admin/tips/payouts",
+        params={"store_id": store.id},
+        json={
+            "shift_ids": [shift["id"]],
+            "distribution": [{"employee_id": employees["operator"].id, "amount": 10_000}],
+            "paid_at": f"{bd.isoformat()}T20:00:00Z",
+            "method": "cash",
+            "paid_from": "drawer",
+        },
+        headers=idem(),
+    )
+    assert del_cajon.status_code == 201, del_cajon.text
+    assert del_cajon.json()["paid_from"] == "drawer"
+
+    despues = mano()
+    assert despues["spent_on_tips"] == antes["spent_on_tips"] == 0, (
+        "un reparto pagado del cajón se está restando de la mano del dueño: esa plata "
+        "ya salió por `to_deposit`, así que se está contando dos veces"
+    )
+    assert despues["balance"] == antes["balance"], (
+        "registrar un reparto pagado del cajón movió el saldo de la mano del dueño"
+    )
+
+    # Y el otro lado: uno pagado DE LA MANO sí resta.
+    de_la_mano = admin_client.post(
+        f"{API}/admin/tips/payouts",
+        params={"store_id": store.id},
+        json={
+            "shift_ids": [shift["id"]],
+            "distribution": [{"employee_id": employees["operator2"].id, "amount": 7_000}],
+            "paid_at": f"{bd.isoformat()}T21:00:00Z",
+            "method": "cash",
+            "paid_from": "owner_hand",
+        },
+        headers=idem(),
+    )
+    assert de_la_mano.status_code == 201, de_la_mano.text
+
+    final = mano()
+    assert final["spent_on_tips"] == 7_000
+    assert final["balance"] == antes["balance"] - 7_000
+    # Nada de esto vino de una fila vieja sin origen declarado.
+    assert final["tip_payouts_unknown_source"] == 0
+
+
+def test_owner_hand_says_how_many_tip_payouts_did_not_declare_their_source(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Callable[..., Any],
+    employees: dict[str, Any],
+    open_shift: Callable[..., dict],
+    close_shift: Callable[..., dict],
+    db: Any,
+    store: Any,
+) -> None:
+    """La otra mitad de A-3: las filas que YA existían no tienen respuesta.
+
+    La migración `0021` las marca `unknown` en vez de inventarles un origen.
+    Se tratan como salidas de la mano —el sesgo que muestra menos plata, el
+    único que este proyecto tolera— **y la suposición se publica**: quien lee
+    la mano del dueño tiene que poder saber que ese número descansa sobre N
+    repartos que nadie declaró.
+    """
+    from app.shifts.models import TipPayout, TipPayoutSource
+
+    bd = today_business_date(store)
+    shift = open_shift(total=200_000)
+    close_shift(shift["id"], counted_cash=260_000, tips_cash_out=10_000)
+
+    creado = admin_client.post(
+        f"{API}/admin/tips/payouts",
+        params={"store_id": store.id},
+        json={
+            "shift_ids": [shift["id"]],
+            "distribution": [{"employee_id": employees["operator"].id, "amount": 9_000}],
+            "paid_at": f"{bd.isoformat()}T20:00:00Z",
+            "method": "cash",
+            "paid_from": "owner_hand",
+        },
+        headers=idem(),
+    )
+    assert creado.status_code == 201, creado.text
+
+    # Se lo envejece a mano para representar una fila anterior a la columna:
+    # es la ÚNICA forma de tener un `unknown`, porque la API no lo acepta.
+    fila = db.get(TipPayout, creado.json()["id"])
+    fila.paid_from = TipPayoutSource.UNKNOWN
+    db.flush()
+
+    resp = admin_client.get(
+        f"{API}/admin/bank/owner-hand",
+        params={"store_id": store.id, "from": bd.isoformat(), "to": bd.isoformat()},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["spent_on_tips"] == 9_000, (
+        "una fila sin origen declarado tiene que restar de la mano: es el sesgo que "
+        "muestra menos plata, el único tolerado"
+    )
+    assert body["tip_payouts_unknown_source"] == 1, (
+        "la suposición quedó escondida: quien lee la mano del dueño no tiene forma de "
+        "saber que ese número descansa sobre un reparto que nadie declaró"
+    )

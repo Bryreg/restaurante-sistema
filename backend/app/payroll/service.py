@@ -640,6 +640,11 @@ def _table_snapshot(table: SurchargeTable) -> dict[str, Any]:
         "sunday_holiday_surcharge_bp": table.sunday_holiday_surcharge_bp,
         "overtime_surcharge_bp": table.overtime_surcharge_bp,
         "weekly_ordinary_hours": table.weekly_ordinary_hours,
+        # A-4: la liquidación guarda si la tabla con la que se calculó la
+        # había confirmado una persona. Es parte del snapshot a propósito: si
+        # alguien confirma la tabla MAÑANA, una liquidación vieja tiene que
+        # seguir diciendo que en su momento descansaba sobre un supuesto.
+        "confirmed_by_person": table.created_by_employee_id is not None,
     }
 
 

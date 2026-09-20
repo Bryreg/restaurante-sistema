@@ -1322,28 +1322,62 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     que el período tuviera costo. Es exactamente lo que manda `AGENTS.md`, visto
     en vivo y no por un test.
 
-28. **Lo que queda abierto de la fase 3, con dueño y razón.** No son olvidos:
+28. **A-3, A-4 y A-5, cerrados.** Eran los tres que la fase dejó abiertos. Dos
+    de ellos producían o podían producir un número equivocado; el tercero no se
+    puede implementar sin un contador, y lo que se cerró es que el producto
+    **dejara de aparentar que ya lo tiene**.
 
-    - **A-3 · el origen de una propina pagada en efectivo.** `TipPayout` no
-      distingue si el dueño la pagó **del cajón** (donde ya redujo el
-      `to_deposit` de ese turno) o **de la mano**, así que se cuenta como gastada
-      de la mano: doble resta. El sesgo va al lado **tolerado** (muestra menos
-      plata). **Por qué no lo cerré**: el remedio es un campo nuevo en
-      `TipPayout` (`app/shifts/`), y las filas que ya existen **no tienen
-      respuesta** — un backfill tendría que inventarla. Eso es una decisión del
-      dueño de la spec, no de la verificación.
-    - **A-4 · los valores de las tablas legales son un supuesto declarado.** La
-      migración `0020` siembra seis vigencias; la spec cita tres cambios con su
-      norma y el resto lo puso el equipo como supuesto. Son editables por API sin
-      tocar código —que es lo que había que garantizar— pero hoy son **datos en
-      la base que nadie con firma revisó**. Es el único punto con consecuencia
-      legal abierto: **antes de producción los confirma quien tenga la norma
-      adelante.**
-    - **A-5 · la nómina no implementa la fórmula CST completa.** Cada minuto paga
-      base más recargos aditivos e independientes; la fórmula legal los combina
-      en ocho categorías (HED/HEN/HEDD/HEND). Es auditable recargo por recargo,
-      pero **no es la liquidación legal**. Alcance que nunca estuvo escrito; no
-      corresponde improvisarlo.
+    - **A-3 · la misma plata restada dos veces.** `TipPayout` no decía si un
+      reparto en efectivo salió **del cajón** —donde ya redujo el `to_deposit`
+      de ese turno, que `withdrawn_from_shift_close` suma— o **de la mano**, y
+      `owner_hand` restaba los dos. Ahora el origen es un dato
+      (`paid_from`, migración `0021`) y la pantalla lo pregunta, pero sólo
+      cuando el método es efectivo, que es cuando significa algo.
+
+      **El respaldo no inventa el pasado**: las filas que ya existían quedan
+      `unknown`, no `owner_hand`. Se tratan como salidas de la mano —el sesgo
+      que muestra menos plata, el único que este proyecto tolera— y
+      `tip_payouts_unknown_source` publica cuántas son, para que la suposición
+      esté a la vista y no escondida en un default.
+
+      De paso cayó un defecto de la misma familia: el **método** del reparto
+      era un campo de **texto libre** y `owner_hand` filtra por
+      `method == "cash"`. Un «efectivo» o un «Cash» tecleados a mano
+      desaparecían del cálculo en silencio. Hoy es un conjunto cerrado en los
+      dos lados, y el invariante de literales lo cruza.
+
+    - **A-4 · tablas legales que nadie con firma revisó.** No hacía falta una
+      columna: una vigencia sembrada por la migración `0020` no tiene
+      `created_by_employee_id` y una que cargó una persona sí. **Se deriva.**
+      Ahora la lista marca «Sin revisar», la pantalla explica cómo
+      confirmarlas, y **la liquidación lo arrastra en su snapshot** — confirmar
+      la tabla mañana no reescribe la historia de una nómina vieja.
+
+    - **A-5 · la fórmula del CST no está implementada, y ahora el producto lo
+      dice.** No la improvisé: combinar las ocho categorías
+      (HED/HEN/HEDD/HEND) es una liquidación legal y se hace con la norma
+      adelante y un contador, no de memoria. Lo que sí estaba mal era **dónde**
+      vivía esa limitación: en un docstring y en un informe. El riesgo real no
+      es que la cifra sea aproximada, es que alguien le pague a su personal con
+      ella creyendo que es la legal. La respuesta publica
+      `calculation_method: "additive_surcharges"` y la pantalla de
+      liquidaciones lo dice arriba de la tabla, con todas las letras.
+
+      El literal deja lugar para `"cst_full"` el día que se implemente, y las
+      liquidaciones viejas van a seguir diciendo con cuál se calcularon.
+
+29. **Lo que queda abierto de la fase 3, con dueño y razón.** Lo que sigue NO son olvidos:
+
+    - **Los valores legales siguen esperando una firma.** A-4 está cerrado como
+      defecto de producto —el sistema ya dice cuáles no revisó nadie— pero eso
+      no revisa los valores: sigue haciendo falta que alguien con la norma
+      adelante confirme las vigencias sembradas, cargándolas de nuevo desde
+      Admin → Nómina → Tablas de recargos para que queden a su nombre. **Es lo
+      único de esta lista con consecuencia legal**, y ahora se ve en la
+      pantalla en vez de vivir en este documento.
+    - **A-5 sigue sin la fórmula del CST.** Declarado en la respuesta y en la
+      pantalla; implementarlo es un pedido propio, con la norma adelante y un
+      contador. No es algo que se improvise de memoria.
     - **A-6 · dos invariantes que el auditor no alcanzó a armar**: el cruce
       **dinámico** del costo congelado (hoy probado por AST, no por
       comportamiento) y la aritmética del prorrateo de varianza por plato. El

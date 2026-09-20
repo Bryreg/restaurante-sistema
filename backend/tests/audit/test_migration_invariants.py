@@ -424,6 +424,14 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     pide («derivar en vez de almacenar»). Medido con la cadena completa sobre
     Postgres 16 real (`0001 → 0020`, una sola cabeza, 93 tablas de dominio, y
     `downgrade base` deja el esquema vacío), no estimado sumando `create_table`.
+
+    **Re-apuntado al cerrar A-3**: la cadena llega a
+    **`0021_tip_payout_source`** y el conteo **no se mueve, sigue en 93** —
+    `0021` agrega la columna `tip_payouts.paid_from`, no una tabla. Es el
+    tercer respaldo de esta serie que toca datos o columnas sin tocar el
+    conteo (`0016`, `0019`, `0021`), y por eso el test mide las dos cosas por
+    separado: si midiera sólo el número de tablas, tres migraciones habrían
+    pasado sin que nadie moviera nada.
     """
     from sqlalchemy import text
 
@@ -435,10 +443,10 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0020", (
-        f"la cadena quedó en {version!r}; el punto de llegada después de la fase 3 "
-        "es 0020 (`0020_payroll`). Si agregaste una migración, movele el poste acá "
-        "y decí por qué, como hicieron 2b, 2c, H-3 y la fase 3"
+    assert version == "0021", (
+        f"la cadena quedó en {version!r}; el punto de llegada después de cerrar A-3 "
+        "es 0021 (`0021_tip_payout_source`). Si agregaste una migración, movele el "
+        "poste acá y decí por qué, como hicieron 2b, 2c, H-3, la fase 3 y A-3"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -638,3 +646,72 @@ def test_the_development_seed_runs_twice_without_duplicating_and_can_exercise_2a
         "el seed no carga fichas técnicas: enviar un plato no va a descontar nada"
     )
     assert primera == segunda, f"el seed duplicó datos al correr dos veces: {primera} -> {segunda}"
+
+
+def test_a3_a_tip_payout_that_predates_the_column_reads_back_as_unknown(tmp_path: Path) -> None:
+    """**El respaldo de `0021` tiene que producir un valor que el modelo sepa
+    leer.** Suena obvio y casi rompe el deploy.
+
+    `_enum(...)` (`app/shifts/models.py`) construye
+    `sa.Enum(pyenum, native_enum=False)`, y SQLAlchemy guarda el **NOMBRE** del
+    miembro, no su `.value`: la columna contiene `UNKNOWN`, no `unknown`. La
+    primera versión de `0021` sembró `"unknown"`, y **toda fila respaldada
+    reventaba al leerse** con `LookupError: 'unknown' is not among the defined
+    enum values`.
+
+    Ningún otro test lo veía, y no por descuido: **todos crean repartos por la
+    API**, que escribe la columna a través del ORM y por lo tanto siempre
+    acierta. El único camino que pasa por el `server_default` es el de una fila
+    que ya existía cuando la columna se agregó — y ése sólo se recorre
+    corriendo la cadena por la mitad, insertando, y siguiendo.
+
+    Es la misma familia que el `batch_alter_table` que dejó la fase 2 sin
+    desplegar: **código que sólo se ejecuta en bases que ya tienen datos, y que
+    ninguna suite sobre bases vacías puede tocar.**
+    """
+    import sqlite3
+
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+
+    from app.shifts.models import TipPayout, TipPayoutSource
+
+    db_path = tmp_path / "backfill-0021.db"
+    url = f"sqlite:///{db_path}"
+
+    # La cadena hasta JUSTO ANTES de la columna.
+    previo = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = url
+    try:
+        command.upgrade(_alembic_config(url), "0020")
+
+        # Una fila como las que ya existen en una base viva.
+        con = sqlite3.connect(db_path)
+        con.execute(
+            "INSERT INTO tip_payouts (organization_id, store_id, shift_ids, paid_at, method,"
+            " total_amount, created_by_employee_id, created_by_employee_name, created_at)"
+            " VALUES (1, 1, '[]', '2026-01-01T00:00:00+00:00', 'cash', 5000, 1, 'Alguien',"
+            " '2026-01-01T00:00:00+00:00')"
+        )
+        con.commit()
+        con.close()
+
+        # Y ahora la migración que agrega la columna sobre esa fila.
+        command.upgrade(_alembic_config(url), "0021")
+
+        engine = create_engine(url)
+        try:
+            with Session(engine) as session:
+                fila = session.execute(select(TipPayout)).scalar_one()
+                assert fila.paid_from is TipPayoutSource.UNKNOWN, (
+                    f"el respaldo dejó {fila.paid_from!r}: el modelo no lo puede leer. El "
+                    "`server_default` tiene que escribir el NOMBRE del miembro del enum "
+                    "(`UNKNOWN`), que es lo que `sa.Enum(..., native_enum=False)` guarda"
+                )
+        finally:
+            engine.dispose()
+    finally:
+        if previo is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = previo

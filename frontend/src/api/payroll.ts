@@ -79,6 +79,11 @@ export interface SurchargeTableOut {
   overtime_surcharge_bp: number
   /** Jornada semanal ordinaria en horas enteras (42 h desde jul-2026, Ley 2101 de 2021). */
   weekly_ordinary_hours: number
+  /** A-4: `false` = la sembró la migración y **nadie con la norma adelante la
+   * revisó**. Los valores son editables sin tocar código, pero hasta que
+   * alguien los confirme son un supuesto, y eso tiene que verse. */
+  confirmed_by_person?: boolean
+  confirmed_by_name?: string | null
   created_at?: string
 }
 
@@ -114,6 +119,8 @@ export function createSurchargeTable(storeId: number, data: SurchargeTableIn): P
  * liquidación puede cruzar más de una vigencia si el período abarca un
  * cambio de tabla — por eso `PayrollRunOut.tables_used` es una LISTA. */
 export interface SurchargeTableUsedOut {
+  /** A-4: si la liquidación se calculó con una tabla sin confirmar, lo dice. */
+  confirmed_by_person?: boolean
   valid_from: string
   night_start_hour: number
   night_end_hour: number
@@ -140,8 +147,18 @@ export interface PayrollRunLineOut {
   pay_reason: string | null
 }
 
+/** A-5: cómo se calculó una liquidación. Espejo de
+ * `app/payroll/schemas.py::PayrollCalculationMethodLiteral`. */
+export type PayrollCalculationMethod = "additive_surcharges"
+
 export interface PayrollRunOut {
   id: number
+  /** A-5: `additive_surcharges` paga base + recargos de forma aditiva e
+   * independiente. Es auditable recargo por recargo y sirve para control
+   * interno, pero **no es la liquidación legal** (el CST los combina en ocho
+   * categorías). La pantalla lo dice; nadie debería pagar con esta cifra
+   * creyendo que es la legal. */
+  calculation_method?: PayrollCalculationMethod
   store_id?: number
   date_from?: string
   date_to?: string
@@ -341,12 +358,22 @@ export interface TipPayoutDistributionIn {
 
 /** Espejo de `app/shifts/schemas.py::TipPayoutIn` — el "confirmar" ya
  * publicado desde 1b-2, `POST /admin/tips/payouts` (`app/shifts/router.py`). */
+export type TipPayoutMethod = "cash" | "card" | "transfer" | "other"
+
+/** De dónde salió la plata de un reparto en efectivo (A-3). `unknown` sólo
+ * aparece en filas anteriores a la columna: la API no lo acepta al crear. */
+export type TipPayoutSource = "drawer" | "owner_hand" | "unknown"
+
 export interface TipPayoutIn {
   shift_ids: number[]
   distribution: TipPayoutDistributionIn[]
   /** `<input type="datetime-local">` tal cual, sin zona — la pone el servidor. */
   paid_at: string
-  method: string
+  method: TipPayoutMethod
+  /** Sólo significa algo con `method: "cash"`. Un reparto pagado DEL CAJÓN ya
+   * redujo el `to_deposit` de su turno; decirlo es lo que evita que la mano
+   * del dueño reste la misma plata dos veces. */
+  paid_from: Exclude<TipPayoutSource, "unknown">
 }
 
 export interface TipPayoutDistributionOut {
@@ -359,7 +386,8 @@ export interface TipPayoutOut {
   id: number
   shift_ids: number[]
   paid_at: string
-  method: string
+  method: TipPayoutMethod
+  paid_from: TipPayoutSource
   total_amount: number
   created_at: string
   distribution: TipPayoutDistributionOut[]

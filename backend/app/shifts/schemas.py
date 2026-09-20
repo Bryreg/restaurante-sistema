@@ -14,6 +14,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 RosterActionLiteral = Literal["in", "out", "pause_start", "pause_end"]
 CashMovementKindLiteral = Literal["income", "expense"]
+# Nombrados (y no en línea en el campo) para que
+# `src/audit/api-literal-types.test.ts` pueda cruzarlos contra
+# `TipPayoutMethod` y `TipPayoutSource` del cliente: un literal sin nombre no
+# tiene con qué compararse.
+TipPayoutMethodLiteral = Literal["cash", "card", "transfer", "other"]
+TipPayoutSourceLiteral = Literal["drawer", "owner_hand", "unknown"]
+# Lo que se puede DECLARAR al registrar un reparto: `unknown` es sólo para las
+# filas anteriores a la columna, nunca una opción que alguien elija.
+TipPayoutSourceDeclarableLiteral = Literal["drawer", "owner_hand"]
 CashMovementCauseLiteral = Literal[
     "petty_expense",
     "emergency_purchase",
@@ -592,7 +601,17 @@ class TipPayoutIn(BaseModel):
     shift_ids: list[int] = Field(min_length=1)
     distribution: list[TipPayoutDistributionIn] = Field(min_length=1)
     paid_at: datetime
-    method: str
+    # El método era `str` libre, y `app.banking.service.owner_hand` filtra los
+    # repartos por `method == "cash"`: un «efectivo» o un «Cash» tecleados a
+    # mano desaparecían del cálculo de la mano del dueño **en silencio**. Es
+    # la misma familia que A-3 —una cadena libre donde había un conjunto
+    # cerrado— y se cierra igual: tipándola.
+    method: TipPayoutMethodLiteral
+    # A-3: de dónde sale la plata cuando el reparto es en efectivo. Sólo
+    # `drawer` y `owner_hand` se pueden elegir; `unknown` existe únicamente
+    # para las filas anteriores a la columna y no se acepta por la API — pedir
+    # "no sé" sobre algo que se está registrando AHORA es regalar el dato.
+    paid_from: TipPayoutSourceDeclarableLiteral = "owner_hand"
 
 
 class TipPayoutDistributionOut(OutModel):
@@ -606,6 +625,7 @@ class TipPayoutOut(OutModel):
     shift_ids: list[int]
     paid_at: datetime
     method: str
+    paid_from: TipPayoutSourceLiteral
     total_amount: int
     created_by: EmployeeRef
     created_at: datetime

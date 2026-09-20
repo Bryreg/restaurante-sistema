@@ -456,6 +456,28 @@ class ShiftCloseCount(Base):
 # ---------------------------------------------------------------------------
 
 
+class TipPayoutSource(str, enum.Enum):
+    """De dónde salió la plata de un reparto de propinas pagado en efectivo.
+
+    **A-3 de la fase 3.** Sin este dato, `app.banking` no podía distinguir un
+    reparto pagado DEL CAJÓN —que ya redujo el `to_deposit` de ese turno— de
+    uno pagado DE LA MANO del dueño, así que restaba los dos de la mano: una
+    doble resta sobre la misma plata.
+
+    `UNKNOWN` existe para las filas anteriores a esta columna, y no se elige
+    nunca desde la interfaz. **No se inventa una respuesta para el pasado**:
+    quien registró esos repartos no declaró de dónde salió la plata, y
+    adivinarlo sería peor que decir que no se sabe. Se tratan como
+    `OWNER_HAND` —el sesgo que muestra MENOS plata, el único que este
+    proyecto tolera— y su cantidad se publica aparte para que la exclusión no
+    sea silenciosa.
+    """
+
+    DRAWER = "drawer"
+    OWNER_HAND = "owner_hand"
+    UNKNOWN = "unknown"
+
+
 class TipPayout(Base):
     """Registro del reparto de propinas a la cadena de servicio. El cálculo
     del reparto es **manual** en esta fase (SPEC-NEGOCIO §6.2): esta tabla
@@ -467,7 +489,11 @@ class TipPayout(Base):
     registra aparte por el endpoint genérico de movimientos de caja del
     turno que corresponda — este modelo es sólo el libro de reparto, no
     reemplaza ni crea ese movimiento (ver decisión declarada en el
-    entregable de `backend-clientes-dinero`)."""
+    entregable de `backend-clientes-dinero`).
+
+    `paid_from` (A-3, fase 3) dice de dónde salió la plata cuando el reparto
+    fue en efectivo: es lo que le permite a `app.banking` no restar dos veces
+    la misma plata de la mano del dueño."""
 
     __tablename__ = "tip_payouts"
 
@@ -479,6 +505,13 @@ class TipPayout(Base):
     paid_at: Mapped[datetime] = mapped_column(UTCDateTime())
     method: Mapped[str] = mapped_column(sa.String(16))
     total_amount: Mapped[int] = mapped_column(sa.Integer)
+
+    # A-3: sólo significa algo con `method == "cash"`. Un reparto por
+    # transferencia no sale del cajón ni de la mano, y se guarda `owner_hand`
+    # por defecto sin que nadie lo mire.
+    paid_from: Mapped[TipPayoutSource] = mapped_column(
+        _enum(TipPayoutSource, length=16), default=TipPayoutSource.OWNER_HAND
+    )
 
     created_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     created_by_employee_name: Mapped[str] = mapped_column(sa.String(200))

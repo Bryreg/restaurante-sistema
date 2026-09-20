@@ -76,6 +76,19 @@ class SurchargeTableOut(OutModel):
     sunday_holiday_surcharge_bp: int
     overtime_surcharge_bp: int
     weekly_ordinary_hours: int
+    # A-4: una tabla SEMBRADA por la migración `0020` no tiene
+    # `created_by_employee_id`; una que cargó una persona sí. Ese es el
+    # marcador natural de «esto lo revisó alguien» y no hace falta una columna
+    # nueva para tenerlo — se deriva.
+    #
+    # Importa decirlo: los valores sembrados son un **supuesto declarado**
+    # (la spec cita tres cambios con su norma; el resto lo completó el equipo
+    # con un valor razonable). Son editables por API sin tocar código, que es
+    # lo que había que garantizar, pero hasta que alguien los confirme son
+    # datos que nadie con firma revisó. Publicarlo es la diferencia entre un
+    # riesgo anotado en un documento y un riesgo que se ve en la pantalla.
+    confirmed_by_person: bool
+    confirmed_by_name: str | None
     created_at: datetime
 
 
@@ -142,6 +155,12 @@ class AreaAssignmentOut(OutModel):
 # ---------------------------------------------------------------------------
 
 
+# A-5: cómo se calculó una liquidación. Hoy sólo existe la forma aditiva; el
+# día que se implemente la fórmula legal completa del CST, esta lista crece y
+# las liquidaciones viejas siguen diciendo con cuál se calcularon.
+PayrollCalculationMethodLiteral = Literal["additive_surcharges"]
+
+
 class SurchargeTableUsedOut(BaseModel):
     valid_from: date
     night_start_hour: int
@@ -150,6 +169,14 @@ class SurchargeTableUsedOut(BaseModel):
     sunday_holiday_surcharge_bp: int
     overtime_surcharge_bp: int
     weekly_ordinary_hours: int
+    # A-4: si la liquidación se calculó con una tabla que nadie confirmó, la
+    # liquidación lo dice. Una nómina es plata de una persona; que descanse
+    # sobre un supuesto no puede quedar sólo en un documento.
+    #
+    # Default `False` para los snapshots guardados ANTES de este campo: no
+    # sabemos si esa tabla estaba confirmada, y «no sabemos» se trata como «no
+    # confirmada», que es el lado que avisa de más y no de menos.
+    confirmed_by_person: bool = False
 
 
 class PayrollRunLineOut(BaseModel):
@@ -185,6 +212,20 @@ class PayrollRunOut(BaseModel):
     reason: str | None
     computed_at: datetime
     computed_by_employee_name: str | None
+    # A-5: **qué fórmula se usó**, publicado en la respuesta y no sólo
+    # anotado en un docstring.
+    #
+    # `additive_surcharges` paga, por cada minuto, la base más los recargos
+    # que apliquen (nocturno, dominical/festivo, extra) de forma **aditiva e
+    # independiente**. Es transparente y auditable recargo por recargo, y
+    # sirve para control interno — pero **no es la liquidación legal**: la
+    # fórmula del CST los combina en ocho categorías (HED/HEN/HEDD/HEND).
+    #
+    # Se publica porque el riesgo real no es que la cifra sea aproximada: es
+    # que alguien le pague a su personal con ella creyendo que es la legal.
+    # Un producto que no puede hacer algo tiene que decirlo donde se usa, no
+    # donde se documenta.
+    calculation_method: PayrollCalculationMethodLiteral = "additive_surcharges"
 
 
 class PayrollRunSummaryOut(BaseModel):

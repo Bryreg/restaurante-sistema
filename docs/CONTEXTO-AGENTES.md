@@ -252,6 +252,13 @@ residuo perdido. Usalo; no escribas otro.
 - `app/shifts/hooks.py: methods_in_bucket(bucket)` da los medios de pago de un
   bolsillo, derivados de `payment_bucket`. **Ningún módulo fuera de
   `app/shifts/` escribe el nombre de un medio de pago.**
+- Un reparto de propinas en efectivo dice de dónde salió la plata
+  (`TipPayout.paid_from`): `drawer` ya salió por el `to_deposit` del turno y
+  **no** vuelve a restarse de la mano; `owner_hand` sí; `unknown` son las filas
+  anteriores a la columna, se tratan como de la mano y su cantidad se publica.
+  La regla general detrás: **cuando una cifra depende de un hecho que nadie
+  registró, el hecho se vuelve un dato — no se adivina, y lo que se supone se
+  publica.**
 
 **Horas** — `app/core/hours.py` fija la escala entera de las horas, igual que
 `QTY_SCALE` hizo con las cantidades. Las horas no son pesos.

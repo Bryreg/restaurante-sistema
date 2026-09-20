@@ -19,6 +19,7 @@ import {
   getTipsSettings,
   updateTipsSettings,
   type TipDistributionMethod,
+  type TipPayoutMethod,
 } from "@/api/payroll"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
@@ -87,11 +88,20 @@ function ConfirmPayoutDialog({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [paidAt, setPaidAt] = useState(nowLocalDatetime)
-  const [method, setMethod] = useState("cash")
+  const [method, setMethod] = useState<TipPayoutMethod>("cash")
+  // A-3: sólo se pregunta cuando el reparto es en efectivo, porque sólo ahí
+  // significa algo. Un reparto pagado DEL CAJÓN ya redujo el `to_deposit` de
+  // su turno; sin este dato, la mano del dueño restaba esa misma plata otra
+  // vez. El default es «de la mano», que es el sesgo que muestra menos plata.
+  const [paidFrom, setPaidFrom] = useState<"drawer" | "owner_hand">("owner_hand")
 
   const mutation = useMutation({
     mutationFn: () =>
-      createTipPayout(storeId, { shift_ids: shiftIds, distribution, paid_at: paidAt, method }, newIdempotencyKey()),
+      createTipPayout(
+        storeId,
+        { shift_ids: shiftIds, distribution, paid_at: paidAt, method, paid_from: paidFrom },
+        newIdempotencyKey(),
+      ),
     onSuccess: () => {
       setOpen(false)
       onConfirmed()
@@ -119,9 +129,37 @@ function ConfirmPayoutDialog({
         </div>
         <div className="space-y-1">
           <Label htmlFor="tip-payout-method">Método</Label>
-          <Input id="tip-payout-method" className="h-11" value={method} onChange={(event) => setMethod(event.target.value)} placeholder="cash" />
+          <Select value={method} onValueChange={(v) => setMethod((v ?? "cash") as TipPayoutMethod)}>
+            <SelectTrigger id="tip-payout-method" className="h-11 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cash">Efectivo</SelectItem>
+              <SelectItem value="card">Datáfono</SelectItem>
+              <SelectItem value="transfer">Transferencia</SelectItem>
+              <SelectItem value="other">Otro</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
+      {method === "cash" ? (
+        <div className="space-y-1">
+          <Label htmlFor="tip-payout-source">¿De dónde salió la plata?</Label>
+          <Select value={paidFrom} onValueChange={(v) => setPaidFrom((v ?? "owner_hand") as "drawer" | "owner_hand")}>
+            <SelectTrigger id="tip-payout-source" className="h-11 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="owner_hand">De la plata que tenés en la mano</SelectItem>
+              <SelectItem value="drawer">Del cajón</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Si salió del cajón, esa plata ya se descontó al cerrar el turno: decirlo acá es lo que evita que la mano
+            del dueño la reste dos veces.
+          </p>
+        </div>
+      ) : null}
       {mutation.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(mutation.error)}

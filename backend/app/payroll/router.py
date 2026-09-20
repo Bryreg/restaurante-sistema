@@ -119,7 +119,24 @@ def _hours_row_out(row: EmployeeHours) -> HoursRowOut:
 
 
 def _surcharge_table_out(row: SurchargeTable) -> SurchargeTableOut:
-    return SurchargeTableOut.model_validate(row)
+    # A-4: «confirmada» = la cargó una persona. Las vigencias que sembró la
+    # migración `0020` no tienen `created_by_employee_id`, y sus valores son
+    # un supuesto declarado hasta que alguien con la norma adelante los
+    # revise. Se deriva del dato que ya existe: no hace falta columna nueva.
+    return SurchargeTableOut(
+        id=row.id,
+        store_id=row.store_id,
+        valid_from=row.valid_from,
+        night_start_hour=row.night_start_hour,
+        night_end_hour=row.night_end_hour,
+        night_surcharge_bp=row.night_surcharge_bp,
+        sunday_holiday_surcharge_bp=row.sunday_holiday_surcharge_bp,
+        overtime_surcharge_bp=row.overtime_surcharge_bp,
+        weekly_ordinary_hours=row.weekly_ordinary_hours,
+        confirmed_by_person=row.created_by_employee_id is not None,
+        confirmed_by_name=row.created_by_employee_name,
+        created_at=row.created_at,
+    )
 
 
 def _holiday_out(row: PayrollHoliday) -> HolidayOut:

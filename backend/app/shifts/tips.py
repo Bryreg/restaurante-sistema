@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError, NotFoundError
 from app.core.modules import find_spec_safe
 from app.shifts import hooks
-from app.shifts.models import Shift, TipPayout, TipPayoutDistribution
+from app.shifts.models import Shift, TipPayout, TipPayoutDistribution, TipPayoutSource
 from app.shifts.schemas import (
     EmployeeRef,
     SalesByMethodOut,
@@ -146,6 +146,7 @@ def register_tip_payout(
     distribution: list[TipPayoutDistributionIn],
     paid_at: datetime,
     method: str,
+    paid_from: str = "owner_hand",
     now: datetime,
 ) -> TipPayout:
     """Registra el reparto (SPEC-NEGOCIO §6.2: el cálculo es manual en esta
@@ -188,6 +189,7 @@ def register_tip_payout(
         shift_ids=list(shift_ids),
         paid_at=paid_at,
         method=method,
+        paid_from=TipPayoutSource(paid_from),
         total_amount=total_amount,
         created_by_employee_id=getattr(actor, "employee_id", None),
         created_by_employee_name=getattr(actor, "employee_name", None),
@@ -219,6 +221,7 @@ def tip_payout_out(db: Session, *, payout: TipPayout) -> TipPayoutOut:
         shift_ids=list(payout.shift_ids),
         paid_at=payout.paid_at,
         method=payout.method,
+        paid_from=payout.paid_from.value,  # type: ignore[arg-type]
         total_amount=payout.total_amount,
         created_by=EmployeeRef(id=payout.created_by_employee_id, name=payout.created_by_employee_name),
         created_at=payout.created_at,

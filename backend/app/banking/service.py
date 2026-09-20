@@ -52,7 +52,7 @@ from app.core.errors import AppError, NotFoundError
 from app.payments.models import Payment
 from app.refunds.models import PendingRefund, PendingRefundStatus, SettleFrom
 from app.shifts.hooks import methods_in_bucket
-from app.shifts.models import BusinessDay, CashPickup, Shift, ShiftStatus, TipPayout
+from app.shifts.models import BusinessDay, CashPickup, Shift, ShiftStatus, TipPayout, TipPayoutSource
 from app.stores.models import Store
 
 # C6/H-5 (iteración 2, advertencia): `payment_bucket` (`app.shifts.hooks`)
@@ -622,6 +622,16 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
         if date_from <= business_date <= date_to:
             spent_on_refunds += r.amount
 
+    # A-3: un reparto de propinas pagado DEL CAJÓN ya redujo el `to_deposit`
+    # de su turno, y `withdrawn_from_shift_close` (arriba) suma justamente ese
+    # `to_deposit`. Restarlo otra vez acá era contar la misma plata dos veces.
+    #
+    # Sólo salen de la mano del dueño los repartos `owner_hand` y los
+    # `unknown` — las filas anteriores a la columna, donde nadie declaró el
+    # origen. A `unknown` se lo trata como «de la mano» a propósito: es el
+    # sesgo que muestra MENOS plata, el único que este proyecto tolera
+    # (SPEC-NEGOCIO §6.1), y su cantidad se publica en
+    # `tip_payouts_unknown_source` para que la suposición no sea silenciosa.
     payouts = db.execute(
         select(TipPayout).where(
             TipPayout.organization_id == store.organization_id,
@@ -630,10 +640,16 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
         )
     ).scalars().all()
     spent_on_tips = 0
+    tip_payouts_unknown_source = 0
     for p in payouts:
         business_date = tz.business_date_for(p.paid_at, store.cutoff_hour)
-        if date_from <= business_date <= date_to:
-            spent_on_tips += p.total_amount
+        if not (date_from <= business_date <= date_to):
+            continue
+        if p.paid_from == TipPayoutSource.DRAWER:
+            continue
+        if p.paid_from == TipPayoutSource.UNKNOWN:
+            tip_payouts_unknown_source += 1
+        spent_on_tips += p.total_amount
 
     spent = spent_on_refunds + spent_on_tips
     balance = withdrawn - deposited - spent
@@ -648,6 +664,7 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
         "spent_on_tips": spent_on_tips,
         "spent_on_refunds": spent_on_refunds,
         "uncounted_shifts": uncounted_shifts,
+        "tip_payouts_unknown_source": tip_payouts_unknown_source,
     }
 
 

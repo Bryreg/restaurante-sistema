@@ -155,6 +155,11 @@ class OwnerHandOut(BaseModel):
     # nadie contó. Publicar el CONTEO deja la exclusión a la vista en vez de
     # silenciosa — "todo sesgo se declara" (SPEC-NEGOCIO §6.1).
     uncounted_shifts: int
+    # A-3: cuántos repartos de propinas en efectivo del período NO declararon
+    # de dónde salió la plata (filas anteriores a la columna `paid_from`). Se
+    # cuentan como salidos de la mano —el sesgo que muestra menos plata— y el
+    # conteo se publica para que esa suposición esté a la vista.
+    tip_payouts_unknown_source: int
 
 
 # ---------------------------------------------------------------------------

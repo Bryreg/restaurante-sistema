@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
@@ -166,6 +167,7 @@ export function SurchargeTablesTab({ storeId }: { storeId: number }): React.JSX.
                 <TableHead>Recargo dominical y festivo</TableHead>
                 <TableHead>Hora extra</TableHead>
                 <TableHead>Jornada semanal</TableHead>
+                <TableHead>Revisada</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -179,10 +181,25 @@ export function SurchargeTablesTab({ storeId }: { storeId: number }): React.JSX.
                   <TableCell className="tabular-nums">{formatBasisPoints(table.sunday_holiday_surcharge_bp)}</TableCell>
                   <TableCell className="tabular-nums">{formatBasisPoints(table.overtime_surcharge_bp)}</TableCell>
                   <TableCell className="tabular-nums">{table.weekly_ordinary_hours} h</TableCell>
+                  <TableCell>
+                    {table.confirmed_by_person ? (
+                      <Badge variant="secondary">{table.confirmed_by_name ?? "Sí"}</Badge>
+                    ) : (
+                      <Badge variant="outline">Sin revisar</Badge>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          {(query.data ?? []).some((t) => t.confirmed_by_person === false) ? (
+            <p role="status" className="mt-3 text-sm text-muted-foreground">
+              <strong>Hay vigencias sin revisar.</strong> Las cargó la instalación del sistema con los valores de la
+              ley que estaban a mano; son editables desde acá, pero hasta que alguien con la norma adelante las
+              confirme, las liquidaciones que las usen descansan sobre un supuesto. Para confirmarlas, cargá la
+              vigencia de nuevo con los valores correctos: queda a tu nombre.
+            </p>
+          ) : null}
         </div>
       )}
     </div>

@@ -57,6 +57,19 @@ function RunDetail({ runId }: { runId: number }): React.JSX.Element {
   const lines = run?.lines ?? []
   return (
     <div className="space-y-3">
+      <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+        <strong>Esta cifra es para control interno, no es la liquidación legal.</strong> Paga la base más cada recargo
+        (nocturno, dominical y festivo, hora extra) por separado, que es lo que la hace auditable renglón por renglón.
+        La fórmula del Código Sustantivo del Trabajo los combina en ocho categorías, y esa todavía no está
+        implementada: antes de pagar, revisalo con tu contador.
+      </p>
+      {tables.some((t) => t.confirmed_by_person === false) ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          <strong>Esta liquidación se calculó con una tabla de recargos sin revisar.</strong> Los valores los cargó la
+          instalación del sistema; hasta que alguien con la norma adelante los confirme en «Tablas de recargos», esta
+          nómina descansa sobre un supuesto.
+        </p>
+      ) : null}
       {tables.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {tables.map((table, index) => (
