@@ -235,6 +235,29 @@ def erase_customer(
     customer.updated_at = now
     db.flush()
 
+    # D-4 (features/fase-3-dinero-control/spec.md §1, territorio T1
+    # `backend-banco`): la supresión también alcanza a las
+    # `pending_refunds` de este cliente — mismo criterio que el maestro de
+    # arriba (se anonimizan los campos personales, se conserva intacto el
+    # registro financiero). Import protegido y hecho DENTRO de la función
+    # (nunca en el tope del módulo), mismo patrón con el que
+    # `app.shifts.hooks.get_sales_totals` protege su import de
+    # `app.payments.models`: si `app.refunds` no está presente,
+    # `erase_customer` sigue funcionando exactamente igual.
+    from app.core.modules import find_spec_safe
+
+    if find_spec_safe("app.refunds.service") is not None:
+        from app.refunds.service import anonymize_pending_refunds_for_customer
+
+        anonymize_pending_refunds_for_customer(
+            db,
+            actor=actor,
+            organization_id=customer.organization_id,
+            customer_id=customer.id,
+            reason=reason,
+            now=now,
+        )
+
     db.add(
         CustomerDataRequest(
             customer_id=customer.id,

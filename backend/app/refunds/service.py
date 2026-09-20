@@ -3,6 +3,14 @@
 Saldar **desde un turno** crea el egreso `refund` en ESE turno (nunca toca el
 turno/documento original); saldar **de la mano del dueño** no mueve caja
 (`docs/SPEC-NEGOCIO.md §6.3`).
+
+**D-4** (`features/fase-3-dinero-control/spec.md § 1`, territorio T1
+`backend-banco`, única excepción autorizada a «no toques `app/refunds/`»):
+`anonymize_pending_refunds_for_customer` extiende la supresión por habeas
+data a `pending_refunds`. La llama `app.customers.service.erase_customer`
+(import protegido con `find_spec_safe`, dentro de la función) cuando el
+titular ejerce su derecho de supresión — ver su docstring para el criterio
+completo.
 """
 
 from __future__ import annotations
@@ -115,3 +123,91 @@ def settle_pending_refund(
         reason=None,
     )
     return pending_refund
+
+
+# ---------------------------------------------------------------------------
+# D-4 — supresión por habeas data extendida a `pending_refunds`.
+# ---------------------------------------------------------------------------
+
+# El modelo de `PendingRefund` sólo guarda dos campos personales de la fila
+# (`customer_name`, `customer_doc_number`) — no hay columna de teléfono en
+# esta tabla. `customer_doc_number` **no se anonimiza**: es la llave con la
+# que la persona reclama la devolución («la devolución le sigue siendo
+# pagadera a quien aparezca con el documento», D-4), y anonimizarla dejaría
+# la plata sin poder pagarse — que es exactamente lo que D-4 prohíbe («no se
+# borra la plata, se borra la identidad»). Sólo se anonimiza `customer_name`.
+ANONYMIZED_CUSTOMER_NAME = "Titular suprimido"
+
+
+def anonymize_pending_refunds_for_customer(
+    db: Session,
+    *,
+    actor: Any,
+    organization_id: int,
+    customer_id: int,
+    reason: str,
+    now: datetime,
+) -> int:
+    """D-4: anonimiza el nombre de TODAS las `pending_refunds` de
+    `customer_id` (§1 de la spec de fase 3, con el mismo criterio que
+    `app.customers.service.erase_customer` ya usa para el maestro:
+    **se anonimizan los campos personales, se conserva intacto el registro
+    financiero**).
+
+    **Lo que NO se toca, nunca**: `amount`, `document_id`, `status`,
+    `authorized_by_employee_*`, `settled_*` y `customer_doc_number` (la
+    devolución sigue siendo pagadera a quien se identifique con ese
+    documento). Sólo cambia `customer_name`.
+
+    **Idempotente**: una fila cuyo `customer_name` ya es
+    `ANONYMIZED_CUSTOMER_NAME` se salta (no genera una segunda entrada de
+    auditoría ni pisa nada). Igual que `erase_customer`, `before` en
+    `record_audit` guarda **sólo el nombre del campo que cambió**
+    (`"cleared_fields": ["customer_name"]`), nunca el dato suprimido — la
+    lección del bloqueante B-1 de la fase 1b-2 (`docs/SPEC-NEGOCIO.md`,
+    `app.customers.service._customer_audit_view`), que reintroducirla acá
+    sería el mismo defecto otra vez.
+
+    Devuelve cuántas filas se anonimizaron (para que quien llama pueda
+    registrar un resumen, si quiere, sin tener que releer la tabla).
+
+    Se llama desde `app.customers.service.erase_customer`, después de
+    anonimizar el maestro (import protegido con
+    `app.core.modules.find_spec_safe`, igual que
+    `app.shifts.hooks.get_sales_totals` protege su import de
+    `app.payments.models`, por si algún día `refunds` no está presente).
+    """
+
+    rows = list(
+        db.execute(
+            select(PendingRefund).where(
+                PendingRefund.organization_id == organization_id,
+                PendingRefund.customer_id == customer_id,
+            )
+        ).scalars()
+    )
+
+    anonymized = 0
+    for row in rows:
+        if row.customer_name == ANONYMIZED_CUSTOMER_NAME:
+            continue  # ya anonimizada: idempotente, no vuelve a auditar.
+
+        before = {"cleared_fields": ["customer_name"]}
+        row.customer_name = ANONYMIZED_CUSTOMER_NAME
+        db.flush()
+
+        record_audit(
+            db,
+            actor=actor,
+            organization_id=row.organization_id,
+            store_id=row.store_id,
+            entity="pending_refund",
+            entity_id=row.id,
+            action="anonymize_personal_data",
+            before=before,
+            after={"customer_name": ANONYMIZED_CUSTOMER_NAME},
+            reason=reason,
+        )
+        anonymized += 1
+
+    return anonymized

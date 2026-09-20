@@ -79,6 +79,7 @@ def _reception_out(db: Session, reception: Reception) -> ReceptionOut:
         invoice_number=reception.invoice_number,
         invoice_date=reception.invoice_date,
         no_invoice=reception.no_invoice,
+        invoice_total=reception.invoice_total,
         photo=reception.photo,
         received_by_employee_id=reception.received_by_employee_id,
         received_by_employee_name=reception.received_by_employee_name,
@@ -97,6 +98,7 @@ def _reception_out(db: Session, reception: Reception) -> ReceptionOut:
 def _payable_out(db: Session, payable: Payable) -> PayableOut:
     balance = service.payable_balance(db, payable)
     today = clock.now_utc().date()
+    invoice_total, invoice_discrepancy = service.get_invoice_discrepancy(db, payable=payable)
     return PayableOut(
         id=payable.id,
         store_id=payable.store_id,
@@ -110,6 +112,10 @@ def _payable_out(db: Session, payable: Payable) -> PayableOut:
         approved_at=payable.approved_at,
         approved_by_employee_name=payable.approved_by_employee_name,
         business_date=payable.business_date,
+        invoice_total=invoice_total,
+        invoice_discrepancy=invoice_discrepancy,
+        discrepancy_confirmed=payable.discrepancy_confirmed,
+        discrepancy_confirmed_by_employee_name=payable.discrepancy_confirmed_by_employee_name,
     )
 
 
@@ -315,6 +321,20 @@ def list_payables(
     return out
 
 
+@router.get("/admin/payables/{payable_id}")
+def get_payable(
+    payable_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> PayableOut:
+    """Agregado por `backend-obligaciones` (D-2,
+    `features/fase-3-dinero-control/spec.md § 2`, contrato de API mínimo de
+    T2): la única forma de leer UNA cuenta por pagar por id ya con
+    `invoice_total`/`invoice_discrepancy`. Antes de esta fase sólo existía el
+    listado (`GET /admin/payables`)."""
+    payable = service.get_payable_or_404(db, organization_id=actor.organization_id, payable_id=payable_id)
+    admin_store(db, actor, payable.store_id)
+    return _payable_out(db, payable)
+
+
 @router.post("/admin/payables/{payable_id}/approve")
 def approve_payable(
     payable_id: int,
@@ -324,7 +344,9 @@ def approve_payable(
 ) -> PayableOut:
     payable = service.get_payable_or_404(db, organization_id=actor.organization_id, payable_id=payable_id)
     admin_store(db, actor, payable.store_id)
-    row = service.approve_payable(db, actor=actor, payable=payable, authorizer_pin=payload.authorizer_pin)
+    row = service.approve_payable(
+        db, actor=actor, payable=payable, authorizer_pin=payload.authorizer_pin, confirm_discrepancy=payload.confirm_discrepancy
+    )
     return _payable_out(db, row)
 
 

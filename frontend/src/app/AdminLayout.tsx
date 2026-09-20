@@ -3,11 +3,15 @@ import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { NotificationBell } from "@/features/notifications/NotificationBell";
+import { analyticsFeature } from "@/features/analytics";
+import { bankingFeature } from "@/features/banking";
 import { catalogFeature } from "@/features/catalog";
 import { customersFeature } from "@/features/customers";
+import { expensesFeature } from "@/features/expenses";
 import { fiscalFeature } from "@/features/fiscal";
 import { inventoryFeature } from "@/features/inventory";
 import { ordersFeature } from "@/features/orders";
+import { payrollFeature } from "@/features/payroll";
 import { purchasesFeature } from "@/features/purchases";
 import { recipesFeature } from "@/features/recipes";
 import { reportsFeature } from "@/features/reports";
@@ -49,6 +53,12 @@ const OWN_NAV: NavItem[] = [
  * Inventario (pedido 2b: "Carta y recetas, Preparaciones, Inventario,
  * Compras, Dinero..." — la fila de la tabla §9.3) — y `OWN_NAV` cierra
  * igual que antes.
+ *
+ * Fase 3 (`features/fase-3-dinero-control/spec.md` § T5): `bankingFeature`,
+ * `expensesFeature` y `payrollFeature`/`analyticsFeature` se agregan justo
+ * después de Compras y antes de fiscal/turnos — "Banco", "Gastos", "Nómina"/
+ * "Propinas" e "Ingeniería de menú"/"Reposición" completan la fila "Dinero y
+ * control" de §14 que `shiftsFeature` (turnos, caja) ya empezaba.
  */
 function buildNav(hasFeature: (key: string) => boolean): NavItem[] {
   const all = [
@@ -58,6 +68,10 @@ function buildNav(hasFeature: (key: string) => boolean): NavItem[] {
     ...recipesFeature.adminNav,
     ...inventoryFeature.adminNav,
     ...purchasesFeature.adminNav,
+    ...bankingFeature.adminNav,
+    ...expensesFeature.adminNav,
+    ...payrollFeature.adminNav,
+    ...analyticsFeature.adminNav,
     ...fiscalFeature.adminNav,
     ...shiftsFeature.adminNav,
     ...customersFeature.adminNav,

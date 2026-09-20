@@ -140,6 +140,14 @@ class Reception(Base):
     invoice_date: Mapped[date] = mapped_column(sa.Date)
     no_invoice: Mapped[bool] = mapped_column(sa.Boolean, default=False)
     photo: Mapped[str | None] = mapped_column(sa.String(500), nullable=True)
+    # D-2 (`features/fase-3-dinero-control/spec.md § 1`, territorio de
+    # `backend-obligaciones`): lo que dice el PAPEL de la factura, opcional
+    # (una recepción `no_invoice=True` no tiene papel que copiar). NUNCA
+    # sustituye a `Payable.amount` (el cálculo, que sigue costeando el
+    # inventario) — las dos cifras se guardan y la diferencia se publica
+    # como `invoice_discrepancy` en la salida de la cuenta por pagar,
+    # derivada, nunca almacenada.
+    invoice_total: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
 
     received_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     received_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
@@ -254,6 +262,14 @@ class Payable(Base):
 
     created_at: Mapped[datetime] = mapped_column(UTCDateTime())
     business_date: Mapped[date] = mapped_column(sa.Date)
+
+    # D-2: queda registrado que alguien reconoció explícitamente una
+    # diferencia entre `Reception.invoice_total` y `amount` al aprobar
+    # (mismo patrón que `Reception.price_confirmed*` para `confirm_price`).
+    # `False`/`None` cuando no hubo diferencia que confirmar.
+    discrepancy_confirmed: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    discrepancy_confirmed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    discrepancy_confirmed_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
     __table_args__ = (
         CheckConstraint("amount > 0", name="ck_payables_amount_positive"),

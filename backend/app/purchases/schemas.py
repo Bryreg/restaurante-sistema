@@ -93,6 +93,10 @@ class ReceptionIn(BaseModel):
     invoice_date: date
     no_invoice: bool = False
     photo: str | None = Field(default=None, max_length=500)
+    # D-2: lo que dice el PAPEL de la factura, en pesos — opcional (una
+    # recepción `no_invoice=True` no tiene papel que copiar). Nunca
+    # reemplaza el cálculo de `Payable.amount`.
+    invoice_total: int | None = Field(default=None, ge=0)
     received_by_pin: str = Field(min_length=1, max_length=20)
     confirm_price: bool = Field(
         default=False,
@@ -125,6 +129,7 @@ class ReceptionOut(OutModel):
     invoice_number: str | None
     invoice_date: date
     no_invoice: bool
+    invoice_total: int | None
     photo: str | None
     received_by_employee_id: int
     received_by_employee_name: str
@@ -161,10 +166,24 @@ class PayableOut(OutModel):
     approved_at: datetime | None
     approved_by_employee_name: str | None
     business_date: date
+    # D-2: lo que dice el papel (copiado de `Reception.invoice_total`, `None`
+    # si la recepción no lo capturó) y la diferencia DERIVADA contra `amount`
+    # (`invoice_total - amount`; `None` si no hay `invoice_total` que
+    # comparar). `amount` sigue siendo el cálculo — nunca cambia de
+    # significado.
+    invoice_total: int | None
+    invoice_discrepancy: int | None
+    discrepancy_confirmed: bool
+    discrepancy_confirmed_by_employee_name: str | None
 
 
 class PayableApproveIn(BaseModel):
     authorizer_pin: str = Field(min_length=1, max_length=20)
+    # D-2: reconoce explícitamente la diferencia entre `invoice_total` y
+    # `amount` cuando la hay — mismo patrón que `confirm_price` en
+    # `ReceptionIn`. Sin ella y con diferencia, `approve_payable` corta con
+    # `409 INVOICE_DISCREPANCY`.
+    confirm_discrepancy: bool = False
 
 
 class PaymentIn(BaseModel):

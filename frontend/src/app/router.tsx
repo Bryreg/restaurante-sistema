@@ -3,15 +3,19 @@ import { createBrowserRouter, Navigate, RouterProvider, type RouteObject } from 
 import DeviceActivatePage from "@/features/auth/DeviceActivatePage";
 import DeviceIdentifyPage from "@/features/auth/DeviceIdentifyPage";
 import LoginPage from "@/features/auth/LoginPage";
+import { analyticsFeature } from "@/features/analytics";
+import { bankingFeature } from "@/features/banking";
 import { catalogFeature } from "@/features/catalog";
 import AuditPage from "@/features/audit/AuditPage";
 import { customersFeature } from "@/features/customers";
+import { expensesFeature } from "@/features/expenses";
 import { fiscalFeature } from "@/features/fiscal";
 import FeaturesPage from "@/features/features/FeaturesPage";
 import { inventoryFeature } from "@/features/inventory";
 import { kitchenFeature } from "@/features/kitchen";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import { ordersFeature } from "@/features/orders";
+import { payrollFeature } from "@/features/payroll";
 import { paymentsFeature } from "@/features/payments";
 import { purchasesFeature } from "@/features/purchases";
 import { recipesFeature } from "@/features/recipes";
@@ -60,6 +64,11 @@ function RequireDevice({ children }: { children: React.ReactElement }): React.Re
  * abre el admin (SPEC-NEGOCIO §9.3, "pulso de hoy" primero).
  * `kitchenFeature` (pedido 2c, CONTRATO C8): sólo `posRoutes` — el KDS es
  * puramente de dispositivo (§9.2), sin pantalla de admin propia.
+ * `bankingFeature`, `expensesFeature`, `payrollFeature` y `analyticsFeature`
+ * (fase 3, `features/fase-3-dinero-control/spec.md` § T5): sólo
+ * `adminRoutes` — dinero, costos y nómina son pantallas de administrador,
+ * nunca del operador (AGENTS.md § "el operador no recibe costos ni
+ * márgenes").
  */
 const routes: RouteObject[] = [
   { path: "/", element: <Navigate to="/login" replace /> },
@@ -95,6 +104,10 @@ const routes: RouteObject[] = [
       ...inventoryFeature.adminRoutes,
       ...recipesFeature.adminRoutes,
       ...purchasesFeature.adminRoutes,
+      ...bankingFeature.adminRoutes,
+      ...expensesFeature.adminRoutes,
+      ...payrollFeature.adminRoutes,
+      ...analyticsFeature.adminRoutes,
     ],
   },
   {

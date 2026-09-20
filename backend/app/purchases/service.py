@@ -349,6 +349,7 @@ def create_reception(db: Session, *, actor: Actor, store: Store, payload: Recept
         invoice_number=payload.invoice_number,
         invoice_date=payload.invoice_date,
         no_invoice=payload.no_invoice,
+        invoice_total=payload.invoice_total,
         photo=payload.photo,
         received_by_employee_id=received_by.id,
         received_by_employee_name=received_by.name,
@@ -643,11 +644,42 @@ def list_payments(db: Session, *, payable_id: int, include_voided: bool = True) 
     return list(db.execute(stmt.order_by(Payment.paid_at, Payment.id)).scalars())
 
 
-def approve_payable(db: Session, *, actor: Actor, payable: Payable, authorizer_pin: str) -> Payable:
+def get_invoice_discrepancy(db: Session, *, payable: Payable) -> tuple[int | None, int | None]:
+    """`(invoice_total, invoice_discrepancy)` para la salida de la cuenta por
+    pagar (D-2, `features/fase-3-dinero-control/spec.md § 1`). Derivado
+    siempre de `Reception.invoice_total` — nunca almacenado en `Payable`, que
+    sigue siendo sólo el cálculo (`amount`). `invoice_discrepancy` es `None`
+    cuando no hay `invoice_total` que comparar (la recepción no capturó
+    papel, o es `no_invoice=True`)."""
+    reception = db.get(Reception, payable.reception_id)
+    invoice_total = reception.invoice_total if reception is not None else None
+    if invoice_total is None:
+        return None, None
+    return invoice_total, invoice_total - payable.amount
+
+
+def approve_payable(
+    db: Session, *, actor: Actor, payable: Payable, authorizer_pin: str, confirm_discrepancy: bool = False
+) -> Payable:
     if payable.status == PayableStatus.APPROVED:
         raise AppError(code="PAYABLE_ALREADY_APPROVED", message="Esta cuenta por pagar ya está aprobada", status=400)
     if payable.status == PayableStatus.CANCELLED:
         raise AppError(code="PAYABLE_CANCELLED", message="Esta cuenta por pagar fue cancelada (su recepción se revirtió)", status=400)
+
+    # D-2: aprobarla exige reconocer la diferencia explícitamente, mismo
+    # patrón que `confirm_price` en `create_reception` — `409` + repetir con
+    # la confirmación, nunca una segunda forma de decir "ya sé, seguí".
+    invoice_total, discrepancy = get_invoice_discrepancy(db, payable=payable)
+    discrepancy_present = discrepancy is not None and discrepancy != 0
+    if discrepancy_present and not confirm_discrepancy:
+        raise AppError(
+            code="INVOICE_DISCREPANCY",
+            message=(
+                f"La factura del proveedor dice ${invoice_total} pero el cálculo de la recepción da "
+                f"${payable.amount}; si es correcto, repetí la aprobación con confirm_discrepancy: true"
+            ),
+            status=409,
+        )
 
     authorizer = auth_service.verify_authorizer(
         db,
@@ -661,6 +693,10 @@ def approve_payable(db: Session, *, actor: Actor, payable: Payable, authorizer_p
     payable.approved_at = clock.now_utc()
     payable.approved_by_employee_id = authorizer.id
     payable.approved_by_employee_name = authorizer.name
+    if discrepancy_present:
+        payable.discrepancy_confirmed = True
+        payable.discrepancy_confirmed_by_employee_id = actor.employee_id
+        payable.discrepancy_confirmed_by_employee_name = actor.employee_name
     db.flush()
     record_audit(
         db,
@@ -671,7 +707,11 @@ def approve_payable(db: Session, *, actor: Actor, payable: Payable, authorizer_p
         entity_id=payable.id,
         action="approve",
         before={"status": "pending_review"},
-        after={"status": "approved"},
+        after={
+            "status": "approved",
+            "invoice_discrepancy": discrepancy,
+            "discrepancy_confirmed": payable.discrepancy_confirmed,
+        },
     )
     return payable
 
