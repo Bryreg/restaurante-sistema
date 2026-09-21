@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Printer, Receipt, Scale } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useSession } from "@/app/session";
@@ -38,6 +39,45 @@ function documentQueryKey(documentId: number) {
   return ["documents", documentId] as const;
 }
 
+/** Un dato del encabezado del papel: rótulo a la izquierda, valor a la derecha. */
+function Dato({ k, v }: { k: string; v: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-0.5">
+      <span className="shrink-0 text-muted-foreground">{k}</span>
+      <span className="min-w-0 text-right font-medium break-words">{v}</span>
+    </div>
+  );
+}
+
+/** Un renglón de totales del papel. `fuerte` es el que cierra el bloque. */
+function Total({
+  rotulo,
+  detalle,
+  valor,
+  fuerte,
+  className,
+}: {
+  rotulo: string;
+  detalle?: string;
+  valor: React.ReactNode;
+  fuerte?: boolean;
+  className?: string;
+}): React.JSX.Element {
+  return (
+    <div className={`flex items-baseline justify-between gap-3 py-1 ${className ?? ""}`}>
+      <span className="min-w-0">
+        <span className={fuerte ? "font-bold" : undefined}>{rotulo}</span>
+        {detalle ? <span className="block text-[0.85em] text-muted-foreground">{detalle}</span> : null}
+      </span>
+      <span
+        className={`shrink-0 tabular-nums ${fuerte ? "text-base font-bold" : "font-medium"}`}
+      >
+        {valor}
+      </span>
+    </div>
+  );
+}
+
 /**
  * `/pos/documento/:documentId` (CONTRATO-INTERNO-1b-1.md §2.4 `GET
  * /documents/{id}` y §6.3 "Impresión"): representación gráfica del
@@ -46,6 +86,22 @@ function documentQueryKey(documentId: number) {
  * aparte de la venta (SPEC-NEGOCIO §6.2). "Imprimir" es `window.print()` con
  * `document-print.css`; "Reimprimir" queda contado por el servidor
  * (`reprint_count`); "Volver" respeta `pos.tables`.
+ *
+ * **Jerarquía (maqueta `m2b`, pestaña «Documento»)**: el papel angosto a la
+ * izquierda, como la tira de 80 mm, y a la derecha las acciones y lo que el
+ * papel dice. Adentro del papel, dos cosas mandan y no se pueden confundir:
+ *
+ * - el **impuesto va discriminado y no sumado** — su renglón vive ADENTRO
+ *   del bloque de la venta, en tipo menor y con una regla propia, y el
+ *   «Total venta» lo cierra: el impuesto ya está dentro de esa cifra
+ *   (`app/orders/money.py::compute_totals` — `total = Σ net`, y el impuesto
+ *   está dentro de cada `net`, se haya cotizado con o sin impuesto adentro);
+ * - la **propina está fuera de la venta**: bloque aparte, después de la
+ *   regla que cierra el total, nunca adentro de él (SPEC-NEGOCIO §6.2, Ley
+ *   1935 de 2018).
+ *
+ * Qué datos se muestran no cambió: los mismos campos de
+ * `DocumentPrintable`, ni uno más ni uno menos.
  */
 export default function DocumentPage(): React.JSX.Element {
   const { documentId: documentIdParam } = useParams<{ documentId: string }>();
@@ -94,34 +150,19 @@ export default function DocumentPage(): React.JSX.Element {
   const store = doc.store;
   const customer = doc.customer;
   const order = doc.order;
+  const taxLines = doc.tax_lines ?? [];
 
   return (
-    <div className="mx-auto max-w-md space-y-6 pb-16">
-      <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-lg font-semibold">Comprobante</h1>
-          {doc.fiscal?.dian_status ? (
-            <Badge variant={dianBadgeVariant(doc.fiscal.dian_status)}>{dianStatusLabel(doc.fiscal.dian_status)}</Badge>
-          ) : null}
-          {doc.fiscal?.contingency ? <Badge variant="outline">Contingencia</Badge> : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" className="h-11" onClick={backTo}>
-            Volver
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-11"
-            disabled={reprintMutation.isPending}
-            onClick={() => reprintMutation.mutate()}
-          >
-            {reprintMutation.isPending ? "Reimprimiendo…" : "Reimprimir"}
-          </Button>
-          <Button type="button" className="h-11" onClick={() => window.print()}>
-            Imprimir
-          </Button>
-        </div>
+    <div className="mx-auto w-full max-w-5xl space-y-4 pb-16">
+      <div className="flex flex-wrap items-center gap-2 print:hidden">
+        <h1 className="text-lg font-semibold">Comprobante</h1>
+        <span className="text-lg font-semibold tabular-nums text-muted-foreground">
+          Documento {doc.full_number ?? `${doc.prefix ?? ""}-${doc.number ?? ""}`}
+        </span>
+        {doc.fiscal?.dian_status ? (
+          <Badge variant={dianBadgeVariant(doc.fiscal.dian_status)}>{dianStatusLabel(doc.fiscal.dian_status)}</Badge>
+        ) : null}
+        {doc.fiscal?.contingency ? <Badge variant="outline">Contingencia</Badge> : null}
       </div>
 
       {reprintMutation.isError ? (
@@ -130,135 +171,193 @@ export default function DocumentPage(): React.JSX.Element {
         </p>
       ) : null}
 
-      <article id="document-printable" className="print-80mm space-y-3 rounded-md border p-4 text-sm">
-        <header className="space-y-1 text-center">
-          <p className="font-semibold">{store?.legal_name ?? "—"}</p>
-          {store?.nit ? (
-            <p className="text-xs text-muted-foreground">
-              NIT {store.nit}
-              {store.dv ? `-${store.dv}` : ""}
-            </p>
-          ) : null}
-          {store?.address ? <p className="text-xs text-muted-foreground">{store.address}</p> : null}
-          <p className="text-xs font-medium">{doc.type_label ?? doc.document_type}</p>
-          <p className="text-sm font-semibold">{doc.full_number ?? `${doc.prefix ?? ""}-${doc.number ?? ""}`}</p>
-        </header>
-
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>{doc.business_date ?? "—"}</span>
-          <span>{doc.issued_at ? formatInstant(doc.issued_at) : "—"}</span>
-        </div>
-
-        {doc.fiscal?.dian_status || doc.fiscal?.cude || doc.fiscal?.qr_url ? (
-          <div className="space-y-1 text-xs">
-            {doc.fiscal?.dian_status ? (
-              <p className="flex items-center justify-center gap-2">
-                <span>Estado DIAN:</span>
-                <Badge variant={dianBadgeVariant(doc.fiscal.dian_status)}>
-                  {dianStatusLabel(doc.fiscal.dian_status)}
-                </Badge>
-              </p>
-            ) : null}
-            {doc.fiscal?.cude ? <p className="break-all text-center">CUDE: {doc.fiscal.cude}</p> : null}
-            {doc.fiscal?.qr_url ? (
-              <p className="break-all text-center">
-                QR:{" "}
-                <a className="underline" href={doc.fiscal.qr_url} target="_blank" rel="noreferrer">
-                  {doc.fiscal.qr_url}
-                </a>
-              </p>
-            ) : null}
+      <div className="grid items-start gap-4 lg:grid-cols-[23rem_minmax(0,1fr)]">
+        <div className="order-1 flex flex-col gap-4 lg:order-2 print:hidden">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" className="h-11" onClick={() => window.print()}>
+              <Printer aria-hidden="true" />
+              Imprimir
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11"
+              disabled={reprintMutation.isPending}
+              onClick={() => reprintMutation.mutate()}
+            >
+              <Receipt aria-hidden="true" />
+              {reprintMutation.isPending ? "Reimprimiendo…" : "Reimprimir"}
+            </Button>
+            <Button type="button" variant="outline" className="h-11" onClick={backTo}>
+              <ArrowLeft aria-hidden="true" />
+              Volver
+            </Button>
           </div>
-        ) : null}
 
-        <div className="space-y-0.5 text-xs">
-          <p>Adquirente: {customer?.name ?? "Consumidor final"}</p>
-          {customer?.doc_number ? (
-            <p>
-              {customer.doc_type ?? "Doc."}: {customer.doc_number}
+          <section className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+            <div className="flex items-center gap-2 border-b bg-muted/60 px-4 py-2.5 text-muted-foreground">
+              <Scale aria-hidden="true" className="size-4" />
+              <h2 className="text-xs font-bold tracking-wider uppercase">Qué dice este papel</h2>
+            </div>
+            <div className="grid gap-3 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+              <p>
+                El <b className="text-foreground">impuesto va discriminado, no sumado</b>: su renglón está
+                adentro del bloque de la venta y el «Total venta» ya lo incluye. No se agrega al final.
+              </p>
+              <p>
+                La <b className="text-foreground">propina no es venta</b>: tiene su renglón afuera de la regla
+                que cierra el total, y no paga impuesto al consumo.
+              </p>
+              <p>
+                Cada copia la cuenta el servidor, con quién la pidió. El comprobante no cambia: cambia el
+                contador del pie.
+              </p>
+            </div>
+          </section>
+        </div>
+
+        <article
+          id="document-printable"
+          className="print-80mm order-2 rounded-md border bg-card p-4 text-sm lg:order-1"
+        >
+          <header className="space-y-0.5 text-center">
+            <p className="text-base font-bold">{store?.legal_name ?? "—"}</p>
+            {store?.nit ? (
+              <p className="text-xs text-muted-foreground">
+                NIT {store.nit}
+                {store.dv ? `-${store.dv}` : ""}
+              </p>
+            ) : null}
+            {store?.address ? <p className="text-xs text-muted-foreground">{store.address}</p> : null}
+            <p className="pt-1 text-xs font-medium">{doc.type_label ?? doc.document_type}</p>
+            <p className="text-base font-bold tracking-wide tabular-nums">
+              {doc.full_number ?? `${doc.prefix ?? ""}-${doc.number ?? ""}`}
             </p>
+          </header>
+
+          <div className="mt-3 border-t border-dashed pt-2 text-xs">
+            <Dato k="Fecha" v={doc.business_date ?? "—"} />
+            <Dato k="Emitido" v={doc.issued_at ? formatInstant(doc.issued_at) : "—"} />
+            <Dato k="Adquirente" v={customer?.name ?? "Consumidor final"} />
+            {customer?.doc_number ? <Dato k={customer.doc_type ?? "Doc."} v={customer.doc_number} /> : null}
+          </div>
+
+          {order?.channel || (order?.tables && order.tables.length > 0) || order?.covers != null || order?.served_by || order?.charged_by ? (
+            <div className="mt-2 border-t border-dashed pt-2 text-xs">
+              {order?.channel ? <Dato k="Canal" v={order.channel} /> : null}
+              {order?.tables && order.tables.length > 0 ? <Dato k="Mesa(s)" v={order.tables.join(", ")} /> : null}
+              {order?.covers != null ? <Dato k="Comensales" v={order.covers} /> : null}
+              {order?.served_by ? <Dato k="Atendió" v={order.served_by} /> : null}
+              {order?.charged_by ? <Dato k="Cobró" v={order.charged_by} /> : null}
+            </div>
           ) : null}
-        </div>
 
-        <div className="space-y-0.5 text-xs">
-          {order?.channel ? <p>Canal: {order.channel}</p> : null}
-          {order?.tables && order.tables.length > 0 ? <p>Mesa(s): {order.tables.join(", ")}</p> : null}
-          {order?.covers != null ? <p>Comensales: {order.covers}</p> : null}
-          {order?.served_by ? <p>Atendió: {order.served_by}</p> : null}
-          {order?.charged_by ? <p>Cobró: {order.charged_by}</p> : null}
-        </div>
-
-        <table className="w-full border-collapse text-xs">
-          <thead>
-            <tr className="border-b text-left">
-              <th className="py-1">Cant.</th>
-              <th className="py-1">Descripción</th>
-              <th className="py-1 text-right">Valor</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(doc.lines ?? []).map((line, index) => (
-              <tr key={index} className="border-b last:border-0">
-                <td className="py-1 align-top">{line.qty ?? 1}</td>
-                <td className="py-1 align-top">{line.description ?? "—"}</td>
-                <td className="py-1 text-right align-top tabular-nums">{formatCOP(line.net)}</td>
+          <table className="mt-3 w-full border-collapse border-t border-dashed text-xs">
+            <thead>
+              <tr className="border-b text-left text-muted-foreground">
+                <th className="py-1 font-medium">Cant.</th>
+                <th className="py-1 font-medium">Descripción</th>
+                <th className="py-1 text-right font-medium">Valor</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {(doc.lines ?? []).map((line, index) => (
+                <tr key={index} className="border-b last:border-0">
+                  <td className="py-1 pr-2 align-top tabular-nums">{line.qty ?? 1}</td>
+                  <td className="py-1 align-top">{line.description ?? "—"}</td>
+                  <td className="py-1 text-right align-top font-medium tabular-nums">{formatCOP(line.net)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-        <div className="space-y-0.5 text-xs">
-          <div className="flex justify-between">
-            <span>Subtotal</span>
-            <span className="tabular-nums">{formatCOP(doc.subtotal)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Descuentos</span>
-            <span className="tabular-nums">{formatCOP(doc.discount_total)}</span>
-          </div>
-          {(doc.tax_lines ?? []).map((line, index) => (
-            <div key={index} className="flex justify-between">
-              <span>Impuesto {line.rate}%</span>
-              <span className="tabular-nums">{formatCOP(line.tax)}</span>
+          {/* LA VENTA. El impuesto vive adentro de este bloque, en tipo
+              menor y sangrado: se discrimina, no se suma. El «Total venta»
+              cierra el bloque con la regla gruesa — lo que viene después ya
+              no es venta. */}
+          <div className="mt-3 border-t border-dashed pt-2 text-xs">
+            <Total rotulo="Subtotal" valor={formatCOP(doc.subtotal)} />
+            <Total rotulo="Descuentos" valor={formatCOP(doc.discount_total)} />
+
+            <div className="my-1 border-l-2 border-border py-0.5 pl-2.5">
+              {taxLines.map((line, index) => (
+                <Total key={index} rotulo={`Impuesto ${line.rate}%`} valor={formatCOP(line.tax)} />
+              ))}
+              <p className="pt-0.5 text-[0.85em] leading-snug text-muted-foreground">
+                Discriminado, no sumado: ya está adentro del total de venta.
+              </p>
             </div>
-          ))}
-          <div className="flex justify-between text-sm font-semibold">
-            <span>Total</span>
-            <span className="tabular-nums">{formatCOP(doc.total)}</span>
-          </div>
-        </div>
 
-        {doc.tip ? (
-          <div className="flex justify-between text-xs">
-            <span>Propina voluntaria (sugerida {doc.tip.suggested_pct ?? 0}%)</span>
-            <span className="tabular-nums">{formatCOP(doc.tip.amount)}</span>
+            <Total
+              rotulo="Total venta"
+              valor={formatCOP(doc.total)}
+              fuerte
+              className="mt-1 border-t-2 border-foreground pt-1.5"
+            />
           </div>
-        ) : null}
 
-        <div className="space-y-0.5 text-xs">
-          {(doc.payments ?? []).map((payment, index) => (
-            <div key={index} className="flex justify-between">
-              <span>
-                {payment.label ?? PAYMENT_METHOD_LABEL[payment.method ?? ""] ?? payment.method}
-                {payment.dian_code ? ` (${payment.dian_code})` : ""}
-              </span>
-              <span className="tabular-nums">{formatCOP(payment.amount)}</span>
-            </div>
-          ))}
-          {doc.change ? (
-            <div className="flex justify-between">
-              <span>Cambio</span>
-              <span className="tabular-nums">{formatCOP(doc.change)}</span>
+          {/* LA PROPINA. Afuera de la regla que cierra la venta: no es venta,
+              no paga impuesto y no entra en el total de arriba. */}
+          {doc.tip ? (
+            <div className="mt-2 rounded-md border-l-2 border-foreground bg-muted px-2.5 py-1.5 text-xs print:bg-transparent">
+              <Total
+                rotulo={`Propina voluntaria (sugerida ${doc.tip.suggested_pct ?? 0}%)`}
+                valor={formatCOP(doc.tip.amount)}
+              />
+              <p className="text-[0.85em] leading-snug text-muted-foreground">
+                Va aparte de la venta: no entra en el total de venta ni paga impuesto al consumo.
+              </p>
             </div>
           ) : null}
-        </div>
 
-        <p className="text-center text-xs font-medium uppercase">{doc.legend}</p>
+          <div className="mt-3 border-t border-dashed pt-2 text-xs">
+            <p className="pb-0.5 font-medium text-muted-foreground">Pagos</p>
+            {(doc.payments ?? []).map((payment, index) => (
+              <Dato
+                key={index}
+                k={`${payment.label ?? PAYMENT_METHOD_LABEL[payment.method ?? ""] ?? payment.method}${
+                  payment.dian_code ? ` (${payment.dian_code})` : ""
+                }`}
+                v={<span className="tabular-nums">{formatCOP(payment.amount)}</span>}
+              />
+            ))}
+            {doc.change ? <Dato k="Cambio" v={<span className="tabular-nums">{formatCOP(doc.change)}</span>} /> : null}
+          </div>
 
-        <p className="text-center text-[10px] text-muted-foreground">
-          Copias impresas: {doc.print_count ?? 1} · Reimpresiones: {doc.reprint_count ?? 0}
-        </p>
-      </article>
+          {doc.fiscal?.dian_status || doc.fiscal?.cude || doc.fiscal?.qr_url ? (
+            <div className="mt-3 space-y-1 border-t border-dashed pt-2 text-xs">
+              {doc.fiscal?.dian_status ? (
+                <p className="flex items-center justify-center gap-2">
+                  <span>Estado DIAN:</span>
+                  <Badge variant={dianBadgeVariant(doc.fiscal.dian_status)}>
+                    {dianStatusLabel(doc.fiscal.dian_status)}
+                  </Badge>
+                </p>
+              ) : null}
+              {doc.fiscal?.cude ? (
+                <p className="text-center">
+                  <span className="block text-muted-foreground">CUDE</span>
+                  <span className="break-all">{doc.fiscal.cude}</span>
+                </p>
+              ) : null}
+              {doc.fiscal?.qr_url ? (
+                <p className="text-center">
+                  <span className="block text-muted-foreground">QR</span>
+                  <a className="break-all underline" href={doc.fiscal.qr_url} target="_blank" rel="noreferrer">
+                    {doc.fiscal.qr_url}
+                  </a>
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <p className="mt-3 border-t border-dashed pt-2 text-center text-xs font-medium uppercase">{doc.legend}</p>
+
+          <p className="pt-1 text-center text-[10px] text-muted-foreground">
+            Copias impresas: {doc.print_count ?? 1} · Reimpresiones: {doc.reprint_count ?? 0}
+          </p>
+        </article>
+      </div>
     </div>
   );
 }

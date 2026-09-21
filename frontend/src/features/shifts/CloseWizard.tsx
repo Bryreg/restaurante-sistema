@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Banknote, Check, CircleCheck, Lock, Receipt, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -28,6 +29,13 @@ import { errorMessage } from "@/lib/errors";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
 import { PhotoCaptureField } from "./PhotoCaptureField";
+import {
+  FilaCuadre,
+  PanelSello,
+  PasoPastilla,
+  RENGLONES_ESPERADO,
+  TarjetaCierre,
+} from "./closeUi";
 import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftTips } from "./hooks";
 
 /**
@@ -72,6 +80,13 @@ function emptyDenominations(): Denomination[] {
   return DENOMINATIONS.map((value) => ({ value, count: 0 }));
 }
 
+/** Qué dice la diferencia, leyendo su signo — el valor se pinta como llega. */
+function tituloDiferencia(diferencia: number | undefined): string {
+  if (diferencia === undefined) return "Diferencia";
+  if (diferencia === 0) return "El cajón cuadra";
+  return diferencia < 0 ? "Falta plata en el cajón" : "Sobra plata en el cajón";
+}
+
 type Step = 1 | 2 | 3 | "done";
 
 /**
@@ -88,6 +103,14 @@ type Step = 1 | 2 | 3 | "done";
  * /shifts/{id}/tips` (`useShiftTips`) — lo que el servidor calcula que sale
  * del cajón como propina. No se usa para calcular ni validar
  * `tipsCashOut`: sólo se pinta.
+ *
+ * **Estructura (maqueta `m2b`, pestaña «Cierre de caja»)**: el paso está
+ * numerado y a la vista; el candado es el protagonista del paso tapado; el
+ * desglose del esperado se muestra renglón por renglón con `•••••` en el
+ * paso 1 y con cifras en el paso 2 — **los mismos rótulos, en el mismo
+ * orden**. Los renglones tapados son `RENGLONES_ESPERADO`, una constante de
+ * rótulos: el paso 1 no le pregunta nada al servidor sobre el cajón, ni
+ * siquiera la base.
  */
 export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element {
   const queryClient = useQueryClient();
@@ -116,6 +139,13 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
 
   const step1KeyRef = useRef(newIdempotencyKey());
 
+  // Lo tecleado en la rejilla de denominaciones: la MISMA suma que ya viajaba
+  // en el cuerpo de `closeCount` (el servidor la valida contra las
+  // denominaciones). No es el esperado ni la diferencia — esas las calcula el
+  // backend y llegan en la review.
+  const totalContado = counted.reduce((acc, d) => acc + d.value * d.count, 0);
+  const piezasContadas = counted.reduce((acc, d) => acc + d.count, 0);
+
   // Iteración 3 (H-8): sólo REFERENCIA de sólo lectura junto al campo de
   // propinas — `GET /shifts/{id}/tips` es alcanzable con sesión de
   // dispositivo (`app/shifts/router.py:339` usa `current_actor`, admite
@@ -125,11 +155,10 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
 
   const countMutation = useMutation({
     mutationFn: () => {
-      const total = counted.reduce((acc, d) => acc + d.value * d.count, 0);
       return closeCount(
         shiftId,
         {
-          counted_cash: { denominations: counted, total },
+          counted_cash: { denominations: counted, total: totalContado },
           counted_card: countedCard,
           counted_transfer: countedTransfer,
           tips_cash_out: tipsCashOut ?? 0,
@@ -213,52 +242,119 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
 
   if (step === "done") {
     return (
-      <div className="space-y-2 rounded-md border p-4">
-        <p className="text-lg font-semibold">Turno cerrado.</p>
-        <p className="text-sm text-muted-foreground">
-          A consignar: <span className="font-medium text-foreground">{formatCOP(result?.to_deposit)}</span>
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {result?.closes_day ? "Este cierre también cerró el día operativo." : "El día operativo sigue abierto (otro turno lo cierra)."}
-        </p>
+      <div className="mx-auto w-full max-w-6xl">
+        <TarjetaCierre
+          icono={<CircleCheck />}
+          titulo="Turno cerrado"
+          acento="ok"
+          pastilla={<PasoPastilla tono="listo">Paso 3 de 3 · hecho</PasoPastilla>}
+          className="max-w-xl"
+        >
+          <div className="px-4 py-4">
+            <p className="text-lg font-semibold">Turno cerrado.</p>
+            <FilaCuadre rotulo="A consignar" detalle="Lo que sale del cajón para el banco" valor={result?.to_deposit} />
+            <p className="pt-2 text-sm text-muted-foreground">
+              {result?.closes_day
+                ? "Este cierre también cerró el día operativo."
+                : "El día operativo sigue abierto (otro turno lo cierra)."}
+            </p>
+          </div>
+        </TarjetaCierre>
       </div>
     );
   }
 
   if (step === 1) {
     return (
-      <div className="space-y-6">
-        <p className="text-sm text-muted-foreground">
-          Contá sin mirar lo esperado: el sistema lo revela recién en el paso siguiente.
-        </p>
-        <DenominationsInput value={counted} onChange={setCounted} legend="Efectivo contado" />
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-1">
-            <Label htmlFor="close-card">Datáfono contado</Label>
-            <MoneyInput id="close-card" value={countedCard} onChange={setCountedCard} />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="close-transfer">Transferencias contadas</Label>
-            <MoneyInput id="close-transfer" value={countedTransfer} onChange={setCountedTransfer} />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="close-tips">Propinas en efectivo retiradas</Label>
-            <MoneyInput id="close-tips" value={tipsCashOut} onChange={setTipsCashOut} />
-            <p className="text-xs text-muted-foreground">
-              Referencia del sistema (no se usa para calcular nada acá): lo que el sistema calcula que sale del
-              cajón como propina es {formatCOP(tipsQuery.data?.cash_out)}.
-            </p>
-          </div>
+      <div className="mx-auto grid w-full max-w-6xl items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="flex min-w-0 flex-col gap-4">
+          <TarjetaCierre
+            icono={<Banknote />}
+            titulo="Contar el cajón"
+            pastilla={<PasoPastilla tono="activo">Paso 1 de 3</PasoPastilla>}
+          >
+            <div className="px-4 py-3">
+              <DenominationsInput value={counted} onChange={setCounted} legend="Efectivo contado" />
+              <p className="pt-3 text-xs leading-relaxed text-muted-foreground">
+                Contá por denominación y poné cuántas hay: el sistema hace la multiplicación. Se puede
+                corregir hasta que confirmes.
+              </p>
+            </div>
+          </TarjetaCierre>
+
+          <TarjetaCierre icono={<Receipt />} titulo="El resto del cierre">
+            <div className="grid gap-4 px-4 py-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="close-card">Datáfono contado</Label>
+                <MoneyInput id="close-card" value={countedCard} onChange={setCountedCard} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="close-transfer">Transferencias contadas</Label>
+                <MoneyInput id="close-transfer" value={countedTransfer} onChange={setCountedTransfer} />
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <Label htmlFor="close-tips">Propinas en efectivo retiradas</Label>
+                <MoneyInput id="close-tips" value={tipsCashOut} onChange={setTipsCashOut} />
+                <p className="text-xs text-muted-foreground">
+                  Referencia del sistema (no se usa para calcular nada acá): lo que el sistema calcula que sale del
+                  cajón como propina es {formatCOP(tipsQuery.data?.cash_out)}.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  La propina en efectivo sale del cajón, pero no es un renglón del esperado: se salda aparte.
+                </p>
+              </div>
+              <div className="sm:col-span-2">
+                <PhotoCaptureField value={photo} onChange={setPhoto} required={photoRequired} />
+              </div>
+            </div>
+          </TarjetaCierre>
         </div>
-        <PhotoCaptureField value={photo} onChange={setPhoto} required={photoRequired} />
-        {step1Error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {step1Error}
-          </p>
-        ) : null}
-        <Button type="button" className="h-11" disabled={countMutation.isPending} onClick={() => countMutation.mutate()}>
-          {countMutation.isPending ? "Congelando conteo…" : "Continuar"}
-        </Button>
+
+        <PanelSello
+          titulo="Lo que el sistema espera"
+          pastilla={
+            <PasoPastilla tono="tapado">
+              <Lock aria-hidden="true" className="size-3" /> Paso 2 · tapado
+            </PasoPastilla>
+          }
+          titular="Se cuenta a ciegas, y es a propósito"
+          razon={
+            <>
+              Hasta que no confirmes, acá no aparece cuánta plata debería haber en el cajón. Si la vieras
+              antes, el número que entregás dejaría de ser el que contaste y pasaría a ser el que había que
+              dar.
+            </>
+          }
+          nota={
+            <>
+              Ni la <b className="text-background">base</b> se muestra todavía: este paso no le pregunta nada
+              al servidor sobre el cajón. La ecuación entera se abre de una sola vez en el paso 2.
+            </>
+          }
+          promesa={
+            <>
+              Tu conteo se guarda con su hora <b className="text-background">antes</b> de que esta tarjeta se
+              abra. Después no se puede cambiar.
+            </>
+          }
+        >
+          {step1Error ? (
+            <p role="alert" className="mb-3 rounded-md bg-background px-3 py-2 text-sm font-medium text-destructive">
+              {step1Error}
+            </p>
+          ) : null}
+          <Button
+            type="button"
+            className="h-auto w-full flex-col gap-0 py-2.5"
+            disabled={countMutation.isPending}
+            onClick={() => countMutation.mutate()}
+          >
+            <span className="text-sm font-normal">
+              {countMutation.isPending ? "Congelando conteo…" : "Confirmar el conteo y continuar"}
+            </span>
+            <span className="text-xl font-bold tabular-nums">{formatCOP(totalContado)}</span>
+          </Button>
+        </PanelSello>
       </div>
     );
   }
@@ -277,49 +373,73 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
     if (!review) {
       return <p className="text-sm text-muted-foreground">Sin datos de revisión todavía.</p>;
     }
+    const diferencia = review.difference;
     return (
-      <div className="space-y-4">
-        <div className="grid gap-3 rounded-md border p-4 sm:grid-cols-2">
-          <div>
-            <p className="text-sm text-muted-foreground">Esperado</p>
-            <p className="text-lg font-semibold tabular-nums">{formatCOP(review.expected)}</p>
+      <div className="mx-auto w-full max-w-3xl space-y-4">
+        <TarjetaCierre
+          icono={<CircleCheck />}
+          titulo="Lo que el sistema esperaba"
+          acento="ok"
+          pastilla={<PasoPastilla tono="listo">Paso 2 de 3 · abierto</PasoPastilla>}
+        >
+          <div className="px-4 py-3">
+            <div className="flex flex-wrap items-start gap-2 rounded-md bg-muted px-3 py-2 text-sm">
+              <PasoPastilla tono="listo">
+                <Check aria-hidden="true" className="size-3" /> Paso 1 · sellado
+              </PasoPastilla>
+              <p className="min-w-0 flex-1">
+                Tu conteo quedó sellado en el servidor <b>antes</b> de que esta tarjeta se abriera: lo que
+                veas acá ya no lo puede cambiar.
+              </p>
+            </div>
+
+            <div className="mt-3">
+              {RENGLONES_ESPERADO.map(({ clave, rotulo, detalle, signo }) => (
+                <FilaCuadre
+                  key={clave}
+                  rotulo={rotulo}
+                  detalle={detalle}
+                  signo={signo}
+                  valor={review.equation?.[clave]}
+                />
+              ))}
+              <FilaCuadre rotulo="Esperado" detalle="Lo que debería haber en el cajón" valor={review.expected} remate />
+              <FilaCuadre
+                rotulo="Contado a mano"
+                detalle={piezasContadas === 1 ? "1 pieza" : `${piezasContadas} piezas`}
+                valor={totalContado}
+                className="border-t border-border"
+              />
+            </div>
+
+            <div className="mt-3 flex items-baseline gap-3 rounded-md bg-muted px-3 py-2.5">
+              {diferencia === 0 ? (
+                <CircleCheck aria-hidden="true" className="size-5 shrink-0 self-center text-success" />
+              ) : (
+                <TriangleAlert aria-hidden="true" className="size-5 shrink-0 self-center text-destructive" />
+              )}
+              <span className="min-w-0">
+                <span className="text-sm font-bold">{tituloDiferencia(diferencia)}</span>
+                <span className="block text-xs text-muted-foreground">Diferencia</span>
+              </span>
+              <span className="ml-auto text-xl font-bold whitespace-nowrap tabular-nums">
+                {formatCOP(diferencia)}
+              </span>
+            </div>
           </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Diferencia</p>
-            <p className="text-lg font-semibold tabular-nums">{formatCOP(review.difference)}</p>
-          </div>
-        </div>
-        <dl className="grid grid-cols-2 gap-2 rounded-md border bg-muted/30 p-3 text-sm sm:grid-cols-5">
-          <div>
-            <dt className="text-muted-foreground">Base</dt>
-            <dd className="tabular-nums">{formatCOP(review.equation?.base)}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Ventas efectivo</dt>
-            <dd className="tabular-nums">{formatCOP(review.equation?.cash_sales)}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Ingresos</dt>
-            <dd className="tabular-nums">{formatCOP(review.equation?.incomes)}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Egresos</dt>
-            <dd className="tabular-nums">{formatCOP(review.equation?.expenses)}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Retiros</dt>
-            <dd className="tabular-nums">{formatCOP(review.equation?.pickups)}</dd>
-          </div>
-        </dl>
+        </TarjetaCierre>
+
         <div className="grid gap-3 sm:grid-cols-2">
           <MedioContado titulo="Datáfono" medio={review.card} />
           <MedioContado titulo="Transferencias" medio={review.transfer} />
         </div>
+
         {review.is_critical ? (
           <p role="alert" className="rounded-md bg-destructive/10 p-2 text-sm font-medium text-destructive">
             Diferencia crítica: se va a notificar al administrador.
           </p>
         ) : null}
+
         <Button type="button" className="h-11" onClick={goToStep3}>
           Continuar
         </Button>
@@ -339,84 +459,97 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
     : (Object.entries(CAUSE_LABEL) as [CashDifferenceCause, string][]);
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-md border p-3 text-sm">
-        <p>
-          Diferencia a confirmar: <span className="font-medium tabular-nums">{formatCOP(review.difference)}</span>
-        </p>
-      </div>
+    <div className="mx-auto w-full max-w-3xl space-y-4">
+      <TarjetaCierre
+        icono={<Lock />}
+        titulo="Confirmar el cierre"
+        pastilla={<PasoPastilla tono="activo">Paso 3 de 3</PasoPastilla>}
+      >
+        <div className="space-y-4 px-4 py-3">
+          <FilaCuadre
+            rotulo="Diferencia a confirmar"
+            detalle="Exactamente la que mostró el paso 2"
+            valor={review.difference}
+          />
 
-      {requiresCause ? (
-        <div className="space-y-3">
-          {requiresIdentified ? (
-            <p role="alert" className="text-sm font-medium text-destructive">
-              La diferencia supera la tolerancia de causa desconocida: elegí una causa identificada.
+          {requiresCause ? (
+            <div className="space-y-3">
+              {requiresIdentified ? (
+                <p role="alert" className="text-sm font-medium text-destructive">
+                  La diferencia supera la tolerancia de causa desconocida: elegí una causa identificada.
+                </p>
+              ) : null}
+              <div className="space-y-1">
+                <Label htmlFor="close-cause">Causa</Label>
+                <Select value={cause || undefined} onValueChange={(v) => setCause(v as CashDifferenceCause)}>
+                  <SelectTrigger id="close-cause" className="h-11 w-full">
+                    <SelectValue placeholder="Elegí una causa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {causeOptions.map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="close-cause-note">Nota</Label>
+                <Textarea id="close-cause-note" value={note} onChange={(event) => setNote(event.target.value)} />
+              </div>
+            </div>
+          ) : null}
+
+          {openOrders > 0 ? (
+            <label className="flex items-start gap-2 rounded-md border border-dashed p-3 text-sm">
+              <Checkbox
+                checked={transferOpenOrders}
+                onCheckedChange={(checked) => setTransferOpenOrders(Boolean(checked))}
+              />
+              <span>
+                Trasladar al turno siguiente {openOrders === 1 ? "la comanda abierta" : `las ${openOrders} comandas abiertas`}
+                <span className="block text-muted-foreground">
+                  Quedan a la espera y las adopta quien abra el próximo turno. Sin esto hay que cobrarlas o anularlas
+                  antes de cerrar.
+                </span>
+              </span>
+            </label>
+          ) : null}
+
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={closesDay}
+              onCheckedChange={(checked) => {
+                setClosesDay(Boolean(checked));
+                setClosesDayTouched(true);
+              }}
+            />
+            Este cierre también cierra el día operativo
+            {!closesDayTouched && review.closes_day_suggested ? " (sugerido)" : ""}
+          </label>
+
+          {confirmError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {confirmError}
             </p>
           ) : null}
-          <div className="space-y-1">
-            <Label htmlFor="close-cause">Causa</Label>
-            <Select value={cause || undefined} onValueChange={(v) => setCause(v as CashDifferenceCause)}>
-              <SelectTrigger id="close-cause" className="h-11 w-full">
-                <SelectValue placeholder="Elegí una causa" />
-              </SelectTrigger>
-              <SelectContent>
-                {causeOptions.map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="close-cause-note">Nota</Label>
-            <Textarea id="close-cause-note" value={note} onChange={(event) => setNote(event.target.value)} />
+
+          <div>
+            <Button
+              type="button"
+              className="h-11"
+              disabled={confirmMutation.isPending || (requiresCause && cause === "")}
+              onClick={() => confirmMutation.mutate()}
+            >
+              {confirmMutation.isPending ? "Cerrando…" : "Confirmar cierre"}
+            </Button>
+            <p className="pt-2 text-xs text-muted-foreground">
+              El conteo ya quedó sellado en el paso 1: esto confirma la diferencia que viste, con su causa.
+            </p>
           </div>
         </div>
-      ) : null}
-
-      {openOrders > 0 ? (
-        <label className="flex items-start gap-2 rounded-md border border-dashed p-3 text-sm">
-          <Checkbox
-            checked={transferOpenOrders}
-            onCheckedChange={(checked) => setTransferOpenOrders(Boolean(checked))}
-          />
-          <span>
-            Trasladar al turno siguiente {openOrders === 1 ? "la comanda abierta" : `las ${openOrders} comandas abiertas`}
-            <span className="block text-muted-foreground">
-              Quedan a la espera y las adopta quien abra el próximo turno. Sin esto hay que cobrarlas o anularlas
-              antes de cerrar.
-            </span>
-          </span>
-        </label>
-      ) : null}
-
-      <label className="flex items-center gap-2 text-sm">
-        <Checkbox
-          checked={closesDay}
-          onCheckedChange={(checked) => {
-            setClosesDay(Boolean(checked));
-            setClosesDayTouched(true);
-          }}
-        />
-        Este cierre también cierra el día operativo
-        {!closesDayTouched && review.closes_day_suggested ? " (sugerido)" : ""}
-      </label>
-
-      {confirmError ? (
-        <p role="alert" className="text-sm text-destructive">
-          {confirmError}
-        </p>
-      ) : null}
-
-      <Button
-        type="button"
-        className="h-11"
-        disabled={confirmMutation.isPending || (requiresCause && cause === "")}
-        onClick={() => confirmMutation.mutate()}
-      >
-        {confirmMutation.isPending ? "Cerrando…" : "Confirmar cierre"}
-      </Button>
+      </TarjetaCierre>
     </div>
   );
 }

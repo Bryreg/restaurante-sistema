@@ -1,0 +1,259 @@
+import { Lock } from "lucide-react";
+
+import type { Breakdown } from "@/api/shifts";
+import { formatCOP } from "@/lib/money";
+import { cn } from "cn";
+
+/**
+ * Piezas visuales compartidas por los **dos** formularios de cierre
+ * (`CloseWizard` con `cash.blind_close` encendida, `SingleStepCloseForm` con
+ * la función apagada). Viven acá y no adentro de uno de los dos porque el
+ * riesgo declarado en `docs/INVENTARIO-CONTROLES.md` §10.b es justamente ese:
+ * rediseñar uno y dejar al otro con la pantalla vieja.
+ *
+ * Nada de esto calcula: son rótulos, marcos y pastillas. Las cifras llegan
+ * ya calculadas del servidor (`AGENTS.md` § «una sola matemática, en el
+ * backend»).
+ */
+
+/** El número de paso, visible: dónde estoy y qué falta. */
+export function PasoPastilla({
+  children,
+  tono = "quieto",
+  className,
+}: {
+  children: React.ReactNode;
+  tono?: "activo" | "quieto" | "tapado" | "listo";
+  className?: string;
+}): React.JSX.Element {
+  const tonos = {
+    activo: "bg-primary text-primary-foreground",
+    quieto: "bg-muted text-muted-foreground ring-1 ring-border",
+    tapado: "bg-background/10 text-background ring-1 ring-background/25",
+    listo: "bg-success/10 text-success ring-1 ring-success/30",
+  } as const;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap",
+        tonos[tono],
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** El papel: cabecera con ícono, título y pastilla de paso; cuerpo debajo. */
+export function TarjetaCierre({
+  icono,
+  titulo,
+  pastilla,
+  acento,
+  children,
+  className,
+}: {
+  icono: React.ReactNode;
+  titulo: string;
+  pastilla?: React.ReactNode;
+  /** Cabecera en verde de estado: el cuadre ya está abierto. */
+  acento?: "ok";
+  children: React.ReactNode;
+  className?: string;
+}): React.JSX.Element {
+  return (
+    <section className={cn("overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10", className)}>
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-2 border-b px-4 py-2.5",
+          acento === "ok" ? "border-success/25 bg-success/10 text-success" : "bg-muted/60 text-muted-foreground",
+        )}
+      >
+        <span aria-hidden="true" className="flex items-center [&_svg]:size-4">
+          {icono}
+        </span>
+        <h3 className="text-xs font-bold tracking-wider uppercase">{titulo}</h3>
+        {pastilla ? <span className="ml-auto">{pastilla}</span> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Los renglones de los que sale el esperado — los mismos rótulos, en el
+ * mismo orden, tapados en el paso 1 y con cifra en el paso 2: lo que se
+ * destapa es el valor, no la forma.
+ *
+ * Son **exactamente** los términos que publica el servidor en
+ * `review.equation` (`app/shifts/service.py::compute_breakdown`). La propina
+ * en efectivo NO es uno de ellos: sale del cajón por `tips_cash_out` y
+ * `to_deposit`, y meterla acá haría que todo turno con propina cerrara con
+ * una diferencia igual, al peso, a esa propina
+ * (`backend/tests/channels/test_expected_cash_parity.py`).
+ */
+export const RENGLONES_ESPERADO = [
+  { clave: "base", rotulo: "Base del turno", detalle: "Con la que se abrió el cajón", signo: "" },
+  { clave: "cash_sales", rotulo: "Ventas en efectivo", detalle: "Lo que se cobró en billetes", signo: "+" },
+  { clave: "incomes", rotulo: "Ingresos de caja", detalle: "Lo que entró por fuera de la venta", signo: "+" },
+  { clave: "expenses", rotulo: "Egresos de caja", detalle: "Lo que se pagó del cajón", signo: "−" },
+  { clave: "pickups", rotulo: "Retiros a caja fuerte", detalle: "Los sobres que ya salieron", signo: "−" },
+] as const satisfies readonly {
+  clave: keyof Breakdown;
+  rotulo: string;
+  detalle: string;
+  signo: string;
+}[];
+
+/**
+ * El desglose **tapado**: renglón por renglón, con `•••••` en lugar de la
+ * cifra. Se ve la forma de lo que está oculto sin ver un solo número.
+ *
+ * REGLA DURA: son **rótulos estáticos**. Este componente no recibe ninguna
+ * cifra, no consulta nada y no se puede alimentar de una revisión — si
+ * tuviera valores, el paso 1 dejaría de ser a ciegas. El único pedido que
+ * revela el esperado vive en el `useQuery` con `enabled: step === 2` de
+ * `CloseWizard`.
+ */
+export function DesgloseTapado(): React.JSX.Element {
+  return (
+    <div className="mt-5">
+      {RENGLONES_ESPERADO.map(({ clave, rotulo }) => (
+        <div
+          key={clave}
+          className="flex items-baseline gap-3 border-b border-background/10 py-2 text-sm text-background/85"
+        >
+          <span className="min-w-0">{rotulo}</span>
+          <span
+            aria-label="Tapado"
+            className="ml-auto tracking-[0.2em] text-background/65 select-none"
+          >
+            •••••
+          </span>
+        </div>
+      ))}
+      <div className="mt-1 flex items-baseline gap-3 border-t border-background/30 pt-2.5 text-sm font-bold text-background">
+        <span>Esperado en el cajón</span>
+        <span aria-label="Tapado" className="ml-auto tracking-[0.2em] text-background/65 select-none">
+          •••••
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * El candado como protagonista: aro, titular y la razón en lenguaje llano.
+ * Panel invertido (`bg-foreground`/`text-background`) — es el único bloque de
+ * la pantalla que no se toca ni se llena: se lee.
+ */
+export function PanelSello({
+  titulo,
+  icono,
+  pastilla,
+  titular,
+  razon,
+  nota,
+  children,
+  promesa,
+}: {
+  titulo: string;
+  /** El símbolo del panel. Por defecto el candado del conteo a ciegas. */
+  icono?: React.ReactNode;
+  pastilla: React.ReactNode;
+  titular: string;
+  razon: React.ReactNode;
+  nota?: React.ReactNode;
+  /** El botón que confirma: va adentro del panel, debajo de lo tapado. */
+  children?: React.ReactNode;
+  promesa?: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <section className="overflow-hidden rounded-xl bg-foreground text-background ring-1 ring-foreground">
+      <div className="flex flex-wrap items-center gap-2 border-b border-background/15 px-4 py-2.5 text-background/70">
+        <span aria-hidden="true" className="flex items-center [&_svg]:size-4">
+          {icono ?? <Lock />}
+        </span>
+        <h3 className="text-xs font-bold tracking-wider uppercase">{titulo}</h3>
+        <span className="ml-auto">{pastilla}</span>
+      </div>
+      <div className="px-4 pt-5 pb-4">
+        <div className="text-center">
+          <span
+            aria-hidden="true"
+            className="mx-auto mb-3 flex size-16 items-center justify-center rounded-full bg-background/10 ring-1 ring-background/25 [&_svg]:size-8"
+          >
+            {icono ?? <Lock />}
+          </span>
+          <h4 className="text-lg leading-snug font-bold">{titular}</h4>
+          <p className="mx-auto mt-2 max-w-[42ch] text-sm leading-relaxed text-background/75">{razon}</p>
+        </div>
+
+        <DesgloseTapado />
+
+        {nota ? (
+          <p className="mt-4 border-l-2 border-background/30 pl-3 text-xs leading-relaxed text-background/65">
+            {nota}
+          </p>
+        ) : null}
+
+        {children ? <div className="mt-4">{children}</div> : null}
+
+        {promesa ? (
+          <p className="mt-3 text-center text-xs leading-relaxed text-background/70">{promesa}</p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Un renglón del cuadre ya revelado: rótulo, detalle chico, y la cifra tal
+ * como llegó. El signo es el papel del término en la fórmula del servidor
+ * (`+` entra al cajón, `−` sale), no una cuenta hecha acá: el valor se pinta
+ * sin tocarlo.
+ */
+export function FilaCuadre({
+  rotulo,
+  detalle,
+  signo,
+  valor,
+  remate,
+  className,
+}: {
+  rotulo: string;
+  detalle?: string;
+  signo?: string;
+  valor: number | null | undefined;
+  remate?: boolean;
+  className?: string;
+}): React.JSX.Element {
+  // El signo dice el papel del término en la fórmula del servidor. En un
+  // renglón en cero no aporta nada y «−$ 0» se lee como un error de la
+  // pantalla, así que sólo se pinta cuando hay algo que sumar o restar.
+  const muestraSigno = valor !== null && valor !== undefined && valor !== 0;
+  return (
+    <div
+      className={cn(
+        "flex items-baseline gap-3 border-b py-2 last:border-b-0",
+        remate ? "border-b-0 border-t-2 border-t-foreground pt-2.5 font-bold" : null,
+        className,
+      )}
+    >
+      <span className="min-w-0">
+        <span className={remate ? "text-base" : "text-sm"}>{rotulo}</span>
+        {detalle ? <span className="block text-xs text-muted-foreground">{detalle}</span> : null}
+      </span>
+      <span
+        className={cn(
+          "ml-auto font-bold whitespace-nowrap tabular-nums",
+          remate ? "text-xl" : "text-sm",
+        )}
+      >
+        {signo && muestraSigno ? signo : ""}
+        {formatCOP(valor)}
+      </span>
+    </div>
+  );
+}

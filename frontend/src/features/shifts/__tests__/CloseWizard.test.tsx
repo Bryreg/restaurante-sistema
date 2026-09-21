@@ -78,6 +78,44 @@ describe("CloseWizard — cierre a ciegas en tres pasos", () => {
     expect(screen.queryByText(/^esperado$/i)).not.toBeInTheDocument();
     expect(getCloseReviewMock).not.toHaveBeenCalled();
 
+    // Y la comprobación que de verdad importa: **ninguna cifra** del cuadre
+    // en pantalla. La etiqueta era un sustituto del valor, y desde que el
+    // paso 1 dibuja los renglones tapados (`DesgloseTapado`) el sustituto
+    // dejó de alcanzar: los rótulos ahora SÍ están a la vista, con `•••••`
+    // en lugar del número. Lo que no puede estar es el número.
+    //
+    // Se miran el esperado, la diferencia y los cinco sumandos: con cuatro
+    // de los cinco se despeja el quinto, así que tapar sólo el total no
+    // sirve de nada.
+    //
+    // El teclado de denominaciones queda FUERA del pajar, y no por
+    // comodidad: sus rótulos son los valores de los billetes colombianos
+    // ($100.000, $50.000 … $5.000), que son constantes de la moneda y
+    // colisionan con cifras del cuadre por pura coincidencia numérica. Lo
+    // que se vigila es el resto de la pantalla, que es donde una fuga sería
+    // una fuga.
+    const copia = document.body.cloneNode(true) as HTMLElement
+    for (const campo of copia.querySelectorAll("fieldset")) {
+      if (/efectivo contado|denominaciones/i.test(campo.querySelector("legend")?.textContent ?? "")) {
+        campo.remove()
+      }
+    }
+    const pajar = copia.textContent ?? ""
+
+    const prohibidas = [
+      FIRST_REVIEW.expected,
+      FIRST_REVIEW.difference,
+      ...Object.values(FIRST_REVIEW.equation ?? {}),
+    ].filter((valor): valor is number => typeof valor === "number" && valor !== 0)
+    for (const valor of prohibidas) {
+      const conSeparadores = new Intl.NumberFormat("es-CO").format(Math.abs(valor))
+      expect(
+        pajar,
+        `el paso 1 del cierre a ciegas está mostrando ${conSeparadores}, que es una cifra ` +
+          `del cuadre: quien cuenta no puede ver ni el esperado ni ninguno de sus sumandos`,
+      ).not.toContain(conSeparadores)
+    }
+
     await user.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() => expect(closeCountMock).toHaveBeenCalledTimes(1));

@@ -52,8 +52,8 @@ export function CashSwapPanel({ shiftId }: { shiftId: number }): React.JSX.Eleme
         cambia el efectivo esperado.
       </p>
       <div className="grid gap-6 sm:grid-cols-2">
-        <DenominationsInput value={out} onChange={setOut} legend="Sale (se entrega)" />
-        <DenominationsInput value={inDenoms} onChange={setInDenoms} legend="Entra (se recibe)" />
+        <DenominationsInput value={out} onChange={setOut} legend="Sale (se entrega)" columns={1} />
+        <DenominationsInput value={inDenoms} onChange={setInDenoms} legend="Entra (se recibe)" columns={1} />
       </div>
       {error ? (
         <p role="alert" className="text-sm text-destructive">
