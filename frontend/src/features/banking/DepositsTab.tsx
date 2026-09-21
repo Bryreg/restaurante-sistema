@@ -7,14 +7,53 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { getDeposits } from "@/api/banking"
+import { getDeposits, type DepositOut } from "@/api/banking"
+import { DenseTable, DenseTableBar, TimeAgo, type DenseColumn } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate, formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
+
+const DEPOSIT_COLUMNS: readonly DenseColumn<DepositOut>[] = [
+  { key: "date", header: "Fecha", kind: "name", cell: (d) => formatBusinessDate(d.business_date) },
+  { key: "amount", header: "Monto", kind: "number", cell: (d) => formatCOP(d.amount ?? null) },
+  {
+    // Lo largo va al `title`: la fila no crece (§ 8).
+    key: "shifts",
+    header: "Turnos imputados",
+    kind: "secondary",
+    cell: (d) =>
+      d.allocations && d.allocations.length > 0
+        ? d.allocations.map((a) => `#${a.shift_id} (${formatCOP(a.amount)})`).join(", ")
+        : "Mano del dueño",
+    cellTitle: (d) =>
+      d.allocations && d.allocations.length > 0
+        ? undefined
+        : "Sin imputar a ningún turno: esta consignación entra como «la mano del dueño».",
+  },
+  { key: "bank", header: "Banco", cell: (d) => d.bank_name ?? "—" },
+  { key: "reference", header: "Referencia", kind: "secondary", cell: (d) => d.bank_reference ?? "—" },
+  {
+    key: "receipt",
+    header: "Comprobante",
+    cell: (d) => (d.receipt_photo ? <Badge variant="secondary">Con foto</Badge> : <Badge variant="outline">Sin foto</Badge>),
+  },
+  { key: "who", header: "Registrada por", cell: (d) => d.employee_name ?? "—" },
+  {
+    key: "when",
+    header: "Hace",
+    kind: "secondary",
+    cell: (d) => <TimeAgo iso={d.deposited_at} />,
+    cellTitle: (d) => (d.deposited_at ? formatInstant(d.deposited_at) : undefined),
+  },
+  {
+    key: "status",
+    header: "Estado",
+    cell: (d) => (d.status === "reversed" ? <Badge variant="destructive">Reversada</Badge> : <span className="text-muted-foreground">—</span>),
+  },
+]
 
 import { CreateDepositDialog } from "./CreateDepositDialog"
 import { daysAgoLocal, todayLocal } from "./lib"
@@ -38,47 +77,44 @@ export function DepositsTab({ storeId }: { storeId: number }): React.JSX.Element
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando consignaciones…</p>
       ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudieron cargar las consignaciones" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
+        <EmptyState reason="error" title="No se pudieron cargar las consignaciones" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : (query.data ?? []).length === 0 ? (
-        <EmptyState title="No hay consignaciones registradas en este período" />
+        <EmptyState
+          reason="filter"
+          title="No hay consignaciones registradas en este período"
+          description={`El filtro puesto es el período: ${from} a ${to}.`}
+        />
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Monto</TableHead>
-                <TableHead>Turnos</TableHead>
-                <TableHead>Banco / referencia</TableHead>
-                <TableHead>Comprobante</TableHead>
-                <TableHead>Registrada por</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(query.data ?? []).map((deposit) => (
-                <TableRow key={deposit.id} className={deposit.status === "reversed" ? "opacity-60" : undefined}>
-                  <TableCell>{formatBusinessDate(deposit.business_date)}</TableCell>
-                  <TableCell className="tabular-nums font-medium">{formatCOP(deposit.amount ?? null)}</TableCell>
-                  <TableCell>
-                    {deposit.allocations && deposit.allocations.length > 0
-                      ? deposit.allocations.map((a) => `#${a.shift_id} (${formatCOP(a.amount)})`).join(", ")
-                      : "—"}
-                  </TableCell>
-                  <TableCell>
-                    {deposit.bank_name ?? "—"}
-                    {deposit.bank_reference ? <span className="block text-xs text-muted-foreground">{deposit.bank_reference}</span> : null}
-                  </TableCell>
-                  <TableCell>{deposit.receipt_photo ? <Badge variant="secondary">Con foto</Badge> : <Badge variant="outline">Sin foto</Badge>}</TableCell>
-                  <TableCell>
-                    {deposit.employee_name ?? "—"}
-                    {deposit.deposited_at ? <span className="block text-xs text-muted-foreground">{formatInstant(deposit.deposited_at)}</span> : null}
-                    {deposit.status === "reversed" ? <Badge variant="destructive" className="mt-1">Reversada</Badge> : null}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption="Consignaciones del período, con los turnos que imputan y su comprobante."
+          columns={DEPOSIT_COLUMNS}
+          rows={query.data ?? []}
+          rowKey={(d) => String(d.id)}
+          rowInactive={(d) => d.status === "reversed"}
+          maxBodyHeightPx={460}
+          bar={
+            <DenseTableBar
+              shown={(query.data ?? []).length}
+              total={(query.data ?? []).length}
+              noun="consignaciones"
+              hidden={`del ${from} al ${to}`}
+            />
+          }
+          legend={[
+            {
+              term: "Mano del dueño",
+              meaning: "la consignación no se imputó a ningún turno: entra al saldo que el dueño tiene encima.",
+            },
+            {
+              term: "Sin foto",
+              meaning: "quedó registrada, pero sin comprobante del banco adjunto. No es que no exista: es que no se puede mostrar.",
+            },
+            {
+              term: "Reversada",
+              meaning: "se anuló. La fila se deja a la vista, apagada, porque la plata sí se movió alguna vez.",
+            },
+          ]}
+        />
       )}
     </div>
   )

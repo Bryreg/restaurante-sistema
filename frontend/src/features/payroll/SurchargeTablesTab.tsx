@@ -15,14 +15,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { createSurchargeTable, getSurchargeTables } from "@/api/payroll"
+import { createSurchargeTable, getSurchargeTables, type SurchargeTableOut } from "@/api/payroll"
+import { DenseTable, DenseTableBar, type DenseColumn, type RowStatus } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 
@@ -137,6 +137,40 @@ function CreateSurchargeTableDialog({ storeId, onCreated }: { storeId: number; o
   )
 }
 
+/** § 8b · Una vigencia sin revisar se marca: no está mal, está sin confirmar. */
+function surchargeStatus(table: SurchargeTableOut): RowStatus {
+  return table.confirmed_by_person === false ? "warning" : "ok"
+}
+
+const SURCHARGE_COLUMNS: readonly DenseColumn<SurchargeTableOut>[] = [
+  { key: "from", header: "Vigente desde", kind: "name", cell: (t) => formatBusinessDate(t.valid_from) },
+  {
+    key: "night-range",
+    header: "Franja nocturna",
+    kind: "number",
+    cell: (t) => `${t.night_start_hour}:00 – ${t.night_end_hour}:00`,
+  },
+  { key: "night", header: "Recargo nocturno", kind: "number", cell: (t) => formatBasisPoints(t.night_surcharge_bp) },
+  {
+    key: "sunday",
+    header: "Recargo dominical y festivo",
+    kind: "number",
+    cell: (t) => formatBasisPoints(t.sunday_holiday_surcharge_bp),
+  },
+  { key: "overtime", header: "Hora extra", kind: "number", cell: (t) => formatBasisPoints(t.overtime_surcharge_bp) },
+  { key: "weekly", header: "Jornada semanal", kind: "number", cell: (t) => `${t.weekly_ordinary_hours} h` },
+  {
+    key: "reviewed",
+    header: "Revisada",
+    cell: (t) =>
+      t.confirmed_by_person ? (
+        <Badge variant="secondary">{t.confirmed_by_name ?? "Sí"}</Badge>
+      ) : (
+        <Badge variant="outline">Sin revisar</Badge>
+      ),
+  },
+]
+
 export function SurchargeTablesTab({ storeId }: { storeId: number }): React.JSX.Element {
   const queryClient = useQueryClient()
   const query = useQuery({
@@ -153,54 +187,56 @@ export function SurchargeTablesTab({ storeId }: { storeId: number }): React.JSX.
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando tablas de recargos…</p>
       ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudieron cargar las tablas de recargos" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
+        <EmptyState reason="error" title="No se pudieron cargar las tablas de recargos" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : (query.data ?? []).length === 0 ? (
-        <EmptyState title="Todavía no hay ninguna tabla de recargos cargada" />
+        <EmptyState
+          reason="dependency"
+          title="Todavía no hay ninguna tabla de recargos cargada"
+          description="Sin una vigencia cargada no se puede liquidar: la liquidación necesita saber con qué porcentajes calcular cada recargo."
+        />
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Vigente desde</TableHead>
-                <TableHead>Franja nocturna</TableHead>
-                <TableHead>Recargo nocturno</TableHead>
-                <TableHead>Recargo dominical y festivo</TableHead>
-                <TableHead>Hora extra</TableHead>
-                <TableHead>Jornada semanal</TableHead>
-                <TableHead>Revisada</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(query.data ?? []).map((table) => (
-                <TableRow key={table.id}>
-                  <TableCell>{formatBusinessDate(table.valid_from)}</TableCell>
-                  <TableCell className="tabular-nums">
-                    {table.night_start_hour}:00 – {table.night_end_hour}:00
-                  </TableCell>
-                  <TableCell className="tabular-nums">{formatBasisPoints(table.night_surcharge_bp)}</TableCell>
-                  <TableCell className="tabular-nums">{formatBasisPoints(table.sunday_holiday_surcharge_bp)}</TableCell>
-                  <TableCell className="tabular-nums">{formatBasisPoints(table.overtime_surcharge_bp)}</TableCell>
-                  <TableCell className="tabular-nums">{table.weekly_ordinary_hours} h</TableCell>
-                  <TableCell>
-                    {table.confirmed_by_person ? (
-                      <Badge variant="secondary">{table.confirmed_by_name ?? "Sí"}</Badge>
-                    ) : (
-                      <Badge variant="outline">Sin revisar</Badge>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {(query.data ?? []).some((t) => t.confirmed_by_person === false) ? (
-            <p role="status" className="mt-3 text-sm text-muted-foreground">
-              <strong>Hay vigencias sin revisar.</strong> Las cargó la instalación del sistema con los valores de la
-              ley que estaban a mano; son editables desde acá, pero hasta que alguien con la norma adelante las
-              confirme, las liquidaciones que las usen descansan sobre un supuesto. Para confirmarlas, cargá la
-              vigencia de nuevo con los valores correctos: queda a tu nombre.
-            </p>
-          ) : null}
-        </div>
+        <DenseTable
+          caption="Vigencias de recargos cargadas para esta sede, con su franja nocturna y sus tres porcentajes."
+          columns={SURCHARGE_COLUMNS}
+          rows={query.data ?? []}
+          rowKey={(t) => String(t.id)}
+          rowStatus={surchargeStatus}
+          maxBodyHeightPx={420}
+          bar={
+            <DenseTableBar
+              shown={(query.data ?? []).length}
+              total={(query.data ?? []).length}
+              noun="vigencias cargadas"
+              hidden={
+                (query.data ?? []).some((t) => t.confirmed_by_person === false)
+                  ? `${(query.data ?? []).filter((t) => t.confirmed_by_person === false).length} sin revisar`
+                  : "todas revisadas"
+              }
+            />
+          }
+          legend={[
+            {
+              term: "Sin revisar",
+              meaning:
+                "la vigencia la cargó la instalación con los valores de ley que estaban a mano. Funciona, pero nadie con la norma adelante la confirmó.",
+            },
+            {
+              term: "Vigente desde",
+              meaning:
+                "una liquidación vieja se recalcula con la tabla que regía ese mes, no con la de hoy. Por eso no se editan: se carga una nueva.",
+            },
+          ]}
+          note={
+            (query.data ?? []).some((t) => t.confirmed_by_person === false) ? (
+              <>
+                <strong>Hay vigencias sin revisar.</strong> Las cargó la instalación del sistema con los valores de la
+                ley que estaban a mano; son editables desde acá, pero hasta que alguien con la norma adelante las
+                confirme, las liquidaciones que las usen descansan sobre un supuesto. Para confirmarlas, cargá la
+                vigencia de nuevo con los valores correctos: queda a tu nombre.
+              </>
+            ) : null
+          }
+        />
       )}
     </div>
   )

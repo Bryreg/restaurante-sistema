@@ -65,22 +65,30 @@ describe("StockTab — «negativo» y «bajo mínimo» son alertas distintas (SP
     const papaRow = within(rows.find((r) => r.textContent?.includes("Papa criolla"))!)
     const arrozRow = within(rows.find((r) => r.textContent?.includes("Arroz"))!)
 
-    // Negativo: badge propio + texto de "deuda de registro", nunca "agotado".
+    // La fila dice LA PALABRA; el significado vive en la leyenda del pie, una
+    // sola vez (`docs/PATRONES-ADMIN.md` § 8d) en vez de repetirse en cada
+    // renglón — que era lo que hacía crecer la fila por encima de los 34 px.
+    // Lo que esta prueba defiende es que las dos NO se confundan.
     expect(heladoRow.getByText("Negativo")).toBeInTheDocument()
-    expect(heladoRow.getByText(/deuda de registro/i)).toBeInTheDocument()
     expect(heladoRow.queryByText(/agotado/i)).not.toBeInTheDocument()
 
-    // Bajo mínimo (sin ser negativo): badge y texto DISTINTOS del de negativo, y sin el de negativo.
+    // Bajo mínimo (sin ser negativo): palabra DISTINTA, y sin la de negativo.
     expect(papaRow.getByText("Bajo mínimo")).toBeInTheDocument()
-    expect(papaRow.getByText(/por debajo del umbral configurado/i)).toBeInTheDocument()
     expect(papaRow.queryByText("Negativo")).not.toBeInTheDocument()
 
     // Al día: sin ninguna de las dos alertas.
     expect(arrozRow.getByText("Al día")).toBeInTheDocument()
 
+    // La leyenda sostiene la distinción, y la sostiene ENTERA: deuda de
+    // registro (no bloquea la venta) contra reposición.
+    const legend = within(screen.getByRole("table").parentElement!.parentElement!)
+    expect(legend.getByText(/deuda de registro/i)).toBeInTheDocument()
+    expect(legend.getByText(/no bloquea la venta/i)).toBeInTheDocument()
+    expect(legend.getByText(/reposición/i)).toBeInTheDocument()
+
     // Costo null se dice "Sin costo", nunca $0.
     expect(heladoRow.getByText("Sin costo")).toBeInTheDocument()
-    expect(screen.queryByText("$ 0")).not.toBeInTheDocument()
+    expect(within(screen.getByRole("table")).queryByText("$ 0")).not.toBeInTheDocument()
   })
 
   it("los filtros críticos/bajo mínimo/negativos se mandan al servidor, nunca se cruzan en el cliente", async () => {

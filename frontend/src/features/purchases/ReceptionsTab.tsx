@@ -5,12 +5,39 @@ import { listIngredients } from "@/api/inventory"
 import { listReceptions, receptionsCsvUrl, type ReceptionOut, type ReceptionStatus, type SupplierOut } from "@/api/purchases"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import DateRangeFilter from "@/components/DateRangeFilter"
+import {
+  DenseTable,
+  DenseTableBar,
+  DependencyEmptyState,
+  type DenseColumn,
+  type LegendEntry,
+} from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
-import { Badge } from "@/components/ui/badge"
+
+/** La leyenda del pie: recibido ≠ facturado, revertida ≠ borrada. */
+const RECEPTIONS_LEGEND: readonly LegendEntry[] = [
+  {
+    term: "Sin factura",
+    meaning: (
+      <>
+        compra de plaza, declarada como tal. <b>No es una factura vacía</b>: es una compra que nunca tuvo
+        papel, y sólo se acepta si el proveedor no está obligado a facturar.
+      </>
+    ),
+  },
+  {
+    term: "Revertida",
+    meaning: (
+      <>
+        se deshizo el ingreso al inventario y la cuenta por pagar quedó cancelada. <b>No se borra</b>: queda a
+        la vista, con quién la revirtió.
+      </>
+    ),
+  },
+]
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 
@@ -58,17 +85,100 @@ export function ReceptionsTab({ storeId, suppliers }: { storeId: number; supplie
     void queryClient.invalidateQueries({ queryKey: ["purchases", "payables"] })
   }
 
+  const columns: readonly DenseColumn<ReceptionOut>[] = [
+    { key: "id", header: "#", kind: "id", cell: (r) => `#${r.id}` },
+    {
+      key: "supplier",
+      header: "Proveedor",
+      kind: "name",
+      cell: (r) => supplierName(suppliers, r.supplier_id),
+    },
+    {
+      key: "invoice",
+      header: "Factura",
+      // «Sin factura» NO es «factura número vacío»: es una compra de plaza de
+      // mercado, declarada como tal.
+      cell: (r) =>
+        r.no_invoice ? (
+          <span className="text-muted-foreground italic">Sin factura</span>
+        ) : (
+          (r.invoice_number ?? "—")
+        ),
+    },
+    { key: "date", header: "Fecha", kind: "secondary", cell: (r) => formatBusinessDate(r.invoice_date) },
+    { key: "lines", header: "Líneas", kind: "number", cell: (r) => r.lines.length },
+    {
+      key: "status",
+      header: "Estado",
+      cell: (r) => (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <span
+            className={
+              r.status === "confirmed" ? "size-1.5 rounded-full bg-success" : "size-1.5 rounded-full bg-muted-foreground"
+            }
+            aria-hidden="true"
+          />
+          {RECEPTION_STATUS_LABEL[r.status]}
+        </span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      kind: "actions",
+      cell: (r) => <ReceptionDetailDialog reception={r} suppliers={suppliers} ingredients={ingredients} />,
+    },
+  ]
+
+  if (query.isError) {
+    return (
+      <EmptyState
+        role="alert"
+        title="No se pudieron cargar las recepciones"
+        description={errorMessage(query.error)}
+        action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+      />
+    )
+  }
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-wrap items-end gap-3">
-          <DateRangeFilter idPrefix="rec-range" from={range.from} to={range.to} onChange={setRange} />
-          <div className="space-y-1">
+    <div className="space-y-3">
+      {/* Dependencia: sin proveedores activos no se puede recibir nada, y la
+          pantalla lo dice antes de que alguien pulse un botón deshabilitado. */}
+      {activeSuppliers.length === 0 ? (
+        <DependencyEmptyState
+          title="Todavía no hay proveedores activos"
+          description="Una recepción elige siempre un proveedor de la lista. Primero tiene que existir alguno activo."
+          create={{ label: "Ir a Proveedores", to: "/admin/compras?tab=proveedores" }}
+        />
+      ) : null}
+
+      <DenseTable
+        caption="Recepciones de compra"
+        columns={columns}
+        rows={receptions}
+        rowKey={(r) => String(r.id)}
+        rowInactive={(r) => r.status === "reversed"}
+        legend={RECEPTIONS_LEGEND}
+        bar={
+          <DenseTableBar
+            shown={receptions.length}
+            total={receptions.length}
+            noun="recepciones en el rango"
+            hidden={
+              query.isLoading
+                ? "contando…"
+                : status !== "all"
+                  ? `sólo «${RECEPTION_STATUS_LABEL[status]}»`
+                  : undefined
+            }
+          >
+            <DateRangeFilter idPrefix="rec-range" from={range.from} to={range.to} onChange={setRange} />
             <Select
               value={supplierId === null ? "all" : String(supplierId)}
               onValueChange={(value) => setSupplierId(value === "all" ? null : Number(value))}
             >
-              <SelectTrigger aria-label="Proveedor" className="h-10 w-48">
+              <SelectTrigger aria-label="Proveedor" className="h-8 w-40">
                 <SelectValue placeholder="Todos los proveedores" />
               </SelectTrigger>
               <SelectContent>
@@ -80,10 +190,8 @@ export function ReceptionsTab({ storeId, suppliers }: { storeId: number; supplie
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="space-y-1">
             <Select value={status} onValueChange={(value) => setStatus(value as ReceptionStatus | "all")}>
-              <SelectTrigger aria-label="Estado" className="h-10 w-44">
+              <SelectTrigger aria-label="Estado" className="h-8 w-36">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -92,82 +200,52 @@ export function ReceptionsTab({ storeId, suppliers }: { storeId: number; supplie
                 <SelectItem value="reversed">Revertida</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <CsvExportButton
-            href={receptionsCsvUrl({ storeId, from: range.from, to: range.to, supplierId, status: status === "all" ? undefined : status })}
-          />
-          <Dialog open={creating} onOpenChange={setCreating}>
-            <DialogTrigger render={<Button disabled={activeSuppliers.length === 0} />}>Nueva recepción</DialogTrigger>
-            <DialogContent className="max-w-3xl">
-              <DialogHeader>
-                <DialogTitle>Nueva recepción</DialogTitle>
-              </DialogHeader>
-              <ReceptionForm
-                storeId={storeId}
-                suppliers={activeSuppliers}
-                ingredients={ingredients}
-                onSuccess={() => {
-                  setCreating(false)
-                  invalidate()
-                }}
-              />
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-      {activeSuppliers.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Creá al menos un proveedor activo en la pestaña «Proveedores» antes de recibir mercancía.</p>
-      ) : null}
-
-      {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando recepciones…</p>
-      ) : query.isError ? (
-        <EmptyState
-          role="alert"
-          title="No se pudieron cargar las recepciones"
-          description={errorMessage(query.error)}
-          action={{ label: "Reintentar", onClick: () => void query.refetch() }}
-        />
-      ) : receptions.length === 0 ? (
-        <EmptyState title="Sin recepciones en el rango" description="Cambiá el rango de fechas o registrá una nueva." />
-      ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>Proveedor</TableHead>
-                <TableHead>Factura</TableHead>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Líneas</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {receptions.map((reception: ReceptionOut) => (
-                <TableRow key={reception.id}>
-                  <TableCell className="tabular-nums">{reception.id}</TableCell>
-                  <TableCell className="font-medium">{supplierName(suppliers, reception.supplier_id)}</TableCell>
-                  <TableCell>{reception.no_invoice ? "Sin factura" : (reception.invoice_number ?? "—")}</TableCell>
-                  <TableCell>{formatBusinessDate(reception.invoice_date)}</TableCell>
-                  <TableCell className="tabular-nums">{reception.lines.length}</TableCell>
-                  <TableCell>
-                    <Badge variant={reception.status === "confirmed" ? "secondary" : "outline"}>
-                      {RECEPTION_STATUS_LABEL[reception.status]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <ReceptionDetailDialog reception={reception} suppliers={suppliers} ingredients={ingredients} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+            <CsvExportButton
+              href={receptionsCsvUrl({
+                storeId,
+                from: range.from,
+                to: range.to,
+                supplierId,
+                status: status === "all" ? undefined : status,
+              })}
+            />
+            <Dialog open={creating} onOpenChange={setCreating}>
+              <DialogTrigger render={<Button size="sm" disabled={activeSuppliers.length === 0} />}>
+                Nueva recepción
+              </DialogTrigger>
+              <DialogContent className="max-w-3xl">
+                <DialogHeader>
+                  <DialogTitle>Nueva recepción</DialogTitle>
+                </DialogHeader>
+                <ReceptionForm
+                  storeId={storeId}
+                  suppliers={activeSuppliers}
+                  ingredients={ingredients}
+                  onSuccess={() => {
+                    setCreating(false)
+                    invalidate()
+                  }}
+                />
+              </DialogContent>
+            </Dialog>
+          </DenseTableBar>
+        }
+        note={
+          <>
+            Recibir <b>no es</b> facturar: la cantidad recibida y la facturada se cargan por separado, y la
+            diferencia es lo que después discute la cuenta por pagar. Revertir una recepción pide PIN de
+            administrador y enumera qué se deshace.
+          </>
+        }
+        empty={
+          query.isLoading ? undefined : (
+            <EmptyState
+              title="Sin recepciones en el rango"
+              description="Cambiá el rango de fechas, el proveedor o el estado — o registrá una nueva."
+            />
+          )
+        }
+      />
     </div>
   )
 }

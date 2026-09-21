@@ -4,7 +4,8 @@ import { useSearchParams } from "react-router-dom"
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { listIngredients } from "@/api/inventory"
-import { EmptyState } from "@/components/EmptyState"
+import { FeatureOffEmptyState } from "@/components/admin"
+import { PageHeader } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { ControlHealthTab } from "./ControlHealthTab"
@@ -20,6 +21,17 @@ type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
   return (ALL_TABS as readonly string[]).includes(value ?? "")
+}
+
+/**
+ * El recuento al lado del nombre de la pestaña, como en la maqueta
+ * («Insumos 47»). Va en un `<sup>` apagado y **nunca dentro del texto del
+ * rótulo**: el valor de la pestaña —y con él el `?tab=` de la URL y los
+ * enlaces de Hoy— no cambia porque cambie un número.
+ */
+function TabCount({ n }: { n: number | undefined }): React.JSX.Element | null {
+  if (n === undefined) return null
+  return <sup className="text-[0.7em] font-normal tabular-nums opacity-70">{n}</sup>
 }
 
 /**
@@ -83,10 +95,16 @@ export function InventoryAdminPage(): React.JSX.Element {
     return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
   }
   if (!enabled) {
+    // Patrón 13, motivo «función apagada»: la entrada de navegación
+    // desaparece con el flag, pero **la URL sobrevive** en un marcador del
+    // dueño y en los avisos de Hoy — por eso esta pantalla no puede
+    // limitarse a no existir, y el vacío nombra la función y lleva a
+    // encenderla.
     return (
-      <EmptyState
-        title="Inventario no está habilitado"
-        description="Activá «Movimientos de inventario y stock teórico» en Admin → Funciones para usar esta pantalla."
+      <FeatureOffEmptyState
+        feature="Movimientos de inventario y stock teórico"
+        flag="inventory.perpetual"
+        description="Sin ella no hay stock teórico, ni movimientos, ni conteos: las compras entran y las recetas descuentan, pero nadie lleva el saldo."
       />
     )
   }
@@ -98,10 +116,18 @@ export function InventoryAdminPage(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">Inventario</h1>
-        <p className="text-sm text-muted-foreground">Qué tengo y qué se me pierde.</p>
-      </div>
+      {/* Patrón 2 · Cabecera de pantalla: nombre + LA PREGUNTA que la
+          pantalla contesta, y debajo la franja con lo que caduca. Las
+          acciones primarias («Nuevo insumo», «Exportar CSV») no viven acá:
+          con pestañas bajan a la barra de la tabla de cada una, porque cada
+          pestaña crea una cosa distinta. */}
+      <PageHeader
+        name="Inventario"
+        question="Qué tengo, qué me falta y qué me está mintiendo. El stock es teórico: sale de restarle a las compras lo que las recetas dicen que se gastó."
+        context={
+          ingredientsQuery.isSuccess ? [{ label: "Insumos activos", value: ingredients.length }] : undefined
+        }
+      />
       <Tabs
         value={tab}
         onValueChange={(value) => {
@@ -111,7 +137,14 @@ export function InventoryAdminPage(): React.JSX.Element {
         }}
       >
         <TabsList className="h-auto flex-wrap">
-          <TabsTrigger value="insumos">Insumos</TabsTrigger>
+          {/* El recuento va como COMPONENTE y no como `{expresión}`: el
+              censo de controles (`src/audit/censo.ts`) lee el rótulo con una
+              expresión regular que se detiene en la primera llave, y un
+              `{...}` acá haría desaparecer «Insumos» de la base sin que el
+              botón se hubiera movido. */}
+          <TabsTrigger value="insumos">
+            Insumos <TabCount n={ingredientsQuery.isSuccess ? ingredients.length : undefined} />
+          </TabsTrigger>
           <TabsTrigger value="stock">Stock</TabsTrigger>
           <TabsTrigger value="movimientos">Movimientos y mermas</TabsTrigger>
           {countsEnabled ? <TabsTrigger value="conteos">Conteos</TabsTrigger> : null}
@@ -128,6 +161,16 @@ export function InventoryAdminPage(): React.JSX.Element {
             initialBelowMin={searchParams.get("below_min") === "1"}
             initialNegative={searchParams.get("negative") === "1"}
             initialCriticalOnly={searchParams.get("critical") === "1"}
+            // Patrón 6: el enlace de Hoy y la barra de procedencia van en
+            // par. Quien sale nombra el filtro; quien llega lo reconoce y
+            // ofrece **la salida** — que también limpia la query, o el
+            // filtro volvería al recargar y el dueño seguiría sin ver las
+            // filas que le esconden.
+            onDropArrival={() => {
+              const next = new URLSearchParams(searchParams)
+              for (const key of ["below_min", "negative", "critical"]) next.delete(key)
+              setSearchParams(next, { replace: true })
+            }}
           />
         </TabsContent>
         <TabsContent value="movimientos" className="pt-4">

@@ -4,20 +4,27 @@ import { useState } from "react";
 
 import { listEmployees } from "@/api/employees";
 import { authorizationsCsvUrl, listAuthorizations } from "@/api/shifts";
+import { DenseTable, DenseTableBar, TimeAgo, type DenseColumn, type LegendEntry } from "@/components/admin";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatInstant } from "@/lib/businessDate";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { errorMessage } from "@/lib/errors";
+
+/** La leyenda del pie: qué es y qué no es una autorización. */
+const AUTHORIZATIONS_LEGEND: readonly LegendEntry[] = [
+  {
+    term: "Autorizador",
+    meaning:
+      "quien puso su PIN para habilitar lo que otro no podía hacer solo. No es quien ejecutó la acción: son dos personas distintas, y ésa es la idea.",
+  },
+  {
+    term: "Referencia",
+    meaning:
+      "sobre qué se autorizó — la comanda, el turno o el retiro. Lleva a dónde mirar si algo no cuadra.",
+  },
+];
 
 /**
  * Turnos y personal → Autorizaciones por autorizador
@@ -40,84 +47,109 @@ export function AuthorizationsTab(): React.JSX.Element {
   const employees = employeesQuery.data ?? [];
   const rows = query.data ?? [];
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-56 space-y-1">
-            <Label htmlFor="auth-employee">Autorizador</Label>
-            <Select
-              value={authorizerId === null ? undefined : String(authorizerId)}
-              onValueChange={(v) => setAuthorizerId(Number(v))}
-            >
-              <SelectTrigger id="auth-employee" className="h-10 w-full">
-                <SelectValue placeholder="Todos" />
-              </SelectTrigger>
-              <SelectContent>
-                {employees.map((employee) => (
-                  <SelectItem key={employee.id} value={String(employee.id)}>
-                    {employee.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="auth-from">Desde</Label>
-            <Input id="auth-from" type="date" className="h-10" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="auth-to">Hasta</Label>
-            <Input id="auth-to" type="date" className="h-10" value={to} onChange={(e) => setTo(e.target.value)} />
-          </div>
-        </div>
-        <Button
-          render={<a href={authorizationsCsvUrl(filters)} target="_blank" rel="noreferrer" />}
-          variant="outline"
-          className="gap-2"
+  const filters_ = (
+    <>
+      <div className="flex items-center gap-2">
+        <Label htmlFor="auth-employee">Autorizador</Label>
+        <Select
+          value={authorizerId === null ? undefined : String(authorizerId)}
+          onValueChange={(v) => setAuthorizerId(Number(v))}
         >
-          <Download className="size-4" aria-hidden="true" />
-          Exportar CSV
-        </Button>
+          <SelectTrigger id="auth-employee" className="h-8 w-44">
+            <SelectValue placeholder="Todos" />
+          </SelectTrigger>
+          <SelectContent>
+            {employees.map((employee) => (
+              <SelectItem key={employee.id} value={String(employee.id)}>
+                {employee.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
-
-      {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando autorizaciones…</p>
-      ) : query.isError ? (
-        <EmptyState
-          role="alert"
-          title="No se pudieron cargar las autorizaciones"
-          description={errorMessage(query.error)}
-          action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+      <div className="flex items-center gap-2">
+        <Label htmlFor="auth-from">Desde</Label>
+        <Input
+          id="auth-from"
+          type="date"
+          className="h-8"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
         />
-      ) : rows.length === 0 ? (
-        <EmptyState title="Sin autorizaciones para estos filtros" />
-      ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Hora</TableHead>
-                <TableHead>Autorizador</TableHead>
-                <TableHead>Acción</TableHead>
-                <TableHead>Referencia</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{formatInstant(row.at)}</TableCell>
-                  <TableCell>{row.authorizer_name ?? "—"}</TableCell>
-                  <TableCell>{row.action ?? "—"}</TableCell>
-                  <TableCell>
-                    {row.reference_type ? `${row.reference_type} #${row.reference_id ?? "—"}` : "—"}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Label htmlFor="auth-to">Hasta</Label>
+        <Input id="auth-to" type="date" className="h-8" value={to} onChange={(e) => setTo(e.target.value)} />
+      </div>
+      <Button
+        render={<a href={authorizationsCsvUrl(filters)} target="_blank" rel="noreferrer" />}
+        variant="outline"
+        size="sm"
+        className="gap-2"
+      >
+        <Download className="size-4" aria-hidden="true" />
+        Exportar CSV
+      </Button>
+    </>
+  );
+
+  const columns: readonly DenseColumn<(typeof rows)[number]>[] = [
+    { key: "at", header: "Hora", kind: "secondary", cell: (r) => <TimeAgo iso={r.at} /> },
+    { key: "who", header: "Autorizador", kind: "name", cell: (r) => r.authorizer_name ?? "—" },
+    { key: "action", header: "Acción", cell: (r) => r.action ?? "—" },
+    {
+      key: "ref",
+      header: "Referencia",
+      kind: "id",
+      cell: (r) => (r.reference_type ? `${r.reference_type} #${r.reference_id ?? "—"}` : "—"),
+    },
+  ];
+
+  if (query.isError) {
+    return (
+      <EmptyState
+        role="alert"
+        title="No se pudieron cargar las autorizaciones"
+        description={errorMessage(query.error)}
+        action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+      />
+    );
+  }
+
+  return (
+    <DenseTable
+      caption="Autorizaciones por autorizador"
+      columns={columns}
+      rows={rows}
+      rowKey={(r) => String(r.id)}
+      legend={AUTHORIZATIONS_LEGEND}
+      bar={
+        <DenseTableBar
+          shown={rows.length}
+          total={rows.length}
+          noun="autorizaciones"
+          hidden={
+            query.isLoading ? "contando…" : authorizerId !== null ? "de un solo autorizador" : undefined
+          }
+        >
+          {filters_}
+        </DenseTableBar>
+      }
+      note={
+        <>
+          Éste es el reporte que hace que el PIN de supervisor <b>sea un control y no un trámite</b>: cada
+          autorización queda con quién la dio, cuándo y sobre qué. Sin este listado, un PIN compartido y uno
+          propio se parecen demasiado.
+        </>
+      }
+      empty={
+        query.isLoading ? undefined : (
+          <EmptyState
+            title="Sin autorizaciones para estos filtros"
+            description="Nadie autorizó nada en este rango — o el filtro de autorizador deja afuera a quien sí lo hizo."
+          />
+        )
+      }
+    />
   );
 }

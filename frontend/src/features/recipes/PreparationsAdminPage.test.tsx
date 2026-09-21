@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -102,7 +102,10 @@ function renderPage(features: Record<string, boolean>) {
 describe("PreparationsAdminPage", () => {
   it("sin catalog.preps explica qué la prende, no una pantalla rota", () => {
     renderPage({ "catalog.preps": false })
-    expect(screen.getByText(/preparaciones no está habilitada/i)).toBeInTheDocument()
+    // El vacío por función apagada pasó a `FeatureOffEmptyState` (patrón 13):
+    // titula con el NOMBRE de la función y nombra la flag que la enciende.
+    expect(screen.getByText(/no está encendida/i)).toBeInTheDocument()
+    expect(screen.getByText("catalog.preps")).toBeInTheDocument()
     expect(listPreparationsMock).not.toHaveBeenCalled()
   })
 
@@ -114,16 +117,16 @@ describe("PreparationsAdminPage", () => {
     expect(screen.getByText("Hogao")).toBeInTheDocument()
 
     // Caldo base: sin costo todavía (nunca "$0").
-    expect(screen.getByText("Sin costo")).toBeInTheDocument()
-    expect(screen.queryByText("$ 0")).not.toBeInTheDocument()
+    expect(within(screen.getByRole("table")).getByText("Sin costo")).toBeInTheDocument()
+    expect(within(screen.getByRole("table")).queryByText("$ 0")).not.toBeInTheDocument()
 
     // Hogao: costo estimado, formateado con su origen visible.
     expect(screen.getByText("$ 1.200")).toBeInTheDocument()
     expect(screen.getByText("estimado")).toBeInTheDocument()
 
     // Modo visible en español.
-    expect(screen.getByText("Por lote")).toBeInTheDocument()
-    expect(screen.getByText("Explotada")).toBeInTheDocument()
+    expect(within(screen.getByRole("table")).getByText("Por lote")).toBeInTheDocument()
+    expect(within(screen.getByRole("table")).getByText("Explotada")).toBeInTheDocument()
   })
 
   it("un costo sub-peso con origen oficial (la sal, $0,003) no se pinta «$ 0»", async () => {
@@ -131,8 +134,8 @@ describe("PreparationsAdminPage", () => {
     renderPage({ "catalog.preps": true, multi_store: false })
 
     await waitFor(() => expect(screen.getByText("Sal de mesa")).toBeInTheDocument())
-    expect(screen.queryByText("$ 0")).not.toBeInTheDocument()
-    expect(screen.queryByText("Sin costo")).not.toBeInTheDocument()
+    expect(within(screen.getByRole("table")).queryByText("$ 0")).not.toBeInTheDocument()
+    expect(within(screen.getByRole("table")).queryByText("Sin costo")).not.toBeInTheDocument()
     expect(screen.getByText("oficial")).toBeInTheDocument()
   })
 

@@ -31,13 +31,12 @@ import {
   getWages,
   setArea,
 } from "@/api/payroll"
+import { DenseTable, DenseTableBar, FormField, FormSection, ScopeDestinations } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { MoneyInput } from "@/components/MoneyInput"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
@@ -88,20 +87,25 @@ function WagesSection({ storeId }: { storeId: number }): React.JSX.Element {
   const canSubmit = employeeId !== "" && wage !== null && wage > 0 && validFrom.trim() !== ""
 
   return (
-    <section className="space-y-3 rounded-lg border p-4">
-      <div>
-        <h2 className="text-sm font-semibold">Tarifa por hora</h2>
-        <p className="text-xs text-muted-foreground">
-          Lleva fecha de vigencia: una liquidación vieja se recalcula con la tarifa que regía ese mes, nunca con la de
-          hoy. Sin tarifa cargada, la liquidación y la utilidad del período responden «sin datos» con el motivo.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4 sm:items-end">
-        <div className="space-y-1.5">
-          <Label htmlFor="wage-employee">Persona</Label>
+    <FormSection
+      title="Tarifa por hora"
+      governs="Con cuánto se paga cada hora de cada persona, desde la fecha que digas."
+      reading={
+        <>
+          Una tarifa nueva <b>no reescribe el pasado</b>: cada liquidación se recalcula con la tarifa que regía ese
+          mes. Si alguien no tiene tarifa vigente, su renglón dice «sin datos» con el motivo, y{" "}
+          <b>la utilidad del período completo</b> responde lo mismo.
+        </>
+      }
+      doesNotDo="Cargar una tarifa no paga nada ni genera una liquidación: sólo deja lista la cifra con la que se va a liquidar."
+    >
+      <FormField
+        label="Persona"
+        help="A quién se le aplica. Sólo aparecen las personas activas de esta sede."
+      >
+        {({ fieldId }) => (
           <Select value={employeeId} onValueChange={(v) => setEmployeeId(v ?? "")}>
-            <SelectTrigger id="wage-employee">
+            <SelectTrigger id={fieldId}>
               <SelectValue placeholder="Elegí a quién" />
             </SelectTrigger>
             <SelectContent>
@@ -112,20 +116,32 @@ function WagesSection({ storeId }: { storeId: number }): React.JSX.Element {
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="wage-amount">Pesos por hora</Label>
-          <MoneyInput id="wage-amount" value={wage} onChange={setWage} />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="wage-valid-from">Rige desde</Label>
-          <Input id="wage-valid-from" type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} />
-        </div>
+        )}
+      </FormField>
+      <FormField
+        label="Pesos por hora"
+        help="La hora ordinaria. Los recargos se calculan sobre esto, con los porcentajes de la tabla vigente."
+        scope={{ affects: [{ screen: "Nómina › Liquidaciones", verb: "Alimenta" }] }}
+      >
+        {({ fieldId }) => <MoneyInput id={fieldId} value={wage} onChange={setWage} />}
+      </FormField>
+      <FormField
+        label="Rige desde"
+        help="Desde qué día vale. Lo liquidado antes de esta fecha sigue usando la tarifa anterior."
+      >
+        {({ fieldId }) => (
+          <Input id={fieldId} type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} />
+        )}
+      </FormField>
+      <div className="flex items-end">
         <Button type="button" onClick={() => mutation.mutate()} disabled={!canSubmit || mutation.isPending}>
           {mutation.isPending ? "Guardando…" : "Guardar tarifa"}
         </Button>
       </div>
 
+      {/* La lista y el error de guardado no son campos: ocupan la fila
+          entera de la rejilla en vez de colarse como una tercera columna. */}
+      <div className="space-y-3 sm:col-span-2">
       {mutation.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(mutation.error)}
@@ -136,36 +152,39 @@ function WagesSection({ storeId }: { storeId: number }): React.JSX.Element {
         <p className="text-sm text-muted-foreground">Cargando tarifas…</p>
       ) : query.isError ? (
         <EmptyState
-          role="alert"
+          reason="error"
           title="No se pudieron cargar las tarifas"
           description={errorMessage(query.error)}
           action={{ label: "Reintentar", onClick: () => void query.refetch() }}
         />
       ) : (query.data ?? []).length === 0 ? (
-        <EmptyState title="Todavía no hay tarifas cargadas" description="Sin tarifa no se puede liquidar la nómina." />
+        <EmptyState
+          reason="dependency"
+          title="Todavía no hay tarifas cargadas"
+          description="Sin tarifa no se puede liquidar la nómina."
+        />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Persona</TableHead>
-                <TableHead>Pesos por hora</TableHead>
-                <TableHead>Rige desde</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(query.data ?? []).map((w) => (
-                <TableRow key={w.id}>
-                  <TableCell>{w.employee_name}</TableCell>
-                  <TableCell className="tabular-nums">{formatCOP(w.hourly_wage_pesos)}</TableCell>
-                  <TableCell>{formatBusinessDate(w.valid_from)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption="Tarifas por hora cargadas, con la fecha desde la que rige cada una."
+          columns={[
+            { key: "person", header: "Persona", kind: "name", cell: (w) => w.employee_name },
+            { key: "wage", header: "Pesos por hora", kind: "number", cell: (w) => formatCOP(w.hourly_wage_pesos) },
+            { key: "from", header: "Rige desde", cell: (w) => formatBusinessDate(w.valid_from) },
+          ]}
+          rows={query.data ?? []}
+          rowKey={(w) => String(w.id)}
+          maxBodyHeightPx={300}
+          bar={<DenseTableBar shown={(query.data ?? []).length} total={(query.data ?? []).length} noun="tarifas vigentes" />}
+          legend={[
+            {
+              term: "Una persona, varias filas",
+              meaning: "cada fila es una vigencia. La vieja no se borra: es la que recalcula los meses viejos.",
+            },
+          ]}
+        />
       )}
-    </section>
+      </div>
+    </FormSection>
   )
 }
 
@@ -195,29 +214,37 @@ function HolidaysSection({ storeId }: { storeId: number }): React.JSX.Element {
   })
 
   return (
-    <section className="space-y-3 rounded-lg border p-4">
-      <div>
-        <h2 className="text-sm font-semibold">Festivos</h2>
-        <p className="text-xs text-muted-foreground">
-          Sin festivos cargados, la columna «festivas» de las horas queda en cero y nadie se entera. El recargo que se
-          les aplica sale de la tabla vigente, no de acá.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
-        <div className="space-y-1.5">
-          <Label htmlFor="holiday-date">Fecha</Label>
-          <Input id="holiday-date" type="date" value={holidayDate} onChange={(e) => setHolidayDate(e.target.value)} />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="holiday-name">Nombre</Label>
+    <FormSection
+      title="Festivos"
+      governs="Qué días cuentan como festivo para la jornada de esta sede."
+      reading={
+        <>
+          Cada día cargado acá hace que las horas de ese día se cuenten como <b>festivas</b> en «Horas». El{" "}
+          <b>porcentaje</b> que se les aplica no sale de acá: sale de la tabla de recargos vigente ese día.
+        </>
+      }
+      doesNotDo="Cargar un festivo no recalcula una liquidación ya hecha, y no le avisa a nadie del salón."
+    >
+      <FormField label="Fecha" help="El día exacto. Si falta, esas horas se cuentan como ordinarias y nadie se entera.">
+        {({ fieldId }) => (
+          <Input id={fieldId} type="date" value={holidayDate} onChange={(e) => setHolidayDate(e.target.value)} />
+        )}
+      </FormField>
+      <FormField
+        label="Nombre"
+        help="Para reconocerlo en la lista. No cambia ningún cálculo."
+        scope={{ affects: [{ screen: "Nómina › Horas", verb: "Cambia" }] }}
+      >
+        {({ fieldId }) => (
           <Input
-            id="holiday-name"
+            id={fieldId}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Día de la Independencia"
           />
-        </div>
+        )}
+      </FormField>
+      <div className="flex items-end">
         <Button
           type="button"
           onClick={() => mutation.mutate()}
@@ -227,6 +254,9 @@ function HolidaysSection({ storeId }: { storeId: number }): React.JSX.Element {
         </Button>
       </div>
 
+      {/* La lista y el error de guardado no son campos: ocupan la fila
+          entera de la rejilla en vez de colarse como una tercera columna. */}
+      <div className="space-y-3 sm:col-span-2">
       {mutation.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(mutation.error)}
@@ -237,34 +267,32 @@ function HolidaysSection({ storeId }: { storeId: number }): React.JSX.Element {
         <p className="text-sm text-muted-foreground">Cargando festivos…</p>
       ) : query.isError ? (
         <EmptyState
-          role="alert"
+          reason="error"
           title="No se pudieron cargar los festivos"
           description={errorMessage(query.error)}
           action={{ label: "Reintentar", onClick: () => void query.refetch() }}
         />
       ) : (query.data ?? []).length === 0 ? (
-        <EmptyState title="Todavía no hay festivos cargados" />
+        <EmptyState
+          reason="dependency"
+          title="Todavía no hay festivos cargados"
+          description="Sin festivos, la columna «festivas» de las horas queda en cero y nadie se entera."
+        />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Nombre</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(query.data ?? []).map((h) => (
-                <TableRow key={h.id}>
-                  <TableCell>{formatBusinessDate(h.holiday_date)}</TableCell>
-                  <TableCell>{h.name}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption="Festivos cargados para esta sede."
+          columns={[
+            { key: "date", header: "Fecha", kind: "name", cell: (h) => formatBusinessDate(h.holiday_date) },
+            { key: "name", header: "Nombre", cell: (h) => h.name },
+          ]}
+          rows={query.data ?? []}
+          rowKey={(h) => String(h.id)}
+          maxBodyHeightPx={300}
+          bar={<DenseTableBar shown={(query.data ?? []).length} total={(query.data ?? []).length} noun="festivos cargados" />}
+        />
       )}
-    </section>
+      </div>
+    </FormSection>
   )
 }
 
@@ -295,20 +323,21 @@ function AreasSection({ storeId }: { storeId: number }): React.JSX.Element {
   })
 
   return (
-    <section className="space-y-3 rounded-lg border p-4">
-      <div>
-        <h2 className="text-sm font-semibold">Área por persona</h2>
-        <p className="text-xs text-muted-foreground">
-          Sólo la usa el reparto de propinas «por área», uno de los tres métodos. Si la sede reparte por horas o en
-          partes iguales, esta sección se puede dejar vacía.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
-        <div className="space-y-1.5">
-          <Label htmlFor="area-employee">Persona</Label>
+    <FormSection
+      title="Área por persona"
+      governs="En qué área trabaja cada persona, para el reparto de propinas «por área»."
+      reading={
+        <>
+          Estas áreas sólo las lee <b>uno de los tres métodos</b> de reparto. Si esta sede reparte por horas o en
+          partes iguales, dejar esto vacío no rompe nada.
+        </>
+      }
+      doesNotDo="Asignar un área no reparte propina ni cambia un reparto ya confirmado: sólo cambia cómo se agrupa la próxima propuesta."
+    >
+      <FormField label="Persona" help="Sólo aparecen las personas activas de esta sede.">
+        {({ fieldId }) => (
           <Select value={employeeId} onValueChange={(v) => setEmployeeId(v ?? "")}>
-            <SelectTrigger id="area-employee">
+            <SelectTrigger id={fieldId}>
               <SelectValue placeholder="Elegí a quién" />
             </SelectTrigger>
             <SelectContent>
@@ -319,11 +348,18 @@ function AreasSection({ storeId }: { storeId: number }): React.JSX.Element {
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="area-name">Área</Label>
-          <Input id="area-name" value={area} onChange={(e) => setAreaText(e.target.value)} placeholder="Salón" />
-        </div>
+        )}
+      </FormField>
+      <FormField
+        label="Área"
+        help="El texto agrupa: dos personas con el área escrita igual reparten juntas."
+        scope={{ flag: "pos.tips", affects: [{ screen: "Nómina › Propinas", verb: "Agrupa en" }] }}
+      >
+        {({ fieldId }) => (
+          <Input id={fieldId} value={area} onChange={(e) => setAreaText(e.target.value)} placeholder="Salón" />
+        )}
+      </FormField>
+      <div className="flex items-end">
         <Button
           type="button"
           onClick={() => mutation.mutate()}
@@ -333,6 +369,9 @@ function AreasSection({ storeId }: { storeId: number }): React.JSX.Element {
         </Button>
       </div>
 
+      {/* La lista y el error de guardado no son campos: ocupan la fila
+          entera de la rejilla en vez de colarse como una tercera columna. */}
+      <div className="space-y-3 sm:col-span-2">
       {mutation.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(mutation.error)}
@@ -343,34 +382,32 @@ function AreasSection({ storeId }: { storeId: number }): React.JSX.Element {
         <p className="text-sm text-muted-foreground">Cargando áreas…</p>
       ) : query.isError ? (
         <EmptyState
-          role="alert"
+          reason="error"
           title="No se pudieron cargar las áreas"
           description={errorMessage(query.error)}
           action={{ label: "Reintentar", onClick: () => void query.refetch() }}
         />
       ) : (query.data ?? []).length === 0 ? (
-        <EmptyState title="Todavía no hay áreas asignadas" />
+        <EmptyState
+          reason="dependency"
+          title="Todavía no hay áreas asignadas"
+          description="Sólo hacen falta si esta sede reparte la propina «por área»."
+        />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Persona</TableHead>
-                <TableHead>Área</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(query.data ?? []).map((a) => (
-                <TableRow key={a.employee_id}>
-                  <TableCell>{a.employee_name}</TableCell>
-                  <TableCell>{a.area}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption="Área asignada a cada persona de esta sede."
+          columns={[
+            { key: "person", header: "Persona", kind: "name", cell: (a) => a.employee_name },
+            { key: "area", header: "Área", cell: (a) => a.area },
+          ]}
+          rows={query.data ?? []}
+          rowKey={(a) => String(a.employee_id)}
+          maxBodyHeightPx={300}
+          bar={<DenseTableBar shown={(query.data ?? []).length} total={(query.data ?? []).length} noun="personas con área" />}
+        />
       )}
-    </section>
+      </div>
+    </FormSection>
   )
 }
 
@@ -380,6 +417,32 @@ export function WagesCalendarTab({ storeId }: { storeId: number }): React.JSX.El
       <WagesSection storeId={storeId} />
       <HolidaysSection storeId={storeId} />
       <AreasSection storeId={storeId} />
+      {/* § 10, el reverso: los chips contestan «este campo a dónde va»; esto
+          contesta «esta pestaña a dónde llega». */}
+      <ScopeDestinations
+        destinations={[
+          {
+            screen: "Nómina › Liquidaciones",
+            what: "La tarifa por hora de cada persona. Sin ella, su renglón dice «sin datos».",
+            to: "/admin/nomina?tab=liquidaciones",
+          },
+          {
+            screen: "Nómina › Horas",
+            what: "Los festivos: son los que hacen que esas horas se cuenten como festivas.",
+            to: "/admin/nomina?tab=horas",
+          },
+          {
+            screen: "Nómina › Propinas",
+            what: "Las áreas, cuando la sede reparte «por área».",
+            to: "/admin/nomina?tab=propinas",
+          },
+          {
+            screen: "Gastos › Utilidad",
+            what: "Con «Nómina» encendida, la utilidad del período no se calcula si a alguien le falta tarifa.",
+            to: "/admin/gastos",
+          },
+        ]}
+      />
     </div>
   )
 }

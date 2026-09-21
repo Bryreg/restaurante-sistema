@@ -13,13 +13,26 @@
  */
 import { useQuery } from "@tanstack/react-query"
 
-import { getVarianceByDish } from "@/api/analytics"
+import { getVarianceByDish, type VarianceByDishRowOut } from "@/api/analytics"
+import { DenseTable, DenseTableBar, type DenseColumn } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { formatBasisPoints } from "@/features/inventory/lib"
+
+const VARIANCE_COLUMNS: readonly DenseColumn<VarianceByDishRowOut>[] = [
+  { key: "product", header: "Plato", kind: "name", cell: (r) => r.product_name ?? `#${r.product_id}` },
+  {
+    key: "share",
+    header: "Peso del prorrateo",
+    kind: "number",
+    cell: (r) => formatBasisPoints(r.theoretical_consumption_share_bp ?? null),
+  },
+  { key: "value", header: "Valor de la varianza", kind: "number", cell: (r) => formatCOP(r.variance_value ?? null) },
+  { key: "ingredients", header: "Insumos involucrados", kind: "number", cell: (r) => r.ingredients_involved ?? "—" },
+]
 
 export function VarianceByDishTab({ storeId }: { storeId: number }): React.JSX.Element {
   const query = useQuery({
@@ -35,42 +48,44 @@ export function VarianceByDishTab({ storeId }: { storeId: number }): React.JSX.E
         <p className="text-xs text-muted-foreground">
           Método: <strong>{query.data.method}</strong> — es una ESTIMACIÓN prorrateada sobre la ventana del último
           conteo aplicado, no una medición directa por plato (SPEC-NEGOCIO §5.4).
-          {query.data.window_from && query.data.window_to ? ` Ventana: ${query.data.window_from} a ${query.data.window_to}.` : ""}
+          {query.data.window_from && query.data.window_to
+            ? ` Ventana: ${formatInstant(query.data.window_from)} a ${formatInstant(query.data.window_to)}.`
+            : ""}
         </p>
       ) : null}
 
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Calculando la varianza por plato…</p>
       ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudo calcular la varianza por plato" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
+        <EmptyState reason="error" title="No se pudo calcular la varianza por plato" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : !query.data?.available ? (
-        <EmptyState title="Varianza por plato no disponible" description={query.data?.reason ?? "Hacen falta conteos completos aplicados y consecutivos."} />
+        <EmptyState reason="dependency" title="Varianza por plato no disponible" description={query.data?.reason ?? "Hacen falta conteos completos aplicados y consecutivos."} />
       ) : rows.length === 0 ? (
-        <EmptyState title="No hay platos con varianza para mostrar en esta ventana" />
+        <EmptyState
+          reason="dependency"
+          title="No hay platos con varianza para mostrar en esta ventana"
+          description="La ventana del último conteo aplicado no dejó ninguna diferencia que prorratear."
+        />
       ) : (
         <>
-          <div className="overflow-x-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Plato</TableHead>
-                  <TableHead>Peso del prorrateo</TableHead>
-                  <TableHead>Valor de la varianza</TableHead>
-                  <TableHead>Insumos involucrados</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.product_id}>
-                    <TableCell>{row.product_name ?? `#${row.product_id}`}</TableCell>
-                    <TableCell className="tabular-nums">{formatBasisPoints(row.theoretical_consumption_share_bp ?? null)}</TableCell>
-                    <TableCell className="tabular-nums">{formatCOP(row.variance_value ?? null)}</TableCell>
-                    <TableCell className="tabular-nums">{row.ingredients_involved ?? "—"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <DenseTable
+            caption="Varianza estimada por plato sobre la ventana del último conteo aplicado."
+            columns={VARIANCE_COLUMNS}
+            rows={rows}
+            rowKey={(r) => String(r.product_id)}
+            maxBodyHeightPx={460}
+            bar={<DenseTableBar shown={rows.length} total={rows.length} noun="platos con varianza estimada" />}
+            legend={[
+              {
+                term: "Peso del prorrateo",
+                meaning: "qué parte del consumo teórico de la ventana explica este plato. No es su culpa: es su porción.",
+              },
+              {
+                term: "Varianza ≠ robo",
+                meaning: "es la diferencia entre lo que la ficha dice que debió salir y lo que el conteo encontró. Merma, porción y error de registro entran igual.",
+              },
+            ]}
+          />
           {query.data.unattributed_variance_value !== null && query.data.unattributed_variance_value !== undefined && query.data.unattributed_variance_value !== 0 ? (
             <p className="text-xs text-muted-foreground">
               {formatCOP(query.data.unattributed_variance_value)} de varianza no se pudo atribuir a ningún plato en

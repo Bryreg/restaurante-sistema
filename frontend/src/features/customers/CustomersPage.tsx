@@ -15,6 +15,14 @@ import {
   type CustomerPatchIn,
   type DataRequestOut,
 } from "@/api/customers";
+import {
+  DenseTable,
+  DenseTableBar,
+  FilterEmptyState,
+  PageHeader,
+  type DenseColumn,
+  type LegendEntry,
+} from "@/components/admin";
 import { EmptyState } from "@/components/EmptyState";
 import {
   AlertDialog,
@@ -34,12 +42,29 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 
 import { LocalCsvExportButton } from "./components";
+
+/** La leyenda del pie: lo que habeas data separa a propósito. */
+const CUSTOMERS_LEGEND: readonly LegendEntry[] = [
+  {
+    term: "Anonimizado",
+    meaning: (
+      <>
+        se ejerció el derecho de supresión: el cliente queda sin datos personales y <b>no se deshace</b>. El
+        documento fiscal ya emitido conserva su copia exacta, porque es ley.
+      </>
+    ),
+  },
+  {
+    term: "Autorización",
+    meaning:
+      "cada finalidad —facturación, mercadeo— se autoriza por separado y queda con su canal, su fecha y la versión del texto. Registrar una nueva nunca edita la anterior.",
+  },
+];
 
 const REQUEST_KIND_LABEL: Record<string, string> = {
   access: "Consulta",
@@ -83,7 +108,11 @@ function EraseCustomerAction({ customer }: { customer: CustomerOut }) {
         </AlertDialogHeader>
         <div className="space-y-1">
           <Label htmlFor={`erase-reason-${customer.id}`}>Motivo de la solicitud</Label>
-          <Textarea id={`erase-reason-${customer.id}`} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Textarea
+            id={`erase-reason-${customer.id}`}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
         </div>
         {mutation.isError ? (
           <p role="alert" className="text-sm text-destructive">
@@ -128,8 +157,8 @@ function ConsentForm({ customer }: { customer: CustomerOut }) {
     <div className="space-y-2 rounded-md border p-3">
       <p className="text-sm font-medium">Registrar consentimiento</p>
       <p className="text-xs text-muted-foreground">
-        Nunca edita uno anterior: cada registro (incluida una revocación) queda como evidencia nueva, con fecha y
-        canal.
+        Nunca edita uno anterior: cada registro (incluida una revocación) queda como evidencia nueva, con
+        fecha y canal.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
@@ -172,7 +201,12 @@ function ConsentForm({ customer }: { customer: CustomerOut }) {
             onChange={(e) => setTextVersion(e.target.value)}
           />
         </div>
-        <Button type="button" className="h-10" disabled={!canSubmit || mutation.isPending} onClick={() => mutation.mutate()}>
+        <Button
+          type="button"
+          className="h-10"
+          disabled={!canSubmit || mutation.isPending}
+          onClick={() => mutation.mutate()}
+        >
           {mutation.isPending ? "Guardando…" : "Registrar"}
         </Button>
       </div>
@@ -181,7 +215,9 @@ function ConsentForm({ customer }: { customer: CustomerOut }) {
           {errorMessage(mutation.error)}
         </p>
       ) : null}
-      {mutation.isSuccess ? <p className="text-sm text-muted-foreground">Consentimiento registrado.</p> : null}
+      {mutation.isSuccess ? (
+        <p className="text-sm text-muted-foreground">Consentimiento registrado.</p>
+      ) : null}
     </div>
   );
 }
@@ -220,7 +256,13 @@ function RequestsLog({ customer }: { customer: CustomerOut }) {
   );
 }
 
-function CustomerDetailDialog({ customer, onOpenChange }: { customer: CustomerOut | null; onOpenChange: (open: boolean) => void }) {
+function CustomerDetailDialog({
+  customer,
+  onOpenChange,
+}: {
+  customer: CustomerOut | null;
+  onOpenChange: (open: boolean) => void;
+}) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<CustomerPatchIn>({});
 
@@ -234,7 +276,13 @@ function CustomerDetailDialog({ customer, onOpenChange }: { customer: CustomerOu
   if (!customer) return null;
 
   const erased = customer.erased_at != null;
-  const current = { name: form.name ?? customer.name ?? "", email: form.email ?? customer.email ?? "", address: form.address ?? customer.address ?? "", municipality_dane: form.municipality_dane ?? customer.municipality_dane ?? "", dv: form.dv ?? customer.dv ?? "" };
+  const current = {
+    name: form.name ?? customer.name ?? "",
+    email: form.email ?? customer.email ?? "",
+    address: form.address ?? customer.address ?? "",
+    municipality_dane: form.municipality_dane ?? customer.municipality_dane ?? "",
+    dv: form.dv ?? customer.dv ?? "",
+  };
 
   return (
     <Dialog open={customer !== null} onOpenChange={onOpenChange}>
@@ -250,8 +298,9 @@ function CustomerDetailDialog({ customer, onOpenChange }: { customer: CustomerOu
 
           {erased ? (
             <p role="status" className="text-sm text-muted-foreground">
-              Este cliente está anonimizado. Sus datos ya no se pueden corregir ni recibir consentimientos nuevos; los
-              documentos fiscales que ya se emitieron a su nombre conservan su copia exacta, sin cambios.
+              Este cliente está anonimizado. Sus datos ya no se pueden corregir ni recibir consentimientos
+              nuevos; los documentos fiscales que ya se emitieron a su nombre conservan su copia exacta, sin
+              cambios.
             </p>
           ) : (
             <div className="space-y-2 rounded-md border p-3">
@@ -259,23 +308,49 @@ function CustomerDetailDialog({ customer, onOpenChange }: { customer: CustomerOu
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <Label htmlFor="customer-name">Nombre</Label>
-                  <Input id="customer-name" className="h-10" value={current.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                  <Input
+                    id="customer-name"
+                    className="h-10"
+                    value={current.name}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="customer-dv">DV</Label>
-                  <Input id="customer-dv" className="h-10" value={current.dv} onChange={(e) => setForm((f) => ({ ...f, dv: e.target.value }))} />
+                  <Input
+                    id="customer-dv"
+                    className="h-10"
+                    value={current.dv}
+                    onChange={(e) => setForm((f) => ({ ...f, dv: e.target.value }))}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="customer-email">Correo</Label>
-                  <Input id="customer-email" type="email" className="h-10" value={current.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+                  <Input
+                    id="customer-email"
+                    type="email"
+                    className="h-10"
+                    value={current.email}
+                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="customer-municipality">Municipio (DANE)</Label>
-                  <Input id="customer-municipality" className="h-10" value={current.municipality_dane} onChange={(e) => setForm((f) => ({ ...f, municipality_dane: e.target.value }))} />
+                  <Input
+                    id="customer-municipality"
+                    className="h-10"
+                    value={current.municipality_dane}
+                    onChange={(e) => setForm((f) => ({ ...f, municipality_dane: e.target.value }))}
+                  />
                 </div>
                 <div className="col-span-2 space-y-1">
                   <Label htmlFor="customer-address">Dirección</Label>
-                  <Input id="customer-address" className="h-10" value={current.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
+                  <Input
+                    id="customer-address"
+                    className="h-10"
+                    value={current.address}
+                    onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                  />
                 </div>
               </div>
               {patchMutation.isError ? (
@@ -283,7 +358,12 @@ function CustomerDetailDialog({ customer, onOpenChange }: { customer: CustomerOu
                   {errorMessage(patchMutation.error)}
                 </p>
               ) : null}
-              <Button type="button" className="h-10" disabled={patchMutation.isPending} onClick={() => patchMutation.mutate(form)}>
+              <Button
+                type="button"
+                className="h-10"
+                disabled={patchMutation.isPending}
+                onClick={() => patchMutation.mutate(form)}
+              >
                 {patchMutation.isPending ? "Guardando…" : "Guardar"}
               </Button>
             </div>
@@ -322,88 +402,184 @@ export function CustomersPage(): React.JSX.Element {
 
   const rows = query.data ?? [];
 
+  const search = (
+    <>
+      <div className="flex items-center gap-2">
+        <Label htmlFor="customers-doc-number">Número de documento</Label>
+        <Input
+          id="customers-doc-number"
+          className="h-8 w-44"
+          value={docNumber}
+          onChange={(e) => setDocNumber(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") setAppliedDocNumber(docNumber.trim() || undefined);
+          }}
+        />
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setAppliedDocNumber(docNumber.trim() || undefined)}
+      >
+        Buscar
+      </Button>
+      {/* «Limpiar» sólo existe si hay un filtro puesto: el control que
+          aparece y desaparece con el estado es de los que un rediseño pierde
+          más fácil (`docs/INVENTARIO-CONTROLES.md` § 18). */}
+      {appliedDocNumber ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setDocNumber("");
+            setAppliedDocNumber(undefined);
+          }}
+        >
+          Limpiar
+        </Button>
+      ) : null}
+      <LocalCsvExportButton href={customersCsvUrl({ docNumber: appliedDocNumber })} />
+    </>
+  );
+
+  const columns: readonly DenseColumn<CustomerOut>[] = [
+    {
+      key: "doc",
+      header: "Documento",
+      kind: "id",
+      cell: (c) => `${c.doc_type ?? "—"} ${c.doc_number ?? "—"}`,
+    },
+    {
+      key: "name",
+      header: "Nombre",
+      kind: "name",
+      cell: (c) => (
+        <button
+          type="button"
+          onClick={() => setSelected(c)}
+          className="rounded text-left font-bold underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          {c.name ?? "—"}
+        </button>
+      ),
+    },
+    { key: "email", header: "Correo", cell: (c) => c.email ?? "—" },
+    { key: "municipality", header: "Municipio", cell: (c) => c.municipality_dane ?? "—" },
+    {
+      key: "state",
+      header: "Estado",
+      cell: (c) => (
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className={
+              c.erased_at ? "size-1.5 rounded-full bg-muted-foreground" : "size-1.5 rounded-full bg-success"
+            }
+            aria-hidden="true"
+          />
+          {c.erased_at ? "Anonimizado" : "Activo"}
+        </span>
+      ),
+    },
+    {
+      key: "detail",
+      header: "",
+      kind: "actions",
+      cell: (c) => (
+        <button
+          type="button"
+          onClick={() => setSelected(c)}
+          className="rounded text-xs whitespace-nowrap text-muted-foreground underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          Ver detalle →
+        </button>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Clientes</h1>
-          <p className="text-sm text-muted-foreground">
-            El dispositivo sólo los crea al cobrar; acá se administran, se corrigen y se ejercen los derechos de
-            habeas data.
-          </p>
-        </div>
-        <LocalCsvExportButton href={customersCsvUrl({ docNumber: appliedDocNumber })} />
-      </div>
+      <PageHeader
+        name="Clientes"
+        question="Quién nos dio sus datos, con qué finalidad los autorizó, y cómo se ejercen sus derechos."
+        context={
+          query.isSuccess
+            ? [
+                { label: "Clientes", value: rows.length },
+                { label: "Anonimizados", value: rows.filter((c) => c.erased_at).length },
+              ]
+            : undefined
+        }
+      />
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
-          <Label htmlFor="customers-doc-number">Número de documento</Label>
-          <Input
-            id="customers-doc-number"
-            className="h-10 w-56"
-            value={docNumber}
-            onChange={(e) => setDocNumber(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") setAppliedDocNumber(docNumber.trim() || undefined);
-            }}
-          />
-        </div>
-        <Button type="button" variant="outline" className="h-10" onClick={() => setAppliedDocNumber(docNumber.trim() || undefined)}>
-          Buscar
-        </Button>
-        {appliedDocNumber ? (
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-10"
-            onClick={() => {
-              setDocNumber("");
-              setAppliedDocNumber(undefined);
-            }}
-          >
-            Limpiar
-          </Button>
-        ) : null}
-      </div>
+      <p className="max-w-[80ch] text-sm text-muted-foreground">
+        El dispositivo sólo los crea al cobrar; acá se administran, se corrigen y se ejercen los derechos de
+        habeas data.
+      </p>
 
-      {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando clientes…</p>
-      ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudieron cargar los clientes" description={errorMessage(query.error)} />
-      ) : rows.length === 0 ? (
-        <EmptyState title="Ningún cliente coincide con esta búsqueda" />
+      {query.isError ? (
+        <EmptyState
+          role="alert"
+          title="No se pudieron cargar los clientes"
+          description={errorMessage(query.error)}
+        />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Documento</TableHead>
-                <TableHead>Nombre</TableHead>
-                <TableHead>Correo</TableHead>
-                <TableHead>Municipio</TableHead>
-                <TableHead>Estado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((customer) => (
-                <TableRow key={customer.id} className="cursor-pointer" onClick={() => setSelected(customer)}>
-                  <TableCell>
-                    {customer.doc_type ?? "—"} {customer.doc_number ?? "—"}
-                  </TableCell>
-                  <TableCell>{customer.name ?? "—"}</TableCell>
-                  <TableCell>{customer.email ?? "—"}</TableCell>
-                  <TableCell>{customer.municipality_dane ?? "—"}</TableCell>
-                  <TableCell>
-                    {customer.erased_at ? <Badge variant="outline">Anonimizado</Badge> : <Badge variant="secondary">Activo</Badge>}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption="Clientes registrados"
+          columns={columns}
+          rows={rows}
+          rowKey={(c) => String(c.id)}
+          rowInactive={(c) => Boolean(c.erased_at)}
+          legend={CUSTOMERS_LEGEND}
+          bar={
+            <DenseTableBar
+              shown={rows.length}
+              total={rows.length}
+              noun="clientes"
+              hidden={
+                query.isLoading
+                  ? "buscando…"
+                  : appliedDocNumber
+                    ? `filtrados por documento «${appliedDocNumber}»`
+                    : undefined
+              }
+            >
+              {search}
+            </DenseTableBar>
+          }
+          note={
+            <>
+              Los datos de un cliente se guardan sólo con <b>finalidad declarada y prueba de autorización</b>{" "}
+              (Ley 1581 de 2012). Anonimizar no borra el documento fiscal ya emitido: ése conserva su copia
+              exacta.
+            </>
+          }
+          empty={
+            query.isLoading ? undefined : appliedDocNumber ? (
+              <FilterEmptyState
+                title="Ningún cliente coincide con esta búsqueda"
+                filters={[`documento «${appliedDocNumber}»`]}
+                onRemove={() => {
+                  setDocNumber("");
+                  setAppliedDocNumber(undefined);
+                }}
+              />
+            ) : (
+              <EmptyState
+                title="Ningún cliente coincide con esta búsqueda"
+                description="Los clientes se crean desde el dispositivo, al cobrar y pedir los datos para el documento."
+              />
+            )
+          }
+        />
       )}
 
-      <CustomerDetailDialog key={selected?.id ?? "none"} customer={selected} onOpenChange={(open) => !open && setSelected(null)} />
+      <CustomerDetailDialog
+        key={selected?.id ?? "none"}
+        customer={selected}
+        onOpenChange={(open) => !open && setSelected(null)}
+      />
     </div>
   );
 }

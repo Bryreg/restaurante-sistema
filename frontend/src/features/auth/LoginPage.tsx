@@ -1,11 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Store } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
 
 import { adminLogin } from "@/api/auth";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,72 +53,110 @@ export default function LoginPage(): React.JSX.Element {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4 text-foreground">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Restaurante Sistema</CardTitle>
-          <CardDescription>Ingresá con tu correo y contraseña de administrador.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={handleSubmit(onSubmit)} noValidate>
-            <div className="space-y-2">
-              <Label htmlFor="email">Correo</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="username"
-                className="h-11"
-                aria-invalid={Boolean(errors.email)}
-                aria-describedby={errors.email ? "email-error" : undefined}
-                {...register("email")}
-              />
-              {errors.email ? (
-                <p id="email-error" role="alert" className="text-sm text-destructive">
-                  {errors.email.message}
+      <div className="w-full max-w-sm space-y-3">
+        <Card>
+          <CardHeader>
+            {/* Patrón 2 · Cabecera de pantalla: el nombre y **la pregunta que
+                contesta**. «Restaurante Sistema» dice de quién es el producto,
+                no qué hay que hacer acá; quien abre esta URL por primera vez
+                necesita lo segundo. */}
+            <p className="text-xs tracking-wider text-muted-foreground uppercase">Restaurante Sistema</p>
+            <CardTitle className="text-xl">Entrar</CardTitle>
+            <CardDescription>
+              Esta es la puerta del <b className="font-bold text-foreground">escritorio del administrador</b>, en
+              PC. El salón —mesas, comanda, cocina— no se entra por acá: entra por el dispositivo, abajo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={handleSubmit(onSubmit)} noValidate>
+              <div className="space-y-2">
+                <Label htmlFor="email">Correo</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  className="h-11"
+                  aria-invalid={Boolean(errors.email)}
+                  aria-describedby={errors.email ? "email-error" : undefined}
+                  {...register("email")}
+                />
+                {errors.email ? (
+                  <p id="email-error" role="alert" className="text-sm text-destructive">
+                    {errors.email.message}
+                  </p>
+                ) : null}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Contraseña</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  className="h-11"
+                  aria-invalid={Boolean(errors.password)}
+                  aria-describedby={errors.password ? "password-error" : undefined}
+                  {...register("password")}
+                />
+                {errors.password ? (
+                  <p id="password-error" role="alert" className="text-sm text-destructive">
+                    {errors.password.message}
+                  </p>
+                ) : null}
+              </div>
+              {serverError ? (
+                <p role="alert" className="text-sm font-medium text-destructive">
+                  {serverError}
                 </p>
               ) : null}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                className="h-11"
-                aria-invalid={Boolean(errors.password)}
-                aria-describedby={errors.password ? "password-error" : undefined}
-                {...register("password")}
-              />
-              {errors.password ? (
-                <p id="password-error" role="alert" className="text-sm text-destructive">
-                  {errors.password.message}
-                </p>
-              ) : null}
-            </div>
-            {serverError ? (
-              <p role="alert" className="text-sm font-medium text-destructive">
-                {serverError}
+              <Button type="submit" className="h-11 w-full" disabled={isSubmitting}>
+                {isSubmitting ? "Ingresando…" : "Ingresar"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* La pantalla de activación existía y estaba bien hecha, pero sólo
+            llegaba quien ya sabía la URL: la raíz manda acá, y acá no había
+            nada que mencionara el POS. El dueño que monta una tablet abre el
+            navegador, ve un formulario que le pide correo y contraseña de
+            administrador —que no es lo que tiene que hacer— y no concluye «me
+            falta un dato»: concluye que el producto no sirve. Pasa una vez por
+            aparato, pero es la PRIMERA vez.
+
+            Por eso el rediseño lo saca de la letra chica del pie: es la segunda
+            puerta de esta pantalla, en su propia tarjeta, con el mismo peso que
+            el formulario y un botón de verdad. Azul y secundario —no compite
+            con «Ingresar», pero tampoco se esconde (`docs/DISENO.md`)—.
+            No regala nada: activar sigue exigiendo el PIN de sede. */}
+        <Card>
+          <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-2 py-4">
+            <Store className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold">¿Es una tablet o un PC del salón?</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Se activa una vez por aparato, con el PIN de la sede. Después el mesero sólo teclea su PIN
+                personal.
               </p>
-            ) : null}
-            <Button type="submit" className="h-11 w-full" disabled={isSubmitting}>
-              {isSubmitting ? "Ingresando…" : "Ingresar"}
-            </Button>
-          </form>
-          {/* La pantalla de activación existía y estaba bien hecha, pero sólo
-              llegaba quien ya sabía la URL: la raíz manda acá, y acá no había
-              nada que mencionara el POS. El dueño que monta una tablet abre
-              el navegador, ve un formulario que le pide correo y contraseña de
-              administrador —que no es lo que tiene que hacer— y no concluye
-              «me falta un dato»: concluye que el producto no sirve. Pasa una
-              vez por aparato, pero es la PRIMERA vez.
-              No regala nada: activar sigue exigiendo el PIN de sede. */}
-          <p className="mt-6 border-t pt-4 text-center text-sm text-muted-foreground">
-            ¿Es una tablet o un PC del salón?{" "}
-            <Link to="/pos/activate" className="font-medium text-foreground underline underline-offset-4">
+            </div>
+            {/* Un `<Link>` con el vestido de botón, y no `Button
+                render={<Link/>}`: el censo de controles
+                (`src/audit/censo.ts`) lee el código, y con el enlace metido
+                dentro de un atributo el rótulo deja de verse desde afuera. El
+                control que la red no ve es el control que la red no protege,
+                y éste es justamente el que el inventario marca como el
+                candidato número uno a desaparecer. */}
+            <Link
+              to="/pos/activate"
+              className={buttonVariants({
+                variant: "outline",
+                className: "w-full border-primary/40 text-primary hover:text-primary",
+              })}
+            >
               Activá este dispositivo
             </Link>
-          </p>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

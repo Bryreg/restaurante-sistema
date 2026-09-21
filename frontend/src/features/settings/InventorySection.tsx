@@ -9,6 +9,12 @@ import {
   updateIngredient,
   type IngredientOut,
 } from "@/api/inventory"
+import {
+  DependencyEmptyState,
+  FeatureOffEmptyState,
+  FormField,
+  FormSection,
+} from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -123,96 +129,187 @@ export function InventorySection({ storeId }: { storeId: number | null }): React
   const ingredients = ingredientsQuery.data ?? []
   const keyItems = ingredients.filter((i) => i.key_item)
 
+  const yellowOk = yellowBp !== null
+  const redOk = redBp !== null && yellowBp !== null && redBp > yellowBp
+
   return (
-    <div className="max-w-2xl space-y-8">
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold">Umbrales de varianza</h2>
-          <p className="text-sm text-muted-foreground">
-            El semáforo de la pestaña Varianza usa estos umbrales — cambiarlos acá cambia el color ahí, no al revés.
-          </p>
-        </div>
+    <div className="space-y-3">
+      <FormSection
+        title="Desde qué desvío se revisa una varianza"
+        governs="Los dos umbrales del semáforo de Inventario › Varianza. Cambiarlos acá cambia el color allá, no al revés: son las fronteras, el color es su consecuencia."
+        scale={
+          varianceEnabled && yellowOk && redOk ? (
+            <div aria-hidden="true">
+              <div className="flex h-2.5 overflow-hidden rounded-full">
+                <span style={{ flex: yellowBp }} className="bg-success/45" />
+                <span style={{ flex: Math.max(redBp - yellowBp, 1) }} className="bg-warning/45" />
+                <span style={{ flex: Math.max(Math.round((redBp - yellowBp) * 0.75), 1) }} className="bg-destructive/45" />
+              </div>
+              <div className="mt-1 flex gap-2 text-[0.68rem] leading-tight">
+                <span style={{ flex: yellowBp }} className="min-w-0">
+                  <b className="block font-bold text-success tabular-nums">0 %</b>
+                  <span className="block text-muted-foreground">Dentro de lo esperado</span>
+                </span>
+                <span style={{ flex: Math.max(redBp - yellowBp, 1) }} className="min-w-0">
+                  <b className="block font-bold text-warning tabular-nums">{yellowText} %</b>
+                  <span className="block text-muted-foreground">Revisar</span>
+                </span>
+                <span style={{ flex: Math.max(Math.round((redBp - yellowBp) * 0.75), 1) }} className="min-w-0">
+                  <b className="block font-bold text-destructive tabular-nums">{redText} %</b>
+                  <span className="block text-muted-foreground">Sostenido</span>
+                </span>
+              </div>
+            </div>
+          ) : null
+        }
+        reading={
+          !varianceEnabled ? (
+            <>Con la varianza apagada, estos dos umbrales quedan guardados sin que nada los lea.</>
+          ) : redOk ? (
+            <>
+              Una varianza de hasta <b className="font-bold text-foreground tabular-nums">{yellowText} %</b> se
+              dibuja en verde y nadie la mira. De ahí a{" "}
+              <b className="font-bold text-foreground tabular-nums">{redText} %</b> sale en ámbar: hay que
+              revisarla. Desde <b className="font-bold text-foreground tabular-nums">{redText} %</b> sale en rojo
+              y se trata como desvío sostenido.
+            </>
+          ) : (
+            <>
+              El umbral rojo tiene que ser mayor que el amarillo. Así como están, la franja del medio no existe y
+              el semáforo tendría dos colores en vez de tres.
+            </>
+          )
+        }
+        doesNotDo="Ninguno de los dos frena una venta ni una producción: pintan el semáforo de la varianza y nada más."
+      >
         {!varianceEnabled ? (
-          <EmptyState
-            title="Varianza no está habilitada"
-            description='Activá «Varianza de inventario y food cost real» en Admin → Funciones para configurar los umbrales.'
+          <FeatureOffEmptyState
+            feature="Varianza de inventario y food cost real"
+            flag="inventory.variance"
+            description="Compara lo que las recetas dicen que se gastó contra lo que salió del inventario."
           />
         ) : settingsQuery.isLoading ? (
           <Skeleton className="h-32 w-full max-w-sm" />
         ) : settingsQuery.isError ? (
           <EmptyState
             role="alert"
+            reason="error"
             title="No se pudieron cargar los umbrales"
             description={errorMessage(settingsQuery.error)}
             action={{ label: "Reintentar", onClick: () => void settingsQuery.refetch() }}
           />
         ) : (
-          <form className="max-w-sm space-y-4" onSubmit={handleSubmitSettings}>
-            <div className="space-y-1.5">
-              <Label htmlFor="inv-yellow-threshold">Umbral amarillo (revisar), en %</Label>
-              <Input
-                id="inv-yellow-threshold"
-                inputMode="decimal"
-                className="h-11"
-                value={yellowText}
-                aria-invalid={yellowText.trim() !== "" && yellowBp === null}
-                onChange={(event) => setYellowText(event.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Default de industria: {bpToPercentText(DEFAULT_YELLOW_BP)} %.
-              </p>
+          <form className="contents" onSubmit={handleSubmitSettings}>
+            <FormField
+              label="Umbral amarillo (revisar), en %"
+              help={
+                <>
+                  Desde acá la varianza deja de ser ruido y se mira.{" "}
+                  <span>Default de industria: {bpToPercentText(DEFAULT_YELLOW_BP)} %.</span>
+                </>
+              }
+              scope={{ flag: "inventory.variance", affects: [{ screen: "Inventario › Varianza", verb: "Pinta" }] }}
+            >
+              {({ fieldId, describedBy }) => (
+                <Input
+                  id={fieldId}
+                  aria-describedby={describedBy}
+                  inputMode="decimal"
+                  className="h-11"
+                  value={yellowText}
+                  aria-invalid={yellowText.trim() !== "" && yellowBp === null}
+                  onChange={(event) => setYellowText(event.target.value)}
+                />
+              )}
+            </FormField>
+
+            <FormField
+              label="Umbral rojo (sostenido), en %"
+              help={
+                <>
+                  Desde acá se trata como desvío sostenido, no como un mal conteo.{" "}
+                  <span>Default de industria: {bpToPercentText(DEFAULT_RED_BP)} %.</span>
+                </>
+              }
+              error={yellowOk && redBp !== null && !redOk ? "El umbral rojo tiene que ser mayor que el amarillo." : undefined}
+              scope={{ flag: "inventory.variance", affects: [{ screen: "Inventario › Varianza", verb: "Pinta" }] }}
+            >
+              {({ fieldId, describedBy }) => (
+                <Input
+                  id={fieldId}
+                  aria-describedby={describedBy}
+                  inputMode="decimal"
+                  className="h-11"
+                  value={redText}
+                  aria-invalid={redText.trim() !== "" && (redBp === null || (yellowBp !== null && redBp <= yellowBp))}
+                  onChange={(event) => setRedText(event.target.value)}
+                />
+              )}
+            </FormField>
+
+            <div className="sm:col-span-2">
+              {saveError ? (
+                <p role="alert" className="mb-2 text-sm font-medium text-destructive">
+                  {saveError}
+                </p>
+              ) : null}
+              {/* Esta sección NO usa la barra de guardado compartida: su
+                  guardado depende de una validación cruzada (rojo > amarillo)
+                  que se expresa apagando el botón, y `SaveBar` no tiene cómo
+                  decir «hay cambios pero no se pueden guardar». Declarado en
+                  el informe de la ola 2. */}
+              <Button type="submit" disabled={!canSaveSettings || saveSettingsMutation.isPending}>
+                {saveSettingsMutation.isPending ? "Guardando…" : "Guardar umbrales"}
+              </Button>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="inv-red-threshold">Umbral rojo (sostenido), en %</Label>
-              <Input
-                id="inv-red-threshold"
-                inputMode="decimal"
-                className="h-11"
-                value={redText}
-                aria-invalid={redText.trim() !== "" && (redBp === null || (yellowBp !== null && redBp <= yellowBp))}
-                onChange={(event) => setRedText(event.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">Default de industria: {bpToPercentText(DEFAULT_RED_BP)} %.</p>
-            </div>
-            {saveError ? (
-              <p role="alert" className="text-sm font-medium text-destructive">
-                {saveError}
-              </p>
-            ) : null}
-            <Button type="submit" disabled={!canSaveSettings || saveSettingsMutation.isPending}>
-              {saveSettingsMutation.isPending ? "Guardando…" : "Guardar umbrales"}
-            </Button>
           </form>
         )}
-      </section>
+      </FormSection>
 
-      <section className="space-y-3 border-t pt-6">
-        <div>
-          <h2 className="text-sm font-semibold">Insumos críticos</h2>
-          <p className="text-sm text-muted-foreground">
-            Los que entran al conteo rápido de "Críticos" (5 a 15, el 60–70 % de las compras). También se pueden
-            marcar insumo por insumo en Inventario → Insumos.
-          </p>
-        </div>
+      <FormSection
+        title="Insumos críticos"
+        columns="one"
+        governs='Los que entran al conteo rápido de "Críticos" (5 a 15, el 60–70 % de las compras). También se pueden marcar insumo por insumo en Inventario → Insumos.'
+        reading={
+          !perpetualEnabled ? (
+            <>Con el inventario apagado, no hay stock que contar y esta lista no alimenta ningún conteo.</>
+          ) : (
+            <>
+              <b className="font-bold text-foreground tabular-nums">{keyItems.length}</b> de{" "}
+              <b className="font-bold text-foreground tabular-nums">{ingredients.length}</b> insumos activos
+              entran al conteo rápido. Los que no están marcados siguen existiendo y se cuentan en el conteo
+              completo: esto elige a los de todos los días.
+            </>
+          )
+        }
+      >
         {!perpetualEnabled ? (
-          <EmptyState
-            title="Inventario no está habilitado"
-            description='Activá «Movimientos de inventario y stock teórico» en Admin → Funciones.'
+          <FeatureOffEmptyState
+            feature="Movimientos de inventario y stock teórico"
+            flag="inventory.perpetual"
+            description="Lleva el stock teórico de cada insumo y deja contar contra él."
           />
         ) : ingredientsQuery.isLoading ? (
           <Skeleton className="h-48 w-full max-w-sm" />
         ) : ingredientsQuery.isError ? (
           <EmptyState
             role="alert"
+            reason="error"
             title="No se pudieron cargar los insumos"
             description={errorMessage(ingredientsQuery.error)}
             action={{ label: "Reintentar", onClick: () => void ingredientsQuery.refetch() }}
           />
         ) : ingredients.length === 0 ? (
-          <EmptyState title="Sin insumos activos" description="Creá insumos en Inventario → Insumos primero." />
+          <DependencyEmptyState
+            title="Sin insumos activos"
+            description="Acá se eligen los insumos que entran al conteo rápido. Primero tienen que existir."
+            create={{ label: "Crear insumos", to: "/admin/inventario" }}
+          />
         ) : (
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">{keyItems.length} de {ingredients.length} marcados como críticos.</p>
+            <p className="text-xs text-muted-foreground">
+              {keyItems.length} de {ingredients.length} marcados como críticos.
+            </p>
             <ul className="max-h-96 max-w-sm space-y-1 overflow-y-auto rounded-md border p-2">
               {ingredients.map((ingredient) => (
                 <li key={ingredient.id} className="flex items-center gap-2 rounded-sm px-1.5 py-1 hover:bg-muted/50">
@@ -232,7 +329,7 @@ export function InventorySection({ storeId }: { storeId: number | null }): React
             </ul>
           </div>
         )}
-      </section>
+      </FormSection>
     </div>
   )
 }

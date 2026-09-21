@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom"
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { listSuppliers } from "@/api/purchases"
-import { EmptyState } from "@/components/EmptyState"
+import { FeatureOffEmptyState, PageHeader } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { PayablesTab } from "./PayablesTab"
@@ -47,10 +47,14 @@ export function PurchasesAdminPage(): React.JSX.Element {
     return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
   }
   if (!enabled) {
+    // Patrón 13, motivo «función apagada»: la URL sobrevive al flag —los
+    // avisos de Hoy enlazan a `?tab=cuentas-por-pagar`— así que la pantalla
+    // no puede limitarse a no existir.
     return (
-      <EmptyState
-        title="Compras no está habilitado"
-        description='Activá «Proveedores, recepciones de compra y cuentas por pagar» en Admin → Funciones para usar esta pantalla.'
+      <FeatureOffEmptyState
+        feature="Proveedores, recepciones de compra y cuentas por pagar"
+        flag="purchases"
+        description="Sin ella las compras no entran al inventario ni al costo: el stock sólo baja, nunca sube, y el food cost sale irreal."
       />
     )
   }
@@ -62,10 +66,13 @@ export function PurchasesAdminPage(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">Compras</h1>
-        <p className="text-sm text-muted-foreground">A quién le debo — proveedores, recepciones y cuentas por pagar.</p>
-      </div>
+      <PageHeader
+        name="Compras"
+        question="A quién le debo, qué entró de verdad y a qué precio — proveedores, recepciones y cuentas por pagar."
+        context={
+          suppliersQuery.isSuccess ? [{ label: "Proveedores activos", value: suppliers.length }] : undefined
+        }
+      />
       <Tabs
         value={tab}
         onValueChange={(value) => {

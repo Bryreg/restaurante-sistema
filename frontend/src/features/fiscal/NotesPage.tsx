@@ -22,6 +22,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  DenseTable,
+  DenseTableBar,
+  FilterEmptyState,
+  FormSection,
+  OriginBar,
+  PageHeader,
+  TimeAgo,
+  type DenseColumn,
+} from "@/components/admin";
 import { Textarea } from "@/components/ui/textarea";
 import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
@@ -126,16 +136,49 @@ function NewNoteForm({
   const canSubmit =
     lookupId !== null && kind !== "" && reason.trim() !== "" && usedItemIds.size > 0 && !checkedWithoutChoice;
 
-  return (
-    <div className="space-y-4 rounded-md border p-4">
-      <div>
-        <h2 className="text-sm font-semibold">Nueva nota</h2>
-        <p className="text-sm text-muted-foreground">
-          Toda corrección va por nota. El documento original queda <strong>reversado</strong>, nunca editado ni
-          borrado.
-        </p>
-      </div>
+  /**
+   * **La lectura** (patrón 9): devuelve en palabras lo que el formulario está
+   * por hacer. No suma ni deriva un peso — nombra las partes elegidas, que es
+   * lo que el servidor va a recibir.
+   */
+  const lectura = (
+    <>
+      {lookupId === null ? (
+        <>Cargá el documento original y la nota se arma sobre sus líneas. Nada se emite hasta «Emitir nota».</>
+      ) : (
+        <>
+          Se emite <b className="font-bold text-foreground">{kind === "" ? "una nota" : KIND_LABEL[kind]}</b>{" "}
+          sobre el documento cargado, con{" "}
+          <b className="font-bold text-foreground tabular-nums">{usedItemIds.size}</b>{" "}
+          {usedItemIds.size === 1 ? "línea marcada" : "líneas marcadas"}
+          {refundEnabled ? (
+            <>
+              , y se devuelve plata al cliente por <b className="font-bold text-foreground">{refundMethod === "cash" ? "efectivo" : refundMethod === "card" ? "tarjeta" : refundMethod === "transfer" ? "transferencia" : "otro medio"}</b>
+            </>
+          ) : (
+            <>, sin devolver plata</>
+          )}
+          . El original <b className="font-bold text-foreground">no se edita</b>: la nota lleva su propio
+          consecutivo y deja al documento anterior como estaba.
+        </>
+      )}
+    </>
+  );
 
+  return (
+    <FormSection
+      title="Nueva nota"
+      columns="one"
+      governs="Toda corrección de un documento ya emitido pasa por acá. El documento original queda reversado, nunca editado ni borrado."
+      reading={lectura}
+      doesNotDo={
+        <>
+          Emitir una nota <b className="font-bold text-foreground">no libera el consecutivo</b> del documento
+          original ni lo saca del listado: el número sigue existiendo, porque el consecutivo no puede tener
+          huecos.
+        </>
+      }
+    >
       {confirmation ? (
         <p role="status" className="text-sm font-medium">
           {confirmation}
@@ -365,7 +408,7 @@ function NewNoteForm({
           </Button>
         </div>
       ) : null}
-    </div>
+    </FormSection>
   );
 }
 
@@ -383,6 +426,10 @@ export function NotesPage(): React.JSX.Element {
 
   const initialDocumentIdParam = searchParams.get("document");
   const initialDocumentId = initialDocumentIdParam ? Number(initialDocumentIdParam) : null;
+  // De dónde vino el formulario prellenado. Se puede soltar sin cambiar la
+  // URL —el parámetro sigue siendo el mismo y los enlaces guardados siguen
+  // funcionando—, que es lo que pide la salida de la barra de procedencia.
+  const [fromDocument, setFromDocument] = useState<number | null>(initialDocumentId);
 
   const query = useQuery({
     queryKey: ["fiscal-notes", activeStoreId, range],
@@ -399,61 +446,131 @@ export function NotesPage(): React.JSX.Element {
   }
 
   const rows: AdminNoteListItem[] = query.data ?? [];
+  const conRango = range.from !== "" || range.to !== "";
+
+  const columns: readonly DenseColumn<AdminNoteListItem>[] = [
+    { key: "number", header: "Nota", kind: "id", cell: (note) => note.full_number ?? `#${note.id}` },
+    {
+      key: "type",
+      header: "Tipo",
+      cell: (note) => (
+        <Badge variant="outline">{note.document_type ? DOCUMENT_TYPE_LABEL[note.document_type] : "—"}</Badge>
+      ),
+    },
+    {
+      key: "reverses",
+      header: "Corrige",
+      kind: "secondary",
+      cell: (note) => `Documento #${note.reverses_document_id} (reversado)`,
+    },
+    { key: "reason", header: "Motivo", cell: (note) => note.reason ?? "—" },
+    { key: "total", header: "Total", kind: "number", cell: (note) => formatCOP(note.total) },
+    {
+      key: "date",
+      header: "Emitida",
+      kind: "secondary",
+      widthPx: 100,
+      cell: (note) => (note.issued_at ? <TimeAgo iso={note.issued_at} /> : (note.business_date ?? "—")),
+      cellTitle: (note) => (note.issued_at ? formatInstant(note.issued_at) : undefined),
+    },
+  ];
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">Notas</h1>
-        <p className="text-sm text-muted-foreground">
-          Ajuste, crédito y débito — cada una con su propio consecutivo, en su propio rango.
-        </p>
-      </div>
-
-      <NewNoteForm
-        initialDocumentId={initialDocumentId}
-        onCreated={() => void queryClient.invalidateQueries({ queryKey: ["fiscal-notes", activeStoreId] })}
+    <div className="space-y-3">
+      <PageHeader
+        name="Notas"
+        question="¿Qué documentos hubo que corregir, por qué, y qué pasó con la plata y con el inventario de cada corrección?"
+        context={[
+          {
+            label: "Sin flag: es ley",
+            title: "El documento original se reversa, nunca se edita: la nota es el único camino.",
+          },
+          { label: "En el período", value: `${rows.length}` },
+          {
+            label: "Cada nota",
+            value: "su propio consecutivo",
+            title: "Ajuste, crédito y débito llevan su propio rango de numeración.",
+          },
+        ]}
+        actions={
+          <LocalCsvExportButton
+            href={notesCsvUrl({ storeId: activeStoreId, from: range.from || undefined, to: range.to || undefined })}
+          />
+        }
       />
 
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <LocalDateRangeFilter from={range.from} to={range.to} onChange={setRange} />
-        <LocalCsvExportButton href={notesCsvUrl({ storeId: activeStoreId, from: range.from || undefined, to: range.to || undefined })} />
-      </div>
+      {/* El reverso del «Emitir nota» de Documentos fiscales (patrón 6): el
+          que sale nombra a dónde lleva, **el que llega lo reconoce** y ofrece
+          la salida. Sin esto, quien aterriza acá con el documento ya cargado
+          no tiene forma de saber por qué el formulario viene lleno. */}
+      {fromDocument !== null ? (
+        <OriginBar
+          from={`Venís de Documentos fiscales › documento #${fromDocument}`}
+          applied={[`documento #${fromDocument} ya cargado`]}
+          exit={{ label: "Empezar una nota en blanco", onClick: () => setFromDocument(null) }}
+          back={{ label: "Volver a Documentos", to: "/admin/fiscal/documentos" }}
+        />
+      ) : null}
+
+      <NewNoteForm
+        key={fromDocument ?? "blank"}
+        initialDocumentId={fromDocument}
+        onCreated={() => void queryClient.invalidateQueries({ queryKey: ["fiscal-notes", activeStoreId] })}
+      />
 
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando notas…</p>
       ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudieron cargar las notas" description={errorMessage(query.error)} />
-      ) : rows.length === 0 ? (
-        <EmptyState title="Todavía no hay notas en este período" />
+        <EmptyState
+          role="alert"
+          reason="error"
+          title="No se pudieron cargar las notas"
+          description={errorMessage(query.error)}
+          action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+        />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Corrige</TableHead>
-                <TableHead>Motivo</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Fecha</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((note) => (
-                <TableRow key={note.id}>
-                  <TableCell>{note.full_number ?? note.id}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{note.document_type ? DOCUMENT_TYPE_LABEL[note.document_type] : "—"}</Badge>
-                  </TableCell>
-                  <TableCell>Documento #{note.reverses_document_id} (reversado)</TableCell>
-                  <TableCell>{note.reason ?? "—"}</TableCell>
-                  <TableCell className="tabular-nums">{formatCOP(note.total)}</TableCell>
-                  <TableCell>{note.issued_at ? formatInstant(note.issued_at) : (note.business_date ?? "—")}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption="Notas emitidas en el período"
+          columns={columns}
+          rows={rows}
+          rowKey={(note) => String(note.id)}
+          bar={
+            <DenseTableBar shown={rows.length} total={rows.length} noun="notas en el período">
+              <LocalDateRangeFilter from={range.from} to={range.to} onChange={setRange} />
+            </DenseTableBar>
+          }
+          legend={[
+            {
+              term: "Reversado no es borrado",
+              meaning:
+                "el documento original sigue existiendo con su número; la nota es la que lo corrige. El consecutivo no admite huecos.",
+            },
+            {
+              term: "Ajuste, crédito y débito",
+              meaning:
+                "el ajuste corrige un documento equivalente POS; crédito y débito corrigen una factura. El tipo lo decide el documento original, no quien emite.",
+            },
+            {
+              term: "Devolver plata es aparte",
+              meaning:
+                "una nota puede no devolver nada. Si devuelve efectivo y no hay turno abierto, queda como devolución pendiente.",
+            },
+          ]}
+          empty={
+            conRango ? (
+              <FilterEmptyState
+                title="Todavía no hay notas en este período"
+                filters={[`desde ${range.from || "—"} hasta ${range.to || "—"}`]}
+                onRemove={() => setRange({ from: "", to: "" })}
+              />
+            ) : (
+              <EmptyState
+                title="Todavía no hay notas en este período"
+                description="Cuando haya que corregir un documento, la nota va a aparecer acá."
+              />
+            )
+          }
+        />
       )}
     </div>
   );

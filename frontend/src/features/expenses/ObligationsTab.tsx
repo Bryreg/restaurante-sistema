@@ -20,22 +20,54 @@ import {
   type ObligationOut,
   type ObligationStatus,
 } from "@/api/expenses"
+import {
+  DenseTable,
+  DenseTableBar,
+  FilterEmptyState,
+  type DenseColumn,
+  type LegendEntry,
+} from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
-import { Badge } from "@/components/ui/badge"
+
+/** La leyenda del pie: gasto ≠ obligación, vencida ≠ cancelada. */
+const OBLIGATIONS_LEGEND: readonly LegendEntry[] = [
+  {
+    term: "Obligación",
+    meaning: (
+      <>
+        plata que <b>todavía no salió</b> pero vence. Cuando sale, se salda y pasa a ser un gasto: son dos
+        momentos distintos del mismo peso.
+      </>
+    ),
+  },
+  {
+    term: "Vencida",
+    meaning: "pasó su fecha y sigue pendiente. No la cancela nadie por vieja: sigue debiéndose.",
+  },
+  {
+    term: "Cancelada",
+    meaning: "se dio de baja con un motivo. No es «pagada»: es que ya no hay que pagarla.",
+  },
+]
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/MoneyInput"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate, formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { obligationCategoryLabel, obligationStatusLabel, OBLIGATION_CATEGORY_LABEL } from "./lib"
 
-function CreateObligationDialog({ storeId, onCreated }: { storeId: number; onCreated: () => void }): React.JSX.Element {
+function CreateObligationDialog({
+  storeId,
+  onCreated,
+}: {
+  storeId: number
+  onCreated: () => void
+}): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [description, setDescription] = useState("")
   const [category, setCategory] = useState<ObligationCategory>("other")
@@ -70,7 +102,12 @@ function CreateObligationDialog({ storeId, onCreated }: { storeId: number; onCre
         <div className="space-y-3">
           <div className="space-y-1">
             <Label htmlFor="obligation-description">Descripción</Label>
-            <Input id="obligation-description" className="h-11" value={description} onChange={(event) => setDescription(event.target.value)} />
+            <Input
+              id="obligation-description"
+              className="h-11"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+            />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
@@ -90,7 +127,13 @@ function CreateObligationDialog({ storeId, onCreated }: { storeId: number; onCre
             </div>
             <div className="space-y-1">
               <Label htmlFor="obligation-due-date">Vencimiento</Label>
-              <Input id="obligation-due-date" type="date" className="h-11" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+              <Input
+                id="obligation-due-date"
+                type="date"
+                className="h-11"
+                value={dueDate}
+                onChange={(event) => setDueDate(event.target.value)}
+              />
             </div>
           </div>
           <div className="space-y-1">
@@ -102,7 +145,12 @@ function CreateObligationDialog({ storeId, onCreated }: { storeId: number; onCre
               {errorMessage(mutation.error)}
             </p>
           ) : null}
-          <Button type="button" className="w-full" disabled={!canSubmit || mutation.isPending} onClick={() => mutation.mutate()}>
+          <Button
+            type="button"
+            className="w-full"
+            disabled={!canSubmit || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
             Guardar obligación
           </Button>
         </div>
@@ -111,7 +159,13 @@ function CreateObligationDialog({ storeId, onCreated }: { storeId: number; onCre
   )
 }
 
-function SettleAction({ obligation, onSettled }: { obligation: ObligationOut; onSettled: () => void }): React.JSX.Element {
+function SettleAction({
+  obligation,
+  onSettled,
+}: {
+  obligation: ObligationOut
+  onSettled: () => void
+}): React.JSX.Element {
   const mutation = useMutation({
     // `source` siempre "other" desde esta pantalla — "cash_drawer" exige
     // referenciar un `cash_movement_id` que ya exista, y esta pantalla no
@@ -121,7 +175,13 @@ function SettleAction({ obligation, onSettled }: { obligation: ObligationOut; on
   })
   return (
     <div className="space-y-1">
-      <Button type="button" variant="outline" size="sm" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={mutation.isPending}
+        onClick={() => mutation.mutate()}
+      >
         Saldar
       </Button>
       {mutation.isError ? (
@@ -146,73 +206,133 @@ export function ObligationsTab({ storeId }: { storeId: number }): React.JSX.Elem
     void queryClient.invalidateQueries({ queryKey: ["expenses", "obligations"] })
   }
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <Label htmlFor="obligation-status-filter">Estado</Label>
-          <Select value={status} onValueChange={(value) => setStatus(value as ObligationStatus | "all")}>
-            <SelectTrigger id="obligation-status-filter" className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              <SelectItem value="pending">Pendientes</SelectItem>
-              <SelectItem value="paid">Pagadas</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <CreateObligationDialog storeId={storeId} onCreated={invalidate} />
-      </div>
+  const rows = query.data ?? []
+  const overdue = rows.filter((o) => o.overdue).length
 
-      {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando obligaciones…</p>
-      ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudieron cargar las obligaciones" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
-      ) : (query.data ?? []).length === 0 ? (
-        <EmptyState title="No hay obligaciones agendadas" />
-      ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Descripción</TableHead>
-                <TableHead>Categoría</TableHead>
-                <TableHead>Vencimiento</TableHead>
-                <TableHead>Monto</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(query.data ?? []).map((obligation) => (
-                <TableRow key={obligation.id}>
-                  <TableCell>{obligation.description ?? "—"}</TableCell>
-                  <TableCell>{obligationCategoryLabel(obligation.category)}</TableCell>
-                  <TableCell>
-                    {formatBusinessDate(obligation.due_date)}
-                    {obligation.overdue ? <Badge variant="destructive" className="ml-2">Vencida</Badge> : null}
-                  </TableCell>
-                  <TableCell className="tabular-nums">{formatCOP(obligation.amount ?? null)}</TableCell>
-                  <TableCell>
-                    <Badge variant={obligation.status === "paid" ? "secondary" : "outline"}>
-                      {obligationStatusLabel(obligation.status)}
-                    </Badge>
-                    {obligation.cancelled_at ? (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        Cancelada {formatInstant(obligation.cancelled_at)}
-                        {obligation.cancelled_reason ? `: ${obligation.cancelled_reason}` : ""}
-                      </div>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>{obligation.status === "pending" && !obligation.cancelled_at ? <SettleAction obligation={obligation} onSettled={invalidate} /> : null}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </div>
+  const columns: readonly DenseColumn<(typeof rows)[number]>[] = [
+    {
+      key: "description",
+      header: "Descripción",
+      kind: "name",
+      widthPx: 280,
+      cell: (o) => <span className="block truncate">{o.description ?? "—"}</span>,
+      cellTitle: (o) => o.description ?? undefined,
+    },
+    { key: "category", header: "Categoría", cell: (o) => obligationCategoryLabel(o.category) },
+    {
+      key: "due",
+      header: "Vencimiento",
+      cell: (o) => (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          {formatBusinessDate(o.due_date)}
+          {o.overdue ? (
+            <span className="rounded border border-destructive/40 px-1 text-[0.7rem] text-destructive">
+              Vencida
+            </span>
+          ) : null}
+        </span>
+      ),
+    },
+    { key: "amount", header: "Monto", kind: "number", cell: (o) => formatCOP(o.amount ?? null) },
+    {
+      key: "status",
+      header: "Estado",
+      cell: (o) => (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <span
+            className={
+              o.status === "paid"
+                ? "size-1.5 rounded-full bg-success"
+                : o.overdue
+                  ? "size-1.5 rounded-full bg-destructive"
+                  : "size-1.5 rounded-full bg-warning"
+            }
+            aria-hidden="true"
+          />
+          {obligationStatusLabel(o.status)}
+        </span>
+      ),
+      // Lo cancelado se cuenta en el `title` para no hacer crecer la fila; la
+      // fila misma se dibuja apagada.
+      cellTitle: (o) =>
+        o.cancelled_at
+          ? `Cancelada ${formatInstant(o.cancelled_at)}${o.cancelled_reason ? `: ${o.cancelled_reason}` : ""}`
+          : undefined,
+    },
+    {
+      key: "action",
+      header: "",
+      kind: "actions",
+      // «Saldar» SÓLO existe si está pendiente y no cancelada: control que
+      // aparece y desaparece con el estado de la fila
+      // (`docs/INVENTARIO-CONTROLES.md` § 26).
+      cell: (o) =>
+        o.status === "pending" && !o.cancelled_at ? (
+          <SettleAction obligation={o} onSettled={invalidate} />
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+  ]
+
+  if (query.isError) {
+    return (
+      <EmptyState
+        role="alert"
+        title="No se pudieron cargar las obligaciones"
+        description={errorMessage(query.error)}
+        action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+      />
+    )
+  }
+
+  return (
+    <DenseTable
+      caption="Obligaciones agendadas"
+      columns={columns}
+      rows={rows}
+      rowKey={(o) => String(o.id)}
+      rowInactive={(o) => Boolean(o.cancelled_at)}
+      rowStatus={(o) => (o.overdue ? "critical" : o.status === "pending" ? "warning" : "none")}
+      legend={OBLIGATIONS_LEGEND}
+      bar={
+        <DenseTableBar
+          shown={rows.length}
+          total={rows.length}
+          noun="obligaciones"
+          hidden={query.isLoading ? "contando…" : overdue > 0 ? `${overdue} ya vencidas` : undefined}
+        >
+          <div className="flex items-center gap-2">
+            <Label htmlFor="obligation-status-filter">Estado</Label>
+            <Select value={status} onValueChange={(value) => setStatus(value as ObligationStatus | "all")}>
+              <SelectTrigger id="obligation-status-filter" className="h-8 w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                <SelectItem value="pending">Pendientes</SelectItem>
+                <SelectItem value="paid">Pagadas</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <CreateObligationDialog storeId={storeId} onCreated={invalidate} />
+        </DenseTableBar>
+      }
+      empty={
+        query.isLoading ? undefined : status !== "all" ? (
+          <FilterEmptyState
+            title="No hay obligaciones agendadas"
+            filters={[status === "pending" ? "pendientes" : "pagadas"]}
+            onRemove={() => setStatus("all")}
+          />
+        ) : (
+          <EmptyState
+            title="No hay obligaciones agendadas"
+            description="Agendá la primera con «Agendar obligación»: el arriendo, los servicios, lo que vence el mes que viene."
+          />
+        )
+      }
+    />
   )
 }
 

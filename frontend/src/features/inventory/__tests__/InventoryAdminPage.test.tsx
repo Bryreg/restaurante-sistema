@@ -22,7 +22,8 @@ vi.mock("@/api/inventory", async () => {
 describe("InventoryAdminPage", () => {
   it("con inventory.perpetual apagada explica qué la prende, no una pantalla rota", () => {
     renderWithProviders(<InventoryAdminPage />, { me: buildMe({ features: { "inventory.perpetual": false } }), route: "/admin/inventario" })
-    expect(screen.getByText(/inventario no está habilitado/i)).toBeInTheDocument()
+    expect(screen.getByText(/no está encendida/i)).toBeInTheDocument()
+    expect(screen.getByText("inventory.perpetual")).toBeInTheDocument()
     expect(listIngredientsMock).not.toHaveBeenCalled()
   })
 

@@ -43,7 +43,9 @@ describe("ControlHealthTab — «sin datos» se dice, nunca 0 ni un guion mudo (
 
     renderWithProviders(<ControlHealthTab storeId={1} />)
 
-    await waitFor(() => expect(screen.getByText("25 %")).toBeInTheDocument())
+    // La banda de cifra muestra el % como cifra rectora y otra vez como total
+    // del libro que lo deriva (patrón 4): dos apariciones, a propósito.
+    await waitFor(() => expect(screen.getAllByText("25 %").length).toBeGreaterThan(0))
     expect(screen.getByText(/conteos #5 y #6/)).toBeInTheDocument()
     expect(screen.getByText("$ 500.000")).toBeInTheDocument()
     expect(screen.getByText("3")).toBeInTheDocument()

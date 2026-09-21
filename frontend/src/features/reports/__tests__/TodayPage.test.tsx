@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { buildMe, renderWithProviders } from "@/test/utils"
@@ -48,6 +48,23 @@ function baseToday(overrides: Partial<Awaited<ReturnType<typeof getTodayMock>>> 
   }
 }
 
+/**
+ * El enlace de un aviso del riel (`docs/PATRONES-ADMIN.md` § 6 y § 7).
+ *
+ * Antes de la ola 2 cada aviso era UNA tarjeta que era toda ella un enlace, y
+ * por eso el nombre accesible del enlace era el título del aviso. El patrón 7
+ * los separa a propósito: el título lleva la cifra adelante y la consecuencia
+ * en el cuerpo, y **el enlace nombra el destino en palabras** («Inventario ›
+ * Stock» + pastilla «negativos»), nunca la consulta cruda. Así que el enlace
+ * se busca dentro del aviso, por su título — que es lo que estas pruebas
+ * querían decir: *este* aviso lleva a *ese* lugar.
+ */
+function noticeLink(title: RegExp | string): HTMLElement {
+  const item = screen.getByText(title).closest("li")
+  expect(item).not.toBeNull()
+  return within(item as HTMLElement).getByRole("link")
+}
+
 describe("TodayPage", () => {
   it("muestra el pulso del día: ventas netas grande y primero, con el resto como contexto", async () => {
     getTodayMock.mockResolvedValue(baseToday())
@@ -88,8 +105,7 @@ describe("TodayPage", () => {
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
     await waitFor(() => expect(screen.getByText("Rango por agotarse")).toBeInTheDocument())
-    const link = screen.getByRole("link", { name: /Rango por agotarse/i })
-    expect(link).toHaveAttribute("href", "/admin/fiscal/rangos")
+    expect(noticeLink("Rango por agotarse")).toHaveAttribute("href", "/admin/fiscal/rangos")
   })
 
   it("un agotado no aparece dos veces (tarjeta directa + alerta product_unavailable)", async () => {
@@ -132,10 +148,12 @@ describe("TodayPage", () => {
     expect(belowMinTitle).toBeInTheDocument()
     expect(negativeTitle).toBeInTheDocument()
 
-    const belowMinLink = screen.getByRole("link", { name: /1 insumo bajo el mínimo/i })
-    const negativeLink = screen.getByRole("link", { name: /1 insumo en negativo/i })
-    expect(belowMinLink).toHaveAttribute("href", "/admin/inventario?tab=stock&below_min=1")
-    expect(negativeLink).toHaveAttribute("href", "/admin/inventario?tab=stock&negative=1")
+    expect(noticeLink(/1 insumo bajo el mínimo/i)).toHaveAttribute("href", "/admin/inventario?tab=stock&below_min=1")
+    expect(noticeLink(/1 insumo en negativo/i)).toHaveAttribute("href", "/admin/inventario?tab=stock&negative=1")
+    // El enlace nombra el destino EN PALABRAS, nunca la consulta cruda (§ 6).
+    expect(screen.getAllByText("Inventario › Stock")).toHaveLength(2)
+    expect(screen.getByText("negativos")).toBeInTheDocument()
+    expect(screen.getByText("bajo mínimo")).toBeInTheDocument()
     // "deuda de registro" (negativo) nunca se confunde con "bajo mínimo": textos propios.
     expect(screen.getByText(/deuda de registro/i)).toBeInTheDocument()
     expect(screen.getByText(/reponé pronto/i)).toBeInTheDocument()
@@ -151,11 +169,9 @@ describe("TodayPage", () => {
 
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    const prepLink = await screen.findByRole("link", { name: /preparación por lote sin producir/i })
-    expect(prepLink).toHaveAttribute("href", "/admin/preparaciones")
-
-    const uncostedLink = screen.getByRole("link", { name: /plato vendido sin descontar nada/i })
-    expect(uncostedLink).toHaveAttribute("href", "/admin/carta")
+    await screen.findByText(/preparación por lote sin producir/i)
+    expect(noticeLink(/preparación por lote sin producir/i)).toHaveAttribute("href", "/admin/preparaciones")
+    expect(noticeLink(/plato vendido sin descontar nada/i)).toHaveAttribute("href", "/admin/carta")
   })
 
   // ---------------------------------------------------------------------
@@ -176,8 +192,8 @@ describe("TodayPage", () => {
 
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    const link = await screen.findByRole("link", { name: /2 lotes de insumo por vencer o vencido/i })
-    expect(link).toHaveAttribute("href", "/admin/inventario?tab=lotes")
+    await screen.findByText(/2 lotes de insumo por vencer o vencido/i)
+    expect(noticeLink(/2 lotes de insumo por vencer o vencido/i)).toHaveAttribute("href", "/admin/inventario?tab=lotes")
     expect(screen.getByText(/1 vencido con stock/)).toBeInTheDocument()
     expect(screen.getByText(/1 por vencer en ≤ 7 días/)).toBeInTheDocument()
   })
@@ -202,12 +218,14 @@ describe("TodayPage", () => {
 
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    const overdueLink = await screen.findByRole("link", { name: /1 cuenta por pagar vencida/i })
-    expect(overdueLink).toHaveAttribute("href", "/admin/compras?tab=cuentas-por-pagar")
+    await screen.findByText(/1 cuenta por pagar vencida/i)
+    expect(noticeLink(/1 cuenta por pagar vencida/i)).toHaveAttribute("href", "/admin/compras?tab=cuentas-por-pagar")
     expect(screen.getByText(/Distribuidora La 70/)).toBeInTheDocument()
 
-    const pendingLink = screen.getByRole("link", { name: /3 cuentas por pagar pendientes de revisión/i })
-    expect(pendingLink).toHaveAttribute("href", "/admin/compras?tab=cuentas-por-pagar")
+    expect(noticeLink(/3 cuentas por pagar pendientes de revisión/i)).toHaveAttribute(
+      "href",
+      "/admin/compras?tab=cuentas-por-pagar",
+    )
   })
 
   it("inventario no confiable (2b) NO se dibuja con `null` (función apagada o sin dominio) — nunca se confunde con «no confiable»", async () => {
@@ -222,8 +240,8 @@ describe("TodayPage", () => {
     getTodayMock.mockResolvedValue(baseToday({ inventory_unreliable: true, days_since_last_full_count: 21 }))
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    const link = await screen.findByRole("link", { name: /Inventario no confiable/ })
-    expect(link).toHaveAttribute("href", "/admin/inventario?tab=salud")
+    await screen.findByText("Inventario no confiable")
+    expect(noticeLink("Inventario no confiable")).toHaveAttribute("href", "/admin/inventario?tab=salud")
     expect(screen.getByText(/21 días sin un conteo completo aplicado/)).toBeInTheDocument()
   })
 })

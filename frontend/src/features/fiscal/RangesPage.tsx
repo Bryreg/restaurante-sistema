@@ -20,7 +20,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  DenseTable,
+  DenseTableBar,
+  PageHeader,
+  type DenseColumn,
+  type RowStatus,
+} from "@/components/admin";
 import { errorMessage } from "@/lib/errors";
 import { parseBusinessDate } from "@/lib/businessDate";
 
@@ -272,6 +278,18 @@ function NewRangeDialog({
     </Dialog>
   );
 }
+/**
+ * La franja de estado de la fila (patrón 8b). Un rango que se está acabando y
+ * uno que se está venciendo son **dos problemas distintos** que terminan en
+ * el mismo lugar: el día que no haya ninguno vigente, el cobro falla antes de
+ * cobrar.
+ */
+function estadoDeRango(range: FiscalRangeOut): RowStatus {
+  const dias = daysUntil(range.valid_until);
+  if (dias !== null && dias < 0) return "critical";
+  if (isNearlyExhausted(range) || isNearingExpiry(range)) return "warning";
+  return "ok";
+}
 
 /**
  * Admin → Documentos fiscales → Rangos de numeración (SPEC-NEGOCIO §8.3,
@@ -298,94 +316,152 @@ export function RangesPage(): React.JSX.Element {
   }
 
   const rows = query.data ?? [];
+  const porAvisar = rows.filter((range) => estadoDeRango(range) !== "ok").length;
+
+  const columns: readonly DenseColumn<FiscalRangeOut>[] = [
+    {
+      key: "type",
+      header: "Tipo",
+      cell: (range) => (range.document_type ? DOCUMENT_TYPE_LABEL[range.document_type] : "—"),
+    },
+    { key: "prefix", header: "Prefijo", kind: "id", cell: (range) => range.prefix ?? "—" },
+    {
+      key: "range",
+      header: "Rango",
+      kind: "number",
+      cell: (range) => `${range.from_number ?? "—"}–${range.to_number ?? "—"}`,
+    },
+    {
+      key: "resolution",
+      header: "Resolución",
+      kind: "secondary",
+      cell: (range) =>
+        `${range.resolution_number ?? "—"}${range.resolution_date ? ` · ${range.resolution_date}` : ""}`,
+    },
+    {
+      key: "validity",
+      header: "Vigencia",
+      kind: "secondary",
+      cell: (range) => `${range.valid_from ?? "—"} a ${range.valid_until ?? "—"}`,
+    },
+    {
+      key: "consumed",
+      header: "Consumido",
+      widthPx: 150,
+      cell: (range) => {
+        const ratio = consumedRatio(range);
+        const total =
+          range.from_number != null && range.to_number != null ? range.to_number - range.from_number + 1 : null;
+        return (
+          <span className="flex items-center gap-2">
+            <span className="text-xs tabular-nums">
+              {range.consumed ?? "—"} / {total ?? "—"}
+              {ratio !== null ? ` (${Math.round(ratio * 100)} %)` : ""}
+            </span>
+            {ratio !== null ? (
+              <span className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                <span
+                  className="block h-full rounded-full bg-primary"
+                  style={{ width: `${Math.min(100, Math.round(ratio * 100))}%` }}
+                />
+              </span>
+            ) : null}
+          </span>
+        );
+      },
+    },
+    {
+      key: "alerts",
+      header: "Avisos",
+      cell: (range) => (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+          {isNearlyExhausted(range) ? <Badge variant="outline">80 % consumido</Badge> : null}
+          {isNearingExpiry(range) ? <Badge variant="outline">Vence en 30 días o menos</Badge> : null}
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Rangos de numeración</h1>
-          <p className="text-sm text-muted-foreground">
-            Autorizados por la DIAN, por tipo de documento. El consecutivo se reserva dentro del rango vigente; un
-            cobro sin rango vigente falla antes de cobrar.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <LocalCsvExportButton href={fiscalRangesCsvUrl(activeStoreId)} />
-          <Button type="button" className="h-11" onClick={() => setDialogOpen(true)}>
-            Nuevo rango
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-3">
+      <PageHeader
+        name="Rangos de numeración"
+        question="¿Con qué numeración autorizada está cobrando esta sede, y cuánto le queda antes de quedarse sin consecutivo?"
+        context={[
+          {
+            label: "Sin flag: es ley",
+            title: "El consecutivo sin huecos y su rango autorizado no se apagan desde Funciones.",
+          },
+          {
+            label: "Avisan",
+            value: `${porAvisar} de ${rows.length}`,
+            title: "Rangos al 80 % o con 30 días o menos de vigencia.",
+          },
+          {
+            label: "Sin rango vigente",
+            value: "el cobro falla",
+            title: "Un cobro que necesite documento equivalente o factura falla antes de cobrar.",
+          },
+        ]}
+        actions={
+          <>
+            <LocalCsvExportButton href={fiscalRangesCsvUrl(activeStoreId)} />
+            <Button type="button" onClick={() => setDialogOpen(true)}>
+              Nuevo rango
+            </Button>
+          </>
+        }
+      />
 
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando rangos…</p>
       ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudieron cargar los rangos" description={errorMessage(query.error)} />
-      ) : rows.length === 0 ? (
         <EmptyState
-          title="Todavía no hay rangos cargados"
-          description="Sin un rango vigente, un cobro que necesite documento equivalente o factura falla con 400 antes de cobrar."
+          role="alert"
+          reason="error"
+          title="No se pudieron cargar los rangos"
+          description={errorMessage(query.error)}
+          action={{ label: "Reintentar", onClick: () => void query.refetch() }}
         />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Prefijo</TableHead>
-                <TableHead>Rango</TableHead>
-                <TableHead>Resolución</TableHead>
-                <TableHead>Vigencia</TableHead>
-                <TableHead>Consumido</TableHead>
-                <TableHead>Avisos</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((range) => {
-                const ratio = consumedRatio(range);
-                const total = range.from_number != null && range.to_number != null ? range.to_number - range.from_number + 1 : null;
-                return (
-                  <TableRow key={range.id}>
-                    <TableCell>{range.document_type ? DOCUMENT_TYPE_LABEL[range.document_type] : "—"}</TableCell>
-                    <TableCell>{range.prefix ?? "—"}</TableCell>
-                    <TableCell>
-                      {range.from_number ?? "—"}–{range.to_number ?? "—"}
-                    </TableCell>
-                    <TableCell>
-                      {range.resolution_number ?? "—"}
-                      {range.resolution_date ? ` · ${range.resolution_date}` : ""}
-                    </TableCell>
-                    <TableCell>
-                      {range.valid_from ?? "—"} a {range.valid_until ?? "—"}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <span className="tabular-nums text-xs">
-                          {range.consumed ?? "—"} / {total ?? "—"}
-                          {ratio !== null ? ` (${Math.round(ratio * 100)} %)` : ""}
-                        </span>
-                        {ratio !== null ? (
-                          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                            <div
-                              className="h-full rounded-full bg-primary"
-                              style={{ width: `${Math.min(100, Math.round(ratio * 100))}%` }}
-                            />
-                          </div>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {isNearlyExhausted(range) ? <Badge variant="outline">80 % consumido</Badge> : null}
-                        {isNearingExpiry(range) ? <Badge variant="outline">Vence en 30 días o menos</Badge> : null}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption="Rangos de numeración autorizados por la DIAN para esta sede"
+          columns={columns}
+          rows={rows}
+          rowKey={(range) => String(range.id)}
+          rowStatus={estadoDeRango}
+          bar={
+            <DenseTableBar
+              shown={rows.length}
+              total={rows.length}
+              noun="rangos cargados"
+              hidden={porAvisar > 0 ? `${porAvisar} con aviso` : "ninguno con aviso"}
+            />
+          }
+          legend={[
+            {
+              term: "Consumido no es vencido",
+              meaning:
+                "un rango se acaba por números o por fecha, y son dos cosas distintas: el primero se agota vendiendo, el segundo llega solo.",
+            },
+            {
+              term: "Los avisos son de antes",
+              meaning:
+                "al 80 % y a los 30 días hay tiempo de pedir una resolución nueva. El día que no quede ninguno vigente ya es tarde: el cobro falla antes de cobrar.",
+            },
+            {
+              term: "Clave técnica",
+              meaning: "sólo la piden algunos tipos de documento; vacía no es un error.",
+            },
+          ]}
+          empty={
+            <EmptyState
+              title="Todavía no hay rangos cargados"
+              description="Sin un rango vigente, un cobro que necesite documento equivalente o factura falla con 400 antes de cobrar."
+              action={{ label: "Nuevo rango", onClick: () => setDialogOpen(true) }}
+            />
+          }
+        />
       )}
 
       <NewRangeDialog storeId={activeStoreId} open={dialogOpen} onOpenChange={setDialogOpen} />

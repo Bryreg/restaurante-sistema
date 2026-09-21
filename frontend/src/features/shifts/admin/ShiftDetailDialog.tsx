@@ -12,6 +12,7 @@ import {
   getShiftSummary,
   type AdminShiftListItem,
 } from "@/api/shifts";
+import { ConsequenceZone } from "@/components/admin";
 import { EmptyState } from "@/components/EmptyState";
 import { DenominationsInput, type Denomination } from "@/components/DenominationsInput";
 import {
@@ -42,6 +43,15 @@ import { DENOMINATIONS, formatCOP } from "@/lib/money";
 function emptyDenominations(): Denomination[] {
   return DENOMINATIONS.map((value) => ({ value, count: 0 }));
 }
+
+/**
+ * § 11 · **El peligro va en el marco, nunca en el botón.** El botón de un
+ * rescate es **azul y secundario**: azul porque azul es lo único que se toca
+ * (`docs/DISENO.md` § La regla del color), secundario para que no sea lo más
+ * fácil de pulsar. La misma constante viste el disparador y la confirmación,
+ * para que no haya dos criterios.
+ */
+const BLUE_AND_SECONDARY = "border-primary/40 text-primary hover:bg-accent hover:text-primary";
 
 export interface ShiftDetailDialogProps {
   shift: AdminShiftListItem;
@@ -102,7 +112,12 @@ export function ShiftDetailDialog({ shift, open, onOpenChange, onChanged }: Shif
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      {/* `sm:max-w-2xl` y no `max-w-2xl`: el `DialogContent` compartido trae
+          `sm:max-w-sm`, y una clase sin variante no le gana a una con `sm:`
+          —el diálogo quedaba en 384 px en un monitor de 1440—. Se corrige acá,
+          en el sitio de llamada, porque la capa compartida es de sólo lectura
+          en esta ola; queda dicho en el informe. */}
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             Turno #{shift.id} · {formatBusinessDate(shift.business_date)}
@@ -121,15 +136,37 @@ export function ShiftDetailDialog({ shift, open, onOpenChange, onChanged }: Shif
               {shift.reviewed_at ? "Ya revisado" : reviewMutation.isPending ? "Marcando…" : "Revisar"}
             </Button>
 
-            {shift.status === "open" && shift.is_stale ? (
-              <CloseAdministrativeButton shiftId={shift.id} onDone={invalidateAll} />
-            ) : null}
-            {shift.status === "closed" ? <ReopenButton shiftId={shift.id} onDone={invalidateAll} /> : null}
-            {shift.status === "open" ? (
-              <CancelButton shiftId={shift.id} disabled={hasActivity} onDone={invalidateAll} />
-            ) : null}
-            <AdjustOpeningButton shiftId={shift.id} onDone={invalidateAll} />
           </div>
+
+          {/* § 11 · Zona de riesgo: estos cuatro reescriben un turno cerrado
+              o lo hacen desaparecer, y ninguno se deshace solo. Van todos
+              adentro del mismo marco rojo —el marco avisa— con el botón azul
+              y secundario, y cada uno sigue pidiendo su motivo obligatorio,
+              que es donde queda la constancia de por qué se hizo. */}
+          <ConsequenceZone
+            level="irreversible"
+            scope={`Turno #${shift.id}`}
+            explanation={
+              <>
+                Lo de acá abajo <b>no se deshace</b>: un cierre administrativo sella el turno con el esperado y
+                diferencia cero, reabrir deja el conteo anterior sólo como histórico, cancelar elimina el turno y
+                ajustar la apertura reescribe la base y todo lo que se derivó de ella. Cada uno pide un motivo, y el
+                motivo queda en la cronología de abajo. Lo que <b>no</b> pasa: nada de esto toca una venta ya cobrada
+                ni un documento ya emitido.
+              </>
+            }
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              {shift.status === "open" && shift.is_stale ? (
+                <CloseAdministrativeButton shiftId={shift.id} onDone={invalidateAll} />
+              ) : null}
+              {shift.status === "closed" ? <ReopenButton shiftId={shift.id} onDone={invalidateAll} /> : null}
+              {shift.status === "open" ? (
+                <CancelButton shiftId={shift.id} disabled={hasActivity} onDone={invalidateAll} />
+              ) : null}
+              <AdjustOpeningButton shiftId={shift.id} onDone={invalidateAll} />
+            </div>
+          </ConsequenceZone>
 
           <div className="space-y-2">
             <h3 className="text-sm font-semibold">Cronología</h3>
@@ -180,7 +217,9 @@ function ReasonRescueButton({
   const [reason, setReason] = useState("");
   return (
     <AlertDialog>
-      <AlertDialogTrigger render={<Button type="button" variant="outline" className="h-9" disabled={disabled} />}>
+      <AlertDialogTrigger
+        render={<Button type="button" variant="outline" className={`h-9 ${BLUE_AND_SECONDARY}`} disabled={disabled} />}
+      >
         {label}
       </AlertDialogTrigger>
       <AlertDialogContent>
@@ -194,7 +233,12 @@ function ReasonRescueButton({
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          <AlertDialogAction disabled={reason.trim() === ""} onClick={() => onConfirm(reason.trim())}>
+          <AlertDialogAction
+            variant="outline"
+            className={BLUE_AND_SECONDARY}
+            disabled={reason.trim() === ""}
+            onClick={() => onConfirm(reason.trim())}
+          >
             Confirmar
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -254,7 +298,16 @@ function CancelButton({ shiftId, disabled, onDone }: { shiftId: number; disabled
   });
   return (
     <AlertDialog>
-      <AlertDialogTrigger render={<Button type="button" variant="outline" className="h-9" disabled={disabled || mutation.isPending} />}>
+      <AlertDialogTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            className={`h-9 ${BLUE_AND_SECONDARY}`}
+            disabled={disabled || mutation.isPending}
+          />
+        }
+      >
         Cancelar
       </AlertDialogTrigger>
       <AlertDialogContent>
@@ -272,7 +325,12 @@ function CancelButton({ shiftId, disabled, onDone }: { shiftId: number; disabled
         </p>
         <AlertDialogFooter>
           <AlertDialogCancel>Volver</AlertDialogCancel>
-          <AlertDialogAction disabled={disabled || mutation.isPending} onClick={() => mutation.mutate()}>
+          <AlertDialogAction
+            variant="outline"
+            className={BLUE_AND_SECONDARY}
+            disabled={disabled || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
             Confirmar cancelación
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -304,7 +362,7 @@ function AdjustOpeningButton({ shiftId, onDone }: { shiftId: number; onDone: () 
 
   return (
     <AlertDialog>
-      <AlertDialogTrigger render={<Button type="button" variant="outline" className="h-9" />}>
+      <AlertDialogTrigger render={<Button type="button" variant="outline" className={`h-9 ${BLUE_AND_SECONDARY}`} />}>
         Ajustar apertura
       </AlertDialogTrigger>
       <AlertDialogContent className="max-w-md">
@@ -331,7 +389,12 @@ function AdjustOpeningButton({ shiftId, onDone }: { shiftId: number; onDone: () 
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          <AlertDialogAction disabled={reason.trim() === "" || mutation.isPending} onClick={() => mutation.mutate()}>
+          <AlertDialogAction
+            variant="outline"
+            className={BLUE_AND_SECONDARY}
+            disabled={reason.trim() === "" || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
             Confirmar ajuste
           </AlertDialogAction>
         </AlertDialogFooter>

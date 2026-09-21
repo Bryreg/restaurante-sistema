@@ -57,7 +57,9 @@ describe("OrdersAdminPage", () => {
 
     renderWithProviders(<OrdersAdminPage />, { me: adminMe({}) })
 
-    await waitFor(() => expect(screen.getByText("501")).toBeInTheDocument())
+    // El número de comanda se escribe como UNA palabra, `#501`
+    // (`docs/PATRONES-ADMIN.md` § 8: nunca `50` / `1`).
+    await waitFor(() => expect(screen.getByText("#501")).toBeInTheDocument())
     expect(screen.getByText("Mesa")).toBeInTheDocument()
     expect(screen.getByRole("cell", { name: "Pagada" })).toBeInTheDocument()
     expect(screen.getAllByText("grill").length).toBeGreaterThan(0)

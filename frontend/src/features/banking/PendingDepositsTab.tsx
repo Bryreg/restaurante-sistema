@@ -9,13 +9,19 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { getPendingDeposits } from "@/api/banking"
+import { getPendingDeposits, type PendingDepositOut } from "@/api/banking"
+import { DenseTable, DenseTableBar, type RowStatus } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
+
+/** § 8b · Con saldo pendiente la fila se marca; sin dato, no se marca en rojo. */
+function pendingStatus(row: PendingDepositOut): RowStatus {
+  if (row.to_deposit === null || row.to_deposit === undefined) return "none"
+  return row.outstanding !== null && row.outstanding !== undefined && row.outstanding > 0 ? "warning" : "ok"
+}
 
 import { CreateDepositDialog } from "./CreateDepositDialog"
 import { daysAgoLocal, todayLocal } from "./lib"
@@ -36,53 +42,76 @@ export function PendingDepositsTab({ storeId }: { storeId: number }): React.JSX.
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando saldo por consignar…</p>
       ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudo cargar el saldo por consignar" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
+        <EmptyState reason="error" title="No se pudo cargar el saldo por consignar" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : (query.data ?? []).length === 0 ? (
-        <EmptyState title="No hay turnos cerrados en este período" />
+        <EmptyState
+          reason="filter"
+          title="No hay turnos cerrados en este período"
+          description={`El filtro puesto es el período: ${from} a ${to}. Un turno abierto todavía no tiene saldo por consignar.`}
+        />
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Turno</TableHead>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Por consignar</TableHead>
-                <TableHead>Consignado</TableHead>
-                <TableHead>Saldo</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(query.data ?? []).map((row) => (
-                <TableRow key={row.shift_id}>
-                  <TableCell>#{row.shift_id}</TableCell>
-                  <TableCell>{formatBusinessDate(row.business_date)}</TableCell>
-                  <TableCell className="tabular-nums">
-                    {row.to_deposit === null ? (
-                      <span className="text-muted-foreground">
-                        Sin datos{row.reason ? <span className="block text-xs">{row.reason}</span> : null}
-                      </span>
-                    ) : (
-                      formatCOP(row.to_deposit)
-                    )}
-                  </TableCell>
-                  <TableCell className="tabular-nums">{formatCOP(row.deposited ?? null)}</TableCell>
-                  <TableCell className="tabular-nums font-medium">{formatCOP(row.outstanding ?? null)}</TableCell>
-                  <TableCell>
-                    {row.outstanding !== null && row.outstanding !== undefined && row.outstanding > 0 ? (
-                      <CreateDepositDialog
-                        storeId={storeId}
-                        triggerLabel="Consignar"
-                        triggerVariant="outline"
-                        initialShiftIds={[row.shift_id]}
-                      />
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption="Turnos cerrados del período, con lo que queda por consignar."
+          columns={[
+            { key: "shift", header: "Turno", kind: "id", cell: (r) => `#${r.shift_id}` },
+            { key: "date", header: "Fecha", cell: (r) => formatBusinessDate(r.business_date) },
+            {
+              // `null` NO es `$ 0`: se dice «Sin datos» con el motivo que da
+              // el servidor, al lado y no abajo, para que la fila no crezca.
+              key: "to_deposit",
+              header: "Por consignar",
+              kind: "number",
+              cell: (r) =>
+                r.to_deposit === null ? (
+                  <span className="inline-flex items-baseline gap-1.5">
+                    <span className="text-muted-foreground">Sin datos</span>
+                    {r.reason ? <span className="text-xs text-muted-foreground">{r.reason}</span> : null}
+                  </span>
+                ) : (
+                  formatCOP(r.to_deposit)
+                ),
+            },
+            { key: "deposited", header: "Consignado", kind: "number", cell: (r) => formatCOP(r.deposited ?? null) },
+            { key: "outstanding", header: "Saldo", kind: "number", cell: (r) => formatCOP(r.outstanding ?? null) },
+            {
+              key: "actions",
+              header: "Acciones",
+              kind: "actions",
+              cell: (r) =>
+                r.outstanding !== null && r.outstanding !== undefined && r.outstanding > 0 ? (
+                  <CreateDepositDialog
+                    storeId={storeId}
+                    triggerLabel="Consignar"
+                    triggerVariant="outline"
+                    initialShiftIds={[r.shift_id]}
+                  />
+                ) : null,
+            },
+          ]}
+          rows={query.data ?? []}
+          rowKey={(r) => String(r.shift_id)}
+          rowStatus={pendingStatus}
+          maxBodyHeightPx={460}
+          bar={
+            <DenseTableBar
+              shown={(query.data ?? []).length}
+              total={(query.data ?? []).length}
+              noun="turnos cerrados"
+              hidden={`del ${from} al ${to}`}
+            />
+          }
+          legend={[
+            {
+              term: "«Sin datos»",
+              meaning:
+                "no es cero: el turno cerró sin conteo de efectivo, así que no hay de dónde sacar cuánto había para consignar.",
+            },
+            {
+              term: "Saldo",
+              meaning: "lo que falta consignar de ese turno. Con saldo en cero no se ofrece «Consignar»: ya está.",
+            },
+          ]}
+        />
       )}
     </div>
   )

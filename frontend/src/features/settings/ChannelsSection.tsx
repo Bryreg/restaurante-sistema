@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { FormSection } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -269,24 +270,31 @@ export function ChannelsSection({ storeId }: { storeId: number | null }): React.
   const platforms = query.data ?? []
 
   return (
-    <div className="max-w-3xl space-y-8">
-      <section className="space-y-2">
-        <div>
-          <h2 className="text-sm font-semibold">Canales activos</h2>
-          <p className="text-sm text-muted-foreground">
-            Mesa, para llevar y mostrador se activan en la pestaña <strong>Sedes</strong> («Canales activos»).
-            Domicilio y Plataforma no tienen casilla acá: se activan encendiendo <code>pos.delivery</code> y{" "}
-            <code>pos.platforms</code> en Admin → Funciones — es lo único que el servidor revisa para esos dos
-            canales.
-          </p>
-        </div>
-      </section>
+    <div className="space-y-3">
+      <FormSection
+        title="Canales activos"
+        columns="one"
+        governs="Por dónde puede entrar un pedido en esta sede. Acá no hay casillas a propósito: cada canal se enciende donde ya vive, y tener dos lugares para lo mismo es tener dos verdades."
+        reading={
+          <>
+            Apagar un canal <b className="font-bold text-foreground">no borra nada de lo ya vendido por ahí</b>:
+            deja de ofrecerse al abrir una comanda nueva, y los reportes viejos siguen mostrándolo.
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          Mesa, para llevar y mostrador se activan en la pestaña <strong>Sedes</strong> («Canales activos»).
+          Domicilio y Plataforma no tienen casilla acá: se activan encendiendo <code>pos.delivery</code> y{" "}
+          <code>pos.platforms</code> en Admin → Funciones — es lo único que el servidor revisa para esos dos
+          canales.
+        </p>
+      </FormSection>
 
-      <section className="space-y-3 border-t pt-6">
+      <section className="space-y-3 rounded-lg border bg-card p-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">Plataformas y comisiones</h2>
-            <p className="max-w-xl text-sm text-muted-foreground">
+            <h2 className="text-sm font-bold">Plataformas y comisiones</h2>
+            <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
               La comisión se REGISTRA por pedido y por plataforma; nunca se resta de la venta (la venta es la venta,
               la comisión es un costo del negocio frente a la plataforma).
             </p>
@@ -354,16 +362,23 @@ export function ChannelsSection({ storeId }: { storeId: number | null }): React.
         )}
       </section>
 
-      <section className="space-y-2 border-t pt-6">
-        <div>
-          <h2 className="text-sm font-semibold">Estaciones, cursos y tiempos objetivo</h2>
-          <p className="text-sm text-muted-foreground">
-            Ya se editan en la pestaña <strong>Ventas</strong> («Estaciones», «Cursos» y «Tiempo objetivo por
-            curso») — el KDS y el semáforo de cocina leen esos mismos campos. No hay una segunda pantalla acá para
-            no tener dos formularios escribiendo el mismo dato.
-          </p>
-        </div>
-      </section>
+      <FormSection
+        title="Estaciones, cursos y tiempos objetivo"
+        columns="one"
+        governs="Se editan en la pestaña Ventas. Acá sólo queda el puntero: dos formularios escribiendo el mismo campo son dos verdades."
+        reading={
+          <>
+            Lo que se teclee allá llega a la cocina sin pasar por esta pestaña:{" "}
+            <b className="font-bold text-foreground">acá no hay nada que guardar</b>.
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          Ya se editan en la pestaña <strong>Ventas</strong> («Estaciones», «Cursos» y «Tiempo objetivo por
+          curso») — el KDS y el semáforo de cocina leen esos mismos campos. No hay una segunda pantalla acá para
+          no tener dos formularios escribiendo el mismo dato.
+        </p>
+      </FormSection>
     </div>
   )
 }

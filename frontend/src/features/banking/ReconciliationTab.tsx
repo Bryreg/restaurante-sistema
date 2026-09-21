@@ -28,6 +28,7 @@ import { useRef, useState } from "react"
 
 import { newIdempotencyKey } from "@/api/client"
 import { getCardReconciliation, getPlatformReconciliation, settleCardReconciliation, type ReconciliationRowOut } from "@/api/banking"
+import { DenseTable, DenseTableBar, type DenseColumn, type RowStatus } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
@@ -35,7 +36,6 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
@@ -93,6 +93,50 @@ function SettleDialog({
   )
 }
 
+/** § 8b · Sin conciliar se marca; sin dato de `matched`, no se marca. */
+function reconciliationStatus(row: ReconciliationRowOut): RowStatus {
+  if (row.matched === undefined) return "none"
+  return row.matched ? "ok" : "warning"
+}
+
+function reconciliationColumns(
+  kind: "card" | "platform",
+  settle: (row: ReconciliationRowOut & { id: number }) => React.ReactNode,
+): readonly DenseColumn<ReconciliationRowOut>[] {
+  const columns: DenseColumn<ReconciliationRowOut>[] = [
+    { key: "date", header: "Fecha", kind: "name", cell: (r) => formatBusinessDate(r.business_date) },
+  ]
+  if (kind === "platform") {
+    columns.push({ key: "platform", header: "Plataforma", cell: (r) => r.platform ?? "—" })
+  }
+  columns.push(
+    { key: "expected", header: "Esperado", kind: "number", cell: (r) => formatCOP(r.expected) },
+    { key: "settled", header: "Liquidado", kind: "number", cell: (r) => formatCOP(r.settled) },
+    { key: "difference", header: "Diferencia", kind: "number", cell: (r) => formatCOP(r.difference) },
+    {
+      key: "status",
+      header: "Estado",
+      cell: (r) =>
+        r.matched === undefined ? (
+          <span className="text-muted-foreground">—</span>
+        ) : r.matched ? (
+          <Badge variant="secondary">Conciliado</Badge>
+        ) : (
+          <Badge variant="destructive">Sin conciliar</Badge>
+        ),
+    },
+  )
+  if (kind === "card") {
+    columns.push({
+      key: "actions",
+      header: "Acciones",
+      kind: "actions",
+      cell: (r) => (!r.matched && r.id !== undefined ? settle({ ...r, id: r.id }) : null),
+    })
+  }
+  return columns
+}
+
 export function ReconciliationTab({ storeId, kind }: { storeId: number; kind: "card" | "platform" }): React.JSX.Element {
   const [from, setFrom] = useState(daysAgoLocal(30))
   const [to, setTo] = useState(todayLocal())
@@ -112,55 +156,54 @@ export function ReconciliationTab({ storeId, kind }: { storeId: number; kind: "c
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando conciliación…</p>
       ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudo cargar la conciliación" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
+        <EmptyState reason="error" title="No se pudo cargar la conciliación" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : rows.length === 0 ? (
-        <EmptyState title="No hay liquidaciones en este período" />
+        <EmptyState
+          reason="dependency"
+          title="No hay liquidaciones en este período"
+          description="Sin liquidaciones registradas no hay contra qué conciliar. Registrá una abajo: eso no significa que falte plata, significa que falta el dato."
+        />
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Fecha</TableHead>
-                {kind === "platform" ? <TableHead>Plataforma</TableHead> : null}
-                <TableHead>Esperado</TableHead>
-                <TableHead>Liquidado</TableHead>
-                <TableHead>Diferencia</TableHead>
-                <TableHead>Estado</TableHead>
-                {kind === "card" ? <TableHead /> : null}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row, index) => (
-                <TableRow key={row.id ?? `${row.business_date ?? "sin-fecha"}-${index}`}>
-                  <TableCell>{formatBusinessDate(row.business_date)}</TableCell>
-                  {kind === "platform" ? <TableCell>{row.platform ?? "—"}</TableCell> : null}
-                  <TableCell className="tabular-nums">{formatCOP(row.expected)}</TableCell>
-                  <TableCell className="tabular-nums">{formatCOP(row.settled)}</TableCell>
-                  <TableCell className="tabular-nums">{formatCOP(row.difference)}</TableCell>
-                  <TableCell>
-                    {row.matched === undefined ? (
-                      "—"
-                    ) : row.matched ? (
-                      <Badge variant="secondary">Conciliado</Badge>
-                    ) : (
-                      <Badge variant="destructive">Sin conciliar</Badge>
-                    )}
-                  </TableCell>
-                  {kind === "card" ? (
-                    <TableCell>
-                      {!row.matched && row.id !== undefined ? (
-                        <SettleDialog
-                          row={{ ...row, id: row.id }}
-                          onSettled={() => void queryClient.invalidateQueries({ queryKey: ["banking", "reconciliation", "card", storeId] })}
-                        />
-                      ) : null}
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption={
+            kind === "card"
+              ? "Conciliación de datáfono: esperado, liquidado y diferencia por día."
+              : "Conciliación de plataformas: esperado, liquidado y diferencia por día."
+          }
+          columns={reconciliationColumns(kind, (row) => (
+            <SettleDialog
+              row={row}
+              onSettled={() => void queryClient.invalidateQueries({ queryKey: ["banking", "reconciliation", "card", storeId] })}
+            />
+          ))}
+          rows={rows}
+          rowKey={(row) => String(row.id ?? `${row.business_date ?? "sin-fecha"}-${row.platform ?? ""}-${row.expected ?? ""}`)}
+          rowStatus={reconciliationStatus}
+          maxBodyHeightPx={420}
+          bar={
+            <DenseTableBar
+              shown={rows.length}
+              total={rows.length}
+              noun={kind === "card" ? "días de datáfono" : "días de plataforma"}
+              hidden={`del ${from} al ${to}`}
+            />
+          }
+          legend={[
+            {
+              term: "Sin conciliar",
+              meaning:
+                "no quiere decir que falte plata: casi siempre quiere decir que falta registrar la liquidación de abajo.",
+            },
+            {
+              term: "Esperado",
+              meaning: "lo que el sistema cobró por ese medio ese día, antes de comisiones.",
+            },
+            {
+              term: "Liquidado",
+              meaning: "lo que la liquidación registrada dice que abonaron, ya neto.",
+            },
+          ]}
+        />
       )}
 
       <SettlementsSection storeId={storeId} kind={kind} from={from} to={to} />

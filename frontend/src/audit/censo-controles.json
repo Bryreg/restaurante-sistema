@@ -16,9 +16,13 @@
  ],
  "features/analytics/AnalyticsAdminPage.tsx": [
   "Analítica no está habilitada",
+  "El costo viaja congelado en el ítem vendido: ninguna de estas tablas revalora una venta pasada con la carta de hoy.",
+  "Encenderla en Funciones",
   "Ingeniería de menú",
   "Reposición sugerida",
   "Salud sostenida",
+  "Sobre el costo congelado en la venta",
+  "Sólo lectura: acá no se cambia nada, se mira.",
   "Varianza por plato"
  ],
  "features/analytics/MenuEngineeringTab.tsx": [
@@ -28,6 +32,7 @@
   "Reintentar"
  ],
  "features/analytics/ReplenishmentTab.tsx": [
+  "Cargar el lead time en Insumos",
   "No hay reposición sugerida por ahora",
   "No se pudo calcular la reposición sugerida",
   "Reintentar",
@@ -38,6 +43,7 @@
   "No se pudo evaluar la salud sostenida",
   "Reintentar",
   "Sin historial suficiente",
+  "Sostenido",
   "Ventanas evaluadas"
  ],
  "features/analytics/VarianceByDishTab.tsx": [
@@ -47,9 +53,14 @@
   "Varianza por plato no disponible"
  ],
  "features/audit/AuditPage.tsx": [
+  "Cambios listados",
+  "Desde, hasta, entidad y empleado se aplican también al CSV.",
+  "No se apaga desde Funciones y no se borra: es la prueba de quién tocó qué.",
   "No se pudo cargar el historial",
   "Reintentar",
+  "Se lee con el filtro puesto",
   "Sin cambios para estos filtros",
+  "Sin flag: es auditoría",
   "store, employee, zone…"
  ],
  "features/auth/DeviceActivatePage.tsx": [
@@ -67,9 +78,13 @@
   "Conciliación datáfono",
   "Conciliación plataformas",
   "Consignaciones",
+  "Encenderla en Funciones",
   "Libro del banco",
   "Mano del dueño",
-  "Por consignar"
+  "Por consignar",
+  "Seis pestañas: dos de consignaciones y cuatro del libro del banco.",
+  "Sólo Consignaciones y Por consignar",
+  "«Banco» (money.bank) está apagada: el libro, la mano del dueño y las dos conciliaciones no se dibujan. La URL de esas pestañas sigue existiendo."
  ],
  "features/banking/CreateDepositDialog.tsx": [
   "Foto del comprobante (obligatoria)",
@@ -91,6 +106,7 @@
  ],
  "features/banking/OwnerHandTab.tsx": [
   "Consignado",
+  "De dónde sale y en qué se fue",
   "Gastado",
   "Gastado en devoluciones",
   "Gastado en propinas",
@@ -174,8 +190,10 @@
   "No hay líneas sospechosas de unidad"
  ],
  "features/customers/CustomersPage.tsx": [
+  "Anonimizados",
   "CSV",
   "Cancelar",
+  "Clientes",
   "Facturación",
   "Mercadeo",
   "Ningún cliente coincide con esta búsqueda",
@@ -184,6 +202,8 @@
  ],
  "features/expenses/BreakEvenTab.tsx": [
   "Costos fijos del período",
+  "El resultado",
+  "Los costos fijos",
   "Margen de contribución",
   "No se pudo calcular el punto de equilibrio",
   "Punto de equilibrio",
@@ -194,7 +214,6 @@
   "Cuentas por pagar",
   "Gastos",
   "Obligaciones",
-  "Obligaciones y gastos no está habilitado",
   "Punto de equilibrio",
   "Utilidad"
  ],
@@ -217,13 +236,14 @@
   "Reintentar"
  ],
  "features/expenses/ProfitTab.tsx": [
-  "Costo",
+  "Costo de lo vendido",
   "Gastos",
   "No se pudo calcular la utilidad",
   "Nómina",
   "Obligaciones",
   "Reintentar",
   "Utilidad",
+  "Utilidad del período",
   "Utilidad no disponible",
   "Ventas netas"
  ],
@@ -231,44 +251,85 @@
   "Alcance de la edición",
   "Básico",
   "Cancelar",
+  "Contadas sobre el alcance que estás editando.",
+  "Editando",
   "Elegir perfil",
   "Elegir perfil…",
+  "Encendidas",
   "Estándar",
   "Full",
   "No se pudieron cargar las funciones",
+  "Perfil",
   "Reintentar",
   "Toda la organización",
-  "Todavía no hay funciones para mostrar"
+  "Todavía no hay funciones para mostrar",
+  "Vas a apagar una función"
  ],
  "features/fiscal/DocumentsPage.tsx": [
+  "Conservación",
+  "El documento equivalente no se apaga desde Funciones; lo exige la Res. DIAN 000165/2023.",
+  "El selector de sede vive en la lateral: alcanza a toda la app.",
+  "Emitir nota",
+  "Emitir una nota sobre este documento",
   "Estado ante la DIAN",
+  "Evidencia",
+  "Evidencia: estado DIAN, CUDE, QR y el rango que amparó el consecutivo",
   "Exportar paquete de evidencia",
   "Ningún documento coincide con estos filtros",
   "No se pudieron cargar los documentos",
+  "Por eso el paquete de evidencia lleva hash por documento.",
+  "Reintentar",
+  "Reintentar la transmisión a la DIAN",
+  "Sede",
+  "Sin flag: es ley",
   "Tipo de documento",
   "Todos"
  ],
  "features/fiscal/NotesPage.tsx": [
+  "Ajuste, crédito y débito llevan su propio rango de numeración.",
+  "Cada nota",
   "Efectivo",
+  "El documento original se reversa, nunca se edita: la nota es el único camino.",
   "Elegí el tipo",
+  "Empezar una nota en blanco",
+  "En el período",
   "No se pudieron cargar las notas",
+  "Nueva nota",
   "Otro",
+  "Reintentar",
+  "Sin flag: es ley",
   "Tarjeta",
   "Todavía no hay notas en este período",
-  "Transferencia"
+  "Transferencia",
+  "Volver a Documentos"
  ],
  "features/fiscal/PendingRefundsPage.tsx": [
   "De la mano del dueño (no toca la caja)",
   "Desde el turno abierto (crea un egreso ahí)",
   "Estado",
+  "Nadie está esperando plata",
   "Ninguna devolución pendiente con este filtro",
   "No se pudieron cargar las devoluciones",
+  "Pendientes",
+  "Reintentar",
   "Saldar desde",
-  "Todas"
+  "Saldar desde el turno crea el egreso en ESE turno, no en el que originó la nota.",
+  "Sin flag: es ley",
+  "Toda corrección va por nota; la devolución que quedó debiendo no se puede esconder.",
+  "Todas",
+  "Turno abierto"
  ],
  "features/fiscal/RangesPage.tsx": [
+  "Avisan",
+  "El consecutivo sin huecos y su rango autorizado no se apagan desde Funciones.",
   "No se pudieron cargar los rangos",
-  "Todavía no hay rangos cargados"
+  "Nuevo rango",
+  "Rangos al 80 % o con 30 días o menos de vigencia.",
+  "Reintentar",
+  "Sin flag: es ley",
+  "Sin rango vigente",
+  "Todavía no hay rangos cargados",
+  "Un cobro que necesite documento equivalente o factura falla antes de cobrar."
  ],
  "features/inventory/AdjustmentDialog.tsx": [
   "-500 sale, 500 entra",
@@ -276,16 +337,29 @@
   "Tu PIN de administrador"
  ],
  "features/inventory/ControlHealthTab.tsx": [
+  "Compras del período",
   "Días desde el último conteo completo",
+  "Food cost real",
+  "Food cost real del período",
   "Food cost real no disponible",
+  "Inventario final",
+  "Inventario inicial",
+  "Inventario no confiable",
+  "Ir a Conteos",
   "Mermas registradas esta semana",
   "No se pudo calcular el food cost real",
   "No se pudo cargar la salud del control",
   "Preparaciones por lote producidas esta semana",
   "Recepciones con factura",
-  "Reintentar"
+  "Reintentar",
+  "Si los números se pueden creer",
+  "÷ Ventas netas"
  ],
  "features/inventory/CountCapturePage.tsx": [
+  "Abierto",
+  "Abierto por",
+  "Ajuste aplicado",
+  "Alcance",
   "No se pudo cargar el conteo",
   "PIN de administrador para aplicar el conteo",
   "Reintentar",
@@ -316,7 +390,7 @@
  "features/inventory/InventoryAdminPage.tsx": [
   "Conteos",
   "Insumos",
-  "Inventario no está habilitado",
+  "Insumos activos",
   "Lotes",
   "Movimientos y mermas",
   "Salud del control",
@@ -332,6 +406,7 @@
   "Todos los insumos"
  ],
  "features/inventory/MovementsPanel.tsx": [
+  "Crear el primer insumo",
   "Elegí un insumo",
   "No se pudieron cargar los movimientos",
   "Reintentar",
@@ -340,7 +415,8 @@
   "Todavía no hay insumos"
  ],
  "features/inventory/MovementsWasteTab.tsx": [
-  "Registro de mermas no está habilitado"
+  "Libro de movimientos",
+  "Mermas"
  ],
  "features/inventory/OpenCountDialog.tsx": [
   "Completo",
@@ -349,16 +425,21 @@
  "features/inventory/StockTab.tsx": [
   "No se pudo cargar el stock",
   "Reintentar",
-  "Sin insumos para estos filtros"
+  "Sin insumos para estos filtros",
+  "Todavía no hay insumos",
+  "Volver a Hoy"
  ],
  "features/inventory/VarianceTab.tsx": [
   "Elegí un conteo aplicado",
+  "Ir a Conteos",
   "No se pudo calcular la varianza",
   "Reintentar",
   "Sin insumos en común entre los dos conteos",
-  "Sin varianza para este conteo"
+  "Sin varianza para este conteo",
+  "Todavía no hay ningún conteo aplicado en esta sede"
  ],
  "features/inventory/WasteAdminTab.tsx": [
+  "Mermas ÷ compras (semanal)",
   "No se pudieron cargar las mermas",
   "Reintentar",
   "Sin mermas en este período",
@@ -390,13 +471,20 @@
  ],
  "features/notifications/NotificationsPage.tsx": [
   "Alerta",
+  "Cada sede decide qué le avisa y con qué gravedad.",
+  "Crear la primera sede",
   "Creá una sede primero",
   "Crítico",
+  "Cuándo tiene que avisar el sistema",
   "Informativo",
+  "La campana",
+  "La campana de la lateral repregunta sola y cuenta las no leídas.",
+  "Las reglas",
   "No se pudieron cargar las notificaciones",
   "No se pudieron cargar las reglas",
   "Reintentar",
-  "Sin notificaciones"
+  "Sin notificaciones",
+  "Sin reglas para esta sede"
  ],
  "features/orders/AuthorizerDialog.tsx": [
   "PIN de supervisor o administrador"
@@ -458,8 +546,10 @@
   "Con descuento",
   "Consumo de personal",
   "Exportar CSV",
+  "Las comandas",
   "Ningún pedido coincide con estos filtros",
   "No se pudieron cargar los pedidos",
+  "Tiempo de cocina por estación",
   "Todos",
   "Trasladadas",
   "Ítems enviados al cobrar"
@@ -502,17 +592,27 @@
   "Jornada no disponible",
   "No hay jornada registrada en este período",
   "No se pudo cargar la jornada",
-  "Reintentar"
+  "Reintentar",
+  "Ver los turnos en Dinero"
  ],
  "features/payroll/PayrollAdminPage.tsx": [
+  "Encenderla en Funciones",
   "Horas",
+  "La fórmula del Código Sustantivo del Trabajo combina los recargos en ocho categorías y todavía no está implementada.",
+  "La liquidación es para control interno, no es la liquidación legal",
   "Liquidaciones",
+  "Nómina y propinas están las dos encendidas.",
   "Nómina y propinas no está habilitado",
   "Propinas",
+  "Sólo «Nómina»",
+  "Sólo «Propinas»",
   "Tablas de recargos",
-  "Tarifas y calendario"
+  "Tarifas y calendario",
+  "«Nómina» (payroll) está apagada: horas, tarifas, recargos y liquidaciones no se dibujan.",
+  "«Propinas» (pos.tips) está apagada: la pestaña de reparto no se dibuja."
  ],
  "features/payroll/RunsTab.tsx": [
+  "Liquidado",
   "No hay liquidaciones en este período",
   "No se pudieron cargar las liquidaciones",
   "No se pudo cargar el detalle de la liquidación",
@@ -533,6 +633,7 @@
   "De la plata que tenés en la mano",
   "Del cajón",
   "Efectivo",
+  "Método de reparto de esta sede",
   "Método de reparto de propinas",
   "No hay propinas para repartir en este período",
   "No se pudo calcular la propuesta",
@@ -547,14 +648,23 @@
  "features/payroll/WagesCalendarTab.tsx": [
   "Día de la Independencia",
   "Elegí a quién",
+  "Fecha",
+  "Festivos",
   "No se pudieron cargar las tarifas",
   "No se pudieron cargar las áreas",
   "No se pudieron cargar los festivos",
+  "Nombre",
+  "Persona",
+  "Pesos por hora",
   "Reintentar",
+  "Rige desde",
   "Salón",
+  "Tarifa por hora",
   "Todavía no hay festivos cargados",
   "Todavía no hay tarifas cargadas",
-  "Todavía no hay áreas asignadas"
+  "Todavía no hay áreas asignadas",
+  "Área",
+  "Área por persona"
  ],
  "features/people/PeopleSection.tsx": [
   "No se pudo cargar el personal",
@@ -579,9 +689,9 @@
   "Todos los proveedores"
  ],
  "features/purchases/PurchasesAdminPage.tsx": [
-  "Compras no está habilitado",
   "Cuentas por pagar",
   "Proveedores",
+  "Proveedores activos",
   "Recepciones"
  ],
  "features/purchases/ReceptionDetailDialog.tsx": [
@@ -598,11 +708,13 @@
  "features/purchases/ReceptionsTab.tsx": [
   "Confirmada",
   "Estado",
+  "Ir a Proveedores",
   "No se pudieron cargar las recepciones",
   "Proveedor",
   "Reintentar",
   "Revertida",
   "Sin recepciones en el rango",
+  "Todavía no hay proveedores activos",
   "Todos los estados",
   "Todos los proveedores"
  ],
@@ -631,7 +743,8 @@
   "unidad"
  ],
  "features/recipes/PreparationsAdminPage.tsx": [
-  "Preparaciones no está habilitada",
+  "Por lote en cero o negativo",
+  "Preparaciones",
   "Todavía no hay preparaciones"
  ],
  "features/recipes/QuickProductionPage.tsx": [
@@ -649,6 +762,8 @@
   "Exportar CSV",
   "Impuesto de documentos",
   "Impuesto de notas",
+  "Lo devuelto",
+  "Lo emitido",
   "Mensual",
   "No se pudo cargar el informe",
   "Propinas del período (informativo)",
@@ -658,6 +773,7 @@
  "features/reports/SalesPage.tsx": [
   "Agotados",
   "Documentos con detalle",
+  "El período y la agrupación se eligen en cada pestaña; la sede, en la lateral.",
   "Informe del contador",
   "Notas",
   "Ventas"
@@ -667,35 +783,48 @@
   "Comandas pagadas",
   "Comensales",
   "Costo teórico",
+  "Del período",
   "Exportar CSV",
   "Impuesto discriminado",
   "Margen bruto teórico",
   "No se pudieron cargar las ventas",
-  "Propinas (informativo)",
+  "Propinas (informativo) — no son venta",
+  "Qué tan en serio tomar ese margen",
   "Reintentar",
   "Sin ventas en este período",
   "Ticket por comensal",
   "Ticket promedio",
   "Ventas cobradas",
-  "Ventas netas"
+  "Ventas netas",
+  "Ventas netas del período"
  ],
  "features/reports/TodayPage.tsx": [
+  "Ahora mismo",
+  "Cargando el pulso de hoy",
   "Comandas abiertas",
   "Comandas atascadas",
   "Comandas pagadas",
   "Comensales",
+  "Del día",
+  "Día operativo",
   "Efectivo esperado",
+  "Impuesto discriminado",
   "Inventario no confiable",
   "Mesas ocupadas",
   "No se pudo cargar «Hoy»",
-  "Propinas de hoy",
+  "Propinas de hoy — no son venta",
   "Reintentar",
+  "Requiere tu atención",
+  "Se actualiza sola cada 30 s ·",
   "Sin comandas abiertas",
   "Sin datos",
   "Sin turno abierto",
   "Ticket por comensal",
   "Ticket promedio",
-  "Todo al día"
+  "Todo al día",
+  "Ventas cobradas",
+  "Ventas netas",
+  "Ventas netas de hoy"
  ],
  "features/reports/UnavailableLogTab.tsx": [
   "Exportar CSV",
@@ -709,15 +838,23 @@
  ],
  "features/settings/CashSection.tsx": [
   "Base fija de apertura",
+  "Con qué abre el cajón",
+  "Cuánto puede desajustar un cierre",
+  "Diferencia crítica",
   "Elegí una sede",
   "Límite de gasto menor",
   "No se pudo cargar la configuración de caja",
   "Reintentar",
   "Reserva por defecto",
+  "Retiros y gasto menor",
+  "Tolerancia sin causa identificada",
+  "Turnos seguidos con diferencia para alertar",
   "Umbral de retiro"
  ],
  "features/settings/ChannelsSection.tsx": [
+  "Canales activos",
   "Elegí una sede",
+  "Estaciones, cursos y tiempos objetivo",
   "No se pudieron cargar las plataformas",
   "Plataformas no está habilitado",
   "Rappi",
@@ -726,6 +863,8 @@
   "rappi"
  ],
  "features/settings/FiscalSection.tsx": [
+  "Cargar un cambio",
+  "Códigos de responsabilidad RUT (separados por coma)",
   "Elegí una sede",
   "Excluido",
   "INC 8%",
@@ -733,34 +872,62 @@
   "Jurídica",
   "Natural",
   "Ordinario",
+  "Persona",
+  "Régimen",
   "Simple",
-  "Sin configuración fiscal vigente"
+  "Sin configuración fiscal vigente",
+  "Sin versiones anteriores",
+  "Tasa por defecto",
+  "Vigente desde"
  ],
  "features/settings/InventorySection.tsx": [
+  "Crear insumos",
+  "Desde qué desvío se revisa una varianza",
   "Elegí una sede",
-  "Inventario no está habilitado",
+  "Insumos críticos",
   "No se pudieron cargar los insumos",
   "No se pudieron cargar los umbrales",
   "Reintentar",
   "Sin insumos activos",
-  "Varianza no está habilitada"
+  "Umbral amarillo (revisar), en %",
+  "Umbral rojo (sostenido), en %"
  ],
  "features/settings/OrganizationSection.tsx": [
+  "La organización",
   "No se pudo cargar la organización",
+  "Nombre de la organización",
   "Reintentar"
  ],
  "features/settings/SalesSection.tsx": [
+  "Cortesías por turno",
+  "Cursos y tiempo objetivo",
   "Elegí una sede",
+  "Estaciones (una por línea)",
+  "Los motivos tipados",
+  "Límite de descuento (%)",
+  "Límite diario de descuento (%)",
+  "Medios de pago",
+  "Motivos de anulación (uno por línea)",
+  "Motivos de cortesía (uno por línea)",
+  "Motivos de descuento (uno por línea)",
   "No se pudo cargar la configuración de ventas",
+  "Propina sugerida (%, máx. 10)",
+  "Qué puede hacer el salón con el precio",
   "Reintentar"
  ],
  "features/settings/SettingsPage.tsx": [
+  "Aplica a",
+  "Cada sede tiene sus propios ajustes: el selector de sede está en la lateral.",
   "Caja",
+  "Cambia pantallas del salón",
   "Canales y plataformas",
+  "Diez secciones, agrupadas en el índice.",
   "Empleados",
   "Fiscal",
   "Inventario",
+  "Marcadas con un punto ámbar en el índice.",
   "Organización",
+  "Secciones",
   "Sedes",
   "UVT",
   "Ventas",
@@ -782,17 +949,23 @@
  ],
  "features/settings/StoresSection.tsx": [
   "No se pudieron cargar las sedes",
+  "Nueva sede",
   "Nuevo PIN de sede",
   "Reintentar",
+  "Rotar el PIN…",
   "Todavía no hay sedes"
  ],
  "features/settings/UvtSection.tsx": [
+  "La UVT de cada año",
   "No se pudo cargar la tabla de UVT",
   "Reintentar"
  ],
  "features/settings/ZonesTablesSection.tsx": [
+  "Crear una zona",
   "Elegir…",
-  "Elegí una sede"
+  "Elegí una sede",
+  "Todavía no hay mesas",
+  "Todavía no hay zonas"
  ],
  "features/shifts/CloseWizard.tsx": [
   "Continuar",
@@ -858,14 +1031,20 @@
  ],
  "features/shifts/admin/HistoryTab.tsx": [
   "No se pudo cargar el historial",
+  "Quitar el período y ver todo el historial",
   "Reintentar",
   "Sin turnos para estos filtros"
  ],
  "features/shifts/admin/MoneyAdminPage.tsx": [
+  "Cierre administrativo, Reabrir, Cancelar y Ajustar apertura se abren desde «Ver detalle» de una fila.",
   "Historial",
-  "Operacional"
+  "Los rescates de administrador viven en el detalle de cada turno",
+  "Operacional",
+  "Operacional muestra los turnos de hoy; Historial, cualquier rango."
  ],
  "features/shifts/admin/OperationalTab.tsx": [
+  "Ahora mismo",
+  "Del día",
   "No se pudieron cargar los turnos",
   "Reintentar",
   "Sin turnos hoy en esta sede"
@@ -875,12 +1054,16 @@
   "Por persona"
  ],
  "features/shifts/admin/PersonActivityTab.tsx": [
+  "Autorizaciones dadas",
   "Elegí una persona",
   "Elegí una persona para ver su actividad",
   "No dio autorizaciones en este rango",
   "No se pudo cargar la actividad",
+  "Racha de cierres con diferencia",
   "Reintentar",
-  "Sin turnos en este rango"
+  "Sin turnos en este rango",
+  "Turnos",
+  "Ventas y ticket promedio"
  ],
  "features/shifts/admin/ShiftDetailDialog.tsx": [
   "Cancelar",

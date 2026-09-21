@@ -84,6 +84,16 @@ export interface AlertRoute {
   to: string
   /** Texto del enlace: nombra la pantalla donde se resuelve (SPEC-NEGOCIO §9.1: "nombra la acción correctiva"). */
   label: string
+  /**
+   * La pantalla **en palabras** para `FilterLink` (`docs/PATRONES-ADMIN.md`
+   * § 6): «Inventario», «Dinero», «Documentos». Nunca la ruta cruda — quien
+   * lee esto es el dueño de un restaurante, no un programador.
+   */
+  screen: string
+  /** La pestaña en palabras, si el destino tiene pestañas: «Stock», «Rangos». */
+  tab?: string
+  /** El filtro en palabras, si el enlace lleva uno puesto: «negativos». */
+  filter?: string
 }
 
 /**
@@ -94,26 +104,26 @@ export interface AlertRoute {
  * romper la pantalla.
  */
 const ALERT_ROUTES: Record<string, AlertRoute> = {
-  shift_stale: { to: "/admin/dinero", label: "Ver turno" },
-  cash_difference: { to: "/admin/dinero", label: "Ver caja" },
-  cash_difference_critical: { to: "/admin/dinero", label: "Ver caja" },
-  difference_streak: { to: "/admin/personal", label: "Ver racha por persona" },
-  cash_over_threshold: { to: "/admin/dinero", label: "Ver caja" },
-  pin_locked: { to: "/admin/personal", label: "Ver personal" },
-  product_unavailable: { to: "/admin/carta", label: "Ver carta" },
-  discount_rate_high: { to: "/admin/personal", label: "Ver descuentos por persona" },
-  courtesy_limit: { to: "/admin/personal", label: "Ver cortesías por persona" },
-  void_rate_high: { to: "/admin/personal", label: "Ver anulaciones por persona" },
-  order_unsent_too_long: { to: "/admin/pedidos", label: "Ver comanda" },
-  order_unpaid_too_long: { to: "/admin/pedidos", label: "Ver comanda" },
-  fiscal_rejected: { to: "/admin/fiscal/documentos", label: "Ver documento" },
-  fiscal_contingency_overdue: { to: "/admin/fiscal/documentos", label: "Ver documento" },
-  fiscal_range_low: { to: "/admin/fiscal/rangos", label: "Ver rango" },
-  pending_refund: { to: "/admin/fiscal/devoluciones-pendientes", label: "Ver devolución" },
+  shift_stale: { to: "/admin/dinero", label: "Ver turno", screen: "Dinero", tab: "Operacional" },
+  cash_difference: { to: "/admin/dinero", label: "Ver caja", screen: "Dinero", tab: "Operacional" },
+  cash_difference_critical: { to: "/admin/dinero", label: "Ver caja", screen: "Dinero", tab: "Operacional" },
+  difference_streak: { to: "/admin/personal", label: "Ver racha por persona", screen: "Turnos y personal", tab: "Por persona" },
+  cash_over_threshold: { to: "/admin/dinero", label: "Ver caja", screen: "Dinero", tab: "Operacional" },
+  pin_locked: { to: "/admin/personal", label: "Ver personal", screen: "Turnos y personal" },
+  product_unavailable: { to: "/admin/carta", label: "Ver carta", screen: "Carta" },
+  discount_rate_high: { to: "/admin/personal", label: "Ver descuentos por persona", screen: "Turnos y personal", tab: "Por persona" },
+  courtesy_limit: { to: "/admin/personal", label: "Ver cortesías por persona", screen: "Turnos y personal", tab: "Por persona" },
+  void_rate_high: { to: "/admin/personal", label: "Ver anulaciones por persona", screen: "Turnos y personal", tab: "Por persona" },
+  order_unsent_too_long: { to: "/admin/pedidos", label: "Ver comanda", screen: "Pedidos" },
+  order_unpaid_too_long: { to: "/admin/pedidos", label: "Ver comanda", screen: "Pedidos" },
+  fiscal_rejected: { to: "/admin/fiscal/documentos", label: "Ver documento", screen: "Documentos" },
+  fiscal_contingency_overdue: { to: "/admin/fiscal/documentos", label: "Ver documento", screen: "Documentos" },
+  fiscal_range_low: { to: "/admin/fiscal/rangos", label: "Ver rango", screen: "Rangos" },
+  pending_refund: { to: "/admin/fiscal/devoluciones-pendientes", label: "Ver devolución", screen: "Devoluciones" },
 }
 
 export function alertRoute(type: string): AlertRoute {
-  return ALERT_ROUTES[type] ?? { to: "/admin/notifications", label: "Ver notificaciones" }
+  return ALERT_ROUTES[type] ?? { to: "/admin/notifications", label: "Ver notificaciones", screen: "Notificaciones" }
 }
 
 /** "Hoy" en la zona de la sede, sólo como valor inicial de un filtro de pantalla

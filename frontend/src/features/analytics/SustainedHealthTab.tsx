@@ -9,6 +9,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import { getControlHealthSustained } from "@/api/analytics"
+import { GroupLabel } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { StatTile } from "@/components/StatTile"
 import { errorMessage } from "@/lib/errors"
@@ -24,7 +25,7 @@ export function SustainedHealthTab({ storeId }: { storeId: number }): React.JSX.
   }
   if (query.isError) {
     return (
-      <EmptyState role="alert" title="No se pudo evaluar la salud sostenida" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
+      <EmptyState reason="error" title="No se pudo evaluar la salud sostenida" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
     )
   }
 
@@ -38,18 +39,33 @@ export function SustainedHealthTab({ storeId }: { storeId: number }): React.JSX.
       </p>
       {data?.sustained_red === null || data === undefined ? (
         <EmptyState
+          reason="dependency"
           title="Sin historial suficiente"
           description={data?.reason ?? "Hacen falta al menos dos conteos completos aplicados para evaluar si está sostenido."}
         />
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <StatTile
-            label="Brecha sostenida en rojo"
-            value={data.sustained_red ? "Sí" : "No"}
-            tone={data.sustained_red ? "critical" : "default"}
-          />
-          <StatTile label="Ventanas evaluadas" value={String(data.windows_evaluated)} />
-        </div>
+        <GroupLabel label="Sostenido" says="sobre varias ventanas de conteo, no sobre un conteo malo">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <StatTile
+              label="Brecha sostenida en rojo"
+              value={data.sustained_red ? "Sí" : "No"}
+              tone={data.sustained_red ? "critical" : "default"}
+              // § 5, regla dura: una tarjeta con tono lleva a algún lado —
+              // si no, el color es decoración.
+              link={{ to: "/admin/inventario?tab=salud", screen: "Inventario", tab: "Salud del control" }}
+              hint={
+                data.sustained_red
+                  ? "La brecha superó el umbral en al menos 2 de las últimas 3 ventanas."
+                  : "No superó el umbral en 2 de las últimas 3 ventanas."
+              }
+            />
+            <StatTile
+              label="Ventanas evaluadas"
+              value={String(data.windows_evaluated)}
+              hint="Cada ventana es el período entre dos conteos completos aplicados."
+            />
+          </div>
+        </GroupLabel>
       )}
     </div>
   )

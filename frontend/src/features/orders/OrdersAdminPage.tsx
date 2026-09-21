@@ -11,7 +11,16 @@ import {
   type AdminOrdersReportOut,
   type OrderOut,
 } from "@/api/orders"
-import { Badge } from "@/components/ui/badge"
+import {
+  DenseTable,
+  DenseTableBar,
+  FilterEmptyState,
+  GroupLabel,
+  PageHeader,
+  TimeAgo,
+  type DenseColumn,
+  type LegendEntry,
+} from "@/components/admin"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
@@ -23,6 +32,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CategoryBars } from "@/features/reports/charts"
 import { formatPercent } from "@/features/reports/lib"
 import { errorMessage } from "@/lib/errors"
+import { cn } from "@/lib/utils"
 import { formatCOP } from "@/lib/money"
 import { formatInstant } from "@/lib/businessDate"
 
@@ -37,11 +47,46 @@ const FLAG_OPTIONS: { value: string; label: string }[] = [
   { value: "after_bill", label: "Cambios después de la cuenta" },
 ]
 
+/** La leyenda del pie: las distinciones que Pedidos separa a propósito. */
+const ORDERS_LEGEND: readonly LegendEntry[] = [
+  {
+    term: "Tras la cuenta",
+    meaning: (
+      <>
+        la anulación llegó <b>después de presentar la cuenta</b>. No es lo mismo que una anulación normal: el
+        cliente ya había visto el total, y por eso pide autorización.
+      </>
+    ),
+  },
+  {
+    term: "Cortesía",
+    meaning: "el plato salió y no se cobró. Sale del inventario igual; lo que no entra es la venta.",
+  },
+  {
+    term: "Sin enviar",
+    meaning: (
+      <>
+        no es <b>sin cobrar</b>: un ítem que se cobró sin haber pasado por cocina se vendió igual, pero nunca
+        se preparó contra comanda.
+      </>
+    ),
+  },
+]
+
 function minutesLabel(minutes: number | null | undefined): string {
   return minutes !== null && minutes !== undefined ? `${minutes} min` : "—"
 }
 
-function OrderDetailDialog({ orderId, onOpenChange }: { orderId: number | null; onOpenChange: (open: boolean) => void }) {
+function OrderDetailDialog({
+  orderId,
+  listRow,
+  onOpenChange,
+}: {
+  orderId: number | null
+  /** La fila del listado, que es la que trae `void_details`. */
+  listRow?: AdminOrderListItem
+  onOpenChange: (open: boolean) => void
+}) {
   const query = useQuery<OrderOut>({
     queryKey: ["admin-orders", "detail", orderId],
     queryFn: () => adminGetOrder(orderId as number),
@@ -89,6 +134,22 @@ function OrderDetailDialog({ orderId, onOpenChange }: { orderId: number | null; 
                 <dd className="tabular-nums">{formatCOP(order.totals?.total)}</dd>
               </div>
             </dl>
+            {(listRow?.void_details ?? []).length > 0 ? (
+              <div>
+                <h3 className="mb-1 font-medium">Anulaciones</h3>
+                {/* La pista de auditoría vive acá entera —motivo, si fue
+                    después de la cuenta, minutos tras enviar y quién
+                    autorizó—. En la fila densa queda el recuento y el mismo
+                    texto en el `title`: una sublista adentro de una celda
+                    hacía crecer la fila muy por encima de los 34 px del
+                    patrón 8. */}
+                <ul className="space-y-0.5 text-xs text-muted-foreground">
+                  {(listRow?.void_details ?? []).map((v, i) => (
+                    <li key={`${v.item_id ?? i}`}>{voidTrailLine(v)}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div>
               <h3 className="mb-1 font-medium">Ítems</h3>
               <ul className="space-y-1">
@@ -111,21 +172,25 @@ function OrderDetailDialog({ orderId, onOpenChange }: { orderId: number | null; 
   )
 }
 
-function VoidsDetail({ voidDetails }: { voidDetails: AdminOrderListItem["void_details"] }) {
-  const rows = voidDetails ?? []
-  if (rows.length === 0) return null
-  return (
-    <ul className="space-y-0.5 text-xs text-muted-foreground">
-      {rows.map((v, i) => (
-        <li key={`${v.item_id ?? i}`}>
-          {v.reason ? (VOID_REASON_LABEL[v.reason] ?? v.reason) : "Motivo no informado"}
-          {v.after_bill ? " · después de la cuenta" : ""}
-          {v.minutes_since_sent !== null && v.minutes_since_sent !== undefined ? ` · ${v.minutes_since_sent} min tras enviar` : ""}
-          {v.authorized_by ? ` · autorizó ${v.authorized_by}` : ""}
-        </li>
-      ))}
-    </ul>
-  )
+/**
+ * **La pista de auditoría de cada anulación**, en una línea de texto: motivo,
+ * si fue después de la cuenta, minutos tras enviar y quién autorizó
+ * (`docs/INVENTARIO-CONTROLES.md` § 16 la marca como «fácil de aplanar en un
+ * rediseño»). Se arma una sola vez y se usa en los dos lados: el `title` de
+ * la celda densa y el diálogo de detalle, que es donde la comanda se cuenta
+ * entera.
+ */
+export function voidTrailLine(v: NonNullable<AdminOrderListItem["void_details"]>[number]): string {
+  return [
+    v.reason ? (VOID_REASON_LABEL[v.reason] ?? v.reason) : "Motivo no informado",
+    v.after_bill ? "después de la cuenta" : null,
+    v.minutes_since_sent !== null && v.minutes_since_sent !== undefined
+      ? `${v.minutes_since_sent} min tras enviar`
+      : null,
+    v.authorized_by ? `autorizó ${v.authorized_by}` : null,
+  ]
+    .filter((p): p is string => p !== null)
+    .join(" · ")
 }
 
 function KitchenStationTimes({ stations }: { stations: AdminOrderKitchenStationTimeOut[] }) {
@@ -209,74 +274,158 @@ export function OrdersAdminPage(): React.JSX.Element {
   const report = query.data
   const rows = report?.rows ?? []
 
+  const filterChips = (
+    <>
+      <DateRangeFilter
+        idPrefix="orders"
+        from={from}
+        to={to}
+        onChange={(r) => {
+          setFrom(r.from)
+          setTo(r.to)
+        }}
+      />
+      <div className="flex items-center gap-2">
+        <Label htmlFor="orders-status">Estado</Label>
+        <Select value={status} onValueChange={(v) => setStatus(!v || v === "all" ? undefined : v)}>
+          <SelectTrigger id="orders-status" className="h-8 w-36">
+            <SelectValue placeholder="Todos" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            {Object.entries(ORDER_STATUS_LABEL).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-center gap-2">
+        <Label htmlFor="orders-channel">Canal</Label>
+        <Select value={channel} onValueChange={(v) => setChannel(!v || v === "all" ? undefined : v)}>
+          <SelectTrigger id="orders-channel" className="h-8 w-36">
+            <SelectValue placeholder="Todos" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            {Object.entries(CHANNEL_LABEL).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <CsvExportButton href={adminOrdersCsvUrl(filters)} label="Exportar CSV" />
+    </>
+  )
+
+  const columns: readonly DenseColumn<AdminOrderListItem>[] = [
+    // Un número de comanda es UNA palabra: `#1418`, nunca `141` / `8`.
+    { key: "id", header: "#", kind: "id", cell: (r) => `#${r.id}` },
+    {
+      key: "channel",
+      header: "Canal",
+      // La palabra del negocio, nunca el enum: «Mesa», no `dine_in`.
+      cell: (r) => (r.channel ? (CHANNEL_LABEL[r.channel] ?? r.channel) : "—"),
+    },
+    { key: "tables", header: "Mesas", cell: (r) => (r.tables ?? []).join(", ") || "—" },
+    {
+      key: "status",
+      header: "Estado",
+      cell: (r) => (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          {r.status ? (ORDER_STATUS_LABEL[r.status] ?? r.status) : "—"}
+          {r.transferred ? <span className="rounded border px-1 text-[0.7rem]">Trasladada</span> : null}
+          {r.is_staff_meal ? <span className="rounded border px-1 text-[0.7rem]">Personal</span> : null}
+        </span>
+      ),
+    },
+    { key: "opened", header: "Abierta", kind: "secondary", cell: (r) => <TimeAgo iso={r.opened_at} /> },
+    { key: "paid", header: "Pagada", kind: "secondary", cell: (r) => <TimeAgo iso={r.paid_at} /> },
+    { key: "table_min", header: "Mesa (min)", kind: "number", cell: (r) => minutesLabel(r.table_minutes) },
+    {
+      key: "bill_min",
+      header: "Cuenta→cobro (min)",
+      kind: "number",
+      cell: (r) => minutesLabel(r.bill_to_paid_minutes),
+    },
+    { key: "total", header: "Total", kind: "number", cell: (r) => formatCOP(r.total) },
+    {
+      key: "methods",
+      header: "Medio de pago",
+      cell: (r) => (r.payment_methods ?? []).join(", ") || "—",
+    },
+    {
+      key: "voids",
+      header: "Anulaciones",
+      kind: "number",
+      // El recuento en la celda; la pista de auditoría entera en el `title` y
+      // en el diálogo de detalle. Una sublista acá hacía crecer la fila.
+      cell: (r) => (
+        <span className={cn(r.voids_after_bill ? "font-bold text-destructive" : undefined)}>
+          {r.voided_items ?? 0}
+          {r.voids_after_bill ? ` (${r.voids_after_bill} tras la cuenta)` : ""}
+        </span>
+      ),
+      cellTitle: (r) =>
+        (r.void_details ?? []).length > 0 ? (r.void_details ?? []).map(voidTrailLine).join("\n") : undefined,
+    },
+    { key: "courtesies", header: "Cortesías", kind: "number", cell: (r) => r.courtesies ?? 0 },
+    { key: "discounts", header: "Descuentos", kind: "number", cell: (r) => formatCOP(r.discount_total) },
+    {
+      key: "detail",
+      header: "",
+      kind: "actions",
+      // La fila entera abre el detalle con el mouse; este botón es el mismo
+      // trigger operable con teclado — un `<tr onClick>` solo no lo sería.
+      cell: (r) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            setDetailId(r.id)
+          }}
+          className="rounded text-xs whitespace-nowrap text-muted-foreground underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          Ver detalle #{r.id} →
+        </button>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">Pedidos</h1>
-        <CsvExportButton href={adminOrdersCsvUrl(filters)} label="Exportar CSV" />
-      </div>
+      <PageHeader
+        name="Pedidos"
+        question="Qué comandas se abrieron, cuánto tardaron y cuáles se anularon — con quién autorizó cada anulación."
+        context={
+          report
+            ? [
+                { label: "Comandas en el período", value: rows.length },
+                {
+                  label: "Anulaciones después de la cuenta",
+                  value: rows.reduce((acc, r) => acc + (r.voids_after_bill ?? 0), 0),
+                },
+              ]
+            : undefined
+        }
+      />
 
-      <div className="flex flex-wrap items-end gap-3">
-        <DateRangeFilter idPrefix="orders" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
-        <div className="space-y-1">
-          <Label htmlFor="orders-status">Estado</Label>
-          <Select value={status} onValueChange={(v) => setStatus(!v || v === "all" ? undefined : v)}>
-            <SelectTrigger id="orders-status" className="h-10 w-40">
-              <SelectValue placeholder="Todos" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {Object.entries(ORDER_STATUS_LABEL).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="orders-channel">Canal</Label>
-          <Select value={channel} onValueChange={(v) => setChannel(!v || v === "all" ? undefined : v)}>
-            <SelectTrigger id="orders-channel" className="h-10 w-40">
-              <SelectValue placeholder="Todos" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {Object.entries(CHANNEL_LABEL).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {FLAG_OPTIONS.map((flag) => (
-          <button
-            key={flag.value}
-            type="button"
-            aria-pressed={flags.includes(flag.value)}
-            onClick={() => toggleFlag(flag.value)}
-            className={`min-h-11 rounded-full border px-3 text-sm ${flags.includes(flag.value) ? "border-primary bg-primary/10" : "border-border"}`}
-          >
-            {flag.label}
-          </button>
-        ))}
-      </div>
-
-      {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando pedidos…</p>
-      ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudieron cargar los pedidos" description={errorMessage(query.error)} />
-      ) : report ? (
-        <div className="space-y-6">
+      {query.isError ? (
+        <EmptyState
+          role="alert"
+          title="No se pudieron cargar los pedidos"
+          description={errorMessage(query.error)}
+        />
+      ) : (
+        <div className="space-y-5">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <StatTile label="Comandas en el período" value={String(rows.length)} />
             <StatTile
               label="Ítems enviados al cobrar"
-              value={formatPercent(report.sent_at_payment_ratio)}
+              value={formatPercent(report?.sent_at_payment_ratio)}
               hint="Debieron enviarse a cocina antes de presentar la cuenta"
             />
             <StatTile
@@ -285,85 +434,89 @@ export function OrdersAdminPage(): React.JSX.Element {
             />
           </div>
 
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold">Tiempo de cocina por estación (listo − enviado)</h2>
-            <KitchenStationTimes stations={report.kitchen_times_by_station} />
-          </section>
+          <GroupLabel
+            label="Tiempo de cocina por estación"
+            says="listo − enviado, por estación: p50 y p90 sobre las muestras del período"
+          >
+            <KitchenStationTimes stations={report?.kitchen_times_by_station ?? []} />
+          </GroupLabel>
 
-          {rows.length === 0 ? (
-            <EmptyState title="Ningún pedido coincide con estos filtros" />
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>#</TableHead>
-                    <TableHead>Canal</TableHead>
-                    <TableHead>Mesas</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Abierta</TableHead>
-                    <TableHead>Pagada</TableHead>
-                    <TableHead>Mesa (min)</TableHead>
-                    <TableHead>Cuenta→cobro (min)</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Medio de pago</TableHead>
-                    <TableHead>Anulaciones</TableHead>
-                    <TableHead>Cortesías</TableHead>
-                    <TableHead>Descuentos</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((row) => (
-                    <TableRow key={row.id} className="cursor-pointer" onClick={() => setDetailId(row.id)}>
-                      <TableCell>{row.id}</TableCell>
-                      <TableCell>{row.channel ? CHANNEL_LABEL[row.channel] ?? row.channel : "—"}</TableCell>
-                      <TableCell>{(row.tables ?? []).join(", ") || "—"}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          <Badge variant="outline">{row.status ? ORDER_STATUS_LABEL[row.status] ?? row.status : "—"}</Badge>
-                          {row.transferred ? <Badge variant="secondary">Trasladada</Badge> : null}
-                          {row.is_staff_meal ? <Badge variant="secondary">Personal</Badge> : null}
-                        </div>
-                      </TableCell>
-                      <TableCell>{formatInstant(row.opened_at)}</TableCell>
-                      <TableCell>{formatInstant(row.paid_at)}</TableCell>
-                      <TableCell className="tabular-nums">{minutesLabel(row.table_minutes)}</TableCell>
-                      <TableCell className="tabular-nums">{minutesLabel(row.bill_to_paid_minutes)}</TableCell>
-                      <TableCell className="tabular-nums">{formatCOP(row.total)}</TableCell>
-                      <TableCell>{(row.payment_methods ?? []).join(", ") || "—"}</TableCell>
-                      <TableCell className="tabular-nums">
-                        {row.voided_items ?? 0}
-                        {row.voids_after_bill ? ` (${row.voids_after_bill} después de la cuenta)` : ""}
-                        <VoidsDetail voidDetails={row.void_details} />
-                      </TableCell>
-                      <TableCell className="tabular-nums">{row.courtesies ?? 0}</TableCell>
-                      <TableCell className="tabular-nums">{formatCOP(row.discount_total)}</TableCell>
-                      <TableCell className="text-right">
-                        {/* La fila entera abre el detalle con el mouse (`onClick` de arriba,
-                            conveniencia visual); este botón es el mismo trigger operable con
-                            teclado — un <tr onClick> solo no tiene equivalente de teclado. */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setDetailId(row.id)
-                          }}
-                          className="rounded text-xs text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        >
-                          Ver detalle #{row.id} →
-                        </button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+          <GroupLabel
+            label="Las comandas"
+            says="una fila por comanda del período, con su pista de anulaciones"
+          >
+            {/* Las seis marcas combinables. Son filtros de ESTA tabla, así
+                que viven en su barra (§ 1: el alcance se lee por dónde vive
+                el control). */}
+            <div className="mb-2 flex flex-wrap gap-2">
+              {FLAG_OPTIONS.map((flag) => (
+                <button
+                  key={flag.value}
+                  type="button"
+                  aria-pressed={flags.includes(flag.value)}
+                  onClick={() => toggleFlag(flag.value)}
+                  className={`rounded-full border px-3 py-1 text-xs ${flags.includes(flag.value) ? "border-primary bg-primary/10 font-bold text-primary" : "border-border text-muted-foreground"}`}
+                >
+                  {flag.label}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
-      ) : null}
 
-      <OrderDetailDialog orderId={detailId} onOpenChange={(open) => !open && setDetailId(null)} />
+            <DenseTable
+              caption="Comandas del período"
+              columns={columns}
+              rows={rows}
+              rowKey={(r) => String(r.id)}
+              rowStatus={(r) => (r.voids_after_bill ? "critical" : r.voided_items ? "warning" : "none")}
+              legend={ORDERS_LEGEND}
+              bar={
+                <DenseTableBar
+                  shown={rows.length}
+                  total={rows.length}
+                  noun="comandas en el período"
+                  hidden={
+                    query.isLoading
+                      ? "contando…"
+                      : flags.length > 0
+                        ? `filtradas por ${flags.map((f) => FLAG_OPTIONS.find((o) => o.value === f)?.label ?? f).join(" · ")}`
+                        : undefined
+                  }
+                >
+                  {filterChips}
+                </DenseTableBar>
+              }
+              empty={
+                query.isLoading ? undefined : flags.length > 0 ? (
+                  <FilterEmptyState
+                    title="Ningún pedido coincide con estos filtros"
+                    filters={
+                      flags.map((f) => FLAG_OPTIONS.find((o) => o.value === f)?.label ?? f) as [
+                        string,
+                        ...string[],
+                      ]
+                    }
+                    onRemove={(label) => {
+                      const opt = FLAG_OPTIONS.find((o) => o.label === label)
+                      if (opt) toggleFlag(opt.value)
+                    }}
+                  />
+                ) : (
+                  <EmptyState
+                    title="Ningún pedido coincide con estos filtros"
+                    description="Probá otro rango de fechas, otro estado u otro canal."
+                  />
+                )
+              }
+            />
+          </GroupLabel>
+        </div>
+      )}
+
+      <OrderDetailDialog
+        orderId={detailId}
+        listRow={rows.find((r) => r.id === detailId)}
+        onOpenChange={(open) => !open && setDetailId(null)}
+      />
     </div>
   )
 }

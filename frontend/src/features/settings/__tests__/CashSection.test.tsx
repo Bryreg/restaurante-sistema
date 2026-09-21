@@ -127,15 +127,24 @@ describe("CashSection — Ajustes → Caja (SPEC-NEGOCIO §3.2)", () => {
 
     renderWithProviders(<CashSection storeId={1} />, { me: ME })
 
-    await screen.findByLabelText("Tolerancia sin causa identificada")
-    await user.click(screen.getByRole("button", { name: /guardar/i }))
+    // La barra de guardado sólo se activa con un cambio pendiente
+    // (`docs/PATRONES-ADMIN.md` § 12): sin cambios dice «Sin cambios» y el
+    // botón está apagado. Así que primero se cambia algo, y recién ahí se
+    // guarda — que es lo que hace un dueño de verdad.
+    const critica = await screen.findByLabelText("Diferencia crítica")
+    await user.clear(critica)
+    await user.type(critica, "150000")
+    await user.tab()
+    await user.click(screen.getByRole("button", { name: "Guardar" }))
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Guardar" }))
 
     await waitFor(() => {
       const alertas = screen.getAllByRole("alert")
       expect(alertas.some((el) => /tiene que ser mayor que la tolerancia/i.test(el.textContent ?? ""))).toBe(true)
     })
-    // La pantalla sigue en pie y se puede volver a intentar.
-    expect(screen.getByRole("button", { name: /guardar/i })).toBeEnabled()
+    // La pantalla sigue en pie y se puede volver a intentar: el cambio sigue
+    // pendiente, así que la barra sigue activa.
+    expect(screen.getByRole("button", { name: "Guardar" })).toBeEnabled()
   })
 
   it("guarda las dos fronteras cuando el orden es válido", async () => {
@@ -149,7 +158,10 @@ describe("CashSection — Ajustes → Caja (SPEC-NEGOCIO §3.2)", () => {
     await user.clear(critica)
     await user.type(critica, "150000")
     await user.tab()
-    await user.click(screen.getByRole("button", { name: /guardar/i }))
+    await user.click(screen.getByRole("button", { name: "Guardar" }))
+    // La barra confirma enumerando los cambios, uno por uno, con el valor
+    // viejo tachado (§ 12). Guardar son dos pasos a propósito.
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Guardar" }))
 
     await waitFor(() => expect(setCashSettingsMock).toHaveBeenCalledTimes(1))
     const [, body] = setCashSettingsMock.mock.calls[0] as [number, CashSettings]

@@ -10,6 +10,7 @@ import { useState } from "react"
 
 import { createExpense, getExpenses, type ExpenseCategory } from "@/api/expenses"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
+import { DenseTable, DenseTableBar, type DenseColumn } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -17,14 +18,19 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/MoneyInput"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { daysAgoLocal, EXPENSE_CATEGORY_LABEL, expenseCategoryLabel, todayLocal } from "./lib"
 
-function CreateExpenseDialog({ storeId, onCreated }: { storeId: number; onCreated: () => void }): React.JSX.Element {
+function CreateExpenseDialog({
+  storeId,
+  onCreated,
+}: {
+  storeId: number
+  onCreated: () => void
+}): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [businessDate, setBusinessDate] = useState(todayLocal())
   const [category, setCategory] = useState<ExpenseCategory>("other")
@@ -60,7 +66,13 @@ function CreateExpenseDialog({ storeId, onCreated }: { storeId: number; onCreate
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label htmlFor="expense-date">Fecha de negocio</Label>
-              <Input id="expense-date" type="date" className="h-11" value={businessDate} onChange={(event) => setBusinessDate(event.target.value)} />
+              <Input
+                id="expense-date"
+                type="date"
+                className="h-11"
+                value={businessDate}
+                onChange={(event) => setBusinessDate(event.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label htmlFor="expense-amount">Monto</Label>
@@ -84,14 +96,24 @@ function CreateExpenseDialog({ storeId, onCreated }: { storeId: number; onCreate
           </div>
           <div className="space-y-1">
             <Label htmlFor="expense-description">Descripción</Label>
-            <Input id="expense-description" className="h-11" value={description} onChange={(event) => setDescription(event.target.value)} />
+            <Input
+              id="expense-description"
+              className="h-11"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+            />
           </div>
           {mutation.isError ? (
             <p role="alert" className="text-sm text-destructive">
               {errorMessage(mutation.error)}
             </p>
           ) : null}
-          <Button type="button" className="w-full" disabled={!canSubmit || mutation.isPending} onClick={() => mutation.mutate()}>
+          <Button
+            type="button"
+            className="w-full"
+            disabled={!canSubmit || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
             Guardar gasto
           </Button>
         </div>
@@ -110,45 +132,88 @@ export function ExpensesTab({ storeId }: { storeId: number }): React.JSX.Element
     queryFn: () => getExpenses({ storeId, from, to }),
   })
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <DateRangeFilter idPrefix="expenses" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
-        <CreateExpenseDialog storeId={storeId} onCreated={() => void queryClient.invalidateQueries({ queryKey: ["expenses", "list"] })} />
-      </div>
+  const rows = query.data ?? []
+  const total = rows.reduce((acc, e) => acc + Number(e.amount ?? 0), 0)
 
-      {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando gastos…</p>
-      ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudieron cargar los gastos" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
-      ) : (query.data ?? []).length === 0 ? (
-        <EmptyState title="No hay gastos registrados en este período" />
-      ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Categoría</TableHead>
-                <TableHead>Descripción</TableHead>
-                <TableHead>Monto</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(query.data ?? []).map((expense) => (
-                <TableRow key={expense.id}>
-                  <TableCell>{formatBusinessDate(expense.business_date)}</TableCell>
-                  <TableCell>{expenseCategoryLabel(expense.category)}</TableCell>
-                  <TableCell>{expense.description ?? "—"}</TableCell>
-                  <TableCell className="tabular-nums font-medium">{formatCOP(expense.amount ?? null)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </div>
+  const columns: readonly DenseColumn<(typeof rows)[number]>[] = [
+    {
+      key: "date",
+      header: "Fecha",
+      kind: "secondary",
+      cell: (e) => formatBusinessDate(e.business_date),
+    },
+    // La palabra del negocio, nunca el enum: la categoría es tipada y se
+    // escribe como la lee el dueño.
+    { key: "category", header: "Categoría", cell: (e) => expenseCategoryLabel(e.category) },
+    {
+      key: "description",
+      header: "Descripción",
+      kind: "name",
+      widthPx: 320,
+      cell: (e) => <span className="block truncate">{e.description || "—"}</span>,
+      cellTitle: (e) => e.description || undefined,
+    },
+    { key: "amount", header: "Monto", kind: "number", cell: (e) => formatCOP(e.amount) },
+  ]
+
+  if (query.isError) {
+    return (
+      <EmptyState
+        role="alert"
+        title="No se pudieron cargar los gastos"
+        description={errorMessage(query.error)}
+        action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+      />
+    )
+  }
+
+  return (
+    <DenseTable
+      caption="Gastos del período"
+      columns={columns}
+      rows={rows}
+      rowKey={(e) => String(e.id)}
+      bar={
+        <DenseTableBar
+          shown={rows.length}
+          total={rows.length}
+          noun="gastos en el período"
+          hidden={query.isLoading ? "contando…" : undefined}
+        >
+          <DateRangeFilter
+            idPrefix="expenses"
+            from={from}
+            to={to}
+            onChange={(r) => {
+              setFrom(r.from)
+              setTo(r.to)
+            }}
+          />
+          <CreateExpenseDialog
+            storeId={storeId}
+            onCreated={() => void queryClient.invalidateQueries({ queryKey: ["expenses", "list"] })}
+          />
+        </DenseTableBar>
+      }
+      footer={
+        rows.length > 0 ? (
+          <tr className="h-[34px]">
+            <td className="px-2 text-xs font-bold" colSpan={3}>
+              Total del período
+            </td>
+            <td className="px-2 text-right font-bold tabular-nums">{formatCOP(total)}</td>
+          </tr>
+        ) : undefined
+      }
+      note="Un gasto es plata que ya salió. Lo que todavía no salió pero vence, va en «Obligaciones»: son dos cosas distintas y por eso viven en pestañas distintas."
+      empty={
+        query.isLoading ? undefined : (
+          <EmptyState
+            title="No hay gastos registrados en este período"
+            description="Probá otro rango de fechas, o registrá el primero con «Registrar gasto»."
+          />
+        )
+      }
+    />
   )
 }
-
-export default ExpensesTab

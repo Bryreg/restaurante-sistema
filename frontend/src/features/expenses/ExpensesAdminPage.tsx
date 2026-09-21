@@ -10,7 +10,7 @@ import { useSearchParams } from "react-router-dom"
 
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
-import { EmptyState } from "@/components/EmptyState"
+import { FeatureOffEmptyState, PageHeader } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { BreakEvenTab } from "./BreakEvenTab"
@@ -40,10 +40,13 @@ export function ExpensesAdminPage(): React.JSX.Element {
     return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
   }
   if (!enabled) {
+    // Patrón 13, motivo «función apagada»: la entrada de navegación
+    // desaparece con el flag, pero la URL sobrevive en un marcador.
     return (
-      <EmptyState
-        title="Obligaciones y gastos no está habilitado"
-        description="Activá «Gastos y obligaciones» en Admin → Funciones para usar esta pantalla."
+      <FeatureOffEmptyState
+        feature="Gastos y obligaciones"
+        flag="money.obligations"
+        description="Sin ella el restaurante sólo ve lo que vende: los arriendos, los servicios y lo que hay que pagar el mes que viene no entran en ninguna cuenta."
       />
     )
   }
@@ -53,10 +56,10 @@ export function ExpensesAdminPage(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">Obligaciones y gastos</h1>
-        <p className="text-sm text-muted-foreground">Lo que cuesta tener el restaurante abierto.</p>
-      </div>
+      <PageHeader
+        name="Obligaciones y gastos"
+        question="Lo que cuesta tener el restaurante abierto, aunque no se venda nada: gastos del período, lo que vence, y a partir de cuánto se empieza a ganar."
+      />
       <Tabs
         value={tab}
         onValueChange={(value) => {

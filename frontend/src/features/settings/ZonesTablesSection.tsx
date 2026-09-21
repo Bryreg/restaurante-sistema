@@ -10,6 +10,12 @@ import {
   updateTable,
   updateZone,
 } from "@/api/stores";
+import {
+  DenseTable,
+  DenseTableBar,
+  DependencyEmptyState,
+  type DenseColumn,
+} from "@/components/admin";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,14 +29,6 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import {
-  Table as UiTable,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { errorMessage } from "@/lib/errors";
 
 /** Zonas y mesas de la sede: `/admin/zones`, `/admin/tables`. */
@@ -111,39 +109,84 @@ export function ZonesTablesSection({ storeId }: { storeId: number | null }): Rea
   const tables = tablesQuery.data ?? [];
   const zoneNameById = new Map(zones.map((z) => [z.id, z.name]));
 
+  const zonasActivas = zones.filter((z) => z.active).length;
+  const mesasActivas = tables.filter((t) => t.active).length;
+  const sillasActivas = tables.filter((t) => t.active).reduce((n, t) => n + t.seats, 0);
+
+  const zoneColumns: readonly DenseColumn<(typeof zones)[number]>[] = [
+    { key: "name", header: "Zona", kind: "name", cell: (zone) => zone.name },
+    {
+      key: "tables",
+      header: "Mesas",
+      kind: "number",
+      cell: (zone) => String(tables.filter((t) => t.zone_id === zone.id).length),
+    },
+    {
+      key: "active",
+      header: "Activa",
+      widthPx: 70,
+      cell: (zone) => (
+        <Switch
+          checked={zone.active}
+          aria-label={`${zone.active ? "Desactivar" : "Activar"} zona ${zone.name}`}
+          onCheckedChange={(next) => void handleToggleZoneActive(zone.id, next)}
+        />
+      ),
+    },
+  ];
+
+  const tableColumns: readonly DenseColumn<(typeof tables)[number]>[] = [
+    { key: "number", header: "Mesa", kind: "id", cell: (table) => table.number },
+    { key: "zone", header: "Zona", cell: (table) => zoneNameById.get(table.zone_id) ?? "—" },
+    { key: "seats", header: "Sillas", kind: "number", cell: (table) => String(table.seats) },
+    {
+      key: "active",
+      header: "Activa",
+      widthPx: 70,
+      cell: (table) => (
+        <Switch
+          checked={table.active}
+          aria-label={`${table.active ? "Desactivar" : "Activar"} mesa ${table.number}`}
+          onCheckedChange={(next) => void handleToggleTableActive(table.id, next)}
+        />
+      ),
+    },
+  ];
+
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium">Zonas</h2>
+    <div className="grid items-start gap-3 lg:grid-cols-2">
+      <section className="space-y-2">
         {zonesQuery.isLoading ? (
           <Skeleton className="h-24 w-full" />
-        ) : zones.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Todavía no hay zonas.</p>
         ) : (
-          <div className="overflow-x-auto rounded-md border">
-            <UiTable>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Activa</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {zones.map((zone) => (
-                  <TableRow key={zone.id}>
-                    <TableCell>{zone.name}</TableCell>
-                    <TableCell>
-                      <Switch
-                        checked={zone.active}
-                        aria-label={`${zone.active ? "Desactivar" : "Activar"} zona ${zone.name}`}
-                        onCheckedChange={(next) => void handleToggleZoneActive(zone.id, next)}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </UiTable>
-          </div>
+          <DenseTable
+            caption="Zonas del salón"
+            columns={zoneColumns}
+            rows={zones}
+            rowKey={(zone) => String(zone.id)}
+            rowStatus={(zone) => (zone.active ? "ok" : "none")}
+            rowInactive={(zone) => !zone.active}
+            bar={
+              <DenseTableBar
+                shown={zones.length}
+                total={zones.length}
+                noun="zonas"
+                hidden={zones.length > zonasActivas ? `${zones.length - zonasActivas} inactivas` : undefined}
+              />
+            }
+            note={
+              <>
+                Desactivar una zona <b className="font-bold text-foreground">no borra sus mesas</b>: dejan de
+                ofrecerse en el salón y vuelven cuando la zona se reactiva.
+              </>
+            }
+            empty={
+              <EmptyState
+                title="Todavía no hay zonas"
+                description="Una zona es un sector del salón: terraza, salón principal, barra. Las mesas cuelgan de una zona."
+              />
+            }
+          />
         )}
         <div className="flex items-end gap-2">
           <div className="space-y-1">
@@ -164,41 +207,51 @@ export function ZonesTablesSection({ storeId }: { storeId: number | null }): Rea
         </div>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium">Mesas</h2>
+      <section className="space-y-2">
         {tablesQuery.isLoading ? (
           <Skeleton className="h-24 w-full" />
-        ) : tables.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Todavía no hay mesas.</p>
         ) : (
-          <div className="overflow-x-auto rounded-md border">
-            <UiTable>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Número</TableHead>
-                  <TableHead>Zona</TableHead>
-                  <TableHead>Sillas</TableHead>
-                  <TableHead>Activa</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tables.map((table) => (
-                  <TableRow key={table.id}>
-                    <TableCell>{table.number}</TableCell>
-                    <TableCell>{zoneNameById.get(table.zone_id) ?? "—"}</TableCell>
-                    <TableCell>{table.seats}</TableCell>
-                    <TableCell>
-                      <Switch
-                        checked={table.active}
-                        aria-label={`${table.active ? "Desactivar" : "Activar"} mesa ${table.number}`}
-                        onCheckedChange={(next) => void handleToggleTableActive(table.id, next)}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </UiTable>
-          </div>
+          <DenseTable
+            caption="Mesas del salón, por zona"
+            columns={tableColumns}
+            rows={tables}
+            rowKey={(table) => String(table.id)}
+            rowStatus={(table) => (table.active ? "ok" : "none")}
+            rowInactive={(table) => !table.active}
+            bar={
+              <DenseTableBar
+                shown={tables.length}
+                total={tables.length}
+                noun="mesas"
+                hidden={`${mesasActivas} activas · ${sillasActivas} sillas para sentar`}
+              />
+            }
+            legend={[
+              {
+                term: "Desactivada no es borrada",
+                meaning:
+                  "la mesa deja de aparecer en el mapa del salón, pero sus comandas viejas siguen en los reportes con su número.",
+              },
+              {
+                term: "Las sillas",
+                meaning: "son la capacidad, no los comensales: cuántos comieron lo cuenta el mesero en la comanda.",
+              },
+            ]}
+            empty={
+              zones.length === 0 ? (
+                <DependencyEmptyState
+                  title="Todavía no hay mesas"
+                  description="Una mesa vive en una zona. Primero tiene que existir la zona."
+                  create={{ label: "Crear una zona", to: "/admin/settings" }}
+                />
+              ) : (
+                <EmptyState
+                  title="Todavía no hay mesas"
+                  description="Sin mesas, el salón vende por mostrador: el mapa de mesas queda vacío."
+                />
+              )
+            }
+          />
         )}
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">

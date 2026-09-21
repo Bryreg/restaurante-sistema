@@ -2,10 +2,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { getOrganization, updateOrganization } from "@/api/stores";
-import { Button } from "@/components/ui/button";
+import { FormField, FormSection, SaveBar } from "@/components/admin";
 import { EmptyState } from "@/components/EmptyState";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/errors";
 
@@ -24,8 +23,7 @@ export function OrganizationSection(): React.JSX.Element {
     }
   }, [query.data, dirty]);
 
-  async function handleSave(event: React.FormEvent) {
-    event.preventDefault();
+  async function handleSave() {
     setSaving(true);
     setError(null);
     try {
@@ -46,6 +44,7 @@ export function OrganizationSection(): React.JSX.Element {
     return (
       <EmptyState
         role="alert"
+        reason="error"
         title="No se pudo cargar la organización"
         description={errorMessage(query.error)}
         action={{ label: "Reintentar", onClick: () => void query.refetch() }}
@@ -53,30 +52,53 @@ export function OrganizationSection(): React.JSX.Element {
     );
   }
 
+  const guardado = query.data?.name ?? "";
+  const cambios = name !== guardado ? [{ field: "Nombre de la organización", from: guardado, to: name }] : [];
+
   return (
-    <form className="max-w-md space-y-4" onSubmit={handleSave}>
-      <div className="space-y-2">
-        <Label htmlFor="org-name">Nombre de la organización</Label>
-        <Input
-          id="org-name"
-          className="h-11"
-          value={name}
-          onChange={(event) => {
-            setName(event.target.value);
-            setDirty(true);
-          }}
-          aria-invalid={Boolean(error)}
-          aria-describedby={error ? "org-name-error" : undefined}
-        />
-        {error ? (
-          <p id="org-name-error" role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
-      </div>
-      <Button type="submit" disabled={saving || !dirty}>
-        {saving ? "Guardando…" : "Guardar"}
-      </Button>
-    </form>
+    <div className="space-y-3">
+      <FormSection
+        title="La organización"
+        governs="El nombre del negocio, que es el paraguas de todas las sedes. No es el nombre de la sede ni la razón social que va en el documento fiscal: ésos se editan en Sedes."
+        reading={
+          <>
+            Todo lo que el sistema muestra por encima de la sede dice{" "}
+            <b className="font-bold text-foreground">{name || "—"}</b>. El perfil de funciones y el historial
+            cuelgan de acá, no de una sede.
+          </>
+        }
+      >
+        <FormField
+          label="Nombre de la organización"
+          help="Aparece en la cabecera del escritorio y en los reportes que abarcan más de una sede."
+          error={error ?? undefined}
+        >
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              className="h-11"
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+                setDirty(true);
+              }}
+              aria-invalid={Boolean(error)}
+            />
+          )}
+        </FormField>
+      </FormSection>
+
+      <SaveBar
+        sectionName="Organización"
+        changes={cambios}
+        saving={saving}
+        onSave={() => void handleSave()}
+        onDiscard={() => {
+          setName(guardado);
+          setDirty(false);
+        }}
+      />
+    </div>
   );
 }

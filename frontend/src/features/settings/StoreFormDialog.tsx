@@ -35,7 +35,7 @@ const WEEKDAYS = [
  *
  * `staff_meal` NO va: no es un canal que la sede elija, es el consumo del
  * personal, y su único interruptor es la función `pos.staff_meal`. */
-const CHANNELS = [
+export const CHANNELS = [
   { value: "counter", label: "Mostrador" },
   { value: "dine_in", label: "Mesas" },
   { value: "takeout", label: "Para llevar" },

@@ -21,6 +21,14 @@ import {
   type TipDistributionMethod,
   type TipPayoutMethod,
 } from "@/api/payroll"
+import {
+  ConsequenceZone,
+  DenseTable,
+  DenseTableBar,
+  FormSection,
+  ScopeMarks,
+  type DenseColumn,
+} from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
@@ -28,7 +36,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
@@ -42,9 +49,29 @@ function TipsSettingsSection({ storeId }: { storeId: number }): React.JSX.Elemen
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["payroll", "tips-settings", storeId] }),
   })
 
+  const methodWord =
+    query.data?.method === "by_hours"
+      ? "por las horas que cada quien trabajó"
+      : query.data?.method === "equal_shares"
+        ? "en partes iguales entre todos"
+        : query.data?.method === "by_area"
+          ? "por área, con el reparto que cada área tenga asignado"
+          : "con el método que devuelva el servidor"
+
   return (
-    <div className="space-y-2 rounded-lg border p-4">
-      <p className="text-sm font-medium">Método de reparto de esta sede</p>
+    <FormSection
+      title="Método de reparto de esta sede"
+      governs="Cómo se arma la propuesta de reparto de propinas cada vez que mirás un período en esta pestaña."
+      columns="one"
+      reading={
+        <>
+          Hoy la propina de esta sede se propone <b>{methodWord}</b>. Cambiar esto cambia la propuesta de acá en
+          adelante; los repartos ya confirmados quedan como están y <b>no se recalculan</b>.
+        </>
+      }
+      doesNotDo="Elegir un método no reparte nada ni le avisa a nadie: sólo decide cómo se calcula la propuesta de abajo."
+    >
+      <div className="min-w-0 space-y-2">
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando…</p>
       ) : query.isError ? (
@@ -71,7 +98,11 @@ function TipsSettingsSection({ storeId }: { storeId: number }): React.JSX.Elemen
           {errorMessage(mutation.error)}
         </p>
       ) : null}
-    </div>
+      {/* Sólo el flag: este ajuste cambia la propuesta de ESTA pestaña, y un
+          chip «Afecta: Nómina › Propinas» acá apuntaría a sí mismo (§ 10). */}
+      <ScopeMarks flag="pos.tips" />
+      </div>
+    </FormSection>
   )
 }
 
@@ -117,11 +148,20 @@ function ConfirmPayoutDialog({
   }
 
   return (
-    <div className="space-y-3 rounded-md border p-4">
-      <p className="text-sm">
-        Vas a registrar quién recibió cuánto y cuándo. El sistema no mueve la plata por vos: esto sólo deja
-        constancia — la propina física sigue entregándose por fuera.
-      </p>
+    /* § 11 · Ámbar: esto **cambia otra pantalla** (la mano del dueño) y no
+       pierde nada — pero el marco avisa, y el botón sigue siendo azul. */
+    <ConsequenceZone
+      level="reversible"
+      scope="Banco › Mano del dueño"
+      explanation={
+        <>
+          Registrar la entrega <b>no mueve un peso</b>: la propina física se entrega por fuera y esto sólo deja
+          constancia de quién recibió cuánto y cuándo. Lo que sí cambia es el saldo de <b>Banco › Mano del dueño</b>,
+          y por cuánto depende de la respuesta a «¿de dónde salió la plata?».
+        </>
+      }
+    >
+    <div className="space-y-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1">
           <Label htmlFor="tip-payout-paid-at">Fecha y hora de entrega</Label>
@@ -158,6 +198,9 @@ function ConfirmPayoutDialog({
             Si salió del cajón, esa plata ya se descontó al cerrar el turno: decirlo acá es lo que evita que la mano
             del dueño la reste dos veces.
           </p>
+          {/* § 10 · El alcance no se recuerda, se dibuja: este campo no cambia
+              esta pantalla, cambia otra. */}
+          <ScopeMarks affects={[{ screen: "Banco › Mano del dueño", verb: "Cambia" }]} />
         </div>
       ) : null}
       {mutation.isError ? (
@@ -174,8 +217,15 @@ function ConfirmPayoutDialog({
         </Button>
       </div>
     </div>
+    </ConsequenceZone>
   )
 }
+
+const TIP_COLUMNS: readonly DenseColumn<{ employee_id: number; employee_name?: string | null; basis?: string | null; amount: number }>[] = [
+  { key: "person", header: "Persona", kind: "name", cell: (r) => r.employee_name ?? `#${r.employee_id}` },
+  { key: "basis", header: "Base", kind: "secondary", cell: (r) => r.basis ?? "—" },
+  { key: "amount", header: "Monto propuesto", kind: "number", cell: (r) => formatCOP(r.amount) },
+]
 
 export function TipsTab({ storeId }: { storeId: number }): React.JSX.Element {
   const [from, setFrom] = useState(daysAgoLocal(7))
@@ -205,44 +255,53 @@ export function TipsTab({ storeId }: { storeId: number }): React.JSX.Element {
         {query.isLoading ? (
           <p className="text-sm text-muted-foreground">Calculando la propuesta…</p>
         ) : query.isError ? (
-          <EmptyState role="alert" title="No se pudo calcular la propuesta" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
+          <EmptyState reason="error" title="No se pudo calcular la propuesta" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
         ) : !proposal?.available ? (
-          <EmptyState title="Propuesta no disponible" description={proposal?.reason ?? "No hay turnos con propinas en este período."} />
+          <EmptyState reason="dependency" title="Propuesta no disponible" description={proposal?.reason ?? "No hay turnos con propinas en este período."} />
         ) : proposal.rows.length === 0 ? (
-          <EmptyState title="No hay propinas para repartir en este período" />
+          <EmptyState
+            reason="filter"
+            title="No hay propinas para repartir en este período"
+            description={`El filtro puesto es el período: ${from} a ${to}. No hubo propina cobrada en ese rango.`}
+          />
         ) : (
           <div className="space-y-3">
             <p className="text-sm">
               Método: <Badge variant="secondary">{tipMethodLabel(proposal.method)}</Badge>
             </p>
-            <div className="overflow-x-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Persona</TableHead>
-                    <TableHead>Base</TableHead>
-                    <TableHead>Monto propuesto</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {proposal.rows.map((row) => (
-                    <TableRow key={row.employee_id}>
-                      <TableCell>{row.employee_name ?? `#${row.employee_id}`}</TableCell>
-                      <TableCell>{row.basis ?? "—"}</TableCell>
-                      <TableCell className="tabular-nums font-medium">{formatCOP(row.amount)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-                <TableFooter>
-                  <TableRow>
-                    <TableCell colSpan={2} className="font-semibold">
-                      Total
-                    </TableCell>
-                    <TableCell className="tabular-nums font-semibold">{formatCOP(proposal.total)}</TableCell>
-                  </TableRow>
-                </TableFooter>
-              </Table>
-            </div>
+            <DenseTable
+              caption="Propuesta de reparto de propinas por persona en el período."
+              columns={TIP_COLUMNS}
+              rows={proposal.rows}
+              rowKey={(row) => String(row.employee_id)}
+              maxBodyHeightPx={360}
+              bar={
+                <DenseTableBar
+                  shown={proposal.rows.length}
+                  total={proposal.rows.length}
+                  noun="personas en la propuesta"
+                  hidden={`del ${from} al ${to}`}
+                />
+              }
+              footer={
+                <tr className="font-bold">
+                  <td className="px-2 py-1.5" colSpan={2}>
+                    Total
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{formatCOP(proposal.total)}</td>
+                </tr>
+              }
+              legend={[
+                {
+                  term: "Propuesta ≠ entrega",
+                  meaning: "estos montos no se pagaron. Sólo existen como cuenta hasta que se confirme la entrega.",
+                },
+                {
+                  term: "Base",
+                  meaning: "sobre qué se repartió a esa persona: sus horas, su parte igual o su área, según el método.",
+                },
+              ]}
+            />
 
             {confirmed ? (
               <p role="status" className="text-sm font-medium text-success">

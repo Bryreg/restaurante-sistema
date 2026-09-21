@@ -18,12 +18,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { createPayrollRun, getPayrollRun, getPayrollRuns } from "@/api/payroll"
+import { createPayrollRun, getPayrollRun, getPayrollRuns, type PayrollRunLineOut } from "@/api/payroll"
+import { DenseTable, DenseTableBar, GroupLabel, type DenseColumn } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
@@ -31,6 +31,28 @@ import { formatCOP } from "@/lib/money"
 import { formatBasisPoints } from "@/features/inventory/lib"
 
 import { daysAgoLocal, todayLocal } from "./lib"
+
+const RUN_LINE_COLUMNS: readonly DenseColumn<PayrollRunLineOut>[] = [
+  { key: "person", header: "Persona", kind: "name", cell: (l) => l.employee_name ?? `#${l.employee_id}` },
+  { key: "base", header: "Base", kind: "number", cell: (l) => formatCOP(l.base_pay) },
+  { key: "night", header: "Recargo nocturno", kind: "number", cell: (l) => formatCOP(l.night_surcharge) },
+  {
+    key: "sunday",
+    header: "Recargo dominical/festivo",
+    kind: "number",
+    cell: (l) => formatCOP(l.sunday_holiday_surcharge),
+  },
+  { key: "overtime", header: "Hora extra", kind: "number", cell: (l) => formatCOP(l.overtime_pay) },
+  {
+    // `null` NO es `$ 0`: el motivo que da el servidor va al `title` para que
+    // la fila no crezca (§ 5 y § 8).
+    key: "total",
+    header: "Total",
+    kind: "number",
+    cell: (l) => (l.total === null ? <span className="text-muted-foreground">Sin datos</span> : formatCOP(l.total)),
+    cellTitle: (l) => (l.total === null ? (l.pay_reason ?? undefined) : undefined),
+  },
+]
 
 function RunDetail({ runId }: { runId: number }): React.JSX.Element {
   // El detalle vive en su propia ruta y se pide sólo al desplegarlo: el
@@ -44,7 +66,7 @@ function RunDetail({ runId }: { runId: number }): React.JSX.Element {
   if (query.isError) {
     return (
       <EmptyState
-        role="alert"
+        reason="error"
         title="No se pudo cargar el detalle de la liquidación"
         description={errorMessage(query.error)}
         action={{ label: "Reintentar", onClick: () => void query.refetch() }}
@@ -79,36 +101,24 @@ function RunDetail({ runId }: { runId: number }): React.JSX.Element {
       {lines.length === 0 ? (
         <p className="text-sm text-muted-foreground">Sin renglones por persona en esta liquidación.</p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Persona</TableHead>
-              <TableHead>Base</TableHead>
-              <TableHead>Recargo nocturno</TableHead>
-              <TableHead>Recargo dominical/festivo</TableHead>
-              <TableHead>Hora extra</TableHead>
-              <TableHead>Total</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {lines.map((line) => (
-              <TableRow key={line.employee_id}>
-                <TableCell>{line.employee_name ?? `#${line.employee_id}`}</TableCell>
-                <TableCell className="tabular-nums">{formatCOP(line.base_pay)}</TableCell>
-                <TableCell className="tabular-nums">{formatCOP(line.night_surcharge)}</TableCell>
-                <TableCell className="tabular-nums">{formatCOP(line.sunday_holiday_surcharge)}</TableCell>
-                <TableCell className="tabular-nums">{formatCOP(line.overtime_pay)}</TableCell>
-                <TableCell className="tabular-nums font-medium">
-                  {line.total === null ? (
-                    <span className="text-muted-foreground">Sin datos{line.pay_reason ? `: ${line.pay_reason}` : ""}</span>
-                  ) : (
-                    formatCOP(line.total)
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <DenseTable
+          caption="Renglones de la liquidación, por persona: base y cada recargo por separado."
+          columns={RUN_LINE_COLUMNS}
+          rows={lines}
+          rowKey={(line) => String(line.employee_id)}
+          maxBodyHeightPx={360}
+          bar={<DenseTableBar shown={lines.length} total={lines.length} noun="personas liquidadas" />}
+          legend={[
+            {
+              term: "Base y recargos por separado",
+              meaning: "así se puede auditar renglón por renglón. La fórmula legal los combina distinto.",
+            },
+            {
+              term: "«Sin datos»",
+              meaning: "no es $ 0: esa persona no tenía tarifa vigente, así que no hay con qué liquidarla.",
+            },
+          ]}
+        />
       )}
     </div>
   )
@@ -139,7 +149,7 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
           intento lo puso adentro, y el recorrido en navegador mostró que con
           cero liquidaciones no se veía nunca — justo cuando más importa, que
           es antes de apretar «Liquidar» por primera vez. */}
-      <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+      <p className="rounded-md border border-l-[3px] border-l-warning bg-muted px-3 py-2 text-xs text-muted-foreground">
         <strong>Esta cifra es para control interno, no es la liquidación legal.</strong> Paga la base más cada recargo
         (nocturno, dominical y festivo, hora extra) por separado, que es lo que la hace auditable renglón por renglón.
         La fórmula del Código Sustantivo del Trabajo los combina en ocho categorías, y esa todavía no está
@@ -165,10 +175,15 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando liquidaciones…</p>
       ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudieron cargar las liquidaciones" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
+        <EmptyState reason="error" title="No se pudieron cargar las liquidaciones" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : (query.data ?? []).length === 0 ? (
-        <EmptyState title="No hay liquidaciones en este período" />
+        <EmptyState
+          reason="filter"
+          title="No hay liquidaciones en este período"
+          description={`El filtro puesto es el período: ${from} a ${to}. Todavía no se liquidó nada en ese rango.`}
+        />
       ) : (
+        <GroupLabel label="Liquidado" says="ya calculado y guardado: queda como constancia de con qué tabla se hizo">
         <div className="space-y-3">
           {(query.data ?? []).map((run) => (
             <div key={run.id} className="rounded-lg border p-4">
@@ -196,6 +211,7 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
             </div>
           ))}
         </div>
+        </GroupLabel>
       )}
     </div>
   )

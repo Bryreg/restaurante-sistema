@@ -1,31 +1,17 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Scale, TriangleAlert } from "lucide-react";
+import { CircleAlert, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { getCashSettings, setCashSettings, type CashSettings } from "@/api/stores";
-import { Button } from "@/components/ui/button";
+import { ConsequenceZone, FormField, FormSection, SaveBar, type PendingChange } from "@/components/admin";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/EmptyState";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/MoneyInput";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
 import { cn } from "cn";
-
-/**
- * Los montos que no son fronteras del arqueo. Las dos que SÍ lo son
- * —`tolerance_unknown_cause` y `critical_difference`— no están acá: viven en
- * su propia tarjeta, al lado de las tres bandas que definen, porque sueltas
- * en una lista plana de montos no se entiende que una es el techo de la otra.
- */
-const MONEY_FIELDS: { key: keyof CashSettings; label: string }[] = [
-  { key: "opening_cash_fixed", label: "Base fija de apertura" },
-  { key: "cash_reserve_default", label: "Reserva por defecto" },
-  { key: "cash_pickup_threshold", label: "Umbral de retiro" },
-  { key: "petty_cash_limit", label: "Límite de gasto menor" },
-];
 
 /** Las tres bandas del arqueo, tal como las nombra `SPEC-NEGOCIO §3.2`. */
 type Tono = "ok" | "warn" | "bad";
@@ -97,56 +83,163 @@ const TONO_RANGO: Record<Tono, string> = {
   bad: "text-destructive",
 };
 
+const TONO_FRANJA: Record<Tono, string> = {
+  ok: "bg-success/45",
+  warn: "bg-warning/45",
+  bad: "bg-destructive/45",
+};
+
 /**
- * Las tres bandas, en el idioma de la spec. Verde, ámbar y rojo son **de
- * estado** (`docs/DISENO.md`): acá dicen en qué banda cae una diferencia, no
- * invitan a tocar nada. Lo único azul de la pantalla sigue siendo el botón.
+ * **La escala** (`docs/PATRONES-ADMIN.md` § 9). Cuando varios campos vecinos
+ * son fronteras de la misma recta, se dibuja la recta, a escala y teñida, con
+ * **las franjas leídas de los campos y nunca al revés**: las fronteras son lo
+ * editable, las franjas son su consecuencia.
+ *
+ * Dos montos y tres franjas, ni uno más. Lo único que se calcula acá son los
+ * **anchos** —geometría de la barra, no plata—: las cifras que se leen son
+ * las dos que el dueño tecleó, tal cual, con `formatCOP`. Un «$ 99.999»
+ * derivado sería una cifra que el backend nunca mandó.
+ */
+function EscalaDelCierre({ values }: { values: CashSettings }): React.JSX.Element | null {
+  const tolerancia = values.tolerance_unknown_cause;
+  const critica = values.critical_difference;
+  if (fronterasInvertidas({ tolerance_unknown_cause: tolerancia, critical_difference: critica })) return null;
+  if (tolerancia <= 0 && critica <= 0) return null;
+
+  // Anchos relativos, no importes. La cola de «alerta crítica» no tiene tope
+  // —la diferencia puede ser cualquiera— así que se le da un tramo que se vea.
+  const media = Math.max(critica - tolerancia, 1);
+  const cola = Math.max(Math.round(media * 0.75), Math.max(tolerancia, 1));
+  const franjas = [
+    { tono: "ok" as Tono, peso: Math.max(tolerancia, 1), desde: formatCOP(0), dice: "Causa; «Sin identificar» sirve" },
+    { tono: "warn" as Tono, peso: media, desde: formatCOP(tolerancia), dice: "Causa identificada" },
+    { tono: "bad" as Tono, peso: cola, desde: formatCOP(critica), dice: "Alerta crítica" },
+  ];
+
+  return (
+    <div aria-hidden="true">
+      <div className="flex h-2.5 overflow-hidden rounded-full">
+        {franjas.map((franja) => (
+          <span key={franja.tono} style={{ flex: franja.peso }} className={TONO_FRANJA[franja.tono]} />
+        ))}
+      </div>
+      <div className="mt-1 flex gap-2">
+        {franjas.map((franja) => (
+          <span key={franja.tono} style={{ flex: franja.peso }} className="min-w-0 text-[0.68rem] leading-tight">
+            <b className={cn("block font-bold tabular-nums", TONO_RANGO[franja.tono])}>{franja.desde}</b>
+            <span className="block text-muted-foreground">{franja.dice}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * **La lectura** (`docs/PATRONES-ADMIN.md` § 9): devuelve en palabras la regla
+ * que el formulario está escribiendo, y con ella la validación cruzada que
+ * ningún campo solo puede ver.
+ *
+ * Verde, ámbar y rojo son **de estado** (`docs/DISENO.md`): acá dicen en qué
+ * banda cae una diferencia, no invitan a tocar nada. Lo único azul de la
+ * pantalla sigue siendo el botón.
  */
 function BandasDelArqueo({ values }: { values: CashSettings }): React.JSX.Element {
   const invertidas = fronterasInvertidas(values);
 
-  return (
-    <div className="rounded-lg bg-muted/50 px-3 py-3">
-      <h4 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">
-        Cómo queda el arqueo
-      </h4>
-      {invertidas ? (
-        <p role="alert" className="mt-2 flex items-start gap-2 text-sm font-medium text-warning">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <span>
-            La diferencia crítica tiene que ser mayor que la tolerancia sin causa identificada: subí la
-            diferencia crítica o bajá la tolerancia. Así como están, la banda del medio no existe.
-          </span>
-        </p>
-      ) : (
-        <ul className="mt-2 space-y-2.5">
-          {bandasDelArqueo(values).map((banda) => (
-            <li key={banda.clave} className="flex items-start gap-2.5">
-              <span
-                aria-hidden="true"
-                className={cn("mt-1.5 size-2 shrink-0 rounded-full", TONO_PUNTO[banda.tono])}
-              />
-              <span className="min-w-0 text-sm">
-                <span className={cn("font-bold tabular-nums", TONO_RANGO[banda.tono])}>{banda.rango}</span>
-                <span className="block text-xs leading-relaxed text-muted-foreground">{banda.que}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {/* La spec lo dice y la pantalla no lo decía en ningún lado
-          (`SPEC-NEGOCIO §3.2`). Es la mitad del control: el dueño que cree
-          que una tolerancia frena un cierre la configura como si fuera un
-          freno. */}
-      <p className="mt-3 flex items-start gap-2 border-t pt-2.5 text-xs leading-relaxed text-muted-foreground">
-        <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+  if (invertidas) {
+    return (
+      <p role="alert" className="flex items-start gap-2 font-medium text-warning">
+        <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         <span>
-          Ninguna de las tres bloquea el cierre. Bloquearlo dejaría el turno abierto y vendiendo, que es
-          el bug del turno abandonado: estas cifras exigen una causa y avisan, nunca frenan.
+          La diferencia crítica tiene que ser mayor que la tolerancia sin causa identificada: subí la
+          diferencia crítica o bajá la tolerancia. Así como están, la banda del medio no existe.
         </span>
       </p>
-    </div>
+    );
+  }
+
+  return (
+    <>
+      <h4 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">Cómo queda el arqueo</h4>
+      <ul className="mt-2 space-y-2.5">
+        {bandasDelArqueo(values).map((banda) => (
+          <li key={banda.clave} className="flex items-start gap-2.5">
+            <span
+              aria-hidden="true"
+              className={cn("mt-1.5 size-2 shrink-0 rounded-full", TONO_PUNTO[banda.tono])}
+            />
+            <span className="min-w-0 text-sm">
+              <span className={cn("font-bold tabular-nums", TONO_RANGO[banda.tono])}>{banda.rango}</span>
+              <span className="block text-xs leading-relaxed text-muted-foreground">{banda.que}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
   );
+}
+
+/** El error de la validación cruzada, bajo los dos campos que la producen. */
+const ERROR_ORDEN =
+  "Tiene que quedar por debajo de la diferencia crítica: bajá esta tolerancia o subí la crítica.";
+
+/**
+ * Los cambios sin guardar, campo por campo y **con el valor viejo**
+ * (`docs/PATRONES-ADMIN.md` § 12). `leaks` nombra los que salen de Ajustes:
+ * es lo único que el dueño no puede adivinar mirando esta pantalla.
+ */
+function cambiosPendientes(guardado: CashSettings, actual: CashSettings): PendingChange[] {
+  const plata: { key: keyof CashSettings; field: string; leaks?: string }[] = [
+    { key: "opening_cash_fixed", field: "Base fija de apertura", leaks: "Cambia Dinero › Abrir turno" },
+    { key: "cash_reserve_default", field: "Reserva por defecto", leaks: "Cambia Dinero › Abrir turno" },
+    {
+      key: "tolerance_unknown_cause",
+      field: "Tolerancia sin causa identificada",
+      leaks: "Cambia Salón › Cierre de turno, paso 2",
+    },
+    { key: "critical_difference", field: "Diferencia crítica", leaks: "Cambia Hoy › Requiere tu atención" },
+    { key: "cash_pickup_threshold", field: "Umbral de retiro", leaks: "Cambia Salón › Turno" },
+    {
+      key: "petty_cash_limit",
+      field: "Límite de gasto menor",
+      leaks: "Frena Salón › Turno › Movimiento de caja",
+    },
+  ];
+
+  const cambios: PendingChange[] = [];
+  for (const { key, field, leaks } of plata) {
+    const antes = guardado[key] as number;
+    const ahora = actual[key] as number;
+    if (antes !== ahora) cambios.push({ field, from: formatCOP(antes), to: formatCOP(ahora), leaks });
+  }
+  if (guardado.streak_alert_shifts !== actual.streak_alert_shifts) {
+    cambios.push({
+      field: "Turnos seguidos con diferencia para alertar",
+      from: `${guardado.streak_alert_shifts} turnos`,
+      to: `${actual.streak_alert_shifts} turnos`,
+    });
+  }
+  const casillas: { key: keyof CashSettings; field: string; leaks: string }[] = [
+    {
+      key: "photo_required_on_close",
+      field: "Foto obligatoria al cerrar turno",
+      leaks: "Cambia Salón › Cierre de turno, paso 3",
+    },
+    {
+      key: "photo_required_on_pickup",
+      field: "Foto obligatoria en retiros",
+      leaks: "Cambia Salón › Turno › Retiro",
+    },
+  ];
+  for (const { key, field, leaks } of casillas) {
+    const antes = guardado[key] as boolean;
+    const ahora = actual[key] as boolean;
+    if (antes !== ahora) {
+      cambios.push({ field, from: antes ? "Sí se pide" : "No se pide", to: ahora ? "Sí se pide" : "No se pide", leaks });
+    }
+  }
+  return cambios;
 }
 
 /** `GET/PUT /admin/stores/{id}/cash-settings`. */
@@ -172,18 +265,33 @@ export function CashSection({ storeId }: { storeId: number | null }): React.JSX.
     return <Skeleton className="h-64 w-full max-w-md" />;
   }
   if (query.isError) {
+    /* Patrón 13, motivo «error»: qué contestó el servidor, y el formulario
+       **queda bloqueado** en vez de dejar guardar sobre lo que no se leyó. */
     return (
       <EmptyState
         role="alert"
+        reason="error"
         title="No se pudo cargar la configuración de caja"
-        description={errorMessage(query.error)}
+        description={
+          <>
+            {errorMessage(query.error)} Los valores que se ven no son los vigentes, así que el formulario
+            queda bloqueado en vez de dejarte guardar encima de algo que no se leyó.
+          </>
+        }
         action={{ label: "Reintentar", onClick: () => void query.refetch() }}
       />
     );
   }
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
+  const guardado = query.data as CashSettings;
+  const cambios = cambiosPendientes(guardado, values);
+  const invertidas = fronterasInvertidas(values);
+
+  function patch(next: Partial<CashSettings>) {
+    setValues((v) => (v ? { ...v, ...next } : v));
+  }
+
+  async function handleSave() {
     if (!values) return;
     setSaving(true);
     setError(null);
@@ -198,82 +306,254 @@ export function CashSection({ storeId }: { storeId: number | null }): React.JSX.
   }
 
   return (
-    <form className="max-w-md space-y-4" onSubmit={handleSubmit}>
-      {MONEY_FIELDS.map(({ key, label }) => (
-        <div key={key} className="space-y-1.5">
-          <Label htmlFor={`cash-${key}`}>{label}</Label>
-          <MoneyInput
-            id={`cash-${key}`}
-            value={values[key] as number}
-            onChange={(next) => setValues((v) => (v ? { ...v, [key]: next ?? 0 } : v))}
-          />
-        </div>
-      ))}
+    <div className="space-y-3">
+      <FormSection
+        title="Con qué abre el cajón"
+        governs="Con cuánto arranca el cajón cada vez que alguien abre turno en esta sede. El POS lo propone y el cajero puede corregirlo."
+        reading={
+          <>
+            Cada turno de esta sede abre proponiendo{" "}
+            <b className="font-bold text-foreground tabular-nums">{formatCOP(values.opening_cash_fixed)}</b> en
+            el cajón. El cierre se mide contra ese monto; si el cajero lo corrige al abrir, la diferencia queda
+            registrada con su nombre.
+          </>
+        }
+      >
+        <FormField
+          label="Base fija de apertura"
+          help="El efectivo con el que empieza cada turno. El cierre se mide contra esto; si el cajero la corrige, queda la diferencia registrada."
+          scope={{ affects: [{ screen: "Dinero › Abrir turno", verb: "Aparece en" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <MoneyInput
+              id={fieldId}
+              aria-describedby={describedBy}
+              value={values.opening_cash_fixed}
+              onChange={(next) => patch({ opening_cash_fixed: next ?? 0 })}
+            />
+          )}
+        </FormField>
 
-      <section className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Scale className="size-4" aria-hidden="true" />
-          <h3 className="text-xs font-bold tracking-wider uppercase">Diferencias del arqueo</h3>
-        </div>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Dos cifras, tres bandas. Son las únicas que mueven el umbral del cierre.
-        </p>
-        <div className="space-y-1.5">
-          <Label htmlFor="cash-tolerance_unknown_cause">Tolerancia sin causa identificada</Label>
-          <MoneyInput
-            id="cash-tolerance_unknown_cause"
-            value={values.tolerance_unknown_cause}
-            onChange={(next) =>
-              setValues((v) => (v ? { ...v, tolerance_unknown_cause: next ?? 0 } : v))
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="cash-critical_difference">Diferencia crítica</Label>
-          <MoneyInput
-            id="cash-critical_difference"
-            value={values.critical_difference}
-            onChange={(next) => setValues((v) => (v ? { ...v, critical_difference: next ?? 0 } : v))}
-          />
-        </div>
-        <BandasDelArqueo values={values} />
-      </section>
+        <FormField
+          label="Reserva por defecto"
+          help={
+            <>
+              Plata que se aparta del conteo y no cuenta como venta del turno. Con la función apagada el campo{" "}
+              <b className="font-bold text-foreground">no aparece</b> al abrir turno, y el valor queda guardado
+              sin uso.
+            </>
+          }
+          scope={{
+            flag: "cash.reserve",
+            affects: [{ screen: "Dinero › Abrir turno", verb: "Enciende el campo en" }],
+          }}
+        >
+          {({ fieldId, describedBy }) => (
+            <MoneyInput
+              id={fieldId}
+              aria-describedby={describedBy}
+              value={values.cash_reserve_default}
+              onChange={(next) => patch({ cash_reserve_default: next ?? 0 })}
+            />
+          )}
+        </FormField>
+      </FormSection>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="cash-streak">Turnos seguidos con diferencia para alertar</Label>
-        <Input
-          id="cash-streak"
-          type="number"
-          min={1}
-          className="h-11"
-          value={values.streak_alert_shifts}
-          onChange={(e) => setValues((v) => (v ? { ...v, streak_alert_shifts: Number(e.target.value) } : v))}
-        />
-      </div>
-      <div className="space-y-2">
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={values.photo_required_on_close}
-            onCheckedChange={(c) => setValues((v) => (v ? { ...v, photo_required_on_close: c === true } : v))}
-          />
-          Foto obligatoria al cerrar turno
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={values.photo_required_on_pickup}
-            onCheckedChange={(c) => setValues((v) => (v ? { ...v, photo_required_on_pickup: c === true } : v))}
-          />
-          Foto obligatoria en retiros
-        </label>
-      </div>
+      <FormSection
+        title="Cuánto puede desajustar un cierre"
+        governs="Dos montos, y de ellos salen las tres franjas del cierre. Cada frontera cambia lo que el cierre le exige a la persona, no el color del número."
+        scale={<EscalaDelCierre values={values} />}
+        reading={<BandasDelArqueo values={values} />}
+        doesNotDo={
+          <>
+            <b className="font-bold text-foreground">
+              Ninguna de las tres bloquea el cierre.
+            </b>{" "}
+            Bloquearlo dejaría el turno abierto y vendiendo, que es el bug del turno abandonado: estas cifras
+            exigen una causa y avisan, nunca frenan.
+          </>
+        }
+      >
+        <FormField
+          label="Tolerancia sin causa identificada"
+          help={
+            <>
+              Hasta este monto el cajero elige una causa pero{" "}
+              <b className="font-bold text-foreground">«Sin identificar» sigue sirviendo</b>. Pasado el monto
+              desaparece de la lista y hay que elegir una de las causas tipadas en Ventas.
+            </>
+          }
+          error={invertidas ? ERROR_ORDEN : undefined}
+          scope={{ affects: [{ screen: "Salón › Cierre de turno, paso 2", verb: "Cambia" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <MoneyInput
+              id={fieldId}
+              aria-describedby={describedBy}
+              aria-invalid={invertidas}
+              value={values.tolerance_unknown_cause}
+              onChange={(next) => patch({ tolerance_unknown_cause: next ?? 0 })}
+            />
+          )}
+        </FormField>
+
+        <FormField
+          label="Diferencia crítica"
+          help="Desde este monto sale la alerta crítica al administrador y el turno queda marcado para revisión."
+          scope={{ affects: [{ screen: "Hoy › Requiere tu atención", verb: "Aparece en" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <MoneyInput
+              id={fieldId}
+              aria-describedby={describedBy}
+              aria-invalid={invertidas}
+              value={values.critical_difference}
+              onChange={(next) => patch({ critical_difference: next ?? 0 })}
+            />
+          )}
+        </FormField>
+
+        <FormField
+          label="Turnos seguidos con diferencia para alertar"
+          help="Aunque cada uno esté dentro de tolerancia y lo cierre la misma persona. Una diferencia es un error; tres seguidas son otra cosa."
+          scope={{ affects: [{ screen: "Notificaciones › Racha de diferencias", verb: "Avisa en" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={1}
+              className="h-11"
+              value={values.streak_alert_shifts}
+              onChange={(e) => patch({ streak_alert_shifts: Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+      </FormSection>
+
+      <FormSection
+        title="Retiros y gasto menor"
+        governs="Los dos montos que deciden cuándo el sistema deja de creerle a quien está en la caja y pide un PIN de administrador."
+        reading={
+          <>
+            Con más de{" "}
+            <b className="font-bold text-foreground tabular-nums">{formatCOP(values.cash_pickup_threshold)}</b>{" "}
+            en el cajón, el turno sugiere retirar y consignar —sugiere, no obliga—. Un gasto menor de más de{" "}
+            <b className="font-bold text-foreground tabular-nums">{formatCOP(values.petty_cash_limit)}</b> sí se
+            frena: el servidor contesta <code className="font-mono text-xs">PETTY_CASH_LIMIT</code> y pide el PIN
+            de administrador antes de que la plata salga del cajón.
+          </>
+        }
+      >
+        <FormField
+          label="Umbral de retiro"
+          help="Con más de esto en el cajón, el turno sugiere sacar plata y consignarla."
+          scope={{ affects: [{ screen: "Salón › Turno", verb: "Sugerencia en" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <MoneyInput
+              id={fieldId}
+              aria-describedby={describedBy}
+              value={values.cash_pickup_threshold}
+              onChange={(next) => patch({ cash_pickup_threshold: next ?? 0 })}
+            />
+          )}
+        </FormField>
+
+        <FormField
+          label="Límite de gasto menor"
+          help={
+            <>
+              Un gasto por encima de este monto hace que el servidor conteste{" "}
+              <code className="font-mono text-xs">PETTY_CASH_LIMIT</code> y el movimiento se frene antes de
+              salir del cajón.
+            </>
+          }
+          scope={{
+            affects: [{ screen: "Salón › Turno › Movimiento de caja", verb: "Frena" }],
+            requires: "PIN de administrador",
+          }}
+        >
+          {({ fieldId, describedBy }) => (
+            <MoneyInput
+              id={fieldId}
+              aria-describedby={describedBy}
+              value={values.petty_cash_limit}
+              onChange={(next) => patch({ petty_cash_limit: next ?? 0 })}
+            />
+          )}
+        </FormField>
+      </FormSection>
+
+      {/* Patrón 11 · zona ÁMBAR. Apagar la foto obligatoria no borra las ya
+          tomadas: la foto simplemente deja de pedirse. Reversible, sin
+          pérdida — por eso no es la zona roja, que se guarda para lo que no
+          se deshace (rotar el PIN de la sede, en Sedes). */}
+      <ConsequenceZone
+        level="reversible"
+        scope="Tablet del salón"
+        explanation="Estas dos casillas no cambian ningún número acá: encienden un campo en la tablet del salón. Apagarlas no borra las fotos ya tomadas — la foto simplemente deja de pedirse."
+      >
+        <div className="space-y-3">
+          <label className="flex items-start gap-2.5 text-sm">
+            <Checkbox
+              className="mt-0.5"
+              checked={values.photo_required_on_close}
+              onCheckedChange={(c) => patch({ photo_required_on_close: c === true })}
+            />
+            <span className="min-w-0">
+              <b className="font-bold">Foto obligatoria al cerrar turno</b>
+              <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                Quien cierra tiene que fotografiar el cajón contado antes de confirmar; el servidor contesta{" "}
+                <code className="font-mono">PHOTO_REQUIRED</code> si falta. Es la única prueba de qué había
+                cuando se contó.
+              </span>
+              <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[0.72rem] text-muted-foreground">
+                <span className="rounded-full border border-dashed border-input bg-card px-2 py-px">
+                  Enciende el campo en{" "}
+                  <b className="font-bold text-foreground">Salón › Cierre de turno, paso 3</b>
+                </span>
+              </span>
+            </span>
+          </label>
+
+          <label className="flex items-start gap-2.5 text-sm">
+            <Checkbox
+              className="mt-0.5"
+              checked={values.photo_required_on_pickup}
+              onCheckedChange={(c) => patch({ photo_required_on_pickup: c === true })}
+            />
+            <span className="min-w-0">
+              <b className="font-bold">Foto obligatoria en retiros</b>
+              <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                Cada retiro queda con la foto del sobre. Sin esto, el retiro se registra con el monto y nada
+                más. Las fotos ya tomadas quedan donde están.
+              </span>
+              <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[0.72rem] text-muted-foreground">
+                <span className="rounded-full border border-dashed border-input bg-card px-2 py-px">
+                  Enciende el campo en <b className="font-bold text-foreground">Salón › Turno › Retiro</b>
+                </span>
+              </span>
+            </span>
+          </label>
+        </div>
+      </ConsequenceZone>
+
       {error ? (
-        <p role="alert" className="text-sm font-medium text-destructive">
+        <p role="alert" className="flex items-start gap-2 text-sm font-medium text-destructive">
+          <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           {error}
         </p>
       ) : null}
-      <Button type="submit" disabled={saving}>
-        {saving ? "Guardando…" : "Guardar"}
-      </Button>
-    </form>
+
+      <SaveBar
+        sectionName="Caja"
+        changes={cambios}
+        saving={saving}
+        onSave={() => void handleSave()}
+        onDiscard={() => setValues(guardado)}
+      />
+    </div>
   );
 }

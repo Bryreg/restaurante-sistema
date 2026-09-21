@@ -2,19 +2,45 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { listEmployees } from "@/api/employees"
-import { getWasteList, wasteCsvUrl, type IngredientOut, type WasteType } from "@/api/inventory"
+import {
+  getWasteList,
+  wasteCsvUrl,
+  type IngredientOut,
+  type WasteAdminOut,
+  type WasteType,
+} from "@/api/inventory"
 import { listPreparations } from "@/api/recipes"
+import { DenseTable, DenseTableBar, TimeAgo, type DenseColumn, type LegendEntry } from "@/components/admin"
 import { CostValue } from "@/components/CostValue"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
+import { StatTile } from "@/components/StatTile"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { errorMessage } from "@/lib/errors"
-import { formatInstant } from "@/lib/businessDate"
 
 import { daysAgoLocal, formatBasisPoints, todayLocal, WASTE_TYPE_LABEL } from "./lib"
+
+const LEGEND: readonly LegendEntry[] = [
+  {
+    term: "Sin costo",
+    meaning: (
+      <>
+        no es <b>$ 0</b> — lo que se perdió no tiene costo conocido. La merma pasó igual; lo que no se sabe es
+        cuánto costó.
+      </>
+    ),
+  },
+  {
+    term: "Sin identificar",
+    meaning: "el tipo tipado para cuando nadie supo qué pasó. Es una causa, no un hueco.",
+  },
+  {
+    term: "Foto",
+    meaning: "queda como estaba el día que se registró. Apagar la foto obligatoria no borra las ya tomadas.",
+  },
+]
 
 /**
  * Admin → Inventario → Movimientos y mermas → Mermas (SPEC-NEGOCIO §5.5):
@@ -39,7 +65,13 @@ import { daysAgoLocal, formatBasisPoints, todayLocal, WASTE_TYPE_LABEL } from ".
  * `Math.round(kpi.ratio * 100)` — esa cuenta, correcta para la fracción de
  * 2a, con la escala nueva da cien veces más (250 bp × 100 = "25000 %").
  */
-export function WasteAdminTab({ storeId, ingredients }: { storeId: number; ingredients: IngredientOut[] }): React.JSX.Element {
+export function WasteAdminTab({
+  storeId,
+  ingredients,
+}: {
+  storeId: number
+  ingredients: IngredientOut[]
+}): React.JSX.Element {
   const [from, setFrom] = useState(daysAgoLocal(30))
   const [to, setTo] = useState(todayLocal())
   const [type, setType] = useState<WasteType | "all">("all")
@@ -74,116 +106,187 @@ export function WasteAdminTab({ storeId, ingredients }: { storeId: number; ingre
   const items = query.data?.items ?? []
   const kpi = query.data?.weekly_kpi
 
+  const columns: readonly DenseColumn<WasteAdminOut>[] = [
+    {
+      key: "at",
+      header: "Fecha",
+      kind: "secondary",
+      cell: (w) => <TimeAgo iso={w.at} />,
+    },
+    {
+      key: "type",
+      header: "Tipo",
+      cell: (w) => WASTE_TYPE_LABEL[w.type] ?? w.type,
+    },
+    {
+      key: "what",
+      header: "Insumo / preparación",
+      kind: "name",
+      cell: (w) =>
+        w.ingredient_id !== null
+          ? (ingredientName.get(w.ingredient_id) ?? `Insumo #${w.ingredient_id}`)
+          : (preparationName.get(w.preparation_id as number) ?? `Preparación #${w.preparation_id}`),
+    },
+    { key: "qty", header: "Cantidad", kind: "number", cell: (w) => w.qty },
+    {
+      key: "cost",
+      header: "Costo",
+      kind: "number",
+      cell: (w) => <CostValue cost={w.cost} costSource={w.cost_source} />,
+    },
+    { key: "who", header: "Responsable", cell: (w) => w.employee_name },
+    {
+      key: "note",
+      header: "Nota",
+      kind: "secondary",
+      widthPx: 200,
+      cell: (w) => <span className="block truncate">{w.note ?? "—"}</span>,
+      cellTitle: (w) => w.note ?? undefined,
+    },
+    {
+      key: "photo",
+      header: "Foto",
+      kind: "actions",
+      cell: (w) =>
+        w.photo ? (
+          <a
+            href={w.photo}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs font-bold text-primary underline underline-offset-2"
+          >
+            Ver
+          </a>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+  ]
+
+  if (query.isError) {
+    return (
+      <EmptyState
+        role="alert"
+        title="No se pudieron cargar las mermas"
+        description={errorMessage(query.error)}
+        action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+      />
+    )
+  }
+
+  // Los filtros son **armazón**, no datos: cargando se conservan (patrón
+  // 13, «cargando conserva el armazón y esqueletea sólo los datos»). Si
+  // desaparecieran mientras llega la respuesta, lo que la persona acaba de
+  // elegir parpadearía en cada consulta.
+  const filters = (
+    <>
+      <DateRangeFilter
+        idPrefix="waste"
+        from={from}
+        to={to}
+        onChange={(r) => {
+          setFrom(r.from)
+          setTo(r.to)
+        }}
+      />
+      <div className="flex items-center gap-2">
+        <Label htmlFor="waste-type">Tipo</Label>
+        <Select value={type} onValueChange={(v) => setType(v as WasteType | "all")}>
+          <SelectTrigger id="waste-type" className="h-8 w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            {Object.entries(WASTE_TYPE_LABEL).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-center gap-2">
+        <Label htmlFor="waste-employee">Responsable</Label>
+        <Select
+          value={employeeId === "all" ? "all" : String(employeeId)}
+          onValueChange={(v) => setEmployeeId(v === "all" ? "all" : Number(v))}
+        >
+          <SelectTrigger id="waste-employee" className="h-8 w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            {employees.map((employee) => (
+              <SelectItem key={employee.id} value={String(employee.id)}>
+                {employee.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <CsvExportButton
+        href={wasteCsvUrl({
+          storeId,
+          from,
+          to,
+          type: type === "all" ? undefined : type,
+          employeeId: employeeId === "all" ? undefined : employeeId,
+        })}
+      />
+    </>
+  )
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-lg border p-4">
-        <p className="text-sm text-muted-foreground">Mermas ÷ compras (semanal)</p>
-        <p className="mt-1 text-2xl font-semibold tabular-nums">
-          {kpi === undefined ? "—" : kpi.ratio === null ? "Sin datos" : formatBasisPoints(kpi.ratio)}
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {kpi?.ratio === null || kpi === undefined
-            ? "Se calcula cuando el módulo de compras (2b) tenga datos — no es 0 %, es que todavía no hay con qué compararlo."
-            : "Referencia del sector: 4–10 %."}
-        </p>
-      </div>
-
-      <div className="flex flex-wrap items-end gap-3">
-        <DateRangeFilter idPrefix="waste" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
-        <div className="space-y-1">
-          <Label htmlFor="waste-type">Tipo</Label>
-          <Select value={type} onValueChange={(v) => setType(v as WasteType | "all")}>
-            <SelectTrigger id="waste-type" className="h-10 w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {Object.entries(WASTE_TYPE_LABEL).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="waste-employee">Responsable</Label>
-          <Select value={employeeId === "all" ? "all" : String(employeeId)} onValueChange={(v) => setEmployeeId(v === "all" ? "all" : Number(v))}>
-            <SelectTrigger id="waste-employee" className="h-10 w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {employees.map((employee) => (
-                <SelectItem key={employee.id} value={String(employee.id)}>
-                  {employee.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <CsvExportButton
-          href={wasteCsvUrl({ storeId, from, to, type: type === "all" ? undefined : type, employeeId: employeeId === "all" ? undefined : employeeId })}
+    <div className="space-y-3">
+      <div className="max-w-sm">
+        {/* `null` NO es `0` (patrón 5): sin compras con qué comparar, la
+            tarjeta se dibuja apagada y dice POR QUÉ no se sabe — nunca «0 %»,
+            que se leería como «no se pierde nada». */}
+        <StatTile
+          label="Mermas ÷ compras (semanal)"
+          {...(kpi === undefined || kpi.ratio === null
+            ? {
+                value: null,
+                // Las palabras «sin datos» son la red de `src/audit/
+                // inventory.test.ts`: un `0 %` acá se leería como «no se
+                // pierde nada», que es lo contrario del dato.
+                nullNote:
+                  "Sin datos: todavía no hay compras en la semana con qué compararlo. No es 0 %, es que no hay divisor.",
+              }
+            : {
+                value: formatBasisPoints(kpi.ratio),
+                hint: "Referencia del sector: 4–10 %.",
+              })}
         />
       </div>
 
-      {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando mermas…</p>
-      ) : query.isError ? (
-        <EmptyState
-          role="alert"
-          title="No se pudieron cargar las mermas"
-          description={errorMessage(query.error)}
-          action={{ label: "Reintentar", onClick: () => void query.refetch() }}
-        />
-      ) : items.length === 0 ? (
-        <EmptyState title="Sin mermas en este período" description="Probá otro rango de fechas, tipo o responsable." />
-      ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Insumo / preparación</TableHead>
-                <TableHead>Cantidad</TableHead>
-                <TableHead>Costo</TableHead>
-                <TableHead>Responsable</TableHead>
-                <TableHead>Nota</TableHead>
-                <TableHead>Foto</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((waste) => (
-                <TableRow key={waste.id}>
-                  <TableCell className="whitespace-nowrap">{formatInstant(waste.at)}</TableCell>
-                  <TableCell>{WASTE_TYPE_LABEL[waste.type] ?? waste.type}</TableCell>
-                  <TableCell>
-                    {waste.ingredient_id !== null
-                      ? ingredientName.get(waste.ingredient_id) ?? `Insumo #${waste.ingredient_id}`
-                      : preparationName.get(waste.preparation_id as number) ?? `Preparación #${waste.preparation_id}`}
-                  </TableCell>
-                  <TableCell className="tabular-nums">{waste.qty}</TableCell>
-                  <TableCell>
-                    <CostValue cost={waste.cost} costSource={waste.cost_source} />
-                  </TableCell>
-                  <TableCell>{waste.employee_name}</TableCell>
-                  <TableCell className="max-w-xs truncate">{waste.note ?? "—"}</TableCell>
-                  <TableCell>
-                    {waste.photo ? (
-                      <a href={waste.photo} target="_blank" rel="noreferrer" className="text-primary underline">
-                        Ver
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <DenseTable
+        caption="Mermas del período"
+        columns={columns}
+        rows={items}
+        rowKey={(w) => String(w.id)}
+        legend={LEGEND}
+        bar={
+          <DenseTableBar
+            shown={items.length}
+            total={items.length}
+            noun="mermas en el período"
+            hidden={
+              query.isLoading ? "contando…" : type === "all" ? undefined : `sólo «${WASTE_TYPE_LABEL[type]}»`
+            }
+          >
+            {filters}
+          </DenseTableBar>
+        }
+        empty={
+          query.isLoading ? undefined : (
+            <EmptyState
+              title="Sin mermas en este período"
+              description="Probá otro rango de fechas, tipo o responsable. Las mermas se registran desde el dispositivo del salón, con PIN."
+            />
+          )
+        }
+      />
     </div>
   )
 }

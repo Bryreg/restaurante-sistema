@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import type { IngredientOut } from "@/api/inventory"
@@ -48,7 +48,7 @@ describe("IngredientsTab — costo con origen, nunca un cero mudo (B-2, ronda 2)
 
     // El costo real está, con su origen — pero nunca redondeado a "$ 0".
     expect(screen.getByText("estimado")).toBeInTheDocument()
-    expect(screen.queryByText("$ 0")).not.toBeInTheDocument()
-    expect(screen.queryByText("Sin costo")).not.toBeInTheDocument()
+    expect(within(screen.getByRole("table")).queryByText("$ 0")).not.toBeInTheDocument()
+    expect(within(screen.getByRole("table")).queryByText("Sin costo")).not.toBeInTheDocument()
   })
 })

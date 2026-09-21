@@ -361,10 +361,22 @@ describe("interfaz: el estado se lee, no se adivina por el color", () => {
   });
 
   it("toda tabla ancha del administrador viaja dentro de un contenedor con scroll propio", () => {
-    const archivos = territoryFilesRaw().filter(({ code }) => /<Table\b/.test(code));
+    // La ola 2 del rediseño del admin cambió la FORMA de la tabla, no la
+    // regla: `<Table>` envuelto a mano en `overflow-x-auto` pasó a ser
+    // `<DenseTable>` (`@/components/admin`), que trae el contenedor que
+    // scrollea ADENTRO —`overflow-auto` sobre el cuerpo, con la cabecera
+    // pegada— y además impide por `style` que una celda de datos parta una
+    // palabra o haga crecer la fila (`docs/PATRONES-ADMIN.md` § 8).
+    //
+    // Este chequeo contaba sólo `<Table>`, así que al migrar las pantallas
+    // se quedaba sin nada que proteger y fallaba por su propia guarda. Ahora
+    // cuenta las dos formas, y `DenseTable` cumple la regla por
+    // construcción: el scroll vive en el componente, no en cada sitio de
+    // llamada, que es justamente lo que hace que no se pueda volver a perder.
+    const archivos = territoryFilesRaw().filter(({ code }) => /<(?:Dense)?Table\b/.test(code));
     expect(archivos.length, "no se encontró ninguna tabla en las pantallas nuevas").toBeGreaterThan(3);
     const sinScroll = archivos
-      .filter(({ code }) => !/overflow-x-auto/.test(code))
+      .filter(({ code }) => !/overflow-x-auto/.test(code) && !/<DenseTable\b/.test(code))
       .map(({ file }) => relative(file));
     expect(
       sinScroll,

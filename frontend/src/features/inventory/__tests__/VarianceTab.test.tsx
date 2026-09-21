@@ -151,7 +151,9 @@ describe("VarianceTab — el semáforo lo calcula el servidor, nunca un umbral d
     await user.click(screen.getByRole("combobox", { name: "Conteo aplicado" }))
     await user.click(await screen.findByRole("option", { name: /#20/ }))
 
-    await waitFor(() => expect(screen.getByText("Sin costo")).toBeInTheDocument())
-    expect(screen.queryByText("$ 0")).not.toBeInTheDocument()
+    await waitFor(() => expect(within(screen.getByRole("table")).getByText("Sin costo")).toBeInTheDocument())
+    // La leyenda del pie dice, con esas palabras, «no es $ 0»: la afirmación
+    // es que la CELDA no lo diga.
+    expect(within(screen.getByRole("table")).queryByText("$ 0")).not.toBeInTheDocument()
   })
 })

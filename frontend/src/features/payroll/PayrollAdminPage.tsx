@@ -11,6 +11,7 @@ import { useSearchParams } from "react-router-dom"
 
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
+import { PageHeader } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -53,8 +54,10 @@ export function PayrollAdminPage(): React.JSX.Element {
   if (!enabled) {
     return (
       <EmptyState
+        reason="feature-off"
         title="Nómina y propinas no está habilitado"
         description="Activá «Nómina» o «Propinas» en Admin → Funciones para usar esta pantalla."
+        action={{ label: "Encenderla en Funciones", to: "/admin/features" }}
       />
     )
   }
@@ -64,10 +67,21 @@ export function PayrollAdminPage(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">Nómina y propinas</h1>
-        <p className="text-sm text-muted-foreground">Las personas: sus horas, sus recargos y su propina.</p>
-      </div>
+      <PageHeader
+        name="Nómina y propinas"
+        question="Cuántas horas puso cada persona, cuánto suma eso con los recargos vigentes y cuánta propina le toca."
+        context={[
+          {
+            label: "La liquidación es para control interno, no es la liquidación legal",
+            title: "La fórmula del Código Sustantivo del Trabajo combina los recargos en ocho categorías y todavía no está implementada.",
+          },
+          payrollEnabled && tipsEnabled
+            ? { label: "Nómina y propinas están las dos encendidas." }
+            : payrollEnabled
+              ? { label: "Sólo «Nómina»", title: "«Propinas» (pos.tips) está apagada: la pestaña de reparto no se dibuja." }
+              : { label: "Sólo «Propinas»", title: "«Nómina» (payroll) está apagada: horas, tarifas, recargos y liquidaciones no se dibujan." },
+        ]}
+      >
       <Tabs
         value={tab}
         onValueChange={(value) => {
@@ -109,6 +123,7 @@ export function PayrollAdminPage(): React.JSX.Element {
           </TabsContent>
         ) : null}
       </Tabs>
+      </PageHeader>
     </div>
   )
 }

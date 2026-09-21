@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "@/test/utils"
@@ -59,7 +59,7 @@ describe("LotsTab — FEFO y «un lote vencido no se da de baja solo» (SPEC-NEG
 
     await waitFor(() => expect(screen.getByText("Lechuga")).toBeInTheDocument())
 
-    expect(screen.getByText("Vencido")).toBeInTheDocument()
+    expect(within(screen.getByRole("table")).getByText("Vencido")).toBeInTheDocument()
 
     const link = screen.getByRole("link", { name: /registrar merma \(vencido\)/i })
     expect(link).toHaveAttribute("href", "/pos/merma")

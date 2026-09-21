@@ -32,7 +32,7 @@ describe("WasteAdminTab — el KPI mermas ÷ compras es entero en puntos básico
 
     renderWithProviders(<WasteAdminTab storeId={1} ingredients={[]} />)
 
-    await waitFor(() => expect(screen.getByText("Sin datos")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/Sin datos/)).toBeInTheDocument())
     expect(screen.queryByText("0 %")).not.toBeInTheDocument()
     expect(screen.queryByText(/^0%$/)).not.toBeInTheDocument()
   })

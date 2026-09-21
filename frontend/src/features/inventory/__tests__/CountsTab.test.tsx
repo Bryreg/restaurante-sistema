@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "@/test/utils"
@@ -36,7 +36,7 @@ describe("CountsTab", () => {
     await waitFor(() => expect(screen.getByText("#12")).toBeInTheDocument())
     expect(screen.getByRole("link", { name: "#12" })).toHaveAttribute("href", "/admin/inventario/conteos/12")
     expect(screen.getByText("(parcial)")).toBeInTheDocument()
-    expect(screen.getByText("Abierto")).toBeInTheDocument()
+    expect(within(screen.getByRole("table")).getByText("Abierto")).toBeInTheDocument()
   })
 
   it("un conteo aplicado muestra quién y cuándo, sin «(parcial)»", async () => {
@@ -54,7 +54,7 @@ describe("CountsTab", () => {
     renderWithProviders(<CountsTab storeId={1} />)
 
     await waitFor(() => expect(screen.getByText("#11")).toBeInTheDocument())
-    expect(screen.getByText("Aplicado")).toBeInTheDocument()
+    expect(within(screen.getByRole("table")).getByText("Aplicado")).toBeInTheDocument()
     expect(screen.queryByText("(parcial)")).not.toBeInTheDocument()
     expect(screen.getByText(/Carlos/)).toBeInTheDocument()
   })

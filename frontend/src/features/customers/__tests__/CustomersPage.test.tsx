@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -91,7 +91,9 @@ describe("CustomersPage", () => {
     renderWithProviders(<CustomersPage />);
 
     await waitFor(() => expect(screen.getByText("Cliente de prueba")).toBeInTheDocument());
-    expect(screen.getByText("Anonimizado")).toBeInTheDocument();
+    // «Anonimizado» es también un término de la leyenda del pie (patrón 8d):
+    // lo que se afirma es que la FILA lo diga.
+    expect(within(screen.getByRole("table")).getByText("Anonimizado")).toBeInTheDocument();
 
     await user.click(screen.getByText("Cliente de prueba"));
 

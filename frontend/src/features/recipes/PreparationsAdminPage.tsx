@@ -12,30 +12,66 @@ import {
   type PreparationAdminOut,
 } from "@/api/recipes"
 import { CsvExportButton } from "@/components/CsvExportButton"
+import {
+  DenseTable,
+  DenseTableBar,
+  FeatureOffEmptyState,
+  PageHeader,
+  type DenseColumn,
+  type LegendEntry,
+} from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { errorMessage } from "@/lib/errors"
+import { cn } from "@/lib/utils"
 
 import { CostValue } from "./costDisplay"
 import type { LineIngredientOption, LinePreparationOption } from "./ComponentLinesEditor"
-import { formValuesToPreparationIn, formValuesToPreparationUpdateIn, PreparationForm } from "./PreparationForm"
+import {
+  formValuesToPreparationIn,
+  formValuesToPreparationUpdateIn,
+  PreparationForm,
+} from "./PreparationForm"
 import { PrepBatchesPanel } from "./PrepBatchesPanel"
 import { PrepModeSwitchDialog } from "./PrepModeSwitchDialog"
 
 const MODE_LABEL: Record<string, string> = { batch: "Por lote", exploded: "Explotada" }
 
-function PreparationRow({
+/**
+ * Las acciones de la fila, en su propio componente: cada una tiene su
+ * mutación y su diálogo, y la columna de acciones del patrón 8 es de ancho
+ * fijo para que el borde derecho no baile de fila a fila.
+ */
+/** La leyenda del pie: los dos modos, que NO son dos grados de lo mismo. */
+const PREPS_LEGEND: readonly LegendEntry[] = [
+  {
+    term: "Explotada",
+    meaning:
+      "no lleva stock propio: al vender el plato se descuentan directo los insumos de su receta. Es el modo por defecto y el que no se puede desincronizar.",
+  },
+  {
+    term: "Por lote",
+    meaning: (
+      <>
+        lleva stock propio y <b>alguien tiene que producirla</b>. Si nadie lo hace, queda en negativo y el
+        costo de los platos que la usan se va a las nubes.
+      </>
+    ),
+  },
+  {
+    term: "Sin costo",
+    meaning: (
+      <>
+        no es <b>$ 0</b> — no se pudo valorar la unidad porque algún componente no tiene costo conocido.
+      </>
+    ),
+  },
+]
+
+function PreparationActions({
   preparation,
   ingredientOptions,
   preparationOptions,
@@ -59,63 +95,44 @@ function PreparationRow({
   })
 
   return (
-    <TableRow>
-      <TableCell className="font-medium">{preparation.name}</TableCell>
-      <TableCell>
-        <Badge variant={preparation.mode === "batch" ? "secondary" : "outline"}>{MODE_LABEL[preparation.mode]}</Badge>
-      </TableCell>
-      <TableCell className="tabular-nums">
-        {preparation.standard_yield_qty} {preparation.standard_yield_unit}
-      </TableCell>
-      <TableCell className="tabular-nums">{preparation.process_loss_pct}%</TableCell>
-      <TableCell className="tabular-nums">
-        {preparation.shelf_life_days !== null ? `${preparation.shelf_life_days} días` : "No vence"}
-      </TableCell>
-      <TableCell className="tabular-nums">
-        {preparation.mode === "batch" ? (preparation.current_stock ?? "0") : "—"}
-      </TableCell>
-      <TableCell>
-        <CostValue cost={preparation.unit_cost} costSource={preparation.cost_source} />
-      </TableCell>
-      <TableCell>{preparation.active ? <Badge variant="secondary">Activa</Badge> : <Badge variant="outline">Inactiva</Badge>}</TableCell>
-      <TableCell>
-        <div className="flex flex-wrap gap-2">
-          <Dialog open={editing} onOpenChange={setEditing}>
-            <DialogTrigger render={<Button variant="outline" size="sm" />}>Editar</DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Editar {preparation.name}</DialogTitle>
-              </DialogHeader>
-              <PreparationForm
-                preparation={preparation}
-                ingredients={ingredientOptions}
-                preparations={preparationOptions}
-                submitting={updateMutation.isPending}
-                submitLabel="Guardar"
-                onSubmit={(values) => updateMutation.mutate(values)}
-              />
-              {updateMutation.isError && (
-                <p role="alert" className="text-sm text-destructive">
-                  {errorMessage(updateMutation.error)}
-                </p>
-              )}
-            </DialogContent>
-          </Dialog>
-          <Button variant="outline" size="sm" onClick={() => setSwitching(true)}>
-            Cambiar modo
-          </Button>
-          {preparation.mode === "batch" && (
-            <Button variant="outline" size="sm" onClick={() => setBatches(true)}>
-              Ver lotes
-            </Button>
+    <div className="flex flex-nowrap justify-end gap-1">
+      <Dialog open={editing} onOpenChange={setEditing}>
+        <DialogTrigger render={<Button variant="outline" size="sm" />}>Editar</DialogTrigger>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Editar {preparation.name}</DialogTitle>
+          </DialogHeader>
+          <PreparationForm
+            preparation={preparation}
+            ingredients={ingredientOptions}
+            preparations={preparationOptions}
+            submitting={updateMutation.isPending}
+            submitLabel="Guardar"
+            onSubmit={(values) => updateMutation.mutate(values)}
+          />
+          {updateMutation.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              {errorMessage(updateMutation.error)}
+            </p>
           )}
-        </div>
-        {switching && (
-          <PrepModeSwitchDialog preparation={preparation} open={switching} onOpenChange={setSwitching} />
-        )}
-        {batches && <PrepBatchesPanel preparation={preparation} open={batches} onOpenChange={setBatches} />}
-      </TableCell>
-    </TableRow>
+        </DialogContent>
+      </Dialog>
+      <Button variant="outline" size="sm" onClick={() => setSwitching(true)}>
+        Cambiar modo
+      </Button>
+      {/* «Ver lotes» SÓLO existe en modo «por lote»: un control que aparece y
+          desaparece con el estado de la fila (`docs/INVENTARIO-CONTROLES.md`
+          § 23). */}
+      {preparation.mode === "batch" && (
+        <Button variant="outline" size="sm" onClick={() => setBatches(true)}>
+          Ver lotes
+        </Button>
+      )}
+      {switching && (
+        <PrepModeSwitchDialog preparation={preparation} open={switching} onOpenChange={setSwitching} />
+      )}
+      {batches && <PrepBatchesPanel preparation={preparation} open={batches} onOpenChange={setBatches} />}
+    </div>
   )
 }
 
@@ -160,10 +177,14 @@ export function PreparationsAdminPage(): React.JSX.Element {
     return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
   }
   if (!enabled) {
+    // Patrón 13, motivo «función apagada»: la entrada de navegación
+    // desaparece con el flag, pero la URL sobrevive en un marcador y en los
+    // avisos de Hoy.
     return (
-      <EmptyState
-        title="Preparaciones no está habilitada"
-        description="Activá «Preparaciones en dos modos» en Admin → Funciones para usar esta pantalla. Depende de «Fichas técnicas»."
+      <FeatureOffEmptyState
+        feature="Preparaciones en dos modos"
+        flag="catalog.preps"
+        description="Sin ella no hay preparaciones ni producción por lote: todo se explota directo a insumos. Depende además de «Fichas técnicas»."
       />
     )
   }
@@ -175,83 +196,164 @@ export function PreparationsAdminPage(): React.JSX.Element {
   const ingredientOptions = ingredientOptionsQuery.data ?? []
   const preparationOptions = preparations
 
+  const columns: readonly DenseColumn<PreparationAdminOut>[] = [
+    { key: "name", header: "Nombre", kind: "name", cell: (p) => p.name },
+    {
+      key: "mode",
+      header: "Modo",
+      // La palabra del negocio, no el enum: «Por lote» / «Explotada».
+      cell: (p) => MODE_LABEL[p.mode],
+    },
+    {
+      key: "yield",
+      header: "Rendimiento",
+      kind: "number",
+      cell: (p) => `${p.standard_yield_qty} ${p.standard_yield_unit}`,
+    },
+    { key: "loss", header: "Merma esperada", kind: "number", cell: (p) => `${p.process_loss_pct} %` },
+    {
+      key: "shelf",
+      header: "Vida útil",
+      kind: "number",
+      cell: (p) => (p.shelf_life_days !== null ? `${p.shelf_life_days} días` : "No vence"),
+    },
+    {
+      key: "stock",
+      header: "Stock",
+      kind: "number",
+      // En modo «explotada» no hay stock que llevar: es «—», no «0».
+      cell: (p) =>
+        p.mode === "batch" ? (
+          <span className={cn(Number(p.current_stock ?? "0") <= 0 && "font-bold text-destructive")}>
+            {p.current_stock ?? "0"}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    {
+      key: "cost",
+      header: "Costo por unidad",
+      kind: "number",
+      cell: (p) => <CostValue cost={p.unit_cost} costSource={p.cost_source} />,
+    },
+    {
+      key: "actions",
+      header: "",
+      kind: "actions",
+      cell: (p) => (
+        <PreparationActions
+          preparation={p}
+          ingredientOptions={ingredientOptions}
+          preparationOptions={preparationOptions}
+        />
+      ),
+    },
+  ]
+
+  const inactive = preparations.filter((p) => !p.active).length
+  const negativeBatch = preparations.filter(
+    (p) => p.mode === "batch" && Number(p.current_stock ?? "0") <= 0,
+  ).length
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Preparaciones</h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            «Explotada» es el modo por defecto: sin registro de producción, una preparación en modo lote queda
-            negativa y sus insumos se ven sobrevalorados. Usá «por lote» sólo para lo caro, perecedero o vendido por
-            porción, y produciendo de verdad.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <CsvExportButton href={preparationsCsvUrl({ storeId: activeStoreId, activeOnly: !showInactive })} />
-          <Dialog open={creating} onOpenChange={setCreating}>
-            <DialogTrigger render={<Button />}>Nueva preparación</DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Nueva preparación</DialogTitle>
-              </DialogHeader>
-              <PreparationForm
-                ingredients={ingredientOptions}
-                preparations={preparationOptions}
-                submitting={createMutation.isPending}
-                submitLabel="Crear"
-                onSubmit={(values) => createMutation.mutate(values)}
-              />
-              {createMutation.isError && (
-                <p role="alert" className="text-sm text-destructive">
-                  {errorMessage(createMutation.error)}
-                </p>
-              )}
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
+      <PageHeader
+        name="Preparaciones"
+        question="Qué se produce en cocina antes de vender, en qué modo descuenta sus insumos, y cuánto cuesta cada unidad."
+        context={
+          preparationsQuery.isSuccess
+            ? [
+                { label: "Preparaciones", value: preparations.length },
+                { label: "Por lote en cero o negativo", value: negativeBatch },
+              ]
+            : undefined
+        }
+      />
 
-      <div className="flex items-center gap-2">
-        <Checkbox id="show-inactive" checked={showInactive} onCheckedChange={(v) => setShowInactive(v === true)} />
-        <Label htmlFor="show-inactive">Mostrar inactivas</Label>
-      </div>
+      <p className="max-w-[80ch] text-sm text-muted-foreground">
+        «Explotada» es el modo por defecto: sin registro de producción, una preparación en modo lote queda
+        negativa y sus insumos se ven sobrevalorados. Usá «por lote» sólo para lo caro, perecedero o vendido
+        por porción, y produciendo de verdad.
+      </p>
 
-      {preparationsQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando preparaciones…</p>
-      ) : preparationsQuery.isError ? (
+      {preparationsQuery.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(preparationsQuery.error)}
         </p>
-      ) : preparations.length === 0 ? (
-        <EmptyState title="Todavía no hay preparaciones" description="Creá la primera con «Nueva preparación»." />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nombre</TableHead>
-                <TableHead>Modo</TableHead>
-                <TableHead>Rendimiento estándar</TableHead>
-                <TableHead>Merma esperada</TableHead>
-                <TableHead>Vida útil</TableHead>
-                <TableHead>Stock</TableHead>
-                <TableHead>Costo por unidad</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {preparations.map((preparation) => (
-                <PreparationRow
-                  key={preparation.id}
-                  preparation={preparation}
-                  ingredientOptions={ingredientOptions}
-                  preparationOptions={preparationOptions}
+        <DenseTable
+          caption="Preparaciones de la sede"
+          columns={columns}
+          rows={preparations}
+          rowKey={(p) => String(p.id)}
+          rowInactive={(p) => !p.active}
+          rowStatus={(p) => (p.mode === "batch" && Number(p.current_stock ?? "0") <= 0 ? "warning" : "none")}
+          legend={PREPS_LEGEND}
+          bar={
+            <DenseTableBar
+              shown={preparations.length}
+              total={preparations.length}
+              noun={showInactive ? "preparaciones" : "preparaciones activas"}
+              hidden={
+                preparationsQuery.isLoading
+                  ? "contando…"
+                  : showInactive
+                    ? inactive > 0
+                      ? `${inactive} inactivas, a la vista`
+                      : undefined
+                    : "las inactivas no se están mostrando"
+              }
+            >
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="show-inactive"
+                  checked={showInactive}
+                  onCheckedChange={(v) => setShowInactive(v === true)}
                 />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                <Label htmlFor="show-inactive">Mostrar inactivas</Label>
+              </div>
+              <CsvExportButton
+                href={preparationsCsvUrl({ storeId: activeStoreId, activeOnly: !showInactive })}
+              />
+              <Dialog open={creating} onOpenChange={setCreating}>
+                <DialogTrigger render={<Button size="sm" />}>Nueva preparación</DialogTrigger>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Nueva preparación</DialogTitle>
+                  </DialogHeader>
+                  <PreparationForm
+                    ingredients={ingredientOptions}
+                    preparations={preparationOptions}
+                    submitting={createMutation.isPending}
+                    submitLabel="Crear"
+                    onSubmit={(values) => createMutation.mutate(values)}
+                  />
+                  {createMutation.isError && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {errorMessage(createMutation.error)}
+                    </p>
+                  )}
+                </DialogContent>
+              </Dialog>
+            </DenseTableBar>
+          }
+          note={
+            <>
+              <b>Cambiar el modo no es un ajuste cosmético</b>: pasar de «por lote» a «explotada» cierra los
+              lotes abiertos con un ajuste de conteo y no se deshace solo. Pide PIN de administrador en las
+              dos direcciones.
+            </>
+          }
+          empty={
+            preparationsQuery.isLoading ? undefined : (
+              <EmptyState
+                title="Todavía no hay preparaciones"
+                description="Creá la primera con «Nueva preparación». Una preparación es lo que la cocina arma antes de vender: una salsa, un caldo, una masa."
+              />
+            )
+          }
+        />
       )}
     </div>
   )

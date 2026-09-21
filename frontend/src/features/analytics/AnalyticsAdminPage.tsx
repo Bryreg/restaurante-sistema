@@ -17,6 +17,7 @@ import { useSearchParams } from "react-router-dom"
 
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
+import { PageHeader } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -57,10 +58,17 @@ export function AnalyticsAdminPage(): React.JSX.Element {
     return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
   }
   if (!enabled) {
+    // § 13 · Vacío por **función apagada**: nombra la función y lleva a
+    // encenderla. Es el único motivo que entiende que **la URL sobrevive al
+    // flag**: la entrada de navegación desaparece, pero el marcador del dueño
+    // y los avisos de Hoy siguen apuntando acá. Son tres flags, así que se
+    // nombran los tres en vez de inventar uno solo.
     return (
       <EmptyState
+        reason="feature-off"
         title="Analítica no está habilitada"
         description="Activá «Ingeniería de menú», «Varianza de inventario» o «Reposición sugerida» en Admin → Funciones para usar esta pantalla."
+        action={{ label: "Encenderla en Funciones", to: "/admin/features" }}
       />
     )
   }
@@ -70,10 +78,17 @@ export function AnalyticsAdminPage(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">Analítica</h1>
-        <p className="text-sm text-muted-foreground">Qué conviene vender y qué reponer.</p>
-      </div>
+      <PageHeader
+        name="Analítica"
+        question="Qué conviene vender, qué se está yendo sin que lo veas y qué hay que reponer antes de que falte."
+        context={[
+          { label: "Sólo lectura: acá no se cambia nada, se mira." },
+          {
+            label: "Sobre el costo congelado en la venta",
+            title: "El costo viaja congelado en el ítem vendido: ninguna de estas tablas revalora una venta pasada con la carta de hoy.",
+          },
+        ]}
+      >
       <Tabs
         value={tab}
         onValueChange={(value) => {
@@ -109,6 +124,7 @@ export function AnalyticsAdminPage(): React.JSX.Element {
           </TabsContent>
         ) : null}
       </Tabs>
+      </PageHeader>
     </div>
   )
 }

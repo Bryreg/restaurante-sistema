@@ -2,20 +2,45 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { createSupplier, deactivateSupplier, listSuppliers, updateSupplier, type SupplierOut } from "@/api/purchases"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  DenseTable,
+  DenseTableBar,
+  type DenseColumn,
+  type LegendEntry,
+} from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
+
+/** La leyenda del pie: qué cambia que un proveedor exija factura. */
+const SUPPLIERS_LEGEND: readonly LegendEntry[] = [
+  {
+    term: "Obligado a facturar",
+    meaning: (
+      <>
+        una recepción de este proveedor <b>sin factura se rechaza</b>. No es una preferencia: el servidor la
+        hace cumplir.
+      </>
+    ),
+  },
+  {
+    term: "Plazo",
+    meaning: "los días desde la recepción hasta que la cuenta por pagar vence. De ahí sale el «Vencida».",
+  },
+  {
+    term: "Desactivar",
+    meaning: "no borra: el proveedor deja de ofrecerse en recepciones nuevas y sus compras viejas quedan enteras.",
+  },
+]
 import { errorMessage } from "@/lib/errors"
 
 import { downloadSuppliersCsv } from "./lib"
 import { formValuesToSupplierIn, formValuesToSupplierUpdateIn, SupplierForm } from "./SupplierForm"
 import { SupplierReliabilityDialog } from "./SupplierReliabilityDialog"
 
-function SupplierRow({ supplier }: { supplier: SupplierOut }): React.JSX.Element {
+function SupplierActions({ supplier }: { supplier: SupplierOut }): React.JSX.Element {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
 
@@ -34,44 +59,35 @@ function SupplierRow({ supplier }: { supplier: SupplierOut }): React.JSX.Element
   })
 
   return (
-    <TableRow>
-      <TableCell className="font-medium">{supplier.name}</TableCell>
-      <TableCell>{supplier.nit ?? "—"}</TableCell>
-      <TableCell className="tabular-nums">{supplier.payment_term_days} días</TableCell>
-      <TableCell>
-        {supplier.contact_name ?? "—"}
-        {supplier.contact_phone ? ` · ${supplier.contact_phone}` : ""}
-      </TableCell>
-      <TableCell>
-        {supplier.invoices_required ? <Badge variant="secondary">Obligado a facturar</Badge> : <Badge variant="outline">Factura opcional</Badge>}
-      </TableCell>
-      <TableCell>{supplier.active ? <Badge variant="secondary">Activo</Badge> : <Badge variant="outline">Inactivo</Badge>}</TableCell>
-      <TableCell>
-        <div className="flex flex-wrap gap-2">
-          <SupplierReliabilityDialog supplier={supplier} />
-          <Dialog open={editing} onOpenChange={setEditing}>
-            <DialogTrigger render={<Button variant="outline" size="sm" />}>Editar</DialogTrigger>
-            <DialogContent className="max-w-xl">
-              <DialogHeader>
-                <DialogTitle>Editar {supplier.name}</DialogTitle>
-              </DialogHeader>
-              <SupplierForm
-                supplier={supplier}
-                submitting={updateMutation.isPending}
-                submitLabel="Guardar"
-                serverError={updateMutation.isError ? errorMessage(updateMutation.error) : null}
-                onSubmit={(values) => updateMutation.mutate(values)}
-              />
-            </DialogContent>
-          </Dialog>
-          {supplier.active ? (
-            <Button variant="outline" size="sm" disabled={deactivateMutation.isPending} onClick={() => deactivateMutation.mutate()}>
-              Desactivar
-            </Button>
-          ) : null}
-        </div>
-      </TableCell>
-    </TableRow>
+    <div className="flex flex-nowrap justify-end gap-1">
+      <SupplierReliabilityDialog supplier={supplier} />
+      <Dialog open={editing} onOpenChange={setEditing}>
+        <DialogTrigger render={<Button variant="outline" size="sm" />}>Editar</DialogTrigger>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Editar {supplier.name}</DialogTitle>
+          </DialogHeader>
+          <SupplierForm
+            supplier={supplier}
+            submitting={updateMutation.isPending}
+            submitLabel="Guardar"
+            serverError={updateMutation.isError ? errorMessage(updateMutation.error) : null}
+            onSubmit={(values) => updateMutation.mutate(values)}
+          />
+        </DialogContent>
+      </Dialog>
+      {/* «Desactivar» sólo existe si el proveedor está activo. */}
+      {supplier.active ? (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={deactivateMutation.isPending}
+          onClick={() => deactivateMutation.mutate()}
+        >
+          Desactivar
+        </Button>
+      ) : null}
+    </div>
   )
 }
 
@@ -93,7 +109,8 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
   })
 
   const createMutation = useMutation({
-    mutationFn: (values: Parameters<typeof formValuesToSupplierIn>[0]) => createSupplier(storeId, formValuesToSupplierIn(values)),
+    mutationFn: (values: Parameters<typeof formValuesToSupplierIn>[0]) =>
+      createSupplier(storeId, formValuesToSupplierIn(values)),
     onSuccess: () => {
       setCreating(false)
       void queryClient.invalidateQueries({ queryKey: ["purchases", "suppliers"] })
@@ -101,20 +118,89 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
   })
 
   const suppliers = query.data ?? []
+  const inactive = suppliers.filter((s) => !s.active).length
+
+  const columns: readonly DenseColumn<SupplierOut>[] = [
+    { key: "name", header: "Nombre", kind: "name", cell: (s) => s.name },
+    { key: "nit", header: "NIT", kind: "id", cell: (s) => s.nit ?? "—" },
+    { key: "term", header: "Plazo", kind: "number", cell: (s) => `${s.payment_term_days} días` },
+    {
+      key: "contact",
+      header: "Contacto",
+      widthPx: 200,
+      cell: (s) => (
+        <span className="block truncate">
+          {s.contact_name ?? "—"}
+          {s.contact_phone ? ` · ${s.contact_phone}` : ""}
+        </span>
+      ),
+      cellTitle: (s) => [s.contact_name, s.contact_phone].filter(Boolean).join(" · ") || undefined,
+    },
+    {
+      key: "invoice",
+      header: "Factura",
+      cell: (s) => (s.invoices_required ? "Obligado a facturar" : "Factura opcional"),
+    },
+    {
+      key: "actions",
+      header: "",
+      kind: "actions",
+      cell: (s) => <SupplierActions supplier={s} />,
+    },
+  ]
+
+  if (query.isError) {
+    return (
+      <EmptyState
+        role="alert"
+        title="No se pudieron cargar los proveedores"
+        description={errorMessage(query.error)}
+        action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+      />
+    )
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Nombre canónico, NIT, plazo de pago y si el proveedor exige factura. Nunca texto libre: cada recepción elige
-          uno de esta lista.
-        </p>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => downloadSuppliersCsv(suppliers)} disabled={suppliers.length === 0}>
+    <DenseTable
+      caption="Proveedores de la sede"
+      columns={columns}
+      rows={suppliers}
+      rowKey={(s) => String(s.id)}
+      rowInactive={(s) => !s.active}
+      legend={SUPPLIERS_LEGEND}
+      bar={
+        <DenseTableBar
+          shown={suppliers.length}
+          total={suppliers.length}
+          noun={showInactive ? "proveedores" : "proveedores activos"}
+          hidden={
+            query.isLoading
+              ? "contando…"
+              : showInactive
+                ? inactive > 0
+                  ? `${inactive} inactivos, a la vista`
+                  : undefined
+                : "los inactivos no se están mostrando"
+          }
+        >
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="sup-show-inactive"
+              checked={showInactive}
+              onCheckedChange={(v) => setShowInactive(v === true)}
+            />
+            <Label htmlFor="sup-show-inactive">Mostrar inactivos</Label>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => downloadSuppliersCsv(suppliers)}
+            disabled={suppliers.length === 0}
+          >
             Exportar CSV
           </Button>
           <Dialog open={creating} onOpenChange={setCreating}>
-            <DialogTrigger render={<Button />}>Nuevo proveedor</DialogTrigger>
+            <DialogTrigger render={<Button size="sm" />}>Nuevo proveedor</DialogTrigger>
             <DialogContent className="max-w-xl">
               <DialogHeader>
                 <DialogTitle>Nuevo proveedor</DialogTitle>
@@ -127,48 +213,18 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
               />
             </DialogContent>
           </Dialog>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Checkbox id="sup-show-inactive" checked={showInactive} onCheckedChange={(v) => setShowInactive(v === true)} />
-        <Label htmlFor="sup-show-inactive">Mostrar inactivos</Label>
-      </div>
-
-      {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando proveedores…</p>
-      ) : query.isError ? (
-        <EmptyState
-          role="alert"
-          title="No se pudieron cargar los proveedores"
-          description={errorMessage(query.error)}
-          action={{ label: "Reintentar", onClick: () => void query.refetch() }}
-        />
-      ) : suppliers.length === 0 ? (
-        <EmptyState title="Todavía no hay proveedores" description="Creá el primero con «Nuevo proveedor»." />
-      ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nombre</TableHead>
-                <TableHead>NIT</TableHead>
-                <TableHead>Plazo</TableHead>
-                <TableHead>Contacto</TableHead>
-                <TableHead>Factura</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {suppliers.map((supplier) => (
-                <SupplierRow key={supplier.id} supplier={supplier} />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </div>
+        </DenseTableBar>
+      }
+      note="Nombre canónico, NIT, plazo de pago y si el proveedor exige factura. Nunca texto libre: cada recepción elige uno de esta lista."
+      empty={
+        query.isLoading ? undefined : (
+          <EmptyState
+            title="Todavía no hay proveedores"
+            description="Creá el primero con «Nuevo proveedor». Sin proveedores no se puede registrar ninguna recepción."
+          />
+        )
+      }
+    />
   )
 }
 

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FilePlus2, FileSearch, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -17,13 +18,21 @@ import {
   type DocumentEvidenceOut,
   type FiscalDocumentType,
 } from "@/api/fiscal";
+import {
+  DenseTable,
+  DenseTableBar,
+  FilterEmptyState,
+  PageHeader,
+  TimeAgo,
+  type DenseColumn,
+  type RowStatus,
+} from "@/components/admin";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
@@ -126,6 +135,25 @@ function EvidenceDialog({ documentId, onOpenChange }: { documentId: number | nul
  * El estado nunca se dice sólo por color: siempre lleva texto (`Badge` con
  * `DIAN_STATUS_LABEL`).
  */
+/**
+ * La franja de estado de la fila (patrón 8b): deja ver **la forma del
+ * problema** sin leer. Rechazado y contingencia vencida son lo que hay que
+ * atender; validado es lo que ya está cerrado; pendiente y enviado no son un
+ * problema todavía, y por eso no se tiñen de nada.
+ */
+function estadoDeFila(row: AdminFiscalDocumentOut): RowStatus {
+  if (row.dian_status === "rejected" || row.contingency_overdue) return "critical";
+  if (row.dian_status === "contingency") return "warning";
+  if (row.dian_status === "validated") return "ok";
+  return "none";
+}
+
+/**
+ * Admin → Documentos fiscales (SPEC-NEGOCIO §8.3, `spec.md` "API contract →
+ * Payments & fiscal document"): estados ante la DIAN, reintento y evidencia.
+ * El estado nunca se dice sólo por color: siempre lleva texto (`Badge` con
+ * `DIAN_STATUS_LABEL`).
+ */
 export function DocumentsPage(): React.JSX.Element {
   const { activeStoreId, loading: storeLoading } = useStoreSelection();
   const queryClient = useQueryClient();
@@ -160,127 +188,225 @@ export function DocumentsPage(): React.JSX.Element {
   // sobre las filas ya traídas — no es plata, es filtrar una lista.
   const filteredRows = typeFilter ? rows.filter((row) => row.document_type === typeFilter) : rows;
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Documentos fiscales</h1>
-          <p className="text-sm text-muted-foreground">
-            Estado ante la DIAN, reintento y evidencia. Un documento rechazado nunca libera su consecutivo.
-          </p>
-        </div>
-        <LocalCsvExportButton href={fiscalDocumentsCsvUrl({ storeId: activeStoreId, status })} />
-      </div>
+  // Los filtros puestos, **en palabras**: es lo que el vacío por filtro tiene
+  // que nombrar para que el dueño sepa qué sacar (patrón 13).
+  const filtrosPuestos: string[] = [];
+  if (status) filtrosPuestos.push(DIAN_STATUS_LABEL[status]);
+  if (typeFilter) filtrosPuestos.push(DOCUMENT_TYPE_LABEL[typeFilter]);
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1">
-          <Label>Estado</Label>
-          <Select value={status ?? "all"} onValueChange={(v) => setStatus(v === "all" ? undefined : (v as DianStatus))}>
-            <SelectTrigger className="h-10 w-48" aria-label="Estado ante la DIAN">
-              <SelectValue placeholder="Todos" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {STATUS_OPTIONS.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {DIAN_STATUS_LABEL[value]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label>Tipo</Label>
-          <Select
-            value={typeFilter ?? "all"}
-            onValueChange={(v) => setTypeFilter(v === "all" ? undefined : (v as FiscalDocumentType))}
+  function quitarFiltro(filtro: string) {
+    if (status && DIAN_STATUS_LABEL[status] === filtro) setStatus(undefined);
+    if (typeFilter && DOCUMENT_TYPE_LABEL[typeFilter] === filtro) setTypeFilter(undefined);
+  }
+
+  const porAtender = filteredRows.filter((row) => estadoDeFila(row) === "critical").length;
+
+  const columns: readonly DenseColumn<AdminFiscalDocumentOut>[] = [
+    {
+      key: "number",
+      header: "Documento",
+      kind: "id",
+      // Un número de documento es **una palabra sola**: nunca se parte.
+      cell: (row) => row.full_number ?? `#${row.id}`,
+    },
+    {
+      key: "type",
+      header: "Tipo",
+      // La celda escribe la palabra del negocio, no el enum.
+      cell: (row) => (row.document_type ? DOCUMENT_TYPE_LABEL[row.document_type] : "—"),
+    },
+    {
+      key: "status",
+      header: "Estado ante la DIAN",
+      cell: (row) => (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+          <Badge variant={statusBadgeVariant(row.dian_status)}>
+            {row.dian_status ? DIAN_STATUS_LABEL[row.dian_status] : "Sin transmitir"}
+          </Badge>
+          {row.contingency_overdue ? <Badge variant="destructive">Contingencia vencida (48 h)</Badge> : null}
+        </span>
+      ),
+    },
+    {
+      key: "date",
+      header: "Emitido",
+      kind: "secondary",
+      widthPx: 96,
+      // «hace 1 día» en la celda; el instante exacto, a un hover.
+      cell: (row) => (row.issued_at ? <TimeAgo iso={row.issued_at} /> : (row.business_date ?? "—")),
+      cellTitle: (row) => (row.issued_at ? formatInstant(row.issued_at) : undefined),
+    },
+    { key: "total", header: "Total", kind: "number", cell: (row) => formatCOP(row.total) },
+    { key: "tip", header: "Propina", kind: "number", cell: (row) => formatCOP(row.tip_amount) },
+    { key: "charged", header: "Cobró", kind: "secondary", cell: (row) => row.charged_by ?? "—" },
+    { key: "customer", header: "Cliente", cell: (row) => row.customer_name ?? "Consumidor final" },
+    {
+      key: "actions",
+      header: "",
+      kind: "actions",
+      // Íconos en columna de ancho fijo, como manda el patrón 8: tres botones
+      // con texto se llevaban 104 px de más y hacían bailar el borde derecho
+      // de fila en fila (la de un documento validado no lleva «Reintentar»).
+      // El rótulo no se pierde: va en `aria-label` y en `title`, así que el
+      // nombre accesible sigue siendo «Evidencia», «Reintentar», «Emitir nota».
+      cell: (row) => (
+        <span className="inline-flex items-center justify-end gap-0.5 whitespace-nowrap">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Evidencia"
+            title="Evidencia: estado DIAN, CUDE, QR y el rango que amparó el consecutivo"
+            onClick={() => setEvidenceId(row.id)}
           >
-            <SelectTrigger className="h-10 w-56" aria-label="Tipo de documento">
-              <SelectValue placeholder="Todos" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {Object.entries(DOCUMENT_TYPE_LABEL).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+            <FileSearch className="size-4" aria-hidden="true" />
+          </Button>
+          {row.dian_status && row.dian_status !== "validated" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Reintentar"
+              title="Reintentar la transmisión a la DIAN"
+              disabled={retryMutation.isPending}
+              onClick={() => retryMutation.mutate(row.id)}
+            >
+              <RefreshCw className="size-4" aria-hidden="true" />
+            </Button>
+          ) : (
+            <span className="inline-block size-8" aria-hidden="true" />
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Emitir nota"
+            title="Emitir una nota sobre este documento"
+            render={<Link to={`/admin/fiscal/notas?document=${row.id}`} />}
+          >
+            <FilePlus2 className="size-4" aria-hidden="true" />
+          </Button>
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <PageHeader
+        name="Documentos fiscales"
+        question="¿Qué documento salió por cada cobro, en qué estado quedó ante la DIAN y qué evidencia hay si preguntan?"
+        context={[
+          { label: "Sede", value: "la activa", title: "El selector de sede vive en la lateral: alcanza a toda la app." },
+          {
+            label: "Sin flag: es ley",
+            title: "El documento equivalente no se apaga desde Funciones; lo exige la Res. DIAN 000165/2023.",
+          },
+          { label: "Conservación", value: "5 años", title: "Por eso el paquete de evidencia lleva hash por documento." },
+        ]}
+        actions={<LocalCsvExportButton href={fiscalDocumentsCsvUrl({ storeId: activeStoreId, status })} />}
+      />
 
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando documentos…</p>
       ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudieron cargar los documentos" description={errorMessage(query.error)} />
-      ) : filteredRows.length === 0 ? (
-        <EmptyState title="Ningún documento coincide con estos filtros" />
+        <EmptyState
+          role="alert"
+          reason="error"
+          title="No se pudieron cargar los documentos"
+          description={errorMessage(query.error)}
+          action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+        />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Propina</TableHead>
-                <TableHead>Cobró</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredRows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{row.full_number ?? row.id}</TableCell>
-                  <TableCell>{row.document_type ? DOCUMENT_TYPE_LABEL[row.document_type] : "—"}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      <Badge variant={statusBadgeVariant(row.dian_status)}>
-                        {row.dian_status ? DIAN_STATUS_LABEL[row.dian_status] : "Sin transmitir"}
-                      </Badge>
-                      {row.contingency_overdue ? <Badge variant="destructive">Contingencia vencida (48 h)</Badge> : null}
-                    </div>
-                  </TableCell>
-                  <TableCell>{row.issued_at ? formatInstant(row.issued_at) : (row.business_date ?? "—")}</TableCell>
-                  <TableCell className="tabular-nums">{formatCOP(row.total)}</TableCell>
-                  <TableCell className="tabular-nums">{formatCOP(row.tip_amount)}</TableCell>
-                  <TableCell>{row.charged_by ?? "—"}</TableCell>
-                  <TableCell>{row.customer_name ?? "Consumidor final"}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex flex-wrap justify-end gap-2">
-                      <Button type="button" variant="outline" className="h-9" onClick={() => setEvidenceId(row.id)}>
-                        Evidencia
-                      </Button>
-                      {row.dian_status && row.dian_status !== "validated" ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9"
-                          disabled={retryMutation.isPending}
-                          onClick={() => retryMutation.mutate(row.id)}
-                        >
-                          Reintentar
-                        </Button>
-                      ) : null}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-9"
-                        render={<Link to={`/admin/fiscal/notas?document=${row.id}`} />}
-                      >
-                        Emitir nota
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption="Documentos fiscales emitidos por esta sede"
+          columns={columns}
+          rows={filteredRows}
+          rowKey={(row) => String(row.id)}
+          rowStatus={estadoDeFila}
+          bar={
+            <DenseTableBar
+              shown={filteredRows.length}
+              total={rows.length}
+              noun="documentos"
+              hidden={
+                rows.length !== filteredRows.length
+                  ? `${rows.length - filteredRows.length} ocultos por los filtros`
+                  : porAtender > 0
+                    ? `${porAtender} para atender`
+                    : undefined
+              }
+            >
+              <Label className="text-xs text-muted-foreground">Estado</Label>
+              <Select
+                value={status ?? "all"}
+                onValueChange={(v) => setStatus(v === "all" ? undefined : (v as DianStatus))}
+              >
+                <SelectTrigger className="h-9 w-48" aria-label="Estado ante la DIAN">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {STATUS_OPTIONS.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {DIAN_STATUS_LABEL[value]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Label className="text-xs text-muted-foreground">Tipo</Label>
+              <Select
+                value={typeFilter ?? "all"}
+                onValueChange={(v) => setTypeFilter(v === "all" ? undefined : (v as FiscalDocumentType))}
+              >
+                <SelectTrigger className="h-9 w-56" aria-label="Tipo de documento">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {Object.entries(DOCUMENT_TYPE_LABEL).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </DenseTableBar>
+          }
+          legend={[
+            {
+              term: "Sin transmitir no es rechazado",
+              meaning:
+                "lo primero es que todavía no salió hacia la DIAN y nadie dijo que estuviera mal; lo segundo es que la DIAN lo devolvió. Uno se reintenta, el otro se corrige.",
+            },
+            {
+              term: "Contingencia vencida",
+              meaning:
+                "se emitió en contingencia y pasaron las 48 h para transmitirlo. El cobro fue válido; la transmisión ya no está a tiempo.",
+            },
+            {
+              term: "El consecutivo no se libera",
+              meaning:
+                "un documento devuelto conserva su número. Toda corrección va por nota: el original se reversa, nunca se edita.",
+            },
+          ]}
+          note="La propina viaja aparte del total imponible: no es venta del restaurante (Ley 1935 de 2018)."
+          empty={
+            filtrosPuestos.length > 0 ? (
+              <FilterEmptyState
+                title="Ningún documento coincide con estos filtros"
+                filters={filtrosPuestos as [string, ...string[]]}
+                totalWithoutFilters={rows.length > 0 ? rows.length : undefined}
+                onRemove={quitarFiltro}
+              />
+            ) : (
+              <EmptyState
+                title="Ningún documento coincide con estos filtros"
+                description="Todavía no hay documentos emitidos en esta sede."
+              />
+            )
+          }
+        />
       )}
 
       {retryMutation.isError ? (
@@ -289,9 +415,9 @@ export function DocumentsPage(): React.JSX.Element {
         </p>
       ) : null}
 
-      <div className="space-y-2 rounded-md border p-4">
-        <h2 className="text-sm font-semibold">Exportar paquete de evidencia</h2>
-        <p className="text-xs text-muted-foreground">
+      <section className="space-y-2 rounded-lg border bg-card p-3">
+        <h2 className="text-sm font-bold">Exportar paquete de evidencia</h2>
+        <p className="text-xs leading-relaxed text-muted-foreground">
           Manifiesto con hash por documento y hash del manifiesto entero, para conservación mínima de 5 años sin
           depender sólo del proveedor.
         </p>
@@ -302,9 +428,11 @@ export function DocumentsPage(): React.JSX.Element {
             label="Exportar paquete de evidencia"
           />
         ) : (
-          <p className="text-xs text-muted-foreground">Elegí "desde" y "hasta" para exportar.</p>
+          <p className="text-xs text-muted-foreground">
+            El botón aparece con las dos fechas puestas: un paquete sin rango no es evidencia de nada.
+          </p>
         )}
-      </div>
+      </section>
 
       <EvidenceDialog documentId={evidenceId} onOpenChange={(open) => !open && setEvidenceId(null)} />
     </div>

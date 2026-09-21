@@ -8,11 +8,20 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { getPayrollHours } from "@/api/payroll"
+import { getPayrollHours, type PayrollHoursRowOut } from "@/api/payroll"
+import { DenseTable, DenseTableBar, type DenseColumn } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { errorMessage } from "@/lib/errors"
+
+const HOURS_COLUMNS: readonly DenseColumn<PayrollHoursRowOut>[] = [
+  { key: "person", header: "Persona", kind: "name", cell: (r) => r.employee_name ?? `#${r.employee_id}` },
+  { key: "ordinary", header: "Ordinarias", kind: "number", cell: (r) => r.ordinary_hours ?? "—" },
+  { key: "night", header: "Nocturnas", kind: "number", cell: (r) => r.night_hours ?? "—" },
+  { key: "sunday", header: "Dominicales", kind: "number", cell: (r) => r.sunday_hours ?? "—" },
+  { key: "holiday", header: "Festivas", kind: "number", cell: (r) => r.holiday_hours ?? "—" },
+  { key: "overtime", header: "Horas extra", kind: "number", cell: (r) => r.overtime_hours ?? "—" },
+]
 
 import { daysAgoLocal, todayLocal } from "./lib"
 
@@ -34,38 +43,35 @@ export function HoursTab({ storeId }: { storeId: number }): React.JSX.Element {
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando la jornada del período…</p>
       ) : query.isError ? (
-        <EmptyState role="alert" title="No se pudo cargar la jornada" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
+        <EmptyState reason="error" title="No se pudo cargar la jornada" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : !query.data?.available ? (
-        <EmptyState title="Jornada no disponible" description={query.data?.reason ?? "Faltan datos del período para calcularla."} />
+        <EmptyState reason="dependency" title="Jornada no disponible" description={query.data?.reason ?? "Faltan datos del período para calcularla."} />
       ) : rows.length === 0 ? (
-        <EmptyState title="No hay jornada registrada en este período" />
+        <EmptyState
+          reason="dependency"
+          title="No hay jornada registrada en este período"
+          description="Las horas salen del roster del turno: si nadie marcó entrada y salida, no hay jornada que mostrar."
+          action={{ label: "Ver los turnos en Dinero", to: "/admin/dinero" }}
+        />
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Persona</TableHead>
-                <TableHead>Ordinarias</TableHead>
-                <TableHead>Nocturnas</TableHead>
-                <TableHead>Dominicales</TableHead>
-                <TableHead>Festivas</TableHead>
-                <TableHead>Horas extra</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.employee_id}>
-                  <TableCell>{row.employee_name ?? `#${row.employee_id}`}</TableCell>
-                  <TableCell className="tabular-nums">{row.ordinary_hours ?? "—"}</TableCell>
-                  <TableCell className="tabular-nums">{row.night_hours ?? "—"}</TableCell>
-                  <TableCell className="tabular-nums">{row.sunday_hours ?? "—"}</TableCell>
-                  <TableCell className="tabular-nums">{row.holiday_hours ?? "—"}</TableCell>
-                  <TableCell className="tabular-nums">{row.overtime_hours ?? "—"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <DenseTable
+          caption="Jornada por persona en el período, separada por tipo de hora."
+          columns={HOURS_COLUMNS}
+          rows={rows}
+          rowKey={(r) => String(r.employee_id)}
+          maxBodyHeightPx={460}
+          bar={<DenseTableBar shown={rows.length} total={rows.length} noun="personas con jornada" hidden={`del ${from} al ${to}`} />}
+          legend={[
+            {
+              term: "«—» no es 0",
+              meaning: "esa persona no registró horas de ese tipo en el período; no es que trabajara cero.",
+            },
+            {
+              term: "Ordinarias ≠ pagadas",
+              meaning: "acá se cuentan horas, no plata. Lo que se paga sale de la tarifa y de la tabla de recargos.",
+            },
+          ]}
+        />
       )}
     </div>
   )

@@ -132,7 +132,11 @@ describe("InventorySection — umbrales de varianza e insumos críticos (huérfa
       me: buildMe({ features: { "inventory.perpetual": true, "inventory.variance": false } }),
     })
 
-    expect(screen.getByText(/Varianza no está habilitada/)).toBeInTheDocument()
+    // El vacío por función apagada ahora nombra la función completa y su
+    // clave, y ofrece el camino para encenderla (patrón 13, motivo «función
+    // apagada»): el rótulo cambió a propósito en la ola 2 del rediseño.
+    expect(screen.getByText(/no está encendida/)).toBeInTheDocument()
+    expect(screen.getByText(/inventory\.variance/)).toBeInTheDocument()
     expect(getInventorySettingsMock).not.toHaveBeenCalled()
 
     await waitFor(() => expect(screen.getByText("Pechuga de pollo")).toBeInTheDocument())

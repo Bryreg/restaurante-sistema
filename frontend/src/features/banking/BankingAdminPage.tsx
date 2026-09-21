@@ -11,6 +11,7 @@ import { useSearchParams } from "react-router-dom"
 
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
+import { PageHeader } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -53,8 +54,10 @@ export function BankingAdminPage(): React.JSX.Element {
   if (!enabled) {
     return (
       <EmptyState
+        reason="feature-off"
         title="Banco no está habilitado"
         description="Activá «Consignaciones» en Admin → Funciones para usar esta pantalla."
+        action={{ label: "Encenderla en Funciones", to: "/admin/features" }}
       />
     )
   }
@@ -64,10 +67,21 @@ export function BankingAdminPage(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold">Banco</h1>
-        <p className="text-sm text-muted-foreground">La plata después de que sale del cajón.</p>
-      </div>
+      <PageHeader
+        name="Banco"
+        question="Qué pasó con la plata después de que salió del cajón: qué se consignó, qué quedó en la mano y qué falta conciliar."
+        context={
+          bankEnabled
+            ? [{ label: "Seis pestañas: dos de consignaciones y cuatro del libro del banco." }]
+            : [
+                {
+                  label: "Sólo Consignaciones y Por consignar",
+                  title:
+                    "«Banco» (money.bank) está apagada: el libro, la mano del dueño y las dos conciliaciones no se dibujan. La URL de esas pestañas sigue existiendo.",
+                },
+              ]
+        }
+      >
       <Tabs
         value={tab}
         onValueChange={(value) => {
@@ -111,6 +125,7 @@ export function BankingAdminPage(): React.JSX.Element {
           </TabsContent>
         ) : null}
       </Tabs>
+      </PageHeader>
     </div>
   )
 }
