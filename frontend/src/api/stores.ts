@@ -122,7 +122,6 @@ export interface CashSettings {
   opening_cash_fixed: number;
   cash_reserve_default: number;
   tolerance_unknown_cause: number;
-  tolerance_identified_cause: number;
   critical_difference: number;
   cash_pickup_threshold: number;
   petty_cash_limit: number;

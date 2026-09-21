@@ -110,7 +110,6 @@ class StoreCashSettings(Base):
     opening_cash_fixed: Mapped[int] = mapped_column(Integer, nullable=False, default=200_000)
     cash_reserve_default: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     tolerance_unknown_cause: Mapped[int] = mapped_column(Integer, nullable=False, default=20_000)
-    tolerance_identified_cause: Mapped[int] = mapped_column(Integer, nullable=False, default=100_000)
     critical_difference: Mapped[int] = mapped_column(Integer, nullable=False, default=100_000)
     cash_pickup_threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=500_000)
     petty_cash_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=50_000)

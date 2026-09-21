@@ -109,7 +109,6 @@ class CashSettingsIn(BaseModel):
     opening_cash_fixed: int = Field(ge=0)
     cash_reserve_default: int = Field(ge=0)
     tolerance_unknown_cause: int = Field(ge=0)
-    tolerance_identified_cause: int = Field(ge=0)
     critical_difference: int = Field(ge=0)
     cash_pickup_threshold: int = Field(ge=0)
     petty_cash_limit: int = Field(ge=0)

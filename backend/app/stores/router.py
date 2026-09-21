@@ -117,7 +117,6 @@ def _cash_settings_out(row: StoreCashSettings) -> CashSettingsOut:
         opening_cash_fixed=row.opening_cash_fixed,
         cash_reserve_default=row.cash_reserve_default,
         tolerance_unknown_cause=row.tolerance_unknown_cause,
-        tolerance_identified_cause=row.tolerance_identified_cause,
         critical_difference=row.critical_difference,
         cash_pickup_threshold=row.cash_pickup_threshold,
         petty_cash_limit=row.petty_cash_limit,
@@ -584,6 +583,24 @@ def put_cash_settings_route(
     store_id: int, body: CashSettingsIn, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
 ) -> CashSettingsOut:
     admin_store(db, actor, store_id)
+    # Las dos tolerancias son las DOS FRONTERAS de las tres bandas del arqueo
+    # (§3.2): hasta `tolerance_unknown_cause` se cierra con causa libre, encima
+    # la causa debe ser identificada, y desde `critical_difference` hay alerta
+    # crítica. Guardadas al revés (crítica $100.000 debajo de tolerancia
+    # $200.000) las bandas se invierten: la banda del medio desaparece y toda
+    # diferencia que pide causa identificada es además crítica. `ge=0` en el
+    # esquema no lo ve, porque el problema no está en cada número por separado
+    # sino en el orden entre los dos. No es `VALIDATION_ERROR`: es una regla de
+    # negocio, con su código y la acción correctiva en el mensaje (AGENTS.md).
+    if body.critical_difference <= body.tolerance_unknown_cause:
+        raise AppError(
+            code="CRITICAL_BELOW_TOLERANCE",
+            message=(
+                f"La diferencia crítica (${body.critical_difference}) tiene que ser mayor que la "
+                f"tolerancia sin causa identificada (${body.tolerance_unknown_cause}): "
+                "subí la diferencia crítica o bajá la tolerancia"
+            ),
+        )
     row = get_cash_settings(db, store_id)
     before = _cash_settings_out(row).model_dump()
     for field, value in body.model_dump().items():
