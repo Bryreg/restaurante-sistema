@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/errors";
 
+import { useDensity } from "@/app/density";
 import { useSession } from "@/app/session";
 
 const schema = z.object({
@@ -22,6 +23,9 @@ type FormValues = z.infer<typeof schema>;
 
 /** `POST /auth/admin/login` — la cookie httpOnly la pone el servidor. */
 export default function LoginPage(): React.JSX.Element {
+  // Fuera de `AdminLayout`: es la puerta del escritorio y tiene que abrir
+  // con la misma escala que lo que hay detrás.
+  useDensity("oficina");
   const { refresh } = useSession();
   const navigate = useNavigate();
   const [serverError, setServerError] = useState<string | null>(null);

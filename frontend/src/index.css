@@ -1,13 +1,20 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+/* Atkinson Hyperlegible, auto-hospedada. Ver `docs/DISENO.md` § Tipografía:
+   el paquete `@fontsource/atkinson-hyperlegible` trae los woff2 al bundle, así
+   que el salón no depende de que Google Fonts responda para poder leer precios. */
+@import "@fontsource/atkinson-hyperlegible/400.css";
+@import "@fontsource/atkinson-hyperlegible/700.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Geist Variable', sans-serif;
+    /* La pila de respaldo es la de la maqueta m2b: Verdana y DejaVu Sans son
+       las dos que más se parecen en ancho y en altura de x, así que si la
+       fuente no carga la pantalla se corre poco. */
+    --font-sans: 'Atkinson Hyperlegible', Verdana, 'DejaVu Sans', 'Segoe UI', system-ui, sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -25,6 +32,15 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    /* Los otros dos colores de estado. `--destructive` ya existía y hace de
+       rojo; verde y ámbar faltaban, y por eso había colores crudos de Tailwind
+       sueltos en cinco pantallas. Son SÓLO de estado: nunca visten una acción.
+       (`docs/DISENO.md` § La regla del color). */
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -48,73 +64,136 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   PALETA — traducida de la maqueta `m2b/direccion.html` a oklch().
+   Cada línea dice de qué token de m2b sale, para que la correspondencia se
+   pueda auditar sin abrir la maqueta.
+   ───────────────────────────────────────────────────────────────────────── */
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --background: oklch(0.9568 0.0091 258.34);       /* m2b --bg        #EDF1F7 */
+    --foreground: oklch(0.2210 0.0394 258.28);       /* m2b --ink       #0F1B2D */
+    --card: oklch(1 0 0);                            /* m2b --surface   #FFFFFF */
+    --card-foreground: oklch(0.2210 0.0394 258.28);  /* m2b --ink                */
+    --popover: oklch(1 0 0);                         /* m2b --surface            */
+    --popover-foreground: oklch(0.2210 0.0394 258.28);
+    --primary: oklch(0.4244 0.1809 265.64);          /* m2b --brand     #1E40AF */
+    --primary-foreground: oklch(1 0 0);              /* m2b --on-brand  #FFFFFF */
+    --secondary: oklch(0.9787 0.0057 264.53);        /* m2b --surface-2 #F6F8FC */
+    --secondary-foreground: oklch(0.2210 0.0394 258.28);
+    --muted: oklch(0.9787 0.0057 264.53);            /* m2b --surface-2          */
+    --muted-foreground: oklch(0.4455 0.0374 257.28); /* m2b --ink-2     #475569 */
+    --accent: oklch(0.9457 0.0199 267.29);           /* m2b --brand-soft #E7EDFB */
+    --accent-foreground: oklch(0.4244 0.1809 265.64);/* m2b --brand              */
+    --destructive: oklch(0.5054 0.1905 27.52);       /* m2b --bad       #B91C1C */
+    --destructive-foreground: oklch(1 0 0);
+    --success: oklch(0.5273 0.1371 150.07);          /* m2b --ok        #15803D */
+    --success-foreground: oklch(1 0 0);
+    --warning: oklch(0.5553 0.1455 49.00);           /* m2b --warn      #B45309 */
+    --warning-foreground: oklch(1 0 0);
+    --border: oklch(0.8979 0.0215 259.19);           /* m2b --line      #D5DEEC */
+    --input: oklch(0.8166 0.0316 258.94);            /* m2b --line-2    #B7C4D8 */
+    --ring: oklch(0.4244 0.1809 265.64);             /* m2b --brand: el foco es azul */
+    /* Series de gráfico: una rampa de azul a pizarra derivada de --brand.
+       NO entran verde/ámbar/rojo: si una serie cualquiera se pinta de verde,
+       el verde deja de querer decir «está bien». */
+    --chart-1: oklch(0.4244 0.1809 265.64);
+    --chart-2: oklch(0.5400 0.1300 262.00);
+    --chart-3: oklch(0.6400 0.0900 259.00);
+    --chart-4: oklch(0.7400 0.0600 257.00);
+    --chart-5: oklch(0.8300 0.0380 258.00);
+    --radius: 10px;                                  /* m2b .btn: 10px de radio  */
+    --sidebar: oklch(0.9787 0.0057 264.53);          /* m2b .lateral = --surface-2 */
+    --sidebar-foreground: oklch(0.2210 0.0394 258.28);
+    --sidebar-primary: oklch(0.4244 0.1809 265.64);
+    --sidebar-primary-foreground: oklch(1 0 0);
+    --sidebar-accent: oklch(0.9457 0.0199 267.29);
+    --sidebar-accent-foreground: oklch(0.4244 0.1809 265.64);
+    --sidebar-border: oklch(0.8979 0.0215 259.19);
+    --sidebar-ring: oklch(0.4244 0.1809 265.64);
 }
 
+/* m2b no trae modo oscuro, pero la app tiene el interruptor puesto
+   (`AdminLayout` → `ThemeToggle`), así que el oscuro se deriva del único
+   oscuro que m2b sí define: el bisel de la tablet (#26303F) y el panel del
+   sello (#17202B), con la tinta clara de esas piezas (#EAF0F8 / #AFBFD2).
+   Los colores de estado y la marca se levantan en L para mantener AA sobre
+   fondo oscuro; el par sólido invierte su tinta a oscura. */
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --background: oklch(0.2401 0.0249 253.77);       /* m2b panel del sello #17202B */
+    --foreground: oklch(0.9529 0.0125 255.51);       /* m2b tinta clara     #EAF0F8 */
+    --card: oklch(0.3067 0.0305 258.34);             /* m2b --bezel         #26303F */
+    --card-foreground: oklch(0.9529 0.0125 255.51);
+    --popover: oklch(0.3067 0.0305 258.34);
+    --popover-foreground: oklch(0.9529 0.0125 255.51);
+    --primary: oklch(0.7000 0.1450 265.64);          /* --brand levantado           */
+    --primary-foreground: oklch(0.2401 0.0249 253.77);
+    --secondary: oklch(0.3600 0.0300 258.34);
+    --secondary-foreground: oklch(0.9529 0.0125 255.51);
+    --muted: oklch(0.3600 0.0300 258.34);
+    --muted-foreground: oklch(0.7984 0.0322 252.73); /* m2b tinta 2 oscura  #AFBFD2 */
+    --accent: oklch(0.3400 0.0700 265.64);
+    --accent-foreground: oklch(0.8339 0.0559 268.22);/* m2b #B9C8EE                 */
+    --destructive: oklch(0.7000 0.1700 27.52);
+    --destructive-foreground: oklch(0.2210 0.0394 258.28);
+    --success: oklch(0.7200 0.1500 150.07);
+    --success-foreground: oklch(0.2210 0.0394 258.28);
+    --warning: oklch(0.7600 0.1400 49.00);
+    --warning-foreground: oklch(0.2210 0.0394 258.28);
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 20%);
+    --ring: oklch(0.7000 0.1450 265.64);
+    --chart-1: oklch(0.7000 0.1450 265.64);
+    --chart-2: oklch(0.6300 0.1250 262.00);
+    --chart-3: oklch(0.5600 0.0900 259.00);
+    --chart-4: oklch(0.4900 0.0620 257.00);
+    --chart-5: oklch(0.4200 0.0420 258.00);
+    --sidebar: oklch(0.3067 0.0305 258.34);
+    --sidebar-foreground: oklch(0.9529 0.0125 255.51);
+    --sidebar-primary: oklch(0.7000 0.1450 265.64);
+    --sidebar-primary-foreground: oklch(0.2401 0.0249 253.77);
+    --sidebar-accent: oklch(0.3400 0.0700 265.64);
+    --sidebar-accent-foreground: oklch(0.8339 0.0559 268.22);
+    --sidebar-border: oklch(1 0 0 / 12%);
+    --sidebar-ring: oklch(0.7000 0.1450 265.64);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   DENSIDADES — un solo sistema de color, dos escalas.
+   `.salon`   tablet de pie: cuerpo 17 px, objetivo táctil 52 px, radio 12 px.
+   `.oficina` escritorio sentado: cuerpo 14,5 px, fila 34 px, radio 8 px.
+
+   La escala se mueve desde el tamaño de letra de la RAÍZ, no con una escala
+   tipográfica paralela: todas las utilidades de Tailwind (texto, `--spacing`,
+   y por lo tanto `p-*`, `gap-*`, `h-*`, `size-*`) están en `rem`, así que
+   cambiar la raíz mueve el texto Y el espaciado de una vez, en proporción.
+   Por eso la clase va en `<html>` (`src/app/density.ts`): además es lo único
+   que alcanza a los diálogos y menús, que se montan por portal fuera del
+   árbol del layout.
+
+   El radio y el objetivo táctil no escalan con la letra: son decisiones
+   absolutas de la maqueta (12/8 px y 52/34 px), y van en px como en m2b.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+    /* `auto` = sin densidad declarada (p. ej. `/login`): nada cambia de alto. */
+    --control-min-h: auto;
+}
+
+html.salon {
+    font-size: 17px;
+}
+
+html.oficina {
+    font-size: 14.5px;
+}
+
+.salon {
+    --radius: 12px;          /* m2b .salon --r   */
+    --control-min-h: 52px;   /* m2b .salon --tap */
+}
+
+.oficina {
+    --radius: 8px;           /* m2b .oficina --r   */
+    --control-min-h: 34px;   /* m2b .oficina --tap */
 }
 
 @layer base {
@@ -126,5 +205,11 @@
     }
   html {
     @apply font-sans;
+    }
+  /* «Cifras de plata: alineadas en columna, sin saltos al cambiar» (m2b).
+     En esta app la plata vive en tablas, así que las cifras de una columna
+     quedan alineadas sin tener que tocar las 36 pantallas una por una. */
+  table {
+    font-variant-numeric: tabular-nums;
     }
 }

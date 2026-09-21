@@ -197,7 +197,7 @@ export function TipsTab({ storeId }: { storeId: number }): React.JSX.Element {
       <div className="space-y-3">
         <DateRangeFilter idPrefix="tips-proposal" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to); setConfirmed(false) }} />
 
-        <div role="status" className="rounded-md border border-l-4 border-l-amber-500 bg-amber-500/5 p-3 text-sm">
+        <div role="status" className="rounded-md border border-l-4 border-l-warning bg-warning/5 p-3 text-sm">
           Esto es una <strong>propuesta</strong>: todavía no movió ni un peso. Sólo se registra algo cuando se
           confirma la entrega abajo.
         </div>
@@ -245,7 +245,7 @@ export function TipsTab({ storeId }: { storeId: number }): React.JSX.Element {
             </div>
 
             {confirmed ? (
-              <p role="status" className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+              <p role="status" className="text-sm font-medium text-success">
                 Entrega registrada. Volvé a calcular la propuesta para el próximo período.
               </p>
             ) : shiftIds.length === 0 ? (

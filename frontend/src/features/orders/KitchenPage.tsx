@@ -15,13 +15,19 @@ import { kitchenRoundsQueryKey, useKitchenRounds } from "./hooks"
 import { CHANNEL_LABEL, courseLabel, elapsedFromSeconds } from "./lib"
 
 const SEMAPHORE_LABEL: Record<KitchenSemaphore, string> = { green: "A tiempo", amber: "Por vencer", red: "Demorado" }
-// Única excepción tokenizada permitida por CONTRATO-INTERNO §6.1: el semáforo
-// de cocina usa clases crudas de Tailwind (con texto que mantiene contraste
-// AA), nunca un token de color de marca.
+// El semáforo de cocina sigue siendo sólido y con tinta invertida: el KDS se
+// lee cruzado por la cocina y el estado tiene que gritar. Lo que cambió es de
+// dónde sale el color. La excepción de CONTRATO-INTERNO §6.1 («clases crudas
+// de Tailwind, nunca un token de color de marca») existía porque NO había
+// tokens de estado; ahora los hay, y no son de marca: `success`/`warning`/
+// `destructive` son de estado y nada más (`docs/DISENO.md`). De paso arregla
+// el contraste que el comentario anterior daba por AA y no lo era: blanco
+// sobre `emerald-600` da 3,77:1 y sobre `amber-600` 3,19:1 — por debajo de
+// 4,5:1. Los de m2b dan 5,02:1, 5,02:1 y 6,47:1.
 const SEMAPHORE_CLASS: Record<KitchenSemaphore, string> = {
-  green: "bg-emerald-600 text-white",
-  amber: "bg-amber-600 text-white",
-  red: "bg-red-600 text-white",
+  green: "bg-success text-success-foreground",
+  amber: "bg-warning text-warning-foreground",
+  red: "bg-destructive text-destructive-foreground",
 }
 
 function ItemRow({

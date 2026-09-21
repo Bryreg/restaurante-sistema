@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { useDensity } from "@/app/density";
 import { useSession } from "@/app/session";
 import { deviceActivate } from "@/api/auth";
 import { PinPad } from "@/components/PinPad";
@@ -18,6 +19,10 @@ import { errorMessage } from "@/lib/errors";
  * se documenta en el entregable.
  */
 export default function DeviceActivatePage(): React.JSX.Element {
+  // Fuera de `PosLayout`, así que la densidad del salón no llega sola: esta
+  // pantalla es un teclado de PIN en una tablet y necesita el objetivo
+  // táctil de 52 px tanto como las de adentro.
+  useDensity("salon");
   const { refresh } = useSession();
   const navigate = useNavigate();
   const [storeId, setStoreId] = useState("");

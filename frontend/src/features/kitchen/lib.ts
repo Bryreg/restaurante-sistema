@@ -61,13 +61,17 @@ export const SEMAPHORE_LABEL: Record<KitchenSemaphoreValue, string> = {
   red: "Demorado",
 }
 
-// Única excepción tokenizada permitida por CONTRATO-INTERNO §6.1 (mismo
-// criterio que `features/orders/KitchenPage.tsx`): el semáforo de cocina
-// usa clases crudas de Tailwind con texto que mantiene contraste AA, nunca
-// un token de color de marca — es información de urgencia universal
-// (rojo/ámbar/verde), no una decisión de diseño de marca.
+// Semáforo de cocina (mismo criterio que `features/orders/KitchenPage.tsx`):
+// sigue sólido y con tinta invertida, porque el KDS se lee cruzado por la
+// cocina y la urgencia tiene que gritar. Lo que cambió es de dónde sale el
+// color. La excepción de CONTRATO-INTERNO §6.1 («clases crudas de Tailwind,
+// nunca un token de color de marca») existía porque NO había tokens de
+// estado; ahora los hay, y no son de marca: `success`/`warning`/`destructive`
+// son de estado y nada más (`docs/DISENO.md`). El contraste además mejora —
+// blanco sobre `emerald-600` daba 3,77:1 y sobre `amber-600` 3,19:1, por
+// debajo de 4,5:1; los de m2b dan 5,02:1, 5,02:1 y 6,47:1.
 export const SEMAPHORE_CLASS: Record<KitchenSemaphoreValue, string> = {
-  green: "bg-emerald-600 text-white",
-  amber: "bg-amber-600 text-white",
-  red: "bg-red-600 text-white",
+  green: "bg-success text-success-foreground",
+  amber: "bg-warning text-warning-foreground",
+  red: "bg-destructive text-destructive-foreground",
 }

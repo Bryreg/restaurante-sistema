@@ -209,7 +209,7 @@ export function ReceptionForm({
         </div>
       </div>
       {noInvoice && supplier?.invoices_required ? (
-        <p role="status" className="text-sm text-amber-700 dark:text-amber-500">
+        <p role="status" className="text-sm text-warning">
           «{supplier.name}» exige factura: si confirmás así, el servidor va a rechazar la recepción con «Falta la
           factura» — cargá número y fecha, o desmarcá «obligado a facturar» en el proveedor.
         </p>

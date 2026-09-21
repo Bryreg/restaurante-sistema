@@ -65,7 +65,7 @@ export function ShiftStatusStrip(): React.JSX.Element | null {
       {shift.cash_over_threshold ? (
         <span
           role="alert"
-          className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 font-medium text-amber-700 dark:text-amber-400"
+          className="inline-flex items-center gap-1.5 rounded-md bg-warning/10 px-2 py-1 font-medium text-warning"
         >
           <CircleDollarSign className="size-4" aria-hidden="true" />
           Efectivo por encima del umbral de retiro

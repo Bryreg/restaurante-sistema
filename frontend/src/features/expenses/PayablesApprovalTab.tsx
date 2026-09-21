@@ -142,7 +142,7 @@ export function PayablesApprovalTab({ storeId: _storeId }: { storeId: number }):
             </div>
           </div>
           {query.data.invoice_discrepancy !== null && query.data.invoice_discrepancy !== 0 ? (
-            <p className="text-sm text-amber-700 dark:text-amber-500">
+            <p className="text-sm text-warning">
               Diferencia con el papel: {formatCOP(query.data.invoice_discrepancy)}
             </p>
           ) : null}

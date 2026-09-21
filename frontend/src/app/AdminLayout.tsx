@@ -38,6 +38,7 @@ import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 import type { NavItem } from "./nav";
+import { useDensity } from "./density";
 import { useSession } from "./session";
 import { StoreSelectionProvider, useStoreSelection } from "./storeContext";
 import { ThemeToggle } from "./theme";
@@ -184,13 +185,15 @@ function LogoutButton(): React.JSX.Element {
 }
 
 function AdminChrome(): React.JSX.Element {
+  // Escritorio del dueño: cuerpo 14,5 px y filas de 34 px (m2b `.oficina`).
+  useDensity("oficina");
   const { me, hasFeature } = useSession();
   const { activeStoreId } = useStoreSelection();
   const [mobileOpen, setMobileOpen] = useState(false);
   const items = buildNav(hasFeature);
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="oficina flex min-h-screen bg-background text-foreground">
       <aside className="hidden w-64 shrink-0 border-r p-4 md:flex md:flex-col md:gap-4">
         <div className="px-1">
           <p className="text-sm font-semibold">{me?.organization?.name ?? "Restaurante Sistema"}</p>

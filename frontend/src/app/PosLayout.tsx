@@ -24,6 +24,7 @@ import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 import type { NavItem } from "./nav";
+import { useDensity } from "./density";
 import { useSession } from "./session";
 
 /** [...ordersFeature.posNav, ...shiftsFeature.posNav, ...recipesFeature.posNav,
@@ -164,6 +165,8 @@ const ROLE_LABEL: Record<string, string> = {
  * /shifts/current`, fuera del contrato que este agente puede consumir.
  */
 export default function PosLayout(): React.JSX.Element | null {
+  // Tablet del salón: cuerpo 17 px y objetivo táctil de 52 px (m2b `.salon`).
+  useDensity("salon");
   const { me, refresh, hasFeature } = useSession();
   const navigate = useNavigate();
   const [releasing, setReleasing] = useState(false);
@@ -203,7 +206,7 @@ export default function PosLayout(): React.JSX.Element | null {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    <div className="salon flex min-h-screen flex-col bg-background text-foreground">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b p-3">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           <div className="min-w-0">

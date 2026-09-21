@@ -19,17 +19,24 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
+        // `min-h-[var(--control-min-h)]`: el objetivo táctil de la densidad
+        // activa (52 px en `.salon`, 34 px en `.oficina`, `auto` fuera de un
+        // layout con densidad). Es un MÍNIMO: nunca achica un botón que ya
+        // pidió ser más alto, así que los `h-11` escritos a mano en el salón
+        // siguen valiendo. `xs`/`sm`/`icon-xs`/`icon-sm` quedan afuera a
+        // propósito: son el botón chico deliberado de la maqueta
+        // (m2b `.btn-chico`, 38 px), el que va dentro de una fila de tabla.
         default:
-          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+          "h-8 min-h-[var(--control-min-h)] gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
         xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        icon: "size-8",
+        lg: "h-9 min-h-[var(--control-min-h)] gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        icon: "size-8 min-h-[var(--control-min-h)] min-w-[var(--control-min-h)]",
         "icon-xs":
           "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
         "icon-sm":
           "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
-        "icon-lg": "size-9",
+        "icon-lg": "size-9 min-h-[var(--control-min-h)] min-w-[var(--control-min-h)]",
       },
     },
     defaultVariants: {
