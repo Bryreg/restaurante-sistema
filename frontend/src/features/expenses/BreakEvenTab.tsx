@@ -75,10 +75,17 @@ export function BreakEvenTab({ storeId }: { storeId: number }): React.JSX.Elemen
               value={formatBasisPoints(query.data.contribution_margin_pct_bp)}
               hint="De cada $100 vendidos, lo que queda después del costo variable."
             />
+            {/* Sin `tone="warning"`. Era el único lugar del producto que lo
+                usaba como **énfasis** y no como estado, y eso es lo que
+                obligaba a que el ámbar de `StatTile` fuera un gris: el punto
+                de equilibrio no está mal, es un umbral. Ahora que el tono
+                ámbar tiñe de ámbar —como en la maqueta `a2`, y como
+                `docs/DISENO.md` define el color— dejarlo acá diría que este
+                número está en alerta todos los meses. Lo que quiere decir ya
+                lo dice el pie. */}
             <StatTile
               label="Punto de equilibrio"
               value={formatCOP(query.data.break_even_amount)}
-              tone="warning"
               hint="Hay que vender esto para no perder plata. Por debajo, el mes cierra en rojo."
             />
           </div>

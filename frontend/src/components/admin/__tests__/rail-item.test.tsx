@@ -63,14 +63,17 @@ describe("RailItemContent · el rótulo", () => {
 })
 
 describe("railItemClass · dónde estás parado", () => {
-  it("la entrada activa usa `accent`, que es el token de «la navegación actual»", () => {
-    // `docs/DISENO.md`: `accent` es «lo elegido: fila activa, navegación
-    // actual». `primary` es el azul de marca, «el único color de acción» —
-    // pintar con él dónde estás parado le enseña al dueño que el azul quiere
-    // decir dos cosas.
+  it("la entrada activa usa la marca llena, como en la maqueta a2", () => {
+    // Era `bg-accent`, porque `docs/DISENO.md` le asigna a `accent` «lo
+    // elegido: fila activa, navegación actual». El dueño miró la app contra
+    // la maqueta `a2` —que marca la entrada activa con la marca llena,
+    // `.nav-i[aria-current="page"]{background:var(--brand);color:#fff}`— y
+    // pidió ésa. La regla dura del color sigue en pie: lo que cambió es cuál
+    // de los dos azules marca dónde estás, no que un ESTADO —verde, ámbar,
+    // rojo— se haya vuelto acción.
     const activa = railItemClass({ active: true })
-    expect(activa).toContain("bg-accent")
-    expect(activa).not.toContain("bg-primary")
+    expect(activa).toContain("bg-primary")
+    expect(activa).toContain("text-primary-foreground")
   })
 
   it("la entrada quieta no lleva fondo, y se enciende al pasar por encima", () => {

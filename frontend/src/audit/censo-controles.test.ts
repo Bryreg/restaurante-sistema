@@ -14,6 +14,29 @@
  *
  * y el cambio queda en el diff, que es donde una pérdida deliberada tiene que
  * poder discutirse. Lo que no puede pasar es que desaparezca en silencio.
+ *
+ * ---
+ *
+ * **Bajas declaradas · «Hoy» tal cual la maqueta `a2`.** Tres rótulos de
+ * `features/reports/TodayPage.tsx` se sacaron a mano de la base, uno por uno
+ * y no regenerándola entera: la base es lo que había **antes** del rediseño,
+ * y volver a tomarla hoy la re-ancla en 128 archivos de una sola vez y tapa
+ * lo que todavía protege. Los tres, con su motivo:
+ *
+ * - «Del día» y «Ahora mismo» — eran los dos rótulos de grupo que partían
+ *   los indicadores en 4 + 3. `a2` dibuja **una sola grilla de ocho**
+ *   (`.kpis`; su catálogo de patrones lo dice literal: «En Hoy, ocho»), y con
+ *   el rótulo de grupo la segunda fila quedaba coja. Lo que decían —qué ya
+ *   está cerrado y qué sigue vivo— lo sigue diciendo el pie de cada tarjeta.
+ *   Ninguno era un control: eran encabezados.
+ * - «Propinas de hoy — no son venta» — era el renglón de abajo de la raya de
+ *   la banda de cifra. La propina pasó a ser la **octava tarjeta**, que es
+ *   donde `a2` la pone, y sigue rotulada como que no es venta del
+ *   restaurante (Ley 1935 de 2018): la cifra rectora sigue sin incluirla.
+ *
+ * «Día operativo» **no** se dio de baja aunque salió de la franja de
+ * contexto: viaja como `title` de la pastilla de fecha de la cabecera, que
+ * es el control que lo reemplazó.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

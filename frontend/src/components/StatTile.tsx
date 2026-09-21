@@ -42,9 +42,18 @@ export type StatTileProps =
       nullNote: string
     })
 
+/**
+ * El teñido del cuerpo. `warning` era gris (`bg-secondary/50`), que es el
+ * color de «zona quieta» y no el de «mirá esto»: la maqueta `a2` tiñe la
+ * tarjeta de ámbar (`.kpi.warn{border-color:var(--warn-line);background:
+ * var(--warn-soft)}`) igual que tiñe de rojo la crítica. No rompe la regla
+ * del color de `docs/DISENO.md` —la endereza—: ámbar acá está diciendo
+ * **cómo está algo**, que es exactamente para lo que existe, y no viste
+ * ningún botón (el enlace de adentro sigue siendo azul).
+ */
 const TONE_CONTAINER: Record<StatTileTone, string> = {
   default: "border-border",
-  warning: "border-border bg-secondary/50",
+  warning: "border-warning/45 bg-warning/10",
   critical: "border-destructive/30 bg-destructive/5",
 }
 
@@ -62,7 +71,9 @@ const TONE_STRIPE: Record<StatTileTone, string> = {
 
 const TONE_VALUE: Record<StatTileTone, string> = {
   default: "text-foreground",
-  warning: "text-foreground",
+  // `a2` colorea también la cifra de la tarjeta en ámbar
+  // (`.kpi.warn .cifra{color:var(--warn)}`), simétrico a la crítica.
+  warning: "text-warning",
   critical: "text-destructive",
 }
 
@@ -81,9 +92,13 @@ export function StatTile(props: StatTileProps): React.JSX.Element {
     <div
       className={cn("rounded-lg border border-l-[3px] p-4", TONE_CONTAINER[tone], TONE_STRIPE[tone])}
     >
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{label}</p>
+      {/* El ícono va **antes** del rótulo, como en `a2` (`.kpi .rotulo`), y
+          no empujado al borde derecho: pegado al rótulo se lee como parte de
+          él; suelto a la derecha, la fila de tarjetas queda con una columna
+          de íconos flotando que no pertenece a nada. */}
+      <div className="flex items-center gap-1.5">
         {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+        <p className="min-w-0 text-sm text-muted-foreground">{label}</p>
       </div>
       <p
         className={cn(

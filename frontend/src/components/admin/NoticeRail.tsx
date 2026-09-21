@@ -51,38 +51,53 @@ const SEVERITY_DOT: Record<NoticeSeverity, string> = {
   whenever: "bg-input",
 }
 
-/** El aviso crítico va desplegado: cifra adelante, consecuencia en el cuerpo. */
-function CriticalNotice({ notice }: { notice: Notice }): React.JSX.Element {
-  return (
-    <li className="border-t border-l-[3px] border-l-destructive bg-destructive/5 px-3 py-2.5">
-      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-2.5">
-        <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
-        <div className="min-w-0">
-          <p className="text-sm leading-snug font-bold text-destructive">{notice.title}</p>
-          {notice.consequence ? (
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{notice.consequence}</p>
-          ) : null}
-          {notice.link ? <FilterLink {...notice.link} className="mt-1.5" /> : null}
-        </div>
-      </div>
-    </li>
-  )
+/** El riel de gravedad de 3 px a la izquierda del aviso. Rojo y ámbar son ESTADO. */
+const SEVERITY_EDGE: Record<NoticeSeverity, string> = {
+  critical: "border-l-destructive",
+  warning: "border-l-warning",
+  whenever: "border-l-input",
+}
+
+/** El ícono de gravedad, y su color. */
+const SEVERITY_ICON: Record<NoticeSeverity, string> = {
+  critical: "text-destructive",
+  warning: "text-warning",
+  whenever: "text-muted-foreground",
 }
 
 /**
- * El aviso no crítico colapsa a **una línea**. Los dos niveles son lo que
- * deja escalar de 0 a 14 sin cambiar de forma: doce tarjetas iguales a dos
- * columnas pierden el orden por gravedad en el zigzag.
+ * **Un aviso, siempre desplegado**: título con la cifra adelante, una línea
+ * de por qué duele, y el destino nombrado abajo.
+ *
+ * Antes el crítico iba desplegado y el resto colapsaba a una línea, con el
+ * detalle apagado corriendo dentro del mismo renglón. La maqueta `a2` los
+ * escribe todos con la misma forma (`.av`) y distingue la gravedad por el
+ * **riel de color a la izquierda** y el ícono, no por la forma: a tres
+ * columnas de texto, dos formas distintas hacían que la mitad de los avisos
+ * pareciera un pie de página de la otra mitad. El teñido de fondo del
+ * crítico también se va —`a2` deja el papel blanco y sólo colorea el
+ * riel—: con tres críticos seguidos, el bloque rosado se leía como un
+ * estado de error de la pantalla entera.
  */
-function CollapsedNotice({ notice }: { notice: Notice }): React.JSX.Element {
+function NoticeItem({ notice }: { notice: Notice }): React.JSX.Element {
   return (
-    <li className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-t px-3 py-2 text-sm">
-      <span
+    <li
+      className={cn(
+        "grid grid-cols-[auto_minmax(0,1fr)] gap-2.5 border-t border-l-[3px] px-3 py-2",
+        SEVERITY_EDGE[notice.severity],
+      )}
+    >
+      <CircleAlert
+        className={cn("mt-0.5 size-4 shrink-0", SEVERITY_ICON[notice.severity])}
         aria-hidden="true"
-        className={cn("relative -top-px size-[7px] shrink-0 rounded-full", SEVERITY_DOT[notice.severity])}
       />
-      <span className="min-w-0 flex-[1_1_58%]">{notice.title}</span>
-      {notice.link ? <FilterLink {...notice.link} className="shrink-0" /> : null}
+      <div className="min-w-0">
+        <p className="text-sm leading-snug font-bold">{notice.title}</p>
+        {notice.consequence ? (
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{notice.consequence}</p>
+        ) : null}
+        {notice.link ? <FilterLink {...notice.link} className="mt-1.5" /> : null}
+      </div>
     </li>
   )
 }
@@ -134,7 +149,10 @@ export function NoticeRail({
       aria-label={title}
       className={cn("sticky top-4 self-start rounded-lg border bg-card", className)}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5">
+      {/* El filete bajo el título, como en `a2` (`.tarjeta-tit`): sin él el
+          encabezado del riel y el de la primera gravedad se leían como dos
+          renglones del mismo rótulo. */}
+      <div className="flex items-center gap-2 border-b px-3 py-2.5">
         <h2 className="text-[0.7rem] tracking-wider text-muted-foreground uppercase">{title}</h2>
         <b className="ml-auto text-sm font-bold tabular-nums">{notices.length}</b>
       </div>
@@ -144,14 +162,21 @@ export function NoticeRail({
       ) : (
         bySeverity.map((group) => (
           <div key={group.severity}>
-            <GroupHeading severity={group.severity} count={group.items.length} />
+            {/* La cola sin urgencia **no lleva encabezado de grupo**: `a2` la
+                deja como un solo renglón plegado al pie del riel
+                (`.av-pie`). Un encabezado «PARA CUANDO PUEDAS 3» seguido de
+                un botón que dice «3 avisos más, sin urgencia» decía el mismo
+                número dos veces en dos renglones. */}
+            {group.severity === "whenever" ? null : (
+              <GroupHeading severity={group.severity} count={group.items.length} />
+            )}
             {group.severity === "whenever" ? (
               <>
                 <button
                   type="button"
                   aria-expanded={foldedOpen}
                   onClick={() => setFoldedOpen((open) => !open)}
-                  className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm text-primary hover:bg-muted"
+                  className="flex w-full items-center gap-2 rounded-b-lg border-t bg-muted px-3 py-2 text-left text-sm font-bold text-primary hover:bg-accent"
                 >
                   {whenever.length} {whenever.length === 1 ? "aviso más" : "avisos más"}, sin urgencia
                   <ChevronDown
@@ -162,20 +187,16 @@ export function NoticeRail({
                 {foldedOpen ? (
                   <ul>
                     {group.items.map((notice) => (
-                      <CollapsedNotice key={notice.id} notice={notice} />
+                      <NoticeItem key={notice.id} notice={notice} />
                     ))}
                   </ul>
                 ) : null}
               </>
             ) : (
               <ul>
-                {group.items.map((notice) =>
-                  notice.severity === "critical" ? (
-                    <CriticalNotice key={notice.id} notice={notice} />
-                  ) : (
-                    <CollapsedNotice key={notice.id} notice={notice} />
-                  ),
-                )}
+                {group.items.map((notice) => (
+                  <NoticeItem key={notice.id} notice={notice} />
+                ))}
               </ul>
             )}
           </div>

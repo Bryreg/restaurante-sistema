@@ -74,8 +74,21 @@ describe("el rail del admin: la tabla de grupos", () => {
     expect(repetidos).toEqual([])
   })
 
-  it("los seis grupos existen y ninguno queda vacío", () => {
-    expect(GRUPOS).toEqual(["Operación", "Costos", "Plata", "Ley", "Gente", "Sistema"])
+  /**
+   * Los nombres son los de la maqueta `a2`, que es la que el dueño eligió
+   * mirándola contra la app. Eran `Operación · Costos · Plata · Ley · Gente ·
+   * Sistema`; este `toEqual` es el que hace que cambiarlos sea una decisión
+   * y no un descuido.
+   */
+  it("los seis grupos existen, con los nombres de a2, y ninguno queda vacío", () => {
+    expect(GRUPOS).toEqual([
+      "EL DÍA",
+      "LA CARTA Y EL COSTO",
+      "LA PLATA",
+      "LO FISCAL",
+      "LA GENTE",
+      "EL SISTEMA",
+    ])
     const vacios = GRUPOS.filter(
       (grupo) => !TODAS.some((item) => RAIL[item.to]?.grupo === grupo),
     )
@@ -98,9 +111,9 @@ describe("el rail del admin: el orden dentro del grupo", () => {
    * pantalla principal de plata, última de su propio grupo. El orden de
    * lectura lo manda `RAIL`.
    */
-  it("Plata abre con Dinero, no lo deja al final", () => {
+  it("«LA PLATA» abre con Dinero, no lo deja al final", () => {
     const plata = Object.entries(RAIL)
-      .filter(([, fila]) => fila.grupo === "Plata")
+      .filter(([, fila]) => fila.grupo === "LA PLATA")
       .map(([, fila]) => fila.label)
     expect(plata[0]).toBe("Dinero")
   })

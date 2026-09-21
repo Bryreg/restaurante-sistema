@@ -30,6 +30,7 @@ from app.catalog import service as catalog_service
 from app.catalog.models import Combo, ComboGroup, ComboOption, ModifierGroup, ModifierOption, Product
 from app.core import clock, features, tz
 from app.core.errors import AppError, ConflictError, NotFoundError
+from app.core.money import format_cop
 from app.core.modules import find_spec_safe
 from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.core.tax import rate_for_code
@@ -1945,7 +1946,7 @@ def _check_discount_rate_high(db: Session, *, order: Order, actor: Actor, settin
         notify(
             db, organization_id=order.organization_id, store_id=order.store_id, type="discount_rate_high", level="warning",
             title="Descuentos por encima del límite diario",
-            body=f"{actor.employee_name} acumuló ${discounts} de descuento sobre ${sales} en ventas este turno ({pct:.1f}%).",
+            body=f"{actor.employee_name} acumuló {format_cop(discounts)} de descuento sobre {format_cop(sales)} en ventas este turno ({pct:.1f}%).",
             payload={"employee_id": actor.employee_id, "shift_id": order.shift_id},
             dedupe_key=f"discount_rate_high:{order.shift_id}:{actor.employee_id}",
         )
@@ -1990,7 +1991,7 @@ def _check_void_rate_high(db: Session, *, order: Order, actor: Actor) -> None:
         notify(
             db, organization_id=order.organization_id, store_id=order.store_id, type="void_rate_high", level="warning",
             title="Anulaciones por encima de lo habitual",
-            body=f"{actor.employee_name} anuló ${voided} (a precio de lista) sobre ${sales} en ventas este turno ({pct:.1f}%).",
+            body=f"{actor.employee_name} anuló {format_cop(voided)} (a precio de lista) sobre {format_cop(sales)} en ventas este turno ({pct:.1f}%).",
             payload={"employee_id": actor.employee_id, "shift_id": order.shift_id},
             dedupe_key=f"void_rate_high:{order.shift_id}:{actor.employee_id}",
         )

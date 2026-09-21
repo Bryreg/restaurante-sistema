@@ -13,15 +13,23 @@ control sigue siendo azul.**
 ---
 
 **1 · El armazón y el reparto del alcance.** Un control puesto en el lugar
-equivocado miente sobre a cuánto alcanza; y una barra superior le cobra 56 px de
-alto a un portátil, donde el eje escaso es el vertical. No hay barra superior.
-El alcance se lee por dónde vive el control: la **sede** alcanza a toda la app y
-vive en la cabeza de la lateral, con la identidad; el **período**, en la cabecera
-de pantalla; lo que **filtra una tabla**, en la barra de esa tabla. Los íconos de
-cuenta bajan al pie de la lateral. Grupos: `Operación · Costos · Plata · Ley ·
-Gente · Sistema` —un sustantivo cada uno, que es lo que deja acortar el ítem:
-bajo `Ley`, «Documentos fiscales» es **Documentos** sin perder nada, y el rail de
-222 px deja de truncar. *Aplica a las 24.*
+equivocado miente sobre a cuánto alcanza. El alcance se lee por dónde vive el
+control: la **sede** alcanza a toda la app y vive en la **barra superior**, con
+la persona y su rol; el **período**, en la cabecera de pantalla; lo que **filtra
+una tabla**, en la barra de esa tabla. Los tres controles de cuenta —campana,
+tema, salida— viven en esa misma barra, a la derecha. Grupos: `EL DÍA · LA CARTA
+Y EL COSTO · LA PLATA · LO FISCAL · LA GENTE · EL SISTEMA`. El ítem igual se
+acorta —bajo `LO FISCAL`, «Documentos fiscales» es **Documentos** sin perder
+nada— para que el rail de 222 px no trunque. *Aplica a las 24.*
+
+> **Este patrón se dio vuelta a propósito.** Decía «no hay barra superior»,
+> porque una barra le cobra 56 px de alto a un portátil, y repartía la sede a la
+> cabeza de la lateral y los íconos de cuenta a su pie. El dueño miró la app
+> desplegada contra la maqueta `a2` y pidió la de `a2`: una franja de un control
+> de alto (34 px, no 56) que junta en un renglón las cuatro cosas que no son de
+> ninguna pantalla. El reparto del alcance no cambió —sede, período, filtro de
+> tabla siguen en tres lugares distintos—; cambió dónde vive lo que alcanza a
+> todo. Lo verifica `src/app/__tests__/AdminLayout.test.tsx`.
 
 **2 · Cabecera de pantalla.** Pantallas llamadas «Dinero», «Rangos» o «UVT» no se
 explican solas, y un `h1` suelto no dice contra qué datos se mira. Nombre + **la
@@ -35,15 +43,20 @@ Con pestañas, la acción primaria baja a la barra de la tabla. *Aplica a las 24
 «ticket promedio» y «comandas abiertas» no son el mismo tipo de número. Un rótulo
 con filete parte la grilla en **«Del día — cerrado, ya no cambia»** y **«Ahora
 mismo — vivo, todavía puede cambiar o salir mal»**. *Aplica a Dinero, Turnos,
-Banco, Nómina, Analítica: toda pantalla que mezcle cierre y curso.*
+Banco, Nómina, Analítica: toda pantalla que mezcle cierre y curso.* **En Hoy no,
+ya no:** `a2` dibuja las ocho tarjetas en una sola grilla de cuatro por fila, y
+el rótulo de grupo dejaba la segunda fila en tres. Qué está cerrado y qué sigue
+vivo lo dice el pie de cada tarjeta.
 
 **4 · Banda de cifra.** La plata nunca es un número suelto: es una resta. Tres
 partes: la **cifra rectora** (una por pantalla, nunca dos); el **libro** que la
 deriva —cobrado en caja − impuesto al consumo = ventas netas—; y la
 **comparación** contra el mismo día de la semana pasada a la misma hora. Las
-**propinas van abajo de la raya**, rotuladas como que no son venta: eso mata la
-tarjeta «Propinas», que es un error de categoría. *Aplica a Ventas, Dinero,
-Cierre de caja, Nómina, Compras, Analítica.*
+**propinas nunca entran en la cifra rectora**, y se rotulan como que no son
+venta. *Aplica a Ventas, Dinero, Cierre de caja, Nómina, Compras, Analítica.*
+**En Hoy la propina es la octava tarjeta y no el renglón de abajo de la raya**:
+es donde `a2` la pone. Lo que no se negocia es que no sume a la venta (Ley 1935
+de 2018), no en qué caja se dibuja.
 
 **5 · Tarjeta de indicador.** Rótulo, cifra y un pie que dice **de qué está
 hecha** («96 en mesa · 31 mostrador · 21 domicilio»). Franja de estado de 3 px a
@@ -69,13 +82,15 @@ Preparaciones como destinos.*
 **7 · Aviso accionable.** El más caro. Lo urgente estaba último, bajo el pliegue,
 en doce tarjetas iguales a dos columnas donde el orden por gravedad que manda el
 servidor se pierde en el zigzag. Una columna pegada a la derecha, siempre
-visible, con **encabezado de gravedad y recuento**: `CRÍTICO 3` · `AVISO 7` ·
-`PARA CUANDO PUEDAS 4`. Los **críticos van desplegados** —cifra adelante,
-consecuencia en el cuerpo: «no bloquea la venta, pero el costo del plato
-miente»—; **el resto colapsa a una línea** con punto de gravedad, y la cola sin
-urgencia se pliega. Los dos niveles son lo que deja escalar de 0 a 14 sin cambiar
-de forma. *Aplica a Notificaciones, Salud del control, Devoluciones pendientes y
-a cualquier lista de pendientes.*
+visible, con **encabezado de gravedad y recuento**: `CRÍTICO 3` · `AVISO 7`.
+**Todos los avisos llevan la misma forma** —cifra adelante, consecuencia en el
+cuerpo («no bloquea la venta, pero el costo del plato miente») y el destino
+nombrado abajo— y **la gravedad la dice el riel de color de 3 px a la
+izquierda**, no la forma: a tres columnas de texto, dos formas distintas hacían
+que la mitad de los avisos pareciera el pie de página de la otra mitad. La cola
+sin urgencia se pliega en un solo renglón al pie, sin encabezado propio: su
+recuento ya lo dice el botón. *Aplica a Notificaciones, Salud del control,
+Devoluciones pendientes y a cualquier lista de pendientes.*
 
 **8 · Tabla densa.** Fila de **34 px** medida, cabecera fija, cifras a la derecha
 con `tabular-nums`, acciones como ícono en columna de ancho fijo para que el

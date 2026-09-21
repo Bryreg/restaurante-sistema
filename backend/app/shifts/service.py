@@ -27,6 +27,7 @@ from app.auth.models import Authorization, Employee
 from app.core import clock, features, money, tz
 from app.core import modules
 from app.core.errors import AppError
+from app.core.money import format_cop
 from app.notifications.service import notify
 from app.stores import service as stores_service
 from app.stores.models import Store
@@ -1090,7 +1091,7 @@ def _finalize_close(
             type="cash_difference",
             level="warning",
             title="Diferencia de caja al cierre",
-            body=f"El turno #{shift.id} cerró con una diferencia de ${ev.difference}.",
+            body=f"El turno #{shift.id} cerró con una diferencia de {format_cop(ev.difference)}.",
             payload={"shift_id": shift.id, "difference": ev.difference},
             dedupe_key=f"cash_difference:{shift.id}",
         )
@@ -1102,7 +1103,7 @@ def _finalize_close(
             type="cash_difference_critical",
             level="critical",
             title="Diferencia crítica de caja",
-            body=f"El turno #{shift.id} cerró con una diferencia crítica de ${ev.difference}. El cierre sigue en pie.",
+            body=f"El turno #{shift.id} cerró con una diferencia crítica de {format_cop(ev.difference)}. El cierre sigue en pie.",
             payload={"shift_id": shift.id, "difference": ev.difference},
             dedupe_key=f"cash_difference_critical:{shift.id}",
         )

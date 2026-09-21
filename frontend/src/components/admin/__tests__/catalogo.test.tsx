@@ -261,21 +261,29 @@ const AVISOS: Notice[] = [
   { id: "cierres", severity: "whenever", title: "9 cierres sin revisar" },
 ]
 
-describe("NoticeRail · dos niveles, y el recuento no puede mentir", () => {
+describe("NoticeRail · una sola forma, y el recuento no puede mentir", () => {
   it("cada gravedad trae su recuento, derivado de los avisos", () => {
     dibujar(<NoticeRail notices={AVISOS} />)
     const riel = screen.getByRole("complementary", { name: "Requiere tu atención" })
     expect(within(riel).getByText("Crítico").textContent).toContain("2")
     expect(within(riel).getByText("Aviso").textContent).toContain("2")
-    expect(within(riel).getByText("Para cuando puedas").textContent).toContain("2")
+    // La cola sin urgencia ya no lleva encabezado de grupo: `a2` la deja
+    // como un solo renglón plegado al pie, y su recuento lo dice el botón
+    // («2 avisos más, sin urgencia»), no un rótulo que repite el número.
+    expect(within(riel).queryByText("Para cuando puedas")).toBeNull()
+    expect(within(riel).getByRole("button", { name: /2 avisos más, sin urgencia/ })).toBeInTheDocument()
   })
 
-  it("el crítico va desplegado con la consecuencia; el resto, a una línea", () => {
-    dibujar(<NoticeRail notices={AVISOS} />)
+  it("todos los avisos llevan la misma forma: la gravedad la dice el riel de color", () => {
+    // Antes el crítico iba desplegado y el resto colapsaba a una línea. `a2`
+    // los escribe todos igual (`.av`) y distingue con el borde izquierdo.
+    const { container } = dibujar(<NoticeRail notices={AVISOS} />)
     expect(
       screen.getByText("No bloquea la venta, pero el costo de cada plato que los usa está mintiendo."),
     ).toBeInTheDocument()
     expect(screen.getByText("9 insumos bajo el mínimo")).toBeInTheDocument()
+    expect(container.querySelectorAll("li.border-l-destructive")).toHaveLength(2)
+    expect(container.querySelectorAll("li.border-l-warning")).toHaveLength(2)
   })
 
   it("la cola sin urgencia se pliega y se despliega: 0 a 14 sin cambiar de forma", async () => {

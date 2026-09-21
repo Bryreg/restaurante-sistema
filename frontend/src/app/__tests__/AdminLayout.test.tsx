@@ -28,8 +28,15 @@ vi.mock("@/api/reports", async () => {
   return { ...actual, getToday };
 });
 
+// La campana de verdad sondea `GET /admin/notifications`; acá alcanza con un
+// doble que **existe y se puede nombrar**, porque lo que este archivo mide es
+// dónde vive el control, no qué cuenta.
 vi.mock("@/features/notifications/NotificationBell", () => ({
-  NotificationBell: () => null,
+  NotificationBell: () => (
+    <button type="button" aria-label="Notificaciones">
+      Notificaciones
+    </button>
+  ),
 }));
 
 vi.mock("@/features/shifts", () => ({
@@ -216,15 +223,22 @@ describe("AdminLayout: el rail agrupado", () => {
     );
 
     await screen.findByRole("link", { name: "Hoy" });
-    for (const grupo of ["Operación", "Costos", "Plata", "Ley", "Gente", "Sistema"]) {
+    for (const grupo of [
+      "EL DÍA",
+      "LA CARTA Y EL COSTO",
+      "LA PLATA",
+      "LO FISCAL",
+      "LA GENTE",
+      "EL SISTEMA",
+    ]) {
       expect(screen.getByRole("group", { name: grupo })).toBeInTheDocument();
     }
     // Y cada entrada vive dentro de su grupo, no suelta en la navegación.
     expect(
-      within(screen.getByRole("group", { name: "Operación" })).getByRole("link", { name: "Hoy" }),
+      within(screen.getByRole("group", { name: "EL DÍA" })).getByRole("link", { name: "Hoy" }),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByRole("group", { name: "Ley" })).getByRole("link", {
+      within(screen.getByRole("group", { name: "LO FISCAL" })).getByRole("link", {
         name: "Documentos fiscales",
       }),
     ).toBeInTheDocument();
@@ -329,46 +343,82 @@ describe("AdminLayout: los recuentos", () => {
   });
 });
 
-describe("AdminLayout: se fue la barra superior", () => {
-  /** El escritorio no tiene barra: la franja que queda es sólo del móvil. */
-  it("la única franja de arriba es la del cajón del móvil, y se esconde en el escritorio", async () => {
+/**
+ * **La barra superior volvió**, y con ella el reparto de `a2`. Este bloque
+ * decía lo contrario —«se fue la barra superior»— y afirmaba pieza por pieza
+ * el armazón anterior: una sola franja `md:hidden`, la sede en la cabeza de
+ * la lateral y campana/tema/salida en el pie. Los tres se dieron vuelta a
+ * propósito: el dueño miró la app desplegada contra la maqueta `a2` y pidió
+ * ésta. Lo que los tests siguen defendiendo es lo mismo de antes —que
+ * ninguno de los cinco controles compartidos se pierda y que cada uno esté
+ * donde dice estar—; lo que cambió es dónde es eso.
+ */
+describe("AdminLayout: la barra superior de a2", () => {
+  it("hay una barra de cuenta arriba, visible también en el escritorio", async () => {
     renderAdmin(buildMe());
     await screen.findByRole("link", { name: "Hoy" });
 
     const franjas = [...document.querySelectorAll("header")];
     expect(franjas).toHaveLength(1);
-    expect(franjas[0].className).toContain("md:hidden");
-    // No queda ningún control de cuenta arriba.
-    expect(within(franjas[0]).queryByRole("button", { name: /salir/i })).toBeNull();
+    // Ya no se esconde en el escritorio: es la barra de `a2`, no la franja
+    // del cajón del móvil.
+    expect(franjas[0].className).not.toContain("md:hidden");
+    // La navegación del negocio NO está acá: sigue siendo de la lateral.
     expect(within(franjas[0]).queryByRole("navigation")).toBeNull();
   });
 
-  it("la sede sube a la cabeza de la lateral, junto a la identidad", async () => {
+  it("los tres controles de cuenta viven en la barra: campana, tema y salida", async () => {
+    renderAdmin(buildMe());
+    await screen.findByRole("link", { name: "Hoy" });
+    const barra = document.querySelector("header") as HTMLElement;
+
+    expect(within(barra).getByRole("button", { name: /salir/i })).toBeInTheDocument();
+    expect(within(barra).getByRole("button", { name: /modo (oscuro|claro)/i })).toBeInTheDocument();
+    expect(within(barra).getByRole("button", { name: /Notificaciones/i })).toBeInTheDocument();
+
+    // Y ya no están duplicados en la lateral del escritorio.
+    const lateral = document.querySelector("aside") as HTMLElement;
+    expect(within(lateral).queryByRole("button", { name: /salir/i })).toBeNull();
+  });
+
+  it("la sede baja de la lateral a la barra, y sigue siendo lo que alcanza a toda la app", async () => {
     listStores.mockResolvedValue([
       { id: 7, name: "Chapinero" },
       { id: 8, name: "Usaquén" },
     ]);
     renderAdmin(buildMe({ features: { multi_store: true } }));
 
-    const lateral = document.querySelector("aside");
-    expect(lateral).not.toBeNull();
-    const sede = await within(lateral as HTMLElement).findByRole("combobox", { name: "Sede activa" });
-    // Antes de la navegación, no después: la sede alcanza a toda la app.
-    expect(
-      sede.compareDocumentPosition(within(lateral as HTMLElement).getByRole("navigation")),
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const barra = document.querySelector("header") as HTMLElement;
+    const sede = await within(barra).findByRole("combobox", { name: "Sede activa" });
+    expect(sede).toBeInTheDocument();
+    // No quedó una segunda copia en la lateral.
+    const lateral = document.querySelector("aside") as HTMLElement;
+    expect(within(lateral).queryByRole("combobox", { name: "Sede activa" })).toBeNull();
   });
 
-  it("los tres controles de cuenta bajan al pie de la lateral", async () => {
+  it("con una sola sede la barra igual dice de dónde es lo que se mira", async () => {
+    listStores.mockResolvedValue([{ id: 7, name: "Chapinero" }]);
     renderAdmin(buildMe());
+
+    const barra = document.querySelector("header") as HTMLElement;
+    // Sin desplegable —no hay nada que elegir— pero con el nombre a la vista:
+    // `a2` nunca deja el hueco vacío.
+    expect(await within(barra).findByText("Chapinero")).toBeInTheDocument();
+    expect(within(barra).queryByRole("combobox", { name: "Sede activa" })).toBeNull();
+  });
+
+  it("la cabeza de la lateral dice la organización y la sede, y la persona vive en la barra", async () => {
+    listStores.mockResolvedValue([{ id: 7, name: "Chapinero" }]);
+    renderAdmin(buildMe());
+    await screen.findByRole("link", { name: "Hoy" });
+
     const lateral = document.querySelector("aside") as HTMLElement;
-
-    const salir = await within(lateral).findByRole("button", { name: /salir/i });
-    const tema = within(lateral).getByRole("button", { name: /^Tema/ });
     const nav = within(lateral).getByRole("navigation");
+    const marca = within(lateral).getByText("Organización de prueba");
+    // La identidad va ANTES de la navegación: es de quién es el escritorio.
+    expect(marca.compareDocumentPosition(nav)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
-    // Los dos van después de la navegación: son el pie, no una entrada más.
-    expect(nav.compareDocumentPosition(salir)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(nav.compareDocumentPosition(tema)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const barra = document.querySelector("header") as HTMLElement;
+    expect(within(barra).getByText(/Admin de prueba · administrador/)).toBeInTheDocument();
   });
 });

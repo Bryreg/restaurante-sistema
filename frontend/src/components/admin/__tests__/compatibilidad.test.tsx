@@ -88,14 +88,18 @@ describe("StatTile · las 74 tarjetas anteriores dibujan lo mismo", () => {
     expect(screen.getByText("-$ 1.000").className).toContain("text-destructive")
   })
 
-  it("`tone=\"warning\"` conserva su teñido neutro: la ola 1 no repintó de ámbar 74 tarjetas", () => {
-    // `features/expenses/BreakEvenTab.tsx` usa `warning` como ÉNFASIS, no
-    // como alerta. Cambiarle el fondo a ámbar le habría puesto un color de
-    // estado a un número que no está mal.
-    const { container } = render(<StatTile label="Punto de equilibrio" value="$ 9.000.000" tone="warning" />)
+  it("`tone=\"warning\"` tiñe de ámbar, simétrico a `critical`", () => {
+    // Era gris (`bg-secondary/50`) para no repintar 74 tarjetas de golpe. El
+    // dueño eligió la maqueta `a2`, que tiñe la tarjeta en alerta de ámbar
+    // igual que tiñe de rojo la crítica; y `docs/DISENO.md` dice que ámbar
+    // es exactamente eso, **estado**. Lo que sostenía el gris era un solo
+    // uso —el punto de equilibrio de `BreakEvenTab`, que usaba el tono como
+    // ÉNFASIS y no como alerta— y ése se corrigió: ahí no hay tono.
+    const { container } = render(<StatTile label="Comandas abiertas" value="9" tone="warning" />)
     const tarjeta = container.firstElementChild as HTMLElement
-    expect(tarjeta.className).toContain("bg-secondary/50")
-    expect(screen.getByText("$ 9.000.000").className).toContain("text-foreground")
+    expect(tarjeta.className).toContain("bg-warning/10")
+    expect(tarjeta.className).toContain("border-l-warning")
+    expect(screen.getByText("9").className).toContain("text-warning")
   })
 
   it("el «—» que las pantallas ya mandan como texto sigue siendo un `value` cualquiera", () => {

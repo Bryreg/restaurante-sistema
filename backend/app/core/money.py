@@ -53,3 +53,17 @@ def validate_denominations(denominations: list[Denomination], total: int) -> int
             ),
         )
     return total
+
+
+def format_cop(value: int) -> str:
+    """Un entero de pesos, escrito como lo escribe la app: ``$ 134.500``.
+
+    Espeja `formatCOP` de `frontend/src/lib/money.ts`. Existe porque los
+    cuerpos de las notificaciones se arman acá y se muestran tal cual —el
+    riel «Requiere tu atención» de Hoy los dibuja sin tocarlos—, así que un
+    ``f"${n}"`` suelto llega al dueño como ``$134500`` mientras la tarjeta de
+    al lado dice ``$ 134.500``. El negativo conserva el signo adelante
+    (``-$ 3.000``), igual que el formateador del navegador.
+    """
+    signo = "-" if value < 0 else ""
+    return f"{signo}$ {abs(value):,}".replace(",", ".")

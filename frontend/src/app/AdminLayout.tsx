@@ -131,11 +131,31 @@ export function buildNav(hasFeature: (key: string) => boolean): NavItem[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Los seis grupos, en el orden en que se dibujan. Un sustantivo cada uno, y
- * eso es lo que deja acortar el ítem: bajo `Ley`, «Documentos fiscales» es
- * **Documentos** sin perder nada, y el rail de 222 px deja de truncar.
+ * Los seis grupos, en el orden en que se dibujan, **con los nombres de la
+ * maqueta `a2`** (`admin/a2/direccion.html`, arreglo `NAV`): el dueño la
+ * miró contra la app desplegada y pidió «tal cual el diseño a2».
+ *
+ * Eran `Operación · Costos · Plata · Ley · Gente · Sistema`, un sustantivo
+ * cada uno. a2 los escribe como frases con artículo —`EL DÍA`, `LA CARTA Y
+ * EL COSTO`, `LO FISCAL`— que es cómo el dueño los nombra en voz alta. El
+ * argumento que sostenía los sustantivos cortos era el ancho del rótulo de
+ * grupo, y el rótulo de grupo no compite con nada: va solo en su renglón, a
+ * 10 px, y `LA CARTA Y EL COSTO` entra en los 222 px sin truncar.
+ *
+ * Lo que **no** cambia es el nombre corto de cada entrada (`Documentos`,
+ * `Rangos`, `Turnos`, `Devoluciones`): a2 los escribe largos y por eso
+ * trunca «Devoluciones pend…» en su propio riel de 214 px. El corto tiene
+ * que seguir siendo prefijo del largo para que el nombre accesible contenga
+ * lo que se ve (WCAG 2.5.3), y truncar pierde eso.
  */
-export const GRUPOS = ["Operación", "Costos", "Plata", "Ley", "Gente", "Sistema"] as const;
+export const GRUPOS = [
+  "EL DÍA",
+  "LA CARTA Y EL COSTO",
+  "LA PLATA",
+  "LO FISCAL",
+  "LA GENTE",
+  "EL SISTEMA",
+] as const;
 export type Grupo = (typeof GRUPOS)[number];
 
 /** Las cuatro entradas que llevan recuento. Todas salen de `GET /admin/today`. */
@@ -173,111 +193,111 @@ export interface FilaDelRail {
  * «Ajustes» no lo es.
  */
 export const RAIL: Record<string, FilaDelRail> = {
-  // Operación — lo que está pasando ahora.
-  "/admin/hoy": { grupo: "Operación", icon: CalendarDays, label: "Hoy", title: "Hoy" },
-  "/admin/ventas": { grupo: "Operación", icon: BarChart3, label: "Ventas", title: "Ventas" },
+  // EL DÍA — lo que está pasando ahora.
+  "/admin/hoy": { grupo: "EL DÍA", icon: CalendarDays, label: "Hoy", title: "Hoy" },
+  "/admin/ventas": { grupo: "EL DÍA", icon: BarChart3, label: "Ventas", title: "Ventas" },
   "/admin/pedidos": {
-    grupo: "Operación",
+    grupo: "EL DÍA",
     icon: ClipboardList,
     label: "Pedidos",
     title: "Pedidos",
     cuenta: "pedidos",
   },
 
-  // Costos — la cadena que convierte un plato en plata gastada: la receta de
+  // LA CARTA Y EL COSTO — la cadena que convierte un plato en plata gastada: la receta de
   // la Carta es lo que lo vuelve un costo, y por eso va con Inventario y
   // Compras y no con Operación.
-  "/admin/carta": { grupo: "Costos", icon: BookOpen, label: "Carta", title: "Carta" },
+  "/admin/carta": { grupo: "LA CARTA Y EL COSTO", icon: BookOpen, label: "Carta", title: "Carta" },
   "/admin/preparaciones": {
-    grupo: "Costos",
+    grupo: "LA CARTA Y EL COSTO",
     icon: CookingPot,
     label: "Preparaciones",
     title: "Preparaciones",
   },
   "/admin/inventario": {
-    grupo: "Costos",
+    grupo: "LA CARTA Y EL COSTO",
     icon: Package,
     label: "Inventario",
     title: "Inventario",
     cuenta: "inventario",
   },
   "/admin/compras": {
-    grupo: "Costos",
+    grupo: "LA CARTA Y EL COSTO",
     icon: ShoppingCart,
     label: "Compras",
     title: "Compras",
     cuenta: "compras",
   },
   "/admin/analitica": {
-    grupo: "Costos",
+    grupo: "LA CARTA Y EL COSTO",
     icon: Target,
     label: "Ingeniería de menú",
     title: "Ingeniería de menú",
   },
   "/admin/analitica?tab=varianza": {
-    grupo: "Costos",
+    grupo: "LA CARTA Y EL COSTO",
     icon: Activity,
     label: "Varianza y salud",
     title: "Varianza y salud",
   },
   "/admin/analitica?tab=reposicion": {
-    grupo: "Costos",
+    grupo: "LA CARTA Y EL COSTO",
     icon: PackagePlus,
     label: "Reposición",
     title: "Reposición",
   },
 
-  // Plata.
-  "/admin/dinero": { grupo: "Plata", icon: Banknote, label: "Dinero", title: "Dinero" },
-  "/admin/banco": { grupo: "Plata", icon: Landmark, label: "Banco", title: "Banco" },
-  "/admin/gastos": { grupo: "Plata", icon: Receipt, label: "Gastos", title: "Gastos" },
-  "/admin/nomina": { grupo: "Plata", icon: Wallet, label: "Nómina", title: "Nómina" },
+  // LA PLATA.
+  "/admin/dinero": { grupo: "LA PLATA", icon: Banknote, label: "Dinero", title: "Dinero" },
+  "/admin/banco": { grupo: "LA PLATA", icon: Landmark, label: "Banco", title: "Banco" },
+  "/admin/gastos": { grupo: "LA PLATA", icon: Receipt, label: "Gastos", title: "Gastos" },
+  "/admin/nomina": { grupo: "LA PLATA", icon: Wallet, label: "Nómina", title: "Nómina" },
   "/admin/nomina?tab=propinas": {
-    grupo: "Plata",
+    grupo: "LA PLATA",
     icon: Coins,
     label: "Propinas",
     title: "Propinas",
   },
 
-  // Ley.
+  // LO FISCAL.
   "/admin/fiscal/documentos": {
-    grupo: "Ley",
+    grupo: "LO FISCAL",
     icon: FileText,
     label: "Documentos",
     title: "Documentos fiscales",
   },
   "/admin/fiscal/rangos": {
-    grupo: "Ley",
+    grupo: "LO FISCAL",
     icon: Hash,
     label: "Rangos",
     title: "Rangos de numeración",
   },
-  "/admin/fiscal/notas": { grupo: "Ley", icon: StickyNote, label: "Notas", title: "Notas" },
+  "/admin/fiscal/notas": { grupo: "LO FISCAL", icon: StickyNote, label: "Notas", title: "Notas" },
   "/admin/fiscal/devoluciones-pendientes": {
-    grupo: "Ley",
+    grupo: "LO FISCAL",
     icon: Undo2,
     label: "Devoluciones",
     title: "Devoluciones pendientes",
     cuenta: "devoluciones",
   },
 
-  // Gente. `Clock` y no una silueta: «Clientes» ya es una silueta doble, y a
+  // LA GENTE. `Clock` y no una silueta: «Clientes» ya es una silueta doble, y a
   // 16 px una persona y dos personas se confunden.
-  "/admin/personal": { grupo: "Gente", icon: Clock, label: "Turnos", title: "Turnos y personal" },
-  "/admin/clientes": { grupo: "Gente", icon: Users, label: "Clientes", title: "Clientes" },
+  "/admin/personal": { grupo: "LA GENTE", icon: Clock, label: "Turnos", title: "Turnos y personal" },
+  "/admin/clientes": { grupo: "LA GENTE", icon: Users, label: "Clientes", title: "Clientes" },
 
-  // Sistema. `BellRing` para la pantalla de reglas, `Bell` para la campana del
+  // EL SISTEMA. `BellRing` para la pantalla de reglas, `Bell` para la campana del
   // pie: son dos cosas distintas y no pueden tener el mismo ícono.
-  "/admin/features": { grupo: "Sistema", icon: ToggleLeft, label: "Funciones", title: "Funciones" },
+  "/admin/features": { grupo: "EL SISTEMA", icon: ToggleLeft, label: "Funciones", title: "Funciones" },
   "/admin/settings": {
-    grupo: "Sistema",
+    grupo: "EL SISTEMA",
     icon: Settings,
     label: "Configuración",
     title: "Configuración",
   },
-  "/admin/audit": { grupo: "Sistema", icon: ScrollText, label: "Historial", title: "Historial" },
+  "/admin/audit": { grupo: "EL SISTEMA", icon: ScrollText, label: "Historial", title: "Historial" },
   "/admin/notifications": {
-    grupo: "Sistema",
+    grupo: "EL SISTEMA",
     icon: BellRing,
     label: "Notificaciones",
     title: "Notificaciones",
@@ -286,13 +306,13 @@ export const RAIL: Record<string, FilaDelRail> = {
 
 /**
  * La red de seguridad del rail: una entrada que el dominio agregue y que
- * nadie haya archivado acá **se sigue viendo**, al final de Sistema y con el
+ * nadie haya archivado acá **se sigue viendo**, al final de `EL SISTEMA` y con el
  * ícono genérico. `adminRail.test.tsx` falla si eso pasa, pero fallar en CI
  * no puede costar una entrada de navegación en producción.
  */
 function filaDe(item: NavItem): FilaDelRail {
   return (
-    RAIL[item.to] ?? { grupo: "Sistema", icon: LayoutGrid, label: item.label, title: item.label }
+    RAIL[item.to] ?? { grupo: "EL SISTEMA", icon: LayoutGrid, label: item.label, title: item.label }
   );
 }
 
@@ -304,7 +324,7 @@ function filaDe(item: NavItem): FilaDelRail {
  * `shiftsFeature` entró en la fase 3, «Dinero» caía **después** de Banco,
  * Nómina y Propinas, y la pantalla principal de plata quedaba al final de su
  * propio grupo. El dominio sigue decidiendo si la entrada existe; el orden
- * en que se leen las cuatro de Plata es del armazón.
+ * en que se leen las cuatro de `LA PLATA` es del armazón.
  */
 const ORDEN = Object.keys(RAIL);
 function porOrdenDelRail(a: NavItem, b: NavItem): number {
@@ -413,42 +433,69 @@ function SidebarNav({
 }
 
 /**
- * La identidad, en la cabeza del rail: de quién es este escritorio. Va junto
- * al selector de sede porque las dos cosas contestan «¿de quién y de dónde es
- * lo que estoy mirando?», y esa pregunta alcanza a toda la app.
+ * El rol en palabras. `me.user.role` viaja en inglés («admin»), como todo el
+ * código (AGENTS.md § Nombres), y la barra superior de `a2` lo lee en
+ * español: «Óscar Restrepo · administrador». El `?? role` del final es la
+ * red: un rol nuevo se muestra crudo antes que desaparecer.
+ */
+const ROL_EN_PALABRAS: Record<string, string> = {
+  admin: "administrador",
+  owner: "administrador",
+  supervisor: "supervisor",
+  cashier: "responsable de caja",
+  operator: "operador",
+};
+
+/**
+ * La identidad, en la cabeza de la lateral: **de quién y de dónde** es este
+ * escritorio. En `a2` (`.lateral .marca`) son dos renglones —la organización
+ * en negrita y la sede debajo, apagada— separados del cuerpo del rail por un
+ * filete. La persona ya no va acá: subió a la barra superior, junto al rol.
  */
 function Identidad(): React.JSX.Element {
   const { me } = useSession();
+  const { stores, activeStoreId } = useStoreSelection();
+  const sede = stores.find((s) => s.id === activeStoreId)?.name ?? me?.store?.name;
   return (
-    <div className="flex items-center gap-2 px-2 py-1">
+    <div className="mb-1.5 flex items-center gap-2 border-b px-1.5 pb-2.5">
       <Store className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <div className="min-w-0">
-        <p className="truncate text-sm font-semibold leading-tight">
+        <p className="truncate text-sm leading-tight font-bold">
           {me?.organization?.name ?? "Restaurante Sistema"}
         </p>
-        <p className="truncate text-xs text-muted-foreground">{me?.user?.name}</p>
+        {sede ? <p className="truncate text-xs text-muted-foreground">{sede}</p> : null}
       </div>
     </div>
   );
 }
 
 /**
- * El selector de sede, ahora en la cabeza de la lateral y no en una barra
- * superior que ya no existe (`docs/PATRONES-ADMIN.md` § 1). El argumento es
- * el reparto del alcance: **la sede alcanza a toda la app**, el período vive
- * en la cabecera de cada pantalla y lo que filtra una tabla vive en la barra
- * de esa tabla. Un control puesto en el lugar equivocado miente sobre a
- * cuánto alcanza.
+ * **El selector de sede vuelve a la barra superior**, que es donde `a2` lo
+ * pone (`.barra-cuenta > .selector`). El reparto del alcance no cambió —la
+ * sede sigue alcanzando a toda la app, el período sigue en la cabecera de
+ * pantalla y el filtro de una tabla en la barra de esa tabla—; lo que cambió
+ * es dónde vive lo que alcanza a todo: en una barra de producto y no en la
+ * cabeza de la navegación. El dueño miró las dos y eligió a2.
  *
- * La condición para dibujarlo no cambió: `multi_store` encendida y más de
- * una sede.
+ * Cuando hay una sola sede no hay nada que elegir, y `a2` igual muestra la
+ * pastilla con el nombre: se dibuja el mismo chip, sin desplegable. Dejar el
+ * hueco vacío hacía que la barra dijera de quién es el escritorio pero no de
+ * dónde.
  */
-function StoreSwitcher() {
-  const { hasFeature } = useSession();
+function StoreSwitcher(): React.JSX.Element | null {
+  const { hasFeature, me } = useSession();
   const { stores, activeStoreId, setActiveStoreId } = useStoreSelection();
 
   if (!hasFeature("multi_store") || stores.length <= 1) {
-    return null;
+    const sola = stores.find((s) => s.id === activeStoreId)?.name ?? me?.store?.name;
+    if (!sola) return null;
+    return (
+      <p className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-input bg-card px-2.5 text-sm">
+        <Store className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="text-muted-foreground">Sede</span>
+        <b className="truncate font-bold">{sola}</b>
+      </p>
+    );
   }
 
   return (
@@ -456,7 +503,9 @@ function StoreSwitcher() {
       value={activeStoreId ? String(activeStoreId) : undefined}
       onValueChange={(next) => setActiveStoreId(Number(next))}
     >
-      <SelectTrigger className="h-9 w-full" aria-label="Sede activa">
+      <SelectTrigger className="h-8 w-auto shrink-0 gap-1.5 bg-card" aria-label="Sede activa">
+        <Store className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span className="text-muted-foreground">Sede</span>
         <SelectValue placeholder="Elegí una sede" />
       </SelectTrigger>
       <SelectContent>
@@ -480,8 +529,20 @@ function StoreSwitcher() {
  * Si el servidor falla, la sesión del cliente NO se limpia: la cookie sigue
  * viva, así que dar por cerrada una sesión que no se cerró es peor que
  * avisar del error — al recargar volvería a entrar sola.
+ *
+ * Dos formas: `"barra"` es el botón de la barra superior de `a2`
+ * (`.ico-btn`, ícono + la palabra) y `"rail"` la fila del cajón del móvil,
+ * donde no hay barra. El rótulo «Salir» se escribe literal en las dos: un
+ * rótulo dentro de un atributo `render={…}` es invisible para
+ * `src/audit/censo-controles.test.ts`.
  */
-function LogoutButton({ touch = false }: { touch?: boolean }): React.JSX.Element {
+function LogoutButton({
+  variant = "barra",
+  touch = false,
+}: {
+  variant?: "barra" | "rail";
+  touch?: boolean;
+} = {}): React.JSX.Element {
   const { clear } = useSession();
   const [saliendo, setSaliendo] = useState(false);
 
@@ -498,62 +559,109 @@ function LogoutButton({ touch = false }: { touch?: boolean }): React.JSX.Element
     }
   }
 
+  if (variant === "rail") {
+    return (
+      <button
+        type="button"
+        className={railItemClass({ touch, className: "disabled:opacity-50" })}
+        title="Cerrar sesión"
+        onClick={() => void handleLogout()}
+        disabled={saliendo}
+      >
+        <RailItemContent icon={LogOut} label="Salir" />
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
-      className={railItemClass({ touch, className: "disabled:opacity-50" })}
+      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
       title="Cerrar sesión"
       onClick={() => void handleLogout()}
       disabled={saliendo}
     >
-      <RailItemContent icon={LogOut} label="Salir" />
+      <LogOut className="size-4 shrink-0" aria-hidden="true" />
+      Salir
     </button>
   );
 }
 
 /**
- * El pie del rail: los tres controles de cuenta que bajaron de la barra
- * superior. Están abajo y no arriba porque no son navegación —no llevan a
- * una pantalla del negocio— y porque el eje escaso de un portátil es el
- * vertical: la barra superior cobraba 56 px de alto en las veinticuatro.
+ * **La barra superior vuelve** (`admin/a2/direccion.html`, `.barra-cuenta`).
+ *
+ * El rediseño anterior la había disuelto —sede e identidad a la cabeza de la
+ * lateral, campana/tema/salida al pie— con el argumento de que una barra le
+ * cobra 56 px de alto a un portátil. La de `a2` cobra 34: es una franja de
+ * un control de alto, no una cabecera de producto. Y a cambio junta en un
+ * solo renglón las cuatro cosas que no son de ninguna pantalla: **de dónde**
+ * (la sede), **quién** (persona y rol), y las tres salidas —avisos, tema,
+ * cerrar sesión—. En la lateral quedaban mezcladas con la navegación del
+ * negocio, que es lo contrario de lo que el patrón del alcance pide.
+ *
+ * En el móvil la misma barra lleva además el botón del cajón: es una sola
+ * franja en las dos superficies, no una para cada una.
  */
-function RailPie({ storeId, touch = false }: { storeId: number | null; touch?: boolean }) {
+function TopBar({
+  storeId,
+  menu,
+}: {
+  storeId: number | null;
+  menu?: React.ReactNode;
+}): React.JSX.Element {
+  const { me } = useSession();
+  const rol = me?.user?.role;
+  const persona = me?.user?.name;
   return (
-    <div className="mt-auto flex shrink-0 flex-col border-t pt-1.5">
-      <NotificationBell storeId={storeId} variant="rail" touch={touch} />
-      <ThemeToggle variant="rail" touch={touch} />
-      <LogoutButton touch={touch} />
-    </div>
+    <header className="sticky top-0 z-20 flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b bg-muted px-3 py-1.5">
+      {menu}
+      <StoreSwitcher />
+      {persona ? (
+        <p className="min-w-0 truncate text-xs text-muted-foreground">
+          {persona}
+          {rol ? ` · ${ROL_EN_PALABRAS[rol] ?? rol}` : null}
+        </p>
+      ) : null}
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        <NotificationBell storeId={storeId} />
+        <ThemeToggle />
+        <LogoutButton />
+      </div>
+    </header>
   );
 }
 
-/** El rail entero: identidad, sede, navegación agrupada y el pie de cuenta. */
+/** El rail entero: identidad, navegación agrupada y —sólo en el móvil— la salida. */
 function RailContenido({
   items,
   counts,
-  storeId,
   onNavigate,
   touch = false,
 }: {
   items: NavItem[];
   counts: Partial<Record<Recuento, number>>;
-  storeId: number | null;
   onNavigate?: () => void;
   touch?: boolean;
 }) {
   return (
     <>
-      <div className="flex shrink-0 flex-col gap-2 pb-2">
+      <div className="shrink-0">
         <Identidad />
-        <StoreSwitcher />
       </div>
-      {/* Sólo la lista rueda: identidad, sede y pie quedan fijos. Con las
-          veinticinco entradas encendidas el rail mide más que un portátil, y
-          «Salir» no puede quedar bajo el pliegue. */}
+      {/* Sólo la lista rueda: la identidad queda fija. Con las veinticinco
+          entradas encendidas el rail mide más que un portátil. */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <SidebarNav items={items} counts={counts} onNavigate={onNavigate} touch={touch} />
       </div>
-      <RailPie storeId={storeId} touch={touch} />
+      {/* El cajón del móvil se abre por encima de la barra superior y la
+          tapa: la salida tiene que estar también acá adentro o queda sin
+          alcance mientras el cajón está abierto. En el escritorio el cajón
+          no existe y la salida vive una sola vez, en la barra. */}
+      {touch ? (
+        <div className="mt-auto flex shrink-0 flex-col border-t pt-1.5">
+          <LogoutButton variant="rail" touch />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -570,47 +678,53 @@ function AdminChrome(): React.JSX.Element {
   return (
     <div className="oficina flex min-h-screen bg-background text-foreground">
       {/* 222 px medidos: el ancho al que los cuatro nombres largos dejan de
-          truncar una vez acortados (`docs/PATRONES-ADMIN.md` § 1). */}
-      <aside
-        className={cn(
-          "sticky top-0 hidden h-screen w-[222px] shrink-0 flex-col border-r bg-muted p-2 md:flex",
-        )}
-      >
-        <RailContenido items={items} counts={counts} storeId={activeStoreId} />
+          truncar una vez acortados (`docs/PATRONES-ADMIN.md` § 1).
+          El fondo va en el `aside`, que se estira con la página, y el
+          `sticky` adentro: con las dos cosas en el mismo elemento la
+          columna gris terminaba a la altura de la ventana y dejaba una
+          franja blanca bajo el pliegue en toda pantalla más alta que el
+          monitor. En `a2` la lateral es una celda de la grilla y llega
+          siempre hasta abajo. */}
+      <aside className={cn("hidden w-[222px] shrink-0 border-r bg-muted md:block")}>
+        <div className="sticky top-0 flex h-screen flex-col p-2">
+          <RailContenido items={items} counts={counts} />
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* No hay barra superior en el escritorio (`md:hidden`). En el móvil
-            el rail no cabe, así que queda esta franja con el cajón y nada
-            más: el argumento del patrón 1 —los 56 px de alto que la barra le
-            cobra a un portátil— es sobre el escritorio, donde el rail sí
-            está siempre a la vista. */}
-        <header className="flex h-12 items-center gap-2 border-b px-3 md:hidden">
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetTrigger
-              render={<Button type="button" variant="ghost" size="icon" aria-label="Abrir menú" />}
-            >
-              <Menu className="size-5" aria-hidden="true" />
-            </SheetTrigger>
-            <SheetContent side="left" className="flex w-[17rem] flex-col p-2">
-              <SheetHeader className="p-0">
-                <SheetTitle className="sr-only">
-                  {me?.organization?.name ?? "Restaurante Sistema"}
-                </SheetTitle>
-              </SheetHeader>
-              <RailContenido
-                items={items}
-                counts={counts}
-                storeId={activeStoreId}
-                onNavigate={() => setMobileOpen(false)}
-                touch
-              />
-            </SheetContent>
-          </Sheet>
-          <p className="truncate text-sm font-semibold">
-            {me?.organization?.name ?? "Restaurante Sistema"}
-          </p>
-        </header>
+        <TopBar
+          storeId={activeStoreId}
+          menu={
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="md:hidden"
+                    aria-label="Abrir menú"
+                  />
+                }
+              >
+                <Menu className="size-5" aria-hidden="true" />
+              </SheetTrigger>
+              <SheetContent side="left" className="flex w-[17rem] flex-col p-2">
+                <SheetHeader className="p-0">
+                  <SheetTitle className="sr-only">
+                    {me?.organization?.name ?? "Restaurante Sistema"}
+                  </SheetTitle>
+                </SheetHeader>
+                <RailContenido
+                  items={items}
+                  counts={counts}
+                  onNavigate={() => setMobileOpen(false)}
+                  touch
+                />
+              </SheetContent>
+            </Sheet>
+          }
+        />
         <main className="min-w-0 flex-1 p-4 md:p-6">
           <Outlet />
         </main>

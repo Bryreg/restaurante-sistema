@@ -1,3 +1,5 @@
+import type { LucideIcon } from "lucide-react"
+
 import { cn } from "@/lib/utils"
 
 /**
@@ -11,6 +13,14 @@ export interface PageContextItem {
   value?: React.ReactNode
   /** La marca de tiempo completa, o la aclaración larga. */
   title?: string
+  /**
+   * El ícono del dato, opcional. `a2` los usa para los dos que hablan de
+   * tiempo —el que se refresca solo y el corte del día— y deja sin ícono al
+   * que es una frase («Servicio de noche en curso — quedan 9 comandas
+   * abiertas»). Es una pista, nunca la única señal: el texto ya dice lo
+   * mismo, y por eso va `aria-hidden`.
+   */
+  icon?: LucideIcon
 }
 
 export interface PageHeaderProps {
@@ -73,15 +83,21 @@ export function PageHeader({
       {context && context.length > 0 ? (
         <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {context.map((item, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-1.5 whitespace-nowrap"
-              title={item.title}
-            >
-              <span>{item.label}</span>
-              {item.value !== undefined ? (
-                <b className="font-bold text-foreground">{item.value}</b>
+            <span key={i} className="inline-flex items-center gap-4">
+              {/* El filete entre datos, como en `a2` (`.contexto .sep`): sin
+                  él, «hace 14 s» y «Corte del día a las 3:00 a. m.» se leen
+                  como una sola frase larga. Va entre los datos y nunca
+                  antes del primero. */}
+              {i > 0 ? (
+                <span aria-hidden="true" className="h-3.5 w-px shrink-0 bg-border" />
               ) : null}
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap" title={item.title}>
+                {item.icon ? <item.icon className="size-3.5 shrink-0" aria-hidden="true" /> : null}
+                <span>{item.label}</span>
+                {item.value !== undefined ? (
+                  <b className="font-bold text-foreground">{item.value}</b>
+                ) : null}
+              </span>
             </span>
           ))}
         </p>
