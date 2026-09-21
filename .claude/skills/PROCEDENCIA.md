@@ -6,8 +6,11 @@ Ninguno de los skills de este proyecto es propio: todos llegaron adoptando
 **El grueso de este documento es sobre los 7 skills de diseño**, que vienen de
 **`nextlevelbuilder/ui-ux-pro-max-skill`** (MIT, © Next Level Builder).
 Llegaron acá indirectamente, vía `retail-espacios`, y en el camino se perdió
-casi todo: ver el renglón del CHANGELOG de `sistemas-maestros` 2.3.0. El
-octavo, `brag`, tiene su sección [al final](#brag--de-latent-spacesbrag).
+casi todo: ver el renglón del CHANGELOG de `sistemas-maestros` 2.3.0.
+
+Los otros ocho son de video y van [al final](#brag--de-latent-spacesbrag):
+`brag`, que arma el video de lanzamiento, y las siete de Hyperframes, que son
+el motor con el que lo arma.
 
 ## Cómo actualizarlos
 
@@ -127,11 +130,34 @@ sin necesidad de una URL viva ni de capturas.
 - **Cómo actualizar**: no a mano acá. Se actualiza en `sistemas-maestros` y se
   vuelve a adoptar, para que el rastro de versión no se pierda.
 
-**No produce video todavía.** Su paso 3 lee las skills de dominio de
-Hyperframes (`hyperframes-core`, `hyperframes-animation`,
-`hyperframes-creative`, `hyperframes-keyframes`, `hyperframes-cli`), que no
-vienen incluidas ni en el framework ni en el upstream de `brag`. Hay que
-instalarlas aparte antes de usarla.
-
 **Pesa 17 MB**, casi todo pistas de música en `brag/assets/music/`. Es de
-lejos el archivo más pesado que este repositorio guarda por fuera del código.
+lejos lo más pesado que este repositorio guarda por fuera del código.
+
+Su paso 3 no lo resuelve sola: delega la composición y el render a las siete
+skills de Hyperframes, que están abajo. Vinieron con la 2.5.0; en la 2.4.0 el
+skill se registraba pero no producía video.
+
+## Las siete de Hyperframes — de `heygen-com/hyperframes`
+
+Adoptadas del framework en la 2.5.0 (Apache-2.0, licencia en
+`LICENSE-UPSTREAM-hyperframes`, commit `6f6d242` del upstream, alineadas con
+el CLI `0.8.59`).
+
+`hyperframes-core`, `-animation`, `-creative`, `-keyframes`, `-cli`,
+`media-use` y `hyperframes-registry`. El upstream publica 21; el porqué de
+estas siete y no las 21 está en el framework. **El CLI no se guarda acá**: se
+baja solo con `npx hyperframes`.
+
+### Antes de correr `/brag`, preparar el entorno
+
+```bash
+scripts/preparar-video.sh
+```
+
+El motor necesita tres cosas del sistema operativo que no viajan en el repo, y
+las tres fallan de una forma que no se parece a su causa: un ffmpeg completo
+(el recortado de Playwright no tiene H.264 y el render muere al final), un
+navegador que arranque (`HYPERFRAMES_BROWSER_PATH`), y la CA del proxy en el
+almacén NSS del navegador (sin ella `hyperframes check` falla con
+`ERR_CERT_AUTHORITY_INVALID`, que parece un problema de la composición y no lo
+es). El script las deja listas y es idempotente.
