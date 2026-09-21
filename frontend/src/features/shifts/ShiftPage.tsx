@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { useSession } from "@/app/session";
 import { EmptyState } from "@/components/EmptyState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,6 +14,7 @@ import { OpenShiftForm } from "./OpenShiftForm";
 import { PickupsPanel } from "./PickupsPanel";
 import { ShiftSummaryPanel } from "./ShiftSummaryPanel";
 import { SingleStepCloseForm } from "./SingleStepCloseForm";
+import { PasoPastilla, TarjetaTurnoCerrado, type ResultadoCierre } from "./closeUi";
 import { useCurrentShift } from "./hooks";
 
 /**
@@ -21,10 +24,47 @@ import { useCurrentShift } from "./hooks";
  * pestaña opcional se muestra sólo con su flag (AGENTS.md § funciones
  * opcionales): con `cash.handovers` apagado no existe "Relevo" (checklist del
  * pedido 1a).
+ *
+ * **Tercera pantalla: el turno recién cerrado.** El resultado del cierre lo
+ * guarda esta página (`closeResult`), no el formulario que lo produjo —los
+ * dos formularios sólo avisan por `onClosed`—. Mientras haya un resultado
+ * sin acusar recibo se muestra `TarjetaTurnoCerrado` en lugar de
+ * `OpenShiftForm`, con «A consignar» a la vista y una acción explícita para
+ * seguir. Antes ese dato lo dibujaba el formulario, que la invalidación de
+ * `CURRENT_SHIFT_QUERY_KEY` desmontaba en el mismo parpadeo: quien cerraba
+ * la caja nunca llegaba a ver cuánto tenía que consignar.
  */
 export default function ShiftPage(): React.JSX.Element {
   const { hasFeature } = useSession();
   const { data: shift, isLoading, isError, error, refetch } = useCurrentShift();
+  const showBlindClose = hasFeature("cash.blind_close");
+
+  /**
+   * El resultado del último cierre hecho en esta pantalla. Vive acá y no en
+   * el formulario **a propósito**: confirmar el cierre invalida
+   * `CURRENT_SHIFT_QUERY_KEY`, `GET /shifts/current` pasa a devolver `null`
+   * y el `if (!shift)` de más abajo desmontaba el formulario —con su
+   * pantalla de «Turno cerrado» adentro— antes de que nadie alcanzara a
+   * leer cuánto hay que consignar. La página no depende del turno para
+   * seguir montada, así que el resultado sobrevive.
+   */
+  const [closeResult, setCloseResult] = useState<ResultadoCierre | null>(null);
+
+  // Va ANTES que `isLoading`/`isError`/`!shift`: mientras haya un resultado
+  // sin acusar recibo, manda él. Sólo lo borra el botón de continuar — ni el
+  // refetch, ni el sondeo de 5 s, ni que el turno desaparezca.
+  if (closeResult) {
+    return (
+      <TarjetaTurnoCerrado
+        resultado={closeResult}
+        pastilla={
+          <PasoPastilla tono="listo">{showBlindClose ? "Paso 3 de 3 · hecho" : "Hecho"}</PasoPastilla>
+        }
+        etiquetaContinuar={shift ? "Listo" : "Abrir turno"}
+        onContinuar={() => setCloseResult(null)}
+      />
+    );
+  }
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Consultando el turno…</p>;
@@ -48,13 +88,23 @@ export default function ShiftPage(): React.JSX.Element {
   const showSwaps = hasFeature("cash.swaps");
   const showPickups = hasFeature("cash.pickups");
   const showHandovers = hasFeature("cash.handovers");
-  const showBlindClose = hasFeature("cash.blind_close");
   const showDelivery = hasFeature("pos.delivery");
 
   return (
     <div className="space-y-4">
       <Tabs defaultValue="resumen">
-        <TabsList>
+        {/* `TabsList` nace `w-fit` (ancho de su contenido) y sin scroll
+            propio: a 390 px las pestañas miden 420 px (seis, con
+            `pos.delivery` apagada), se salían de los 365 px del `<main>` y
+            **empujaban la página entera** (42 px de desborde horizontal
+            medidos en /pos/turno con turno abierto). Con
+            `max-w-full` deja de ser más ancha que su contenedor y con
+            `overflow-x-auto` el sobrante se desplaza adentro de la barra, sin
+            perder ninguna pestaña. `justify-start` porque el `justify-center`
+            de la variante deja parte del contenido desbordado del lado
+            inalcanzable al scrollear. A 768 px y más no cambia nada: ahí
+            caben y no hay desborde que absorber. */}
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="movimientos">Movimientos</TabsTrigger>
           {showSwaps ? <TabsTrigger value="cambio">Cambio</TabsTrigger> : null}
@@ -91,7 +141,11 @@ export default function ShiftPage(): React.JSX.Element {
           </TabsContent>
         ) : null}
         <TabsContent value="cierre">
-          {showBlindClose ? <CloseWizard shiftId={shift.id} /> : <SingleStepCloseForm shiftId={shift.id} />}
+          {showBlindClose ? (
+            <CloseWizard shiftId={shift.id} onClosed={setCloseResult} />
+          ) : (
+            <SingleStepCloseForm shiftId={shift.id} onClosed={setCloseResult} />
+          )}
         </TabsContent>
       </Tabs>
     </div>

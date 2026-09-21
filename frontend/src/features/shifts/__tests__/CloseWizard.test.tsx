@@ -55,7 +55,7 @@ describe("CloseWizard — cierre a ciegas en tres pasos", () => {
     closeCountMock.mockResolvedValueOnce({ count_id: 7 } satisfies CloseCountResult);
     getCloseReviewMock.mockResolvedValue(FIRST_REVIEW);
 
-    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
 
     await waitFor(() => expect(getShiftTipsMock).toHaveBeenCalledWith(1));
     // El monto que llega de `cash_out` se pinta tal cual (formatCOP de 12.345), no recalculado.
@@ -69,7 +69,7 @@ describe("CloseWizard — cierre a ciegas en tres pasos", () => {
     getCloseReviewMock.mockResolvedValue(FIRST_REVIEW);
 
     const user = userEvent.setup();
-    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
 
     // La palabra "esperado" puede aparecer en el texto explicativo del paso
     // 1 ("sin mirar lo esperado"); lo que nunca debe existir es la ETIQUETA
@@ -132,7 +132,7 @@ describe("CloseWizard — cierre a ciegas en tres pasos", () => {
     );
 
     const user = userEvent.setup();
-    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
 
     await user.click(screen.getByRole("button", { name: /continuar/i }));
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
@@ -174,7 +174,7 @@ describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => 
     getCloseReviewMock.mockResolvedValue(conTarjeta);
 
     const user = userEvent.setup();
-    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
     await user.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
@@ -186,7 +186,7 @@ describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => 
     getCloseReviewMock.mockResolvedValue(NO_CAUSE_REVIEW);
 
     const user = userEvent.setup();
-    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
     await user.click(screen.getByRole("button", { name: /continuar/i }));
 
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
@@ -202,7 +202,7 @@ describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => 
     confirmCloseMock.mockResolvedValue({ to_deposit: 0, closes_day: false });
 
     const user = userEvent.setup();
-    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
     await user.click(screen.getByRole("button", { name: /continuar/i }));
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: /continuar/i }));
@@ -220,7 +220,7 @@ describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => 
     getCloseReviewMock.mockResolvedValue({ ...NO_CAUSE_REVIEW, open_orders: 0 });
 
     const user = userEvent.setup();
-    renderWithProviders(<CloseWizard shiftId={1} />, { me: { kind: "device", features: {} } });
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
     await user.click(screen.getByRole("button", { name: /continuar/i }));
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: /continuar/i }));

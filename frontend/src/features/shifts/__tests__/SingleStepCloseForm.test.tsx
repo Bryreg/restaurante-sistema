@@ -76,7 +76,7 @@ describe("SingleStepCloseForm — 400 BLIND_CLOSE_REQUIRED", () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
 
     const user = userEvent.setup();
-    renderWithRefreshSpy(<SingleStepCloseForm shiftId={1} />, refresh);
+    renderWithRefreshSpy(<SingleStepCloseForm shiftId={1} onClosed={() => {}} />, refresh);
 
     await user.click(screen.getByRole("button", { name: /cerrar turno/i }));
 
@@ -99,7 +99,7 @@ describe("SingleStepCloseForm — iteración 3 (H-8)", () => {
 
   it("pinta el cash_out de GET /shifts/{id}/tips como referencia, sin recalcularlo", async () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
-    renderWithRefreshSpy(<SingleStepCloseForm shiftId={1} />, refresh);
+    renderWithRefreshSpy(<SingleStepCloseForm shiftId={1} onClosed={() => {}} />, refresh);
 
     await waitFor(() => expect(getShiftTipsMock).toHaveBeenCalledWith(1));
     // El monto que llega de `cash_out` se pinta tal cual (formatCOP de 9.876), no recalculado.

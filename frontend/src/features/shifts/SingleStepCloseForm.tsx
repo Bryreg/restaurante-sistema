@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Banknote, Calculator, CircleCheck, ClipboardList, Receipt } from "lucide-react";
+import { Banknote, Calculator, ClipboardList, Receipt } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -23,7 +23,7 @@ import { errorMessage } from "@/lib/errors";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
 import { PhotoCaptureField } from "./PhotoCaptureField";
-import { FilaCuadre, PanelSello, PasoPastilla, TarjetaCierre } from "./closeUi";
+import { PanelSello, PasoPastilla, TarjetaCierre, type ResultadoCierre } from "./closeUi";
 import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftTips } from "./hooks";
 
 const CAUSE_LABEL: Record<CashDifferenceCause, string> = {
@@ -72,7 +72,17 @@ function emptyDenominations(): Denomination[] {
  * (la función está apagada) y no hay un paso 2 que revele nada; el esperado
  * y la diferencia llegan ya calculados cuando el turno queda cerrado.
  */
-export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX.Element {
+export function SingleStepCloseForm({
+  shiftId,
+  onClosed,
+}: {
+  shiftId: number;
+  /**
+   * Mismo contrato que `CloseWizard`: el resultado se lo queda `ShiftPage`,
+   * que es quien sobrevive a que el turno pase a `null`.
+   */
+  onClosed: (resultado: ResultadoCierre) => void;
+}): React.JSX.Element {
   const queryClient = useQueryClient();
   const { refresh } = useSession();
 
@@ -92,9 +102,6 @@ export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX
   const [openOrders, setOpenOrders] = useState(0);
   const [transferOpenOrders, setTransferOpenOrders] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ to_deposit?: number; closes_day?: boolean; expected?: number; difference?: number } | null>(
-    null,
-  );
 
   const idempotencyKeyRef = useRef(newIdempotencyKey());
 
@@ -126,9 +133,14 @@ export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX
       );
     },
     onSuccess: (out) => {
-      setResult(out);
       setError(null);
+      // El resultado sube a la página ANTES de invalidar: es ella la que
+      // dibuja «Turno cerrado» y la que no se desmonta cuando el turno
+      // desaparece (ver `TarjetaTurnoCerrado` en `closeUi.tsx`).
+      onClosed(out);
       toast.success("Turno cerrado.");
+      // La invalidación sigue: el resto de la app no puede quedar con el
+      // turno viejo en caché.
       void queryClient.invalidateQueries({ queryKey: CURRENT_SHIFT_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: shiftSummaryQueryKey(shiftId) });
     },
@@ -160,32 +172,6 @@ export function SingleStepCloseForm({ shiftId }: { shiftId: number }): React.JSX
       setError(errorMessage(err));
     },
   });
-
-  if (result) {
-    return (
-      <div className="mx-auto w-full max-w-6xl">
-        <TarjetaCierre
-          icono={<CircleCheck />}
-          titulo="Turno cerrado"
-          acento="ok"
-          pastilla={<PasoPastilla tono="listo">Hecho</PasoPastilla>}
-          className="max-w-xl"
-        >
-          <div className="px-4 py-4">
-            <p className="text-lg font-semibold">Turno cerrado.</p>
-            <FilaCuadre rotulo="Esperado" detalle="Lo que el sistema calculó para el cajón" valor={result.expected} />
-            <FilaCuadre rotulo="Diferencia" detalle="Contado contra esperado, según el servidor" valor={result.difference} />
-            <FilaCuadre
-              rotulo="A consignar"
-              detalle="Lo que sale del cajón para el banco"
-              valor={result.to_deposit}
-              remate
-            />
-          </div>
-        </TarjetaCierre>
-      </div>
-    );
-  }
 
   return (
     <div className="mx-auto grid w-full max-w-6xl items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">

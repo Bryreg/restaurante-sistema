@@ -1,6 +1,7 @@
-import { Lock } from "lucide-react";
+import { CircleCheck, Lock } from "lucide-react";
 
 import type { Breakdown } from "@/api/shifts";
+import { Button } from "@/components/ui/button";
 import { formatCOP } from "@/lib/money";
 import { cn } from "cn";
 
@@ -254,6 +255,93 @@ export function FilaCuadre({
         {signo && muestraSigno ? signo : ""}
         {formatCOP(valor)}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Lo que el servidor devuelve cuando el turno queda cerrado, por cualquiera
+ * de los dos caminos. `CloseConfirmResult` (asistente) y
+ * `SingleStepCloseResult` (un paso) son ambos asignables a esto: el de un
+ * paso trae además `expected` y `difference`, porque ahí el cuadre no se
+ * reveló antes.
+ */
+export interface ResultadoCierre {
+  to_deposit?: number;
+  closes_day?: boolean;
+  expected?: number;
+  difference?: number;
+}
+
+/**
+ * La pantalla de «Turno cerrado» — **la dibuja `ShiftPage`, no el
+ * formulario**.
+ *
+ * Por qué vive acá arriba y no adentro de cada formulario: el resultado del
+ * cierre sobrevive al turno que lo produjo. En cuanto el cierre entra, la
+ * invalidación de `CURRENT_SHIFT_QUERY_KEY` hace que `GET /shifts/current`
+ * devuelva `null`, y un formulario montado bajo la condición «hay turno» se
+ * desmonta con ella: la cifra **a consignar** —la plata que sale del cajón
+ * para el banco— se perdía en el parpadeo sin que nadie alcanzara a leerla.
+ * El dueño del dato es la página, que no depende del turno para seguir
+ * montada.
+ *
+ * No se va sola: sólo la borra el botón de continuar. Si la persona recarga
+ * se pierde, y está bien — pero no se desvanece sin que nadie la toque.
+ */
+export function TarjetaTurnoCerrado({
+  resultado,
+  pastilla,
+  etiquetaContinuar,
+  onContinuar,
+}: {
+  resultado: ResultadoCierre;
+  /** El texto del paso: el asistente cierra un «3 de 3», el de un paso no. */
+  pastilla: React.ReactNode;
+  etiquetaContinuar: string;
+  onContinuar: () => void;
+}): React.JSX.Element {
+  // El cierre en un paso revela acá el cuadre (no hubo paso 2 que lo
+  // mostrara); el asistente ya lo mostró y sólo remata con lo que se
+  // consigna. La cifra a consignar es el remate cuando hay renglones arriba.
+  const hayCuadre = resultado.expected !== undefined || resultado.difference !== undefined;
+  return (
+    <div className="mx-auto w-full max-w-6xl">
+      <TarjetaCierre
+        icono={<CircleCheck />}
+        titulo="Turno cerrado"
+        acento="ok"
+        pastilla={pastilla}
+        className="max-w-xl"
+      >
+        <div className="px-4 py-4">
+          <p className="text-lg font-semibold">Turno cerrado.</p>
+          {resultado.expected !== undefined ? (
+            <FilaCuadre rotulo="Esperado" detalle="Lo que el sistema calculó para el cajón" valor={resultado.expected} />
+          ) : null}
+          {resultado.difference !== undefined ? (
+            <FilaCuadre
+              rotulo="Diferencia"
+              detalle="Contado contra esperado, según el servidor"
+              valor={resultado.difference}
+            />
+          ) : null}
+          <FilaCuadre
+            rotulo="A consignar"
+            detalle="Lo que sale del cajón para el banco"
+            valor={resultado.to_deposit}
+            remate={hayCuadre}
+          />
+          <p className="pt-2 text-sm text-muted-foreground">
+            {resultado.closes_day
+              ? "Este cierre también cerró el día operativo."
+              : "El día operativo sigue abierto (otro turno lo cierra)."}
+          </p>
+          <Button type="button" className="mt-4 h-11" onClick={onContinuar}>
+            {etiquetaContinuar}
+          </Button>
+        </div>
+      </TarjetaCierre>
     </div>
   );
 }

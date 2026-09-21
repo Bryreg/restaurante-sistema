@@ -35,6 +35,7 @@ import {
   PasoPastilla,
   RENGLONES_ESPERADO,
   TarjetaCierre,
+  type ResultadoCierre,
 } from "./closeUi";
 import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftTips } from "./hooks";
 
@@ -87,7 +88,7 @@ function tituloDiferencia(diferencia: number | undefined): string {
   return diferencia < 0 ? "Falta plata en el cajón" : "Sobra plata en el cajón";
 }
 
-type Step = 1 | 2 | 3 | "done";
+type Step = 1 | 2 | 3;
 
 /**
  * Cierre a ciegas en tres pasos (`cash.blind_close`, spec § "Business day &
@@ -112,7 +113,18 @@ type Step = 1 | 2 | 3 | "done";
  * rótulos: el paso 1 no le pregunta nada al servidor sobre el cajón, ni
  * siquiera la base.
  */
-export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element {
+export function CloseWizard({
+  shiftId,
+  onClosed,
+}: {
+  shiftId: number;
+  /**
+   * El cierre entró: se le entrega el resultado a `ShiftPage`, que es quien
+   * dibuja la pantalla de «Turno cerrado». Este formulario NO la dibuja,
+   * porque la invalidación que sigue lo desmonta (ver `TarjetaTurnoCerrado`).
+   */
+  onClosed: (resultado: ResultadoCierre) => void;
+}): React.JSX.Element {
   const queryClient = useQueryClient();
 
   const [step, setStep] = useState<Step>(1);
@@ -134,7 +146,6 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
   const [closesDay, setClosesDay] = useState(false);
   const [closesDayTouched, setClosesDayTouched] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ to_deposit?: number; closes_day?: boolean } | null>(null);
   const [transferOpenOrders, setTransferOpenOrders] = useState(false);
 
   const step1KeyRef = useRef(newIdempotencyKey());
@@ -219,9 +230,13 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
       });
     },
     onSuccess: (out) => {
-      setResult(out);
-      setStep("done");
       setConfirmError(null);
+      // Primero se entrega el resultado a la página: cuando la invalidación
+      // haga que `GET /shifts/current` devuelva `null`, `ShiftPage` ya va a
+      // tener qué mostrar en lugar de `OpenShiftForm`.
+      onClosed(out);
+      // El resto de la app no puede quedar con datos viejos: el turno dejó
+      // de existir y el resumen cambió.
       void queryClient.invalidateQueries({ queryKey: CURRENT_SHIFT_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: shiftSummaryQueryKey(shiftId) });
       toast.success("Turno cerrado.");
@@ -239,30 +254,6 @@ export function CloseWizard({ shiftId }: { shiftId: number }): React.JSX.Element
       setConfirmError(errorMessage(err));
     },
   });
-
-  if (step === "done") {
-    return (
-      <div className="mx-auto w-full max-w-6xl">
-        <TarjetaCierre
-          icono={<CircleCheck />}
-          titulo="Turno cerrado"
-          acento="ok"
-          pastilla={<PasoPastilla tono="listo">Paso 3 de 3 · hecho</PasoPastilla>}
-          className="max-w-xl"
-        >
-          <div className="px-4 py-4">
-            <p className="text-lg font-semibold">Turno cerrado.</p>
-            <FilaCuadre rotulo="A consignar" detalle="Lo que sale del cajón para el banco" valor={result?.to_deposit} />
-            <p className="pt-2 text-sm text-muted-foreground">
-              {result?.closes_day
-                ? "Este cierre también cerró el día operativo."
-                : "El día operativo sigue abierto (otro turno lo cierra)."}
-            </p>
-          </div>
-        </TarjetaCierre>
-      </div>
-    );
-  }
 
   if (step === 1) {
     return (
