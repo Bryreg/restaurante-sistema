@@ -451,8 +451,10 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       porque no tiene modelos a propósito. Medido sobre Postgres 16 real.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0021"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: con A-3 cerrado la cadena llega a 0021"
+    assert 'version == "0022"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0022, "
+        "que borra `store_cash_settings.tolerance_identified_cause` (el ajuste que el dueño "
+        "editaba y que ninguna lógica leía)"
     )
     assert "len(tablas) == 93" in fuente, (
         "el conteo de tablas sigue en un número viejo: la fase 3 lo deja en 93 (79 + 4 + 3 + 7)"
