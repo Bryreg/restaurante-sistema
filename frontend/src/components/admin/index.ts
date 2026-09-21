@@ -7,7 +7,7 @@
  *
  * |  # | Patrón                  | Acá                                        |
  * |---:|-------------------------|--------------------------------------------|
- * |  1 | Armazón y alcance       | `ScopeMarks` (la parte que es componente); el reparto es del layout |
+ * |  1 | Armazón y alcance       | `RailItem` (la fila del rail, que usan las entradas **y** el pie) + `ScopeMarks`; el reparto es del layout |
  * |  2 | Cabecera de pantalla    | `PageHeader`                                |
  * |  3 | Rótulo de grupo         | `GroupLabel`                                |
  * |  4 | Banda de cifra          | `HeadlineFigure`                            |
@@ -50,6 +50,7 @@ export { HeadlineFigure, type HeadlineFigureProps, type LedgerRow } from "./Head
 export { NoticeRail, type Notice, type NoticeRailProps, type NoticeSeverity } from "./NoticeRail"
 export { OriginBar, type OriginBarProps } from "./OriginBar"
 export { PageHeader, type PageContextItem, type PageHeaderProps } from "./PageHeader"
+export { RailItemContent, railItemClass, type RailItemContentProps } from "./RailItem"
 export {
   ScopeDestinations,
   ScopeMarks,
