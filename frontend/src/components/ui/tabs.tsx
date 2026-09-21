@@ -20,8 +20,24 @@ function Tabs({
   )
 }
 
+/**
+ * `max-w-full overflow-x-auto` y `justify-start`: sin eso la lista nace
+ * `w-fit`, o sea tan ancha como sus pestañas, y **empuja la página entera**
+ * cuando no caben. Se descubrió a 390 px en el turno del salón (seis
+ * pestañas, 421 px de contenido en un contenedor de 365), y estaba latente
+ * en las dieciséis pantallas con pestañas.
+ *
+ * `justify-start` en vez de `justify-center` no cambia nada cuando el
+ * contenido cabe —con `w-fit` el ancho ES el del contenido, así que no hay
+ * espacio que repartir— y evita que al desplazarse el arranque quede
+ * inalcanzable: `justify-center` reparte el sobrante a los dos lados y la
+ * primera pestaña se va a scroll negativo.
+ *
+ * Sólo en horizontal: en vertical las pestañas se apilan y el desborde, si
+ * lo hubiera, sería vertical.
+ */
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  "group/tabs-list inline-flex w-fit items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-horizontal/tabs:max-w-full group-data-horizontal/tabs:overflow-x-auto group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {

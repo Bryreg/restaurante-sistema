@@ -93,18 +93,13 @@ export default function ShiftPage(): React.JSX.Element {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="resumen">
-        {/* `TabsList` nace `w-fit` (ancho de su contenido) y sin scroll
-            propio: a 390 px las pestañas miden 420 px (seis, con
-            `pos.delivery` apagada), se salían de los 365 px del `<main>` y
-            **empujaban la página entera** (42 px de desborde horizontal
-            medidos en /pos/turno con turno abierto). Con
-            `max-w-full` deja de ser más ancha que su contenedor y con
-            `overflow-x-auto` el sobrante se desplaza adentro de la barra, sin
-            perder ninguna pestaña. `justify-start` porque el `justify-center`
-            de la variante deja parte del contenido desbordado del lado
-            inalcanzable al scrollear. A 768 px y más no cambia nada: ahí
-            caben y no hay desborde que absorber. */}
-        <TabsList className="max-w-full justify-start overflow-x-auto">
+        {/* Sin clase de desborde acá: lo resuelve el primitivo
+            (`components/ui/tabs.tsx`). Esta pantalla fue donde se descubrió
+            —a 390 px sus seis pestañas miden 421 px y se salían de los 365
+            del `<main>`, empujando la página 42 px— pero el defecto era de
+            `TabsList`, no de acá, y las otras quince pantallas con pestañas
+            lo tenían igual de latente. */}
+        <TabsList>
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="movimientos">Movimientos</TabsTrigger>
           {showSwaps ? <TabsTrigger value="cambio">Cambio</TabsTrigger> : null}
