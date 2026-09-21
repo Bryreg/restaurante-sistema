@@ -1,0 +1,897 @@
+{
+ "app/AdminLayout.tsx": [
+  "Abrir menú",
+  "Cerrar sesión",
+  "Configuración",
+  "Elegí una sede",
+  "Funciones",
+  "Historial",
+  "Notificaciones",
+  "Secciones de administración",
+  "Sede activa"
+ ],
+ "app/PosLayout.tsx": [
+  "Cancelar",
+  "Secciones del salón"
+ ],
+ "features/analytics/AnalyticsAdminPage.tsx": [
+  "Analítica no está habilitada",
+  "Ingeniería de menú",
+  "Reposición sugerida",
+  "Salud sostenida",
+  "Varianza por plato"
+ ],
+ "features/analytics/MenuEngineeringTab.tsx": [
+  "Ingeniería de menú no disponible",
+  "No hay platos para clasificar en este período",
+  "No se pudo calcular la ingeniería de menú",
+  "Reintentar"
+ ],
+ "features/analytics/ReplenishmentTab.tsx": [
+  "No hay reposición sugerida por ahora",
+  "No se pudo calcular la reposición sugerida",
+  "Reintentar",
+  "Reposición sugerida no disponible"
+ ],
+ "features/analytics/SustainedHealthTab.tsx": [
+  "Brecha sostenida en rojo",
+  "No se pudo evaluar la salud sostenida",
+  "Reintentar",
+  "Sin historial suficiente",
+  "Ventanas evaluadas"
+ ],
+ "features/analytics/VarianceByDishTab.tsx": [
+  "No hay platos con varianza para mostrar en esta ventana",
+  "No se pudo calcular la varianza por plato",
+  "Reintentar",
+  "Varianza por plato no disponible"
+ ],
+ "features/audit/AuditPage.tsx": [
+  "No se pudo cargar el historial",
+  "Reintentar",
+  "Sin cambios para estos filtros",
+  "store, employee, zone…"
+ ],
+ "features/auth/DeviceActivatePage.tsx": [
+  "PIN de sede"
+ ],
+ "features/auth/DeviceIdentifyPage.tsx": [
+  "PIN personal",
+  "Quién opera"
+ ],
+ "features/auth/LoginPage.tsx": [
+  "Activá este dispositivo"
+ ],
+ "features/banking/BankingAdminPage.tsx": [
+  "Banco no está habilitado",
+  "Conciliación datáfono",
+  "Conciliación plataformas",
+  "Consignaciones",
+  "Libro del banco",
+  "Mano del dueño",
+  "Por consignar"
+ ],
+ "features/banking/CreateDepositDialog.tsx": [
+  "Foto del comprobante (obligatoria)",
+  "Quitar turno"
+ ],
+ "features/banking/DepositsTab.tsx": [
+  "No hay consignaciones registradas en este período",
+  "No se pudieron cargar las consignaciones",
+  "Reintentar"
+ ],
+ "features/banking/LedgerTab.tsx": [
+  "Consignaciones",
+  "Liquidaciones de datáfono (neto)",
+  "No hay movimientos de banco en este período",
+  "No se pudo cargar el libro del banco",
+  "Reintentar",
+  "Total del período",
+  "Transferencias"
+ ],
+ "features/banking/OwnerHandTab.tsx": [
+  "Consignado",
+  "Gastado",
+  "Gastado en devoluciones",
+  "Gastado en propinas",
+  "Mano del dueño no disponible",
+  "No se pudo calcular la mano del dueño",
+  "Reintentar",
+  "Retirado",
+  "Retirado al cerrar turno",
+  "Retirado por relevo",
+  "Saldo en mano"
+ ],
+ "features/banking/PendingDepositsTab.tsx": [
+  "No hay turnos cerrados en este período",
+  "No se pudo cargar el saldo por consignar",
+  "Reintentar"
+ ],
+ "features/banking/ReconciliationTab.tsx": [
+  "No hay liquidaciones en este período",
+  "No se pudo cargar la conciliación",
+  "Reintentar"
+ ],
+ "features/banking/SettlementsSection.tsx": [
+  "Elegí la plataforma",
+  "No hay liquidaciones registradas en este período",
+  "No se pudieron cargar las liquidaciones",
+  "Reintentar"
+ ],
+ "features/catalog/CatalogAdminPage.tsx": [
+  "Categorías",
+  "Combos",
+  "Menú del día",
+  "Modificadores",
+  "Productos",
+  "Recetas"
+ ],
+ "features/catalog/CategoriesTab.tsx": [
+  "Agregar",
+  "Ej.: Entradas"
+ ],
+ "features/catalog/CombosTab.tsx": [
+  "Crear"
+ ],
+ "features/catalog/CoverageSection.tsx": [
+  "Todo lo que se vendió en el período descontó algo"
+ ],
+ "features/catalog/DailyMenuTab.tsx": [
+  "Elegí un combo"
+ ],
+ "features/catalog/ModifiersTab.tsx": [
+  "Agregar grupo",
+  "Ej.: Término de la carne",
+  "Elegí un producto"
+ ],
+ "features/catalog/ProductForm.tsx": [
+  "Ej.: cocina caliente",
+  "Ej.: main",
+  "Elegí una categoría",
+  "Excluido",
+  "INC 8%",
+  "IVA 19%",
+  "Igual que mesa",
+  "Por defecto de la sede"
+ ],
+ "features/catalog/ProductsTab.tsx": [
+  "Nombre del producto"
+ ],
+ "features/catalog/RecipeEditor.tsx": [
+  "Elegí un plato",
+  "No se pudo cargar la ficha de este plato"
+ ],
+ "features/catalog/RecipeEffectDialog.tsx": [
+  "Elegí insumo o preparación",
+  "Elegí qué línea de la ficha reemplaza"
+ ],
+ "features/catalog/RecipesTab.tsx": [
+  "Cobertura",
+  "Fichas técnicas",
+  "Unidades sospechosas"
+ ],
+ "features/catalog/SuspiciousUnitsSection.tsx": [
+  "No hay líneas sospechosas de unidad"
+ ],
+ "features/customers/CustomersPage.tsx": [
+  "CSV",
+  "Cancelar",
+  "Facturación",
+  "Mercadeo",
+  "Ningún cliente coincide con esta búsqueda",
+  "No se pudieron cargar los clientes",
+  "pos, whatsapp…"
+ ],
+ "features/expenses/BreakEvenTab.tsx": [
+  "Costos fijos del período",
+  "Margen de contribución",
+  "No se pudo calcular el punto de equilibrio",
+  "Punto de equilibrio",
+  "Punto de equilibrio no disponible",
+  "Reintentar"
+ ],
+ "features/expenses/ExpensesAdminPage.tsx": [
+  "Cuentas por pagar",
+  "Gastos",
+  "Obligaciones",
+  "Obligaciones y gastos no está habilitado",
+  "Punto de equilibrio",
+  "Utilidad"
+ ],
+ "features/expenses/ExpensesTab.tsx": [
+  "No hay gastos registrados en este período",
+  "No se pudieron cargar los gastos",
+  "Reintentar"
+ ],
+ "features/expenses/ObligationsTab.tsx": [
+  "No hay obligaciones agendadas",
+  "No se pudieron cargar las obligaciones",
+  "Pagadas",
+  "Pendientes",
+  "Reintentar",
+  "Todas"
+ ],
+ "features/expenses/PayablesApprovalTab.tsx": [
+  "Ingresá el id de una cuenta por pagar para revisar su factura",
+  "No se pudo cargar esa cuenta por pagar",
+  "Reintentar"
+ ],
+ "features/expenses/ProfitTab.tsx": [
+  "Costo",
+  "Gastos",
+  "No se pudo calcular la utilidad",
+  "Nómina",
+  "Obligaciones",
+  "Reintentar",
+  "Utilidad",
+  "Utilidad no disponible",
+  "Ventas netas"
+ ],
+ "features/features/FeaturesPage.tsx": [
+  "Alcance de la edición",
+  "Básico",
+  "Cancelar",
+  "Elegir perfil",
+  "Elegir perfil…",
+  "Estándar",
+  "Full",
+  "No se pudieron cargar las funciones",
+  "Reintentar",
+  "Toda la organización",
+  "Todavía no hay funciones para mostrar"
+ ],
+ "features/fiscal/DocumentsPage.tsx": [
+  "Estado ante la DIAN",
+  "Exportar paquete de evidencia",
+  "Ningún documento coincide con estos filtros",
+  "No se pudieron cargar los documentos",
+  "Tipo de documento",
+  "Todos"
+ ],
+ "features/fiscal/NotesPage.tsx": [
+  "Efectivo",
+  "Elegí el tipo",
+  "No se pudieron cargar las notas",
+  "Otro",
+  "Tarjeta",
+  "Todavía no hay notas en este período",
+  "Transferencia"
+ ],
+ "features/fiscal/PendingRefundsPage.tsx": [
+  "De la mano del dueño (no toca la caja)",
+  "Desde el turno abierto (crea un egreso ahí)",
+  "Estado",
+  "Ninguna devolución pendiente con este filtro",
+  "No se pudieron cargar las devoluciones",
+  "Saldar desde",
+  "Todas"
+ ],
+ "features/fiscal/RangesPage.tsx": [
+  "No se pudieron cargar los rangos",
+  "Todavía no hay rangos cargados"
+ ],
+ "features/inventory/AdjustmentDialog.tsx": [
+  "-500 sale, 500 entra",
+  "Elegí un insumo",
+  "Tu PIN de administrador"
+ ],
+ "features/inventory/ControlHealthTab.tsx": [
+  "Días desde el último conteo completo",
+  "Food cost real no disponible",
+  "Mermas registradas esta semana",
+  "No se pudo calcular el food cost real",
+  "No se pudo cargar la salud del control",
+  "Preparaciones por lote producidas esta semana",
+  "Recepciones con factura",
+  "Reintentar"
+ ],
+ "features/inventory/CountCapturePage.tsx": [
+  "No se pudo cargar el conteo",
+  "PIN de administrador para aplicar el conteo",
+  "Reintentar",
+  "Sin datos",
+  "Volver a conteos",
+  "p. ej. 6+8 ó 3,5"
+ ],
+ "features/inventory/CountsTab.tsx": [
+  "Completo",
+  "Críticos",
+  "No se pudieron cargar los conteos",
+  "Reintentar",
+  "Sin conteos en este período",
+  "Todos"
+ ],
+ "features/inventory/IngredientForm.tsx": [
+  "Lo fija el dueño",
+  "Si no hay oficial",
+  "Sin sustituto",
+  "bulto, caneca…",
+  "unidad"
+ ],
+ "features/inventory/IngredientsTab.tsx": [
+  "No se pudieron cargar los insumos",
+  "Reintentar",
+  "Todavía no hay insumos"
+ ],
+ "features/inventory/InventoryAdminPage.tsx": [
+  "Conteos",
+  "Insumos",
+  "Inventario no está habilitado",
+  "Lotes",
+  "Movimientos y mermas",
+  "Salud del control",
+  "Stock",
+  "Varianza"
+ ],
+ "features/inventory/LotsTab.tsx": [
+  "No se pudieron cargar los lotes",
+  "Registrar merma (vencido)",
+  "Reintentar",
+  "Sin lotes para estos filtros",
+  "Todos los estados",
+  "Todos los insumos"
+ ],
+ "features/inventory/MovementsPanel.tsx": [
+  "Elegí un insumo",
+  "No se pudieron cargar los movimientos",
+  "Reintentar",
+  "Sin movimientos en este período",
+  "Todas",
+  "Todavía no hay insumos"
+ ],
+ "features/inventory/MovementsWasteTab.tsx": [
+  "Registro de mermas no está habilitado"
+ ],
+ "features/inventory/OpenCountDialog.tsx": [
+  "Completo",
+  "Críticos"
+ ],
+ "features/inventory/StockTab.tsx": [
+  "No se pudo cargar el stock",
+  "Reintentar",
+  "Sin insumos para estos filtros"
+ ],
+ "features/inventory/VarianceTab.tsx": [
+  "Elegí un conteo aplicado",
+  "No se pudo calcular la varianza",
+  "Reintentar",
+  "Sin insumos en común entre los dos conteos",
+  "Sin varianza para este conteo"
+ ],
+ "features/inventory/WasteAdminTab.tsx": [
+  "No se pudieron cargar las mermas",
+  "Reintentar",
+  "Sin mermas en este período",
+  "Todos"
+ ],
+ "features/inventory/WastePage.tsx": [
+  "Elegí un tipo",
+  "Elegí una opción",
+  "Foto (opcional)",
+  "No se pudo cargar la lista de insumos",
+  "Registro de mermas no está habilitado",
+  "Reintentar",
+  "Tu PIN para confirmar la merma",
+  "Un insumo",
+  "Una preparación"
+ ],
+ "features/kitchen/KdsPage.tsx": [
+  "Bumpea de un golpe todos los ítems enviados de esta comanda, en todas sus rondas",
+  "Cocina",
+  "Curso marchado",
+  "El KDS no está habilitado",
+  "Estación",
+  "Impresión por estación",
+  "Nada para imprimir",
+  "No hay rondas pendientes",
+  "No se pudieron cargar las rondas",
+  "No se pudieron cargar los trabajos de impresión",
+  "Reintentar"
+ ],
+ "features/notifications/NotificationsPage.tsx": [
+  "Alerta",
+  "Creá una sede primero",
+  "Crítico",
+  "Informativo",
+  "No se pudieron cargar las notificaciones",
+  "No se pudieron cargar las reglas",
+  "Reintentar",
+  "Sin notificaciones"
+ ],
+ "features/orders/AuthorizerDialog.tsx": [
+  "PIN de supervisor o administrador"
+ ],
+ "features/orders/CatalogPanel.tsx": [
+  "Buscar en la carta…",
+  "Buscar producto",
+  "Esta categoría todavía no tiene productos",
+  "Favoritos",
+  "Menú del día",
+  "Ningún producto coincide con la búsqueda",
+  "Todavía no hay ventas para armar favoritos"
+ ],
+ "features/orders/CourtesyDialog.tsx": [
+  "Elegí un motivo",
+  "PIN de autorizador"
+ ],
+ "features/orders/DiscountDialog.tsx": [
+  "Elegí un motivo",
+  "Monto fijo",
+  "Porcentaje"
+ ],
+ "features/orders/ItemDialog.tsx": [
+  "Por defecto del producto",
+  "Restar una unidad",
+  "Sumar una unidad"
+ ],
+ "features/orders/KitchenPage.tsx": [
+  "Estación",
+  "La vista de cocina no está habilitada",
+  "No hay rondas pendientes"
+ ],
+ "features/orders/NewOrderPage.tsx": [
+  "Canal de venta",
+  "Consumo de personal",
+  "Domiciliario",
+  "Domicilio",
+  "Elegí la plataforma",
+  "Esta sede no tiene plataformas activas",
+  "Mesa",
+  "Mostrador",
+  "No hay ningún canal de venta habilitado",
+  "No se pudieron cargar las plataformas",
+  "Para llevar",
+  "Plataforma",
+  "Reintentar",
+  "¿Quién consume?"
+ ],
+ "features/orders/OrderPage.tsx": [
+  "Comanda inválida",
+  "No se pudo cargar la comanda"
+ ],
+ "features/orders/OrdersAdminPage.tsx": [
+  "Anulaciones después de la cuenta",
+  "Anuladas",
+  "Cambios después de la cuenta",
+  "Comandas en el período",
+  "Con cortesía",
+  "Con descuento",
+  "Consumo de personal",
+  "Exportar CSV",
+  "Ningún pedido coincide con estos filtros",
+  "No se pudieron cargar los pedidos",
+  "Todos",
+  "Trasladadas",
+  "Ítems enviados al cobrar"
+ ],
+ "features/orders/TablesPage.tsx": [
+  "Cancelar",
+  "Elegí la mesa destino",
+  "Esta sede todavía no tiene zonas ni mesas activas",
+  "Las mesas no están habilitadas"
+ ],
+ "features/orders/VoidDialog.tsx": [
+  "Elegí un motivo"
+ ],
+ "features/payments/CheckoutPage.tsx": [
+  "Comanda inválida",
+  "Esta comanda no está disponible para cobro",
+  "Esta comanda ya fue cobrada",
+  "No se pudo cargar la comanda",
+  "Reintentar"
+ ],
+ "features/payments/DocumentPage.tsx": [
+  "Comprobante inválido",
+  "No se pudo cargar el comprobante",
+  "Reintentar"
+ ],
+ "features/payments/PaymentSplitsForm.tsx": [
+  "Esta sede no tiene medios de pago habilitados",
+  "No se pudieron cargar los medios de pago de la sede",
+  "PIN propio para cobrar",
+  "Quitar este pago",
+  "Reintentar"
+ ],
+ "features/payments/SplitBillPanel.tsx": [
+  "Sin asignar"
+ ],
+ "features/payments/TipQuestion.tsx": [
+  "Confirmar"
+ ],
+ "features/payroll/HoursTab.tsx": [
+  "Jornada no disponible",
+  "No hay jornada registrada en este período",
+  "No se pudo cargar la jornada",
+  "Reintentar"
+ ],
+ "features/payroll/PayrollAdminPage.tsx": [
+  "Horas",
+  "Liquidaciones",
+  "Nómina y propinas no está habilitado",
+  "Propinas",
+  "Tablas de recargos",
+  "Tarifas y calendario"
+ ],
+ "features/payroll/RunsTab.tsx": [
+  "No hay liquidaciones en este período",
+  "No se pudieron cargar las liquidaciones",
+  "No se pudo cargar el detalle de la liquidación",
+  "Reintentar"
+ ],
+ "features/payroll/SurchargeTablesTab.tsx": [
+  "Hora extra",
+  "No se pudieron cargar las tablas de recargos",
+  "Nocturno desde (hora)",
+  "Nocturno hasta (hora)",
+  "Recargo dominical y festivo",
+  "Recargo nocturno",
+  "Reintentar",
+  "Todavía no hay ninguna tabla de recargos cargada"
+ ],
+ "features/payroll/TipsTab.tsx": [
+  "Datáfono",
+  "De la plata que tenés en la mano",
+  "Del cajón",
+  "Efectivo",
+  "Método de reparto de propinas",
+  "No hay propinas para repartir en este período",
+  "No se pudo calcular la propuesta",
+  "Otro",
+  "Partes iguales",
+  "Por horas trabajadas",
+  "Por área",
+  "Propuesta no disponible",
+  "Reintentar",
+  "Transferencia"
+ ],
+ "features/payroll/WagesCalendarTab.tsx": [
+  "Día de la Independencia",
+  "Elegí a quién",
+  "No se pudieron cargar las tarifas",
+  "No se pudieron cargar las áreas",
+  "No se pudieron cargar los festivos",
+  "Reintentar",
+  "Salón",
+  "Todavía no hay festivos cargados",
+  "Todavía no hay tarifas cargadas",
+  "Todavía no hay áreas asignadas"
+ ],
+ "features/people/PeopleSection.tsx": [
+  "No se pudo cargar el personal",
+  "Reintentar",
+  "Todavía no hay empleados"
+ ],
+ "features/purchases/PayableDetailDialog.tsx": [
+  "Cancelar",
+  "PIN de administrador para aprobar",
+  "PIN de administrador para pagar"
+ ],
+ "features/purchases/PayablesTab.tsx": [
+  "Aprobada",
+  "Cancelada",
+  "Estado",
+  "No se pudieron cargar las cuentas por pagar",
+  "Pendiente de revisión",
+  "Proveedor",
+  "Reintentar",
+  "Sin cuentas por pagar en el rango",
+  "Todos los estados",
+  "Todos los proveedores"
+ ],
+ "features/purchases/PurchasesAdminPage.tsx": [
+  "Compras no está habilitado",
+  "Cuentas por pagar",
+  "Proveedores",
+  "Recepciones"
+ ],
+ "features/purchases/ReceptionDetailDialog.tsx": [
+  "Cancelar"
+ ],
+ "features/purchases/ReceptionForm.tsx": [
+  "Elegí un proveedor",
+  "Foto de la factura (opcional)",
+  "PIN de quien recibe"
+ ],
+ "features/purchases/ReceptionLinesEditor.tsx": [
+  "Elegí un insumo"
+ ],
+ "features/purchases/ReceptionsTab.tsx": [
+  "Confirmada",
+  "Estado",
+  "No se pudieron cargar las recepciones",
+  "Proveedor",
+  "Reintentar",
+  "Revertida",
+  "Sin recepciones en el rango",
+  "Todos los estados",
+  "Todos los proveedores"
+ ],
+ "features/purchases/SuppliersTab.tsx": [
+  "No se pudieron cargar los proveedores",
+  "Reintentar",
+  "Todavía no hay proveedores"
+ ],
+ "features/recipes/ComponentLinesEditor.tsx": [
+  "Elegí un insumo",
+  "Elegí una preparación",
+  "Insumo",
+  "Preparación",
+  "Quitar línea"
+ ],
+ "features/recipes/PrepBatchesPanel.tsx": [
+  "Todavía no se produjo ningún lote"
+ ],
+ "features/recipes/PrepModeSwitchDialog.tsx": [
+  "PIN de administrador"
+ ],
+ "features/recipes/PreparationForm.tsx": [
+  "Explotada (default): sin stock, descuenta al enviar el plato",
+  "Por lote: hay que producirla, crea stock con vencimiento",
+  "Sin vencer",
+  "unidad"
+ ],
+ "features/recipes/PreparationsAdminPage.tsx": [
+  "Preparaciones no está habilitada",
+  "Todavía no hay preparaciones"
+ ],
+ "features/recipes/QuickProductionPage.tsx": [
+  "No hay preparaciones en modo lote",
+  "No se pudo cargar la lista",
+  "Preparaciones",
+  "Producción de preparaciones no está habilitada",
+  "Reintentar",
+  "Tu PIN para confirmar la producción"
+ ],
+ "features/reports/AccountantReportTab.tsx": [
+  "Base de documentos",
+  "Base de notas",
+  "Bimestral",
+  "Exportar CSV",
+  "Impuesto de documentos",
+  "Impuesto de notas",
+  "Mensual",
+  "No se pudo cargar el informe",
+  "Propinas del período (informativo)",
+  "Reintentar",
+  "Sin documentos en este período"
+ ],
+ "features/reports/SalesPage.tsx": [
+  "Agotados",
+  "Documentos con detalle",
+  "Informe del contador",
+  "Notas",
+  "Ventas"
+ ],
+ "features/reports/SalesTab.tsx": [
+  "Cobertura de receta",
+  "Comandas pagadas",
+  "Comensales",
+  "Costo teórico",
+  "Exportar CSV",
+  "Impuesto discriminado",
+  "Margen bruto teórico",
+  "No se pudieron cargar las ventas",
+  "Propinas (informativo)",
+  "Reintentar",
+  "Sin ventas en este período",
+  "Ticket por comensal",
+  "Ticket promedio",
+  "Ventas cobradas",
+  "Ventas netas"
+ ],
+ "features/reports/TodayPage.tsx": [
+  "Comandas abiertas",
+  "Comandas atascadas",
+  "Comandas pagadas",
+  "Comensales",
+  "Efectivo esperado",
+  "Inventario no confiable",
+  "Mesas ocupadas",
+  "No se pudo cargar «Hoy»",
+  "Propinas de hoy",
+  "Reintentar",
+  "Sin comandas abiertas",
+  "Sin datos",
+  "Sin turno abierto",
+  "Ticket por comensal",
+  "Ticket promedio",
+  "Todo al día"
+ ],
+ "features/reports/UnavailableLogTab.tsx": [
+  "Exportar CSV",
+  "No se pudo cargar el registro de agotados",
+  "Reintentar",
+  "Sin agotados en este período"
+ ],
+ "features/reports/charts.tsx": [
+  "Comparación por categoría; el detalle exacto está en la tabla de abajo",
+  "Tendencia en el tiempo; el detalle exacto está en la tabla de abajo"
+ ],
+ "features/settings/CashSection.tsx": [
+  "Base fija de apertura",
+  "Elegí una sede",
+  "Límite de gasto menor",
+  "No se pudo cargar la configuración de caja",
+  "Reintentar",
+  "Reserva por defecto",
+  "Umbral de retiro"
+ ],
+ "features/settings/ChannelsSection.tsx": [
+  "Elegí una sede",
+  "No se pudieron cargar las plataformas",
+  "Plataformas no está habilitado",
+  "Rappi",
+  "Reintentar",
+  "Todavía no hay plataformas",
+  "rappi"
+ ],
+ "features/settings/FiscalSection.tsx": [
+  "Elegí una sede",
+  "Excluido",
+  "INC 8%",
+  "IVA 19%",
+  "Jurídica",
+  "Natural",
+  "Ordinario",
+  "Simple",
+  "Sin configuración fiscal vigente"
+ ],
+ "features/settings/InventorySection.tsx": [
+  "Elegí una sede",
+  "Inventario no está habilitado",
+  "No se pudieron cargar los insumos",
+  "No se pudieron cargar los umbrales",
+  "Reintentar",
+  "Sin insumos activos",
+  "Varianza no está habilitada"
+ ],
+ "features/settings/OrganizationSection.tsx": [
+  "No se pudo cargar la organización",
+  "Reintentar"
+ ],
+ "features/settings/SalesSection.tsx": [
+  "Elegí una sede",
+  "No se pudo cargar la configuración de ventas",
+  "Reintentar"
+ ],
+ "features/settings/SettingsPage.tsx": [
+  "Caja",
+  "Canales y plataformas",
+  "Empleados",
+  "Fiscal",
+  "Inventario",
+  "Organización",
+  "Sedes",
+  "UVT",
+  "Ventas",
+  "Zonas y mesas"
+ ],
+ "features/settings/StoreFormDialog.tsx": [
+  "Domicilio",
+  "Domingo",
+  "Jueves",
+  "Lunes",
+  "Martes",
+  "Mesas",
+  "Miércoles",
+  "Mostrador",
+  "Para llevar",
+  "Plataformas",
+  "Sábado",
+  "Viernes"
+ ],
+ "features/settings/StoresSection.tsx": [
+  "No se pudieron cargar las sedes",
+  "Nuevo PIN de sede",
+  "Reintentar",
+  "Todavía no hay sedes"
+ ],
+ "features/settings/UvtSection.tsx": [
+  "No se pudo cargar la tabla de UVT",
+  "Reintentar"
+ ],
+ "features/settings/ZonesTablesSection.tsx": [
+  "Elegir…",
+  "Elegí una sede"
+ ],
+ "features/shifts/CloseWizard.tsx": [
+  "Continuar",
+  "Elegí una causa"
+ ],
+ "features/shifts/DeliverySettlementPanel.tsx": [
+  "Cancelar",
+  "No hay efectivo de domicilios pendiente de liquidar",
+  "No se pudo consultar el efectivo de domicilios pendiente",
+  "Reintentar"
+ ],
+ "features/shifts/HandoverPanel.tsx": [
+  "Arqueo sorpresa",
+  "Foto (opcional)",
+  "Nuevo responsable",
+  "PIN de administrador",
+  "Relevo",
+  "Todavía no hay relevos ni arqueos en este turno"
+ ],
+ "features/shifts/MovementsPanel.tsx": [
+  "Foto del comprobante (opcional)",
+  "PIN de administrador",
+  "Todavía no hay movimientos en este turno"
+ ],
+ "features/shifts/OpenShiftForm.tsx": [
+  "Elegí una causa",
+  "Responsable de caja"
+ ],
+ "features/shifts/PhotoCaptureField.tsx": [
+  "Quitar foto"
+ ],
+ "features/shifts/PickupsPanel.tsx": [
+  "Cancelar",
+  "PIN de administrador",
+  "Todavía no hay retiros en este turno"
+ ],
+ "features/shifts/RosterPanel.tsx": [
+  "Persona",
+  "Todavía no entró nadie a este turno"
+ ],
+ "features/shifts/ShiftPage.tsx": [
+  "Cambio",
+  "Cierre",
+  "Domicilios",
+  "Movimientos",
+  "No se pudo consultar el turno",
+  "Reintentar",
+  "Relevo",
+  "Resumen",
+  "Retiros"
+ ],
+ "features/shifts/ShiftStatusStrip.tsx": [
+  "Abrir turno →"
+ ],
+ "features/shifts/SingleStepCloseForm.tsx": [
+  "Sin diferencia / elegí una causa"
+ ],
+ "features/shifts/admin/AuthorizationsTab.tsx": [
+  "No se pudieron cargar las autorizaciones",
+  "Reintentar",
+  "Sin autorizaciones para estos filtros",
+  "Todos"
+ ],
+ "features/shifts/admin/HistoryTab.tsx": [
+  "No se pudo cargar el historial",
+  "Reintentar",
+  "Sin turnos para estos filtros"
+ ],
+ "features/shifts/admin/MoneyAdminPage.tsx": [
+  "Historial",
+  "Operacional"
+ ],
+ "features/shifts/admin/OperationalTab.tsx": [
+  "No se pudieron cargar los turnos",
+  "Reintentar",
+  "Sin turnos hoy en esta sede"
+ ],
+ "features/shifts/admin/PeopleAdminPage.tsx": [
+  "Autorizaciones por autorizador",
+  "Por persona"
+ ],
+ "features/shifts/admin/PersonActivityTab.tsx": [
+  "Elegí una persona",
+  "Elegí una persona para ver su actividad",
+  "No dio autorizaciones en este rango",
+  "No se pudo cargar la actividad",
+  "Reintentar",
+  "Sin turnos en este rango"
+ ],
+ "features/shifts/admin/ShiftDetailDialog.tsx": [
+  "Cancelar",
+  "Cerrar administrativamente este turno abandonado",
+  "Cierre administrativo",
+  "Reabrir",
+  "Reabrir este cierre",
+  "Sin eventos todavía",
+  "Volver"
+ ],
+ "features/shifts/closeUi.tsx": [
+  "Tapado"
+ ]
+}
