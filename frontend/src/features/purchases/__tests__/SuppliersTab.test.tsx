@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -70,6 +70,9 @@ describe("SuppliersTab — entidad canónica, baja lógica, NIT duplicado con me
     renderWithProviders(<SuppliersTab storeId={1} />)
 
     await screen.findByText("Distribuidora El Surtidor")
-    expect(screen.getByText("Obligado a facturar")).toBeInTheDocument()
+    // «Obligado a facturar» es a la vez la celda de la fila y un término de
+    // la leyenda del pie: se acota a la tabla, que es donde el test quiere
+    // verlo.
+    expect(within(screen.getByRole("table")).getByText("Obligado a facturar")).toBeInTheDocument()
   })
 })

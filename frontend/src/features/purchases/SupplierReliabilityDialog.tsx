@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { getSupplierReliability, type SupplierOut } from "@/api/purchases"
+import { EmptyState } from "@/components/EmptyState"
+import { StatTile } from "@/components/StatTile"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import DateRangeFilter from "@/components/DateRangeFilter"
@@ -15,8 +17,17 @@ import { defaultDateRange, formatPct } from "./lib"
  * facturado, porcentaje de recepciones con factura, deriva promedio de
  * precio — los tres YA calculados por el servidor
  * (`GET /admin/suppliers/{id}/reliability`); esta pantalla sólo los
- * formatea. Sin recepciones en el rango, cada número es `null` y se dice
- * «sin datos» — nunca «0 %», que mentiría "impecable" o "nunca factura".
+ * formatea.
+ *
+ * **Patrón 5, y el motivo por el que esta pantalla lo necesitaba**: sin
+ * recepciones en el rango cada número llega `null`, y un `0 %` ahí mentiría
+ * dos veces seguidas —«impecable» en recibido÷facturado y «nunca factura» en
+ * el share—. `StatTile` obliga a dar la frase que explica el `—`, y lo
+ * dibuja apagado y nunca en rojo: no saber no es estar mal.
+ *
+ * Cada tarjeta lleva además **de qué está hecha**: un porcentaje sobre 2
+ * recepciones no es el mismo dato que uno sobre 40, y sin el denominador a
+ * la vista se leen igual.
  */
 export function SupplierReliabilityDialog({ supplier }: { supplier: SupplierOut }): React.JSX.Element {
   const [open, setOpen] = useState(false)
@@ -28,10 +39,16 @@ export function SupplierReliabilityDialog({ supplier }: { supplier: SupplierOut 
     enabled: open,
   })
 
+  const data = query.data
+  const receptions = data?.receptions ?? 0
+  /** El denominador, en palabras: de qué está hecha cada cifra. */
+  const sobre = `Sobre ${receptions} ${receptions === 1 ? "recepción" : "recepciones"} en el rango.`
+  const sinDatos = "Sin recepciones de este proveedor en el rango: no es 0 %, es que no hay con qué medirlo. Ampliá las fechas."
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="outline" size="sm" />}>Confiabilidad</DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Confiabilidad de {supplier.name}</DialogTitle>
         </DialogHeader>
@@ -41,28 +58,42 @@ export function SupplierReliabilityDialog({ supplier }: { supplier: SupplierOut 
           {query.isLoading ? (
             <p className="text-sm text-muted-foreground">Calculando…</p>
           ) : query.isError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {errorMessage(query.error)}
-            </p>
-          ) : query.data ? (
-            <dl className="grid grid-cols-2 gap-4 rounded-md border p-4 text-sm">
-              <div>
-                <dt className="text-muted-foreground">Recepciones en el rango</dt>
-                <dd className="text-lg font-semibold tabular-nums">{query.data.receptions}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Recibido ÷ facturado</dt>
-                <dd className="text-lg font-semibold tabular-nums">{formatPct(query.data.received_over_invoiced_pct)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Recepciones con factura</dt>
-                <dd className="text-lg font-semibold tabular-nums">{formatPct(query.data.invoice_share_pct)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Deriva promedio de precio</dt>
-                <dd className="text-lg font-semibold tabular-nums">{formatPct(query.data.avg_price_drift_pct)}</dd>
-              </div>
-            </dl>
+            <EmptyState
+              role="alert"
+              reason="error"
+              title="No se pudo calcular la confiabilidad"
+              description={errorMessage(query.error)}
+              action={{ label: "Reintentar", onClick: () => void query.refetch() }}
+            />
+          ) : data ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <StatTile
+                label="Recepciones en el rango"
+                value={String(data.receptions)}
+                hint="Todo lo de abajo se mide sobre éstas. Con dos o tres, los porcentajes dicen poco."
+              />
+              <StatTile
+                label="Recibido ÷ facturado"
+                {...(data.received_over_invoiced_pct === null
+                  ? { value: null as null, nullNote: sinDatos }
+                  : { value: formatPct(data.received_over_invoiced_pct) })}
+                hint={`Debajo de 100 % está cobrando más de lo que entrega. ${sobre}`}
+              />
+              <StatTile
+                label="Recepciones con factura"
+                {...(data.invoice_share_pct === null
+                  ? { value: null as null, nullNote: sinDatos }
+                  : { value: formatPct(data.invoice_share_pct) })}
+                hint={`Lo que entró sin factura no respalda el costo ante la DIAN. ${sobre}`}
+              />
+              <StatTile
+                label="Deriva promedio de precio"
+                {...(data.avg_price_drift_pct === null
+                  ? { value: null as null, nullNote: sinDatos }
+                  : { value: formatPct(data.avg_price_drift_pct) })}
+                hint={`Cuánto se le movió el precio contra su propio promedio. ${sobre}`}
+              />
+            </div>
           ) : null}
         </div>
       </DialogContent>

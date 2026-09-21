@@ -28,6 +28,15 @@ import {
   type SupplierPaymentMethod,
 } from "@/api/purchases"
 import {
+  DenseTable,
+  DenseTableBar,
+  FormField,
+  FormSection,
+  type DenseColumn,
+  type LegendEntry,
+} from "@/components/admin"
+import { EmptyState } from "@/components/EmptyState"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -46,7 +55,6 @@ import { MoneyInput } from "@/components/MoneyInput"
 import { PinPad } from "@/components/PinPad"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { formatBusinessDate, formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
@@ -64,6 +72,37 @@ import { PAYABLE_STATUS_LABEL, SUPPLIER_PAYMENT_METHOD_LABEL } from "./lib"
 function paymentsKey(payableId: number) {
   return ["purchases", "payables", payableId, "payments"] as const
 }
+
+/**
+ * **La leyenda del pie** (patrón 8 d). Los términos están elegidos para no
+ * repetir el texto de ninguna celda —«Vigente» y «Anulado» viven en la
+ * columna Estado— porque una leyenda que duplica una celda deja de aclarar y
+ * pasa a confundir dos cosas que están en lugares distintos.
+ */
+const PAYMENTS_LEGEND: readonly LegendEntry[] = [
+  {
+    term: "Pago anulado",
+    meaning: (
+      <>
+        no se borra: queda con su motivo y quién lo anuló, y <b>el saldo vuelve a subir</b>. Anular no es lo
+        mismo que no haber pagado nunca.
+      </>
+    ),
+  },
+  {
+    term: "Cajón",
+    meaning: (
+      <>
+        «Sí» quiere decir que además del pago quedó un <b>egreso en el turno abierto</b>. «No» es plata que
+        salió por banco y nunca pasó por el cajón del salón.
+      </>
+    ),
+  },
+  {
+    term: "Saldo",
+    meaning: "lo lleva el servidor, no esta tabla: sumar los pagos de acá no es el saldo, porque los anulados no descuentan.",
+  },
+]
 
 function ApproveAction({ payable, onApproved }: { payable: PayableOut; onApproved: () => void }): React.JSX.Element {
   const mutation = useMutation({
@@ -131,7 +170,6 @@ function VoidPaymentAction({
               id={`void-pin-${payment.id}`}
               type="password"
               inputMode="numeric"
-              className="h-11"
               value={pin}
               onChange={(event) => setPin(event.target.value)}
             />
@@ -213,17 +251,41 @@ function RegisterPaymentForm({
   const amountValid = amount !== null && amount > 0
 
   return (
-    <div className="space-y-3 rounded-md border p-4">
-      <p className="text-sm text-muted-foreground">Saldo pendiente: {formatCOP(payable.balance)}</p>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label htmlFor="pay-amount">Monto</Label>
-          <MoneyInput id="pay-amount" value={amount} onChange={setAmount} />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="pay-method">Medio</Label>
+    <FormSection
+      title="Registrar un pago"
+      governs="Lo que efectivamente sale a pagarle a este proveedor. El saldo lo lleva el servidor: acá se declara una salida, no se recalcula la cuenta."
+      reading={
+        fromCashDrawer ? (
+          <>
+            Este pago va a salir <b>del cajón</b>: además del pago queda un <b>egreso en el turno abierto</b> de
+            esta sede, en la misma operación. <b>Sin turno abierto el pago no se registra</b> — no queda a
+            medias, no se registra.
+          </>
+        ) : (
+          <>
+            Este pago sale <b>por fuera del cajón</b> (banco, transferencia, cheque): no toca el turno ni el
+            arqueo. Si la plata salió del cajón del salón, prendé «Desde el cajón» o el cierre va a sobrar.
+          </>
+        )
+      }
+      doesNotDo="Registrar un pago no aprueba la cuenta ni cambia lo que el proveedor facturó: sólo declara que esta plata salió."
+    >
+      {/* Del servidor, textual: el frontend nunca deriva un saldo. */}
+      <p className="text-sm text-muted-foreground sm:col-span-2">Saldo pendiente: {formatCOP(payable.balance)}</p>
+
+      <FormField
+        label="Monto"
+        help="Lo que sale ahora. Puede ser menos que el saldo: una cuenta se paga en partes y el saldo baja con cada pago."
+      >
+        {({ fieldId, describedBy }) => (
+          <MoneyInput id={fieldId} aria-describedby={describedBy} value={amount} onChange={setAmount} />
+        )}
+      </FormField>
+
+      <FormField label="Medio" help="Por dónde sale. Es lo que después permite cruzar este pago con el extracto del banco.">
+        {({ fieldId, describedBy }) => (
           <Select value={method} onValueChange={(value) => setMethod(value as SupplierPaymentMethod)}>
-            <SelectTrigger id="pay-method" className="w-full">
+            <SelectTrigger id={fieldId} aria-describedby={describedBy} className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -234,38 +296,69 @@ function RegisterPaymentForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="pay-paid-at">Fecha real de salida</Label>
-          <Input id="pay-paid-at" type="datetime-local" className="h-11" value={paidAt} onChange={(event) => setPaidAt(event.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="pay-reference">Comprobante (opcional)</Label>
-          <Input id="pay-reference" className="h-11" value={reference} onChange={(event) => setReference(event.target.value)} />
-        </div>
+        )}
+      </FormField>
+
+      <FormField
+        label="Fecha real de salida"
+        help="Cuándo salió la plata de verdad, no cuándo se carga acá. De esto depende en qué mes cae el gasto."
+      >
+        {({ fieldId, describedBy }) => (
+          <Input
+            id={fieldId}
+            aria-describedby={describedBy}
+            type="datetime-local"
+            value={paidAt}
+            onChange={(event) => setPaidAt(event.target.value)}
+          />
+        )}
+      </FormField>
+
+      <FormField
+        label="Comprobante (opcional)"
+        help="Número de transferencia, cheque o recibo. Es lo que se busca cuando el proveedor dice que no le llegó."
+      >
+        {({ fieldId, describedBy }) => (
+          <Input
+            id={fieldId}
+            aria-describedby={describedBy}
+            value={reference}
+            onChange={(event) => setReference(event.target.value)}
+          />
+        )}
+      </FormField>
+
+      <FormField
+        label="Desde el cajón"
+        help="Prendelo sólo si la plata salió del efectivo del salón. Crea el egreso en el turno abierto; sin turno abierto, el pago no se registra."
+        scope={{ affects: [{ screen: "Salón › Turno › Movimientos" }], requires: "PIN de administrador" }}
+      >
+        {({ fieldId, describedBy }) => (
+          <span className="flex h-8 items-center">
+            <Switch
+              id={fieldId}
+              aria-describedby={describedBy}
+              checked={fromCashDrawer}
+              onCheckedChange={setFromCashDrawer}
+            />
+          </span>
+        )}
+      </FormField>
+
+      <div className="sm:col-span-2">
+        {mutation.isError ? (
+          <p role="alert" className="mb-2 text-sm font-medium text-destructive">
+            {errorMessage(mutation.error)}
+          </p>
+        ) : null}
+        <PinPad
+          length={4}
+          label="PIN de administrador para pagar"
+          disabled={!amountValid || mutation.isPending}
+          onSubmit={(pin) => mutation.mutate(pin)}
+        />
       </div>
-      <div className="flex items-center gap-3">
-        <Switch id="pay-from-drawer" checked={fromCashDrawer} onCheckedChange={setFromCashDrawer} />
-        <Label htmlFor="pay-from-drawer">Desde el cajón</Label>
-      </div>
-      {fromCashDrawer ? (
-        <p className="text-xs text-muted-foreground">
-          Esto va a crear un egreso en el turno abierto de esta sede, en la misma operación. Si no hay un turno
-          abierto, el pago no se registra.
-        </p>
-      ) : null}
-      {mutation.isError ? (
-        <p role="alert" className="text-sm font-medium text-destructive">
-          {errorMessage(mutation.error)}
-        </p>
-      ) : null}
-      <PinPad
-        length={4}
-        label="PIN de administrador para pagar"
-        disabled={!amountValid || mutation.isPending}
-        onSubmit={(pin) => mutation.mutate(pin)}
-      />
-    </div>
+    </FormSection>
   )
 }
 
@@ -286,6 +379,49 @@ export function PayableDetailDialog({
     enabled: open,
   })
   const payments = paymentsQuery.data ?? []
+  const vivos = payments.filter((payment) => payment.voided_at === null).length
+
+  const paymentColumns: readonly DenseColumn<PaymentOut>[] = [
+    { key: "amount", header: "Monto", kind: "number", cell: (payment) => formatCOP(payment.amount) },
+    {
+      key: "method",
+      // La palabra del negocio, no el enum (`cash`, `transfer`).
+      header: "Medio",
+      cell: (payment) => SUPPLIER_PAYMENT_METHOD_LABEL[payment.method],
+    },
+    { key: "paid", header: "Fecha", kind: "secondary", cell: (payment) => formatInstant(payment.paid_at) },
+    { key: "drawer", header: "Cajón", cell: (payment) => (payment.from_cash_drawer ? "Sí" : "No") },
+    {
+      key: "state",
+      header: "Estado",
+      cell: (payment) =>
+        payment.voided_at ? (
+          <span className="inline-flex items-center gap-1.5">
+            <Badge variant="destructive">Anulado</Badge>
+            <span className="text-xs text-muted-foreground">
+              {payment.voided_reason}
+              {payment.voided_by_employee_name ? ` · ${payment.voided_by_employee_name}` : ""}
+            </span>
+          </span>
+        ) : (
+          <Badge variant="secondary">Vigente</Badge>
+        ),
+    },
+    {
+      key: "actions",
+      header: "",
+      kind: "actions",
+      cell: (payment) => (
+        <VoidPaymentAction
+          payableId={payable.id}
+          payment={payment}
+          onVoided={() => {
+            invalidate()
+          }}
+        />
+      ),
+    },
+  ]
 
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: ["purchases", "payables"] })
@@ -294,7 +430,7 @@ export function PayableDetailDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="outline" size="sm" />}>Ver</DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             Cuenta por pagar #{payable.id} · {supplierLabel}
@@ -350,65 +486,52 @@ export function PayableDetailDialog({
             <p className="text-sm text-muted-foreground">Cuenta saldada — no queda nada por pagar.</p>
           ) : null}
 
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Pagos</p>
-            {paymentsQuery.isPending ? (
-              <p className="text-sm text-muted-foreground">Cargando los pagos…</p>
-            ) : paymentsQuery.isError ? (
-              <p role="alert" className="text-sm text-destructive">
-                No se pudieron cargar los pagos de esta cuenta. Volvé a abrirla antes de registrar uno nuevo.
-              </p>
-            ) : payments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Todavía no se registró ningún pago.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Monto</TableHead>
-                      <TableHead>Medio</TableHead>
-                      <TableHead>Fecha</TableHead>
-                      <TableHead>Cajón</TableHead>
-                      <TableHead>Estado</TableHead>
-                      <TableHead />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {payments.map((payment) => (
-                      <TableRow key={payment.id}>
-                        <TableCell className="tabular-nums">{formatCOP(payment.amount)}</TableCell>
-                        <TableCell>{SUPPLIER_PAYMENT_METHOD_LABEL[payment.method]}</TableCell>
-                        <TableCell>{formatInstant(payment.paid_at)}</TableCell>
-                        <TableCell>{payment.from_cash_drawer ? "Sí" : "No"}</TableCell>
-                        <TableCell>
-                          {payment.voided_at ? (
-                            <div className="space-y-0.5">
-                              <Badge variant="destructive">Anulado</Badge>
-                              <p className="text-xs text-muted-foreground">
-                                {payment.voided_reason}
-                                {payment.voided_by_employee_name ? ` · ${payment.voided_by_employee_name}` : ""}
-                              </p>
-                            </div>
-                          ) : (
-                            <Badge variant="secondary">Vigente</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <VoidPaymentAction
-                            payableId={payable.id}
-                            payment={payment}
-                            onVoided={() => {
-                              invalidate()
-                            }}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </div>
+          {paymentsQuery.isError ? (
+            <EmptyState
+              role="alert"
+              reason="error"
+              title="No se pudieron cargar los pagos"
+              description="No se pudieron cargar los pagos de esta cuenta. Volvé a abrirla antes de registrar uno nuevo."
+              action={{ label: "Reintentar", onClick: () => void paymentsQuery.refetch() }}
+            />
+          ) : (
+            <DenseTable
+              caption={`Pagos de la cuenta por pagar #${payable.id}`}
+              columns={paymentColumns}
+              rows={payments}
+              rowKey={(payment) => String(payment.id)}
+              // Un pago anulado se sigue viendo —es parte del rastro— pero
+              // apagado: ya no mueve plata.
+              rowInactive={(payment) => payment.voided_at !== null}
+              rowStatus={(payment) => (payment.voided_at ? "none" : "ok")}
+              legend={PAYMENTS_LEGEND}
+              maxBodyHeightPx={260}
+              className="min-w-0"
+              bar={
+                <DenseTableBar
+                  shown={payments.length}
+                  total={payments.length}
+                  noun="pagos registrados"
+                  hidden={
+                    paymentsQuery.isPending
+                      ? "cargando los pagos…"
+                      : vivos < payments.length
+                        ? `${payments.length - vivos} anulados, que ya no descuentan`
+                        : undefined
+                  }
+                />
+              }
+              note="Un pago no se borra: se anula con motivo y PIN de administrador, y el motivo queda a la vista en su fila."
+              empty={
+                paymentsQuery.isPending ? undefined : (
+                  <EmptyState
+                    title="Todavía no se registró ningún pago"
+                    description="El saldo sigue entero. Cuando salga la plata, registrala acá para que la cuenta baje."
+                  />
+                )
+              }
+            />
+          )}
         </div>
       </DialogContent>
     </Dialog>

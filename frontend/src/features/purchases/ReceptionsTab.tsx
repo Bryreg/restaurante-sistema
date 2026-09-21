@@ -13,6 +13,12 @@ import {
   type LegendEntry,
 } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { formatBusinessDate } from "@/lib/businessDate"
+import { errorMessage } from "@/lib/errors"
+
 
 /** La leyenda del pie: recibido ≠ facturado, revertida ≠ borrada. */
 const RECEPTIONS_LEGEND: readonly LegendEntry[] = [
@@ -35,12 +41,6 @@ const RECEPTIONS_LEGEND: readonly LegendEntry[] = [
     ),
   },
 ]
-import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { formatBusinessDate } from "@/lib/businessDate"
-import { errorMessage } from "@/lib/errors"
-
 import { ReceptionDetailDialog } from "./ReceptionDetailDialog"
 import { ReceptionForm } from "./ReceptionForm"
 import { defaultDateRange, RECEPTION_STATUS_LABEL, supplierName } from "./lib"
@@ -148,7 +148,7 @@ export function ReceptionsTab({ storeId, suppliers }: { storeId: number; supplie
       {activeSuppliers.length === 0 ? (
         <DependencyEmptyState
           title="Todavía no hay proveedores activos"
-          description="Una recepción elige siempre un proveedor de la lista. Primero tiene que existir alguno activo."
+          description="Una recepción elige siempre un proveedor de la lista, nunca texto libre. Creá al menos un proveedor activo antes de recibir mercancía."
           create={{ label: "Ir a Proveedores", to: "/admin/compras?tab=proveedores" }}
         />
       ) : null}
@@ -213,7 +213,7 @@ export function ReceptionsTab({ storeId, suppliers }: { storeId: number; supplie
               <DialogTrigger render={<Button size="sm" disabled={activeSuppliers.length === 0} />}>
                 Nueva recepción
               </DialogTrigger>
-              <DialogContent className="max-w-3xl">
+              <DialogContent className="sm:max-w-3xl">
                 <DialogHeader>
                   <DialogTitle>Nueva recepción</DialogTitle>
                 </DialogHeader>

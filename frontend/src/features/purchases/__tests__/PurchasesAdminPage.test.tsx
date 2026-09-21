@@ -20,7 +20,12 @@ describe("PurchasesAdminPage — toda la sección detrás de hasFeature(\"purcha
   it("con purchases apagada explica qué la prende, no una pantalla rota, y no pide nada al servidor", () => {
     renderWithProviders(<PurchasesAdminPage />, { me: buildMe({ features: { purchases: false } }), route: "/admin/compras" })
 
-    expect(screen.getByText(/compras no está habilitado/i)).toBeInTheDocument()
+    // El vacío por «función apagada» (patrón 13) tiene que nombrar TRES
+    // cosas: qué función es, con qué clave se prende y dónde se prende. El
+    // texto viejo («Compras no está habilitado») sólo decía la primera.
+    expect(screen.getByText(/no está encendida/i)).toBeInTheDocument()
+    expect(screen.getByText("purchases")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /encenderla en funciones/i })).toBeInTheDocument()
     expect(listSuppliersMock).not.toHaveBeenCalled()
   })
 

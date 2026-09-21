@@ -98,7 +98,7 @@ function PreparationActions({
     <div className="flex flex-nowrap justify-end gap-1">
       <Dialog open={editing} onOpenChange={setEditing}>
         <DialogTrigger render={<Button variant="outline" size="sm" />}>Editar</DialogTrigger>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Editar {preparation.name}</DialogTitle>
           </DialogHeader>
@@ -318,7 +318,7 @@ export function PreparationsAdminPage(): React.JSX.Element {
               />
               <Dialog open={creating} onOpenChange={setCreating}>
                 <DialogTrigger render={<Button size="sm" />}>Nueva preparación</DialogTrigger>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="sm:max-w-2xl">
                   <DialogHeader>
                     <DialogTitle>Nueva preparación</DialogTitle>
                   </DialogHeader>

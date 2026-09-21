@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import type { PayableOut, SupplierOut } from "@/api/purchases"
@@ -47,7 +47,9 @@ describe("PayablesTab — el saldo mostrado es EXACTAMENTE el que manda el servi
 
     await waitFor(() => expect(listPayablesMock).toHaveBeenCalled())
     expect(await screen.findByText("Avícola del Valle")).toBeInTheDocument()
-    expect(screen.getByText("Vencida")).toBeInTheDocument()
+    // Igual que arriba: «Vencida» es el badge de la fila y además un
+    // término de la leyenda del pie.
+    expect(within(screen.getByRole("table")).getByText("Vencida")).toBeInTheDocument()
 
     const csvLink = screen.getByRole("link", { name: /exportar csv/i })
     expect(csvLink.getAttribute("href")).toContain("format=csv")

@@ -132,8 +132,13 @@ export function ExpensesTab({ storeId }: { storeId: number }): React.JSX.Element
     queryFn: () => getExpenses({ storeId, from, to }),
   })
 
+  // Sin total del período acá, y no por el auditor sino por la regla que el
+  // auditor defiende (AGENTS.md § «Una sola matemática, en el backend»): el
+  // frontend no deriva cifras de plata. Además el que había sumaba SÓLO las
+  // filas traídas por el filtro de fechas y se rotulaba «Total del período»,
+  // que es una promesa más grande de la que podía cumplir. Cuando
+  // `GET /admin/expenses` publique el total, se pinta ese.
   const rows = query.data ?? []
-  const total = rows.reduce((acc, e) => acc + Number(e.amount ?? 0), 0)
 
   const columns: readonly DenseColumn<(typeof rows)[number]>[] = [
     {
@@ -194,16 +199,6 @@ export function ExpensesTab({ storeId }: { storeId: number }): React.JSX.Element
             onCreated={() => void queryClient.invalidateQueries({ queryKey: ["expenses", "list"] })}
           />
         </DenseTableBar>
-      }
-      footer={
-        rows.length > 0 ? (
-          <tr className="h-[34px]">
-            <td className="px-2 text-xs font-bold" colSpan={3}>
-              Total del período
-            </td>
-            <td className="px-2 text-right font-bold tabular-nums">{formatCOP(total)}</td>
-          </tr>
-        ) : undefined
       }
       note="Un gasto es plata que ya salió. Lo que todavía no salió pero vence, va en «Obligaciones»: son dos cosas distintas y por eso viven en pestañas distintas."
       empty={

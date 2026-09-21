@@ -13,6 +13,7 @@ import {
   type LegendEntry,
 } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
+import { errorMessage } from "@/lib/errors"
 
 /** La leyenda del pie: qué cambia que un proveedor exija factura. */
 const SUPPLIERS_LEGEND: readonly LegendEntry[] = [
@@ -34,8 +35,6 @@ const SUPPLIERS_LEGEND: readonly LegendEntry[] = [
     meaning: "no borra: el proveedor deja de ofrecerse en recepciones nuevas y sus compras viejas quedan enteras.",
   },
 ]
-import { errorMessage } from "@/lib/errors"
-
 import { downloadSuppliersCsv } from "./lib"
 import { formValuesToSupplierIn, formValuesToSupplierUpdateIn, SupplierForm } from "./SupplierForm"
 import { SupplierReliabilityDialog } from "./SupplierReliabilityDialog"
@@ -63,7 +62,7 @@ function SupplierActions({ supplier }: { supplier: SupplierOut }): React.JSX.Ele
       <SupplierReliabilityDialog supplier={supplier} />
       <Dialog open={editing} onOpenChange={setEditing}>
         <DialogTrigger render={<Button variant="outline" size="sm" />}>Editar</DialogTrigger>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Editar {supplier.name}</DialogTitle>
           </DialogHeader>
@@ -201,7 +200,7 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
           </Button>
           <Dialog open={creating} onOpenChange={setCreating}>
             <DialogTrigger render={<Button size="sm" />}>Nuevo proveedor</DialogTrigger>
-            <DialogContent className="max-w-xl">
+            <DialogContent className="sm:max-w-xl">
               <DialogHeader>
                 <DialogTitle>Nuevo proveedor</DialogTitle>
               </DialogHeader>

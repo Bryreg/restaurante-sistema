@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { Employee, EmployeeCreateIn, EmployeeRole, EmployeeUpdateIn } from "@/api/employees";
+import { FormField, FormSection } from "@/components/admin";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -12,7 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -73,7 +73,22 @@ export interface EmployeeFormDialogProps {
   error?: string | null;
 }
 
-/** PIN nunca vuelve del servidor: en edición se manda vacío = "sin cambio". */
+/**
+ * Alta y edición de una persona (patrón 9). Dos secciones, porque son dos
+ * cosas distintas: **quién es** —lo que no sale de Ajustes— y **con qué
+ * entra y hasta dónde llega**, que es lo que el salón le va a exigir.
+ *
+ * Los dos campos de la segunda sección llevan marcas de alcance (patrón 10)
+ * porque ninguno de los dos se nota acá:
+ * - el **PIN** es lo que la tablet pide en «Identificar persona»;
+ * - el **límite de descuento** es lo que dispara `DISCOUNT_LIMIT_EXCEEDED` y
+ *   con él el pedido del PIN de un supervisor
+ *   (`backend/app/orders/service.py`). Vacío **no es 0**: es «rige el
+ *   general de la sede».
+ *
+ * El PIN nunca vuelve del servidor: en edición se manda vacío = «sin
+ * cambio», y por eso el rótulo cambia entre alta y edición.
+ */
 export function EmployeeFormDialog({
   open,
   onOpenChange,
@@ -127,110 +142,221 @@ export function EmployeeFormDialog({
     }
   }
 
+  const isAdmin = values.role === "admin";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{employee ? `Editar a ${employee.name}` : "Nuevo empleado"}</DialogTitle>
           <DialogDescription>El PIN nunca se muestra; sólo se puede reemplazar.</DialogDescription>
         </DialogHeader>
-        <form className="space-y-4" onSubmit={handleSubmit}>
-          <div className="space-y-1.5">
-            <Label htmlFor="emp-name">Nombre</Label>
-            <Input
-              id="emp-name"
-              required
-              className="h-11"
-              value={values.name}
-              onChange={(e) => setValues((v) => ({ ...v, name: e.target.value }))}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="emp-role">Rol</Label>
-            <Select value={values.role} onValueChange={(v) => setValues((prev) => ({ ...prev, role: v as EmployeeRole }))}>
-              <SelectTrigger id="emp-role" className="h-11">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(ROLE_LABEL).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="emp-pin">{employee ? "Nuevo PIN (opcional)" : "PIN de 4 dígitos"}</Label>
-            <Input
-              id="emp-pin"
-              required={!employee}
-              inputMode="numeric"
-              pattern="[0-9]{4}"
-              maxLength={4}
-              className="h-11"
-              value={values.pin}
-              onChange={(e) => setValues((v) => ({ ...v, pin: e.target.value }))}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="emp-document">Documento</Label>
-            <Input
-              id="emp-document"
-              className="h-11"
-              value={values.document}
-              onChange={(e) => setValues((v) => ({ ...v, document: e.target.value }))}
-            />
-          </div>
-          {values.role === "admin" ? (
-            <>
-              <div className="space-y-1.5">
-                <Label htmlFor="emp-email">Correo</Label>
+        <form className="space-y-3" onSubmit={handleSubmit}>
+          <FormSection
+            title="Quién es"
+            governs="Cómo aparece esta persona en cada comanda, cada cobro y cada fila del Historial. El nombre se congela en lo que firma: cambiarlo acá no reescribe lo viejo."
+            reading={
+              isAdmin ? (
+                <>
+                  Un <b>administrador</b> entra al escritorio con correo y contraseña, y además tiene PIN para el
+                  salón. No queda atado a una sede: ve y autoriza en todas.
+                </>
+              ) : (
+                <>
+                  Un <b>{ROLE_LABEL[values.role].toLowerCase()}</b> trabaja en la sede activa y entra al salón sólo
+                  con su PIN: no tiene usuario del escritorio.
+                </>
+              )
+            }
+          >
+            <FormField
+              label="Nombre"
+              help="Es el que va a ver el salón y el que queda firmando cada acción en el Historial."
+            >
+              {({ fieldId, describedBy }) => (
                 <Input
-                  id="emp-email"
-                  type="email"
-                  className="h-11"
-                  value={values.email}
-                  onChange={(e) => setValues((v) => ({ ...v, email: e.target.value }))}
+                  id={fieldId}
+                  aria-describedby={describedBy}
+                  required
+                  value={values.name}
+                  onChange={(e) => setValues((v) => ({ ...v, name: e.target.value }))}
                 />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="emp-password">{employee ? "Nueva contraseña (opcional)" : "Contraseña"}</Label>
+              )}
+            </FormField>
+
+            <FormField
+              label="Rol"
+              help="Decide qué puede hacer sin pedirle permiso a nadie, y si su PIN sirve para autorizar lo que otro no puede hacer solo."
+              scope={{
+                flag: "roles.supervisor",
+                affects: [{ screen: "Salón › Anular, Descontar, Cortesía", verb: "Autoriza en" }],
+              }}
+            >
+              {({ fieldId, describedBy }) => (
+                <Select
+                  value={values.role}
+                  onValueChange={(v) => setValues((prev) => ({ ...prev, role: v as EmployeeRole }))}
+                >
+                  <SelectTrigger id={fieldId} aria-describedby={describedBy} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(ROLE_LABEL).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
+
+            <FormField
+              label="Documento"
+              help="Opcional. Sirve para identificarla en nómina y en los reportes que salen del sistema."
+            >
+              {({ fieldId, describedBy }) => (
                 <Input
-                  id="emp-password"
-                  type="password"
-                  className="h-11"
-                  value={values.password}
-                  onChange={(e) => setValues((v) => ({ ...v, password: e.target.value }))}
+                  id={fieldId}
+                  aria-describedby={describedBy}
+                  value={values.document}
+                  onChange={(e) => setValues((v) => ({ ...v, document: e.target.value }))}
                 />
-              </div>
-            </>
-          ) : null}
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={values.can_charge}
-              onCheckedChange={(c) => setValues((v) => ({ ...v, can_charge: c === true }))}
-            />
-            Puede cobrar
-          </label>
-          <div className="space-y-1.5">
-            <Label htmlFor="emp-discount-limit">Límite de descuento (%, opcional)</Label>
-            <Input
-              id="emp-discount-limit"
-              type="number"
-              min={0}
-              max={100}
-              className="h-11"
-              value={values.discount_limit_pct}
-              onChange={(e) => setValues((v) => ({ ...v, discount_limit_pct: e.target.value }))}
-            />
-          </div>
+              )}
+            </FormField>
+
+            <FormField
+              label="Puede cobrar"
+              help="Marcada, esta persona puede cerrar la cuenta y responder por el cajón. Es distinto del rol: un operador puede cobrar y un supervisor puede no hacerlo."
+              scope={{ affects: [{ screen: "Salón › Cobro" }] }}
+            >
+              {({ fieldId, describedBy }) => (
+                <span className="flex h-8 items-center">
+                  <Checkbox
+                    id={fieldId}
+                    aria-describedby={describedBy}
+                    checked={values.can_charge}
+                    onCheckedChange={(c) => setValues((v) => ({ ...v, can_charge: c === true }))}
+                  />
+                </span>
+              )}
+            </FormField>
+
+            {isAdmin ? (
+              <>
+                <FormField
+                  label="Correo"
+                  help="Con esto entra al escritorio del administrador. El salón no lo pide nunca: ahí se entra con el PIN."
+                >
+                  {({ fieldId, describedBy }) => (
+                    <Input
+                      id={fieldId}
+                      aria-describedby={describedBy}
+                      type="email"
+                      value={values.email}
+                      onChange={(e) => setValues((v) => ({ ...v, email: e.target.value }))}
+                    />
+                  )}
+                </FormField>
+                <FormField
+                  label={employee ? "Nueva contraseña (opcional)" : "Contraseña"}
+                  help={
+                    employee
+                      ? "Vacío deja la contraseña como está. Lo que escribas la reemplaza: la vieja deja de servir en ese momento."
+                      : "Con el correo, es lo que abre el escritorio. No se vuelve a mostrar."
+                  }
+                >
+                  {({ fieldId, describedBy }) => (
+                    <Input
+                      id={fieldId}
+                      aria-describedby={describedBy}
+                      type="password"
+                      value={values.password}
+                      onChange={(e) => setValues((v) => ({ ...v, password: e.target.value }))}
+                    />
+                  )}
+                </FormField>
+              </>
+            ) : null}
+          </FormSection>
+
+          {/* Patrón 10 · los dos campos que NO se notan en esta pantalla: el
+              PIN abre el salón y el límite decide si hace falta un supervisor.
+              Sin las marcas, el alcance habría que recordarlo. */}
+          <FormSection
+            title="Con qué entra al salón, y hasta dónde llega sola"
+            governs="Lo único de esta pestaña que el salón le exige a la persona, en la tablet, mientras atiende."
+            reading={
+              values.discount_limit_pct.trim() === "" ? (
+                <>
+                  Sin límite propio, a esta persona la rige el <b>límite general de la sede</b> (Ajustes › Ventas).
+                  Vacío <b>no es 0 %</b>: no significa que no pueda descontar.
+                </>
+              ) : (
+                <>
+                  Hasta <b>{values.discount_limit_pct} %</b> de descuento esta persona lo aplica sola. Pasado ese
+                  punto el salón le pide el <b>PIN de un supervisor o administrador</b>, y esa autorización queda
+                  listada en «Turnos y personal › Autorizaciones por autorizador».
+                </>
+              )
+            }
+            doesNotDo="Nada de esto le impide vender ni cobrar: el límite no bloquea el descuento, le pide una segunda persona."
+          >
+            <FormField
+              label={employee ? "Nuevo PIN (opcional)" : "PIN de 4 dígitos"}
+              help={
+                employee
+                  ? "Vacío deja el PIN como está. Lo que escribas lo reemplaza: el viejo deja de abrir el salón en ese momento, y el nuevo no se vuelve a mostrar."
+                  : "Es lo único que esta persona teclea para identificarse en la tablet compartida. No se vuelve a mostrar."
+              }
+              scope={{ affects: [{ screen: "Salón › Identificar persona", verb: "Abre" }] }}
+            >
+              {({ fieldId, describedBy }) => (
+                <Input
+                  id={fieldId}
+                  aria-describedby={describedBy}
+                  required={!employee}
+                  inputMode="numeric"
+                  pattern="[0-9]{4}"
+                  maxLength={4}
+                  value={values.pin}
+                  onChange={(e) => setValues((v) => ({ ...v, pin: e.target.value }))}
+                />
+              )}
+            </FormField>
+
+            <FormField
+              label="Límite de descuento (%, opcional)"
+              help="Hasta acá descuenta sola. Dejalo vacío para que la rija el límite general de la sede — vacío no es 0 %."
+              scope={{
+                affects: [{ screen: "Salón › Comanda › Descuento" }],
+                requires: "PIN de supervisor al pasarse",
+              }}
+            >
+              {({ fieldId, describedBy }) => (
+                <Input
+                  id={fieldId}
+                  aria-describedby={describedBy}
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="El general de la sede"
+                  value={values.discount_limit_pct}
+                  onChange={(e) => setValues((v) => ({ ...v, discount_limit_pct: e.target.value }))}
+                />
+              )}
+            </FormField>
+          </FormSection>
+
           {error ? (
             <p role="alert" className="text-sm font-medium text-destructive">
               {error}
             </p>
           ) : null}
           <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancelar
+            </Button>
             <Button type="submit" disabled={submitting}>
               {submitting ? "Guardando…" : "Guardar"}
             </Button>

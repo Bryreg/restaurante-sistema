@@ -42,10 +42,10 @@ import { useSession } from "@/app/session"
 import { ApiError, newIdempotencyKey } from "@/api/client"
 import type { IngredientOut } from "@/api/inventory"
 import { createReception, type ReceptionIn, type ReceptionOut, type SupplierOut } from "@/api/purchases"
+import { FormField, FormSection } from "@/components/admin"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { PhotoCaptureField } from "@/components/PhotoCaptureField"
 import { PinPad } from "@/components/PinPad"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -149,65 +149,118 @@ export function ReceptionForm({
       : null
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label htmlFor="rec-supplier">Proveedor</Label>
-          <Select
-            value={supplierId !== null ? String(supplierId) : undefined}
-            onValueChange={(value) => setSupplierId(Number(value))}
-            disabled={formsDisabled}
-          >
-            <SelectTrigger id="rec-supplier" className="w-full">
-              <SelectValue placeholder="Elegí un proveedor" />
-            </SelectTrigger>
-            <SelectContent>
-              {suppliers.map((s) => (
-                <SelectItem key={s.id} value={String(s.id)}>
-                  {s.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {supplier?.invoices_required ? (
-            <p className="text-xs text-muted-foreground">Este proveedor está marcado como obligado a facturar.</p>
-          ) : null}
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="rec-invoice-number">Número de factura {noInvoice ? "(opcional)" : ""}</Label>
-          <Input
-            id="rec-invoice-number"
-            value={invoiceNumber}
-            onChange={(event) => setInvoiceNumber(event.target.value)}
-            disabled={formsDisabled}
-          />
-        </div>
-      </div>
+    <div className="space-y-4">
+      <FormSection
+        title="De quién viene y con qué papel"
+        governs="La factura física que tenés en la mano. De acá sale la cuenta por pagar y el día operativo al que entra la mercancía."
+        reading={
+          noInvoice ? (
+            <>
+              Sin factura: esto entra como <b>compra de plaza</b>. El inventario sube igual, pero{" "}
+              <b>no hay documento que respalde el costo</b> ante la DIAN, y el proveedor obligado a facturar lo
+              rechaza.
+            </>
+          ) : (
+            <>
+              Con factura, la recepción nace con su <b>cuenta por pagar</b> y su vencimiento, contado desde el
+              plazo de pago del proveedor.
+            </>
+          )
+        }
+        doesNotDo="Confirmar una recepción no paga nada: crea la cuenta por pagar. El pago es otra acción, en Cuentas por pagar, y necesita que alguien apruebe antes."
+      >
+        <FormField
+          label="Proveedor"
+          help="Siempre uno de la lista, nunca texto libre: es lo que evita las cuarenta grafías del mismo proveedor."
+        >
+          {({ fieldId, describedBy }) => (
+            <>
+              <Select
+                value={supplierId !== null ? String(supplierId) : undefined}
+                onValueChange={(value) => setSupplierId(Number(value))}
+                disabled={formsDisabled}
+              >
+                <SelectTrigger id={fieldId} aria-label="Proveedor" aria-describedby={describedBy} className="w-full">
+                  <SelectValue placeholder="Elegí un proveedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {suppliers.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {supplier?.invoices_required ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Este proveedor está marcado como obligado a facturar.
+                </p>
+              ) : null}
+            </>
+          )}
+        </FormField>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label htmlFor="rec-invoice-date">{noInvoice ? "Fecha de la recepción" : "Fecha de factura"}</Label>
-          <Input
-            id="rec-invoice-date"
-            type="date"
-            required
-            value={invoiceDate}
-            onChange={(event) => setInvoiceDate(event.target.value)}
-            disabled={formsDisabled}
-          />
-        </div>
-        <div className="flex items-end">
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="rec-no-invoice"
-              checked={noInvoice}
-              onCheckedChange={(checked) => setNoInvoice(checked === true)}
+        <FormField
+          label={noInvoice ? "Número de factura (opcional)" : "Número de factura"}
+          help="El de la factura física. Es por donde se busca esta compra cuando el proveedor reclama."
+        >
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              value={invoiceNumber}
+              onChange={(event) => setInvoiceNumber(event.target.value)}
               disabled={formsDisabled}
             />
-            <Label htmlFor="rec-no-invoice">Sin factura (plaza de mercado)</Label>
-          </div>
+          )}
+        </FormField>
+
+        <FormField
+          label={noInvoice ? "Fecha de la recepción" : "Fecha de factura"}
+          help="Decide el día operativo al que entra la mercancía, y desde cuándo corre el plazo de pago."
+        >
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="date"
+              required
+              value={invoiceDate}
+              onChange={(event) => setInvoiceDate(event.target.value)}
+              disabled={formsDisabled}
+            />
+          )}
+        </FormField>
+
+        <FormField
+          label="Sin factura (plaza de mercado)"
+          help="Cambia el rótulo de los dos campos de arriba y vuelve opcional el número. Un proveedor obligado a facturar lo rechaza igual."
+          scope={{ affects: [{ screen: "Documentos fiscales" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <span className="flex h-8 items-center gap-2">
+              <Checkbox
+                id={fieldId}
+                aria-label="Sin factura (plaza de mercado)"
+                aria-describedby={describedBy}
+                checked={noInvoice}
+                onCheckedChange={(checked) => setNoInvoice(checked === true)}
+                disabled={formsDisabled}
+              />
+            </span>
+          )}
+        </FormField>
+
+        <div className="sm:col-span-2">
+          <PhotoCaptureField
+            value={photo}
+            onChange={setPhoto}
+            label="Foto de la factura (opcional)"
+            disabled={formsDisabled}
+          />
         </div>
-      </div>
+      </FormSection>
+
       {noInvoice && supplier?.invoices_required ? (
         <p role="status" className="text-sm text-warning">
           «{supplier.name}» exige factura: si confirmás así, el servidor va a rechazar la recepción con «Falta la
@@ -215,10 +268,18 @@ export function ReceptionForm({
         </p>
       ) : null}
 
-      <PhotoCaptureField value={photo} onChange={setPhoto} label="Foto de la factura (opcional)" disabled={formsDisabled} />
-
-      <div className="space-y-2">
-        <p className="text-sm font-medium">Líneas</p>
+      <FormSection
+        title="Qué entró, y a qué precio"
+        governs="Lo que de verdad llegó al depósito. De estas líneas sale el stock que sube y el costo con el que se van a valorar los platos."
+        columns="one"
+        reading={
+          <>
+            El servidor decide el <b>costo final</b> de cada insumo con estas cifras: cantidad recibida, precio
+            de compra e impuesto. Esta pantalla <b>no calcula ni corrige ningún precio</b> — si alguno parece
+            raro, pregunta.
+          </>
+        }
+      >
         <ReceptionLinesEditor
           lines={lines}
           onChange={setLines}
@@ -226,7 +287,7 @@ export function ReceptionForm({
           disabled={formsDisabled}
           highlightIndex={guard?.lineIndex ?? null}
         />
-      </div>
+      </FormSection>
 
       {guard ? (
         <div role="alert" className="space-y-3 rounded-md border border-destructive/50 bg-destructive/5 p-4">
@@ -247,7 +308,6 @@ export function ReceptionForm({
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              variant="outline"
               onClick={() => {
                 setGuard(null)
                 setReviewing(false)
@@ -257,6 +317,7 @@ export function ReceptionForm({
             </Button>
             <Button
               type="button"
+              variant="outline"
               disabled={mutation.isPending || pinRef.current === null}
               onClick={() => {
                 if (pinRef.current === null) return

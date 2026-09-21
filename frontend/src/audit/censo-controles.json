@@ -666,15 +666,36 @@
   "Área",
   "Área por persona"
  ],
+ "features/people/EmployeeFormDialog.tsx": [
+  "Con qué entra al salón, y hasta dónde llega sola",
+  "Correo",
+  "Documento",
+  "El general de la sede",
+  "Límite de descuento (%, opcional)",
+  "Nombre",
+  "Puede cobrar",
+  "Quién es",
+  "Rol"
+ ],
  "features/people/PeopleSection.tsx": [
+  "Desactivar",
   "No se pudo cargar el personal",
   "Reintentar",
   "Todavía no hay empleados"
  ],
  "features/purchases/PayableDetailDialog.tsx": [
   "Cancelar",
+  "Comprobante (opcional)",
+  "Desde el cajón",
+  "Fecha real de salida",
+  "Medio",
+  "Monto",
+  "No se pudieron cargar los pagos",
   "PIN de administrador para aprobar",
-  "PIN de administrador para pagar"
+  "PIN de administrador para pagar",
+  "Registrar un pago",
+  "Reintentar",
+  "Todavía no se registró ningún pago"
  ],
  "features/purchases/PayablesTab.tsx": [
   "Aprobada",
@@ -698,9 +719,13 @@
   "Cancelar"
  ],
  "features/purchases/ReceptionForm.tsx": [
+  "De quién viene y con qué papel",
   "Elegí un proveedor",
   "Foto de la factura (opcional)",
-  "PIN de quien recibe"
+  "PIN de quien recibe",
+  "Proveedor",
+  "Qué entró, y a qué precio",
+  "Sin factura (plaza de mercado)"
  ],
  "features/purchases/ReceptionLinesEditor.tsx": [
   "Elegí un insumo"
@@ -718,6 +743,24 @@
   "Todos los estados",
   "Todos los proveedores"
  ],
+ "features/purchases/SupplierForm.tsx": [
+  "Activo",
+  "Contacto (opcional)",
+  "NIT (opcional)",
+  "Nombre",
+  "Obligado a facturar",
+  "Plazo de pago (días)",
+  "Quién es y cómo se le paga",
+  "Teléfono (opcional)"
+ ],
+ "features/purchases/SupplierReliabilityDialog.tsx": [
+  "Deriva promedio de precio",
+  "No se pudo calcular la confiabilidad",
+  "Recepciones con factura",
+  "Recepciones en el rango",
+  "Recibido ÷ facturado",
+  "Reintentar"
+ ],
  "features/purchases/SuppliersTab.tsx": [
   "No se pudieron cargar los proveedores",
   "Reintentar",
@@ -731,15 +774,26 @@
   "Quitar línea"
  ],
  "features/recipes/PrepBatchesPanel.tsx": [
+  "No se pudieron cargar los lotes",
+  "Reintentar",
   "Todavía no se produjo ningún lote"
  ],
  "features/recipes/PrepModeSwitchDialog.tsx": [
   "PIN de administrador"
  ],
  "features/recipes/PreparationForm.tsx": [
+  "Cuánto rinde y cuánto dura",
   "Explotada (default): sin stock, descuenta al enviar el plato",
+  "Merma de proceso (%)",
+  "Modo",
+  "Nombre",
   "Por lote: hay que producirla, crea stock con vencimiento",
+  "Qué es y cómo descuenta sus insumos",
+  "Receta propia (insumos y/u otras preparaciones)",
+  "Rendimiento estándar",
   "Sin vencer",
+  "Unidad",
+  "Vida útil (días)",
   "unidad"
  ],
  "features/recipes/PreparationsAdminPage.tsx": [
@@ -1051,7 +1105,10 @@
  ],
  "features/shifts/admin/PeopleAdminPage.tsx": [
   "Autorizaciones por autorizador",
-  "Por persona"
+  "Personas activas",
+  "Por persona",
+  "Pueden autorizar",
+  "Se dan de baja, nunca se borran: lo que firmaron sigue firmado por ellas."
  ],
  "features/shifts/admin/PersonActivityTab.tsx": [
   "Autorizaciones dadas",
