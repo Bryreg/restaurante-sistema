@@ -1550,3 +1550,53 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     y rechaza al supervisor por nombre; cierre a ciegas que no filtra el
     esperado ni en la columna de retiros; y el documento equivalente POS
     consecutivo y completo.
+
+---
+
+## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)
+
+Cuatro commits sobre `main`. `main` está en `2834ab1`, con CI verde; todo lo
+de abajo vive sólo en la rama y **no se fusionó**.
+
+### Hecho
+
+- **`docs/PATRONES-ADMIN.md`** — 13 patrones del escritorio del dueño.
+- **Censo de controles** (`src/audit/censo.ts`, `censo-controles.test.ts`,
+  `regenerar-censo.ts`): por archivo, los rótulos visibles de cada control.
+  Agregar no falla, quitar sí. Base actual: 133 archivos, 812 rótulos.
+- **Capa compartida** en `src/components/admin/` — un componente por patrón.
+  Las reglas se cumplen por tipos: el compilador rechaza un botón rojo en la
+  zona de consecuencia, una acción destructiva sin consecuencias declaradas y
+  un vacío por filtro que no nombre al culpable.
+- **`tolerance_identified_cause` eliminado** (migración `0022`): era editable
+  y no lo leía ninguna lógica. Con la escalera dibujada en Ajustes y la
+  validación de orden (`400 CRITICAL_BELOW_TOLERANCE`).
+- **21 de 24 pantallas** con los patrones aplicados.
+
+### Pendiente
+
+1. **Tres pantallas sin tocar**: Preparaciones, Compras, Turnos y personal.
+2. **`features/people/PeopleSection.tsx`** (pestaña Empleados de Ajustes):
+   quedó fuera del reparto de territorios. Ahí viven el PIN personal y el
+   límite de descuento, que son marcas de alcance.
+3. **La suite completa no se corrió sobre el estado final.** `tsc` en 0 y
+   censo verde, nada más. Es lo primero que hay que hacer, con el árbol
+   quieto y guardando toda la salida.
+4. **Cinco huecos de la capa compartida**, reportados por los agentes. El más
+   general no es del admin: `DialogContent` trae `sm:max-w-sm` y le gana a
+   cualquier `max-w-*` del sitio de llamada, así que hay diálogos en 384 px
+   en monitores de 1440. La corrección va en `src/components/ui/dialog.tsx`.
+5. **El censo tiene un punto ciego**: un control escrito como
+   `Button render={<Link/>}` deja el rótulo dentro de un atributo y se vuelve
+   invisible para la red. Le pasó al enlace «Activá este dispositivo».
+6. **El regenerador global es peligroso con trabajo en paralelo**: relee el
+   árbol entero y bendice en silencio los renombres ajenos. Correrlo sólo con
+   todo quieto, o regenerar por archivo.
+
+### Dos cosas de infraestructura que conviene recordar
+
+- **En esta rama el CI no corre.** Sólo en `main` y en pull requests, por
+  cuota de Actions (está explicado en `.github/workflows/ci.yml`). El verde
+  sale de una corrida local o de abrir el pull request.
+- La instancia viva es `restaurante-sistema-jvts.onrender.com`, sirviendo lo
+  que hay en `main`.
