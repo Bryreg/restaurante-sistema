@@ -61,7 +61,13 @@ export function HeadlineFigure({
   return (
     <section
       className={cn(
-        "grid items-center gap-5 rounded-lg border bg-card p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)_minmax(0,190px)]",
+        // La primera columna va al ancho de su contenido, no a `1fr`. Con
+        // `1fr` se comía todo el sobrante y empujaba el libro contra el borde
+        // derecho: con la cifra en «$ 0» quedaba una banda muerta de media
+        // pantalla, y se repetía en toda pantalla con banda de cifra. La
+        // cifra y su libro son una sola lectura —la resta— y tienen que
+        // leerse juntos; el aire sobrante va al final, no en el medio.
+        "grid items-center gap-5 rounded-lg border bg-card p-4 lg:grid-cols-[minmax(0,max-content)_minmax(0,380px)_minmax(0,190px)] lg:justify-start",
         className,
       )}
     >
