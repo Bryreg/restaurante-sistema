@@ -432,6 +432,17 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     conteo (`0016`, `0019`, `0021`), y por eso el test mide las dos cosas por
     separado: si midiera sólo el número de tablas, tres migraciones habrían
     pasado sin que nadie moviera nada.
+
+    **Re-apuntado al sacar `tolerance_identified_cause`**: la cadena llega a
+    **`0022_drop_tolerance_identified_cause`** y el conteo **sigue en 93**.
+    `0022` es la primera de la serie que **quita** esquema en vez de agregarlo
+    —borra `store_cash_settings.tolerance_identified_cause`, el umbral que el
+    dueño podía editar y que ninguna lógica de negocio leía (§3.2 define tres
+    bandas con DOS fronteras, y el cierre siempre usó esas dos)—, pero borra
+    una COLUMNA, no una tabla: por eso el poste de la cabeza se mueve y el del
+    conteo no. Lo que este test fija es la cabeza de la cadena, no la
+    dirección en que creció el esquema, así que una migración que resta se
+    declara acá igual que una que suma.
     """
     from sqlalchemy import text
 
@@ -443,10 +454,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0021", (
-        f"la cadena quedó en {version!r}; el punto de llegada después de cerrar A-3 "
-        "es 0021 (`0021_tip_payout_source`). Si agregaste una migración, movele el "
-        "poste acá y decí por qué, como hicieron 2b, 2c, H-3, la fase 3 y A-3"
+    assert version == "0022", (
+        f"la cadena quedó en {version!r}; el punto de llegada después de sacar "
+        "`tolerance_identified_cause` es 0022 (`0022_drop_tolerance_identified_cause`). "
+        "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
+        "2b, 2c, H-3, la fase 3, A-3 y 0022"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
