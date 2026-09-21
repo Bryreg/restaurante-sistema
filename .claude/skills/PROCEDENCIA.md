@@ -1,9 +1,13 @@
 # De dónde salieron estos skills
 
-Los 7 skills de diseño vienen de **`nextlevelbuilder/ui-ux-pro-max-skill`**
-(MIT, © Next Level Builder). Llegaron acá indirectamente, vía
-`retail-espacios`, y en el camino se perdió casi todo: ver el renglón del
-CHANGELOG de `sistemas-maestros` 2.3.0.
+Ninguno de los skills de este proyecto es propio: todos llegaron adoptando
+`sistemas-maestros`. Acá queda de dónde salió cada uno y cómo se actualiza.
+
+**El grueso de este documento es sobre los 7 skills de diseño**, que vienen de
+**`nextlevelbuilder/ui-ux-pro-max-skill`** (MIT, © Next Level Builder).
+Llegaron acá indirectamente, vía `retail-espacios`, y en el camino se perdió
+casi todo: ver el renglón del CHANGELOG de `sistemas-maestros` 2.3.0. El
+octavo, `brag`, tiene su sección [al final](#brag--de-latent-spacesbrag).
 
 ## Cómo actualizarlos
 
@@ -108,3 +112,26 @@ instrumento de plata, así que las dos cosas aplican.
 No es un error a corregir: es información. **Siempre leer la columna «Do Not
 Use For» de los estilos que la herramienta recomienda**, porque es donde dice
 en qué caso su propia recomendación no sirve.
+
+---
+
+## `brag` — de `latent-spaces/brag`
+
+Adoptada del framework en la versión 2.4.0. Convierte el proyecto en un video
+corto de lanzamiento, con música y copy para compartir; lee el código directo,
+sin necesidad de una URL viva ni de capturas.
+
+- **Upstream**: <https://github.com/latent-spaces/brag> (MIT, licencia en
+  `brag/LICENSE-UPSTREAM`).
+- **Versión adoptada**: `0.3.0`, commit `57ce4c9`.
+- **Cómo actualizar**: no a mano acá. Se actualiza en `sistemas-maestros` y se
+  vuelve a adoptar, para que el rastro de versión no se pierda.
+
+**No produce video todavía.** Su paso 3 lee las skills de dominio de
+Hyperframes (`hyperframes-core`, `hyperframes-animation`,
+`hyperframes-creative`, `hyperframes-keyframes`, `hyperframes-cli`), que no
+vienen incluidas ni en el framework ni en el upstream de `brag`. Hay que
+instalarlas aparte antes de usarla.
+
+**Pesa 17 MB**, casi todo pistas de música en `brag/assets/music/`. Es de
+lejos el archivo más pesado que este repositorio guarda por fuera del código.
