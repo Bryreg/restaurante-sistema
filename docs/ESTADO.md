@@ -1,7 +1,12 @@
 # Restaurante Sistema — estado del proyecto
 
 Documento de referencia para retomar el trabajo sin reconstruir el contexto.
-Última actualización: 2026-09-20 (**FASE 3 CERRADA**: las once capacidades de
+Última actualización: **2026-09-22** — el POS aplicado a la maqueta `m2b` en sus
+cuatro pantallas, y los defectos que aparecieron debajo (cocina listando
+comandas cobradas, el plano ordenando mesas como texto, un contador derivado con
+media data, una función encendida con su canal apagado). El detalle, al final
+del documento, en «Sesión del 2026-09-22». Lo que sigue abierto y por qué: el
+catálogo de recetas de la demostración. Cabecera anterior: 2026-09-20 (**FASE 3 CERRADA**: las once capacidades de
 «dinero y control» construidas, verificadas y caminadas, **y los tres puntos
 que la fase había dejado abiertos —A-3, A-4 y A-5— cerrados también**. Suite de
 backend **1.526 passed, 0 failed**; vitest **557/557**; mypy y `tsc` limpios;
@@ -1637,3 +1642,127 @@ de abajo vive sólo en la rama y **no se fusionó**.
   sale de una corrida local o de abrir el pull request.
 - La instancia viva es `restaurante-sistema-jvts.onrender.com`, sirviendo lo
   que hay en `main`.
+
+---
+
+## Sesión del 2026-09-22 — el POS contra `m2b`, y lo que apareció debajo
+
+Rama `claude/keen-ptolemy-l8fpe8`, catorce commits. El pedido del dueño fueron
+tres frases, y las tres resultaron ciertas:
+
+> «El pos sigue sin ser el diseño que dijimos. Algunas pantallas siguen estando
+> sin información. Las barras de "Hoy" no son las mismas del diseño.»
+
+### 1 · «No es el diseño»: aplicar las PIEZAS no es aplicar la ESTRUCTURA
+
+Lo anterior había traído de `m2b` las tarjetas, las cintas y el riel —y la
+pantalla seguía sin parecerse—. La diferencia se midió poniendo la maqueta y la
+app lado a lado al mismo viewport, no de memoria:
+
+| `m2b` | la app | 
+|---|---|
+| UNA banda de cromo | tres (~188 px de una tablet) |
+| «ABIERTO EN MESAS» como cifra grande | enterrada como quinta cinta |
+| cuatro cintas | cinco |
+| plano continuo, sin títulos de zona | «SALÓN» / «TERRAZA» |
+| marcas del sitio una vez | repetidas por zona |
+| pie con «Buscar una cuenta» y «Cocina · N» | ninguno de los dos |
+
+**El método que funcionó**: renderizar la maqueta a PNG, capturar la app al
+mismo tamaño, y comparar. Lo que «se ve parecido» de memoria no sobrevive a dos
+imágenes una al lado de la otra.
+
+Se corrigió en Mesas, Comanda, Cobro y Cierre. Tres decisiones se apartaron de
+la maqueta **a propósito y está escrito en el código por qué**:
+
+- **La base del turno no aparece en la cabecera del cierre**, aunque `m2b` la
+  muestre: este producto tapa la ecuación entera hasta el paso 2, y alcanza con
+  ver la base para empezar a estimar el resto.
+- **El objetivo táctil es de 52 px**, no los 32 de la maqueta. Entre parecerse
+  y que el dedo acierte, gana el dedo.
+- **El buscador de la carta no se borró**: pasó a ser la última pastilla de la
+  fila de categorías. `m2b` no lo tiene, pero quitar una capacidad que funciona
+  para parecerse a un dibujo es perder producto.
+
+### 2 · «Pantallas sin información»: eran DOS causas distintas
+
+Se barrieron **las ocho pestañas del POS y las veinticinco pantallas del
+admin**, midiendo cuánto texto real rendía cada una. Eso separó:
+
+- **Un defecto de producto**: Cocina y KDS mostraban 3.086 comandas cobradas
+  rotuladas «Demorado · 1081 h». (Detalle en `CONTEXTO-AGENTES.md` § 14.13.)
+- **Datos de demostración flacos**: siete mesas en el plano, ningún canal de
+  domicilio activo, nadie en la barra, ninguna reserva, ninguna mesa en «pidió
+  la cuenta». El salón de la demo ahora se arma solo con doce mesas y una barra
+  (`scripts/capturas/ocupar_mesas.py`).
+
+Y una lección de datos que vale para cualquier demo futura: **cuándo salió la
+comida no es cuándo se sentó la mesa**. Confundirlos pintaba la cocina entera de
+rojo — una mesa que lleva dos horas sentada ya comió. El guion ahora deja las
+viejas servidas, dos en cocina hace pocos minutos y UNA tarde de verdad, para
+que el rojo signifique algo.
+
+### 3 · «Las barras de Hoy»
+
+Barras sólidas de alto completo, eje con signo de pesos (`$800k`), la referencia
+de la semana pasada como marca sobre la barra, la hora en curso como zócalo, y
+el renglón bajo el eje. Además se usó el tercer bloque de la banda de cifra, que
+estaba vacío: **«Contra el martes pasado a esta hora −29,2 %»**.
+
+Dos decisiones de esa comparación, que son de negocio y no de pantalla:
+
+- **Se compara contra la MISMA altura del día**, no contra la jornada entera de
+  la semana pasada. Medio día contra un día completo daría una caída enorme
+  todos los mediodías, y una comparación que siempre dice lo mismo deja de
+  mirarse. La altura se mide **desde la hora de corte**, no desde medianoche.
+- **La variación la divide el servidor** y viaja en puntos básicos
+  (`net_vs_last_week_bp`), redondeada a décimas. «−29,24 %» sugiere una
+  precisión que la cifra no tiene.
+
+### Lo que queda abierto (con su razón)
+
+1. **El catálogo de recetas de la demo está flaco y se nota en Analítica.**
+   Ingeniería de menú clasifica **4 de 17 platos**; los otros trece dicen «sin
+   costo congelado suficiente para calcular margen». Causa: **5 de 21 productos
+   tienen receta**, y la lista de insumos tiene doce ítems sin carne, pescado,
+   frijol, lenteja ni cerveza. Arreglarlo bien son ~15 insumos con su costo,
+   rendimiento y unidad de compra, más ~16 recetas — y **esa misma data
+   alimenta inventario, varianza y reposición**, así que una versión
+   descuidada haría mentir a esas tres pantallas en vez de a una. Se dejó sin
+   hacer a propósito.
+2. **«Producir» muestra una sola preparación.** Es correcto: sólo las de modo
+   `BATCH` se producen, y el seed tiene una (Pollo desmechado; Hogao es
+   `EXPLODED`). Es catálogo flaco, no un defecto.
+3. **El generador escribía ventas en horas que todavía no habían pasado.** Ya
+   corregido (`--hoy-en-curso` recorta la ventana al reloj real), pero vale
+   recordarlo: **una venta con fecha futura no es un detalle de presentación,
+   es un documento fiscal mal sellado.**
+
+### La tubería del video
+
+Vive en `scripts/capturas/` y se corre con **`scripts/capturas/grabar_todo.sh`**:
+build → base nueva de seis semanas con el salón ocupado → app → grabar salón →
+grabar administración → cortar por `marcas.json` y armar la composición.
+
+**Regenerar y grabar van pegados**: los «hace 18 min» de cada mesa se escriben
+contra el reloj del momento en que se genera la base, así que grabar media hora
+después muestra un salón con media hora de más, y la mesa «recién tomada» sale
+en rojo por pasar el umbral de sin-marchar.
+
+Los videos **no se versionan** (`.gitignore`): pesan decenas de MB, se
+regeneran en quince minutos y envejecen con cada cambio de pantalla. Un video
+viejo guardado es peor que ninguno: se ve como el producto y ya no lo es.
+
+Tres cosas del entorno que costaron encontrar:
+
+- **`npx hyperframes render` muere con «Chrome cannot start»** y se arregla
+  apuntándolo al navegador que ya trae el entorno:
+  `HYPERFRAMES_BROWSER_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`.
+- **Un error de lint APAGA las auditorías de layout y contraste** de
+  `hyperframes check`: reporta «0 sample(s)» y «0/0 text checks», que se lee
+  como limpio y significa que no se midió nada. Hay que limpiar los errores
+  antes de creerle a esos números.
+- **`cp` de una base SQLite en uso dio un archivo truncado dos veces**
+  («database disk image is malformed») aunque el origen pasaba
+  `PRAGMA integrity_check`. Apuntar el servidor al archivo original en vez de
+  copiarlo.

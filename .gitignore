@@ -26,3 +26,11 @@ dist/
 # Uploads y artefactos de corrida
 uploads/
 features/*/outputs/*.log
+
+# Videos y renders. La tubería que los produce vive en `scripts/capturas/` y se
+# corre con `scripts/capturas/grabar_todo.sh`; el resultado pesa decenas de MB,
+# se regenera en quince minutos y envejece con cada cambio de pantalla. Un
+# video viejo versionado es peor que no tener ninguno: se ve como el producto
+# y ya no lo es.
+brag-output*/
+/tmp/capturas/

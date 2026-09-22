@@ -333,6 +333,37 @@ hace cumplir sobre todo el repo.
 
 ---
 
+## 11.b Tres formas de test verde que no prueban nada (vistas en esta rama)
+
+Las tres aparecieron el mismo día, al agregar un filtro a `GET /kitchen/rounds`.
+Ninguna la vio una corrida por dominio: **salieron sólo en `tests/audit`
+completo**, que tarda media hora.
+
+1. **Un test apoyado en la conducta vieja, usándola como guardia.**
+   `test_a_device_gets_404_on_an_order_a_kitchen_round_and_a_document_of_
+   another_store` verificaba, ANTES de mudar la venta a otra sede, que la
+   ronda se viera en cocina — y usaba para eso una comanda ya COBRADA. Con el
+   filtro nuevo esa comanda no aparece en cocina ni siendo propia, así que
+   «no aparece» habría sido cierto **por estar pagada, no por ser de otra
+   sede**: el falso verde exacto que ese test existe para evitar. Ahora hay
+   una segunda comanda abierta y marchada para la parte de cocina.
+2. **El orden de las fixtures decide en qué día vive la corrida.** pytest las
+   arma en el orden de la FIRMA: con `kds_order` antes que `clock`, la comanda
+   nacía con la fecha real y el reloj falso saltaba DESPUÉS a enero de 2026.
+   La corrida tenía dos días operativos distintos y `GET /kitchen/rounds`
+   —que sólo lista el día en curso— dejaba de ver su propia comanda. Muere en
+   un `IndexError` que no habla de fechas. **El reloj va primero en la firma.**
+3. **Un poste con dos copias.** El de la cadena de migraciones vive en
+   `test_migration_invariants.py` y su contraparte
+   (`test_contract_2c_invariants.py`) lee el CÓDIGO FUENTE del otro para que
+   nadie lo afloje a un `>=`. Mover uno y olvidar el otro es silencioso hasta
+   la corrida completa. Y hay un agravante escrito en el propio test: si se
+   edita el archivo medido **a mitad de corrida**, el que mide ya pasó y leyó
+   la versión vieja.
+
+**Corolario**: correr sólo los dominios tocados alcanza para el cambio, no
+para los guardianes transversales. Antes de cerrar, `tests/audit` completo.
+
 ## 12. Alembic
 
 - Migración por pedido, numerada en secuencia. `alembic upgrade head` desde cero
@@ -410,3 +441,36 @@ cliente `customer` · cambio/sencilla `cash_swap` · devolución pendiente
 12. **Un recorrido en navegador real encontró siete defectos en la fase 2 y
    cuatro más en la fase 3** que 2.070 tests automáticos no vieron. **No se
    cierra una fase sin caminarla.**
+13. **Una pantalla que lista sin acotar por estado ni por día.**
+   `GET /kitchen/rounds` mostraba TODA ronda con algún ítem en `sent`/`ready`:
+   nada obliga a marcar «servido» antes de cobrar —el mesero cobra y sigue—
+   así que los ítems de una comanda pagada se quedan en `sent` para siempre.
+   En la base de demostración eran **3.086 comandas cobradas contra 11 vivas**,
+   y la plancha abría con cuarenta y cinco días de comandas en rojo. El corte
+   correcto ya existía en `_channel_groups` (comanda viva + día operativo en
+   curso) y no se había copiado. **Si una pantalla es «lo que está pasando
+   ahora», la consulta lo tiene que decir.**
+14. **Un contador derivado en la pantalla con la mitad de los datos.**
+   «Cocina · N pendientes» se contaba sobre el riel de canales —lo único cuyo
+   estado publica el plano— y decía **2 con nueve comandas en la plancha**. Lo
+   cuenta el servidor (`SalonSummaryOut.kitchen_pending`) con los MISMOS cortes
+   que la pantalla a la que manda: un pie que cuenta con otra regla que su
+   destino es un pie que miente.
+15. **`tables.number` es TEXTO y se ordenaba como texto.** Con nueve mesas no
+   se nota; con doce el plano arranca «1 2 3 4 10 11 12 5 …». Lo ordena
+   `stores.service.orden_natural`, que parte el número en tramos y compara los
+   de dígitos como números (así «T2» va antes que «T10» y «Barra» queda con
+   las letras). **Todo orden por un campo de texto que a veces tiene números
+   es este bug esperando doce filas.**
+16. **Una función encendida no enciende su canal.** `Store.active_channels` es
+   una columna aparte del catálogo de funciones: prender `pos.delivery` NO
+   agrega `delivery` a esa lista, así que la sede queda con la capacidad
+   prendida y el canal apagado, y el riel del salón nunca muestra
+   «Domicilios» aunque haya domicilios abiertos. Hay dos interruptores para
+   la misma idea y sólo uno se ve en Funciones.
+17. **Una hora sin ventas adentro de la jornada NO es una ausencia.** El eje de
+   «Ventas por hora» omitía las horas en cero entre la primera y la última, y
+   saltaba de las 14 a las 17 con las dos columnas pegadas. Una tarde muerta
+   es un dato del negocio. Esto **no** contradice «`null` no es 0»: esa regla
+   es para cuando no se sabe. El relleno va sólo hacia adentro y deja la
+   REFERENCIA en `None`, nunca en cero.

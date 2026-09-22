@@ -10,7 +10,25 @@ import subprocess
 from pathlib import Path
 
 CLIPS = Path("/tmp/clips")
-DESTINO = Path("/home/user/restaurante-sistema/brag-output-recorrido/composition")
+#: La composición se arma relativa al repo, no a una ruta absoluta de una
+#: máquina: este guion tiene que correr en cualquier clon.
+RAIZ = Path(__file__).resolve().parents[2]
+DESTINO = RAIZ / "brag-output-recorrido" / "composition"
+
+#: Fuentes y música NO se versionan con la composición —el video entero está en
+#: `.gitignore`— así que el guion las trae de donde viven de verdad: los assets
+#: de la skill. Antes estaban sueltas adentro de la carpeta de salida y bastaba
+#: con borrar esa carpeta para dejar la tubería escribiendo un `index.html` que
+#: apunta a archivos que no existen, sin que nada fallara hasta el render.
+SKILL = RAIZ / ".claude" / "skills" / "brag" / "assets"
+#: Tipografía del producto: la misma que usa la app, por legibilidad.
+FUENTES = {
+    "atkinson-400.woff2": RAIZ / "frontend" / "node_modules" / "@fontsource"
+    / "atkinson-hyperlegible" / "files" / "atkinson-hyperlegible-latin-400-normal.woff2",
+    "atkinson-700.woff2": RAIZ / "frontend" / "node_modules" / "@fontsource"
+    / "atkinson-hyperlegible" / "files" / "atkinson-hyperlegible-latin-700-normal.woff2",
+}
+MUSICA = "happy-beats-business-moves-vol-12-by-ende-dot-app.mp3"
 
 #: (archivo, cinta, título, subtítulo). El orden es el del video.
 PLANOS = [
@@ -84,6 +102,25 @@ def main() -> None:
     # rótulos nuevos —sin que nada falle y sin que se note hasta mirarlo—.
     # Las duraciones se leen de `/tmp/clips`, así que la carpeta de destino
     # tiene que ser exactamente esa.
+    # Fuentes y música primero: sin ellas el `index.html` que se escribe abajo
+    # apunta a archivos que no existen y el render sale sin tipografía ni audio.
+    for nombre, origen in FUENTES.items():
+        destino = DESTINO / "assets" / "fonts" / nombre
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        if not destino.exists():
+            if not origen.exists():
+                raise SystemExit(
+                    f"falta la fuente {origen}. Corré `npm install` en frontend/."
+                )
+            shutil.copy2(origen, destino)
+    destino_musica = DESTINO / "assets" / "music" / MUSICA
+    destino_musica.parent.mkdir(parents=True, exist_ok=True)
+    if not destino_musica.exists():
+        origen_musica = SKILL / "music" / MUSICA
+        if not origen_musica.exists():
+            raise SystemExit(f"falta la música {origen_musica}.")
+        shutil.copy2(origen_musica, destino_musica)
+
     destino_clips = DESTINO / "assets" / "clips"
     destino_clips.mkdir(parents=True, exist_ok=True)
     for viejo in destino_clips.glob("*.mp4"):
@@ -144,6 +181,7 @@ def main() -> None:
         .replace("{{C3A}}", str(round(inicio_cartela3 + 0.25, 2)))
         .replace("{{C3B}}", str(round(inicio_cartela3 + 0.9, 2)))
     )
+    DESTINO.mkdir(parents=True, exist_ok=True)
     (DESTINO / "index.html").write_text(html, encoding="utf-8")
 
     print(f"  duración total: {total}s")
