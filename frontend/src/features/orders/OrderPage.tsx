@@ -45,7 +45,7 @@ import {
   useOrder,
   useOrderMutationHandler,
 } from "./hooks"
-import { CHANNEL_LABEL, courseLabel, ORDER_STATUS_LABEL } from "./lib"
+import { CHANNEL_LABEL, courseLabel, elapsedLabel, ORDER_STATUS_LABEL } from "./lib"
 
 type ItemTarget = { product?: CatalogProductOut; combo?: CatalogComboOut }
 type VoidTarget = { scope: "order" } | { scope: "item"; item: OrderItemOut }
@@ -96,6 +96,10 @@ export function OrderPage(): React.JSX.Element {
 
   const items = order.items ?? []
   const pendingCount = items.filter((item) => item.status === "pending").length
+  // Unidades, no renglones: «5 unidades» cuando hay dos bandejas, dos gaseosas
+  // y un postre. Contar renglones diría «3» con cinco platos sobre la mesa, y
+  // ese número es justo el que el mesero compara contra lo que ve servido.
+  const unidades = items.reduce((suma, item) => suma + (item.qty ?? 1), 0)
   // «Marchar» (pos.courses): un curso por cada valor distinto entre los
   // ítems vivos (no anulados) que lo tienen — el orden es el de primera
   // aparición, nunca alfabético ni inventado.
@@ -279,160 +283,237 @@ export function OrderPage(): React.JSX.Element {
     }
   }
 
+  // **El título de la cabecera `m2b`**: «Mesa 7 · 4 personas». Lo primero que
+  // se lee es de quién es la comanda, no su número interno: el «#501» no le
+  // dice nada a quien está parado al lado de la mesa.
   const tablesLabel = (order.tables ?? []).map((t) => t.number).join(", ")
+  const titleParts: string[] = []
+  if (order.channel === "dine_in" && tablesLabel) titleParts.push(`Mesa ${tablesLabel}`)
+  else titleParts.push(order.channel ? CHANNEL_LABEL[order.channel] : "Comanda")
+  if (order.channel === "takeout" && order.takeout?.customer_name) titleParts.push(order.takeout.customer_name)
+  if (order.channel === "staff_meal" && order.consumed_by?.name) titleParts.push(order.consumed_by.name)
+  if (order.channel === "platform" && order.platform?.name) titleParts.push(order.platform.name)
+  if (order.covers) titleParts.push(`${order.covers} ${order.covers === 1 ? "persona" : "personas"}`)
+
+  // La sub-línea: cuándo se abrió, cuánto lleva y quién la atiende. El «lleva
+  // 52 min» sale del MISMO formateador que el resto del POS (`elapsedLabel`),
+  // no de una cuenta nueva acá.
   const subtitleParts: string[] = []
-  if (order.channel === "dine_in" && tablesLabel) subtitleParts.push(`Mesa ${tablesLabel}`)
-  if (order.channel === "takeout" && order.takeout?.customer_name) subtitleParts.push(order.takeout.customer_name)
-  if (order.channel === "staff_meal" && order.consumed_by?.name) subtitleParts.push(order.consumed_by.name)
-  // Domicilio y plataforma (pedido 2c): dirección/teléfono/domiciliario, o
-  // plataforma/número de pedido — sólo texto informativo, ningún cálculo.
+  if (order.opened_at) {
+    subtitleParts.push(`Abierta ${formatInstant(order.opened_at)}`)
+    subtitleParts.push(`lleva ${elapsedLabel(order.opened_at)}`)
+  }
+  if (order.opened_by?.name) subtitleParts.push(order.opened_by.name)
+  // Domicilio y plataforma (pedido 2c): dirección/teléfono/domiciliario, o el
+  // número de pedido — sólo texto informativo, ningún cálculo.
   if (order.channel === "delivery" && order.delivery) {
     if (order.delivery.address) subtitleParts.push(order.delivery.address)
     if (order.delivery.phone) subtitleParts.push(order.delivery.phone)
     if (order.delivery.courier?.name) subtitleParts.push(`Domiciliario: ${order.delivery.courier.name}`)
   }
-  if (order.channel === "platform" && order.platform) {
-    if (order.platform.name) subtitleParts.push(order.platform.name)
-    if (order.platform.external_id) subtitleParts.push(`Pedido ${order.platform.external_id}`)
+  if (order.channel === "platform" && order.platform?.external_id) {
+    subtitleParts.push(`Pedido ${order.platform.external_id}`)
   }
-  if (order.covers) subtitleParts.push(`${order.covers} comensales`)
 
   return (
-    <div className="space-y-6 pb-28">
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h1 className="text-lg font-semibold">
-              {order.channel ? CHANNEL_LABEL[order.channel] : "Comanda"} · #{order.id}
-            </h1>
-            {subtitleParts.length > 0 ? <p className="text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p> : null}
-          </div>
-          <div className="flex items-center gap-2">
+    /* **La pantalla de la tablet, no una página larga** (`m2b`, pantalla 2).
+       Alto fijo: la cabecera arriba, y debajo dos columnas que scrollean cada
+       una por su lado. La cuenta NO puede irse debajo del pliegue — el botón
+       de mandar a cocina es el control más usado del salón. */
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {/* **La cabecera de `m2b`**: banda propia sobre fondo gris, con la cifra
+          que va corriendo anclada a la derecha. «Va en» —no «Total»— porque la
+          comanda sigue abierta y el número va a seguir subiendo. */}
+      <header className="flex shrink-0 flex-wrap items-start gap-4 rounded-xl border bg-muted px-4 py-3">
+        <div className="min-w-0">
+          <h1 className="text-xl leading-tight font-semibold">{titleParts.join(" · ")}</h1>
+          {subtitleParts.length > 0 ? (
+            <p className="mt-0.5 text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p>
+          ) : null}
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
             {order.status ? <Badge variant="outline">{ORDER_STATUS_LABEL[order.status] ?? order.status}</Badge> : null}
             {order.bill_presented_at ? (
               <Badge variant="secondary">Cuenta presentada · {formatInstant(order.bill_presented_at)}</Badge>
             ) : null}
           </div>
+          {order.note ? <p className="mt-1.5 text-sm text-muted-foreground">Nota: {order.note}</p> : null}
         </div>
-        {order.note ? <p className="text-sm text-muted-foreground">Nota: {order.note}</p> : null}
+        <div className="ml-auto text-right">
+          <span className="block text-xs text-muted-foreground">Va en</span>
+          <span className="block text-[1.6rem] leading-tight font-bold tabular-nums">{formatCOP(order.totals?.total)}</span>
+        </div>
       </header>
 
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="shrink-0 text-sm text-destructive">
           {error}
         </p>
       ) : null}
 
-      {isOrderOpenish ? (
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Agregar a la comanda</h2>
-          <CatalogPanel
-            channel={order.channel ?? "counter"}
-            onSelectProduct={(product) => setItemTarget({ product })}
-            onSelectCombo={(combo) => setItemTarget({ combo })}
-          />
-        </section>
-      ) : null}
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Ítems</h2>
-        <OrderItemsList
-          items={items}
-          busyItemId={busyItemId}
-          onIncrement={(item) => void handleQtyChange(item, (item.qty ?? 1) + 1)}
-          onDecrement={(item) => void handleQtyChange(item, (item.qty ?? 1) - 1)}
-          onVoid={(item) => setVoidTarget({ scope: "item", item })}
-          onCourtesy={(item) => {
-            setCourtesyError(null)
-            setCourtesyTarget(item)
-          }}
-          onDiscount={(item) => setDiscountTarget({ scope: "item", item })}
-        />
-      </section>
-
-      {hasFeature("pos.courses") && coursesInOrder.length > 0 ? (
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Marchar</h2>
-          <ul className="flex flex-wrap gap-2">
-            {coursesInOrder.map((course) => {
-              const fired = firedCourses.get(course)
-              return (
-                <li key={course}>
-                  {fired ? (
-                    <Badge variant="secondary" className="h-11 items-center px-3 text-sm">
-                      {courseLabel(course)} marchado · {formatInstant(fired.fired_at)}
-                    </Badge>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-11"
-                      disabled={firingCourse === course || !isOrderOpenish}
-                      onClick={() => void handleFireCourse(course)}
-                    >
-                      {firingCourse === course ? "Marchando…" : `Marchar ${courseLabel(course)}`}
-                    </Button>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      ) : null}
-
-      <section className="space-y-2 rounded-lg border p-4">
-        <h2 className="text-sm font-medium text-muted-foreground">Totales</h2>
-        <dl className="space-y-1 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Subtotal</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.subtotal)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Descuentos</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.discount_total)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Impuesto</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.tax_total)}</dd>
-          </div>
-          <div className="flex justify-between text-base font-semibold">
-            <dt>Total</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.total)}</dd>
-          </div>
-          {order.tip ? (
-            <div className="flex justify-between text-muted-foreground">
-              <dt>Propina sugerida ({order.tip.suggested_pct}%)</dt>
-              <dd className="tabular-nums">{formatCOP(order.tip.suggested_amount)}</dd>
+      {/* Carta y cuenta, lado a lado. La cuenta es fija de 384 px: el mesero
+          toca platos a la izquierda y ve crecer el total a la derecha sin
+          desplazarse. Bajo el punto de quiebre caen una debajo de otra. */}
+      <div className="grid min-h-0 flex-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_384px]">
+        <div className="min-h-0 min-w-0 overflow-y-auto xl:h-full">
+          {isOrderOpenish ? (
+            <div className="space-y-3">
+              <CatalogPanel
+                channel={order.channel ?? "counter"}
+                onSelectProduct={(product) => setItemTarget({ product })}
+                onSelectCombo={(combo) => setItemTarget({ combo })}
+              />
+              {/* La frase de la maqueta. No es decorativa: es la que evita la
+                  discusión de si el impuesto se suma al final. */}
+              <p className="text-xs text-muted-foreground">
+                Los precios de la carta <b className="text-foreground">ya incluyen el impuesto al consumo del 8 %</b>.
+                Lo que el cliente ve acá es lo que paga.
+              </p>
             </div>
           ) : null}
-        </dl>
-        {hasFeature("pos.discounts") && isOrderOpenish ? (
-          <Button type="button" variant="outline" className="h-11" onClick={() => setDiscountTarget({ scope: "order" })}>
-            Descuento de la comanda
-          </Button>
-        ) : null}
-      </section>
-
-      {isOrderOpenish ? (
-        <div className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-2 border-t bg-background p-3" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}>
-          <Button type="button" variant="ghost" className="h-11" onClick={() => setVoidTarget({ scope: "order" })}>
-            Anular comanda
-          </Button>
-          {hasFeature("kitchen.view") ? (
-            <Button type="button" variant="outline" className="h-11" disabled={sendPending || pendingCount === 0} onClick={() => void handleSend()}>
-              {sendPending ? "Enviando…" : `Enviar (${pendingCount})`}
-            </Button>
-          ) : null}
-          {hasFeature("pos.pre_bill") ? (
-            <Button type="button" variant="outline" className="h-11" disabled={preBillPending} onClick={() => void handlePresentBill()}>
-              {preBillPending ? "Presentando…" : "Presentar cuenta"}
-            </Button>
-          ) : null}
-          <Button type="button" className="h-11 px-6 text-base font-semibold" onClick={() => navigate(`/pos/cobro/${order.id}`)}>
-            {order.channel === "counter" ? "Cobrar" : "Cuenta / Cobrar"}
-          </Button>
         </div>
-      ) : null}
+
+        {/* **La cuenta**: un solo panel. Los renglones scrollean adentro y el
+            total se queda pegado abajo (`m2b` lo resuelve con `margin-top:auto`
+            sobre una columna de alto fijo). */}
+        <aside className="flex min-h-0 flex-col overflow-y-auto rounded-xl border bg-card p-4 xl:h-full">
+          <div className="flex shrink-0 items-baseline gap-2">
+            <h2 className="text-sm font-bold">La cuenta</h2>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {unidades} {unidades === 1 ? "unidad" : "unidades"}
+            </span>
+          </div>
+
+          {/* Las acciones de la comanda entera van ACÁ ARRIBA, chicas, y no
+              abajo con el total. Dos razones: abajo empujaban los renglones
+              hasta dejarlos en cero —el panel tiene alto fijo y el pie no
+              cede—, y «Anular comanda» pegado a «Ir a cobrar» es la vecindad
+              más cara de la pantalla. */}
+          {isOrderOpenish ? (
+            <div className="mt-2 flex shrink-0 flex-wrap gap-1.5">
+              {hasFeature("pos.pre_bill") ? (
+                <Button type="button" variant="outline" className="h-9 px-2.5 text-xs" disabled={preBillPending} onClick={() => void handlePresentBill()}>
+                  {preBillPending ? "Presentando…" : "Presentar cuenta"}
+                </Button>
+              ) : null}
+              {hasFeature("pos.discounts") ? (
+                <Button type="button" variant="outline" className="h-9 px-2.5 text-xs" onClick={() => setDiscountTarget({ scope: "order" })}>
+                  Descuento
+                </Button>
+              ) : null}
+              <Button type="button" variant="outline" className="h-9 px-2.5 text-xs text-muted-foreground" onClick={() => setVoidTarget({ scope: "order" })}>
+                Anular comanda
+              </Button>
+            </div>
+          ) : null}
+
+          {/* Los renglones scrollean acá adentro. El mínimo no es decorativo:
+              sin él, un pie alto los comprime hasta cero y la cuenta —que es
+              el motivo de la pantalla— desaparece sin que nada falle. */}
+          <div className="mt-3 min-h-[10rem] flex-1 overflow-y-auto">
+            <OrderItemsList
+              items={items}
+              busyItemId={busyItemId}
+              onIncrement={(item) => void handleQtyChange(item, (item.qty ?? 1) + 1)}
+              onDecrement={(item) => void handleQtyChange(item, (item.qty ?? 1) - 1)}
+              onVoid={(item) => setVoidTarget({ scope: "item", item })}
+              onCourtesy={(item) => {
+                setCourtesyError(null)
+                setCourtesyTarget(item)
+              }}
+              onDiscount={(item) => setDiscountTarget({ scope: "item", item })}
+            />
+          </div>
+
+          {hasFeature("pos.courses") && coursesInOrder.length > 0 ? (
+            <div className="mt-3 shrink-0 space-y-2 border-t pt-3">
+              <h3 className="text-xs font-medium text-muted-foreground">Marchar</h3>
+              <ul className="flex flex-wrap gap-2">
+                {coursesInOrder.map((course) => {
+                  const fired = firedCourses.get(course)
+                  return (
+                    <li key={course}>
+                      {fired ? (
+                        <Badge variant="secondary" className="h-11 items-center px-3 text-sm">
+                          {courseLabel(course)} marchado · {formatInstant(fired.fired_at)}
+                        </Badge>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11"
+                          disabled={firingCourse === course || !isOrderOpenish}
+                          onClick={() => void handleFireCourse(course)}
+                        >
+                          {firingCourse === course ? "Marchando…" : `Marchar ${courseLabel(course)}`}
+                        </Button>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ) : null}
+
+          {/* La raya gruesa que separa la cuenta de su total: en la maqueta es
+              `border-top: 2px solid var(--ink)`. Misma convención que la banda
+              de cifra del admin — abajo de la raya va el resultado. */}
+          <div className="mt-3 shrink-0 border-t-2 border-foreground pt-3">
+            <div className="flex items-baseline gap-3 py-1">
+              <span className="text-base">Total de la cuenta</span>
+              <span className="ml-auto text-2xl font-bold tabular-nums">{formatCOP(order.totals?.total)}</span>
+            </div>
+            {/* El corte que pide `m2b`: qué ya no se puede quitar sin permiso y
+                qué sí. Los dos renglones los calcula el servidor y SUMAN el
+                total — no son dos cuentas distintas. */}
+            <div className="flex items-baseline gap-3 py-1 text-sm">
+              <span className="text-muted-foreground">Ya está en cocina o servido</span>
+              <span className="ml-auto font-bold tabular-nums">{formatCOP(order.totals?.sent_total)}</span>
+            </div>
+            <div className="flex items-baseline gap-3 py-1 text-sm">
+              <span className="text-muted-foreground">Sin mandar todavía</span>
+              <span className="ml-auto font-bold tabular-nums">{formatCOP(order.totals?.pending_total)}</span>
+            </div>
+            {(order.totals?.discount_total ?? 0) > 0 ? (
+              <div className="flex items-baseline gap-3 py-1 text-sm">
+                <span className="text-muted-foreground">Descuentos</span>
+                <span className="ml-auto tabular-nums">−{formatCOP(order.totals?.discount_total)}</span>
+              </div>
+            ) : null}
+            {isOrderOpenish ? (
+              <div className="mt-3 space-y-2">
+                {hasFeature("kitchen.view") ? (
+                  <Button
+                    type="button"
+                    className="h-12 w-full"
+                    disabled={sendPending || pendingCount === 0}
+                    onClick={() => void handleSend()}
+                  >
+                    {sendPending
+                      ? "Enviando…"
+                      : pendingCount === 0
+                        ? "Todo está en cocina"
+                        : `Mandar ${pendingCount} ${pendingCount === 1 ? "línea" : "líneas"} a cocina`}
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 w-full"
+                  onClick={() => navigate(`/pos/cobro/${order.id}`)}
+                >
+                  {order.channel === "counter" ? "Cobrar" : "Ir a cobrar"}
+                </Button>
+                {/* La advertencia de la maqueta, palabra por palabra: explica
+                    por qué el botón de quitar desaparece en los renglones que
+                    ya salieron. */}
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Lo que ya salió a cocina no se borra desde acá: se anula con autorización y queda en el historial.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </aside>
+      </div>
 
       <ItemDialog
         open={itemTarget !== null}

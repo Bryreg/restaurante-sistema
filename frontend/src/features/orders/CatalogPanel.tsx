@@ -6,12 +6,45 @@ import type { CatalogComboOut, CatalogProductOut } from "@/api/catalog"
 import type { FavoriteOut, OrderChannel } from "@/api/orders"
 import { EmptyState } from "@/components/EmptyState"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatCOP } from "@/lib/money"
 
 import { useCatalog, useFavorites } from "./hooks"
 import { channelPriceKey } from "./lib"
+
+/**
+ * **La tarjeta de plato de `m2b`**: 96 px de alto mínimo, el nombre arriba y
+ * el precio anclado al pie con `mt-auto`, para que toda la grilla tenga la
+ * plata a la misma altura y el pulgar la encuentre sin leer. El borde se pone
+ * azul al pasar por encima — es la única señal de que la tarjeta es un botón.
+ */
+const PLATO =
+  "flex min-h-[96px] min-w-0 flex-col items-start gap-1.5 rounded-[10px] border border-input bg-card p-3 text-left " +
+  "transition-colors hover:border-primary hover:bg-accent active:translate-y-px " +
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring " +
+  "disabled:opacity-50 disabled:hover:border-input disabled:hover:bg-card"
+
+/**
+ * La grilla se llena sola (`auto-fill`, mínimo 168 px) en vez de fijar dos o
+ * tres columnas: la carta se ve en tablet horizontal y en vertical, y una
+ * grilla de columnas fijas deja media pantalla vacía en la primera y aprieta
+ * los nombres en la segunda.
+ */
+const GRILLA = "grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(168px,1fr))]"
+
+/**
+ * Las pastillas de categoría: redondas, ancho de su texto, y la activa en
+ * negro como en `m2b`.
+ *
+ * **El estado activo se marca con `data-active`, no con `data-state="active"`.**
+ * Este `Tabs` está construido sobre `@base-ui/react`, que usa el primero. Con
+ * el segundo las clases compilan, Tailwind las emite y no falla nada — la
+ * pastilla activa simplemente se dibuja igual que las demás, y la pantalla
+ * deja de decir en qué categoría está parado el mesero.
+ */
+const CATEGORIA =
+  "h-auto min-h-11 flex-none rounded-full border border-input bg-card px-4 text-[0.94rem] font-normal text-foreground " +
+  "hover:bg-muted data-active:border-foreground data-active:bg-foreground data-active:text-background data-active:shadow-none"
 
 export interface CatalogPanelProps {
   channel: OrderChannel
@@ -31,23 +64,24 @@ function ProductButton({
   onSelect: () => void
 }) {
   const priceKey = channelPriceKey(channel)
+  // El aviso de la maqueta: un renglón ámbar corto, no una pastilla. Va entre
+  // el nombre y el precio porque es lo que cambia la decisión de cantarlo.
+  const aviso = !product.available
+    ? "Agotado"
+    : showDailyCount && product.daily_remaining !== null && product.daily_remaining !== undefined
+      ? `Quedan ${product.daily_remaining}`
+      : null
   return (
     <button
       type="button"
       disabled={!product.available}
       onClick={onSelect}
       aria-label={`Agregar ${product.name}`}
-      className="flex min-h-[64px] flex-col items-start gap-1 rounded-lg border p-3 text-left text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
+      className={PLATO}
     >
-      <span className="font-medium">{product.name}</span>
-      <span className="flex w-full items-center justify-between text-muted-foreground">
-        <span>{formatCOP(product.prices[priceKey])}</span>
-        {!product.available ? (
-          <Badge variant="destructive">Agotado</Badge>
-        ) : showDailyCount && product.daily_remaining !== null && product.daily_remaining !== undefined ? (
-          <Badge variant="outline">Quedan {product.daily_remaining}</Badge>
-        ) : null}
-      </span>
+      <span className="text-[0.94rem] leading-snug [overflow-wrap:anywhere]">{product.name}</span>
+      {aviso ? <span className="text-xs text-warning">{aviso}</span> : null}
+      <span className="mt-auto text-[1.06rem] font-bold tabular-nums">{formatCOP(product.prices[priceKey])}</span>
     </button>
   )
 }
@@ -59,15 +93,11 @@ function ComboButton({ combo, onSelect }: { combo: CatalogComboOut; onSelect: ()
       disabled={!combo.active_now}
       onClick={onSelect}
       aria-label={`Agregar combo ${combo.name}`}
-      className="flex min-h-[64px] flex-col items-start gap-1 rounded-lg border p-3 text-left text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
+      className={PLATO}
     >
-      <span className="font-medium">{combo.name}</span>
-      <span className="flex w-full items-center justify-between text-muted-foreground">
-        <span>{formatCOP(combo.price)}</span>
-        <Badge variant={combo.active_now ? "default" : "outline"}>
-          {combo.active_now ? "Disponible ahora" : "Fuera de horario"}
-        </Badge>
-      </span>
+      <span className="text-[0.94rem] leading-snug [overflow-wrap:anywhere]">{combo.name}</span>
+      {!combo.active_now ? <span className="text-xs text-warning">Fuera de horario</span> : null}
+      <span className="mt-auto text-[1.06rem] font-bold tabular-nums">{formatCOP(combo.price)}</span>
     </button>
   )
 }
@@ -129,7 +159,7 @@ export function CatalogPanel({ channel, onSelectProduct, onSelectCombo }: Catalo
         searchResults.length === 0 ? (
           <EmptyState title="Ningún producto coincide con la búsqueda" />
         ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className={GRILLA}>
             {searchResults.map((product) => (
               <ProductButton
                 key={product.id}
@@ -143,11 +173,17 @@ export function CatalogPanel({ channel, onSelectProduct, onSelectCombo }: Catalo
         )
       ) : (
         <Tabs value={tab} onValueChange={(value) => setTab(String(value))}>
-          <TabsList className="h-auto flex-wrap">
-            {showDailyMenuTab ? <TabsTrigger value="daily_menu">Menú del día</TabsTrigger> : null}
-            <TabsTrigger value="favorites">Favoritos</TabsTrigger>
+          <TabsList className="h-auto flex-wrap justify-start gap-1.5 bg-transparent p-0">
+            {showDailyMenuTab ? (
+              <TabsTrigger value="daily_menu" className={CATEGORIA}>
+                Menú del día
+              </TabsTrigger>
+            ) : null}
+            <TabsTrigger value="favorites" className={CATEGORIA}>
+              Favoritos
+            </TabsTrigger>
             {categories.map((category) => (
-              <TabsTrigger key={category.id} value={String(category.id)}>
+              <TabsTrigger key={category.id} value={String(category.id)} className={CATEGORIA}>
                 {category.name}
               </TabsTrigger>
             ))}
@@ -155,7 +191,7 @@ export function CatalogPanel({ channel, onSelectProduct, onSelectCombo }: Catalo
 
           {showDailyMenuTab ? (
             <TabsContent value="daily_menu">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className={GRILLA}>
                 {activeCombos.map((combo) => (
                   <ComboButton key={combo.id} combo={combo} onSelect={() => onSelectCombo(combo)} />
                 ))}
@@ -169,7 +205,7 @@ export function CatalogPanel({ channel, onSelectProduct, onSelectCombo }: Catalo
             ) : favoriteProducts.length === 0 ? (
               <EmptyState title="Todavía no hay ventas para armar favoritos" description="Se arman con lo más vendido de los últimos 7 días." />
             ) : (
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className={GRILLA}>
                 {favoriteProducts.map((product) => (
                   <ProductButton
                     key={product.id}
@@ -190,7 +226,7 @@ export function CatalogPanel({ channel, onSelectProduct, onSelectCombo }: Catalo
                 {categoryProducts.length === 0 ? (
                   <EmptyState title="Esta categoría todavía no tiene productos" />
                 ) : (
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <div className={GRILLA}>
                     {categoryProducts.map((product) => (
                       <ProductButton
                         key={product.id}

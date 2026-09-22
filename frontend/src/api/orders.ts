@@ -200,6 +200,21 @@ export interface TotalsOut {
   tax_lines?: TaxLineOut[]
   tax_total?: number
   total?: number
+  /**
+   * El corte que pide la maqueta `m2b`: `sent_total` es lo que ya salió a
+   * cocina o se sirvió —quitarlo exige autorización— y `pending_total` lo que
+   * todavía se puede quitar sin permiso. **Los calcula el servidor y SUMAN
+   * `total`**: no son dos cuentas distintas y la pantalla no los deriva.
+   */
+  sent_total?: number
+  pending_total?: number
+  /**
+   * La base gravable: la venta SIN el impuesto al consumo. Es lo que la
+   * pantalla de Cobro rotula «Consumo». **La manda el servidor**: restar
+   * `total - tax_total` acá sería una segunda matemática de plata en el
+   * cliente, que es justo lo que el contrato prohíbe.
+   */
+  taxable_base?: number
 }
 
 export interface TipInfoOut {

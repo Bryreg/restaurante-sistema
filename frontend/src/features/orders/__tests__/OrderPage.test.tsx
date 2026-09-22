@@ -51,19 +51,19 @@ function renderOrderPage(orderId: number, features: Record<string, boolean>) {
 }
 
 describe("OrderPage", () => {
-  it("sin kitchen.view no existe el botón Enviar", async () => {
+  it("sin kitchen.view no existe el botón de mandar a cocina", async () => {
     getOrderMock.mockResolvedValue(buildOrder())
     renderOrderPage(501, { "kitchen.view": false })
 
     await waitFor(() => expect(screen.getByText(/limonada de coco/i)).toBeInTheDocument())
-    expect(screen.queryByRole("button", { name: /enviar/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /a cocina/i })).not.toBeInTheDocument()
   })
 
-  it("con kitchen.view existe el botón Enviar", async () => {
+  it("con kitchen.view existe el botón de mandar a cocina", async () => {
     getOrderMock.mockResolvedValue(buildOrder())
     renderOrderPage(501, { "kitchen.view": true })
 
-    expect(await screen.findByRole("button", { name: /enviar/i })).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: /líneas? a cocina/i })).toBeInTheDocument()
   })
 
   it("409 STALE_VERSION reemplaza la comanda local y avisa a la persona", async () => {
@@ -78,7 +78,10 @@ describe("OrderPage", () => {
     renderOrderPage(501, {})
 
     await waitFor(() => expect(screen.getByText(/limonada de coco/i)).toBeInTheDocument())
-    await user.click(screen.getByRole("button", { name: /^anular limonada de coco$/i }))
+    // Anular vive en el menú del renglón desde que la línea tomó la forma de
+    // `m2b`: se llega como llega una persona, abriendo el menú.
+    await user.click(screen.getByRole("button", { name: /más acciones de limonada de coco/i }))
+    await user.click(await screen.findByRole("menuitem", { name: /^anular limonada de coco$/i }))
 
     const dialog = await screen.findByRole("dialog")
     await user.click(within(dialog).getByRole("combobox"))

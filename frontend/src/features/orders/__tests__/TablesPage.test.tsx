@@ -42,10 +42,14 @@ describe("TablesPage", () => {
 
     renderWithProviders(<TablesPage />, { me: deviceMe({ "pos.tables": true }) })
 
-    await waitFor(() => expect(screen.getByText("Mesa 1")).toBeInTheDocument())
-    expect(screen.getByRole("button", { name: /mesa 1, libre/i })).toBeInTheDocument()
+    // La tarjeta `m2b` pinta el número SOLO —«1», no «Mesa 1»—: en el plano
+    // la palabra «Mesa» se repite doce veces y no distingue nada. El nombre
+    // completo vive en el `aria-label`, que es por donde lo lee quien no ve.
+    const mesa1 = await screen.findByRole("button", { name: /mesa 1, libre/i })
+    expect(within(mesa1).getByText("1")).toBeInTheDocument()
+    expect(screen.queryByText("Mesa 1")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /mesa 2, ocupada/i })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /mesa 3, por cobrar/i })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /mesa 3, pidió cuenta/i })).toBeInTheDocument()
   })
 
   it("abrir una mesa libre crea la comanda dine_in y navega a la comanda", async () => {
@@ -56,8 +60,7 @@ describe("TablesPage", () => {
     const user = userEvent.setup()
     renderWithProviders(<TablesPage />, { me: deviceMe({ "pos.tables": true }) })
 
-    await waitFor(() => expect(screen.getByText("Mesa 1")).toBeInTheDocument())
-    await user.click(screen.getByRole("button", { name: /mesa 1, libre/i }))
+    await user.click(await screen.findByRole("button", { name: /mesa 1, libre/i }))
 
     const dialog = await screen.findByRole("dialog")
     await user.click(within(dialog).getByRole("button", { name: /abrir mesa/i }))

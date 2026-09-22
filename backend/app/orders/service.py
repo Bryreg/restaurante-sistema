@@ -183,6 +183,25 @@ def compute_order_totals(db: Session, order: Order) -> money.OrderTotals:
     return money.compute_totals(lines, pairs)
 
 
+def _pending_total(db: Session, order: Order) -> int:
+    """Lo que todavía NO salió a cocina, con la MISMA fórmula que el total.
+
+    Se recalcula con `money.compute_totals` sobre el subconjunto pendiente en
+    vez de sumar los precios de línea a mano: el impuesto y el descuento no
+    son proporcionales renglón por renglón, y sumar precios daría un número
+    parecido —que es la peor clase de número equivocado—.
+
+    Los descuentos de la comanda entera NO se aplican al subconjunto: un
+    descuento del 10 % sobre la cuenta no es «10 % de lo pendiente». Sin ellos
+    `pending_total` es lo que valen los renglones sin mandar, que es
+    exactamente lo que el mesero necesita saber para decidir si los quita.
+    """
+    pendientes = [i for i in _live_items(db, order.id) if i.status == OrderItemStatus.PENDING]
+    if not pendientes:
+        return 0
+    return money.compute_totals([_line_input(i) for i in pendientes], []).total
+
+
 def _sub_account_item_allocations(db: Session, order: Order) -> dict[int, dict[str, int]]:
     """`order_sub_account_items.id` -> {gross, discount, base, tax, net} de su
     porción. Cada porción se calcula prorateando (`money.prorate`) el valor de
@@ -255,13 +274,18 @@ def compute_sub_account_totals(db: Session, sub_account: OrderSubAccount) -> mon
     )
 
 
-def _totals_out(totals: money.OrderTotals) -> TotalsOut:
+def _totals_out(totals: money.OrderTotals, *, pending: int = 0) -> TotalsOut:
     return TotalsOut(
         subtotal=totals.subtotal,
         discount_total=totals.discount_total,
         tax_lines=[TaxLineOut(rate=t.rate, base=t.base, tax=t.tax) for t in totals.tax_lines],
         tax_total=totals.tax_total,
         total=totals.total,
+        taxable_base=totals.tip_base,
+        pending_total=pending,
+        # Lo enviado es el resto, no una segunda cuenta: así los dos renglones
+        # suman SIEMPRE el total, que es lo que la pantalla promete.
+        sent_total=max(0, totals.total - pending),
     )
 
 
@@ -534,7 +558,7 @@ def order_out(db: Session, order: Order, *, for_device: bool) -> OrderOut:
         items=items_out,
         discounts=discounts_out,
         sub_accounts=sub_accounts_out,
-        totals=_totals_out(totals),
+        totals=_totals_out(totals, pending=_pending_total(db, order)),
         tip=tip,
         document_id=document_id,
     )

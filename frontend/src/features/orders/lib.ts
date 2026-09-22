@@ -69,35 +69,11 @@ export const ORDER_STATUS_LABEL: Record<string, string> = {
   compensated: "Venta compensada",
 }
 
-export const ITEM_STATUS_LABEL: Record<string, string> = {
-  pending: "Pendiente",
-  sent: "Enviado",
-  ready: "Listo",
-  served: "Entregado",
-  voided: "Anulado",
-}
-
-/** Variantes tokenizadas de `Badge` — nunca un color crudo (AGENTS.md § UI). */
-export const ITEM_STATUS_BADGE_VARIANT: Record<string, "outline" | "secondary" | "default" | "destructive"> = {
-  pending: "outline",
-  sent: "secondary",
-  ready: "default",
-  served: "secondary",
-  voided: "destructive",
-}
-
 export const COURSE_LABEL: Record<string, string> = {
   beverage: "Bebida",
   starter: "Entrada",
   main: "Fuerte",
   dessert: "Postre",
-}
-
-export const COURSE_BADGE_VARIANT: Record<string, "outline" | "secondary" | "default" | "ghost"> = {
-  beverage: "secondary",
-  starter: "outline",
-  main: "default",
-  dessert: "ghost",
 }
 
 export function courseLabel(course: string | null | undefined): string {

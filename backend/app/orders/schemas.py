@@ -184,11 +184,33 @@ class TaxLineOut(BaseModel):
 
 
 class TotalsOut(BaseModel):
+    """Los totales de la comanda. **Todos los calcula el servidor.**
+
+    `sent_total` y `pending_total` son el mismo total partido por lo que ya
+    salió a cocina y lo que todavía no (`m2b`, pantalla 2: «Ya está en cocina
+    o servido» / «Sin mandar todavía»). Es la cifra que le dice al mesero qué
+    puede todavía corregir sin pedir autorización, y por eso importa que no la
+    sume la pantalla: sumar sólo las líneas renderizadas da un número menor y
+    más cómodo, que es justo el error que nadie nota.
+    """
+
     subtotal: int
     discount_total: int
     tax_lines: list[TaxLineOut]
     tax_total: int
     total: int
+    #: Lo que ya salió a cocina o se sirvió. Anularlo exige autorización.
+    #: La base gravable: la venta SIN el impuesto al consumo. Es la cifra que
+    #: la pantalla de Cobro rotula «Consumo» y la que `m2b` discrimina arriba
+    #: del 8 %. La calcula el servidor (`total - tax_total`, que es el mismo
+    #: `tip_base` con que se sugiere la propina — la propina no paga impuesto,
+    #: así que su base y la base gravable son el mismo número por
+    #: construcción). **La pantalla NO la resta**: una resta de plata en el
+    #: cliente es una segunda matemática, y el contrato dice que hay una sola.
+    taxable_base: int = 0
+    sent_total: int = 0
+    #: Lo que todavía se puede quitar sin pedirle permiso a nadie.
+    pending_total: int = 0
 
 
 class TipInfoOut(BaseModel):

@@ -206,7 +206,13 @@ export default function PosLayout(): React.JSX.Element | null {
   }
 
   return (
-    <div className="salon flex min-h-screen flex-col bg-background text-foreground">
+    /* **El POS ocupa la pantalla, no la estira.** Es una tablet montada en el
+       salón: la cabecera, la cinta del turno y la barra de secciones no se van
+       para arriba al desplazarse, y cada pantalla maneja su propio scroll
+       adentro de `main`. Con `min-h-screen` la página crecía con el contenido
+       y el botón de mandar a cocina terminaba debajo del pliegue apenas una
+       mesa pedía seis platos. */
+    <div className="salon flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b p-3">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           <div className="min-w-0">
@@ -242,7 +248,7 @@ export default function PosLayout(): React.JSX.Element | null {
         <shiftsFeature.ShiftStatusStrip />
       </div>
       <PosNavBar hasFeature={hasFeature} />
-      <main className="flex-1 p-3">
+      <main className="min-h-0 flex-1 overflow-y-auto p-3">
         <Outlet />
       </main>
     </div>
