@@ -787,6 +787,24 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     # que se leería como «esa hora vendió cero».
     hubo_semana_pasada = len(documentos_semana_pasada) > 0
 
+    # El total de esa jornada **hasta esta misma altura del día**. A las dos
+    # de la tarde, medio día de hoy contra un día entero de la semana pasada
+    # daría siempre una caída enorme, y una comparación que siempre dice lo
+    # mismo no se mira más.
+    #
+    # «Esta altura» se mide desde la hora de corte, no desde medianoche: en
+    # una sede que corta a las 6, la 1 a. m. es la hora diecinueve del día
+    # operativo, no la primera.
+    def _altura_en_el_dia(hora: int) -> int:
+        return (hora - store.cutoff_hour) % 24
+
+    altura_ahora = _altura_en_el_dia(_bogota_hour(now))
+    neto_semana_pasada_a_esta_hora = (
+        sum(v for h, v in neto_semana_pasada.items() if _altura_en_el_dia(h) <= altura_ahora)
+        if hubo_semana_pasada
+        else None
+    )
+
     by_hour: dict[int, HourBucketOut] = {}
     gross = tax = tips_total = 0
     order_ids: set[int] = set()
@@ -805,6 +823,18 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         )
 
     net = gross - tax
+    # La variación, en puntos básicos. Sin base no hay porcentaje: con la
+    # semana pasada en cero, «subió infinito» no dice nada y `None` sí.
+    #
+    # El signo se maneja acá porque `round_half_up` sólo admite numeradores no
+    # negativos (es el redondeo de PLATA, y la plata no es negativa): se
+    # redondea la magnitud y después se le pone el signo, que es lo que hace
+    # que una caída del 6,15 % se lea «−6,2 %» y no «−6,1 %».
+    variacion_bp: int | None = None
+    if neto_semana_pasada_a_esta_hora:
+        diferencia = net - neto_semana_pasada_a_esta_hora
+        magnitud = money.round_half_up(abs(diferencia) * 10_000, neto_semana_pasada_a_esta_hora)
+        variacion_bp = -magnitud if diferencia < 0 else magnitud
     covers_map = _order_covers_map(db, order_ids)
     covers_sum = sum(c for oid in order_ids if (c := covers_map.get(oid)) is not None)
     orders_count = len(order_ids)
@@ -842,6 +872,8 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         gross=gross,
         net=net,
         tax=tax,
+        net_last_week=neto_semana_pasada_a_esta_hora,
+        net_vs_last_week_bp=variacion_bp,
         tips_total=tips_total,
         tips_by_method=_tips_by_method(documents),
         orders=orders_count,

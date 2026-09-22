@@ -1,6 +1,7 @@
 import { LayoutGrid, LogOut, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
+import { Store } from "lucide-react";
 import { toast } from "sonner";
 
 import { deviceDeactivate, deviceRelease } from "@/api/auth";
@@ -34,6 +35,16 @@ import { useSession } from "./session";
  * (CONTRATO C8): "KDS", detrás de `kitchen.kds` — la vista mínima de 1b
  * ("Cocina", `kitchen.view`) sigue viniendo de `ordersFeature.posNav`, sin
  * tocar). */
+/** «Martes 22 de septiembre, 8:41 p. m.» — hora de Bogotá, como en `m2b`. */
+const RELOJ_BARRA = new Intl.DateTimeFormat("es-CO", {
+  timeZone: "America/Bogota",
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 function buildPosNav(hasFeature: (key: string) => boolean): NavItem[] {
   const all: NavItem[] = [
     ...ordersFeature.posNav,
@@ -113,14 +124,22 @@ function DeactivateDeviceButton({ storeName }: { storeName: string }): React.JSX
 
   return (
     <>
+      {/* Sólo el icono: el rótulo entero («Desactivar este dispositivo»)
+          ocupaba un cuarto de la barra para una acción que se usa una vez
+          cada mudanza de tablet, y era lo que empujaba la pastilla de quién
+          opera a un segundo renglón. El nombre sigue estando para quien
+          navega con teclado o lector (`aria-label`) y al pasar el cursor
+          (`title`); la confirmación explica la consecuencia. */}
       <Button
         type="button"
         variant="ghost"
-        className="ml-2 h-11 gap-2 text-muted-foreground"
+        size="icon"
+        className="size-10 shrink-0 text-muted-foreground"
+        title="Desactivar este dispositivo"
+        aria-label="Desactivar este dispositivo"
         onClick={() => setOpen(true)}
       >
         <LogOut className="size-4" aria-hidden="true" />
-        Desactivar este dispositivo
       </Button>
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent>
@@ -209,6 +228,11 @@ export default function PosLayout(): React.JSX.Element | null {
     }
   }
 
+  // El reloj de la barra, en hora de Bogotá: «Martes 22 de septiembre, 8:41
+  // p. m.». Es la misma hora que sella las ventas, y verla en la barra es
+  // parte de lo que hace que el turno cuadre.
+  const reloj = RELOJ_BARRA.format(new Date());
+
   return (
     /* **El POS ocupa la pantalla, no la estira.** Es una tablet montada en el
        salón: la cabecera, la cinta del turno y la barra de secciones no se van
@@ -217,40 +241,65 @@ export default function PosLayout(): React.JSX.Element | null {
        y el botón de mandar a cocina terminaba debajo del pliegue apenas una
        mesa pedía seis platos. */
     <div className="salon flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b p-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{me.store?.name ?? "Sede"}</p>
-            <p className="truncate text-xs text-muted-foreground">
-              {me.employee.name} · {ROLE_LABEL[me.employee.role] ?? me.employee.role}
-            </p>
-          </div>
-          {expired ? (
-            <span
-              role="alert"
-              className="rounded-md bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive"
-            >
-              Tu sesión de persona venció por inactividad. Identificate de nuevo.
-            </span>
-          ) : null}
+      {/* **La barra de la tablet** (`m2b`): UNA banda, no tres. A la izquierda
+          la sede y el reloj; a la derecha, en pastilla, quién está operando —
+          que es la pregunta de atribución que gobierna todo el sistema.
+
+          Antes eran tres bandas apiladas (cabecera con botones, cinta de
+          turno, barra de secciones) y se comían 188 px de una pantalla de
+          tablet: por eso la cuenta mostraba dos renglones donde la maqueta
+          muestra cinco. El turno y las acciones de dispositivo no
+          desaparecen — viven adentro de la pastilla, que es de donde se
+          cambia de persona. */}
+      <header className="flex items-center gap-3.5 overflow-x-auto border-b bg-card px-4 py-2.5">
+        <div className="flex min-w-0 shrink-0 items-center gap-2.5">
+          <Store className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <p className="min-w-0 truncate">
+            <b className="text-[0.94rem]">{me.store?.name ?? "Sede"}</b>{" "}
+            <span className="text-[0.82rem] text-muted-foreground">· Tablet del salón</span>
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+
+        <span className="shrink-0 text-[0.84rem] whitespace-nowrap text-muted-foreground">{reloj}</span>
+
+        {/* `compacta`: la cinta comparte renglón, así que no repite la fecha
+            que el reloj de al lado ya escribió. */}
+        <div className="shrink-0">
+          <shiftsFeature.ShiftStatusStrip compacta />
+        </div>
+
+        {expired ? (
+          <span
+            role="alert"
+            className="rounded-md bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive"
+          >
+            Tu sesión venció por inactividad. Identificate de nuevo.
+          </span>
+        ) : null}
+
+        {/* La pastilla de quién opera. Es también el control para cambiar de
+            persona: en la maqueta el nombre ES el botón, porque cambiar de
+            persona y saber quién está operando son la misma pregunta. */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <Button
             type="button"
             variant="outline"
-            className="h-11 gap-2"
+            className="h-10 gap-2 rounded-full px-3.5"
             onClick={handleChangePerson}
             disabled={releasing}
+            aria-label={`${me.employee.name}, ${ROLE_LABEL[me.employee.role] ?? me.employee.role}. Tocar para cambiar de persona`}
           >
-            <Users className="size-4" aria-hidden="true" />
-            Cambiar de persona
+            <Users className="size-4 shrink-0" aria-hidden="true" />
+            <span className="text-left leading-tight">
+              <b className="block text-[0.86rem]">{me.employee.name}</b>
+              <span className="block text-[0.72rem] font-normal text-muted-foreground">
+                {ROLE_LABEL[me.employee.role] ?? me.employee.role} · cambiar
+              </span>
+            </span>
           </Button>
           <DeactivateDeviceButton storeName={me.store?.name ?? "Esta sede"} />
         </div>
       </header>
-      <div className="border-b bg-muted/30 px-3 py-2">
-        <shiftsFeature.ShiftStatusStrip />
-      </div>
       <PosNavBar hasFeature={hasFeature} />
       <main className="min-h-0 flex-1 overflow-y-auto p-3">
         <Outlet />

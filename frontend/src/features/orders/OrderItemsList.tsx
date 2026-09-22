@@ -146,13 +146,29 @@ export function OrderItemsList({
                 ) : null}
               </span>
 
-              {item.modifiers_text ? (
-                <span className="mt-0.5 block text-xs text-muted-foreground">{item.modifiers_text}</span>
-              ) : null}
               {item.note ? <span className="mt-0.5 block text-xs text-muted-foreground">Nota: {item.note}</span> : null}
 
               <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <EstadoPastilla item={item} />
+
+                {/* **Cada modificador, su pastilla** (`m2b`: «1 sin
+                    alcaparras», «arroz aparte», «sin azúcar»). Escritos en
+                    una línea de texto chico debajo del nombre se leían como
+                    un subtítulo y se perdían; el modificador es lo que hace
+                    que el plato llegue como lo pidieron, y llega a cocina
+                    impreso — verlo acá es cómo el mesero confirma que lo
+                    mandó bien.
+
+                    Salen de `modifiers`, la lista tipada, NO de partir
+                    `modifiers_text` por la coma: un modificador puede
+                    llamarse «Salsa, aparte» y la coma lo habría cortado en
+                    dos pastillas que no existen. */}
+                {(item.modifiers ?? []).map((m) => (
+                  <Badge key={m.option_id} variant="outline" className="font-normal">
+                    {m.name}
+                  </Badge>
+                ))}
+
                 {item.seat !== null && item.seat !== undefined ? <Badge variant="outline">Asiento {item.seat}</Badge> : null}
                 {isCourtesy ? <Badge variant="secondary">Cortesía</Badge> : null}
 

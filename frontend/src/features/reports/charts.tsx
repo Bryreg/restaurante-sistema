@@ -171,6 +171,7 @@ export function HourColumns({
   formatValue = (v: number) => String(v),
   emptyLabel = "Sin ventas todavía",
   description,
+  caption,
 }: {
   data: HourColumnDatum[]
   /** Cómo se llama la serie gris («El lunes pasado»). */
@@ -179,6 +180,12 @@ export function HourColumns({
   emptyLabel?: string
   /** El `aria-label` del SVG: qué dice la gráfica, en palabras. */
   description: string
+  /**
+   * El renglón que va DEBAJO del eje (`a2`: «Hora de apertura del cajón a
+   * las 10:00 · la de las 23:00 va en curso»). Lo arma la pantalla, que es
+   * la que sabe de turnos; la gráfica sólo lo dibuja donde va.
+   */
+  caption?: string
 }): React.JSX.Element {
   if (data.length === 0) {
     return <p className="text-sm text-muted-foreground">{emptyLabel}</p>
@@ -195,9 +202,24 @@ export function HourColumns({
   const ancho = slot * 0.6
   const y = (v: number) => B - (v / max) * (B - T)
 
-  const pico = data.reduce<HourColumnDatum | null>(
-    (best, d) => (!d.inProgress && (best === null || d.value > best.value) ? d : best),
-    null,
+  /**
+   * **Dos picos rotulados, no uno** (`a2`). Un día de restaurante tiene dos
+   * jorobas —el almuerzo y la noche— y rotular sólo la más alta esconde la
+   * otra, que es justamente la que el dueño compara. El corte va en la
+   * misma hora que separa los dos servicios en la operación (17:00).
+   */
+  const mayorDe = (desde: number, hasta: number) =>
+    data.reduce<HourColumnDatum | null>(
+      (best, d) =>
+        !d.inProgress && d.value > 0 && d.hour >= desde && d.hour < hasta &&
+        (best === null || d.value > best.value)
+          ? d
+          : best,
+      null,
+    )
+  const HORA_CENA = 17
+  const picos = [mayorDe(0, HORA_CENA), mayorDe(HORA_CENA, 24)].filter(
+    (d): d is HourColumnDatum => d !== null,
   )
   const hayReferencia = data.some((d) => d.reference != null)
 
@@ -256,7 +278,7 @@ export function HourColumns({
                   {d.hour}:00
                 </text>
               ) : null}
-              {pico !== null && d.hour === pico.hour && d.value > 0 ? (
+              {picos.some((pk) => pk.hour === d.hour) ? (
                 <text
                   x={x + slot / 2}
                   y={y(d.value) - 6}
@@ -271,6 +293,20 @@ export function HourColumns({
         })}
 
         <line x1={L} y1={B} x2={R} y2={B} className="stroke-input" strokeWidth={1} />
+
+        {/* El renglón de abajo, adentro del SVG como en `a2`: pertenece al
+            eje —dice qué franja se está mirando— y separado quedaría como
+            una nota al pie cualquiera. */}
+        {caption ? (
+          <text
+            x={L + (R - L) / 2}
+            y={B + 34}
+            textAnchor="middle"
+            className="fill-muted-foreground text-[11px]"
+          >
+            {caption}
+          </text>
+        ) : null}
       </svg>
 
       {/* La leyenda con texto, nunca sólo color (WCAG 1.4.1). */}

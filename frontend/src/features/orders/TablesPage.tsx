@@ -32,6 +32,9 @@ import { BarraSitio } from "@/components/pos/BarraSitio"
 import { MesaCard, type EstadoMesa } from "@/components/pos/MesaCard"
 import { RielCanales, type GrupoCanal } from "@/components/pos/RielCanales"
 import { SalonResumen } from "@/components/pos/SalonResumen"
+import { Search } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { formatCOP } from "@/lib/money"
 import { elapsedFromSeconds, elapsedLabel } from "./lib"
 import { TABLES_STATUS_QUERY_KEY, useAuthorizerFlow, useTablesStatus } from "./hooks"
 
@@ -72,6 +75,8 @@ export function TablesPage(): React.JSX.Element {
   const [openPending, setOpenPending] = useState(false)
 
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
+  const [buscando, setBuscando] = useState(false)
+  const [busqueda, setBusqueda] = useState("")
   const [mergeTarget, setMergeTarget] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionPending, setActionPending] = useState(false);
@@ -209,48 +214,75 @@ export function TablesPage(): React.JSX.Element {
     }
   }
 
+  // Las marcas del sitio de TODAS las zonas, sin repetir: son del local y se
+  // dibujan una sola vez sobre el plano entero.
+  const marcasDelSitio = Array.from(new Set(zones.flatMap((z) => z.landmarks ?? [])))
+
+  // Cuántas comandas están esperando en cocina, contadas sobre lo que el
+  // plano YA recibió: las del riel en estado «en cocina» más las mesas que
+  // marcharon. No es una regla nueva ni una consulta nueva — es el mismo
+  // estado tipado que publica el servidor, contado.
+  const pendientesEnCocina = (tablesStatus.data?.channels ?? [])
+    .flatMap((g) => g.orders ?? [])
+    .filter((o) => o.state === "in_kitchen").length
+
+  // Lo que la búsqueda recorre: las mesas con cuenta abierta y las comandas
+  // del riel. Todo ya está en memoria — buscar no le pregunta nada nuevo al
+  // servidor porque quien busca está mirando justamente esta pantalla.
+  const q = busqueda.trim().toLowerCase()
+  const resultadosBusqueda =
+    q === ""
+      ? []
+      : [
+          ...zones.flatMap((z) =>
+            (z.tables ?? [])
+              .filter((t) => t.order_id != null)
+              .map((t) => ({
+                tipo: "mesa" as const,
+                orderId: t.order_id as number,
+                codigo: t.is_counter ? (t.number ?? "Barra") : `Mesa ${t.number ?? ""}`,
+                titulo: t.served_by ?? "Sin asignar",
+                total: t.total ?? 0,
+              })),
+          ),
+          ...(tablesStatus.data?.channels ?? []).flatMap((g) =>
+            (g.orders ?? []).map((o) => ({
+              tipo: "canal" as const,
+              orderId: o.order_id,
+              codigo: o.code,
+              titulo: o.title,
+              total: o.total,
+            })),
+          ),
+        ].filter((r) => `${r.codigo} ${r.titulo}`.toLowerCase().includes(q))
+
   const mergeSelectable = mode === "merge" && selected.length >= 2
   const moveSelectable = mode === "move" && selected.length >= 2
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">Mesas</h1>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant={mode === "merge" ? "default" : "outline"}
-            className="h-11"
-            aria-pressed={mode === "merge"}
-            onClick={() => {
-              if (mode === "merge") {
-                resetMode()
-                return
-              }
-              setMode("merge")
-              setSelected([])
-            }}
-          >
-            <Link2 className="size-4" aria-hidden="true" />
-            Unir mesas
-          </Button>
-          <Button
-            type="button"
-            variant={mode === "move" ? "default" : "outline"}
-            className="h-11"
-            aria-pressed={mode === "move"}
-            onClick={() => {
-              if (mode === "move") {
-                resetMode()
-                return
-              }
-              setMode("move")
-              setSelected([])
-            }}
-          >
-            <Move className="size-4" aria-hidden="true" />
-            Mover mesa
-          </Button>
+    /* **La pantalla ocupa la tablet.** `m2b` es un marco completo: el plano
+       se queda con el alto que sobra y el pie de acciones vive pegado abajo,
+       donde la mano lo alcanza sin mirar. Con la pantalla hugging el borde
+       de arriba, el pie quedaba flotando a media altura y debajo había un
+       palmo de fondo vacío — que es exactamente lo que hace que no se vea
+       como el diseño. */
+    <div className="flex min-h-full flex-col gap-4">
+      {/* **La cabecera de `m2b`**: a la izquierda qué es la pantalla y qué se
+          hace en ella; a la derecha, la cifra que el dueño mira primero —
+          cuánta plata hay viva en el salón—. Esa cifra estaba metida como una
+          cinta más entre otras cuatro, que es donde no se ve. */}
+      <div className="flex flex-wrap items-start gap-4 border-b pb-3">
+        <div className="min-w-0">
+          <h1 className="text-xl leading-tight font-semibold">Mesas</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Tocá una mesa para abrir o seguir su cuenta.
+          </p>
+        </div>
+        <div className="ml-auto text-right">
+          <span className="block text-xs tracking-wider text-muted-foreground uppercase">Abierto en mesas</span>
+          <span className="block text-[1.75rem] leading-tight font-bold tabular-nums">
+            {resumen ? formatCOP(resumen.open_total) : "—"}
+          </span>
         </div>
       </div>
 
@@ -297,12 +329,11 @@ export function TablesPage(): React.JSX.Element {
       ) : zones.length === 0 ? (
         <EmptyState title="Esta sede todavía no tiene zonas ni mesas activas" />
       ) : (
-        <div className="space-y-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
           {resumen ? (
             <SalonResumen
               tablesTotal={resumen.tables_total}
               tablesOccupied={resumen.tables_occupied}
-              openTotal={resumen.open_total}
               averageOpen={resumen.average_open ?? null}
               oldestTable={resumen.oldest_table ?? null}
               oldestLabel={
@@ -318,6 +349,25 @@ export function TablesPage(): React.JSX.Element {
               columnas. */}
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_296px]">
           <div className="rounded-xl border bg-card p-4">
+            {/* **Las marcas del sitio, una sola vez** (`m2b`). Son del local,
+                no de cada zona: repetirlas por grupo las convierte en ruido y
+                pierde lo que hacen —orientar a quien mira el plano entero—.
+                «Paso a cocina» va a la derecha porque es hacia dónde queda. */}
+            {marcasDelSitio.length > 0 ? (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                {marcasDelSitio.map((marca, i) => (
+                  <span
+                    key={marca}
+                    className={cn(
+                      "rounded-md border border-dashed border-input px-2.5 py-1 text-[0.72rem] tracking-[0.07em] text-muted-foreground uppercase",
+                      i === marcasDelSitio.length - 1 && marcasDelSitio.length > 1 && "ml-auto",
+                    )}
+                  >
+                    {marca}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           {zones.map((zone) => {
             // La barra se dibuja como una tira debajo del plano de la zona,
             // no como una tarjeta más en la grilla: `m2b` la separa porque no
@@ -325,28 +375,12 @@ export function TablesPage(): React.JSX.Element {
             const mesas = (zone.tables ?? []).filter((t) => !t.is_counter)
             const barras = (zone.tables ?? []).filter((t) => t.is_counter)
             return (
-            <section key={zone.id} className="mb-4 last:mb-0">
-              <h2 className="mb-2 text-xs tracking-wider text-muted-foreground uppercase">{zone.name}</h2>
-
-              {/* **Las referencias del sitio** (`m2b`): «Entrada», «Ventanal /
-                  Calle 63», «Paso a cocina». Las configura el administrador
-                  por zona —son del local, no de la pantalla— y por eso acá no
-                  hay ni un texto fijo: sin referencias cargadas, la fila
-                  sencillamente no existe. */}
-              {(zone.landmarks ?? []).length > 0 ? (
-                <div className="mb-2.5 flex flex-wrap gap-2">
-                  {(zone.landmarks ?? []).map((marca) => (
-                    <span
-                      key={marca}
-                      className="rounded-md border border-dashed border-input px-2.5 py-1 text-[0.72rem] tracking-[0.07em] text-muted-foreground uppercase"
-                    >
-                      {marca}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              {/* `auto-fill` con mínimo de 124 px: el plano se adapta al ancho
-                  de la tablet sin que nadie declare cuántas columnas hay. */}
+            <section key={zone.id} className="mb-3 last:mb-0">
+              {/* **Sin título de zona.** `m2b` dibuja UN plano continuo: el
+                  mesero mira el salón, no una lista de grupos. La zona sigue
+                  existiendo en el modelo y ordena las mesas; simplemente no
+                  se rotula, porque el rótulo repetía lo que las marcas del
+                  sitio ya dicen mejor. */}
               <div className="grid grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-2.5">
                 {mesas.map((table) => (
                   <MesaCard
@@ -424,19 +458,121 @@ export function TablesPage(): React.JSX.Element {
           </div>
 
           {/* El pie de acciones de la maqueta: lo que se hace desde el salón
-              sin pasar por una mesa. */}
-          <div className="flex flex-wrap gap-2.5 border-t pt-4">
+              sin pasar por una mesa. «Buscar una cuenta» y el contador de
+              cocina son de `m2b` — el contador sobre todo: dice si vale la
+              pena ir a cocina antes de caminar hasta allá. */}
+          <div className="mt-auto flex flex-wrap items-center gap-2.5 border-t pt-3">
             <Button type="button" className="h-11 gap-2" onClick={() => navigate("/pos/comanda/nueva")}>
               <Plus className="size-4" aria-hidden="true" />
               Abrir cuenta nueva
             </Button>
-            <Button type="button" variant="outline" className="h-11 gap-2" onClick={() => navigate("/pos/cocina")}>
+            <Button type="button" variant="outline" className="h-11 gap-2" onClick={() => setBuscando(true)}>
+              <Search className="size-4" aria-hidden="true" />
+              Buscar una cuenta
+            </Button>
+            {/* **Unir y mover bajan acá.** Arriba eran una banda propia entre
+                la cabecera y las cintas —la quinta franja de cromo de una
+                pantalla de tablet— para dos acciones que se usan cuando una
+                mesa ya está abierta. `m2b` junta en el pie todo lo que se
+                hace desde el salón sin tocar una mesa; esto es eso. */}
+            <Button
+              type="button"
+              variant={mode === "merge" ? "default" : "outline"}
+              className="h-11 gap-2"
+              aria-pressed={mode === "merge"}
+              onClick={() => {
+                if (mode === "merge") {
+                  resetMode()
+                  return
+                }
+                setMode("merge")
+                setSelected([])
+              }}
+            >
+              <Link2 className="size-4" aria-hidden="true" />
+              Unir mesas
+            </Button>
+            <Button
+              type="button"
+              variant={mode === "move" ? "default" : "outline"}
+              className="h-11 gap-2"
+              aria-pressed={mode === "move"}
+              onClick={() => {
+                if (mode === "move") {
+                  resetMode()
+                  return
+                }
+                setMode("move")
+                setSelected([])
+              }}
+            >
+              <Move className="size-4" aria-hidden="true" />
+              Mover mesa
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="ml-auto h-11 gap-2"
+              onClick={() => navigate("/pos/cocina")}
+            >
               <ChefHat className="size-4" aria-hidden="true" />
-              Cocina
+              {/* El número lo cuenta el SERVIDOR, en las comandas que ya
+                  publica el plano: no hay una segunda consulta ni una regla
+                  nueva de «qué es pendiente». */}
+              Cocina{pendientesEnCocina > 0 ? ` · ${pendientesEnCocina} pendientes` : ""}
             </Button>
           </div>
         </div>
       )}
+
+      {/* **«Buscar una cuenta»** (`m2b`). En un salón de doce mesas con
+          mostrador y domicilios, la comanda que alguien busca no siempre está
+          en el plano: puede ser un pedido para llevar a nombre de una
+          persona. Se busca sobre lo que el plano YA tiene —mesas y riel—, sin
+          una consulta nueva: quien busca está mirando esta pantalla. */}
+      <Dialog open={buscando} onOpenChange={(next) => { setBuscando(next); if (!next) setBusqueda("") }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Buscar una cuenta</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label htmlFor="buscar-cuenta">Mesa, nombre o código</Label>
+            <Input
+              id="buscar-cuenta"
+              className="h-11"
+              autoFocus
+              placeholder="Mesa 7, Camila, P-001…"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+            />
+          </div>
+          <ul className="max-h-72 divide-y overflow-y-auto">
+            {resultadosBusqueda.length === 0 ? (
+              <li className="py-3 text-sm text-muted-foreground">
+                {busqueda.trim() === "" ? "Escribí para buscar." : "Ninguna cuenta abierta coincide."}
+              </li>
+            ) : (
+              resultadosBusqueda.map((r) => (
+                <li key={`${r.tipo}-${r.orderId}`}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 py-2.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    onClick={() => {
+                      setBuscando(false)
+                      setBusqueda("")
+                      navigate(`/pos/comanda/${r.orderId}`)
+                    }}
+                  >
+                    <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">{r.codigo}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{r.titulo}</span>
+                    <span className="shrink-0 text-sm font-bold tabular-nums">{formatCOP(r.total)}</span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={openTable !== null} onOpenChange={(next) => !next && setOpenTable(null)}>
         <DialogContent>

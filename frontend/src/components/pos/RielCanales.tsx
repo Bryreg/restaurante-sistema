@@ -85,7 +85,12 @@ export function RielCanales({ grupos, tiempo, onAbrir, className }: RielCanalesP
           <section key={grupo.channel} className="min-w-0 rounded-xl border bg-card">
             <header className="flex items-center gap-2 border-b bg-muted px-3.5 py-2.5">
               <Icono className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <h3 className="text-sm font-bold">{TITULO[grupo.channel]}</h3>
+              {/* Versalita, como las cintas y como `m2b`: el riel y el
+                  resumen del salón rotulan igual porque son la misma clase
+                  de encabezado. */}
+              <h3 className="text-[0.76rem] font-bold tracking-[0.07em] uppercase">
+                {TITULO[grupo.channel]}
+              </h3>
               <span className="ml-auto text-xs text-muted-foreground">{grupo.orders.length}</span>
             </header>
             <div className="px-3.5">

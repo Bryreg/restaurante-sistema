@@ -12,7 +12,7 @@
  * Lo que hace y lo que NO hace:
  *
  * - **Hace**: elegir cuatro cortes «redondos» por encima del máximo de la
- *   serie, y escribirlos como «200k». Eso es tipografía de eje.
+ *   serie, y escribirlos como «$200k». Eso es tipografía de eje.
  * - **NO hace**: cambiar, sumar, promediar ni redondear ninguna cifra que se
  *   muestre como plata. Las barras se dibujan con los enteros que mandó el
  *   servidor, y toda cifra que se lee como pesos pasa por `formatCOP` sobre
@@ -34,16 +34,22 @@ export function cortesDeEje(max: number): number[] {
 }
 
 /**
- * El rótulo de un corte: «0», «200k», «1.2M». Abreviado a propósito — el eje
- * se lee de reojo y «$ 200.000» cinco veces apiladas tapa la gráfica. La
+ * El rótulo de un corte: «0», «$200k», «$1,2M». Abreviado a propósito — el
+ * eje se lee de reojo y «$ 200.000» cinco veces apiladas tapa la gráfica. La
  * cifra exacta de cada barra vive en la tabla de la pantalla, que es la
  * alternativa accesible completa.
+ *
+ * **Lleva el signo de pesos** (`a2`: «$800k»). Sin él, un eje de plata y uno
+ * de cantidad de comandas se leen igual, y quien mira de lejos no sabe si la
+ * barra de las ocho vale ochocientos mil o ochocientas comandas.
  */
 export function rotuloDeCorte(valor: number): string {
   if (valor === 0) return "0";
   if (valor >= 1_000_000) {
     const millones = valor / 1_000_000;
-    return `${millones % 1 === 0 ? millones : millones.toFixed(1)}M`;
+    // Coma decimal: es el separador de es-CO, y el punto acá se leería como
+    // separador de miles.
+    return `$${millones % 1 === 0 ? millones : millones.toFixed(1).replace(".", ",")}M`;
   }
-  return `${Math.round(valor / 1000)}k`;
+  return `$${Math.round(valor / 1000)}k`;
 }

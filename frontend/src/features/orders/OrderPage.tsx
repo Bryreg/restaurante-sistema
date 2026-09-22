@@ -1,3 +1,4 @@
+import { ListOrdered, MoreHorizontal, Percent, Receipt, XCircle } from "lucide-react"
 import { useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 
@@ -25,9 +26,15 @@ import {
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
-import { formatInstant } from "@/lib/businessDate"
+import { formatClock, formatInstant, isTodayInBogota } from "@/lib/businessDate"
 
 import { AuthorizerDialog } from "./AuthorizerDialog"
 import { CatalogPanel } from "./CatalogPanel"
@@ -300,7 +307,15 @@ export function OrderPage(): React.JSX.Element {
   // no de una cuenta nueva acá.
   const subtitleParts: string[] = []
   if (order.opened_at) {
-    subtitleParts.push(`Abierta ${formatInstant(order.opened_at)}`)
+    // **Sólo la hora si la comanda es de hoy** (`m2b`: «Abierta 7:48 p. m.»).
+    // La fecha entera —«22 de sept de 2026, 09:35 a m»— es ruido en una
+    // comanda que se abrió hace veinte minutos y empuja al mesero a leer
+    // cinco palabras para encontrar el dato de una. Si la comanda viene de
+    // otro día operativo, la fecha vuelve: entonces sí es lo importante.
+    const deHoy = isTodayInBogota(order.opened_at)
+    subtitleParts.push(
+      `Abierta ${deHoy ? formatClock(order.opened_at) : formatInstant(order.opened_at)}`,
+    )
     subtitleParts.push(`lleva ${elapsedLabel(order.opened_at)}`)
   }
   if (order.opened_by?.name) subtitleParts.push(order.opened_by.name)
@@ -330,12 +345,20 @@ export function OrderPage(): React.JSX.Element {
           {subtitleParts.length > 0 ? (
             <p className="mt-0.5 text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p>
           ) : null}
-          <div className="mt-1.5 flex flex-wrap items-center gap-2">
-            {order.status ? <Badge variant="outline">{ORDER_STATUS_LABEL[order.status] ?? order.status}</Badge> : null}
-            {order.bill_presented_at ? (
-              <Badge variant="secondary">Cuenta presentada · {formatInstant(order.bill_presented_at)}</Badge>
-            ) : null}
-          </div>
+          {/* **«Abierta» no se dibuja**: es el estado por defecto de esta
+              pantalla y una insignia que siempre dice lo mismo deja de
+              leerse. Las que SÍ dicen algo —cuenta presentada, comanda
+              cerrada o anulada— siguen. */}
+          {order.status !== "open" || order.bill_presented_at ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              {order.status && order.status !== "open" ? (
+                <Badge variant="outline">{ORDER_STATUS_LABEL[order.status] ?? order.status}</Badge>
+              ) : null}
+              {order.bill_presented_at ? (
+                <Badge variant="secondary">Cuenta presentada · {formatClock(order.bill_presented_at)}</Badge>
+              ) : null}
+            </div>
+          ) : null}
           {order.note ? <p className="mt-1.5 text-sm text-muted-foreground">Nota: {order.note}</p> : null}
         </div>
         <div className="ml-auto text-right">
@@ -362,9 +385,13 @@ export function OrderPage(): React.JSX.Element {
                 onSelectProduct={(product) => setItemTarget({ product })}
                 onSelectCombo={(combo) => setItemTarget({ combo })}
               />
-              {/* La frase de la maqueta. No es decorativa: es la que evita la
+              {/* La frase de la maqueta, **con su filete azul a la
+                  izquierda**. No es decorativo: en `m2b` ese filete marca las
+                  notas que explican plata —el 8 % acá, la propina en el
+                  cobro— y las separa de un pie de página cualquiera. Sin él
+                  la frase se lee como letra chica y es justo la que evita la
                   discusión de si el impuesto se suma al final. */}
-              <p className="text-xs text-muted-foreground">
+              <p className="border-l-[3px] border-primary py-0.5 pl-3 text-xs text-muted-foreground">
                 Los precios de la carta <b className="text-foreground">ya incluyen el impuesto al consumo del 8 %</b>.
                 Lo que el cliente ve acá es lo que paga.
               </p>
@@ -376,35 +403,62 @@ export function OrderPage(): React.JSX.Element {
             total se queda pegado abajo (`m2b` lo resuelve con `margin-top:auto`
             sobre una columna de alto fijo). */}
         <aside className="flex min-h-0 flex-col overflow-y-auto rounded-xl border bg-card p-4 xl:h-full">
-          <div className="flex shrink-0 items-baseline gap-2">
-            <h2 className="text-sm font-bold">La cuenta</h2>
-            <span className="ml-auto text-xs text-muted-foreground">
+          {/* **La cabecera de la cuenta** (`m2b`): el icono de lista, el
+              rótulo en versalita y las unidades a la derecha. Nada más —la
+              maqueta no pone una fila de botones acá, y tenía razón: tres
+              acciones grises arriba de los renglones son lo primero que se
+              ve al abrir la comanda, cuando lo primero que hay que ver es
+              qué pidió la mesa. */}
+          <div className="flex shrink-0 items-center gap-2">
+            <ListOrdered className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <h2 className="text-[0.76rem] font-bold tracking-[0.07em] uppercase">La cuenta</h2>
+            <span className="ml-auto text-xs whitespace-nowrap text-muted-foreground">
               {unidades} {unidades === 1 ? "unidad" : "unidades"}
             </span>
-          </div>
 
-          {/* Las acciones de la comanda entera van ACÁ ARRIBA, chicas, y no
-              abajo con el total. Dos razones: abajo empujaban los renglones
-              hasta dejarlos en cero —el panel tiene alto fijo y el pie no
-              cede—, y «Anular comanda» pegado a «Ir a cobrar» es la vecindad
-              más cara de la pantalla. */}
-          {isOrderOpenish ? (
-            <div className="mt-2 flex shrink-0 flex-wrap gap-1.5">
-              {hasFeature("pos.pre_bill") ? (
-                <Button type="button" variant="outline" className="h-9 px-2.5 text-xs" disabled={preBillPending} onClick={() => void handlePresentBill()}>
-                  {preBillPending ? "Presentando…" : "Presentar cuenta"}
-                </Button>
-              ) : null}
-              {hasFeature("pos.discounts") ? (
-                <Button type="button" variant="outline" className="h-9 px-2.5 text-xs" onClick={() => setDiscountTarget({ scope: "order" })}>
-                  Descuento
-                </Button>
-              ) : null}
-              <Button type="button" variant="outline" className="h-9 px-2.5 text-xs text-muted-foreground" onClick={() => setVoidTarget({ scope: "order" })}>
-                Anular comanda
-              </Button>
-            </div>
-          ) : null}
+            {/* Las tres acciones de la comanda entera, detrás de un menú.
+                Siguen a un toque de distancia y dejan de competir con los
+                renglones; «Anular comanda» además deja de estar a un dedo
+                de «Ir a cobrar», que era la vecindad más cara de la
+                pantalla. El descuento vive además en el cobro (`m2b`
+                pantalla 3, «Aplicar descuento»), que es donde se decide. */}
+            {isOrderOpenish ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0 text-muted-foreground"
+                      disabled={preBillPending}
+                      aria-label="Más acciones de esta comanda"
+                    >
+                      <MoreHorizontal className="size-4" aria-hidden="true" />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end">
+                  {hasFeature("pos.pre_bill") ? (
+                    <DropdownMenuItem disabled={preBillPending} onClick={() => void handlePresentBill()}>
+                      <Receipt className="size-4" aria-hidden="true" />
+                      {preBillPending ? "Presentando…" : "Presentar cuenta"}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {hasFeature("pos.discounts") ? (
+                    <DropdownMenuItem onClick={() => setDiscountTarget({ scope: "order" })}>
+                      <Percent className="size-4" aria-hidden="true" />
+                      Descuento de la comanda
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuItem onClick={() => setVoidTarget({ scope: "order" })}>
+                    <XCircle className="size-4" aria-hidden="true" />
+                    Anular comanda
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
 
           {/* Los renglones scrollean acá adentro. El mínimo no es decorativo:
               sin él, un pie alto los comprime hasta cero y la cuenta —que es

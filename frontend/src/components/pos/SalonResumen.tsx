@@ -6,6 +6,10 @@ import { formatCOP } from "@/lib/money";
  * que un mesero se pregunta al levantar la vista: cuánto queda por rotar,
  * cuánto vale una mesa, cuál lleva demasiado y a quién hay que ir a cobrar.
  *
+ * **«Abierto en mesas» no está acá**: en la maqueta es la cifra grande de la
+ * cabecera, no una cinta más. Metida entre las otras cuatro se pierde, y es
+ * justamente el número que el dueño mira primero.
+ *
  * Las cifras vienen enteras del servidor (`summary` de `GET /tables/status`).
  * `average_open` puede ser `null` y eso NO es `$ 0`: el promedio de cero mesas
  * ocupadas es «no hay promedio», y escribir cero ahí sería inventar un dato.
@@ -13,7 +17,6 @@ import { formatCOP } from "@/lib/money";
 export interface SalonResumenProps {
   tablesTotal: number;
   tablesOccupied: number;
-  openTotal: number;
   averageOpen: number | null;
   oldestTable: string | null;
   oldestLabel: string | null;
@@ -24,7 +27,11 @@ export interface SalonResumenProps {
 function Cinta({ rotulo, children }: { rotulo: string; children: React.ReactNode }): React.JSX.Element {
   return (
     <div className="min-w-0 rounded-lg border bg-card px-3.5 py-2.5">
-      <span className="block text-xs text-muted-foreground">{rotulo}</span>
+      {/* Versalita con interletrado, como `m2b`: el rótulo tiene que leerse
+          como etiqueta y no competir con la cifra que está debajo. */}
+      <span className="block text-[0.7rem] tracking-[0.07em] text-muted-foreground uppercase">
+        {rotulo}
+      </span>
       <b className="block text-lg leading-tight tabular-nums">{children}</b>
     </div>
   );
@@ -33,7 +40,6 @@ function Cinta({ rotulo, children }: { rotulo: string; children: React.ReactNode
 export function SalonResumen({
   tablesTotal,
   tablesOccupied,
-  openTotal,
   averageOpen,
   oldestTable,
   oldestLabel,
@@ -45,7 +51,6 @@ export function SalonResumen({
       <Cinta rotulo="Ocupadas">
         {tablesOccupied} de {tablesTotal}
       </Cinta>
-      <Cinta rotulo="Abierto en mesas">{formatCOP(openTotal)}</Cinta>
       <Cinta rotulo="Cuenta promedio">{averageOpen == null ? "—" : formatCOP(averageOpen)}</Cinta>
       <Cinta rotulo="Mesa más antigua">
         {oldestTable == null ? "—" : `${oldestTable} · ${oldestLabel ?? ""}`}

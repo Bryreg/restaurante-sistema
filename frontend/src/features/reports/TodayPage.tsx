@@ -52,6 +52,8 @@ import { formatCOP } from "@/lib/money"
 import { CHANNEL_LABEL } from "@/features/orders/lib"
 
 import { HourColumns } from "./charts"
+import { formatBasisPoints } from "@/features/inventory/lib"
+
 import { ALERT_LEVEL_TONE, alertRoute, methodLabel } from "./lib"
 
 const REFRESH_MS = 30_000
@@ -620,6 +622,55 @@ export function TodayPage(): React.JSX.Element {
     null,
   )
 
+  /**
+   * El renglón bajo el eje de la gráfica (`a2`). Dice dos cosas que se leen
+   * mal de la forma de las barras: **desde qué hora** se está midiendo —la
+   * primera columna no es «las cero horas», es cuando el local abrió— y
+   * **cuál columna todavía no terminó**, que es por qué esa última se dibuja
+   * como un zócalo y no como una barra.
+   *
+   * Se arma acá y no adentro de la gráfica: la pantalla es la que sabe qué
+   * hora es en Bogotá y qué día operativo se está mirando.
+   */
+  const primeraHora = hourBuckets.length > 0 ? hourBuckets[0].hour : null
+  const piePartes = [
+    primeraHora != null ? `El día abre a las ${hourLabel(primeraHora)}` : null,
+    horaEnCurso != null && hourBuckets.some((h) => h.hour === horaEnCurso)
+      ? `la de las ${hourLabel(horaEnCurso)} va en curso`
+      : null,
+  ].filter((t): t is string => t !== null)
+  const pieDelEje = piePartes.length > 0 ? piePartes.join(" · ") : undefined
+
+  /**
+   * **«Contra el lunes pasado»** (`a2`). El tercer bloque de la banda de
+   * cifra, que estaba sin usar: una venta neta sin nada al lado no dice si
+   * el día va bien —cuatro millones puede ser un récord o una caída—.
+   *
+   * La variación la divide el SERVIDOR y llega en puntos básicos
+   * (`net_vs_last_week_bp`): acá no se resta ni se divide plata. Lo único
+   * que hace la pantalla es ponerle la coma decimal y el signo.
+   *
+   * Sin `net_last_week` no se dibuja nada: «no hay contra qué comparar» no
+   * se escribe como «0 %».
+   */
+  const comparacion =
+    today.net_last_week != null && today.net_vs_last_week_bp != null
+      ? {
+          label: diaDeLaSemana
+            ? `Contra el ${diaDeLaSemana} pasado a esta hora`
+            : "Contra la semana pasada a esta hora",
+          // El porcentaje lo escribe `formatBasisPoints`, que es el ÚNICO
+          // lugar del frontal que sabe que 100 = 1 %. Acá sólo se le pone el
+          // «+» de la subida: la función ya trae el «-» de la caída, y el
+          // signo positivo es lo que hace que la comparación se lea de un
+          // vistazo.
+          delta: `${today.net_vs_last_week_bp > 0 ? "+" : ""}${formatBasisPoints(
+            today.net_vs_last_week_bp,
+          )}`,
+          detail: formatCOP(today.net_last_week),
+        }
+      : undefined
+
   const openOrders = today.open_orders ?? []
   const stuck = (today.unsent_count ?? 0) > 0 || (today.unpaid_count ?? 0) > 0
   const noShift = today.expected_cash === null || today.expected_cash === undefined
@@ -719,6 +770,7 @@ export function TodayPage(): React.JSX.Element {
               ],
               total: { label: "Ventas netas", value: formatCOP(today.net) },
             }}
+            comparison={comparacion}
           />
 
           {/* **Las ocho tarjetas en una sola grilla**, que es como `a2` las
@@ -828,6 +880,7 @@ export function TodayPage(): React.JSX.Element {
                 referenceLabel={diaDeLaSemana ? `El ${diaDeLaSemana} pasado` : "La semana pasada"}
                 formatValue={(v) => formatCOP(v)}
                 emptyLabel="Todavía no hay ventas hoy"
+                caption={pieDelEje}
                 description={
                   peakHour
                     ? `Ventas netas por hora. La hora más fuerte fue la de ${hourLabel(peakHour.hour)}. ` +

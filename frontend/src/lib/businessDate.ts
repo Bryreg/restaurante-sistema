@@ -59,3 +59,51 @@ export function formatInstant(iso: string | null | undefined): string {
   if (Number.isNaN(instant.getTime())) return "—";
   return INSTANT_FORMATTER.format(instant).replace(/\./g, "");
 }
+
+const CLOCK_FORMATTER = new Intl.DateTimeFormat("es-CO", {
+  timeZone: "America/Bogota",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+/**
+ * `en-CA` da «2026-09-22», que se compara como texto sin pasar por ninguna
+ * aritmética de fechas. La zona es **Bogotá**, no la del navegador: un
+ * administrador mirando desde Madrid no cambia qué día es acá.
+ */
+const DAY_KEY_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Bogota",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * ¿Ese instante cayó hoy, en Bogotá? Es la pregunta de «¿hace falta escribir
+ * la fecha o basta la hora?» — no la del DÍA OPERATIVO, que depende de la
+ * hora de corte de la sede y lo decide el servidor. Para elegir formato
+ * alcanza el día de calendario: una comanda de anoche que cruzó la medianoche
+ * muestra la fecha, que es exactamente lo que hay que ver.
+ */
+
+/**
+ * Sólo la hora de reloj, en Bogotá: «7:48 p. m.».
+ *
+ * Para cuando la fecha ya está dicha en otro lado y repetirla es ruido — la
+ * cabecera de una comanda abierta hace veinte minutos no necesita decir el
+ * año (`m2b`: «Abierta 7:48 p. m. · lleva 52 min»). Cuando la fecha SÍ
+ * importa —una comanda de ayer— se usa `formatInstant`, que la trae.
+ */
+export function isTodayInBogota(iso: string | null | undefined): boolean {
+  if (!iso) return false;
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return false;
+  return DAY_KEY_FORMATTER.format(instant) === DAY_KEY_FORMATTER.format(new Date());
+}
+
+export function formatClock(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return "—";
+  return CLOCK_FORMATTER.format(instant).replace(/\u202f/g, " ");
+}

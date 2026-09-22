@@ -185,6 +185,22 @@ class TodayOut(BaseModel):
     gross: int
     net: int
     tax: int
+    #: Lo neto del MISMO día de la semana, la semana pasada, **hasta esta
+    #: misma altura del día**. Comparar medio día contra un día entero no es
+    #: una comparación: daría una caída del 50 % todos los días a mediodía.
+    #: `None` cuando esa fecha no tiene ventas en los datos — y `None` no es
+    #: cero: «no hay contra qué comparar» y «vendió cero» son cosas
+    #: distintas, y la pantalla las escribe distinto.
+    net_last_week: int | None = None
+    #: La variación contra esa cifra, en **puntos básicos** (+610 = +6,1 %),
+    #: como `contribution_margin_pct_bp` en Punto de equilibrio. Entero, no
+    #: `float`: un porcentaje que viaja como coma flotante se redondea
+    #: distinto en cada cliente. La divide el servidor porque acá vive la
+    #: matemática; la pantalla sólo le pone la coma y el signo.
+    #: `None` cuando no hay contra qué comparar o cuando la semana pasada
+    #: esa jornada fue cero —dividir por cero no da «infinito por ciento»,
+    #: da «no se puede comparar»—.
+    net_vs_last_week_bp: int | None = None
     tips_total: int
     tips_by_method: list[MethodAmountOut]
     orders: int

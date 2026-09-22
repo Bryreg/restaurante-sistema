@@ -167,6 +167,10 @@ export interface TodayOut {
   gross?: number
   net?: number
   tax?: number
+  /** Lo neto del mismo día de la semana pasada, **a esta misma hora**. */
+  net_last_week?: number | null
+  /** La variación contra esa cifra en puntos básicos: +610 = +6,1 %. */
+  net_vs_last_week_bp?: number | null
   tips_total?: number
   tips_by_method?: MethodAmountOut[]
   orders?: number

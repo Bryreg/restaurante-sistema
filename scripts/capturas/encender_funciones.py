@@ -7,7 +7,7 @@ banco, obligaciones, nómina, ingeniería de menú, reposición, asientos y
 multi-sede—. Grabar un video mostrando pantallas de funciones apagadas es
 mostrar algo que ese restaurante no tiene.
 
-Hace dos cosas, en este orden:
+Hace tres cosas, en este orden:
 
 1. Sube el perfil a `full`, que es el que el catálogo define con cero
    funciones apagadas por defecto.
@@ -16,6 +16,14 @@ Hace dos cosas, en este orden:
    `PUT /admin/features/{key}`: no se enciende `catalog.preps` antes que
    `catalog.recipes`. Se hace en pasadas sucesivas hasta que no cambie nada,
    que es un encendido topológico sin tener que ordenar el grafo a mano.
+3. Pone en la sede los **canales de venta** que esas funciones habilitan.
+
+Lo tercero no es cosmético y costó verlo: `Store.active_channels` es una
+columna aparte del catálogo de funciones, y encender `pos.delivery` NO
+agrega `delivery` a esa lista. La sede quedaba con la función prendida y el
+canal apagado, así que el riel del salón —que sólo lista canales activos—
+no mostraba «Domicilios» aunque hubiera domicilios abiertos en la base.
+Desde la app se arregla en Ajustes de la sede; acá se hace en el guion.
 
 No escribe filas salteando la validación: si una dependencia no se puede
 satisfacer, la función queda apagada y se reporta.
@@ -33,6 +41,12 @@ from app.stores.models import FeatureState, Organization, Store
 import_all_models()
 
 PERFIL = "full"
+
+#: Qué función habilita qué canal de venta. `counter`, `dine_in` y `takeout`
+#: no están acá porque vienen activos de fábrica en el seed; los dos de
+#: abajo son los de fase 2, que el perfil `full` enciende y nadie había
+#: reflejado en la sede.
+CANAL_DE_FUNCION = {"pos.delivery": "delivery", "pos.platforms": "platform"}
 
 
 def main() -> None:
@@ -101,6 +115,21 @@ def main() -> None:
             dep = next((f.requires for f in FEATURE_CATALOG if f.key == k), [])
             print(f"  ✗ {k}  (requiere {', '.join(dep) or '—'})")
         sys.exit(1)
+
+    # ── Los canales de venta de la sede ────────────────────────────────────
+    canales = list(store.active_channels or [])
+    nuevos = [
+        canal
+        for clave, canal in CANAL_DE_FUNCION.items()
+        if despues.get(clave, False) and canal not in canales
+    ]
+    if nuevos:
+        store.active_channels = canales + nuevos
+        store.updated_at = clock.now_utc()
+        db.commit()
+        print(f"\ncanales de la sede: + {', '.join(nuevos)}  (ahora {', '.join(store.active_channels)})")
+    else:
+        print(f"\ncanales de la sede: {', '.join(canales) or '—'} (sin cambios)")
 
     total = len(despues)
     print(f"\nlas {total} funciones del catálogo quedaron encendidas.")

@@ -1,4 +1,4 @@
-import { Search } from "lucide-react"
+import { Search, X } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { useSession } from "@/app/session"
@@ -137,6 +137,8 @@ export function CatalogPanel({ channel, onSelectProduct, onSelectCombo }: Catalo
 
   const defaultTab = showDailyMenuTab ? "daily_menu" : "favorites"
   const [tab, setTab] = useState(defaultTab)
+  //: El buscador nace cerrado y ocupa el lugar de una pastilla al abrirse.
+  const [buscando, setBuscando] = useState(false)
 
   if (catalog.isLoading) {
     return <p className="text-sm text-muted-foreground">Cargando la carta…</p>
@@ -144,35 +146,14 @@ export function CatalogPanel({ channel, onSelectProduct, onSelectCombo }: Catalo
 
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-        <Input
-          className="h-11 pl-9"
-          placeholder="Buscar en la carta…"
-          aria-label="Buscar producto"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-      </div>
-
-      {searchResults ? (
-        searchResults.length === 0 ? (
-          <EmptyState title="Ningún producto coincide con la búsqueda" />
-        ) : (
-          <div className={GRILLA}>
-            {searchResults.map((product) => (
-              <ProductButton
-                key={product.id}
-                product={product}
-                channel={channel}
-                showDailyCount={showDailyCount}
-                onSelect={() => onSelectProduct(product)}
-              />
-            ))}
-          </div>
-        )
-      ) : (
-        <Tabs value={tab} onValueChange={(value) => setTab(String(value))}>
+      <Tabs value={tab} onValueChange={(value) => setTab(String(value))}>
+        {/* **UNA sola fila de pastillas** (`m2b`). El buscador era una banda
+            propia de 44 px encima de las categorías: en una tablet, eso es
+            una fila de platos menos, y el mesero que conoce la carta no lo
+            usa nunca —toca la categoría—. Ahora es la última pastilla de la
+            misma fila y se abre en su lugar: mismo alcance, ningún píxel de
+            cromo. */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <TabsList className="h-auto flex-wrap justify-start gap-1.5 bg-transparent p-0">
             {showDailyMenuTab ? (
               <TabsTrigger value="daily_menu" className={CATEGORIA}>
@@ -188,6 +169,76 @@ export function CatalogPanel({ channel, onSelectProduct, onSelectCombo }: Catalo
               </TabsTrigger>
             ))}
           </TabsList>
+
+          {buscando ? (
+            <div className="relative min-w-[13rem] flex-1">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                autoFocus
+                className="h-11 pr-9 pl-9"
+                placeholder="Buscar en la carta…"
+                aria-label="Buscar producto"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setSearch("")
+                    setBuscando(false)
+                  }
+                }}
+              />
+              <button
+                type="button"
+                aria-label="Cerrar la búsqueda"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                onClick={() => {
+                  setSearch("")
+                  setBuscando(false)
+                }}
+              >
+                <X className="size-4" aria-hidden="true" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              // `CATEGORIA` viene de `TabsTrigger`, que ya trae su propio
+              // `inline-flex`; un `<button>` pelado no, y sin esto el icono
+              // y la palabra se apilaban en dos renglones y la pastilla
+              // quedaba más alta que las otras.
+              className={`${CATEGORIA} inline-flex items-center justify-center gap-2 whitespace-nowrap`}
+              aria-label="Buscar en la carta"
+              onClick={() => setBuscando(true)}
+            >
+              <Search className="size-4" aria-hidden="true" />
+              Buscar
+            </button>
+          )}
+        </div>
+
+        {searchResults ? (
+          searchResults.length === 0 ? (
+            <div className="mt-3">
+              <EmptyState title="Ningún producto coincide con la búsqueda" />
+            </div>
+          ) : (
+            <div className={`mt-3 ${GRILLA}`}>
+              {searchResults.map((product) => (
+                <ProductButton
+                  key={product.id}
+                  product={product}
+                  channel={channel}
+                  showDailyCount={showDailyCount}
+                  onSelect={() => onSelectProduct(product)}
+                />
+              ))}
+            </div>
+          )
+        ) : (
+          <>
 
           {showDailyMenuTab ? (
             <TabsContent value="daily_menu">
@@ -241,8 +292,9 @@ export function CatalogPanel({ channel, onSelectProduct, onSelectCombo }: Catalo
               </TabsContent>
             )
           })}
-        </Tabs>
-      )}
+          </>
+        )}
+      </Tabs>
     </div>
   )
 }
