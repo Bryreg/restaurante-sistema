@@ -1,3 +1,4 @@
+import { Coins } from "lucide-react";
 import { useState } from "react";
 
 import type { TipInfoOut } from "@/api/orders";
@@ -51,8 +52,9 @@ export function TipQuestion({ tipInfo, value, onChange }: TipQuestionProps): Rea
 
   return (
     <section className="space-y-3 rounded-xl border bg-card p-4">
-      <div className="flex items-baseline gap-2">
-        <h2 className="text-sm font-bold">Propina</h2>
+      <div className="flex items-center gap-2">
+        <Coins className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <h2 className="text-[0.76rem] font-bold tracking-[0.07em] uppercase">Propina</h2>
         <span className="ml-auto text-xs text-muted-foreground">Hay que preguntarla</span>
       </div>
 
@@ -118,7 +120,7 @@ export function TipQuestion({ tipInfo, value, onChange }: TipQuestionProps): Rea
       {/* La nota de la maqueta, palabra por palabra. Las tres cosas que dice
           son las tres que se discuten: que es voluntaria, que se pregunta
           siempre, y que va aparte de la venta (Ley 1935 de 2018). */}
-      <p className="rounded-lg bg-muted p-3 text-xs leading-relaxed text-muted-foreground">
+      <p className="border-l-[3px] border-primary py-0.5 pl-3 text-xs leading-relaxed text-muted-foreground">
         La propina es <b className="text-foreground">voluntaria</b>. Se pregunta siempre y el cliente puede decir que
         no. Va aparte de la venta: no paga impuesto al consumo y se reparte en nómina.
       </p>

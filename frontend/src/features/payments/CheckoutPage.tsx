@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ReceiptText } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -18,7 +19,7 @@ import { getDeviceFiscalRange, type DeviceFiscalRangeOut, type PaymentOut } from
 import { EmptyState } from "@/components/EmptyState";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
-import { formatBusinessDate, formatInstant } from "@/lib/businessDate";
+import { formatBusinessDate, formatClock, formatInstant, isTodayInBogota } from "@/lib/businessDate";
 import { elapsedLabel } from "@/features/orders/lib";
 
 import type { InitialSplit } from "./PaymentSplitsForm";
@@ -212,7 +213,16 @@ export default function CheckoutPage(): React.JSX.Element {
   const titulo = mesas ? `Cobrar mesa ${mesas}` : "Cobrar";
   const subtitulo: string[] = [];
   if (order.covers) subtitulo.push(`${order.covers} ${order.covers === 1 ? "persona" : "personas"}`);
-  if (order.opened_at) subtitulo.push(`abierta ${formatInstant(order.opened_at)} · lleva ${elapsedLabel(order.opened_at)}`);
+  if (order.opened_at) {
+    // Sólo la hora si la cuenta es de hoy (`m2b`: «abierta 7:48 p. m.»). La
+    // fecha entera —«22 de sept de 2026, 01:56 p m»— es ruido en una cuenta
+    // que se abrió hace tres cuartos de hora, y encima empuja las «3 líneas»
+    // fuera del golpe de vista.
+    const cuando = isTodayInBogota(order.opened_at)
+      ? formatClock(order.opened_at)
+      : formatInstant(order.opened_at);
+    subtitulo.push(`abierta ${cuando} · lleva ${elapsedLabel(order.opened_at)}`);
+  }
   subtitulo.push(`${items.length} ${items.length === 1 ? "línea" : "líneas"}`);
 
   // La tarifa se toma de lo que el servidor discriminó, no de una constante:
@@ -322,7 +332,10 @@ export default function CheckoutPage(): React.JSX.Element {
             el desglose va consumo → impuesto → total, y no subtotal + impuesto:
             el cliente vio el precio de la carta y paga exactamente eso. */}
         <section className="space-y-3 rounded-xl border bg-card p-4">
-          <h2 className="text-sm font-bold">La venta</h2>
+          <h2 className="flex items-center gap-2 text-[0.76rem] font-bold tracking-[0.07em] uppercase">
+            <ReceiptText className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            La venta
+          </h2>
           <div className="text-sm">
             <div className="flex items-start gap-3 border-b py-2">
               <span className="min-w-0">
@@ -357,7 +370,10 @@ export default function CheckoutPage(): React.JSX.Element {
           </div>
           {/* La nota de la maqueta, con su cifra. Es la frase que evita la
               discusión de caja: esa plata no es del restaurante. */}
-          <p className="rounded-lg bg-muted p-3 text-xs leading-relaxed text-muted-foreground">
+          {/* Filete azul, como en la Comanda: en `m2b` marca las notas que
+              explican PLATA y las separa de un pie de página cualquiera.
+              Ésta es la frase que evita la discusión de caja. */}
+          <p className="border-l-[3px] border-primary py-0.5 pl-3 text-xs leading-relaxed text-muted-foreground">
             El {impuestoPct} <b className="text-foreground">no se suma</b>: se discrimina. El cliente vio{" "}
             <b className="text-foreground tabular-nums">{formatCOP(order.totals?.total)}</b> en la carta y paga{" "}
             <b className="text-foreground tabular-nums">{formatCOP(order.totals?.total)}</b> — de ahí,{" "}
