@@ -40,8 +40,12 @@ PLANOS = [
     ("__cartela2__", "", "", ""),
     ("a1-hoy", "Administración · PC", "El día, en curso",
      "Ventas netas, ticket promedio y venta por hora"),
-    ("a2-ventas", "Administración · PC", "Seis meses de venta",
-     "Por día, por canal y por medio de pago"),
+    # El rótulo NO dice cuántos meses: la base de la demo puede tener seis
+    # semanas o seis meses según con qué se generó, y un rótulo que dice
+    # «seis meses» sobre una gráfica de seis semanas es una mentira que
+    # cualquiera verifica mirando el eje.
+    ("a2-ventas", "Administración · PC", "La venta, día por día",
+     "Por canal y por medio de pago, con el período que elijas"),
     ("a3-dinero", "Administración · PC", "La caja, turno por turno",
      "Esperado, contado, diferencia y su causa"),
     ("a4-analitica", "Administración · PC", "Analítica",
