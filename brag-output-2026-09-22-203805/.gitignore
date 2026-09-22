@@ -1,0 +1,4 @@
+# El render intermedio pesa lo mismo que el entregable y se regenera con
+# `npx hyperframes render`. Lo que sí se versiona es la composición, el plan y
+# el brief — que son el trabajo.
+composition/renders/

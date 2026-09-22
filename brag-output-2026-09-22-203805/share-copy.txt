@@ -1,0 +1,9 @@
+Construí un POS para restaurantes colombianos que esconde un número a propósito.
+
+Cuando el cajero cierra el turno, la pantalla NO le muestra cuánto debería haber
+en el cajón. Primero cuenta y confirma; recién ahí se abre la ecuación y aparece
+la diferencia. Porque un esperado que se ve antes deja de ser un conteo y pasa a
+ser una instrucción.
+
+Seis semanas de operación adentro, 84 turnos cerrados, cada diferencia con su
+causa tipada. Una sola matemática, en el backend.
