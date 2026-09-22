@@ -1123,7 +1123,7 @@ class Demo:
             if item:
                 if self.attempt("nota crédito", a.post, f"/admin/documents/{doc['id']}/notes", {
                         "kind": "credit", "reason": "El cliente devolvió un plato que no pidió",
-                        "lines": [{"item_id": item["id"], "used": False, "returns_to_stock": False}],
+                        "lines": [{"item_id": item["id"], "used": True, "returns_to_stock": False}],
                         "refund": {"method": "transfer", "amount": int(item["gross"]) - int(item["discount"])}}):
                     self.report.counts["notas crédito"] += 1
 

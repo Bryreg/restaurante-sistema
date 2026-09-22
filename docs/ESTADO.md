@@ -1551,6 +1551,51 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     esperado ni en la columna de retiros; y el documento equivalente POS
     consecutivo y completo.
 
+34. **Dos semanas de operación simulada, y lo que encontraron** (2026-09-22).
+    `python -m app.demo --days 14` (después del seed) opera la sede por HTTP
+    como un restaurante real: seis proveedores, ~40 insumos con precio de
+    plaza, fichas técnicas de toda la carta, 32 compras con lote, 457 ventas
+    de todos los canales, 27 facturas, retiros, cierres con diferencia,
+    conteos, gastos, nómina, consignaciones y conciliaciones. Imprime cada
+    rechazo de la API como hallazgo. Después, recorrido en Chromium de las 22
+    pantallas del admin (con sus pestañas) y las 7 del POS.
+
+    **Arreglados en este cambio:**
+    - **La jornada de quien no marcaba salida no terminaba nunca.** La
+      responsable de caja no puede marcar salida (`NOT_CASH_RESPONSIBLE`) y el
+      cierre no cerraba su roster: nómina y reparto de propinas por horas la
+      contaban hasta «ahora» — 740 horas extra en una semana y el 60 % de las
+      propinas. El cierre (normal y administrativo) termina las entradas
+      abiertas a su hora, con auditoría. En el cierre ADMINISTRATIVO de un
+      turno abandonado eso es la hora del rescate: revisar esas horas.
+    - `POST /admin/tips/payouts` daba `500` con la hora que manda la pantalla
+      (`datetime-local` sin zona). Pasa por `from_bogota_wall_clock`.
+    - Preparaciones pedía insumos con `store_id=-1` (404) antes de saber la
+      sede; el libro del banco repetía claves de React (`id` de tablas
+      distintas); «Nómina» y «Propinas» se encendían juntas en el rail.
+
+    **Abiertos, piden decisión:**
+    - **El KDS muestra todo lo que alguna vez se envió** y nadie marcó
+      «servido»: a las dos semanas, 460 rondas, semáforo rojo y 14 días de
+      espera. `GET /kitchen/rounds` no filtra por estado de comanda ni por
+      fecha. Ocultar lo cobrado rompe el mostrador (se cobra antes de
+      cocinar); propuesta: lo `ready` de comandas cobradas sale, y nada de
+      días operativos anteriores.
+    - **Con una sesión de admin abierta en el navegador, activar el POS entra
+      en bucle**: `device/activate` responde 200 pero `/auth/me` prefiere la
+      cookie de admin y la pantalla vuelve a «Activar dispositivo» sin
+      mensaje. Decidir: activar cierra la sesión de admin, o el POS pide su
+      identidad de dispositivo explícitamente.
+    - Las dos comandas de ejemplo del seed (`shift_id=NULL`) las adopta el
+      primer turno y bloquean su cierre hasta cobrarlas o anularlas.
+    - El seed trae insumos duplicados («Pechuga de pollo»/«Pollo en
+      pechuga», «Arroz»/«Arroz blanco», «Sal»/«Sal de mesa»); el pollo
+      desmechado consume el duplicado y queda en negativo.
+    - «Cargo de domicilio» aparece en «plato vendido sin descontar nada»: es
+      un cargo, no un plato, y el aviso es ruido.
+    - Consola: «Encountered a script tag while rendering React component» en
+      todas las pantallas y avisos de Base UI `nativeButton` en tablas.
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

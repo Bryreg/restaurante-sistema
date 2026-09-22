@@ -83,7 +83,8 @@ export function LedgerTab({ storeId }: { storeId: number }): React.JSX.Element {
             caption="Movimientos de banco del período: consignaciones, liquidaciones y transferencias."
             columns={LEDGER_COLUMNS}
             rows={entries}
-            rowKey={(entry) => String(entry.id ?? `${entry.kind}-${entry.business_date}-${entry.amount}`)}
+            // El `id` es de la tabla de origen: una consignación #3 y un abono de datáfono #3 conviven.
+            rowKey={(entry) => `${entry.kind}-${entry.id ?? `${entry.business_date}-${entry.amount}`}`}
             maxBodyHeightPx={460}
             bar={<DenseTableBar shown={entries.length} total={entries.length} noun="movimientos de banco" hidden={`del ${from} al ${to}`} />}
             legend={[

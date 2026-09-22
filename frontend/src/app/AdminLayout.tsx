@@ -32,7 +32,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
 import { logout } from "@/api/auth";
@@ -374,6 +374,24 @@ const DICE: Record<Recuento, (n: number) => string> = {
   devoluciones: (n) => `${n} pendiente${n === 1 ? "" : "s"}`,
 };
 
+/**
+ * `NavLink` decide «activo» sólo por la ruta e ignora el `?tab=`: con
+ * «Nómina» (`/admin/nomina`) y «Propinas» (`/admin/nomina?tab=propinas`) en
+ * el rail, las dos quedaban encendidas a la vez. Una entrada con `?tab=` está
+ * activa sólo si la pestaña coincide; una sin él, sólo si ninguna hermana de
+ * la misma ruta reclama la pestaña actual.
+ */
+export function entradaActiva(to: string, rutaActiva: boolean, search: string, todas: string[]): boolean {
+  if (!rutaActiva) return false;
+  const [ruta, query] = to.split("?");
+  const tab = new URLSearchParams(search).get("tab");
+  if (query !== undefined) return new URLSearchParams(query).get("tab") === tab;
+  return !todas.some((otra) => {
+    const [otraRuta, otraQuery] = otra.split("?");
+    return otraRuta === ruta && otraQuery !== undefined && new URLSearchParams(otraQuery).get("tab") === tab;
+  });
+}
+
 function SidebarNav({
   items,
   counts,
@@ -385,6 +403,8 @@ function SidebarNav({
   onNavigate?: () => void;
   touch?: boolean;
 }) {
+  const { search } = useLocation();
+  const todas = items.map((item) => item.to);
   return (
     <nav aria-label="Secciones de administración" className="flex flex-col">
       {GRUPOS.map((grupo) => {
@@ -418,7 +438,9 @@ function SidebarNav({
                     onClick={onNavigate}
                     title={fila.title}
                     aria-label={nombre}
-                    className={({ isActive }) => railItemClass({ active: isActive, touch })}
+                    className={({ isActive }) =>
+                      railItemClass({ active: entradaActiva(item.to, isActive, search, todas), touch })
+                    }
                   >
                     <RailItemContent icon={fila.icon} label={fila.label} count={n} />
                   </NavLink>
