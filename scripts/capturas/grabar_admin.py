@@ -3,6 +3,7 @@
 La venta que acaba de hacer el POS aparece acá sin que nadie la copie. Eso es
 lo que hay que mostrar: no dos productos, uno solo visto desde los dos lados.
 """
+import json
 import sys
 import time
 from pathlib import Path
@@ -66,6 +67,13 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001
                 print(f"  ✗ {nombre:<20} {type(exc).__name__}: {str(exc)[:70]}")
             del porque
+
+        marcas_json = SALIDA / "marcas.json"
+        marcas_json.write_text(
+            json.dumps([{"nombre": n, "t": t} for n, t in marcas], ensure_ascii=False, indent=1),
+            encoding="utf-8",
+        )
+        print(f"\n  marcas: {marcas_json}")
 
         contexto.close()
         navegador.close()

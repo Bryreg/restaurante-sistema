@@ -14,6 +14,7 @@ Tres cosas que costaron descubrir y quedan acá para no volver a pagarlas:
    opera antes. No es un defecto, es el modelo de atribución del producto.
 3. `Table.number` es **texto**, no entero.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -104,11 +105,39 @@ def main() -> None:
         pagina.goto(f"{BASE}/pos/mesas", wait_until="networkidle")
         hito("04-salon", 2000)
 
+        # ── 3b. suena el teléfono: apartar una mesa ─────────────────────────
+        # Va ANTES de abrir mesa a propósito: es el orden real de una tarde.
+        # Se aparta para dentro de 45 minutos, que cae dentro de la ventana de
+        # anticipación del servidor — con una hora lejana la mesa no se
+        # pintaría punteada y el plano de después no mostraría nada.
+        from datetime import datetime, timedelta, timezone
+
+        pagina.goto(f"{BASE}/pos/reservas", wait_until="networkidle")
+        hito("04b-reservas", 1600)
+        bogota = datetime.now(timezone.utc) - timedelta(hours=5)
+        pagina.click("#reserva-mesa")
+        pagina.wait_for_timeout(700)
+        pagina.locator('[role="option"]').first.click()
+        pagina.wait_for_timeout(500)
+        poner_valor(pagina, "#reserva-hora", (bogota + timedelta(minutes=45)).strftime("%H:%M"))
+        poner_valor(pagina, "#reserva-nombre", "Familia Rincón")
+        poner_valor(pagina, "#reserva-telefono", "310 555 4412")
+        pagina.wait_for_timeout(700)
+        pagina.click('button:has-text("Apartar la mesa")')
+        hito("04c-reserva-hecha", 2000)
+
+        pagina.goto(f"{BASE}/pos/mesas", wait_until="networkidle")
+        hito("04d-salon-reservada", 2000)
+
         # ── 4. abrir la mesa ────────────────────────────────────────────────
         # Elegir una mesa LIBRE, leyéndolo de la pantalla. Fijar «Mesa 3» a
         # mano se rompió apenas una corrida anterior la dejó ocupada: tocar
         # una mesa ocupada va directo a su comanda y nunca abre el diálogo de
         # comensales. El salón es estado, no decorado.
+        # `:has-text("Libre")` excluye sola a la apartada: su tarjeta dice la
+        # hora de la reserva, no «Libre». Es el mismo criterio de siempre —leer
+        # el estado de la pantalla en vez de fijar un número de mesa— y acá
+        # además evita abrir justo la mesa que se acaba de apartar.
         libre = pagina.locator('button:has-text("Libre")').first
         nombre_mesa = (libre.inner_text() or "").split("\n")[0].strip()
         print(f"  · mesa libre elegida: {nombre_mesa}")
@@ -207,11 +236,21 @@ def main() -> None:
         contexto.close()
         navegador.close()
 
+    # Las marcas se ESCRIBEN, no sólo se imprimen. Cortar los planos mirando
+    # la consola fue lo que una vez dejó un rótulo hablando del plano
+    # siguiente: `cortar_planos.py` las lee de acá y los cortes salen del
+    # mismo número que produjo la grabación.
+    marcas_json = SALIDA / "marcas.json"
+    marcas_json.write_text(
+        json.dumps([{"nombre": n, "t": t} for n, t in marcas], ensure_ascii=False, indent=1),
+        encoding="utf-8",
+    )
     print("\n  marcas de tiempo (para cortar el video):")
     for nombre, t in marcas:
         print(f"    {t:6.2f}s  {nombre}")
     videos = sorted(SALIDA.glob("*.webm"))
-    print(f"\n  video: {videos[0] if videos else 'NO SE GRABÓ'}")
+    print(f"\n  marcas: {marcas_json}")
+    print(f"  video: {videos[0] if videos else 'NO SE GRABÓ'}")
 
 
 if __name__ == "__main__":

@@ -21,8 +21,10 @@ DATABASE_URL="sqlite:///./demo.db" PYTHONPATH=. uvicorn app.main:app --port 8099
 python ../scripts/capturas/grabar_pos.py   http://127.0.0.1:8099 /tmp/capturas/pos
 python ../scripts/capturas/grabar_admin.py http://127.0.0.1:8099 /tmp/capturas/admin
 
-# 5. Cortar los planos y armar la composición (ver los comentarios de
-#    `armar_recorrido.py` para las marcas de tiempo).
+# 5. Cortar los planos y armar la composición. Los cortes salen de
+#    `marcas.json`, que escribe la propia grabación — NO se eligen a ojo.
+python ../scripts/capturas/cortar_planos.py \
+    /tmp/capturas/pos/*.webm /tmp/capturas/pos/marcas.json /tmp/clips
 python ../scripts/capturas/armar_recorrido.py
 ```
 
@@ -35,6 +37,12 @@ python ../scripts/capturas/armar_recorrido.py
 - **En `/pos/identify` el teclado nace deshabilitado**: hay que elegir quién
   opera antes de teclear. Es el modelo de atribución, no un defecto.
 - **`Table.number` es texto**, no entero.
+- **Los cortes salen de `marcas.json`, no del ojo.** La primera vez se
+  eligieron mirando la consola y un plano quedó 0,7 s corrido: el rótulo «El
+  salón» terminó encima de un cuadro que ya mostraba el diálogo de
+  comensales. El rótulo describía el plano equivocado, y eso no se nota hasta
+  que alguien mira el video con atención. Ahora las dos grabaciones escriben
+  sus marcas y `cortar_planos.py` las lee.
 - **Nunca fijar una mesa por nombre**: si una corrida anterior la dejó
   ocupada, tocarla va directo a su comanda y jamás abre el diálogo de
   comensales. Se elige una que diga «Libre», leyéndolo de la pantalla.
