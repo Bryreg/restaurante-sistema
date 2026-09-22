@@ -112,6 +112,12 @@ TIQUETES_POR_DIA = {0: 46, 1: 52, 2: 54, 3: 58, 4: 78, 5: 86, 6: 72}
 #: Cómo se reparte el día entre almuerzo y cena. El domingo no tiene cena.
 REPARTO_ALMUERZO = {0: 0.70, 1: 0.68, 2: 0.68, 3: 0.65, 4: 0.55, 5: 0.48, 6: 1.00}
 
+#: Horas de Bogotá que separan los dos servicios, para `--hoy-en-curso`: a
+#: partir de `HORA_CENA` el turno que está corriendo es la cena; antes, el
+#: almuerzo. `HORA_APERTURA` es cuándo se levanta la reja.
+HORA_APERTURA = 10
+HORA_CENA = 17
+
 #: Festivos colombianos que caen en el período simulado. Un festivo entre
 #: semana en el centro es **menos** almuerzo de oficina, no más: las oficinas
 #: están cerradas. Es al revés de lo que uno supondría, y por eso está escrito.
@@ -1117,24 +1123,49 @@ def generar(db: Session, *, meses: float, semilla: int, hoy_en_curso: bool = Fal
             dia += timedelta(days=1)
 
         if hoy_en_curso:
-            # El día de hoy, a medias: el almuerzo ya cerró y la cena está
-            # abierta y vendiendo. Es el estado real de un restaurante ahora
-            # mismo, y es lo que hace que «Hoy» tenga algo que mostrar.
+            # El día de hoy, a medias, **según la hora que sea de verdad**.
+            #
+            # La primera versión simulaba SIEMPRE el almuerzo entero y lo
+            # cerraba, y sólo abría la cena a partir de las 5 p. m. Generar a
+            # las nueve de la mañana dejaba entonces un día con el almuerzo ya
+            # servido y cerrado —que todavía no había pasado— y **ningún turno
+            # abierto**, mientras el mensaje de abajo igual decía «turno
+            # abierto». El guion del salón fallaba después, lejos de acá, con
+            # «No hay turno abierto»; el generador había mentido y seguido.
+            #
+            # Ahora el turno EN CURSO es el que corresponde a la hora, y queda
+            # abierto y a medio servir. Un restaurante a las nueve de la mañana
+            # tiene el almuerzo empezando, no terminado.
             hora_local = clock_hora_local()
             del_dia = _tiquetes_del_dia(hoy, 1.0, rng)
-            almuerzo = max(6, int(del_dia * REPARTO_ALMUERZO[hoy.weekday()]))
-            r = simular_turno(ctx, dia=hoy, servicio="almuerzo", tiquetes=almuerzo,
-                              cierra_dia=False, avance=1.0)
-            turnos += 1
-            tiquetes += r["tiquetes"]
-            if hora_local >= 17:
-                # Ya es de noche: la cena está a medio servicio.
-                en_curso = max(4, int((del_dia - almuerzo) * min(1.0, (hora_local - 17) / 5 + 0.25)))
+            porcion_almuerzo = REPARTO_ALMUERZO[hoy.weekday()]
+            almuerzo = max(6, int(del_dia * porcion_almuerzo))
+
+            if hora_local >= HORA_CENA:
+                # De noche: el almuerzo ya pasó entero y la cena va a medias.
+                r = simular_turno(ctx, dia=hoy, servicio="almuerzo", tiquetes=almuerzo,
+                                  cierra_dia=False, avance=1.0)
+                turnos += 1
+                tiquetes += r["tiquetes"]
+                avance_cena = min(1.0, (hora_local - HORA_CENA) / 5 + 0.25)
+                en_curso = max(4, int((del_dia - almuerzo) * avance_cena))
                 r = simular_turno(ctx, dia=hoy, servicio="cena", tiquetes=en_curso,
                                   cierra_dia=True, avance=1.0, dejar_abierto=True)
                 turnos += 1
                 tiquetes += r["tiquetes"]
-            print(f"  {hoy:%Y-%m-%d}  el día de hoy, en curso (turno abierto)")
+                print(f"  {hoy:%Y-%m-%d}  almuerzo cerrado y cena EN CURSO ({hora_local}:00 Bogotá)")
+            else:
+                # De día: el almuerzo es el turno que está corriendo. Antes de
+                # que abra (`HORA_APERTURA`) igual se abre con poco vendido —
+                # un turno recién abierto es un estado real y es lo mínimo que
+                # el POS necesita para poder vender.
+                avance_almuerzo = min(1.0, max(0.12, (hora_local - HORA_APERTURA + 1) / 6))
+                en_curso = max(4, int(almuerzo * avance_almuerzo))
+                r = simular_turno(ctx, dia=hoy, servicio="almuerzo", tiquetes=en_curso,
+                                  cierra_dia=False, avance=1.0, dejar_abierto=True)
+                turnos += 1
+                tiquetes += r["tiquetes"]
+                print(f"  {hoy:%Y-%m-%d}  almuerzo EN CURSO ({hora_local}:00 Bogotá)")
 
         print(f"\nListo: {turnos} turnos y {tiquetes} tiquetes entre {desde} y {hoy if hoy_en_curso else hasta}.")
     finally:
