@@ -15,14 +15,28 @@ SALIDA = Path(sys.argv[2] if len(sys.argv) > 2 else "/tmp/capturas/admin")
 SALIDA.mkdir(parents=True, exist_ok=True)
 
 #: Ruta, nombre, y por qué está en el video. El orden es el del recorrido.
+#: Ruta, nombre del hito, por qué está, y —cuando hace falta— qué pestaña
+#: abrir antes de la foto.
+#:
+#: **Dinero abre en «Historial», no en «Operacional».** El rótulo de ese
+#: plano promete «esperado, contado, diferencia y su causa», y Operacional
+#: muestra los turnos de HOY: el que está corriendo todavía no se contó, así
+#: que la tabla sale con tres guiones y un «Todavía no cerró ningún turno
+#: hoy». Los arqueos con su diferencia y su causa —que son el punto del
+#: producto— están en Historial. Un rótulo que promete lo que el plano no
+#: muestra es peor que no tener el plano.
 PANTALLAS = [
     ("/admin/hoy", "01-hoy", "el día en curso, con la venta recién hecha"),
     ("/admin/ventas", "02-ventas", "seis meses de venta, no una pantalla vacía"),
-    ("/admin/dinero", "03-dinero", "los arqueos y sus diferencias con causa"),
+    ("/admin/dinero", "03-dinero", "los arqueos y sus diferencias con causa", "Historial"),
     ("/admin/analitica", "04-analitica", "la mezcla de medios moviéndose en el tiempo"),
     ("/admin/inventario", "05-inventario", "insumos, conteos y varianza"),
     ("/admin/compras", "06-compras", "proveedores y cuentas por pagar"),
-    ("/admin/gastos", "07-gastos", "obligaciones vencidas y pagadas"),
+    # Igual que Dinero: el rótulo promete «lo que vence, lo que ya salió y
+    # lo que falta», y la pestaña de Gastos muestra sólo lo que YA salió.
+    # «Obligaciones» es la que tiene las tres cosas —pagadas, pendientes y
+    # vencidas, con su botón de saldar—, que es de lo que habla el plano.
+    ("/admin/gastos", "07-gastos", "obligaciones vencidas y pagadas", "Obligaciones"),
     ("/admin/personal", "08-personal", "el equipo y su actividad"),
     ("/admin/fiscal/documentos", "09-documentos", "la numeración consecutiva"),
     ("/admin/notifications", "10-atencion", "lo que el sistema quiere que mires"),
@@ -64,9 +78,16 @@ def main() -> None:
         pagina.click('button[type="submit"]')
         pagina.wait_for_url("**/admin/**", timeout=30_000)
 
-        for ruta, nombre, porque in PANTALLAS:
+        for pantalla in PANTALLAS:
+            ruta, nombre, porque = pantalla[0], pantalla[1], pantalla[2]
+            pestana = pantalla[3] if len(pantalla) > 3 else None
             try:
                 pagina.goto(f"{BASE}{ruta}", wait_until="networkidle", timeout=45_000)
+                if pestana:
+                    # Por el rol, no por el texto suelto: en una pantalla con
+                    # tabla, «Historial» también aparece en la barra lateral.
+                    pagina.get_by_role("tab", name=pestana).click()
+                    pagina.wait_for_timeout(1200)
                 hito(nombre)
             except Exception as exc:  # noqa: BLE001
                 print(f"  ✗ {nombre:<20} {type(exc).__name__}: {str(exc)[:70]}")

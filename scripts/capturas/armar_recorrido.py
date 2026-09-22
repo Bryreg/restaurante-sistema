@@ -48,8 +48,13 @@ PLANOS = [
      "Por canal y por medio de pago, con el período que elijas"),
     ("a3-dinero", "Administración · PC", "La caja, turno por turno",
      "Esperado, contado, diferencia y su causa"),
-    ("a4-analitica", "Administración · PC", "Analítica",
-     "Qué se vende, a qué hora y con qué margen"),
+    # El rótulo NO promete margen para todo: la pantalla clasifica con el
+    # costo CONGELADO en cada venta, y un plato sin receta cargada sale «sin
+    # clasificar» con el motivo escrito. Prometer «con qué margen» sobre una
+    # tabla donde trece de diecisiete dicen que no se puede calcular es
+    # exactamente la clase de rótulo que se desmiente mirando el plano.
+    ("a4-analitica", "Administración · PC", "Ingeniería de menú",
+     "Estrella, caballo de batalla o perro: qué conviene vender y qué falta costear"),
     ("a5-inventario", "Administración · PC", "Inventario real",
      "Insumos, conteos y consumo teórico contra el real"),
     ("a6-gastos", "Administración · PC", "Obligaciones y gastos",
