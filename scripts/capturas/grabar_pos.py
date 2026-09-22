@@ -71,7 +71,7 @@ def main() -> None:
             record_video_size={"width": 1440, "height": 960},
         )
         pagina = contexto.new_page()
-        marcas: list[tuple[str, float]] = []
+        marcas: list[tuple[str, float, int]] = []
         import time
 
         t0 = time.time()
@@ -79,7 +79,11 @@ def main() -> None:
         def hito(nombre: str, espera: int = 500) -> None:
             pagina.wait_for_timeout(espera)
             pagina.screenshot(path=str(SALIDA / f"{nombre}.png"))
-            marcas.append((nombre, round(time.time() - t0, 2)))
+            # Se guarda la ESPERA además del instante: la foto se tomó
+            # después de esperar, así que la pantalla estuvo quieta en ese
+            # estado durante `espera` ms ANTES de `t`. Sin ese dato, el
+            # cortador no sabe dónde empieza el plano y tiene que adivinar.
+            marcas.append((nombre, round(time.time() - t0, 2), espera))
             print(f"  ✓ {nombre:<26} t={time.time() - t0:6.2f}s")
 
         # ── 1. activar el dispositivo ───────────────────────────────────────
@@ -180,21 +184,27 @@ def main() -> None:
         hito("08-pedido-tomado", 1400)
 
         # ── 6. marchar a cocina ─────────────────────────────────────────────
-        enviar = pagina.locator('button:has-text("Enviar")').first
+        # El rótulo es el de `m2b`: «Mandar 3 líneas a cocina», no «Enviar».
+        # Se busca por «a cocina», que es la parte que no depende del número.
+        enviar = pagina.locator('button:has-text("a cocina")').first
         if enviar.count() > 0:
             enviar.click()
             hito("09-enviado-a-cocina", 2200)
 
         # ── 7. cobrar ───────────────────────────────────────────────────────
-        pagina.click('button:has-text("Cuenta / Cobrar")')
+        # «Ir a cobrar» en mesa, «Cobrar» en mostrador (`m2b`). El selector
+        # toma el que exista: fijar el rótulo viejo fue lo que rompió esta
+        # grabación la primera vez que el POS se rediseñó.
+        pagina.click('button:has-text("Ir a cobrar"), button:has-text("Cobrar todo junto")')
         pagina.wait_for_url("**/pos/cobro/**", timeout=25_000)
         hito("10-cuenta", 2200)
 
         # ── 8. la propina: se PREGUNTA, no se cobra sola ────────────────────
         # Ley 1935 de 2018: voluntaria, ≤10 %, preguntada al presentar la
         # cuenta y separada de la venta y del impuesto. Que el botón diga el
-        # monto exacto («Sí, $ 7.593») es la ley hecha pantalla.
-        si_propina = pagina.locator('button:has-text("Sí, $")').first
+        # porcentaje Y el monto exacto («10% · $ 7.593») es la ley hecha
+        # pantalla: el porcentaje lo manda el servidor, no lo saca la tablet.
+        si_propina = pagina.locator('button:has-text("%")').first
         if si_propina.count() > 0:
             si_propina.click()
             hito("11-propina", 1600)
@@ -242,11 +252,13 @@ def main() -> None:
     # mismo número que produjo la grabación.
     marcas_json = SALIDA / "marcas.json"
     marcas_json.write_text(
-        json.dumps([{"nombre": n, "t": t} for n, t in marcas], ensure_ascii=False, indent=1),
+        json.dumps(
+            [{"nombre": n, "t": t, "espera_ms": e} for n, t, e in marcas], ensure_ascii=False, indent=1
+        ),
         encoding="utf-8",
     )
     print("\n  marcas de tiempo (para cortar el video):")
-    for nombre, t in marcas:
+    for nombre, t, _espera in marcas:
         print(f"    {t:6.2f}s  {nombre}")
     videos = sorted(SALIDA.glob("*.webm"))
     print(f"\n  marcas: {marcas_json}")

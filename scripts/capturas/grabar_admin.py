@@ -42,12 +42,16 @@ def main() -> None:
         )
         pagina = contexto.new_page()
         t0 = time.time()
-        marcas: list[tuple[str, float]] = []
+        marcas: list[tuple[str, float, int]] = []
 
         def hito(nombre: str, espera: int = 1800) -> None:
             pagina.wait_for_timeout(espera)
             pagina.screenshot(path=str(SALIDA / f"{nombre}.png"))
-            marcas.append((nombre, round(time.time() - t0, 2)))
+            # Se guarda la ESPERA además del instante: la foto se tomó
+            # después de esperar, así que la pantalla estuvo quieta en ese
+            # estado durante `espera` ms ANTES de `t`. Sin ese dato, el
+            # cortador no sabe dónde empieza el plano y tiene que adivinar.
+            marcas.append((nombre, round(time.time() - t0, 2), espera))
             print(f"  ✓ {nombre:<20} t={time.time() - t0:6.2f}s")
 
         # ── entrar ──────────────────────────────────────────────────────────
@@ -70,7 +74,9 @@ def main() -> None:
 
         marcas_json = SALIDA / "marcas.json"
         marcas_json.write_text(
-            json.dumps([{"nombre": n, "t": t} for n, t in marcas], ensure_ascii=False, indent=1),
+            json.dumps(
+            [{"nombre": n, "t": t, "espera_ms": e} for n, t, e in marcas], ensure_ascii=False, indent=1
+        ),
             encoding="utf-8",
         )
         print(f"\n  marcas: {marcas_json}")
@@ -79,7 +85,7 @@ def main() -> None:
         navegador.close()
 
     print("\n  marcas de tiempo:")
-    for nombre, t in marcas:
+    for nombre, t, _espera in marcas:
         print(f"    {t:6.2f}s  {nombre}")
     videos = sorted(SALIDA.glob("*.webm"))
     print(f"\n  video: {videos[0] if videos else 'NO SE GRABÓ'}")

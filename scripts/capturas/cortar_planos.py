@@ -7,10 +7,18 @@ rótulo describía el plano equivocado y nadie lo nota hasta que alguien mira
 el video con atención.
 
 Acá el corte sale del MISMO número que produjo la grabación
-(`marcas.json`, escrito por `grabar_pos.py`). Cada hito se tomó tras una
-espera `espera` en el guion, así que el plano empieza en `t - espera/1000` —
-el instante en que la pantalla terminó de cambiar— y dura hasta el hito
-siguiente.
+(`marcas.json`, escrito por las dos grabaciones).
+
+**El plano TERMINA en la marca; no empieza en ella.** La foto de cada hito se
+tomó después de esperar `espera_ms`, así que la pantalla estuvo quieta en ese
+estado desde `t - espera_ms` hasta `t`. Cortar hacia adelante desde `t` entra
+en la acción siguiente — y así, en la primera versión de este mismo archivo,
+«La mesa queda apartada» terminó mostrando el diálogo de abrir mesa. El
+docstring ya decía `t - espera`; el código hacía otra cosa.
+
+Cuando la espera fue corta, el plano se estira **hacia atrás** y sólo hasta la
+marca anterior: hacia atrás está la misma pantalla llegando, hacia adelante
+está la siguiente.
 """
 
 import json
@@ -48,28 +56,47 @@ def main() -> None:
     destino = Path(sys.argv[3] if len(sys.argv) > 3 else "/tmp/clips")
     destino.mkdir(parents=True, exist_ok=True)
 
-    marcas = {m["nombre"]: m["t"] for m in json.loads(marcas_json.read_text(encoding="utf-8"))}
-    orden = [m["nombre"] for m in json.loads(marcas_json.read_text(encoding="utf-8"))]
+    datos = json.loads(marcas_json.read_text(encoding="utf-8"))
+    por_nombre = {m["nombre"]: m for m in datos}
+    tiempos = sorted(m["t"] for m in datos)
 
     for hito, salida in PLANOS:
-        if hito not in marcas:
+        m = por_nombre.get(hito)
+        if m is None:
             print(f"  · falta el hito {hito}: se salta {salida}")
             continue
-        inicio = marcas[hito]
-        # El siguiente hito de la GRABACIÓN, no el siguiente plano: entre dos
-        # planos puede haber hitos intermedios (los diálogos de modificador),
-        # y cortar hasta el siguiente plano se los tragaría adentro.
-        siguientes = [marcas[n] for n in orden if marcas[n] > inicio]
-        fin = min(siguientes) if siguientes else inicio + MAXIMO
-        dur = max(MINIMO, min(MAXIMO, round(fin - inicio, 2)))
+
+        # **El plano termina EN la marca, no empieza en ella.** La foto se
+        # tomó después de esperar `espera_ms`, así que la pantalla estuvo
+        # quieta mostrando ese estado durante esa espera y hasta `t`. Cortar
+        # hacia adelante desde `t` entra en la acción siguiente: así fue como
+        # «La mesa queda apartada» terminó mostrando el diálogo de abrir mesa.
+        fin = m["t"]
+        espera = m.get("espera_ms", 1000) / 1000
+        inicio = fin - espera
+
+        # Si la espera fue corta, el plano se estira HACIA ATRÁS —nunca hacia
+        # adelante— y sólo hasta la marca anterior: hacia atrás está la misma
+        # pantalla llegando; hacia adelante está la siguiente.
+        anteriores = [t for t in tiempos if t < fin]
+        piso = max(anteriores) if anteriores else 0.0
+        if fin - inicio < MINIMO:
+            inicio = max(piso, fin - MINIMO)
+        if fin - inicio > MAXIMO:
+            inicio = fin - MAXIMO
+
+        dur = round(fin - inicio, 2)
+        if dur < 0.6:
+            print(f"  · {salida}: sólo {dur}s de pantalla quieta, se salta")
+            continue
 
         subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-ss", str(inicio), "-t", str(dur),
+            ["ffmpeg", "-y", "-v", "error", "-ss", str(round(inicio, 2)), "-t", str(dur),
              "-i", str(origen), "-an", "-c:v", "libx264", "-preset", "veryfast",
              "-crf", "20", "-pix_fmt", "yuv420p", str(destino / f"{salida}.mp4")],
             check=True,
         )
-        print(f"  ✓ {salida:<22} {inicio:6.2f}s + {dur:4.2f}s")
+        print(f"  ✓ {salida:<22} {inicio:6.2f}s → {fin:6.2f}s  ({dur:4.2f}s)")
 
     print(f"\n  planos en {destino}")
 
