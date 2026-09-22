@@ -930,7 +930,6 @@ def test_a_device_gets_404_on_an_order_a_kitchen_round_and_a_document_of_another
         headers=idem_headers(),
     )
     assert envio.status_code == 200, envio.text
-    assert device_client.get(f"{API}/kitchen/rounds").json(), "la ronda se ve mientras es propia"
 
     order = get_order(device_client, order["id"])
     cobro = pay(
@@ -944,14 +943,33 @@ def test_a_device_gets_404_on_an_order_a_kitchen_round_and_a_document_of_another
     item_id = order["items"][0]["id"]
     document_id = cobro.json()["document"]["id"]
 
+    # **Una segunda comanda, ABIERTA y marchada**, para la parte de cocina.
+    #
+    # La de arriba ya está cobrada, y `GET /kitchen/rounds` sólo lista
+    # comandas vivas: una comanda pagada no está cocinando nada. Usarla para
+    # el filtro por sede daría el falso verde exacto que este test viene a
+    # evitar — «no aparece en cocina» sería cierto por estar pagada, no por
+    # ser de otra sede, y el invariante de aislamiento quedaría sin probar.
+    en_cocina = create_order(device_client, channel="counter").json()
+    en_cocina = add_items(
+        device_client, en_cocina, [{"product_id": sales_products["inc8"].id, "qty": 1}]
+    ).json()
+    envio_2 = device_client.post(
+        f"{API}/orders/{en_cocina['id']}/send",
+        json={"expected_version": en_cocina["version"]},
+        headers=idem_headers(),
+    )
+    assert envio_2.status_code == 200, envio_2.text
+    en_cocina_id = en_cocina["id"]
+
     # Guardia contra el falso verde: las tres cosas se ven ANTES de mudarlas.
     # Si la ronda o el documento ya no existieran, los `404` de abajo no
     # probarían el filtro por sede, sólo que el id no está.
     assert device_client.get(f"{API}/orders/{order_id}").status_code == 200
     assert device_client.get(f"{API}/documents/{document_id}").status_code == 200
     assert any(
-        row["order_id"] == order_id for row in device_client.get(f"{API}/kitchen/rounds").json()
-    ), "la ronda sigue en cocina después de cobrar (los ítems quedaron `sent`)"
+        row["order_id"] == en_cocina_id for row in device_client.get(f"{API}/kitchen/rounds").json()
+    ), "la ronda de la comanda abierta no se ve ni siendo propia"
     ultimo_propio = device_client.get(f"{API}/documents/last").json()
     assert ultimo_propio is not None and ultimo_propio["id"] == document_id
 
@@ -960,6 +978,7 @@ def test_a_device_gets_404_on_an_order_a_kitchen_round_and_a_document_of_another
         ("otra organización", org_b.id, store_b.id),
     ):
         _relocate_sale(db, order_id, organization_id=organization_id, store_id=store_id)
+        _relocate_sale(db, en_cocina_id, organization_id=organization_id, store_id=store_id)
 
         lecturas = {
             "GET /orders/{id}": device_client.get(f"{API}/orders/{order_id}"),
@@ -986,13 +1005,15 @@ def test_a_device_gets_404_on_an_order_a_kitchen_round_and_a_document_of_another
         for nombre, resp in escrituras.items():
             assert resp.status_code == 404, f"{etiqueta} — {nombre}: {resp.status_code} {resp.text}"
 
+        # Cada listado se mira contra la comanda que LE CORRESPONDE: la
+        # cobrada para `GET /orders`, la que sigue abierta para cocina.
         listados = {
-            "GET /orders": device_client.get(f"{API}/orders"),
-            "GET /kitchen/rounds": device_client.get(f"{API}/kitchen/rounds"),
+            "GET /orders": (device_client.get(f"{API}/orders"), order_id),
+            "GET /kitchen/rounds": (device_client.get(f"{API}/kitchen/rounds"), en_cocina_id),
         }
-        for nombre, resp in listados.items():
+        for nombre, (resp, esperado) in listados.items():
             assert resp.status_code == 200, resp.text
-            assert order_id not in [row.get("id", row.get("order_id")) for row in resp.json()], (
+            assert esperado not in [row.get("id", row.get("order_id")) for row in resp.json()], (
                 f"{etiqueta} — {nombre} sigue listando una venta que ya no es de esta sede"
             )
 

@@ -80,3 +80,45 @@ def test_move_releases_previous_table(device_client: TestClient, identify: Any, 
     by_id = {t["id"]: t for zone in status["zones"] for t in zone["tables"]}
     assert by_id[tables[0].id]["status"] == "free"
     assert by_id[tables[2].id]["status"] == "occupied"
+
+
+def test_el_contador_de_cocina_del_pie_cuenta_comandas_no_renglones_del_riel(
+    device_client: TestClient, identify: Any, employees: Any, open_shift: Any,
+    new_order: Any, add_items: Any, main_product: Any, drink_product: Any, send_order: Any,
+) -> None:
+    """`summary.kitchen_pending`: el número del pie del salón.
+
+    Lo cuenta el SERVIDOR porque el plano no publica el estado de cada
+    renglón. La pantalla lo contaba sobre lo único que tenía a mano —el riel
+    de canales— y decía «Cocina · 2 pendientes» con nueve comandas en la
+    plancha: un contador que le erra por siete no sirve para lo único que
+    está, que es decidir si vale la pena caminar hasta la cocina.
+
+    Y son COMANDAS, no renglones: dos platos de la misma mesa son un solo
+    viaje.
+    """
+    open_shift()
+    identify(device_client, employees["operator"])
+
+    def resumen() -> dict[str, Any]:
+        resp = device_client.get("/api/v1/tables/status")
+        assert resp.status_code == 200, resp.text
+        return resp.json()["summary"]
+
+    assert resumen()["kitchen_pending"] == 0
+
+    # Una comanda con DOS platos de cocina: sigue siendo un solo viaje.
+    order = new_order().json()
+    order = add_items(order, [
+        {"product_id": main_product.id, "qty": 1},
+        {"product_id": main_product.id, "qty": 1},
+    ]).json()
+    send_order(order)
+    assert resumen()["kitchen_pending"] == 1
+
+    # Una bebida sin estación pasa directo a `served`: no es un viaje a
+    # cocina y no suma.
+    otra = new_order().json()
+    otra = add_items(otra, [{"product_id": drink_product.id, "qty": 1}]).json()
+    send_order(otra)
+    assert resumen()["kitchen_pending"] == 1

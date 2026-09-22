@@ -352,6 +352,9 @@ export interface SalonSummaryOut {
   oldest_table?: string | null
   oldest_minutes?: number | null
   asked_for_bill?: number
+  /** Comandas vivas del día con algo esperando en cocina. Lo cuenta el
+   *  servidor: el plano no publica el estado de cada renglón. */
+  kitchen_pending?: number
 }
 
 /** Espejo de `ChannelStateLiteral` del servidor (`app/orders/schemas.py`). */

@@ -218,13 +218,13 @@ export function TablesPage(): React.JSX.Element {
   // dibujan una sola vez sobre el plano entero.
   const marcasDelSitio = Array.from(new Set(zones.flatMap((z) => z.landmarks ?? [])))
 
-  // Cuántas comandas están esperando en cocina, contadas sobre lo que el
-  // plano YA recibió: las del riel en estado «en cocina» más las mesas que
-  // marcharon. No es una regla nueva ni una consulta nueva — es el mismo
-  // estado tipado que publica el servidor, contado.
-  const pendientesEnCocina = (tablesStatus.data?.channels ?? [])
-    .flatMap((g) => g.orders ?? [])
-    .filter((o) => o.state === "in_kitchen").length
+  // Cuántas comandas están esperando en cocina. **Lo cuenta el servidor**
+  // (`summary.kitchen_pending`), no la pantalla: contarlo acá sólo alcanzaba
+  // el riel de canales —lo único cuyo estado el plano publica— y decía
+  // «Cocina · 2 pendientes» con nueve comandas en la plancha. Un contador
+  // que le erra por siete no sirve para lo único que está: decidir si vale
+  // la pena caminar hasta la cocina.
+  const pendientesEnCocina = resumen?.kitchen_pending ?? 0
 
   // Lo que la búsqueda recorre: las mesas con cuenta abierta y las comandas
   // del riel. Todo ya está en memoria — buscar no le pregunta nada nuevo al

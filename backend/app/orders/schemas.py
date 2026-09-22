@@ -354,6 +354,14 @@ class SalonSummaryOut(BaseModel):
     oldest_minutes: int | None = None
     #: Cuántas mesas pidieron la cuenta y esperan que las cobren.
     asked_for_bill: int = 0
+    #: Cuántas comandas VIVAS del día tienen algo esperando en cocina (mesas,
+    #: mostrador, para llevar y domicilios: todo lo que la cocina ve). Lo
+    #: cuenta el servidor porque el plano no publica el estado de cada
+    #: renglón: la pantalla, contando sólo lo que tiene a mano —el riel de
+    #: canales—, decía «Cocina · 2 pendientes» con nueve comandas en la
+    #: plancha. Un contador que le erra por siete no sirve para decidir si
+    #: vale la pena caminar hasta la cocina, que es para lo único que está.
+    kitchen_pending: int = 0
 
 
 ChannelStateLiteral = Literal["taking", "in_kitchen", "ready", "on_the_way", "to_pay"]

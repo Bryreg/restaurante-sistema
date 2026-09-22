@@ -153,11 +153,19 @@ def test_firing_a_course_seals_fired_at_for_that_course_only(
 
 
 def test_firing_the_same_course_twice_does_not_move_the_first_fired_at(
-    device_client: Any, kds_order: dict[str, Any], clock: Any
+    device_client: Any, clock: Any, kds_order: dict[str, Any]
 ) -> None:
     """Checklist #9 + «qué pasa cuando se repite»: marchar dos veces deja el
     PRIMER `fired_at`. Un segundo toque en hora pico no puede reescribir la
-    hora que la cocina usa para ordenar."""
+    hora que la cocina usa para ordenar.
+
+    **`clock` va ANTES de `kds_order` en la firma, y no es cosmético.**
+    pytest arma las fixtures en el orden en que se piden: con `kds_order`
+    primero, la comanda nacía con la fecha real y el reloj falso saltaba
+    DESPUÉS a enero de 2026, así que la corrida tenía dos días operativos
+    distintos. `GET /kitchen/rounds` —que sólo lista el día en curso— dejaba
+    de ver su propia comanda y el test moría en un `IndexError` que no
+    hablaba de fechas. Vale para los cuatro de este archivo."""
     order = kds_order["order"]
     primera = device_client.post(
         f"{API}/orders/{order['id']}/courses/main/fire",
@@ -182,7 +190,7 @@ def test_firing_the_same_course_twice_does_not_move_the_first_fired_at(
 
 
 def test_the_kds_orders_the_queue_by_fired_at_and_never_puts_an_unfired_course_first(
-    device_client: Any, kds_order: dict[str, Any], clock: Any
+    device_client: Any, clock: Any, kds_order: dict[str, Any]
 ) -> None:
     """Checklist #9, la parte que importa de verdad: **el KDS lo respeta en
     el orden**.
@@ -228,7 +236,7 @@ def test_the_kds_orders_the_queue_by_fired_at_and_never_puts_an_unfired_course_f
 
 
 def test_bumping_twice_with_two_different_keys_is_a_no_op_the_second_time(
-    device_client: Any, kds_order: dict[str, Any], clock: Any
+    device_client: Any, clock: Any, kds_order: dict[str, Any]
 ) -> None:
     """Checklist #10, el caso real de "dos toques": dos `Idempotency-Key`
     DISTINTAS. El segundo bump devuelve `200` (nunca error), `changed:
@@ -253,7 +261,7 @@ def test_bumping_twice_with_two_different_keys_is_a_no_op_the_second_time(
 
 
 def test_bumping_twice_with_the_same_key_replays_the_stored_response(
-    device_client: Any, kds_order: dict[str, Any], clock: Any
+    device_client: Any, clock: Any, kds_order: dict[str, Any]
 ) -> None:
     """Checklist #10, el otro caso: la MISMA `Idempotency-Key` (un reintento
     de red). Tiene que devolver la respuesta guardada, no ejecutar de nuevo —

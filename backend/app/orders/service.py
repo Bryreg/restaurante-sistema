@@ -736,6 +736,7 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
             else None
         ),
         asked_for_bill=sum(1 for m in ocupadas if m.status == "to_pay"),
+        kitchen_pending=_comandas_esperando_cocina(db, store_id=store_id),
     )
 
     return TablesStatusOut(zones=zones_out, summary=resumen, channels=_channel_groups(db, store_id=store_id, now=ahora))
@@ -788,6 +789,36 @@ def _channel_groups(db: Session, *, store_id: int, now: datetime) -> list[Channe
             salida.append(ChannelGroupOut(channel=canal, orders=filas))  # type: ignore[arg-type]
     del now
     return salida
+
+
+def _comandas_esperando_cocina(db: Session, *, store_id: int) -> int:
+    """Cuántas comandas vivas del día tienen algo en la plancha.
+
+    Es el número del pie del salón («Cocina · 7 pendientes», `m2b`), y son
+    COMANDAS, no renglones: lo que el mesero decide con él es si vale la pena
+    ir hasta la cocina, y dos platos de la misma mesa son un solo viaje.
+
+    Los cortes son los MISMOS que hace `GET /kitchen/rounds` —comanda viva y
+    día operativo en curso— a propósito: un pie que cuenta con otra regla que
+    la pantalla a la que manda es un pie que miente.
+    """
+    tienda = db.get(Store, store_id)
+    hoy = tz.today_business_date(tienda.cutoff_hour) if tienda is not None else None
+    condiciones = [
+        Order.store_id == store_id,
+        Order.status.in_((OrderStatus.OPEN, OrderStatus.TO_PAY)),
+        OrderItem.status.in_((OrderItemStatus.SENT, OrderItemStatus.READY)),
+    ]
+    if hoy is not None:
+        condiciones.append(Order.business_date == hoy)
+    return int(
+        db.execute(
+            select(func.count(func.distinct(Order.id)))
+            .select_from(Order)
+            .join(OrderItem, OrderItem.order_id == Order.id)
+            .where(*condiciones)
+        ).scalar_one()
+    )
 
 
 def _channel_title(order: Order) -> str:
