@@ -26,9 +26,20 @@ import subprocess
 import sys
 from pathlib import Path
 
-#: Qué hito abre cada plano del recorrido, y con qué nombre sale. El orden es
-#: el de la grabación; el fin de cada plano es el comienzo del siguiente.
+#: Qué hito de la grabación es cada plano del recorrido, y con qué nombre
+#: sale. Las dos caras en un solo mapa: el guion recorta lo que encuentre en
+#: `marcas.json` y se salta el resto, así que sirve para cualquiera de las dos
+#: grabaciones sin duplicar este archivo.
 PLANOS = [
+    # ── la oficina ──────────────────────────────────────────────────────
+    ("01-hoy", "a1-hoy"),
+    ("02-ventas", "a2-ventas"),
+    ("03-dinero", "a3-dinero"),
+    ("04-analitica", "a4-analitica"),
+    ("05-inventario", "a5-inventario"),
+    ("07-gastos", "a6-gastos"),
+    ("10-atencion", "a7-atencion"),
+    # ── el salón ────────────────────────────────────────────────────────
     ("01-activar", "p1-entrar"),
     ("04-salon", "p2-salon"),
     ("04b-reservas", "p2b-reserva"),
