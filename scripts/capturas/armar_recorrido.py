@@ -1,0 +1,125 @@
+"""Arma la composición del recorrido leyendo la duración real de cada plano.
+
+Escribir los `data-start` a mano es pedir un error de aritmética: un plano que
+dura 2,9 s y no 2,2 corre todo lo que viene después, y el rótulo termina
+hablando del plano siguiente. Eso ya pasó una vez. Acá las duraciones se leen
+con `ffprobe` y los inicios se acumulan solos.
+"""
+import subprocess
+from pathlib import Path
+
+CLIPS = Path("/tmp/clips")
+DESTINO = Path("/home/user/restaurante-sistema/brag-output-recorrido/composition")
+
+#: (archivo, cinta, título, subtítulo). El orden es el del video.
+PLANOS = [
+    ("p1-entrar", "Salón · tablet", "Cada quien entra con su nombre",
+     "El PIN personal atribuye toda acción a una persona"),
+    ("p2-salon", "Salón · tablet", "El salón, de un vistazo",
+     "Libres, ocupadas y por cuánto va cada una"),
+    ("p3-abrir-mesa", "Salón · tablet", "Abrir mesa: dos toques",
+     "Comensales, y la comanda ya existe"),
+    ("p4-comanda", "Salón · tablet", "La carta, a un toque",
+     "Por categoría, con favoritos y buscador"),
+    ("p5-pedido", "Salón · tablet", "Tomar el pedido",
+     "Con término de la carne, curso y nota: el plato está modelado, no es un precio suelto"),
+    ("p6-cocina", "Salón · tablet", "Marchar a cocina",
+     "Cocina lo ve al instante, plato por plato"),
+    ("p7-cuenta", "Salón · tablet", "Presentar la cuenta",
+     "Se puede dividir por partes iguales o por ítems"),
+    ("p8-propina", "Salón · tablet", "La propina se pregunta",
+     "Voluntaria y separada de la venta — Ley 1935 de 2018"),
+    ("p9-cobro", "Salón · tablet", "Cobrar",
+     "Efectivo, tarjeta o transferencia. El PIN es la firma"),
+    ("p10-documento", "Salón · tablet", "Documento equivalente POS",
+     "Consecutivo sin huecos e impuesto discriminado, no sumado"),
+    ("__cartela2__", "", "", ""),
+    ("a1-hoy", "Administración · PC", "El día, en curso",
+     "Ventas netas, ticket promedio y venta por hora"),
+    ("a2-ventas", "Administración · PC", "Seis meses de venta",
+     "Por día, por canal y por medio de pago"),
+    ("a3-dinero", "Administración · PC", "La caja, turno por turno",
+     "Esperado, contado, diferencia y su causa"),
+    ("a4-analitica", "Administración · PC", "Analítica",
+     "Qué se vende, a qué hora y con qué margen"),
+    ("a5-inventario", "Administración · PC", "Inventario real",
+     "Insumos, conteos y consumo teórico contra el real"),
+    ("a6-gastos", "Administración · PC", "Obligaciones y gastos",
+     "Lo que vence, lo que ya salió y lo que falta"),
+    ("a7-atencion", "Administración · PC", "Requiere tu atención",
+     "No espera a que preguntes: te dice qué revisar hoy"),
+]
+
+CARTELA_1 = 5.2
+CARTELA_2 = 3.5
+CARTELA_3 = 5.0
+
+
+def duracion(nombre: str) -> float:
+    salida = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "csv=p=0", str(CLIPS / f"{nombre}.mp4")]
+    )
+    return round(float(salida), 2)
+
+
+def main() -> None:
+    t = CARTELA_1
+    videos, rotulos, inicio_cartela2 = [], [], None
+
+    for archivo, cinta, titulo, sub in PLANOS:
+        if archivo == "__cartela2__":
+            inicio_cartela2 = round(t, 2)
+            t = round(t + CARTELA_2, 2)
+            continue
+        d = duracion(archivo)
+        vid_id = archivo.split("-")[0]
+        videos.append(
+            f'      <video id="{vid_id}" class="clip plano" src="assets/clips/{archivo}.mp4" '
+            f'data-start="{round(t, 2)}" data-duration="{d}" data-track-index="0" muted playsinline></video>'
+        )
+        # El rótulo entra 0,3 s después del corte y se retira 0,35 s antes del
+        # siguiente: así ningún rótulo pisa el plano que no le toca.
+        r_ini, r_dur = round(t + 0.3, 2), round(d - 0.65, 2)
+        clase = " admin" if cinta.startswith("Admin") else ""
+        rotulos.append((f"r-{vid_id}", r_ini, r_dur, clase, cinta, titulo, sub))
+        t = round(t + d, 2)
+
+    total = round(t + CARTELA_3, 2)
+    inicio_cartela3 = round(t, 2)
+
+    html_rotulos = "\n".join(
+        f'      <div id="{rid}" class="clip rotulo" data-start="{ini}" data-duration="{dur}" data-track-index="1">\n'
+        f'        <span class="cinta{clase}">{cinta}</span>\n'
+        f'        <div class="frase">{tit}<small>{sub}</small></div>\n'
+        f"      </div>"
+        for rid, ini, dur, clase, cinta, tit, sub in rotulos
+    )
+    js_rotulos = ",\n        ".join(
+        f'["#{rid}", {ini}, {dur}]' for rid, ini, dur, *_ in rotulos
+    )
+
+    plantilla = Path(__file__).with_name("plantilla-recorrido.html").read_text(encoding="utf-8")
+    html = (
+        plantilla.replace("{{DURACION}}", str(total))
+        .replace("{{CARTELA2_INICIO}}", str(inicio_cartela2))
+        .replace("{{CARTELA3_INICIO}}", str(inicio_cartela3))
+        .replace("{{CARTELA1_FIN}}", str(round(CARTELA_1 - 0.35, 2)))
+        .replace("{{CARTELA2_FIN}}", str(round(inicio_cartela2 + CARTELA_2 - 0.32, 2)))
+        .replace("{{VIDEOS}}", "\n".join(videos))
+        .replace("{{ROTULOS}}", html_rotulos)
+        .replace("{{JS_ROTULOS}}", js_rotulos)
+        .replace("{{C2A}}", str(round(inicio_cartela2 + 0.15, 2)))
+        .replace("{{C2B}}", str(round(inicio_cartela2 + 0.7, 2)))
+        .replace("{{C3A}}", str(round(inicio_cartela3 + 0.25, 2)))
+        .replace("{{C3B}}", str(round(inicio_cartela3 + 0.9, 2)))
+    )
+    (DESTINO / "index.html").write_text(html, encoding="utf-8")
+
+    print(f"  duración total: {total}s")
+    print(f"  cartela 2 en {inicio_cartela2}s · cartela 3 en {inicio_cartela3}s")
+    print(f"  {len(videos)} planos, {len(rotulos)} rótulos")
+
+
+if __name__ == "__main__":
+    main()

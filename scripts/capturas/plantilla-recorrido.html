@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Restaurante Sistema — el recorrido</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Atkinson Hyperlegible";
+        font-style: normal;
+        font-weight: 400;
+        src: url("assets/fonts/atkinson-400.woff2") format("woff2");
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Atkinson Hyperlegible";
+        font-style: normal;
+        font-weight: 700;
+        src: url("assets/fonts/atkinson-700.woff2") format("woff2");
+        font-display: block;
+      }
+      :root {
+        --bg: #edf1f7;
+        --ink: #0f1b2d;
+        --ink-2: #475569;
+        --brand: #1e40af;
+        --bad: #b91c1c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Atkinson Hyperlegible", Verdana, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; }
+
+      /* Los planos grabados. Van a pantalla completa: el metraje YA viene
+         encuadrado a 1920x1080 con el fondo de la app, así que no hay que
+         recortar nada acá. */
+      video.plano {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      /* Rótulo inferior. Vive en su propia pista, encima del video: un
+         `<video data-start>` dentro de un envoltorio que TAMBIÉN lleva
+         `data-start` lo rechaza el lint (`video_nested_in_timed_element`) y
+         además rompe de verdad el extractor de fotogramas. */
+      .rotulo {
+        position: absolute;
+        left: 96px;
+        bottom: 88px;
+        max-width: 1180px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .cinta {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+        padding: 10px 24px;
+        border-radius: 999px;
+        background: var(--brand);
+        color: #fff;
+        font-size: 25px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+      .cinta.admin { background: var(--ink); }
+      .frase {
+        padding: 16px 28px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.94);
+        border: 1px solid #d9e1ee;
+        box-shadow: 0 16px 40px rgba(15, 27, 45, 0.16);
+        font-size: 40px;
+        font-weight: 700;
+        line-height: 1.22;
+        letter-spacing: -0.01em;
+      }
+      .frase small {
+        display: block;
+        margin-top: 6px;
+        font-size: 27px;
+        font-weight: 400;
+        color: var(--ink-2);
+        letter-spacing: 0;
+      }
+
+      /* Cartelas. */
+      .cartela {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 100px 160px;
+        text-align: center;
+      }
+      #t1 { background: var(--brand); color: #fff; }
+      #t3 { background: var(--ink); color: #fff; }
+      #t4 { background: var(--bg); }
+      .grande {
+        font-size: 82px;
+        font-weight: 700;
+        line-height: 1.12;
+        letter-spacing: -0.018em;
+        max-width: 1400px;
+      }
+      .chica {
+        margin-top: 34px;
+        font-size: 38px;
+        line-height: 1.34;
+        max-width: 1180px;
+        opacity: 0.9;
+      }
+      #t4 .chica { color: var(--ink-2); opacity: 1; }
+      .marca { font-size: 96px; font-weight: 700; letter-spacing: -0.02em; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="recorrido"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="{{DURACION}}"
+    >
+      <!-- ══ Cartela 1 · el problema ═════════════════════════════════════ -->
+      <section id="t1" class="clip cartela" data-start="0" data-duration="5.2" data-track-index="0">
+        <div id="t1-a" class="grande">Un restaurante pierde plata en el mostrador, no en el balance.</div>
+        <div id="t1-b" class="chica">
+          Restaurante Sistema es el punto de venta y el control interno de la misma sede. Una venta, dos caras.
+        </div>
+      </section>
+
+{{VIDEOS}}
+
+      <!-- ══ Cartela 2 · el cruce ════════════════════════════════════════ -->
+      <section id="t3" class="clip cartela" data-start="{{CARTELA2_INICIO}}" data-duration="3.5" data-track-index="0">
+        <div id="t3-a" class="grande">La misma venta, del otro lado.</div>
+        <div id="t3-b" class="chica">Nadie la vuelve a teclear. El administrador ya la tiene.</div>
+      </section>
+
+      <!-- ══ Cartela 3 · cierre ══════════════════════════════════════════ -->
+      <section id="t4" class="clip cartela" data-start="{{CARTELA3_INICIO}}" data-duration="5.0" data-track-index="0">
+        <div id="t4-a" class="marca">Restaurante Sistema</div>
+        <div id="t4-b" class="chica">
+          Punto de venta, cocina, inventario, compras y control de caja. Una sola matemática, en el servidor.
+        </div>
+      </section>
+
+      <!-- ══ Rótulos, en su propia pista, encima del metraje ═════════════ -->
+{{ROTULOS}}
+
+      <audio
+        id="bed"
+        src="assets/music/happy-beats-business-moves-vol-12-by-ende-dot-app.mp3"
+        data-start="0"
+        data-duration="{{DURACION}}"
+        data-track-index="10"
+        data-volume="0.3"
+        data-automation='{"version":1,"lanes":[{"target":"volume","points":[{"t":0,"v":0.2},{"t":4,"v":0.3},{"t":{{CARTELA2_INICIO}},"v":0.36},{"t":{{CARTELA3_INICIO}},"v":0.34},{"t":{{DURACION}},"v":0}]}]}'
+      ></audio>
+    </div>
+
+    <script>
+      const tl = gsap.timeline({ paused: true });
+
+      tl.fromTo("#t1-a", { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0.25)
+        .fromTo("#t1-b", { y: 22, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" }, 1.15)
+        .to("#t1", { opacity: 0, duration: 0.35, ease: "power1.in" }, {{CARTELA1_FIN}});
+
+      tl.fromTo("#t3-a", { y: 26, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, {{C2A}})
+        .fromTo("#t3-b", { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power2.out" }, {{C2B}})
+        .to("#t3", { opacity: 0, duration: 0.32, ease: "power1.in" }, {{CARTELA2_FIN}});
+
+      tl.fromTo("#t4-a", { y: 26, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, {{C3A}})
+        .fromTo("#t4-b", { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" }, {{C3B}});
+
+      // Cada rótulo entra desde abajo y se retira antes del corte.
+      const rotulos = [
+        {{JS_ROTULOS}}
+      ];
+      for (const [sel, inicio, dur] of rotulos) {
+        tl.fromTo(sel + " > *", { y: 26, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.36, stagger: 0.08, ease: "power3.out" }, inicio + 0.1);
+        tl.to(sel, { opacity: 0, duration: 0.26, ease: "power1.in" }, inicio + dur - 0.3);
+      }
+
+      window.__timelines["recorrido"] = tl;
+    </script>
+  </body>
+</html>
