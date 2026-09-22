@@ -890,6 +890,10 @@ def document_printable(db: Session, document: FiscalDocument) -> DocumentPrintab
         tax_total=document.tax_total,
         total=document.total,
         tip=tip_out,
+        # Venta + propina. La propina NO entra en `total` —no es venta y no
+        # paga impuesto— pero sí es lo que el cliente entregó, y el papel
+        # tiene que decirlo con una sola cifra.
+        amount_paid=document.total + (document.tip_amount or 0),
         payments=[DocumentPaymentLineOut(**p) for p in document.payments_snapshot],
         change=sum(p.get("change", 0) for p in document.payments_snapshot),
         print_count=document.print_count,
@@ -914,6 +918,7 @@ def _document_fiscal_out(db: Session, document: FiscalDocument) -> DocumentFisca
                 to_number=range_row.to_number,
                 resolution_number=range_row.resolution_number,
                 valid_until=range_row.valid_until,
+                remaining=max(0, range_row.to_number - range_row.next_number + 1),
             )
     return DocumentFiscalOut(
         dian_status=document.dian_status.value if document.dian_status else None,  # type: ignore[union-attr]

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Printer, Receipt, Scale } from "lucide-react";
+import { ArrowLeft, Printer, Receipt, Scale, ShieldCheck } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useSession } from "@/app/session";
@@ -8,11 +8,32 @@ import { DIAN_STATUS_LABEL } from "@/api/fiscal";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
-import { formatInstant } from "@/lib/businessDate";
+import { formatBusinessDate, formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
+import { CHANNEL_LABEL } from "@/features/orders/lib";
 
 import "./document-print.css";
+
+/**
+ * Tipo de documento del adquirente. `customer.doc_type` viaja como **código
+ * DIAN** («13» cédula, «31» NIT…), y ese código se estaba imprimiendo como
+ * rótulo: el papel entregado al cliente decía «13  22222222222». Es una
+ * etiqueta de interfaz, igual que `DIAN_STATUS_LABEL`, no la leyenda legal
+ * —ésa sigue saliendo entera del servidor en `doc.legend`—.
+ */
+const DOC_TYPE_LABEL: Record<string, string> = {
+  "11": "Registro civil",
+  "12": "Tarjeta de identidad",
+  "13": "Cédula",
+  "21": "Tarjeta de extranjería",
+  "22": "Cédula de extranjería",
+  "31": "NIT",
+  "41": "Pasaporte",
+  "42": "Documento extranjero",
+  "47": "PEP",
+  "50": "NIT de otro país",
+};
 
 const PAYMENT_METHOD_LABEL: Record<string, string> = {
   cash: "Efectivo",
@@ -33,6 +54,31 @@ function dianBadgeVariant(status: string): "default" | "destructive" | "outline"
   if (status === "validated") return "default";
   if (status === "rejected") return "destructive";
   return "outline";
+}
+
+/**
+ * Un renglón de las tarjetas de la derecha: rótulo con su explicación chica
+ * a la izquierda, dato a la derecha. La explicación no es adorno — es lo que
+ * convierte «POS-CH-008157» en «el consecutivo corre derecho».
+ */
+function Medio({
+  rotulo,
+  ayuda,
+  valor,
+}: {
+  rotulo: string;
+  ayuda?: string;
+  valor: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="flex items-start gap-3 px-4 py-2.5">
+      <dt className="min-w-0">
+        {rotulo}
+        {ayuda ? <small className="block text-xs text-muted-foreground">{ayuda}</small> : null}
+      </dt>
+      <dd className="ml-auto text-right font-medium tabular-nums">{valor}</dd>
+    </div>
+  );
 }
 
 function documentQueryKey(documentId: number) {
@@ -151,19 +197,49 @@ export default function DocumentPage(): React.JSX.Element {
   const customer = doc.customer;
   const order = doc.order;
   const taxLines = doc.tax_lines ?? [];
+  const numero = doc.full_number ?? `${doc.prefix ?? ""}-${doc.number ?? ""}`;
+  // «Comprobante de la mesa 7» (`m2b`), con el mismo criterio que la Comanda
+  // y el Cobro: primero de quién es, no el número interno.
+  const mesas = (order?.tables ?? []).join(", ");
+  const titulo = mesas ? `Comprobante de la mesa ${mesas}` : "Comprobante";
+  const rango = doc.fiscal?.range;
+  const reimpresiones = doc.reprints ?? [];
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 pb-16">
-      <div className="flex flex-wrap items-center gap-2 print:hidden">
-        <h1 className="text-lg font-semibold">Comprobante</h1>
-        <span className="text-lg font-semibold tabular-nums text-muted-foreground">
-          Documento {doc.full_number ?? `${doc.prefix ?? ""}-${doc.number ?? ""}`}
-        </span>
-        {doc.fiscal?.dian_status ? (
-          <Badge variant={dianBadgeVariant(doc.fiscal.dian_status)}>{dianStatusLabel(doc.fiscal.dian_status)}</Badge>
-        ) : null}
-        {doc.fiscal?.contingency ? <Badge variant="outline">Contingencia</Badge> : null}
-      </div>
+      {/* **La cabecera de `m2b`** (pantalla 4). «Se le cobró» arriba de la
+          cifra, y debajo de qué se compone: es la pregunta que hace el
+          cliente al recibir el papel, y la que el mesero no debería tener
+          que resolver sumando de cabeza. */}
+      <header className="flex flex-wrap items-start gap-4 rounded-xl border bg-muted px-4 py-3 print:hidden">
+        <div className="min-w-0">
+          <h1 className="text-xl leading-tight font-semibold">{titulo}</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {doc.type_label ?? doc.document_type}{" "}
+            <b className="text-foreground tabular-nums">{numero}</b>
+            {doc.issued_at ? ` · emitido a las ${formatInstant(doc.issued_at)}` : null}
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            {doc.fiscal?.dian_status ? (
+              <Badge variant={dianBadgeVariant(doc.fiscal.dian_status)}>
+                {dianStatusLabel(doc.fiscal.dian_status)}
+              </Badge>
+            ) : null}
+            {doc.fiscal?.contingency ? <Badge variant="outline">Contingencia</Badge> : null}
+          </div>
+        </div>
+        <div className="ml-auto text-right">
+          <span className="block text-xs text-muted-foreground">Se le cobró</span>
+          <span className="block text-[1.75rem] leading-tight font-bold tabular-nums">
+            {formatCOP(doc.amount_paid)}
+          </span>
+          {doc.tip?.amount ? (
+            <span className="block text-xs text-muted-foreground tabular-nums">
+              Venta {formatCOP(doc.total)} + propina {formatCOP(doc.tip.amount)}
+            </span>
+          ) : null}
+        </div>
+      </header>
 
       {reprintMutation.isError ? (
         <p role="alert" className="text-sm text-destructive print:hidden">
@@ -176,7 +252,7 @@ export default function DocumentPage(): React.JSX.Element {
           <div className="flex flex-wrap gap-2">
             <Button type="button" className="h-11" onClick={() => window.print()}>
               <Printer aria-hidden="true" />
-              Imprimir
+              Imprimir de nuevo
             </Button>
             <Button
               type="button"
@@ -186,13 +262,92 @@ export default function DocumentPage(): React.JSX.Element {
               onClick={() => reprintMutation.mutate()}
             >
               <Receipt aria-hidden="true" />
-              {reprintMutation.isPending ? "Reimprimiendo…" : "Reimprimir"}
+              {reprintMutation.isPending ? "Reimprimiendo…" : "Copia para el cliente"}
             </Button>
             <Button type="button" variant="outline" className="h-11" onClick={backTo}>
               <ArrowLeft aria-hidden="true" />
-              Volver
+              Volver al salón
             </Button>
           </div>
+
+          {/* **«Numeración y estado»** (`m2b`). Lo que contesta la pregunta
+              incómoda de una auditoría: que el consecutivo corre derecho, de
+              qué resolución sale y cuántos quedan. Todo lo dice el servidor;
+              acá no se resta ni un número. */}
+          {rango ? (
+            <section className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+              <div className="flex items-center gap-2 border-b bg-muted/60 px-4 py-2.5 text-muted-foreground">
+                <ShieldCheck aria-hidden="true" className="size-4" />
+                <h2 className="text-xs font-bold tracking-wider uppercase">Numeración y estado</h2>
+                {doc.fiscal?.dian_status ? (
+                  <Badge className="ml-auto" variant={dianBadgeVariant(doc.fiscal.dian_status)}>
+                    {dianStatusLabel(doc.fiscal.dian_status)}
+                  </Badge>
+                ) : null}
+              </div>
+              <dl className="divide-y text-sm">
+                <Medio
+                  rotulo="Consecutivo"
+                  ayuda="Corre derecho: ningún número se salta ni se repite"
+                  valor={numero}
+                />
+                <Medio
+                  rotulo="Rango autorizado"
+                  ayuda={`Resolución ${rango.resolution_number ?? "—"}`}
+                  valor={
+                    rango.prefix && rango.from_number != null && rango.to_number != null
+                      ? `${rango.prefix} ${rango.from_number} a ${rango.to_number}`
+                      : "—"
+                  }
+                />
+                {rango.remaining != null ? (
+                  <Medio
+                    rotulo="Quedan"
+                    ayuda={rango.valid_until ? `El rango vence el ${formatBusinessDate(rango.valid_until)}` : undefined}
+                    valor={`${rango.remaining.toLocaleString("es-CO")} ${rango.remaining === 1 ? "número" : "números"}`}
+                  />
+                ) : null}
+              </dl>
+              <p className="border-t px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+                La leyenda del pie llega ya redactada del servidor y la tablet la imprime tal cual. Acá no se arma
+                texto legal.
+              </p>
+            </section>
+          ) : null}
+
+          {/* **«Impresiones»** (`m2b`). El comprobante no cambia al
+              reimprimirse: cambia el contador, y cada copia queda con quién
+              la pidió y a qué hora. */}
+          <section className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+            <div className="flex items-center gap-2 border-b bg-muted/60 px-4 py-2.5 text-muted-foreground">
+              <Printer aria-hidden="true" className="size-4" />
+              <h2 className="text-xs font-bold tracking-wider uppercase">Impresiones</h2>
+              <span className="ml-auto text-xs">
+                {doc.print_count ?? 1} {(doc.print_count ?? 1) === 1 ? "original" : "originales"} ·{" "}
+                {reimpresiones.length} {reimpresiones.length === 1 ? "reimpresión" : "reimpresiones"}
+              </span>
+            </div>
+            <dl className="divide-y text-sm">
+              <Medio
+                rotulo="Original"
+                ayuda={order?.charged_by ?? undefined}
+                valor={doc.issued_at ? formatInstant(doc.issued_at) : "—"}
+              />
+              {reimpresiones.map((copia, index) => (
+                <Medio
+                  key={index}
+                  rotulo={`Copia ${index + 1}`}
+                  ayuda={copia.by ?? undefined}
+                  valor={copia.at ? formatInstant(copia.at) : "—"}
+                />
+              ))}
+            </dl>
+            {reimpresiones.length === 0 ? (
+              <p className="border-t px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+                Todavía no se reimprimió. Cada copia queda contada por el servidor, con quién la pidió y a qué hora.
+              </p>
+            ) : null}
+          </section>
 
           <section className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
             <div className="flex items-center gap-2 border-b bg-muted/60 px-4 py-2.5 text-muted-foreground">
@@ -239,12 +394,20 @@ export default function DocumentPage(): React.JSX.Element {
             <Dato k="Fecha" v={doc.business_date ?? "—"} />
             <Dato k="Emitido" v={doc.issued_at ? formatInstant(doc.issued_at) : "—"} />
             <Dato k="Adquirente" v={customer?.name ?? "Consumidor final"} />
-            {customer?.doc_number ? <Dato k={customer.doc_type ?? "Doc."} v={customer.doc_number} /> : null}
+            {customer?.doc_number ? (
+              <Dato
+                k={customer.doc_type ? (DOC_TYPE_LABEL[customer.doc_type] ?? "Identificación") : "Identificación"}
+                v={customer.doc_number}
+              />
+            ) : null}
           </div>
 
           {order?.channel || (order?.tables && order.tables.length > 0) || order?.covers != null || order?.served_by || order?.charged_by ? (
             <div className="mt-2 border-t border-dashed pt-2 text-xs">
-              {order?.channel ? <Dato k="Canal" v={order.channel} /> : null}
+              {/* `CHANNEL_LABEL` es el mismo diccionario que usa el salón:
+                  el papel decía «dine_in», que es el nombre interno del
+                  canal y no significa nada para quien lo recibe. */}
+              {order?.channel ? <Dato k="Canal" v={CHANNEL_LABEL[order.channel] ?? order.channel} /> : null}
               {order?.tables && order.tables.length > 0 ? <Dato k="Mesa(s)" v={order.tables.join(", ")} /> : null}
               {order?.covers != null ? <Dato k="Comensales" v={order.covers} /> : null}
               {order?.served_by ? <Dato k="Atendió" v={order.served_by} /> : null}
@@ -281,7 +444,14 @@ export default function DocumentPage(): React.JSX.Element {
 
             <div className="my-1 border-l-2 border-border py-0.5 pl-2.5">
               {taxLines.map((line, index) => (
-                <Total key={index} rotulo={`Impuesto ${line.rate}%`} valor={formatCOP(line.tax)} />
+                <div key={index}>
+                  <Total rotulo="Base gravable" valor={formatCOP(line.base)} />
+                  <p className="text-[0.85em] leading-snug text-muted-foreground">El precio sin el impuesto</p>
+                  <Total rotulo={`Impuesto al consumo ${line.rate}%`} valor={formatCOP(line.tax)} />
+                  <p className="text-[0.85em] leading-snug text-muted-foreground">
+                    Ya venía adentro del precio de la carta
+                  </p>
+                </div>
               ))}
               <p className="pt-0.5 text-[0.85em] leading-snug text-muted-foreground">
                 Discriminado, no sumado: ya está adentro del total de venta.
@@ -310,17 +480,42 @@ export default function DocumentPage(): React.JSX.Element {
             </div>
           ) : null}
 
+          {doc.tip?.amount ? (
+            <div className="mt-2 border-t-2 border-foreground pt-1.5 text-xs">
+              <Total rotulo="Total pagado" valor={formatCOP(doc.amount_paid)} fuerte />
+              <p className="text-[0.85em] leading-snug text-muted-foreground tabular-nums">
+                {formatCOP(doc.total)} de venta + {formatCOP(doc.tip.amount)} de propina
+              </p>
+            </div>
+          ) : null}
+
           <div className="mt-3 border-t border-dashed pt-2 text-xs">
             <p className="pb-0.5 font-medium text-muted-foreground">Pagos</p>
-            {(doc.payments ?? []).map((payment, index) => (
-              <Dato
-                key={index}
-                k={`${payment.label ?? PAYMENT_METHOD_LABEL[payment.method ?? ""] ?? payment.method}${
-                  payment.dian_code ? ` (${payment.dian_code})` : ""
-                }`}
-                v={<span className="tabular-nums">{formatCOP(payment.amount)}</span>}
-              />
-            ))}
+            {/* Cada medio con SU parte de propina en renglón propio, cuando
+                la tiene. Sin ese renglón el papel cerraba en «Total pagado
+                $108.167» y abajo listaba «Efectivo $99.000»: al cliente le
+                faltaban $9.167 y no había dónde encontrarlos. No se suman
+                las dos cifras acá — se muestran las dos, que es además la
+                regla del producto: la propina nunca se mezcla con la venta. */}
+            {(doc.payments ?? []).map((payment, index) => {
+              const rotulo = `${payment.label ?? PAYMENT_METHOD_LABEL[payment.method ?? ""] ?? payment.method}${
+                payment.dian_code ? ` (${payment.dian_code})` : ""
+              }`;
+              return (
+                <div key={index}>
+                  <Dato k={rotulo} v={<span className="tabular-nums">{formatCOP(payment.amount)}</span>} />
+                  {payment.tip_amount ? (
+                    <Dato
+                      k={`${rotulo} · propina`}
+                      v={<span className="tabular-nums">{formatCOP(payment.tip_amount)}</span>}
+                    />
+                  ) : null}
+                  {payment.tendered ? (
+                    <Dato k="Recibido" v={<span className="tabular-nums">{formatCOP(payment.tendered)}</span>} />
+                  ) : null}
+                </div>
+              );
+            })}
             {doc.change ? <Dato k="Cambio" v={<span className="tabular-nums">{formatCOP(doc.change)}</span>} /> : null}
           </div>
 

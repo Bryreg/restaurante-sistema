@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,7 +40,12 @@ describe("DocumentPage", () => {
     expect(await screen.findByText("COMPROBANTE INTERNO — no es factura ni documento equivalente")).toBeInTheDocument();
     expect(screen.getByText(/propina voluntaria \(sugerida 10%\)/i)).toBeInTheDocument();
     // El total de la venta no incluye la propina.
-    expect(screen.getByText("POS-000123")).toBeInTheDocument();
+    // El consecutivo aparece en la cabecera, en el papel y en la tarjeta de
+    // numeración. El que esta prueba cuida es el del PAPEL: es el que se
+    // entrega y el único que un auditor va a mirar.
+    const papel = document.getElementById("document-printable");
+    expect(papel).not.toBeNull();
+    expect(within(papel as HTMLElement).getByText("POS-000123")).toBeInTheDocument();
   });
 
   it("muestra el estado DIAN, el CUDE y el QR cuando llegan", async () => {
@@ -94,7 +99,7 @@ describe("DocumentPage", () => {
 
     expect(await screen.findByText(/reimpresiones: 0/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /reimprimir/i }));
+    await user.click(screen.getByRole("button", { name: /copia para el cliente/i }));
 
     await waitFor(() => expect(reprintDocument).toHaveBeenCalledWith(900));
     expect(await screen.findByText(/reimpresiones: 1/i)).toBeInTheDocument();
@@ -106,8 +111,8 @@ describe("DocumentPage", () => {
 
     renderDocument({ "pos.tables": true });
 
-    await screen.findByText("POS-000123");
-    await user.click(screen.getByRole("button", { name: "Volver" }));
+    await screen.findAllByText("POS-000123");
+    await user.click(screen.getByRole("button", { name: "Volver al salón" }));
 
     expect(await screen.findByText("Mapa de mesas")).toBeInTheDocument();
   });
@@ -118,8 +123,8 @@ describe("DocumentPage", () => {
 
     renderDocument({ "pos.tables": false });
 
-    await screen.findByText("POS-000123");
-    await user.click(screen.getByRole("button", { name: "Volver" }));
+    await screen.findAllByText("POS-000123");
+    await user.click(screen.getByRole("button", { name: "Volver al salón" }));
 
     expect(await screen.findByText("Comanda nueva")).toBeInTheDocument();
   });

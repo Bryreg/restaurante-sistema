@@ -974,6 +974,7 @@ def document_evidence(db: Session, *, document: FiscalDocument) -> DocumentEvide
                 to_number=range_row.to_number,
                 resolution_number=range_row.resolution_number,
                 valid_until=range_row.valid_until,
+                remaining=max(0, range_row.to_number - range_row.next_number + 1),
             )
     return DocumentEvidenceOut(
         id=document.id,

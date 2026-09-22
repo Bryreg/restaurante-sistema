@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { AlertTriangle, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -20,6 +21,7 @@ import { PinPad } from "@/components/PinPad";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { errorMessage } from "@/lib/errors";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
@@ -312,13 +314,40 @@ export function PaymentSplitsForm({
         ))}
       </div>
 
-      <p className="text-sm font-medium tabular-nums" role="status">
-        {remaining > 0
-          ? `Faltan ${formatCOP(remaining)}`
-          : remaining < 0
-            ? `Sobran ${formatCOP(-remaining)}`
-            : "Completo"}
-      </p>
+      {/* **El bloque «restante» de `m2b`**: verde y con la cifra cuando la
+          cuenta ya está cubierta, ámbar mientras falte o sobre. Que sea un
+          bloque de color y no un renglón de texto es el punto: es lo que el
+          mesero mira de reojo antes de teclear el PIN. El texto acompaña
+          siempre al color — nunca sólo color. */}
+      <div
+        role="status"
+        className={cn(
+          "flex items-center gap-2.5 rounded-lg border px-3.5 py-3 font-bold",
+          remaining === 0
+            ? "border-success-line bg-success-soft text-success"
+            : "border-warning-line bg-warning-soft text-warning",
+        )}
+      >
+        {remaining === 0 ? (
+          <Check className="size-4 shrink-0" aria-hidden="true" />
+        ) : (
+          <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
+        )}
+        {/* La cifra va DENTRO de la misma frase cuando falta o sobra
+            («Faltan $30.000»): es una sola cosa que leer, y es como el
+            producto ya lo decía. Sólo el caso cubierto toma la forma de la
+            maqueta, con el cero a la derecha. */}
+        {remaining === 0 ? (
+          <>
+            <span>Queda cubierto</span>
+            <span className="ml-auto tabular-nums">{formatCOP(0)}</span>
+          </>
+        ) : (
+          <span className="tabular-nums">
+            {remaining > 0 ? `Faltan ${formatCOP(remaining)}` : `Sobran ${formatCOP(-remaining)}`}
+          </span>
+        )}
+      </div>
 
       {error ? (
         <p role="alert" className="text-sm text-destructive">

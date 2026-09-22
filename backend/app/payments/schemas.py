@@ -248,6 +248,11 @@ class DocumentPrintableOut(BaseModel):
     tax_total: int
     total: int
     tip: DocumentTipOut | None
+    #: Lo que el cliente pagó: venta + propina, **sumado por el servidor**.
+    #: El papel lo imprime como «Total pagado». Sumarlo en la pantalla sería
+    #: la segunda matemática de plata que el contrato prohíbe, y además es la
+    #: cifra que alguien lee en voz alta frente a la caja.
+    amount_paid: int
     payments: list[DocumentPaymentLineOut]
     change: int
     print_count: int

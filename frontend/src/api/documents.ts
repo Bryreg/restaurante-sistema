@@ -89,6 +89,11 @@ export interface DocumentFiscalRangeRef {
   to_number?: number;
   resolution_number?: string;
   valid_until?: string;
+  /**
+   * Cuántos consecutivos quedan HOY en ese rango. Lo cuenta el servidor: la
+   * resta necesita `next_number`, que es estado interno de la reserva.
+   */
+  remaining?: number;
 }
 
 /**
@@ -128,6 +133,12 @@ export interface DocumentPrintable {
   tax_total?: number;
   total?: number;
   tip?: DocumentTipInfo | null;
+  /**
+   * Lo que el cliente pagó: venta + propina, **ya sumadas por el servidor**.
+   * La propina no entra en `total` (no es venta, no paga impuesto), pero sí
+   * es lo que se entregó. Nunca se recalcula acá.
+   */
+  amount_paid?: number;
   payments?: DocumentPaymentLine[];
   change?: number;
   print_count?: number;

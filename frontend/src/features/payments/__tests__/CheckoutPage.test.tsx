@@ -143,7 +143,7 @@ describe("CheckoutPage", () => {
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": false });
 
     await screen.findByText("Pagos");
-    expect(await screen.findByText("Completo")).toBeInTheDocument();
+    expect(await screen.findByText("Queda cubierto")).toBeInTheDocument();
     expect(screen.queryByText(/faltan/i)).not.toBeInTheDocument();
 
     const amountInput = screen.getByLabelText("Monto");
@@ -154,7 +154,7 @@ describe("CheckoutPage", () => {
     await user.clear(amountInput);
     await user.type(amountInput, "50000");
     await user.tab();
-    expect(await screen.findByText("Completo")).toBeInTheDocument();
+    expect(await screen.findByText("Queda cubierto")).toBeInTheDocument();
   });
 
   it("cobra con PIN propio, manda Idempotency-Key y pinta el cambio que devuelve el servidor", async () => {
@@ -167,7 +167,7 @@ describe("CheckoutPage", () => {
 
     await screen.findByText("Pagos");
     // El monto llega puesto: el cajero sólo teclea su PIN.
-    await screen.findByText("Completo");
+    await screen.findByText("Queda cubierto");
 
     await user.keyboard("1234");
 

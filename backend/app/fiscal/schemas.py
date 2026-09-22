@@ -114,6 +114,11 @@ class FiscalRangeRefOut(BaseModel):
     to_number: int
     resolution_number: str
     valid_until: date
+    #: Cuántos consecutivos quedan HOY en ese rango. Es un contador de
+    #: documentos, no plata, pero se calcula igual en el servidor: la resta
+    #: necesita `next_number`, que es estado interno de la reserva y no se
+    #: publica.
+    remaining: int = 0
 
 
 class DocumentEvidenceOut(BaseModel):
