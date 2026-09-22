@@ -728,8 +728,15 @@ def simular_turno(
     tiquetes: int,
     cierra_dia: bool,
     avance: float,
+    dejar_abierto: bool = False,
 ) -> dict[str, Any]:
-    """Un turno de caja completo: apertura, servicio, movimientos y cierre."""
+    """Un turno de caja completo: apertura, servicio, movimientos y cierre.
+
+    Con `dejar_abierto`, el turno se queda **abierto y vendiendo**: es el
+    estado en el que está un restaurante a cualquier hora de la tarde, y sin
+    él la pantalla «Hoy» —la principal del administrador— sale en ceros,
+    porque la simulación terminaría ayer.
+    """
     db, rng = ctx.db, ctx.rng
     admin = next(e for e in ctx.personal if e.role == "admin")
     # Orden deliberado: primero los operadores de caja (Yuliana el almuerzo,
@@ -861,6 +868,12 @@ def simular_turno(
                         db.commit()
                     except AppError:
                         db.rollback()
+
+    if dejar_abierto:
+        # Ni cierre ni conteo: el turno sigue vivo. El esperado queda para que
+        # lo calcule el backend cuando alguien lo pida, como en la vida.
+        return {"turno": turno.id, "tiquetes": cobradas, "esperado": None,
+                "diferencia": None, "causa": None, "abierto": True}
 
     # ---- el cierre ---------------------------------------------------------
     ctx.fijar(_utc(dia, cierre, rng.randint(10, 50)))
@@ -1008,6 +1021,11 @@ def simular_mes_administrativo(ctx: Contexto, *, mes: date, hasta: date, ultimo_
 # ---------------------------------------------------------------------------
 
 
+def clock_hora_local() -> int:
+    """La hora de Bogotá AHORA, por el reloj de verdad y no por el simulado."""
+    return datetime.now(timezone.utc).astimezone(timezone(BOGOTA_OFFSET)).hour
+
+
 def _tiquetes_del_dia(dia: date, avance: float, rng: random.Random) -> int:
     base = TIQUETES_POR_DIA[dia.weekday()]
     # El negocio crece: seis meses después vende ~18 % más que el primer día.
@@ -1023,7 +1041,7 @@ def _tiquetes_del_dia(dia: date, avance: float, rng: random.Random) -> int:
     return max(8, int(base * factor * rng.uniform(0.88, 1.12)))
 
 
-def generar(db: Session, *, meses: float, semilla: int) -> None:
+def generar(db: Session, *, meses: float, semilla: int, hoy_en_curso: bool = False) -> None:
     rng = random.Random(semilla)
     store = db.execute(select(Store).order_by(Store.id)).scalars().first()
     if store is None:
@@ -1031,7 +1049,10 @@ def generar(db: Session, *, meses: float, semilla: int) -> None:
 
     hoy = datetime.now(timezone.utc).astimezone(timezone(BOGOTA_OFFSET)).date()
     desde = hoy - timedelta(days=int(meses * 30.4))
-    hasta = hoy - timedelta(days=1)  # el día de hoy se deja sin operar
+    hasta = hoy - timedelta(days=1)  # el día de hoy se opera aparte, más abajo
+    if meses <= 0:
+        # Sólo el día de hoy: para completar una base que ya tiene historia.
+        desde, hasta = hoy, hoy - timedelta(days=1)
 
     # Un commit por comanda con `synchronous=FULL` es un fsync por comanda, y
     # son más de doce mil comandas: así tardaba ~100 minutos, casi todo
@@ -1064,7 +1085,7 @@ def generar(db: Session, *, meses: float, semilla: int) -> None:
             dia_de_racha=desde + timedelta(days=int((hasta - desde).days * 0.55)),
         )
 
-        total_dias = (hasta - desde).days + 1
+        total_dias = max(1, (hasta - desde).days + 1)
         turnos = tiquetes = 0
         dia = desde
         while dia <= hasta:
@@ -1095,7 +1116,27 @@ def generar(db: Session, *, meses: float, semilla: int) -> None:
                 print(f"  {dia:%Y-%m-%d}  turnos={turnos:4d}  tiquetes={tiquetes:6d}", flush=True)
             dia += timedelta(days=1)
 
-        print(f"\nListo: {turnos} turnos y {tiquetes} tiquetes entre {desde} y {hasta}.")
+        if hoy_en_curso:
+            # El día de hoy, a medias: el almuerzo ya cerró y la cena está
+            # abierta y vendiendo. Es el estado real de un restaurante ahora
+            # mismo, y es lo que hace que «Hoy» tenga algo que mostrar.
+            hora_local = clock_hora_local()
+            del_dia = _tiquetes_del_dia(hoy, 1.0, rng)
+            almuerzo = max(6, int(del_dia * REPARTO_ALMUERZO[hoy.weekday()]))
+            r = simular_turno(ctx, dia=hoy, servicio="almuerzo", tiquetes=almuerzo,
+                              cierra_dia=False, avance=1.0)
+            turnos += 1
+            tiquetes += r["tiquetes"]
+            if hora_local >= 17:
+                # Ya es de noche: la cena está a medio servicio.
+                en_curso = max(4, int((del_dia - almuerzo) * min(1.0, (hora_local - 17) / 5 + 0.25)))
+                r = simular_turno(ctx, dia=hoy, servicio="cena", tiquetes=en_curso,
+                                  cierra_dia=True, avance=1.0, dejar_abierto=True)
+                turnos += 1
+                tiquetes += r["tiquetes"]
+            print(f"  {hoy:%Y-%m-%d}  el día de hoy, en curso (turno abierto)")
+
+        print(f"\nListo: {turnos} turnos y {tiquetes} tiquetes entre {desde} y {hoy if hoy_en_curso else hasta}.")
     finally:
         clock.set_clock(None)
 
@@ -1105,12 +1146,14 @@ def main() -> None:
     parser.add_argument("--meses", type=float, default=6, help="meses de operación hacia atrás (default: 6)")
     parser.add_argument("--semilla", type=int, default=20260921,
                         help="semilla del azar: la misma semilla da el mismo restaurante")
+    parser.add_argument("--hoy-en-curso", action="store_true",
+                        help="opera también el día de hoy y DEJA EL TURNO DE LA CENA ABIERTO")
     args = parser.parse_args()
 
     import_all_models()
     db = SessionLocal()
     try:
-        generar(db, meses=args.meses, semilla=args.semilla)
+        generar(db, meses=args.meses, semilla=args.semilla, hoy_en_curso=args.hoy_en_curso)
     finally:
         db.close()
 
