@@ -130,6 +130,7 @@ def get_shift_tips(db: Session, *, shift: Shift) -> ShiftTipsOut:
         by_employee=by_employee,
         cash_out=cash_out,
         electronic_liability=electronic_liability,
+        total_liability=cash_out + electronic_liability,
         delivery_tips=totals.tips_delivery,
         delivery_tips_pending=totals.tips_delivery_pending,
         delivery_tips_settled=delivery_tips_settled,

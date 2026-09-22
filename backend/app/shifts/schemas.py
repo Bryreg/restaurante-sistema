@@ -577,6 +577,12 @@ class ShiftTipsOut(BaseModel):
     # Electrónicas: pasivo con el personal — `by_method.card + transfer + other`.
     cash_out: int
     electronic_liability: int
+    # La propina del turno entera: `cash_out + electronic_liability`. La suma
+    # la hace el servidor porque la hace ALGUIEN: son dos pasivos de
+    # naturaleza distinta —uno sale del cajón hoy, el otro se reparte en
+    # nómina— y decidir que se suman es una decisión de negocio, no un
+    # formato de pantalla.
+    total_liability: int = 0
     # Pedido 2c (aditivo, default `0`): la propina en EFECTIVO de domicilios
     # del turno. **Todo lo de este esquema es PROPINA, nunca venta** — por
     # eso el prefijo `delivery_tips_` y no `delivery_cash_` (ronda 3, cierre

@@ -26,18 +26,21 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/errors";
+import { formatInstant } from "@/lib/businessDate";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
 import { PhotoCaptureField } from "./PhotoCaptureField";
 import {
+  CabeceraCierre,
   FilaCuadre,
   PanelSello,
+  PropinasDelTurno,
   PasoPastilla,
   RENGLONES_ESPERADO,
   TarjetaCierre,
   type ResultadoCierre,
 } from "./closeUi";
-import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftTips } from "./hooks";
+import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useCurrentShift, useShiftTips } from "./hooks";
 
 /**
  * Un medio contado contra lo que el sistema espera.
@@ -163,6 +166,11 @@ export function CloseWizard({
   // device con persona identificada). `cash_out` se pinta tal cual llega,
   // nunca se suma ni se resta contra `tipsCashOut`.
   const tipsQuery = useShiftTips(shiftId);
+  // Cuándo se abrió y quién responde por la caja: es lo único del turno que
+  // la cabecera muestra. La BASE no — la tapa el sello hasta el paso 2.
+  const { data: turno } = useCurrentShift();
+  const abiertoEn = turno?.opened_at ? formatInstant(turno.opened_at) : null;
+  const responsable = turno?.cash_responsible?.name ?? null;
 
   const countMutation = useMutation({
     mutationFn: () => {
@@ -257,7 +265,14 @@ export function CloseWizard({
 
   if (step === 1) {
     return (
-      <div className="mx-auto grid w-full max-w-6xl items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="mx-auto w-full max-w-6xl space-y-4">
+        <CabeceraCierre
+          turnoId={shiftId}
+          abiertoEn={abiertoEn}
+          responsable={responsable}
+          contado={totalContado}
+        />
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-4">
           <TarjetaCierre
             icono={<Banknote />}
@@ -346,6 +361,16 @@ export function CloseWizard({
             <span className="text-xl font-bold tabular-nums">{formatCOP(totalContado)}</span>
           </Button>
         </PanelSello>
+        </div>
+
+        {/* Las propinas del turno van DEBAJO de las dos columnas y no adentro
+            del sello: no son parte del cuadre, y ponerlas al lado de la
+            ecuación tapada sugeriría que sí. */}
+        <PropinasDelTurno
+          efectivo={tipsQuery.data?.cash_out}
+          electronicas={tipsQuery.data?.electronic_liability}
+          total={tipsQuery.data?.total_liability}
+        />
       </div>
     );
   }
@@ -367,6 +392,12 @@ export function CloseWizard({
     const diferencia = review.difference;
     return (
       <div className="mx-auto w-full max-w-3xl space-y-4">
+        <CabeceraCierre
+          turnoId={shiftId}
+          abiertoEn={abiertoEn}
+          responsable={responsable}
+          contado={totalContado}
+        />
         <TarjetaCierre
           icono={<CircleCheck />}
           titulo="Lo que el sistema esperaba"
@@ -451,6 +482,7 @@ export function CloseWizard({
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4">
+      <CabeceraCierre turnoId={shiftId} abiertoEn={abiertoEn} responsable={responsable} contado={totalContado} />
       <TarjetaCierre
         icono={<Lock />}
         titulo="Confirmar el cierre"

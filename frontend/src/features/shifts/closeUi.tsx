@@ -1,4 +1,4 @@
-import { CircleCheck, Lock } from "lucide-react";
+import { CircleCheck, Coins, Lock } from "lucide-react";
 
 import type { Breakdown } from "@/api/shifts";
 import { Button } from "@/components/ui/button";
@@ -343,5 +343,94 @@ export function TarjetaTurnoCerrado({
         </div>
       </TarjetaCierre>
     </div>
+  );
+}
+
+
+/**
+ * **La cabecera del cierre** (`m2b`, pantalla 5). Misma banda que la Comanda,
+ * el Cobro y el Comprobante, para que las cuatro pantallas del salón se lean
+ * igual: de qué se trata a la izquierda, la cifra que va corriendo a la
+ * derecha.
+ *
+ * **La base del turno NO va acá**, aunque la maqueta la muestre en su panel
+ * tapado. Este producto tapa la ecuación entera hasta el paso 2 —incluida la
+ * base— y el panel lo dice con todas las letras. Repetirla en la cabecera
+ * abriría por arriba justo lo que el sello cierra por abajo: alcanza con ver
+ * la base para empezar a estimar el resto.
+ */
+export function CabeceraCierre({
+  turnoId,
+  abiertoEn,
+  responsable,
+  contado,
+}: {
+  turnoId: number;
+  abiertoEn?: string | null;
+  responsable?: string | null;
+  contado: number;
+}): React.JSX.Element {
+  const sub = [abiertoEn ? `Abierto ${abiertoEn}` : null, responsable].filter(Boolean);
+  return (
+    <header className="flex flex-wrap items-start gap-4 rounded-xl border bg-muted px-4 py-3">
+      <div className="min-w-0">
+        <h2 className="text-xl leading-tight font-semibold">Cerrar el turno {turnoId}</h2>
+        {sub.length > 0 ? <p className="mt-0.5 text-sm text-muted-foreground">{sub.join(" · ")}</p> : null}
+      </div>
+      <div className="ml-auto text-right">
+        {/* «Va contado», no «Total»: el conteo sigue abierto y el número va a
+            seguir subiendo mientras la persona teclea denominaciones. */}
+        <span className="block text-xs text-muted-foreground">Va contado</span>
+        <span className="block text-[1.6rem] leading-tight font-bold tabular-nums">{formatCOP(contado)}</span>
+      </div>
+    </header>
+  );
+}
+
+/**
+ * **«Propinas del turno»** (`m2b`). Dos pasivos de naturaleza distinta: el de
+ * efectivo sale del cajón hoy, el electrónico se reparte en nómina. Ninguno
+ * es venta y ninguno entra al cuadre — por eso la nota, que es la Ley 1935 de
+ * 2018 dicha en una línea.
+ *
+ * El total lo manda el servidor (`total_liability`). Sumar los dos acá sería
+ * decidir, desde la pantalla, que dos pasivos distintos se suman.
+ */
+export function PropinasDelTurno({
+  efectivo,
+  electronicas,
+  total,
+}: {
+  efectivo?: number | null;
+  electronicas?: number | null;
+  total?: number | null;
+}): React.JSX.Element {
+  return (
+    <TarjetaCierre icono={<Coins />} titulo="Propinas del turno">
+      <dl className="divide-y text-sm">
+        <div className="flex items-start gap-3 px-4 py-2.5">
+          <dt className="min-w-0">
+            En efectivo
+            <small className="block text-xs text-muted-foreground">Sale del cajón, no es venta a consignar</small>
+          </dt>
+          <dd className="ml-auto font-medium tabular-nums">{formatCOP(efectivo)}</dd>
+        </div>
+        <div className="flex items-start gap-3 px-4 py-2.5">
+          <dt className="min-w-0">
+            Electrónicas
+            <small className="block text-xs text-muted-foreground">Ya cobradas: quedan por repartir</small>
+          </dt>
+          <dd className="ml-auto font-medium tabular-nums">{formatCOP(electronicas)}</dd>
+        </div>
+        <div className="flex items-start gap-3 border-t-2 border-foreground px-4 py-2.5">
+          <dt className="font-bold">Total</dt>
+          <dd className="ml-auto font-bold tabular-nums">{formatCOP(total)}</dd>
+        </div>
+      </dl>
+      <p className="border-t px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+        La propina <b className="text-foreground">no es venta</b>. Se reparte en nómina y no se mezcla con el
+        cuadre.
+      </p>
+    </TarjetaCierre>
   );
 }

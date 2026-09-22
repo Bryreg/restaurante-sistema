@@ -102,9 +102,12 @@ describe("SingleStepCloseForm — iteración 3 (H-8)", () => {
     renderWithRefreshSpy(<SingleStepCloseForm shiftId={1} onClosed={() => {}} />, refresh);
 
     await waitFor(() => expect(getShiftTipsMock).toHaveBeenCalledWith(1));
-    // El monto que llega de `cash_out` se pinta tal cual (formatCOP de 9.876), no recalculado.
-    await waitFor(() => expect(screen.getByText(/9\.876/)).toBeInTheDocument());
-    // El rótulo deja claro que es una referencia, no un dato que se use para calcular nada.
-    expect(screen.getByText(/Referencia del sistema/)).toBeInTheDocument();
+    // El monto que llega de `cash_out` se pinta tal cual (formatCOP de 9.876),
+    // no recalculado. Se busca DENTRO del renglón de referencia: desde que el
+    // cierre tiene la tarjeta «Propinas del turno» de `m2b`, la misma cifra
+    // aparece también ahí, y un `getByText` suelto encuentra las dos y falla
+    // sin que nada esté mal.
+    const referencia = await screen.findByText(/Referencia del sistema/);
+    await waitFor(() => expect(referencia).toHaveTextContent(/9\.876/));
   });
 });

@@ -20,11 +20,19 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/errors";
+import { formatInstant } from "@/lib/businessDate";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
 import { PhotoCaptureField } from "./PhotoCaptureField";
-import { PanelSello, PasoPastilla, TarjetaCierre, type ResultadoCierre } from "./closeUi";
-import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftTips } from "./hooks";
+import {
+  CabeceraCierre,
+  PanelSello,
+  PasoPastilla,
+  PropinasDelTurno,
+  TarjetaCierre,
+  type ResultadoCierre,
+} from "./closeUi";
+import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useCurrentShift, useShiftTips } from "./hooks";
 
 const CAUSE_LABEL: Record<CashDifferenceCause, string> = {
   change_error: "Error al dar cambio",
@@ -113,6 +121,9 @@ export function SingleStepCloseForm({
   // Iteración 3 (H-8): misma referencia de sólo lectura que `CloseWizard` —
   // ver el comentario ahí. `cash_out` se pinta tal cual llega.
   const tipsQuery = useShiftTips(shiftId);
+  const { data: turno } = useCurrentShift();
+  const abiertoEn = turno?.opened_at ? formatInstant(turno.opened_at) : null;
+  const responsable = turno?.cash_responsible?.name ?? null;
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -174,7 +185,13 @@ export function SingleStepCloseForm({
   });
 
   return (
-    <div className="mx-auto grid w-full max-w-6xl items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+    <div className="mx-auto w-full max-w-6xl space-y-4">
+      {/* La misma cabecera que el cierre a ciegas. `closeUi.tsx` lo dice en
+          su encabezado y es el riesgo declarado en `docs/INVENTARIO-CONTROLES.md`
+          §10.b: rediseñar un formulario de cierre y dejar el otro con la
+          pantalla vieja. Los dos son el mismo momento del día. */}
+      <CabeceraCierre turnoId={shiftId} abiertoEn={abiertoEn} responsable={responsable} contado={totalContado} />
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="flex min-w-0 flex-col gap-4">
         <TarjetaCierre
           icono={<Banknote />}
@@ -302,6 +319,13 @@ export function SingleStepCloseForm({
           <span className="text-xl font-bold tabular-nums">{formatCOP(totalContado)}</span>
         </Button>
       </PanelSello>
+      </div>
+
+      <PropinasDelTurno
+        efectivo={tipsQuery.data?.cash_out}
+        electronicas={tipsQuery.data?.electronic_liability}
+        total={tipsQuery.data?.total_liability}
+      />
     </div>
   );
 }

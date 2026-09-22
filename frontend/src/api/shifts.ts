@@ -521,6 +521,13 @@ export interface ShiftTips {
    */
   cash_out?: number;
   electronic_liability?: number;
+  /**
+   * La propina del turno entera: `cash_out + electronic_liability`, **sumada
+   * por el servidor**. Son dos pasivos de naturaleza distinta —uno sale del
+   * cajón hoy, el otro se reparte en nómina— y decidir que se suman es una
+   * decisión de negocio, no un formato de pantalla.
+   */
+  total_liability?: number;
   /** Toda la propina de domicilio del turno (liquidada + pendiente). */
   delivery_tips?: number;
   /** La que el domiciliario todavía no entregó: no está en el cajón ni en `cash_out`. */
