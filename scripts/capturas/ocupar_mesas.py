@@ -1,8 +1,11 @@
-"""Deja el salón como está un restaurante a media tarde: con mesas ocupadas.
+"""Deja el salón como está un restaurante a media tarde.
 
-El generador cobra todas sus comandas, así que al terminar las ocho mesas
-quedan libres. Un salón vacío a las seis de la tarde no es el estado de un
-restaurante que funciona, y el video tiene que mostrar el que funciona.
+Mesas ocupadas **y el riel de canales con vida**: pedidos para llevar
+esperando en el mostrador y domicilios en camino. El generador cobra todas
+sus comandas, así que al terminar el salón queda vacío por los cuatro
+costados, y el riel de `m2b` —que existe justamente para que el mesero
+atienda mostrador y domicilios sin cambiar de pantalla— no tendría nada que
+mostrar.
 
 Pasa por los servicios reales, igual que `app.demo_operacion`: las comandas
 quedan abiertas contra el turno abierto de verdad, con sus ítems.
@@ -20,7 +23,14 @@ from app.core import clock
 from app.core.db import SessionLocal
 from app.core.models_registry import import_all_models
 from app.orders import service as orders_service
-from app.orders.schemas import AddItemsIn, ModifierSelectionIn, OrderCreateIn, OrderItemIn
+from app.orders.schemas import (
+    AddItemsIn,
+    DeliveryIn,
+    ModifierSelectionIn,
+    OrderCreateIn,
+    OrderItemIn,
+    TakeoutIn,
+)
 from app.shifts.models import Shift, ShiftStatus
 from app.stores.models import Store, Table
 
@@ -60,6 +70,20 @@ def _modificadores(db, producto, rng):
         if opciones:
             salida.append(ModifierSelectionIn(option_id=rng.choice(opciones)))
     return salida
+
+
+#: El riel: qué hay en mostrador y en la calle. Nombre, qué pidieron y si ya
+#: se marchó — un pedido marchado está «en cocina», uno sin marchar «tomando
+#: pedido», y con domiciliario asignado «en camino».
+PARA_LLEVAR = [
+    ("Camila Arbeláez", ["Bandeja paisa", "Limonada de coco"], 11, True),
+    ("Jhon Sepúlveda", ["Arroz con pollo", "Gaseosa"], 6, True),
+    ("Mostrador", ["Empanadas de carne (x3)", "Jugo de mango"], 2, False),
+]
+DOMICILIOS = [
+    ("Cra 11 #65-40", "3125558841", ["Pescado frito (mojarra)", "Limonada de coco"], 14),
+    ("Calle 72 #9-15, apto 502", "3004417790", ["Lomo al trapo", "Cerveza Águila"], 9),
+]
 
 
 def main() -> None:
@@ -119,11 +143,64 @@ def main() -> None:
     finally:
         clock.set_clock(None)
 
+    # ── El riel: para llevar y domicilios ───────────────────────────────────
+    canales = []
+    try:
+        for nombre, platos, hace, marchada in PARA_LLEVAR:
+            clock.set_clock(lambda t=base - timedelta(minutes=hace): t)
+            orden = orders_service.create_order(
+                db, actor=actor, store=store,
+                payload=OrderCreateIn(channel="takeout", takeout=TakeoutIn(customer_name=nombre)),
+            )
+            db.flush()
+            items = [
+                OrderItemIn(product_id=p.id, qty=1, modifiers=_modificadores(db, p, rng))
+                for p in (por_nombre.get(n) for n in platos) if p is not None
+            ]
+            orden = orders_service.add_items(
+                db, order=orden, actor=actor,
+                payload=AddItemsIn(expected_version=orden.version, items=items),
+            )
+            if marchada:
+                orden = orders_service.send_order(db, order=orden, actor=actor, expected_version=orden.version)
+            db.commit()
+            canales.append(("para llevar", nombre, orders_service.compute_order_totals(db, orden).total))
+
+        domiciliario = db.execute(select(Employee).where(Employee.name == "Wilson Tabares")).scalar_one_or_none()
+        if domiciliario is not None and "delivery" in (store.active_channels or []):
+            for direccion, telefono, platos, hace in DOMICILIOS:
+                clock.set_clock(lambda t=base - timedelta(minutes=hace): t)
+                orden = orders_service.create_order(
+                    db, actor=actor, store=store,
+                    payload=OrderCreateIn(
+                        channel="delivery",
+                        delivery=DeliveryIn(address=direccion, phone=telefono,
+                                            courier_employee_id=domiciliario.id),
+                    ),
+                )
+                db.flush()
+                items = [
+                    OrderItemIn(product_id=p.id, qty=1, modifiers=_modificadores(db, p, rng))
+                    for p in (por_nombre.get(n) for n in platos) if p is not None
+                ]
+                orden = orders_service.add_items(
+                    db, order=orden, actor=actor,
+                    payload=AddItemsIn(expected_version=orden.version, items=items),
+                )
+                orden = orders_service.send_order(db, order=orden, actor=actor, expected_version=orden.version)
+                db.commit()
+                canales.append(("domicilio", direccion, orders_service.compute_order_totals(db, orden).total))
+    finally:
+        clock.set_clock(None)
+
     for numero, comensales, n, total, hace, marchada in abiertas:
         estado = "marchada" if marchada else "SIN marchar (recién tomada)"
         print(f"  mesa {numero}: {comensales} comensales. {n} ítems. ${total:,}"
               f". hace {hace} min. {estado}".replace(",", "."))
-    print(f"\n  {len(abiertas)} mesas ocupadas, {len(mesas) - len(abiertas)} libres.")
+    for canal, quien, total in canales:
+        print(f"  {canal}: {quien} — ${total:,}".replace(",", "."))
+    print(f"\n  {len(abiertas)} mesas ocupadas, {len(mesas) - len(abiertas)} libres; "
+          f"{len(canales)} comandas en el riel.")
 
 
 if __name__ == "__main__":

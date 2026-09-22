@@ -298,8 +298,39 @@ export interface ZoneStatusOut {
   tables?: TableStatusOut[]
 }
 
+/** Las cuatro cintas del salón. Todas las cifras las calcula el servidor. */
+export interface SalonSummaryOut {
+  tables_total: number
+  tables_occupied: number
+  open_total: number
+  /** `null` ≠ `0`: el promedio de cero mesas ocupadas es «no hay promedio». */
+  average_open?: number | null
+  oldest_table?: string | null
+  oldest_minutes?: number | null
+  asked_for_bill?: number
+}
+
+/** Espejo de `ChannelStateLiteral` del servidor (`app/orders/schemas.py`). */
+export type ChannelStateValue = "taking" | "in_kitchen" | "ready" | "on_the_way" | "to_pay"
+
+export interface ChannelOrderOut {
+  order_id: number
+  code: string
+  title: string
+  state: ChannelStateValue
+  since: string
+  total: number
+}
+
+export interface ChannelGroupOut {
+  channel: "counter" | "takeout" | "delivery" | "platform"
+  orders: ChannelOrderOut[]
+}
+
 export interface TablesStatusOut {
   zones?: ZoneStatusOut[]
+  summary?: SalonSummaryOut | null
+  channels?: ChannelGroupOut[]
 }
 
 export interface FavoriteOut {

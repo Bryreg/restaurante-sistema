@@ -293,8 +293,57 @@ class ZoneStatusOut(BaseModel):
     tables: list[TableStatusOut]
 
 
+class SalonSummaryOut(BaseModel):
+    """Las cuatro cintas de la maqueta `m2b`, calculadas por el SERVIDOR.
+
+    `open_total` y `average_open` son plata: derivarlas en la pantalla sumando
+    las mesas visibles rompería «una sola matemática, en el backend» y además
+    mentiría apenas una mesa quedara fuera del render.
+    """
+
+    tables_total: int
+    tables_occupied: int
+    #: Plata abierta en mesas, ahora mismo.
+    open_total: int
+    #: Cuenta promedio de las mesas ocupadas. `None` si no hay ninguna: el
+    #: promedio de cero mesas no es 0, es que no hay promedio.
+    average_open: int | None = None
+    oldest_table: str | None = None
+    oldest_minutes: int | None = None
+    #: Cuántas mesas pidieron la cuenta y esperan que las cobren.
+    asked_for_bill: int = 0
+
+
+ChannelStateLiteral = Literal["taking", "in_kitchen", "ready", "on_the_way", "to_pay"]
+
+
+class ChannelOrderOut(BaseModel):
+    """Una comanda que NO es de mesa, para el riel del salón.
+
+    `state` es tipado y `since` es el instante: el rótulo («En camino · salió
+    7:58 p. m.») lo arma la pantalla. El servidor no escribe prosa.
+    """
+
+    order_id: int
+    #: El consecutivo corto que se canta en el mostrador: `P-084`, `D-231`.
+    code: str
+    #: Nombre del cliente, del domiciliario o de la plataforma.
+    title: str
+    state: ChannelStateLiteral
+    since: datetime
+    total: int
+
+
+class ChannelGroupOut(BaseModel):
+    channel: Literal["counter", "takeout", "delivery", "platform"]
+    orders: list[ChannelOrderOut]
+
+
 class TablesStatusOut(BaseModel):
     zones: list[ZoneStatusOut]
+    summary: SalonSummaryOut | None = None
+    #: Los canales sin mesa que la sede tiene encendidos. Vacío si ninguno.
+    channels: list[ChannelGroupOut] = Field(default_factory=list)
 
 
 class FavoriteOut(BaseModel):

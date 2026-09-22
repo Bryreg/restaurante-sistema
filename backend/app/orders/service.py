@@ -55,6 +55,10 @@ from app.orders.models import (
     WasteStub,
 )
 from app.orders.schemas import (
+    ChannelGroupOut,
+    ChannelOrderOut,
+    ChannelStateLiteral,
+    SalonSummaryOut,
     AddItemsIn,
     ComboSelectionOut,
     CourseFireOut,
@@ -607,7 +611,106 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
                 )
             )
         zones_out.append(ZoneStatusOut(id=zone.id, name=zone.name, tables=tables_out))
-    return TablesStatusOut(zones=zones_out)
+
+    ahora = clock.now_utc()
+    todas = [m for z in zones_out for m in z.tables]
+    ocupadas = [m for m in todas if m.status != "free"]
+    abierto = sum(m.total or 0 for m in ocupadas)
+    mas_antigua = min(
+        (m for m in ocupadas if m.opened_at is not None), key=lambda m: m.opened_at, default=None  # type: ignore[arg-type,return-value]
+    )
+    resumen = SalonSummaryOut(
+        tables_total=len(todas),
+        tables_occupied=len(ocupadas),
+        open_total=abierto,
+        # `None` y no 0: el promedio de cero mesas no es cero, es que no hay.
+        average_open=(abierto // len(ocupadas)) if ocupadas else None,
+        oldest_table=mas_antigua.number if mas_antigua is not None else None,
+        oldest_minutes=(
+            int((ahora - mas_antigua.opened_at).total_seconds() // 60)  # type: ignore[operator]
+            if mas_antigua is not None and mas_antigua.opened_at is not None
+            else None
+        ),
+        asked_for_bill=sum(1 for m in ocupadas if m.status == "to_pay"),
+    )
+
+    return TablesStatusOut(zones=zones_out, summary=resumen, channels=_channel_groups(db, store_id=store_id, now=ahora))
+
+
+def _channel_groups(db: Session, *, store_id: int, now: datetime) -> list[ChannelGroupOut]:
+    """Las comandas abiertas que NO son de mesa, agrupadas por canal.
+
+    Es el riel derecho del salón en `m2b`: mostrador, para llevar, domicilios
+    y plataformas conviven con el plano porque el mesero los atiende desde la
+    misma pantalla. Sólo se listan los canales que la sede tiene ACTIVOS —un
+    riel con un grupo vacío de «Domicilios» en una sede que no hace domicilios
+    es ruido, no información.
+    """
+    prefijos = {"counter": "M", "takeout": "P", "delivery": "D", "platform": "L"}
+    tienda = db.get(Store, store_id)
+    activos = set(tienda.active_channels or []) if tienda is not None else set()
+    # Sólo el día operativo en curso. Sin este corte se colaba una comanda
+    # abierta de hace meses —la del seed— y el riel mostraba «en camino ·
+    # hace 2 h» sobre un domicilio de otro día.
+    hoy = tz.today_business_date(tienda.cutoff_hour) if tienda is not None else None
+    salida: list[ChannelGroupOut] = []
+    for canal in ("counter", "takeout", "delivery", "platform"):
+        if canal not in activos:
+            continue
+        condiciones = [
+            Order.store_id == store_id,
+            Order.channel == OrderChannel(canal),
+            Order.status.in_((OrderStatus.OPEN, OrderStatus.TO_PAY)),
+        ]
+        if hoy is not None:
+            condiciones.append(Order.business_date == hoy)
+        ordenes = list(db.execute(select(Order).where(*condiciones).order_by(Order.opened_at)).scalars())
+        filas: list[ChannelOrderOut] = []
+        # El código que se canta en el mostrador es un consecutivo DEL DÍA,
+        # no el id de la comanda: después de seis meses el id va en doce mil y
+        # «P-12212» no lo canta nadie. La maqueta dice «P-084».
+        for n, o in enumerate(ordenes, start=1):
+            filas.append(
+                ChannelOrderOut(
+                    order_id=o.id,
+                    code=f"{prefijos[canal]}-{n:03d}",
+                    title=_channel_title(o),
+                    state=_channel_state(db, o),
+                    since=o.opened_at,
+                    total=compute_order_totals(db, o).total,
+                )
+            )
+        if filas:
+            salida.append(ChannelGroupOut(channel=canal, orders=filas))  # type: ignore[arg-type]
+    del now
+    return salida
+
+
+def _channel_title(order: Order) -> str:
+    """Quién es esta comanda, en una línea: el cliente si lo hay, si no el
+    canal. Nunca una cadena vacía — una fila sin nombre no se puede cantar."""
+    return (
+        order.platform_name
+        or order.takeout_customer_name
+        or order.delivery_address
+        or {"counter": "Mostrador", "takeout": "Para llevar", "delivery": "Domicilio"}.get(
+            getattr(order.channel, "value", str(order.channel)), "Comanda"
+        )
+    )
+
+
+def _channel_state(db: Session, order: Order) -> ChannelStateLiteral:
+    """El estado tipado. El rótulo que lee una persona lo arma la pantalla."""
+    if order.status == OrderStatus.TO_PAY:
+        return "to_pay"
+    if order.courier_employee_id is not None:
+        return "on_the_way"
+    items = list(db.execute(select(OrderItem).where(OrderItem.order_id == order.id)).scalars())
+    if not items or any(i.status == OrderItemStatus.PENDING for i in items):
+        return "taking"
+    if all(i.status in (OrderItemStatus.READY, OrderItemStatus.SERVED) for i in items):
+        return "ready"
+    return "in_kitchen"
 
 
 def list_favorites(db: Session, *, store_id: int) -> list[FavoriteOut]:

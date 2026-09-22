@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { Link2, Move, Plus } from "lucide-react"
+import { ChefHat, Link2, Move, Plus } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -29,7 +29,9 @@ import { errorMessage } from "@/lib/errors"
 
 import { AuthorizerDialog } from "./AuthorizerDialog"
 import { MesaCard, type EstadoMesa } from "@/components/pos/MesaCard"
-import { elapsedLabel } from "./lib"
+import { RielCanales, type GrupoCanal } from "@/components/pos/RielCanales"
+import { SalonResumen } from "@/components/pos/SalonResumen"
+import { elapsedFromSeconds, elapsedLabel } from "./lib"
 import { TABLES_STATUS_QUERY_KEY, useAuthorizerFlow, useTablesStatus } from "./hooks"
 
 type Mode = "idle" | "merge" | "move"
@@ -72,6 +74,7 @@ export function TablesPage(): React.JSX.Element {
   }
 
   const zones: ZoneStatusOut[] = tablesStatus.data?.zones ?? []
+  const resumen = tablesStatus.data?.summary
   const tableById = new Map<number, TableStatusOut>()
   for (const zone of zones) {
     for (const table of zone.tables ?? []) {
@@ -274,7 +277,27 @@ export function TablesPage(): React.JSX.Element {
       ) : zones.length === 0 ? (
         <EmptyState title="Esta sede todavía no tiene zonas ni mesas activas" />
       ) : (
-        <div className="rounded-xl border bg-card p-4">
+        <div className="space-y-4">
+          {resumen ? (
+            <SalonResumen
+              tablesTotal={resumen.tables_total}
+              tablesOccupied={resumen.tables_occupied}
+              openTotal={resumen.open_total}
+              averageOpen={resumen.average_open ?? null}
+              oldestTable={resumen.oldest_table ?? null}
+              oldestLabel={
+                resumen.oldest_minutes != null ? elapsedFromSeconds(resumen.oldest_minutes * 60) : null
+              }
+              askedForBill={resumen.asked_for_bill ?? 0}
+            />
+          ) : null}
+
+          {/* Plano + riel, como `m2b`: el riel es fijo de 296 px y el plano se
+              queda con el resto. Bajo el punto de quiebre el riel cae debajo —
+              en una tablet en vertical, dos columnas de 300 px no son dos
+              columnas. */}
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_296px]">
+          <div className="rounded-xl border bg-card p-4">
           {/* La maqueta pone acá una fila de marcas del sitio —«Entrada»,
               «Ventanal / Calle 63», «Paso a cocina»— que orientan a quien mira
               el plano. Este producto NO tiene ese dato: no hay referencias
@@ -315,6 +338,27 @@ export function TablesPage(): React.JSX.Element {
               </div>
             </section>
           ))}
+          </div>
+
+          <RielCanales
+            grupos={(tablesStatus.data?.channels ?? []) as GrupoCanal[]}
+            tiempo={(iso) => elapsedLabel(iso)}
+            onAbrir={(orderId) => navigate(`/pos/comanda/${orderId}`)}
+          />
+          </div>
+
+          {/* El pie de acciones de la maqueta: lo que se hace desde el salón
+              sin pasar por una mesa. */}
+          <div className="flex flex-wrap gap-2.5 border-t pt-4">
+            <Button type="button" className="h-11 gap-2" onClick={() => navigate("/pos/comanda/nueva")}>
+              <Plus className="size-4" aria-hidden="true" />
+              Abrir cuenta nueva
+            </Button>
+            <Button type="button" variant="outline" className="h-11 gap-2" onClick={() => navigate("/pos/cocina")}>
+              <ChefHat className="size-4" aria-hidden="true" />
+              Cocina
+            </Button>
+          </div>
         </div>
       )}
 
