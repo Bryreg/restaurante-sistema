@@ -5,6 +5,7 @@ dura 2,9 s y no 2,2 corre todo lo que viene después, y el rótulo termina
 hablando del plano siguiente. Eso ya pasó una vez. Acá las duraciones se leen
 con `ffprobe` y los inicios se acumulan solos.
 """
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -77,6 +78,22 @@ def duracion(nombre: str) -> float:
 
 
 def main() -> None:
+    # **Los planos se COPIAN acá, no a mano.** El `index.html` que se escribe
+    # abajo apunta a `assets/clips/`, y si esa carpeta se queda con los
+    # recortes de la corrida anterior el render sale con footage viejo y
+    # rótulos nuevos —sin que nada falle y sin que se note hasta mirarlo—.
+    # Las duraciones se leen de `/tmp/clips`, así que la carpeta de destino
+    # tiene que ser exactamente esa.
+    destino_clips = DESTINO / "assets" / "clips"
+    destino_clips.mkdir(parents=True, exist_ok=True)
+    for viejo in destino_clips.glob("*.mp4"):
+        viejo.unlink()
+    copiados = 0
+    for nuevo in sorted(CLIPS.glob("*.mp4")):
+        shutil.copy2(nuevo, destino_clips / nuevo.name)
+        copiados += 1
+    print(f"  {copiados} planos copiados a {destino_clips}")
+
     t = CARTELA_1
     videos, rotulos, inicio_cartela2 = [], [], None
 
