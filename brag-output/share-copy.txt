@@ -1,0 +1,3 @@
+Restaurante Sistema: el POS que le esconde al cajero cuánta plata debería haber en el cajón, hasta que entrega el conteo.
+
+Si la ve antes, el número que entrega deja de ser el que contó.

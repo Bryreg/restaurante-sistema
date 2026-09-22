@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Restaurante Sistema — se cuenta a ciegas</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* Atkinson Hyperlegible, servida local desde assets/fonts/.
+         Es la fuente del producto y está auto-hospedada allá por la misma
+         razón que acá: no depender de que un CDN de fuentes responda. Un
+         `font-family` con nombre y sin @font-face local lo rechaza el lint
+         (`font_family_without_font_face`). */
+      @font-face {
+        font-family: "Atkinson Hyperlegible";
+        font-style: normal;
+        font-weight: 400;
+        src: url("assets/fonts/atkinson-400.woff2") format("woff2");
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Atkinson Hyperlegible";
+        font-style: normal;
+        font-weight: 700;
+        src: url("assets/fonts/atkinson-700.woff2") format("woff2");
+        font-display: block;
+      }
+
+      /* Los tokens del producto, copiados de frontend/src/index.css. */
+      :root {
+        --bg: #edf1f7;
+        --surface: #ffffff;
+        --ink: #0f1b2d;
+        --ink-2: #475569;
+        --brand: #1e40af;
+        --brand-soft: #e7edfb;
+        --bad: #b91c1c;
+        --line: #d9e1ee;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Atkinson Hyperlegible", Verdana, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+      .clip {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 96px 140px;
+      }
+
+      .num {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      /* ── Escena 1 · el tapado ───────────────────────────────────────── */
+      #s1 {
+        background: var(--brand);
+        color: #fff;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 26px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.14);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        font-size: 26px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      #s1-title {
+        margin: 40px 0 0;
+        font-size: 78px;
+        font-weight: 700;
+        letter-spacing: -0.015em;
+        text-align: center;
+        max-width: 1280px;
+        line-height: 1.12;
+      }
+      #s1-rows {
+        margin-top: 52px;
+        width: 880px;
+      }
+      #s1-rows .row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 40px;
+        padding: 17px 4px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+        font-size: 33px;
+      }
+      #s1-rows .row .dots {
+        letter-spacing: 0.34em;
+        opacity: 0.72;
+      }
+
+      /* ── Escenas claras · tarjeta común ─────────────────────────────── */
+      .card {
+        width: 1180px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 52px 62px;
+        box-shadow: 0 24px 60px rgba(15, 27, 45, 0.09);
+      }
+      .eyebrow {
+        font-size: 24px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+      }
+
+      /* ── Escena 2 · el conteo ───────────────────────────────────────── */
+      #s2-quote {
+        max-width: 1320px;
+        margin: 0 0 46px;
+        font-size: 56px;
+        font-weight: 700;
+        line-height: 1.22;
+        letter-spacing: -0.012em;
+        text-align: center;
+      }
+      #s2-card {
+        width: 940px;
+        padding: 42px 56px;
+      }
+      #s2-card .den {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        font-size: 34px;
+        padding: 13px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      #s2-card .den span:first-child {
+        color: var(--ink-2);
+      }
+      #s2-total {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-top: 22px;
+        font-size: 38px;
+        font-weight: 700;
+      }
+
+      /* ── Escena 3 · la ecuación ─────────────────────────────────────── */
+      #s3-card .led {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 48px;
+        font-size: 36px;
+        padding: 15px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      #s3-card .led .lbl {
+        color: var(--ink-2);
+      }
+      #s3-card .led .sg {
+        color: var(--ink-2);
+        display: inline-block;
+        width: 34px;
+      }
+      .rule {
+        margin-top: 26px;
+        padding-top: 24px;
+        border-top: 3px solid var(--ink);
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        font-size: 46px;
+        font-weight: 700;
+      }
+      #s3-counted {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-top: 16px;
+        font-size: 36px;
+        color: var(--ink-2);
+      }
+
+      /* ── Escena 4 · la causa y el nombre ────────────────────────────── */
+      #s4-diff {
+        font-size: 108px;
+        font-weight: 700;
+        color: var(--bad);
+        letter-spacing: -0.02em;
+        line-height: 1;
+      }
+      #s4-chips {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 16px;
+        margin-top: 44px;
+        max-width: 1400px;
+      }
+      .chip {
+        padding: 15px 28px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        color: var(--ink-2);
+        font-size: 28px;
+      }
+      .chip.on {
+        background: var(--brand-soft);
+        border-color: var(--brand);
+        color: var(--brand);
+        font-weight: 700;
+      }
+      #s4-name {
+        font-size: 92px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        text-align: center;
+      }
+      #s4-line {
+        margin-top: 26px;
+        font-size: 40px;
+        color: var(--ink-2);
+        text-align: center;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      /* La tarjeta NO reserva el espacio de la respuesta: crece cuando la
+         respuesta llega. Reservarlo dejaba un vacío de cinco segundos abajo
+         —se vio en el fotograma de 13,9 s— y un vacío que dura más que el
+         contenido no es aire, es un error de composición. */
+      .tail {
+        height: 0;
+        overflow: hidden;
+      }
+      /* El tapado y la cifra ocupan la MISMA celda de la grilla: al cruzarse
+         no hay ni un pixel de salto, y la tarjeta tiene su alto final desde
+         el primer fotograma. Animar la aparición de los renglones dejaba la
+         mitad de abajo vacía durante media escena. */
+      .slot {
+        display: grid;
+        justify-items: end;
+      }
+      .slot > * {
+        grid-area: 1 / 1;
+      }
+      .slot .cover {
+        letter-spacing: 0.3em;
+        color: var(--ink-2);
+        opacity: 0.55;
+      }
+      /* El cierre se centra por sí mismo y no por dónde quedó su hermano:
+         un `position:absolute` sin offsets hereda la posición estática, que
+         cambia si el bloque de arriba cambia de alto. */
+      #s4-end {
+        position: absolute;
+        inset: 0;
+        justify-content: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="brag"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="20.4"
+    >
+      <!-- ── Escena 1 · el tapado ─────────────────────────────────────── -->
+      <section id="s1" class="clip" data-start="0" data-duration="4.2" data-track-index="0">
+        <div id="s1-pill" class="pill">
+          <svg width="20" height="24" viewBox="0 0 20 24" fill="none" aria-hidden="true">
+            <path
+              d="M4 10V7a6 6 0 1 1 12 0v3"
+              stroke="currentColor"
+              stroke-width="2.4"
+              stroke-linecap="round"
+            />
+            <rect x="2" y="10" width="16" height="12" rx="2.5" fill="currentColor" />
+          </svg>
+          Paso 2 · tapado
+        </div>
+        <h1 id="s1-title">Se cuenta a ciegas, y es a propósito</h1>
+        <div id="s1-rows">
+          <div class="row"><span>Base del turno</span><span class="dots">•••••</span></div>
+          <div class="row"><span>Ventas en efectivo</span><span class="dots">•••••</span></div>
+          <div class="row"><span>Ingresos de caja</span><span class="dots">•••••</span></div>
+          <div class="row"><span>Egresos de caja</span><span class="dots">•••••</span></div>
+          <div class="row"><span>Retiros a caja fuerte</span><span class="dots">•••••</span></div>
+        </div>
+      </section>
+
+      <!-- ── Escena 2 · el conteo ─────────────────────────────────────── -->
+      <section id="s2" class="clip" data-start="4.2" data-duration="4.54" data-track-index="1">
+        <p id="s2-quote">
+          Si la vieras antes, el número que entregás dejaría de ser el que contaste.
+        </p>
+        <div id="s2-card" class="card">
+          <div class="eyebrow">Efectivo contado</div>
+          <div style="margin-top: 22px">
+            <div class="den"><span class="num">$ 100.000</span><span class="num d">× 8</span></div>
+            <div class="den"><span class="num">$ 20.000</span><span class="num d">× 1</span></div>
+            <div class="den"><span class="num">$ 10.000</span><span class="num d">× 1</span></div>
+            <div class="den"><span class="num">$ 5.000</span><span class="num d">× 1</span></div>
+          </div>
+          <div id="s2-tail" class="tail">
+            <div id="s2-total"><span>Total contado</span><span class="num">$ 838.000</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Escena 3 · la ecuación se abre ───────────────────────────── -->
+      <section id="s3" class="clip" data-start="8.74" data-duration="7.1" data-track-index="2">
+        <div id="s3-card" class="card">
+          <div class="eyebrow">Lo que el sistema esperaba</div>
+          <div style="margin-top: 26px">
+            <div class="led l">
+              <span class="lbl"><span class="sg"></span>Base del turno</span>
+              <span class="slot">
+                <span class="cover">•••••</span>
+                <span class="val num">$ 200.000</span>
+              </span>
+            </div>
+            <div class="led l">
+              <span class="lbl"><span class="sg">+</span>Ventas en efectivo</span>
+              <span class="slot">
+                <span class="cover">•••••</span>
+                <span class="val num">$ 1.695.000</span>
+              </span>
+            </div>
+            <div class="led l">
+              <span class="lbl"><span class="sg">+</span>Ingresos de caja</span>
+              <span class="slot">
+                <span class="cover">•••••</span>
+                <span class="val num">$ 0</span>
+              </span>
+            </div>
+            <div class="led l">
+              <span class="lbl"><span class="sg">−</span>Egresos de caja</span>
+              <span class="slot">
+                <span class="cover">•••••</span>
+                <span class="val num">$ 97.000</span>
+              </span>
+            </div>
+            <div class="led l">
+              <span class="lbl"><span class="sg">−</span>Retiros a caja fuerte</span>
+              <span class="slot">
+                <span class="cover">•••••</span>
+                <span class="val num">$ 950.000</span>
+              </span>
+            </div>
+          </div>
+          <div id="s3-tail" class="tail">
+            <div id="s3-rule" class="rule"><span>Esperado</span><span class="num">$ 848.000</span></div>
+            <div id="s3-counted"><span>Contado</span><span class="num">$ 838.000</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Escena 4 · la causa, y el nombre ─────────────────────────── -->
+      <section id="s4" class="clip" data-start="15.84" data-duration="4.56" data-track-index="3">
+        <div id="s4-block" class="stack">
+          <div class="eyebrow">Diferencia</div>
+          <div id="s4-diff" class="num" style="margin-top: 18px">− $ 10.000</div>
+          <div id="s4-chips">
+            <span class="chip" id="c1">Error al dar cambio</span>
+            <span class="chip">Gasto sin comprobante</span>
+            <span class="chip">Propinas mezcladas con la base</span>
+            <span class="chip">Venta no registrada</span>
+            <span class="chip">Error de conteo</span>
+            <span class="chip">Sin identificar</span>
+          </div>
+        </div>
+        <div id="s4-end" class="stack">
+          <div id="s4-name">Restaurante Sistema</div>
+          <div id="s4-line">La diferencia se encuentra hoy. No a fin de mes.</div>
+        </div>
+      </section>
+
+      <!-- La cama musical. `id` obligatorio o el render sale mudo.
+           La lane de volumen hace el arco: baja mientras el esperado está
+           tapado, sube en el destape (8.74) y se apaga al final. Con lane
+           presente, un tween de `volume` en la timeline se ignora. -->
+      <audio
+        id="bed"
+        src="assets/music/happy-beats-business-moves-vol-12-by-ende-dot-app.mp3"
+        data-start="0"
+        data-duration="20.4"
+        data-track-index="10"
+        data-volume="0.34"
+        data-automation='{"version":1,"lanes":[{"target":"volume","points":[{"t":0,"v":0.24},{"t":8.5,"v":0.28},{"t":8.74,"v":0.46},{"t":17.2,"v":0.46},{"t":18.9,"v":0.34},{"t":20.4,"v":0}]}]}'
+      ></audio>
+
+      <!-- SFX. Tres momentos, no más: el tecleo del conteo, el golpe del
+           destape y el chasquido de la causa. Elegidos por el propio
+           `sfx-analysis.md` entre los de BAJO riesgo de alta frecuencia — lo
+           repetido (los ticks) es lo que más fatiga si es brillante.
+           Deliberadamente NO hay campana en el nombre del producto: un
+           `impactBell` ahí suena a logro conseguido, y esto trata de plata
+           que falta. Ese momento lo lleva la música. -->
+      <audio id="tick1" src="assets/sfx/click_003.ogg" data-start="5.05" data-duration="0.06" data-track-index="11" data-volume="0.3"></audio>
+      <audio id="tick2" src="assets/sfx/click_003.ogg" data-start="5.595" data-duration="0.06" data-track-index="11" data-volume="0.3"></audio>
+      <audio id="tick3" src="assets/sfx/click_003.ogg" data-start="6.14" data-duration="0.06" data-track-index="11" data-volume="0.3"></audio>
+      <audio id="tick4" src="assets/sfx/click_003.ogg" data-start="6.685" data-duration="0.06" data-track-index="11" data-volume="0.3"></audio>
+      <!-- El golpe del destape, en el mismo instante que el strongCue. -->
+      <audio id="hit" src="assets/sfx/impactSoft_medium_001.ogg" data-start="8.74" data-duration="0.19" data-track-index="12" data-volume="0.55"></audio>
+      <!-- La causa marcada: es la acción que el sistema OBLIGA a hacer. -->
+      <audio id="pick" src="assets/sfx/click_002.ogg" data-start="16.86" data-duration="0.06" data-track-index="12" data-volume="0.45"></audio>
+    </div>
+
+    <script>
+      const tl = gsap.timeline({ paused: true });
+
+      /* ── Escena 1 ─────────────────────────────────────────────────────
+         Los cinco renglones son FORMA, no texto que haya que leer: entran
+         rápido y el conjunto se sostiene. El titular sí es lectura y tiene
+         su piso (7 palabras ≈ 2,1 s asentado, de 0,75 a 4,2). */
+      tl.fromTo("#s1-pill", { y: -18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power2.out" }, 0.15)
+        .fromTo("#s1-title", { y: 26, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.45)
+        .fromTo(
+          "#s1-rows .row",
+          { x: -22, opacity: 0 },
+          { x: 0, opacity: 1, duration: 0.34, stagger: 0.16, ease: "power2.out" },
+          1.05,
+        )
+        /* El tapado respira apenas: subraya que hay algo detrás sin animarlo. */
+        .to("#s1-rows .dots", { opacity: 0.45, duration: 1.1, ease: "sine.inOut", yoyo: true, repeat: 1 }, 2.0)
+        .to("#s1", { opacity: 0, duration: 0.34, ease: "power1.in" }, 3.95);
+
+      /* ── Escena 2 ─────────────────────────────────────────────────────
+         La frase del producto, entera, con su piso de lectura: 13 palabras
+         ≈ 3,9 s asentadas, de 4,75 a 8,74. El conteo es textura: entra
+         detrás y no compite. */
+      tl.fromTo("#s2-quote", { y: 24, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, 4.35)
+        .fromTo("#s2-card", { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" }, 5.05)
+        /* beat-grid: denominaciones en 5.05 / 5.60 / 6.14 / 6.69 (110 BPM,
+           0,545 s entre beats). Son cifras, no prosa: la rejilla no las
+           atropella. */
+        .fromTo(
+          "#s2-card .den .d",
+          { opacity: 0, x: 12 },
+          { opacity: 1, x: 0, duration: 0.26, stagger: 0.545, ease: "power2.out" },
+          5.05,
+        )
+        /* La tarjeta crece para dejar entrar el total. */
+        .to("#s2-tail", { height: "auto", duration: 0.38, ease: "power2.out" }, 7.24)
+        .fromTo("#s2-total", { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "power2.out" }, 7.42)
+        .to("#s2", { opacity: 0, duration: 0.3, ease: "power1.in" }, 8.44);
+
+      /* ── Escena 3 ─────────────────────────────────────────────────────
+         beat-locked: 8.74 s (strongCue 0.985) — el destape. Es el único
+         golpe del video y cae exactamente acá.
+         beat-grid: los cinco renglones en 9.29 / 10.11 / 10.93 / 11.75 /
+         12.57, cada 0,82 s (beat y medio). Cada renglón conserva su piso de
+         lectura —y además se acumulan en pantalla, así que el tiempo de
+         lectura es acumulativo—; a un beat de distancia (0,545 s) se
+         atropellarían, que es la falla que el propio skill advierte para
+         texto secuencial. */
+      tl.fromTo("#s3-card", { y: 34, opacity: 0, scale: 0.985 }, { y: 0, opacity: 1, scale: 1, duration: 0.5, ease: "power3.out" }, 8.74)
+        .fromTo(
+          "#s3-card .led .cover",
+          { opacity: 0.55 },
+          { opacity: 0, duration: 0.26, stagger: 0.82, ease: "power1.in" },
+          9.29,
+        )
+        .fromTo(
+          "#s3-card .led .val",
+          { opacity: 0, y: 10 },
+          { opacity: 1, y: 0, duration: 0.3, stagger: 0.82, ease: "power2.out" },
+          9.37,
+        )
+        /* beat-locked: 13.11 s (strongCue 0.978) — la tarjeta crece y entra
+           el esperado. beat-locked: 13.64 s (0.939) — el contado. Así la
+           ecuación completa se sostiene 1,5 s antes del corte, en vez de
+           aparecer sobre la bocina. */
+        .to("#s3-tail", { height: "auto", duration: 0.44, ease: "power2.out" }, 13.11)
+        .fromTo("#s3-rule", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, 13.2)
+        .fromTo("#s3-counted", { opacity: 0 }, { opacity: 1, duration: 0.34, ease: "power2.out" }, 13.64)
+        .to("#s3", { opacity: 0, duration: 0.3, ease: "power1.in" }, 15.54);
+
+      /* ── Escena 4 ─────────────────────────────────────────────────────
+         beat-locked: 15.84 s (0.960) — la diferencia.
+         beat-locked: 17.47 s (0.995, el acento más fuerte) — el nombre. */
+      tl.fromTo("#s4-end", { opacity: 0 }, { opacity: 0, duration: 0.01 }, 15.84)
+        .fromTo("#s4-block", { y: 22, opacity: 0 }, { y: 0, opacity: 1, duration: 0.42, ease: "power3.out" }, 15.84)
+        .fromTo(
+          "#s4-chips .chip",
+          { opacity: 0, y: 10 },
+          { opacity: 1, y: 0, duration: 0.24, stagger: 0.05, ease: "power2.out" },
+          16.32,
+        )
+        /* La causa elegida. Es lo que el sistema OBLIGA a marcar para poder
+           cerrar: el chasquido de audio va acá. */
+        .to("#c1", { className: "chip on", duration: 0.01 }, 16.86)
+        .fromTo("#c1", { scale: 0.96 }, { scale: 1, duration: 0.3, ease: "back.out(2)" }, 16.86)
+        .to("#s4-block", { opacity: 0, y: -18, duration: 0.36, ease: "power2.in" }, 17.18)
+        .to("#s4-end", { opacity: 1, duration: 0.01 }, 17.47)
+        .fromTo("#s4-name", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.48, ease: "power3.out" }, 17.47)
+        .fromTo("#s4-line", { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.44, ease: "power2.out" }, 17.85);
+
+      window.__timelines["brag"] = tl;
+    </script>
+  </body>
+</html>
