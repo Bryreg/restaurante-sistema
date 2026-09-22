@@ -45,13 +45,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, current_device, current_operator
-from app.core import clock, features
+from app.core import clock, features, tz
 from app.core.db import get_db
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.kitchen import service
 from app.kitchen.schemas import KitchenPrintJobOut, PrintJobIn
-from app.orders.models import Order, OrderItem, OrderItemStatus, OrderRound
+from app.orders.models import Order, OrderItem, OrderItemStatus, OrderRound, OrderStatus
 from app.stores import service as stores_service
+from app.stores.models import Store
 
 router = APIRouter()
 
@@ -112,11 +113,39 @@ def get_kitchen_rounds(
     # idéntico").
     kds_enabled = features.is_enabled(db, actor.organization_id, store_id, "kitchen.kds")  # type: ignore[arg-type]
 
+    # **Sólo el día operativo en curso.** Sin este corte se colaban las
+    # rondas de comandas que quedaron abiertas semanas atrás —las del seed,
+    # una mesa que nadie cerró— y la pantalla de cocina las pintaba
+    # «Demorado · 1081 h 41 min» encima de los dos platos que de verdad se
+    # están cocinando. Una cocina que muestra cuarenta y cinco días de
+    # atraso enseña a ignorar el rojo, que es el mismo daño que hace una
+    # diferencia de caja que aparece todos los días.
+    #
+    # El corte es por DÍA OPERATIVO, no por fecha de calendario: un plato
+    # mandado a las 11 de la noche sigue en la pantalla a la una de la
+    # mañana, porque sigue siendo el mismo turno. La comanda vieja no
+    # desaparece del sistema —sigue abierta, y `GET /admin/today` la cuenta
+    # y la alerta—; deja de estorbar en la pantalla de la plancha. Es el
+    # mismo corte que `_channel_groups` ya hacía en el riel del salón.
+    tienda = db.get(Store, store_id)
+    hoy = tz.today_business_date(tienda.cutoff_hour) if tienda is not None else None
+    # **Y sólo de comandas VIVAS.** Una comanda pagada no está cocinando
+    # nada: si alguien cobró sin marcar «servido» —que pasa todos los días,
+    # el mesero cobra y sigue— sus platos quedaban en `sent` para siempre y
+    # la pantalla los mostraba. En la base de demostración eran 3.086
+    # comandas cobradas contra 11 vivas: la cocina del día entero entraba
+    # como ruido encima de los platos que sí están en la plancha.
+    condiciones = [
+        Order.store_id == store_id,
+        Order.status.in_((OrderStatus.OPEN, OrderStatus.TO_PAY)),
+    ]
+    if hoy is not None:
+        condiciones.append(Order.business_date == hoy)
     rounds = list(
         db.execute(
             select(OrderRound)
             .join(Order, OrderRound.order_id == Order.id)
-            .where(Order.store_id == store_id)
+            .where(*condiciones)
             .order_by(OrderRound.sent_at)
         ).scalars()
     )

@@ -632,9 +632,12 @@ export function TodayPage(): React.JSX.Element {
    * Se arma acá y no adentro de la gráfica: la pantalla es la que sabe qué
    * hora es en Bogotá y qué día operativo se está mirando.
    */
+  // La primera columna es la primera hora CON MOVIMIENTO, no la hora en que
+  // se abrió el cajón: el turno puede llevar una hora abierto sin vender. El
+  // renglón dice lo que la columna significa y nada más.
   const primeraHora = hourBuckets.length > 0 ? hourBuckets[0].hour : null
   const piePartes = [
-    primeraHora != null ? `El día abre a las ${hourLabel(primeraHora)}` : null,
+    primeraHora != null ? `La primera venta fue a las ${hourLabel(primeraHora)}` : null,
     horaEnCurso != null && hourBuckets.some((h) => h.hour === horaEnCurso)
       ? `la de las ${hourLabel(horaEnCurso)} va en curso`
       : null,

@@ -489,3 +489,78 @@ def test_today_and_control_health_agree_exactly_at_the_14_day_boundary(
     # dicen EXACTAMENTE lo mismo — nunca dos matemáticas.
     assert body_today["days_since_last_full_count"] == body_health["days_since_full_count"]
     assert body_today["inventory_unreliable"] == body_health["inventory_unreliable"]
+
+
+def test_comparacion_con_la_semana_pasada_corta_a_la_misma_hora(
+    admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any,
+    open_shift: Any, sell: Any, main_product: Any, store: Any, db: Any,
+) -> None:
+    """«Contra el martes pasado **a esta hora**», no contra su día entero.
+
+    Comparar medio día de hoy contra un martes completo daría una caída
+    enorme todos los mediodías, y una comparación que siempre dice lo mismo
+    deja de mirarse. El corte va por la ALTURA del día operativo —medida
+    desde la hora de corte de la sede, no desde medianoche— así que sólo
+    entran las horas de la semana pasada que ya ocurrieron hoy.
+    """
+    from datetime import timedelta
+
+    from app.core import clock, tz
+    from app.fiscal.models import FiscalDocument
+
+    open_shift()
+    identify(device_client, employees["cashier"])
+    sell(main_product, qty=1)
+
+    hoy = tz.today_business_date(store.cutoff_hour)
+    ahora = clock.now_utc()
+
+    def _clonar_a_la_semana_pasada(desfase_horas: int) -> None:
+        """Copia el documento de hoy al martes pasado, a la hora que se pida."""
+        original = db.query(FiscalDocument).order_by(FiscalDocument.id.desc()).first()
+        copia = FiscalDocument(
+            **{
+                c.name: getattr(original, c.name)
+                for c in FiscalDocument.__table__.columns
+                if c.name not in ("id", "number", "issued_at", "business_date")
+            }
+        )
+        copia.number = (original.number or 0) + 10_000 + desfase_horas
+        # `target_key` es único: dedupea el documento por su comanda. La
+        # copia es un documento distinto, así que lleva su propia clave.
+        if getattr(copia, "target_key", None) is not None:
+            copia.target_key = f"{original.target_key}-semana-pasada-{desfase_horas}"
+        copia.business_date = hoy - timedelta(days=7)
+        copia.issued_at = ahora - timedelta(days=7) + timedelta(hours=desfase_horas)
+        db.add(copia)
+        db.commit()
+
+    # Una venta de la semana pasada a esta misma hora, y otra MÁS TARDE —una
+    # hora que hoy todavía no llegó—.
+    _clonar_a_la_semana_pasada(0)
+    _clonar_a_la_semana_pasada(3)
+
+    body = admin_client.get("/api/v1/admin/today", params={"store_id": store.id}).json()
+
+    # Sólo entra la de la misma hora: si entraran las dos, la referencia
+    # sería el doble y la comparación diría que hoy cayó a la mitad.
+    assert body["net_last_week"] == body["net"], (
+        "la referencia tomó horas de la semana pasada que hoy todavía no ocurrieron"
+    )
+    # Mismo neto contra la misma referencia: cero de variación.
+    assert body["net_vs_last_week_bp"] == 0
+
+
+def test_sin_semana_pasada_la_comparacion_es_null_y_no_cero(
+    admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any,
+    open_shift: Any, sell: Any, main_product: Any, store: Any,
+) -> None:
+    """`null` no es 0: «no hay contra qué comparar» y «no varió» son cosas
+    distintas, y la pantalla no puede dibujar «0 %» sobre la primera."""
+    open_shift()
+    identify(device_client, employees["cashier"])
+    sell(main_product, qty=1)
+
+    body = admin_client.get("/api/v1/admin/today", params={"store_id": store.id}).json()
+    assert body["net_last_week"] is None
+    assert body["net_vs_last_week_bp"] is None

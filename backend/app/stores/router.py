@@ -58,6 +58,7 @@ from app.stores.service import (
     get_sales_settings,
     landmarks_list,
     landmarks_raw,
+    orden_natural,
 )
 
 router = APIRouter()
@@ -795,8 +796,9 @@ def list_tables_admin(
     store_id: int, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
 ) -> list[TableOut]:
     admin_store(db, actor, store_id)
-    stmt = select(Table).where(Table.store_id == store_id).order_by(Table.number)
-    return [_table_out(t) for t in db.execute(stmt).scalars().all()]
+    stmt = select(Table).where(Table.store_id == store_id)
+    mesas = sorted(db.execute(stmt).scalars().all(), key=lambda t: orden_natural(t.number))
+    return [_table_out(t) for t in mesas]
 
 
 @router.post("/admin/tables")

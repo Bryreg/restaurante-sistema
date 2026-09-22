@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core import tz
 from app.core.errors import NotFoundError
 from app.core.modules import find_spec_safe
 from app.kitchen.models import KitchenBumpAction, KitchenBumpEvent, KitchenPrintJob
@@ -37,8 +38,8 @@ from app.kitchen.schemas import (
     KitchenPrintJobItemOut,
     KitchenPrintJobOut,
 )
-from app.orders.models import Order, OrderItem, OrderItemStatus, OrderRound, OrderTable
-from app.stores.models import Table
+from app.orders.models import Order, OrderItem, OrderItemStatus, OrderRound, OrderStatus, OrderTable
+from app.stores.models import Store, Table
 
 if TYPE_CHECKING:
     from app.auth.deps import Actor
@@ -331,11 +332,28 @@ def _station_dockets(db: Session, *, store_id: int, station: str | None) -> list
     para esa estación. Un ítem sin estación nunca llega SENT/READY
     (`app.orders.service._apply_send`: pasa directo a `served`), así que
     agrupar por `item.station` acá es seguro sin filtrar `None` a mano."""
+    # El mismo corte por día operativo que `GET /kitchen/rounds`: una cola de
+    # impresión con las rondas de hace un mes manda a la impresora de la
+    # plancha comandas que ya nadie va a cocinar.
+    tienda = db.get(Store, store_id)
+    hoy = tz.today_business_date(tienda.cutoff_hour) if tienda is not None else None
+    # **Y sólo de comandas VIVAS.** Una comanda pagada no está cocinando
+    # nada: si alguien cobró sin marcar «servido» —que pasa todos los días,
+    # el mesero cobra y sigue— sus platos quedaban en `sent` para siempre y
+    # la pantalla los mostraba. En la base de demostración eran 3.086
+    # comandas cobradas contra 11 vivas: la cocina del día entero entraba
+    # como ruido encima de los platos que sí están en la plancha.
+    condiciones = [
+        Order.store_id == store_id,
+        Order.status.in_((OrderStatus.OPEN, OrderStatus.TO_PAY)),
+    ]
+    if hoy is not None:
+        condiciones.append(Order.business_date == hoy)
     rounds = list(
         db.execute(
             select(OrderRound)
             .join(Order, OrderRound.order_id == Order.id)
-            .where(Order.store_id == store_id)
+            .where(*condiciones)
             .order_by(OrderRound.sent_at)
         ).scalars()
     )

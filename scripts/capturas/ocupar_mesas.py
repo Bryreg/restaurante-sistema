@@ -54,17 +54,32 @@ import_all_models()
 #: Además: una queda en «pidió la cuenta», que es un estado propio del plano
 #: —ámbar, no rojo— y hasta ahora no aparecía en ninguna captura porque
 #: ninguna mesa lo tenía.
+#:
+#: **`cocina` es cuándo salió la comida, no cuándo se sentó la mesa.** Los
+#: dos no son lo mismo y confundirlos pintaba toda la pantalla de cocina en
+#: rojo: una mesa que lleva dos horas sentada NO tiene la bandeja en la
+#: plancha desde hace dos horas —ya comió—. Con `cocina=None` los platos
+#: quedan servidos y la comanda desaparece de la plancha, que es lo que hace
+#: un restaurante de verdad; con un número, salieron hace esos minutos.
+#: Una cocina donde todo está «Demorado» enseña a ignorar el rojo, igual que
+#: una diferencia de caja que aparece todos los días.
+#:
+#: Columnas: mesa · comensales · platos · hace cuánto se sentó · hace cuánto
+#: salió a cocina (`None` = ya servido, `False` = no se marchó todavía) · si
+#: pidió la cuenta.
 MESAS = [
-    ("2", 4, ["Bandeja paisa", "Limonada de coco", "Gaseosa"], 18, True, False),
+    ("2", 4, ["Bandeja paisa", "Limonada de coco", "Gaseosa"], 18, 9, False),
     ("4", 6, ["Ajiaco santafereño", "Bandeja paisa", "Lomo al trapo",
-              "Arroz con pollo", "Jugo de mango", "Cerveza Águila"], 72, True, True),
-    ("6", 4, ["Pechuga a la plancha", "Arroz con pollo", "Gaseosa"], 34, True, False),
+              "Arroz con pollo", "Jugo de mango", "Cerveza Águila"], 72, None, True),
+    ("6", 4, ["Pechuga a la plancha", "Arroz con pollo", "Gaseosa"], 34, 14, False),
     ("7", 4, ["Pescado frito (mojarra)", "Bandeja paisa", "Limonada de coco",
-              "Cerveza Águila"], 52, True, False),
+              "Cerveza Águila"], 52, None, False),
+    # Ésta es la que va tarde de verdad: salió hace 26 minutos y no ha vuelto.
+    # Una sola, para que el rojo signifique algo.
     ("9", 6, ["Ajiaco santafereño", "Lomo al trapo", "Pescado frito (mojarra)",
-              "Arroz con pollo", "Jugo de mango"], 125, True, False),
+              "Arroz con pollo", "Jugo de mango"], 125, 26, False),
     ("11", 8, ["Bandeja paisa", "Bandeja paisa", "Ajiaco santafereño",
-               "Pechuga a la plancha", "Limonada de coco", "Gaseosa"], 41, True, False),
+               "Pechuga a la plancha", "Limonada de coco", "Gaseosa"], 41, 4, False),
     # Ésta sí queda sin marchar y sin pasar el umbral: es la mesa que el mesero
     # acaba de tomar.
     ("3", 4, ["Lomo al trapo", "Pechuga a la plancha", "Limonada de coco"], 6, False, False),
@@ -73,12 +88,23 @@ MESAS = [
 #: La barra: dos puestos tomados, con su comanda. Sin esto la tira salía
 #: «0 de 6» en todas las capturas, que es un local sin nadie en la barra a
 #: las ocho de la noche.
-BARRA = (2, ["Cerveza Águila", "Empanadas de carne (x3)"], 22)
+BARRA = (2, ["Cerveza Águila", "Empanadas de carne (x3)"], 22, 7)
 
 #: Quién tiene apartada una mesa y a qué hora. El plano pinta la reserva
 #: sobre la mesa LIBRE que la espera (`m2b`: «Mesa 5 · 9:00 p. m. · Familia
 #: Rincón»); sin una reserva cargada, esa forma de tarjeta no se veía nunca.
-RESERVA = ("5", "Familia Rincón", 4, "3106649028")
+#:
+#: Son varias porque la pantalla de Reservas es una LISTA: con una sola fila
+#: no se ve que están ordenadas por hora ni que cada una dice de qué mesa es.
+#: Los minutos son desde ahora; sólo la primera cae adentro de la ventana de
+#: anticipación, así que sólo esa se pinta sobre el plano — que es
+#: exactamente lo que hace el servidor y lo que hay que poder mostrar.
+RESERVAS = [
+    ("5", "Familia Rincón", 4, "3106649028", 45),
+    ("10", "Andrés Betancur", 4, "3159902244", 150),
+    ("12", "Laura Ospina", 2, "3208817356", 195),
+    ("1", "Mesa de Sofía Nieto", 2, None, 240),
+]
 
 
 def _modificadores(db, producto, rng):
@@ -162,6 +188,75 @@ def _armar_el_local(db, store) -> None:
     db.flush()
 
 
+def _abrir_mesa(
+    db, *, actor, store, rng, por_nombre, base, mesa, comensales, platos,
+    hace_minutos, cocina, pidio_cuenta,
+):
+    """Abre una mesa y deja su comida donde de verdad estaría.
+
+    `cocina` decide el estado de los platos, y es lo que separa una pantalla
+    de cocina creíble de una pintada entera de rojo:
+
+    - `False`: no se marchó. Los platos siguen en la comanda y no llegan a
+      la plancha. Es la mesa que el mesero acaba de tomar.
+    - un número: salieron hace esos minutos. Van a la plancha con ESE
+      instante, no con el de la apertura de la mesa.
+    - `None`: ya se sirvió. Se marcha y después se marca servido plato por
+      plato, por el servicio (`mark_served`), que es lo que hace que la
+      comanda desaparezca de cocina sin dejar de estar abierta y cobrable.
+
+    Devuelve la tupla del informe, o `None` si no había ningún plato.
+    """
+    clock.set_clock(lambda t=base - timedelta(minutes=hace_minutos): t)
+    orden = orders_service.create_order(
+        db, actor=actor, store=store,
+        payload=OrderCreateIn(channel="dine_in", table_ids=[mesa.id], covers=comensales),
+    )
+    db.flush()
+    items = [
+        OrderItemIn(product_id=p.id, qty=1, modifiers=_modificadores(db, p, rng))
+        for p in (por_nombre.get(n) for n in platos)
+        if p is not None
+    ]
+    if not items:
+        return None
+    orden = orders_service.add_items(
+        db, order=orden, actor=actor,
+        payload=AddItemsIn(expected_version=orden.version, items=items),
+    )
+
+    if cocina is False:
+        estado = "SIN marchar (recién tomada)"
+    else:
+        # Marchar en el minuto que corresponde: el semáforo de cocina se
+        # calcula contra `sent_at`, así que mandarlo con el reloj de la
+        # apertura pinta «Demorado · 2 h» sobre un plato que salió hace
+        # cinco minutos.
+        minutos_cocina = hace_minutos if cocina is None else cocina
+        clock.set_clock(lambda t=base - timedelta(minutes=minutos_cocina): t)
+        orden = orders_service.send_order(db, order=orden, actor=actor, expected_version=orden.version)
+        if cocina is None:
+            # Servido: por el servicio, plato por plato. Lo que sigue en la
+            # comanda sigue cobrándose igual.
+            clock.set_clock(lambda t=base - timedelta(minutes=max(0, minutos_cocina - 12)): t)
+            for item in list(orden.items):
+                orders_service.mark_served(db, order=orden, item_id=item.id, actor=actor)
+            estado = "servida"
+        else:
+            estado = f"en cocina hace {cocina} min"
+
+    clock.set_clock(lambda t=base - timedelta(minutes=hace_minutos): t)
+    if pidio_cuenta:
+        # Por el servicio, no tocando `status` a mano: presentar la cuenta
+        # deja su evento (`bill_presented`) y su contador de impresiones, y
+        # es lo que hace que el plano la pinte ámbar.
+        orden = orders_service.present_bill(db, order=orden, actor=actor, expected_version=orden.version)
+        estado = f"{estado} · pidió la cuenta"
+    db.commit()
+    return (comensales, len(items), orders_service.compute_order_totals(db, orden).total,
+            hace_minutos, estado)
+
+
 def main() -> None:
     rng = random.Random(7)
     db = SessionLocal()
@@ -188,72 +283,30 @@ def main() -> None:
     try:
         # Escalonadas hacia atrás: la mesa 9 lleva dos horas sentada y la 3
         # se acaba de tomar.
-        for numero, comensales, platos, hace_minutos, marchada, pidio_cuenta in MESAS:
+        for numero, comensales, platos, hace_minutos, cocina, pidio_cuenta in MESAS:
             mesa = mesas.get(numero)
             if mesa is None:
                 print(f"  (no existe la mesa {numero})")
                 continue
-            clock.set_clock(lambda t=base - timedelta(minutes=hace_minutos): t)
-            orden = orders_service.create_order(
-                db, actor=actor, store=store,
-                payload=OrderCreateIn(channel="dine_in", table_ids=[mesa.id], covers=comensales),
+            resultado = _abrir_mesa(
+                db, actor=actor, store=store, rng=rng, por_nombre=por_nombre, base=base,
+                mesa=mesa, comensales=comensales, platos=platos,
+                hace_minutos=hace_minutos, cocina=cocina, pidio_cuenta=pidio_cuenta,
             )
-            db.flush()
-            items = [
-                OrderItemIn(product_id=p.id, qty=1, modifiers=_modificadores(db, p, rng))
-                for p in (por_nombre.get(n) for n in platos)
-                if p is not None
-            ]
-            if not items:
-                continue
-            orden = orders_service.add_items(
-                db, order=orden, actor=actor,
-                payload=AddItemsIn(expected_version=orden.version, items=items),
-            )
-            if marchada:
-                orden = orders_service.send_order(
-                    db, order=orden, actor=actor, expected_version=orden.version
-                )
-            if pidio_cuenta:
-                # Por el servicio, no tocando `status` a mano: presentar la
-                # cuenta deja su evento (`bill_presented`) y su contador de
-                # impresiones, y es lo que hace que el plano la pinte ámbar.
-                orden = orders_service.present_bill(
-                    db, order=orden, actor=actor, expected_version=orden.version
-                )
-            db.commit()
-            abiertas.append(
-                (numero, comensales, len(items),
-                 orders_service.compute_order_totals(db, orden).total, hace_minutos,
-                 "pidió la cuenta" if pidio_cuenta else ("marchada" if marchada else "SIN marchar (recién tomada)"))
-            )
+            if resultado is not None:
+                abiertas.append((numero, *resultado))
 
         # ── La barra ───────────────────────────────────────────────────────
-        puestos_barra, platos_barra, hace_barra = BARRA
+        puestos_barra, platos_barra, hace_barra, cocina_barra = BARRA
         barra = mesas.get("Barra")
         if barra is not None:
-            clock.set_clock(lambda t=base - timedelta(minutes=hace_barra): t)
-            orden = orders_service.create_order(
-                db, actor=actor, store=store,
-                payload=OrderCreateIn(channel="dine_in", table_ids=[barra.id], covers=puestos_barra),
+            resultado = _abrir_mesa(
+                db, actor=actor, store=store, rng=rng, por_nombre=por_nombre, base=base,
+                mesa=barra, comensales=puestos_barra, platos=platos_barra,
+                hace_minutos=hace_barra, cocina=cocina_barra, pidio_cuenta=False,
             )
-            db.flush()
-            items = [
-                OrderItemIn(product_id=p.id, qty=1, modifiers=_modificadores(db, p, rng))
-                for p in (por_nombre.get(n) for n in platos_barra) if p is not None
-            ]
-            if items:
-                orden = orders_service.add_items(
-                    db, order=orden, actor=actor,
-                    payload=AddItemsIn(expected_version=orden.version, items=items),
-                )
-                orden = orders_service.send_order(
-                    db, order=orden, actor=actor, expected_version=orden.version
-                )
-                db.commit()
-                abiertas.append(("Barra", puestos_barra, len(items),
-                                 orders_service.compute_order_totals(db, orden).total,
-                                 hace_barra, "marchada"))
+            if resultado is not None:
+                abiertas.append(("Barra", *resultado))
     finally:
         clock.set_clock(None)
 
@@ -262,16 +315,20 @@ def main() -> None:
     # hora y el nombre de quien la apartó; el servidor sólo la publica cuando
     # cae adentro de la ventana de anticipación, así que la hora se elige
     # cerca —no «mañana»— o no se vería.
-    numero_reserva, quien, cuantos, telefono = RESERVA
-    mesa_reservada = mesas.get(numero_reserva)
-    if mesa_reservada is not None:
+    for numero_reserva, quien, cuantos, telefono, dentro_de in RESERVAS:
+        mesa_reservada = mesas.get(numero_reserva)
+        if mesa_reservada is None:
+            continue
         try:
             reserva = reservations_service.create(
                 db, store=store,
                 payload=ReservationIn(
                     table_id=mesa_reservada.id,
-                    at=base + timedelta(minutes=45),
+                    at=base + timedelta(minutes=dentro_de),
                     party_name=quien,
+                    # La mesa manda: el servidor rechaza una reserva más
+                    # grande que la mesa (`PARTY_EXCEEDS_SEATS`) y el guion
+                    # no va a pelearse con esa regla.
                     party_size=min(cuantos, mesa_reservada.seats),
                     phone=telefono,
                 ),
@@ -279,12 +336,12 @@ def main() -> None:
             )
             db.commit()
             print(f"  reserva: mesa {numero_reserva} a nombre de {quien} "
-                  f"({reserva.party_size} personas)")
+                  f"({reserva.party_size} personas, en {dentro_de} min)")
         except AppError as exc:
             # Que ya esté apartada no es una falla del guion: es correrlo dos
             # veces seguidas.
             db.rollback()
-            print(f"  (reserva no creada: {exc.code})")
+            print(f"  (reserva mesa {numero_reserva} no creada: {exc.code})")
 
     # ── El riel: para llevar y domicilios ───────────────────────────────────
     canales = []

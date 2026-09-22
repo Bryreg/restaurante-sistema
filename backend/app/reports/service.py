@@ -834,6 +834,11 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     if neto_semana_pasada_a_esta_hora:
         diferencia = net - neto_semana_pasada_a_esta_hora
         magnitud = money.round_half_up(abs(diferencia) * 10_000, neto_semana_pasada_a_esta_hora)
+        # A décimas de punto (múltiplos de 10 bp). «−29,24 %» sugiere una
+        # precisión que esta cifra no tiene: del lado de hoy hay un día a
+        # medio andar y del otro un martes entero de hace una semana. Lo
+        # que se lee es «cayó como un treinta por ciento», y así se escribe.
+        magnitud = money.round_half_up(magnitud, 10) * 10
         variacion_bp = -magnitud if diferencia < 0 else magnitud
     covers_map = _order_covers_map(db, order_ids)
     covers_sum = sum(c for oid in order_ids if (c := covers_map.get(oid)) is not None)

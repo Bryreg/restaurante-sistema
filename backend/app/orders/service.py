@@ -328,8 +328,10 @@ def _order_table_refs(db: Session, order_id: int) -> list[TableRef]:
         .join(Zone, Table.zone_id == Zone.id)
         .join(OrderTable, OrderTable.table_id == Table.id)
         .where(OrderTable.order_id == order_id, OrderTable.released_at.is_(None))
-        .order_by(Table.number)
     ).all()
+    # Orden natural, no alfabético: `number` es texto y «10» iría antes que
+    # «2» (`stores_service.orden_natural`).
+    rows.sort(key=lambda fila: stores_service.orden_natural(fila[0].number))
     return [TableRef(id=t.id, number=t.number, zone_name=zone_name) for t, zone_name in rows]
 
 
@@ -654,7 +656,12 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
     zones = list(db.execute(select(Zone).where(Zone.store_id == store_id, Zone.active.is_(True)).order_by(Zone.sort_order, Zone.id)).scalars())
     zones_out: list[ZoneStatusOut] = []
     for zone in zones:
-        tables = list(db.execute(select(Table).where(Table.zone_id == zone.id, Table.active.is_(True)).order_by(Table.number)).scalars())
+        tables = sorted(
+            db.execute(select(Table).where(Table.zone_id == zone.id, Table.active.is_(True))).scalars(),
+            # El plano se lee como se numeran las mesas, no como se ordena un
+            # texto: sin esto la mesa 10 va antes que la 2.
+            key=lambda t: stores_service.orden_natural(t.number),
+        )
         tables_out: list[TableStatusOut] = []
         for table in tables:
             ot = db.execute(select(OrderTable).where(OrderTable.table_id == table.id, OrderTable.released_at.is_(None))).scalars().first()
