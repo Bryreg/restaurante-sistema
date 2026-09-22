@@ -37,7 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 
-const TYPE_LABEL: Record<string, string> = {
+export const TYPE_LABEL: Record<string, string> = {
   shift_stale: "Turno abandonado",
   cash_difference: "Diferencia de caja",
   cash_difference_critical: "Diferencia crítica",
@@ -45,6 +45,20 @@ const TYPE_LABEL: Record<string, string> = {
   cash_over_threshold: "Efectivo sobre el umbral",
   pin_locked: "PIN bloqueado",
   product_unavailable: "Producto agotado",
+  discount_rate_high: "Descuentos altos de una persona",
+  courtesy_limit: "Cortesías sobre el tope",
+  void_rate_high: "Anulaciones altas de una persona",
+  order_unsent_too_long: "Comanda sin enviar a cocina",
+  order_unpaid_too_long: "Cuenta presentada sin cobrar",
+  fiscal_rejected: "Documento rechazado por la DIAN",
+  fiscal_contingency_overdue: "Contingencia fiscal vencida",
+  fiscal_range_low: "Numeración DIAN por agotarse",
+  pending_refund: "Devolución pendiente",
+  ingredient_below_min: "Insumo bajo el mínimo",
+  ingredient_negative: "Insumo en negativo",
+  prep_no_production: "Preparación sin producir",
+  product_discounts_nothing: "Plato que no descuenta inventario",
+  waste_spike: "Merma por encima de lo habitual",
 };
 
 const LEVEL_LABEL: Record<NotificationLevel, string> = {
@@ -54,7 +68,7 @@ const LEVEL_LABEL: Record<NotificationLevel, string> = {
 };
 
 /** Qué gobierna cada regla, en palabras: a quién le llega y de dónde sale. */
-const TYPE_HELP: Record<string, string> = {
+export const TYPE_HELP: Record<string, string> = {
   shift_stale: "Un turno que pasó su hora de corte y sigue abierto: el salón sigue vendiendo sobre un turno de ayer.",
   cash_difference: "El cierre no cuadró. El umbral de esta regla no es el del cierre: ése vive en Ajustes › Caja.",
   cash_difference_critical: "La diferencia pasó la crítica de Ajustes › Caja y el turno queda marcado para revisión.",
@@ -62,6 +76,20 @@ const TYPE_HELP: Record<string, string> = {
   cash_over_threshold: "Hay más efectivo en el cajón que el umbral de retiro de Ajustes › Caja.",
   pin_locked: "Alguien erró el PIN demasiadas veces y quedó bloqueado: no puede trabajar hasta que se destrabe.",
   product_unavailable: "Un plato se marcó agotado en el salón y dejó de venderse.",
+  discount_rate_high: "Lo que una persona descontó en el turno pasa el tope diario de Ajustes › Ventas.",
+  courtesy_limit: "El turno pasó la cantidad de cortesías permitida en Ajustes › Ventas.",
+  void_rate_high: "Lo que una persona anuló en el turno pasa el 10 % de lo que vendió.",
+  order_unsent_too_long: "Una comanda abierta tiene platos que nunca llegaron a cocina.",
+  order_unpaid_too_long: "Se presentó la cuenta y pasa el tiempo sin cobrarse: por ahí se va la plata.",
+  fiscal_rejected: "La DIAN rechazó un documento: hay que corregirlo y reenviarlo, o anularlo por nota.",
+  fiscal_contingency_overdue: "Un documento en contingencia pasó las 48 horas que da la ley para transmitirlo.",
+  fiscal_range_low: "Un rango de numeración va por el 80 % o vence en menos de 30 días: pedí el siguiente.",
+  pending_refund: "Una devolución a un cliente quedó registrada y falta pagarla.",
+  ingredient_below_min: "El stock teórico de un insumo quedó por debajo de su mínimo: hay que reponer.",
+  ingredient_negative: "Se descontó más de lo que había: falta registrar una compra o hay un error de receta.",
+  prep_no_production: "Una preparación por lote se está usando sin que nadie registre haberla producido.",
+  product_discounts_nothing: "Se vendió un plato sin ficha técnica: la venta siguió, pero el inventario no se movió.",
+  waste_spike: "La merma de un insumo esta semana supera 1,5 veces la de la semana anterior.",
 };
 
 /** El nivel es **estado**, no acción: dice qué tan grave, nunca invita a tocar. */

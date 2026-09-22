@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate, RouterProvider, type RouteObject } from "react-router-dom";
 
+import { RouteError } from "@/app/RouteError";
 import DeviceActivatePage from "@/features/auth/DeviceActivatePage";
 import DeviceIdentifyPage from "@/features/auth/DeviceIdentifyPage";
 import LoginPage from "@/features/auth/LoginPage";
@@ -89,6 +90,7 @@ const routes: RouteObject[] = [
         <AdminLayout />
       </RequireAdmin>
     ),
+    errorElement: <RouteError home="/admin/hoy" />,
     children: [
       { index: true, element: <Navigate to="hoy" replace /> },
       { path: "features", element: <FeaturesPage /> },
@@ -117,6 +119,7 @@ const routes: RouteObject[] = [
         <PosLayout />
       </RequireDevice>
     ),
+    errorElement: <RouteError home="/pos" />,
     children: [
       { index: true, element: <PosHome /> },
       ...shiftsFeature.posRoutes,
