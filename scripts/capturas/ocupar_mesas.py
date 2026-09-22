@@ -86,6 +86,32 @@ DOMICILIOS = [
 ]
 
 
+def _armar_el_local(db, store) -> None:
+    """Le da al salón las referencias y la barra que un local real tiene.
+
+    Van acá y no en el seed porque son decisiones DE ESTE local: otro
+    restaurante tiene otro ventanal y puede no tener barra. El seed deja un
+    salón genérico; este guion lo convierte en Chapinero.
+    """
+    from app.stores.models import Zone
+
+    referencias = {"Salón": "Entrada|Ventanal / Calle 63|Paso a cocina", "Terraza": "Escaleras|Jardín"}
+    for zona in db.execute(select(Zone).where(Zone.store_id == store.id)).scalars():
+        if zona.name in referencias:
+            zona.landmarks = referencias[zona.name]
+
+    # La última mesa pasa a ser la barra: seis puestos, y el plano la dibuja
+    # como una tira en vez de una tarjeta.
+    barra = db.execute(
+        select(Table).where(Table.store_id == store.id, Table.number == "8")
+    ).scalar_one_or_none()
+    if barra is not None:
+        barra.is_counter = True
+        barra.number = "Barra"
+        barra.seats = 6
+    db.flush()
+
+
 def main() -> None:
     rng = random.Random(7)
     db = SessionLocal()
@@ -101,6 +127,8 @@ def main() -> None:
         sys.exit("Falta el elenco: corré el generador antes.")
     actor = Actor(kind="device", organization_id=store.organization_id, store_id=store.id,
                   employee_id=mesero.id, employee_name=mesero.name, role=mesero.role)
+
+    _armar_el_local(db, store)
 
     por_nombre = {p.name: p for p in db.execute(select(Product).where(Product.store_id == store.id)).scalars()}
     mesas = {t.number: t for t in db.execute(select(Table).where(Table.store_id == store.id)).scalars()}
