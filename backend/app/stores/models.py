@@ -165,6 +165,15 @@ class Zone(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    #: Referencias del salón que ayudan a ubicarse en el plano: «Entrada»,
+    #: «Ventanal / Calle 63», «Paso a cocina» (`m2b`). Son DATO y no texto fijo
+    #: en la pantalla: el ventanal de Chapinero da a la Calle 63 y el de otra
+    #: sede no, y un plano con la calle equivocada es peor que uno sin calle.
+    #:
+    #: JSON con una lista de textos cortos, separado por `|` para no arrastrar
+    #: un tipo JSON a un esquema que hoy es todo columnas simples. Vacío es lo
+    #: normal: la mayoría de los salones no necesita ninguna.
+    landmarks: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
 
 class Table(Base):
@@ -176,6 +185,11 @@ class Table(Base):
     number: Mapped[str] = mapped_column(String(20), nullable=False)
     seats: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    #: Es una BARRA, no una mesa: `m2b` la dibuja como una tira con un punto
+    #: por puesto en vez de una tarjeta. Sigue siendo una fila de `tables`
+    #: —se abre, se cobra y se cierra igual— y por eso es una bandera y no
+    #: una tabla nueva: lo único distinto es cómo se ve.
+    is_counter: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class FeatureState(Base):

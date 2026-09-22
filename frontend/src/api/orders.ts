@@ -312,6 +312,12 @@ export interface TableStatusOut {
    * `null` cuando la sede no usa reservas o no hay ninguna cerca.
    */
   reservation?: TableReservationOut | null
+  /**
+   * Esta «mesa» es una BARRA: se dibuja como una tira con un punto por
+   * puesto en vez de una tarjeta (`m2b`). Todo lo demás —abrir, cobrar,
+   * cerrar— es idéntico.
+   */
+  is_counter?: boolean
 }
 
 /** Lo poco que el plano necesita de una reserva: cuándo y a nombre de quién. */
@@ -326,6 +332,13 @@ export interface TableReservationOut {
 export interface ZoneStatusOut {
   id: number
   name?: string
+  /**
+   * Referencias del salón para ubicarse en el plano («Entrada», «Ventanal /
+   * Calle 63»). Las configura el administrador **por zona**: son del local,
+   * no de la pantalla — un plano con la calle equivocada es peor que uno sin
+   * calle. Vacío es lo normal.
+   */
+  landmarks?: string[]
   tables?: TableStatusOut[]
 }
 

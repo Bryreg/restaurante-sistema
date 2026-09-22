@@ -52,7 +52,13 @@ from app.stores.schemas import (
     ZoneOut,
     ZoneUpdateIn,
 )
-from app.stores.service import current_fiscal, get_cash_settings, get_sales_settings
+from app.stores.service import (
+    current_fiscal,
+    get_cash_settings,
+    get_sales_settings,
+    landmarks_list,
+    landmarks_raw,
+)
 
 router = APIRouter()
 
@@ -144,12 +150,25 @@ def _sales_settings_out(row: StoreSalesSettings) -> SalesSettingsOut:
 
 
 def _zone_out(zone: Zone) -> ZoneOut:
-    return ZoneOut(id=zone.id, store_id=zone.store_id, name=zone.name, sort_order=zone.sort_order, active=zone.active)
+    return ZoneOut(
+        id=zone.id,
+        store_id=zone.store_id,
+        name=zone.name,
+        sort_order=zone.sort_order,
+        active=zone.active,
+        landmarks=landmarks_list(zone.landmarks),
+    )
 
 
 def _table_out(table: Table) -> TableOut:
     return TableOut(
-        id=table.id, zone_id=table.zone_id, store_id=table.store_id, number=table.number, seats=table.seats, active=table.active
+        id=table.id,
+        zone_id=table.zone_id,
+        store_id=table.store_id,
+        number=table.number,
+        seats=table.seats,
+        active=table.active,
+        is_counter=table.is_counter,
     )
 
 
@@ -721,7 +740,13 @@ def create_zone(
     store_id: int, body: ZoneCreateIn, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
 ) -> ZoneOut:
     admin_store(db, actor, store_id)
-    zone = Zone(store_id=store_id, name=body.name, sort_order=body.sort_order, active=True)
+    zone = Zone(
+        store_id=store_id,
+        name=body.name,
+        sort_order=body.sort_order,
+        active=True,
+        landmarks=landmarks_raw(body.landmarks),
+    )
     db.add(zone)
     db.flush()
     record_audit(
@@ -748,6 +773,8 @@ def update_zone(
     for field in ("name", "sort_order", "active"):
         if field in data and data[field] is not None:
             setattr(zone, field, data[field])
+    if "landmarks" in data and data["landmarks"] is not None:
+        zone.landmarks = landmarks_raw(data["landmarks"])
     db.flush()
     record_audit(
         db,
@@ -777,7 +804,14 @@ def create_table(
     body: TableCreateIn, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
 ) -> TableOut:
     zone = _zone_or_404(db, actor, body.zone_id)
-    table = Table(zone_id=zone.id, store_id=zone.store_id, number=body.number, seats=body.seats, active=True)
+    table = Table(
+        zone_id=zone.id,
+        store_id=zone.store_id,
+        number=body.number,
+        seats=body.seats,
+        active=True,
+        is_counter=body.is_counter,
+    )
     db.add(table)
     db.flush()
     record_audit(
@@ -805,7 +839,7 @@ def update_table(
         new_zone = _zone_or_404(db, actor, data["zone_id"])
         table.zone_id = new_zone.id
         table.store_id = new_zone.store_id
-    for field in ("number", "seats", "active"):
+    for field in ("number", "seats", "active", "is_counter"):
         if field in data and data[field] is not None:
             setattr(table, field, data[field])
     db.flush()

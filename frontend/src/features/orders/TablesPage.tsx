@@ -28,6 +28,7 @@ import { useSession } from "@/app/session"
 import { errorMessage } from "@/lib/errors"
 
 import { AuthorizerDialog } from "./AuthorizerDialog"
+import { BarraSitio } from "@/components/pos/BarraSitio"
 import { MesaCard, type EstadoMesa } from "@/components/pos/MesaCard"
 import { RielCanales, type GrupoCanal } from "@/components/pos/RielCanales"
 import { SalonResumen } from "@/components/pos/SalonResumen"
@@ -317,20 +318,37 @@ export function TablesPage(): React.JSX.Element {
               columnas. */}
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_296px]">
           <div className="rounded-xl border bg-card p-4">
-          {/* La maqueta pone acá una fila de marcas del sitio —«Entrada»,
-              «Ventanal / Calle 63», «Paso a cocina»— que orientan a quien mira
-              el plano. Este producto NO tiene ese dato: no hay referencias
-              físicas del local en ninguna parte del modelo. Poner los nombres
-              de zona en su lugar sólo repetía el título que ya está debajo de
-              cada grupo, así que la fila queda fuera hasta que exista el dato
-              de verdad. */}
-          {zones.map((zone) => (
+          {zones.map((zone) => {
+            // La barra se dibuja como una tira debajo del plano de la zona,
+            // no como una tarjeta más en la grilla: `m2b` la separa porque no
+            // se mira igual que una mesa.
+            const mesas = (zone.tables ?? []).filter((t) => !t.is_counter)
+            const barras = (zone.tables ?? []).filter((t) => t.is_counter)
+            return (
             <section key={zone.id} className="mb-4 last:mb-0">
               <h2 className="mb-2 text-xs tracking-wider text-muted-foreground uppercase">{zone.name}</h2>
+
+              {/* **Las referencias del sitio** (`m2b`): «Entrada», «Ventanal /
+                  Calle 63», «Paso a cocina». Las configura el administrador
+                  por zona —son del local, no de la pantalla— y por eso acá no
+                  hay ni un texto fijo: sin referencias cargadas, la fila
+                  sencillamente no existe. */}
+              {(zone.landmarks ?? []).length > 0 ? (
+                <div className="mb-2.5 flex flex-wrap gap-2">
+                  {(zone.landmarks ?? []).map((marca) => (
+                    <span
+                      key={marca}
+                      className="rounded-md border border-dashed border-input px-2.5 py-1 text-[0.72rem] tracking-[0.07em] text-muted-foreground uppercase"
+                    >
+                      {marca}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               {/* `auto-fill` con mínimo de 124 px: el plano se adapta al ancho
                   de la tablet sin que nadie declare cuántas columnas hay. */}
               <div className="grid grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-2.5">
-                {(zone.tables ?? []).map((table) => (
+                {mesas.map((table) => (
                   <MesaCard
                     key={table.id}
                     numero={table.number ?? "—"}
@@ -367,8 +385,35 @@ export function TablesPage(): React.JSX.Element {
                   />
                 ))}
               </div>
+
+              {/* La barra, si la zona tiene. Los puestos ocupados salen de los
+                  comensales que alguien contó (`covers`): si nadie los contó,
+                  la tira muestra el total al lado y los puestos vacíos —
+                  pintar «6 de 6» porque hay una comanda abierta sería
+                  inventar cuánta gente hay sentada. */}
+              {barras.map((barra) => (
+                <BarraSitio
+                  key={barra.id}
+                  nombre={barra.number ?? "Barra"}
+                  puestos={barra.seats ?? 0}
+                  ocupados={barra.status === "free" ? 0 : (barra.covers ?? 0)}
+                  total={barra.status === "free" ? null : barra.total}
+                  onClick={() => {
+                    if (mode !== "idle") {
+                      toggleSelected(barra)
+                      return
+                    }
+                    if (barra.status === "free") {
+                      setOpenTable(barra)
+                    } else if (barra.order_id) {
+                      navigate(`/pos/comanda/${barra.order_id}`)
+                    }
+                  }}
+                />
+              ))}
             </section>
-          ))}
+            )
+          })}
           </div>
 
           <RielCanales

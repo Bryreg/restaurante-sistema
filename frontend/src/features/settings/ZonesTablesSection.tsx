@@ -95,6 +95,31 @@ export function ZonesTablesSection({ storeId }: { storeId: number | null }): Rea
     }
   }
 
+  async function handleSaveLandmarks(zoneId: number, texto: string) {
+    setError(null);
+    try {
+      // Separadas por coma al escribirlas; el servidor las guarda como lista.
+      const landmarks = texto
+        .split(",")
+        .map((p) => p.trim())
+        .filter((p) => p !== "");
+      await updateZone(zoneId, { landmarks });
+      await refetch();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function handleToggleCounter(tableId: number, isCounter: boolean) {
+    setError(null);
+    try {
+      await updateTable(tableId, { is_counter: isCounter });
+      await refetch();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
   async function handleToggleTableActive(tableId: number, active: boolean) {
     setError(null);
     try {
@@ -122,6 +147,23 @@ export function ZonesTablesSection({ storeId }: { storeId: number | null }): Rea
       cell: (zone) => String(tables.filter((t) => t.zone_id === zone.id).length),
     },
     {
+      key: "landmarks",
+      header: "Referencias del salón",
+      // Lo que ayuda a ubicarse en el plano: «Entrada», «Ventanal / Calle
+      // 63», «Paso a cocina». Se escriben separadas por coma y el servidor
+      // las guarda como lista. Son del LOCAL, no de la pantalla: el ventanal
+      // de Chapinero da a la Calle 63 y el de otra sede no.
+      cell: (zone) => (
+        <Input
+          className="h-9 min-w-48 text-xs"
+          defaultValue={(zone.landmarks ?? []).join(", ")}
+          placeholder="Entrada, Ventanal / Calle 63"
+          aria-label={`Referencias del salón de la zona ${zone.name}`}
+          onBlur={(e) => void handleSaveLandmarks(zone.id, e.target.value)}
+        />
+      ),
+    },
+    {
       key: "active",
       header: "Activa",
       widthPx: 70,
@@ -139,6 +181,20 @@ export function ZonesTablesSection({ storeId }: { storeId: number | null }): Rea
     { key: "number", header: "Mesa", kind: "id", cell: (table) => table.number },
     { key: "zone", header: "Zona", cell: (table) => zoneNameById.get(table.zone_id) ?? "—" },
     { key: "seats", header: "Sillas", kind: "number", cell: (table) => String(table.seats) },
+    {
+      key: "is_counter",
+      header: "Barra",
+      widthPx: 70,
+      // Una barra sigue siendo una mesa para el sistema —se abre, se cobra y
+      // se cierra igual—; lo único distinto es cómo la dibuja el plano.
+      cell: (table) => (
+        <Switch
+          checked={table.is_counter ?? false}
+          aria-label={`Marcar ${table.number} como ${table.is_counter ? "mesa" : "barra"}`}
+          onCheckedChange={(next) => void handleToggleCounter(table.id, next)}
+        />
+      ),
+    },
     {
       key: "active",
       header: "Activa",

@@ -603,6 +603,13 @@ def _table_is_slow(db: Session, order: Order, *, now: datetime) -> bool:
     return False
 
 
+def _landmarks_de_zona(zone: Zone) -> list[str]:
+    """Las referencias del salón, ya partidas. El partido vive en
+    `app.stores.service`, que es el dueño de la columna: una segunda copia
+    del separador acá se desincroniza el día que alguien cambie la de allá."""
+    return stores_service.landmarks_list(zone.landmarks)
+
+
 def _reservas_del_plano(db: Session, *, store_id: int) -> dict[int, Any]:
     """Qué mesa está apartada ahora mismo, por mesa.
 
@@ -659,6 +666,7 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
                         seats=table.seats,
                         status="free",
                         reservation=reservas.get(table.id),
+                        is_counter=table.is_counter,
                     )
                 )
                 continue
@@ -671,6 +679,7 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
                         seats=table.seats,
                         status="free",
                         reservation=reservas.get(table.id),
+                        is_counter=table.is_counter,
                     )
                 )
                 continue
@@ -688,9 +697,17 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
                     total=total,
                     served_by=order.opened_by_employee_name,
                     is_slow=_table_is_slow(db, order, now=clock.now_utc()),
+                    is_counter=table.is_counter,
                 )
             )
-        zones_out.append(ZoneStatusOut(id=zone.id, name=zone.name, tables=tables_out))
+        zones_out.append(
+            ZoneStatusOut(
+                id=zone.id,
+                name=zone.name,
+                tables=tables_out,
+                landmarks=_landmarks_de_zona(zone),
+            )
+        )
 
     ahora = clock.now_utc()
     todas = [m for z in zones_out for m in z.tables]

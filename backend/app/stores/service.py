@@ -77,3 +77,27 @@ def current_fiscal(db: Session, store_id: int, on: date | None = None) -> StoreF
         .limit(1)
     )
     return db.execute(stmt).scalars().first()
+
+
+# ---------------------------------------------------------------------------
+# Referencias del salón (`zones.landmarks`)
+# ---------------------------------------------------------------------------
+
+#: Se guardan en una sola columna separadas por `|`. El separador es la barra
+#: y no la coma porque una referencia real la lleva adentro: «Terraza, lado
+#: norte».
+LANDMARK_SEP = "|"
+
+
+def landmarks_list(raw: str | None) -> list[str]:
+    """La columna, partida en rótulos. Vacío es lo normal."""
+    if not raw:
+        return []
+    return [p.strip() for p in raw.split(LANDMARK_SEP) if p.strip()]
+
+
+def landmarks_raw(items: list[str]) -> str | None:
+    """Los rótulos, listos para guardar. Un `|` tecleado adentro de un rótulo
+    se cambia por espacio: si no, partiría el rótulo en dos al leerlo."""
+    limpios = [i.strip().replace(LANDMARK_SEP, " ") for i in items if i.strip()]
+    return LANDMARK_SEP.join(limpios) or None

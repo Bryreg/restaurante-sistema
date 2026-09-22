@@ -187,6 +187,13 @@ export interface Zone {
   name: string;
   sort_order: number;
   active: boolean;
+  /**
+   * Referencias del salón para ubicarse en el plano («Entrada», «Ventanal /
+   * Calle 63», «Paso a cocina»). Son del LOCAL, no de la pantalla: el
+   * ventanal de Chapinero da a la Calle 63 y el de otra sede no. Vacío es lo
+   * normal — la mayoría de los salones no necesita ninguna.
+   */
+  landmarks?: string[];
 }
 
 export function listZones(storeId: number): Promise<Zone[]> {
@@ -199,7 +206,7 @@ export function createZone(storeId: number, body: { name: string; sort_order?: n
 
 export function updateZone(
   zoneId: number,
-  body: Partial<{ name: string; sort_order: number; active: boolean }>,
+  body: Partial<{ name: string; sort_order: number; active: boolean; landmarks: string[] }>,
 ): Promise<Zone> {
   return api<Zone>(`/admin/zones/${zoneId}`, { method: "PATCH", body });
 }
@@ -211,19 +218,30 @@ export interface Table {
   number: string;
   seats: number;
   active: boolean;
+  /**
+   * Es una BARRA, no una mesa: el plano la dibuja como una tira con un punto
+   * por puesto. Sigue siendo una mesa para el sistema —se abre, se cobra y
+   * se cierra igual—; lo único distinto es cómo se ve.
+   */
+  is_counter?: boolean;
 }
 
 export function listTables(storeId: number): Promise<Table[]> {
   return api<Table[]>("/admin/tables", { query: { store_id: storeId } });
 }
 
-export function createTable(body: { zone_id: number; number: string; seats?: number }): Promise<Table> {
+export function createTable(body: {
+  zone_id: number;
+  number: string;
+  seats?: number;
+  is_counter?: boolean;
+}): Promise<Table> {
   return api<Table>("/admin/tables", { method: "POST", body });
 }
 
 export function updateTable(
   tableId: number,
-  body: Partial<{ zone_id: number; number: string; seats: number; active: boolean }>,
+  body: Partial<{ zone_id: number; number: string; seats: number; active: boolean; is_counter: boolean }>,
 ): Promise<Table> {
   return api<Table>(`/admin/tables/${tableId}`, { method: "PATCH", body });
 }

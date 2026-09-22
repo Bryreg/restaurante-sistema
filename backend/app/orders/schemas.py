@@ -318,12 +318,21 @@ class TableStatusOut(BaseModel):
     #: cuando no hay ninguna cerca. Que sea `None` y no un objeto vacío es lo
     #: que deja a la pantalla dibujar «Libre» sin preguntarse nada más.
     reservation: TableReservationOut | None = None
+    #: Esta «mesa» es una BARRA: la pantalla la dibuja como una tira con un
+    #: punto por puesto en vez de una tarjeta (`m2b`). Todo lo demás —abrir,
+    #: cobrar, cerrar— es idéntico.
+    is_counter: bool = False
 
 
 class ZoneStatusOut(BaseModel):
     id: int
     name: str
     tables: list[TableStatusOut]
+    #: Referencias del salón para ubicarse en el plano («Entrada», «Ventanal /
+    #: Calle 63»). Las configura el administrador por zona: son del local, no
+    #: de la pantalla — un plano con la calle equivocada es peor que uno sin
+    #: calle. Vacío es lo normal.
+    landmarks: list[str] = Field(default_factory=list)
 
 
 class SalonSummaryOut(BaseModel):

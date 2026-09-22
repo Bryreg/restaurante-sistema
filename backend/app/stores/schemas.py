@@ -166,12 +166,16 @@ class UvtEntry(BaseModel):
 class ZoneCreateIn(BaseModel):
     name: str
     sort_order: int = 0
+    #: Referencias del salón («Entrada», «Ventanal / Calle 63»). Textos
+    #: cortos; la pantalla los dibuja como rótulos punteados sobre el plano.
+    landmarks: list[str] = Field(default_factory=list)
 
 
 class ZoneUpdateIn(BaseModel):
     name: str | None = None
     sort_order: int | None = None
     active: bool | None = None
+    landmarks: list[str] | None = None
 
 
 class ZoneOut(BaseModel):
@@ -180,12 +184,15 @@ class ZoneOut(BaseModel):
     name: str
     sort_order: int
     active: bool
+    landmarks: list[str] = Field(default_factory=list)
 
 
 class TableCreateIn(BaseModel):
     zone_id: int
     number: str
     seats: int = 4
+    #: Es una barra, no una mesa: se dibuja como una tira de puestos.
+    is_counter: bool = False
 
 
 class TableUpdateIn(BaseModel):
@@ -193,6 +200,7 @@ class TableUpdateIn(BaseModel):
     number: str | None = None
     seats: int | None = None
     active: bool | None = None
+    is_counter: bool | None = None
 
 
 class TableOut(BaseModel):
@@ -202,6 +210,7 @@ class TableOut(BaseModel):
     number: str
     seats: int
     active: bool
+    is_counter: bool = False
 
 
 class DeviceTableOut(BaseModel):
