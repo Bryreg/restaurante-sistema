@@ -72,6 +72,11 @@ DOMAINS: list[str] = [
     "expenses",
     "payroll",
     "analytics",
+    # Reservas de mesa: el sexto estado del plano que la maqueta `m2b` dibuja
+    # y que el producto no podía pintar porque no existía el dominio. Vale el
+    # mismo paso 0 que los de arriba: `app/reservations/__init__.py` existe,
+    # así que `find_spec_safe` resuelve limpio aunque falte el router.
+    "reservations",
 ]
 
 

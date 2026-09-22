@@ -60,6 +60,11 @@ MODEL_MODULES: list[str] = [
     "expenses",
     "payroll",
     "analytics",
+    # Reservas de mesa. Sin esta línea la tabla no entra a `Base.metadata` y
+    # por lo tanto no existe ni para Alembic ni para `create_all` en los
+    # tests — el modo exacto en que un dominio nuevo «funciona» hasta que
+    # alguien corre una migración.
+    "reservations",
 ]
 
 

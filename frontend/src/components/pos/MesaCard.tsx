@@ -23,12 +23,24 @@ import { formatCOP } from "@/lib/money";
  * minutos son demasiados— y ya existe una sola, la que alimenta las
  * notificaciones de comanda atascada. Calcularla acá crearía una segunda.
  *
- * **La maqueta tiene un sexto estado, «reservada», que este producto no
- * puede dibujar**: no hay dominio de reservas en ninguna parte del sistema.
- * Queda declarado acá en vez de inventarse: una tarjeta que dice «9:00 p. m.
- * · Familia Rincón» sin nada detrás es una mentira con buena tipografía.
+ * **El sexto estado de la maqueta, «reservada»**, ya no es una promesa
+ * vacía: la mesa libre con una reserva cerca se dibuja punteada, con la hora
+ * y el nombre de quien viene. Quién está apartado y desde cuándo lo decide el
+ * servidor (`pos.reservations`), no esta tarjeta — igual que `is_slow`.
+ *
+ * **Apartada no es ocupada.** La tarjeta sigue siendo un botón que abre la
+ * mesa: el cliente puede llegar antes, o no llegar, y el mesero tiene que
+ * poder sentar a alguien sin pelear con el sistema. Por eso el borde es
+ * punteado y no un color sólido: es un aviso, no un candado.
  */
 export type EstadoMesa = "free" | "occupied" | "to_pay";
+
+export interface ReservaDeMesa {
+  /** Hora de la reserva, **ya formateada** («9:00 p. m.»). */
+  hora: string;
+  nombre: string;
+  personas: number;
+}
 
 export interface MesaCardProps {
   numero: string;
@@ -47,6 +59,12 @@ export interface MesaCardProps {
   atiende?: string | null;
   /** Pasó el umbral de demasiado tiempo. Lo decide el servidor. */
   lenta?: boolean;
+  /**
+   * La reserva que espera esta mesa, cuando hay una cerca. Sólo llega en
+   * mesas libres y sólo dentro de la ventana que decide el servidor: una
+   * reserva de las 9 p. m. no aparta la mesa desde el almuerzo.
+   */
+  reserva?: ReservaDeMesa | null;
   /** Seleccionada en un modo de unir o mover. */
   seleccionada?: boolean;
   onClick?: () => void;
@@ -66,23 +84,29 @@ export function MesaCard({
   total,
   atiende,
   lenta = false,
+  reserva = null,
   seleccionada = false,
   onClick,
 }: MesaCardProps): React.JSX.Element {
   const libre = estado === "free";
   const porCobrar = estado === "to_pay";
+  const apartada = libre && reserva != null;
   // «Lenta» pinta encima de «ocupada», pero nunca encima de «pidió cuenta»:
   // una mesa que ya pidió la cuenta necesita que la cobren, y ése es el aviso
   // útil. Dos alarmas sobre la misma tarjeta no dicen cuál atender primero.
   const alarmada = lenta && !porCobrar;
 
-  const Icono = porCobrar ? Receipt : libre ? CalendarClock : Clock;
+  const Icono = porCobrar ? Receipt : apartada ? CalendarClock : libre ? CalendarClock : Clock;
 
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label={`Mesa ${numero}, ${ROTULO[estado]}${alarmada ? ", demorada" : ""}`}
+      aria-label={
+        apartada
+          ? `Mesa ${numero}, reservada a las ${reserva.hora} para ${reserva.nombre}, ${reserva.personas} personas`
+          : `Mesa ${numero}, ${ROTULO[estado]}${alarmada ? ", demorada" : ""}`
+      }
       aria-pressed={seleccionada || undefined}
       className={cn(
         // `overflow-hidden` para que la barra de color se recorte contra el
@@ -90,6 +114,9 @@ export function MesaCard({
         "relative flex min-h-[104px] min-w-0 flex-col gap-0.5 overflow-hidden rounded-xl border p-2.5 pt-3 text-left transition-colors",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         libre ? "border-input bg-card" : "border-input bg-muted",
+        // Punteado, no de color: es un aviso, no un candado. La mesa se
+        // sigue pudiendo abrir.
+        apartada && "border-dashed",
         porCobrar && "border-warning-line bg-warning-soft",
         alarmada && "border-destructive-line bg-destructive-soft",
         seleccionada && "border-primary bg-accent ring-2 ring-accent",
@@ -101,6 +128,7 @@ export function MesaCard({
         className={cn(
           "absolute inset-x-0 top-0 h-1",
           libre && "bg-border",
+          apartada && "bg-input",
           estado === "occupied" && "bg-primary",
           porCobrar && "bg-warning",
           alarmada && "bg-destructive",
@@ -116,14 +144,21 @@ export function MesaCard({
         className={cn(
           "mt-1 flex items-center gap-1 text-[0.8rem]",
           libre && "text-muted-foreground",
+          apartada && "text-foreground",
           estado === "occupied" && "text-primary",
           porCobrar && "font-bold text-warning",
           alarmada && "font-bold text-destructive",
         )}
       >
-        {libre ? null : <Icono className="size-3.5 shrink-0" aria-hidden="true" />}
-        {libre ? ROTULO.free : porCobrar ? ROTULO.to_pay : (tiempo ?? ROTULO.occupied)}
+        {libre && !apartada ? null : <Icono className="size-3.5 shrink-0" aria-hidden="true" />}
+        {apartada ? reserva.hora : libre ? ROTULO.free : porCobrar ? ROTULO.to_pay : (tiempo ?? ROTULO.occupied)}
       </span>
+
+      {/* A nombre de quién. Va donde en una mesa ocupada va la plata: es el
+          dato que hace que la tarjeta signifique algo. */}
+      {apartada ? (
+        <span className="mt-auto truncate text-[0.9rem]">{reserva.nombre}</span>
+      ) : null}
 
       {/* El total, anclado abajo: todas las mesas lo tienen a la misma altura. */}
       {total != null ? (

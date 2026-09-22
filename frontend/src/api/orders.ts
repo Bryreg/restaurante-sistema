@@ -305,6 +305,22 @@ export interface TableStatusOut {
    * desincronizan.
    */
   is_slow?: boolean
+  /**
+   * **El sexto estado de `m2b`**: la mesa está libre pero apartada. Sólo
+   * llega en mesas libres, y sólo dentro de la ventana que decide el
+   * servidor —una reserva de las 9 p. m. no aparta la mesa al mediodía—.
+   * `null` cuando la sede no usa reservas o no hay ninguna cerca.
+   */
+  reservation?: TableReservationOut | null
+}
+
+/** Lo poco que el plano necesita de una reserva: cuándo y a nombre de quién. */
+export interface TableReservationOut {
+  id: number
+  /** Instante ISO-8601. La pantalla lo escribe en hora de Bogotá. */
+  at: string
+  party_name: string
+  party_size: number
 }
 
 export interface ZoneStatusOut {

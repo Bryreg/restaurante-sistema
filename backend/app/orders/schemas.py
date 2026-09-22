@@ -11,6 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.reservations.schemas import TableReservationOut
+
 Channel = Literal["counter", "dine_in", "takeout", "delivery", "platform", "staff_meal"]
 OrderStatusLiteral = Literal["open", "to_pay", "paid", "merged", "voided", "compensated"]
 ItemStatusLiteral = Literal["pending", "sent", "ready", "served", "voided"]
@@ -199,7 +201,6 @@ class TotalsOut(BaseModel):
     tax_lines: list[TaxLineOut]
     tax_total: int
     total: int
-    #: Lo que ya salió a cocina o se sirvió. Anularlo exige autorización.
     #: La base gravable: la venta SIN el impuesto al consumo. Es la cifra que
     #: la pantalla de Cobro rotula «Consumo» y la que `m2b` discrimina arriba
     #: del 8 %. La calcula el servidor (`total - tax_total`, que es el mismo
@@ -208,6 +209,7 @@ class TotalsOut(BaseModel):
     #: construcción). **La pantalla NO la resta**: una resta de plata en el
     #: cliente es una segunda matemática, y el contrato dice que hay una sola.
     taxable_base: int = 0
+    #: Lo que ya salió a cocina o se sirvió. Anularlo exige autorización.
     sent_total: int = 0
     #: Lo que todavía se puede quitar sin pedirle permiso a nadie.
     pending_total: int = 0
@@ -307,6 +309,15 @@ class TableStatusOut(BaseModel):
     #: La mesa pasó el umbral: sin enviar a cocina, o pidió la cuenta hace
     #: rato. Es el estado «lenta» de la maqueta.
     is_slow: bool = False
+    #: **El sexto estado de `m2b`**: la mesa está libre pero apartada. Sólo
+    #: viaja en mesas libres —una mesa ocupada ya tiene dueño— y sólo dentro
+    #: de la ventana que decide el servidor: una reserva de las 9 p. m. no
+    #: puede tener la mesa apartada desde el almuerzo.
+    #:
+    #: `None` cuando la sede no usa reservas (`pos.reservations` apagada) o
+    #: cuando no hay ninguna cerca. Que sea `None` y no un objeto vacío es lo
+    #: que deja a la pantalla dibujar «Libre» sin preguntarse nada más.
+    reservation: TableReservationOut | None = None
 
 
 class ZoneStatusOut(BaseModel):

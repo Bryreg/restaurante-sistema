@@ -36,6 +36,25 @@ import { TABLES_STATUS_QUERY_KEY, useAuthorizerFlow, useTablesStatus } from "./h
 
 type Mode = "idle" | "merge" | "move"
 
+const RELOJ_BOGOTA = new Intl.DateTimeFormat("es-CO", {
+  timeZone: "America/Bogota",
+  hour: "numeric",
+  minute: "2-digit",
+})
+
+/**
+ * «9:00 p. m.» — la hora de una reserva, en hora de Bogotá.
+ *
+ * La escribe la PANTALLA y no el servidor, igual que los rótulos del riel de
+ * canales: el servidor publica el instante y la prosa es presentación. Un
+ * servidor que escribe «9:00 p. m.» no se puede traducir ni reusar desde otro
+ * cliente.
+ */
+function horaDeReloj(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? "—" : RELOJ_BOGOTA.format(d)
+}
+
 
 export function TablesPage(): React.JSX.Element {
   const { hasFeature } = useSession()
@@ -321,6 +340,18 @@ export function TablesPage(): React.JSX.Element {
                     total={table.status === "free" ? null : table.total}
                     atiende={table.served_by}
                     lenta={table.is_slow ?? false}
+                    reserva={
+                      table.reservation
+                        ? {
+                            // La hora la escribe la PANTALLA: el servidor
+                            // publica el instante y la prosa es presentación
+                            // —mismo criterio que el riel de canales—.
+                            hora: horaDeReloj(table.reservation.at),
+                            nombre: table.reservation.party_name,
+                            personas: table.reservation.party_size,
+                          }
+                        : null
+                    }
                     seleccionada={selected.includes(table.id)}
                     onClick={() => {
                       if (mode !== "idle") {

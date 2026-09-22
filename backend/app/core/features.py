@@ -72,6 +72,13 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "2",
     ),
     FeatureDef(
+        "pos.reservations",
+        "Reservas de mesa: apartar una mesa a una hora, a nombre de alguien",
+        ["pos.tables"],
+        {"basic": False, "standard": False, "full": True},
+        "1b",
+    ),
+    FeatureDef(
         "pos.seats",
         "Asiento por ítem y división de cuenta por asiento",
         ["pos.tables"],

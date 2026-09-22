@@ -15,6 +15,7 @@ import { inventoryFeature } from "@/features/inventory";
 import { kitchenFeature } from "@/features/kitchen";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import { ordersFeature } from "@/features/orders";
+import { reservationsFeature } from "@/features/reservations";
 import { payrollFeature } from "@/features/payroll";
 import { paymentsFeature } from "@/features/payments";
 import { purchasesFeature } from "@/features/purchases";
@@ -125,6 +126,7 @@ const routes: RouteObject[] = [
       ...inventoryFeature.posRoutes,
       ...recipesFeature.posRoutes,
       ...kitchenFeature.posRoutes,
+      ...reservationsFeature.posRoutes,
     ],
   },
   { path: "*", element: <Navigate to="/login" replace /> },

@@ -19,6 +19,7 @@ import { inventoryFeature } from "@/features/inventory";
 import { kitchenFeature } from "@/features/kitchen";
 import { ordersFeature } from "@/features/orders";
 import { recipesFeature } from "@/features/recipes";
+import { reservationsFeature } from "@/features/reservations";
 import { shiftsFeature } from "@/features/shifts";
 import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,9 @@ function buildPosNav(hasFeature: (key: string) => boolean): NavItem[] {
     ...recipesFeature.posNav,
     ...inventoryFeature.posNav,
     ...kitchenFeature.posNav,
+    // Reservas: detrás de `pos.reservations`, que a su vez requiere
+    // `pos.tables` (no se aparta una mesa en una sede sin mesas).
+    ...reservationsFeature.posNav,
   ];
   return all.filter((item) => !item.feature || hasFeature(item.feature));
 }

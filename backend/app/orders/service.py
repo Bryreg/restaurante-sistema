@@ -603,7 +603,47 @@ def _table_is_slow(db: Session, order: Order, *, now: datetime) -> bool:
     return False
 
 
+def _reservas_del_plano(db: Session, *, store_id: int) -> dict[int, Any]:
+    """Qué mesa está apartada ahora mismo, por mesa.
+
+    Se resuelve de UNA consulta antes del bucle de zonas y no por mesa
+    adentro: el plano de una sede grande tiene cuarenta mesas, y una consulta
+    por mesa son cuarenta viajes para pintar una pantalla que se refresca
+    sola cada pocos segundos.
+
+    Con `pos.reservations` apagada devuelve vacío sin consultar nada: la sede
+    que no usa reservas no paga el costo de tenerlas.
+    """
+    store = db.get(Store, store_id)
+    if store is None:
+        return {}
+    if not features.is_enabled(db, store.organization_id, store_id, "pos.reservations"):
+        return {}
+    # `find_spec_safe` y no un import directo: es la convención del archivo
+    # (ver `_fiscal_models`, `_channels_hooks`) y la lección de 1b-1 —un
+    # dominio que todavía no existe no puede tumbar el plano del salón.
+    if find_spec_safe("app.reservations.service") is None:
+        return {}
+    reservations_service = importlib.import_module("app.reservations.service")
+    return dict(reservations_service.upcoming_by_table(db, store=store, now=clock.now_utc()))
+
+
+def _sentar_reserva(
+    db: Session, *, store: Store, table_ids: list[int], order_id: int, now: datetime
+) -> None:
+    """La reserva que esperaba esa mesa pasa a «sentada»."""
+    if not features.is_enabled(db, store.organization_id, store.id, "pos.reservations"):
+        return
+    if find_spec_safe("app.reservations.service") is None:
+        return
+    reservations_service = importlib.import_module("app.reservations.service")
+    reservations_service.mark_seated(
+        db, store_id=store.id, table_ids=table_ids, order_id=order_id, now=now
+    )
+
+
 def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
+    reservas = _reservas_del_plano(db, store_id=store_id)
     zones = list(db.execute(select(Zone).where(Zone.store_id == store_id, Zone.active.is_(True)).order_by(Zone.sort_order, Zone.id)).scalars())
     zones_out: list[ZoneStatusOut] = []
     for zone in zones:
@@ -612,11 +652,27 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
         for table in tables:
             ot = db.execute(select(OrderTable).where(OrderTable.table_id == table.id, OrderTable.released_at.is_(None))).scalars().first()
             if ot is None:
-                tables_out.append(TableStatusOut(id=table.id, number=table.number, seats=table.seats, status="free"))
+                tables_out.append(
+                    TableStatusOut(
+                        id=table.id,
+                        number=table.number,
+                        seats=table.seats,
+                        status="free",
+                        reservation=reservas.get(table.id),
+                    )
+                )
                 continue
             order = db.get(Order, ot.order_id)
             if order is None:
-                tables_out.append(TableStatusOut(id=table.id, number=table.number, seats=table.seats, status="free"))
+                tables_out.append(
+                    TableStatusOut(
+                        id=table.id,
+                        number=table.number,
+                        seats=table.seats,
+                        status="free",
+                        reservation=reservas.get(table.id),
+                    )
+                )
                 continue
             status: Any = "to_pay" if order.status == OrderStatus.TO_PAY else "occupied"
             total = compute_order_totals(db, order).total
@@ -998,6 +1054,11 @@ def create_order(db: Session, *, actor: Actor, store: Store, payload: OrderCreat
         except IntegrityError as exc:
             db.rollback()
             raise ConflictError("La mesa ya tiene una comanda abierta: recargá el mapa de mesas", code="TABLE_ALREADY_OPEN") from exc
+        # Si esa mesa estaba apartada, la reserva queda sentada y guarda a qué
+        # comanda dio lugar. No pregunta ni avisa cuando no había reserva:
+        # abrir una mesa sin reserva es el caso normal, y hacer que el camino
+        # normal dependa de un dominio opcional sería exactamente al revés.
+        _sentar_reserva(db, store=store, table_ids=[t.id for t in tables], order_id=order.id, now=now)
 
     db.add(
         OrderEvent(
