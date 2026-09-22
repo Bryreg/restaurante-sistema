@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/errors";
-import { formatInstant } from "@/lib/businessDate";
+import { formatClock, formatInstant, isTodayInBogota } from "@/lib/businessDate";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
 import { PhotoCaptureField } from "./PhotoCaptureField";
@@ -122,7 +122,14 @@ export function SingleStepCloseForm({
   // ver el comentario ahí. `cash_out` se pinta tal cual llega.
   const tipsQuery = useShiftTips(shiftId);
   const { data: turno } = useCurrentShift();
-  const abiertoEn = turno?.opened_at ? formatInstant(turno.opened_at) : null;
+  // «Abierto a las 10:34 a. m.» si el turno es de hoy (`m2b`). La fecha
+  // entera es ruido en el turno que se está cerrando; en uno de ayer —un
+  // cierre que quedó pendiente— la fecha vuelve, y ahí sí es lo que importa.
+  const abiertoEn = turno?.opened_at
+    ? isTodayInBogota(turno.opened_at)
+      ? `a las ${formatClock(turno.opened_at)}`
+      : formatInstant(turno.opened_at)
+    : null;
   const responsable = turno?.cash_responsible?.name ?? null;
 
   const mutation = useMutation({
