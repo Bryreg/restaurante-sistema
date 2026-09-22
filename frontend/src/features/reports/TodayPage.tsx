@@ -51,13 +51,49 @@ import { formatCOP } from "@/lib/money"
 
 import { CHANNEL_LABEL } from "@/features/orders/lib"
 
-import { CategoryBars } from "./charts"
+import { HourColumns } from "./charts"
 import { ALERT_LEVEL_TONE, alertRoute, methodLabel } from "./lib"
 
 const REFRESH_MS = 30_000
 
 function hourLabel(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
+}
+
+/**
+ * La hora del reloj **de Bogotá**, no la del navegador. Una tablet con la
+ * zona mal puesta —o un administrador mirando desde afuera del país— marcaría
+ * «hora en curso» sobre una columna que ya cerró, que es peor que no marcar
+ * ninguna: la gráfica diría que la noche va floja cuando ya terminó.
+ */
+function bogotaHour(now: Date = new Date()): number {
+  const texto = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Bogota",
+    hour: "2-digit",
+    hour12: false,
+  }).format(now)
+  // "24" en el borde de medianoche según el motor; se normaliza a 0.
+  return Number(texto) % 24
+}
+
+/** La fecha operativa de hoy, para saber si el día que se mira es el de hoy. */
+function bogotaBusinessDate(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(now)
+}
+
+const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"] as const
+
+/**
+ * «lunes», para el rótulo de la serie de comparación. Se arma desde el texto
+ * `YYYY-MM-DD` en UTC —igual que `formatBusinessDate`— y no desde
+ * `new Date(iso)`, que en una zona al oeste corre la fecha un día.
+ */
+function weekdayLabel(businessDate: string | null | undefined): string | null {
+  if (!businessDate) return null
+  const partes = businessDate.split("-").map(Number)
+  const [y, m, d] = partes
+  if (y === undefined || m === undefined || d === undefined || Number.isNaN(y)) return null
+  return DIAS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] ?? null
 }
 
 /**
@@ -564,7 +600,18 @@ export function TodayPage(): React.JSX.Element {
   ].sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone])
 
   const hourBuckets = today.sales_by_hour ?? []
-  const hourBars = hourBuckets.map((h) => ({ key: String(h.hour), label: hourLabel(h.hour), value: h.net }))
+  // **La hora en curso**: la del reloj de Bogotá, mientras el día operativo
+  // que se está mirando sea el de hoy. Mirando el «Hoy» de ayer —o el de otra
+  // sede con otro corte— ninguna hora está corriendo, y marcar una lo estaría
+  // inventando.
+  const horaEnCurso = today.business_date === bogotaBusinessDate() ? bogotaHour() : null
+  const hourColumns = hourBuckets.map((h) => ({
+    hour: h.hour,
+    value: h.net,
+    reference: h.net_last_week,
+    inProgress: h.hour === horaEnCurso,
+  }))
+  const diaDeLaSemana = weekdayLabel(today.business_date)
   // Elegir el máximo de una serie que el servidor ya mandó es selección, no
   // matemática de negocio: acá no se suma, ni se promedia, ni se deriva un
   // saldo (AGENTS.md § "una sola matemática, en el backend").
@@ -770,10 +817,24 @@ export function TodayPage(): React.JSX.Element {
           <section className="rounded-lg border bg-card p-4">
             <div className="flex flex-wrap items-baseline gap-2">
               <h2 className="text-sm font-bold">Ventas por hora</h2>
-              <span className="text-xs text-muted-foreground">Netas, sin propina.</span>
+              <span className="text-xs text-muted-foreground">
+                Netas, sin propina.
+                {diaDeLaSemana ? ` La línea gris es el ${diaDeLaSemana} pasado a la misma hora.` : null}
+              </span>
             </div>
             <div className="mt-3">
-              <CategoryBars data={hourBars} formatValue={(v) => formatCOP(v)} emptyLabel="Todavía no hay ventas hoy" />
+              <HourColumns
+                data={hourColumns}
+                referenceLabel={diaDeLaSemana ? `El ${diaDeLaSemana} pasado` : "La semana pasada"}
+                formatValue={(v) => formatCOP(v)}
+                emptyLabel="Todavía no hay ventas hoy"
+                description={
+                  peakHour
+                    ? `Ventas netas por hora. La hora más fuerte fue la de ${hourLabel(peakHour.hour)}. ` +
+                      "El detalle exacto de cada hora está en la tabla de abajo."
+                    : "Ventas netas por hora; todavía no hay ventas hoy."
+                }
+              />
             </div>
             {peakHour ? (
               <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">

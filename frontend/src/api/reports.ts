@@ -45,6 +45,15 @@ export interface HourBucketOut {
   hour: number
   gross: number
   net: number
+  /**
+   * La misma hora del MISMO día de la semana pasada, neta. Es lo que
+   * convierte «$118.000 a las 4 p. m.» en «$118.000, y el lunes pasado
+   * fueron $132.000».
+   *
+   * `null` —nunca `0`— cuando esa semana no existe en los datos: «no hay
+   * con qué comparar» no es «esa hora vendió cero».
+   */
+  net_last_week?: number | null
 }
 
 export interface OpenOrderAgeOut {

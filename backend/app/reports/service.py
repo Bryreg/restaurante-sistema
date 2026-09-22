@@ -745,11 +745,47 @@ def _inventory_reliability(db: Session, store: Store) -> tuple[bool | None, int 
     return staleness.unreliable, staleness.days_since_last_full_count
 
 
+def _con_referencia(
+    by_hour: dict[int, HourBucketOut], semana_pasada: dict[int, int], hubo: bool
+) -> list[HourBucketOut]:
+    """Las horas de hoy, más las que SÓLO existieron la semana pasada.
+
+    Si el lunes pasado se vendió a las 11 y hoy esa hora todavía está en
+    cero, la hora tiene que aparecer igual: sin ella la gráfica arranca a
+    las 12 y la caída de las 11 no se ve — que es justamente la pregunta
+    que la comparación viene a contestar.
+    """
+    if not hubo:
+        return list(by_hour.values())
+    faltantes = [
+        HourBucketOut(hour=h, gross=0, net=0, net_last_week=neto)
+        for h, neto in semana_pasada.items()
+        if h not in by_hour
+    ]
+    return list(by_hour.values()) + faltantes
+
+
 def today_report(db: Session, *, store: Store) -> TodayOut:
     now = clock.now_utc()
     business_date = tz.today_business_date(store.cutoff_hour)
 
     documents = _sale_documents(db, store_id=store.id, date_from=business_date, date_to=business_date)
+
+    # La misma fecha operativa de la semana pasada: el mismo día de la semana,
+    # no «ayer». Un restaurante no tiene la misma curva un martes que un
+    # sábado, y comparar contra ayer haría ver todos los lunes como una caída.
+    hace_una_semana = business_date - timedelta(days=7)
+    documentos_semana_pasada = _sale_documents(
+        db, store_id=store.id, date_from=hace_una_semana, date_to=hace_una_semana
+    )
+    neto_semana_pasada: dict[int, int] = {}
+    for doc in documentos_semana_pasada:
+        h = _bogota_hour(doc.issued_at)
+        neto_semana_pasada[h] = neto_semana_pasada.get(h, 0) + (doc.total - doc.tax_total)
+    # Si esa semana no existe en los datos, NO se rellena con ceros: la
+    # referencia queda `None` y la pantalla no dibuja una línea en el piso
+    # que se leería como «esa hora vendió cero».
+    hubo_semana_pasada = len(documentos_semana_pasada) > 0
 
     by_hour: dict[int, HourBucketOut] = {}
     gross = tax = tips_total = 0
@@ -761,7 +797,12 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         order_ids.add(doc.order_id)
         hour = _bogota_hour(doc.issued_at)
         bucket = by_hour.setdefault(hour, HourBucketOut(hour=hour, gross=0, net=0))
-        by_hour[hour] = HourBucketOut(hour=hour, gross=bucket.gross + doc.total, net=bucket.net + (doc.total - doc.tax_total))
+        by_hour[hour] = HourBucketOut(
+            hour=hour,
+            gross=bucket.gross + doc.total,
+            net=bucket.net + (doc.total - doc.tax_total),
+            net_last_week=neto_semana_pasada.get(hour, 0) if hubo_semana_pasada else None,
+        )
 
     net = gross - tax
     covers_map = _order_covers_map(db, order_ids)
@@ -797,7 +838,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     return TodayOut(
         store_id=store.id,
         business_date=business_date,
-        sales_by_hour=sorted(by_hour.values(), key=lambda h: h.hour),
+        sales_by_hour=sorted(_con_referencia(by_hour, neto_semana_pasada, hubo_semana_pasada), key=lambda h: h.hour),
         gross=gross,
         net=net,
         tax=tax,

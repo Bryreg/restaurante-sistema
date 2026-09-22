@@ -18,6 +18,8 @@
  * `role="img"` con un `aria-label` que dice eso mismo.
  */
 
+import { cortesDeEje, rotuloDeCorte } from "./escalaEje"
+
 export interface CategoryBarDatum {
   key: string
   label: string
@@ -125,6 +127,176 @@ export function TrendLine({
         <span>
           {last.label}: <span className="tabular-nums">{formatValue(last.value)}</span>
         </span>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Columnas por hora (`a2`)
+// ---------------------------------------------------------------------------
+
+export interface HourColumnDatum {
+  hour: number
+  /** Neto de la hora, hoy. */
+  value: number
+  /** El mismo día de la semana pasada a la misma hora. `null` ≠ 0. */
+  reference?: number | null
+  /** La hora que todavía está corriendo: su barra no está completa. */
+  inProgress?: boolean
+}
+
+/**
+ * **Las ventas por hora de `a2`**: columnas verticales, la hora en curso
+ * marcada como un tocón hueco, y una raya gris por hora con lo que vendió el
+ * mismo día de la semana pasada.
+ *
+ * La forma no es capricho. Las barras horizontales que había antes comparaban
+ * horas entre sí, que es lo que la forma horizontal hace bien; pero la
+ * pregunta de esta pantalla es **la forma del día** —dónde está el almuerzo,
+ * dónde el bache de la tarde, si la noche arrancó— y eso es una curva. En
+ * vertical, con el tiempo corriendo de izquierda a derecha, la curva se ve.
+ *
+ * **La hora en curso se dibuja como un tocón de 6 px y no como una barra
+ * corta.** Una barra a media altura a las 8 p. m. se lee como «la noche va
+ * floja»; el tocón se lee como «esta hora todavía no terminó», que es lo que
+ * pasa. Es la misma distinción que `null` ≠ 0 en todo el producto.
+ *
+ * Nada de esto calcula plata: `value` y `reference` llegan del servidor
+ * (`sales_by_hour[].net` y `.net_last_week`). Acá sólo se eligen escalas.
+ */
+export function HourColumns({
+  data,
+  referenceLabel,
+  formatValue = (v: number) => String(v),
+  emptyLabel = "Sin ventas todavía",
+  description,
+}: {
+  data: HourColumnDatum[]
+  /** Cómo se llama la serie gris («El lunes pasado»). */
+  referenceLabel: string
+  formatValue?: (value: number) => string
+  emptyLabel?: string
+  /** El `aria-label` del SVG: qué dice la gráfica, en palabras. */
+  description: string
+}): React.JSX.Element {
+  if (data.length === 0) {
+    return <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+  }
+
+  const L = 58
+  const R = 688
+  const T = 16
+  const B = 190
+  const valores = data.flatMap((d) => [d.value, d.reference ?? 0])
+  const lineas = cortesDeEje(Math.max(1, ...valores))
+  const max = lineas[lineas.length - 1] ?? 1
+  const slot = (R - L) / data.length
+  const ancho = slot * 0.6
+  const y = (v: number) => B - (v / max) * (B - T)
+
+  const pico = data.reduce<HourColumnDatum | null>(
+    (best, d) => (!d.inProgress && (best === null || d.value > best.value) ? d : best),
+    null,
+  )
+  const hayReferencia = data.some((d) => d.reference != null)
+
+  return (
+    <div className="space-y-2">
+      <svg viewBox="0 0 700 226" className="block h-auto w-full" role="img" aria-label={description}>
+        {lineas.map((v) => (
+          <g key={v}>
+            <line
+              x1={L}
+              y1={y(v)}
+              x2={R}
+              y2={y(v)}
+              className="stroke-border"
+              strokeWidth={1}
+              strokeDasharray="3 3"
+            />
+            <text x={L - 8} y={y(v) + 4} textAnchor="end" className="fill-muted-foreground text-[11px]">
+              {rotuloDeCorte(v)}
+            </text>
+          </g>
+        ))}
+
+        {data.map((d, i) => {
+          const x = L + i * slot
+          const bx = x + (slot - ancho) / 2
+          const alto = Math.max(B - y(d.value), 1)
+          return (
+            <g key={d.hour}>
+              {d.inProgress ? (
+                <rect
+                  x={bx}
+                  y={B - 6}
+                  width={ancho}
+                  height={6}
+                  rx={2}
+                  className="fill-accent stroke-primary/40"
+                  strokeWidth={1}
+                />
+              ) : d.value > 0 ? (
+                <rect x={bx} y={y(d.value)} width={ancho} height={alto} rx={2} className="fill-primary" />
+              ) : null}
+              {d.reference != null && d.reference > 0 ? (
+                <line
+                  x1={bx - 2}
+                  y1={y(d.reference)}
+                  x2={bx + ancho + 2}
+                  y2={y(d.reference)}
+                  className="stroke-muted-foreground"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                />
+              ) : null}
+              {i % 2 === 0 ? (
+                <text x={x + slot / 2} y={B + 15} textAnchor="middle" className="fill-muted-foreground text-[11px]">
+                  {d.hour}:00
+                </text>
+              ) : null}
+              {pico !== null && d.hour === pico.hour && d.value > 0 ? (
+                <text
+                  x={x + slot / 2}
+                  y={y(d.value) - 6}
+                  textAnchor="middle"
+                  className="fill-foreground text-[11px] font-bold"
+                >
+                  {formatValue(d.value)}
+                </text>
+              ) : null}
+            </g>
+          )
+        })}
+
+        <line x1={L} y1={B} x2={R} y2={B} className="stroke-input" strokeWidth={1} />
+      </svg>
+
+      {/* La leyenda con texto, nunca sólo color (WCAG 1.4.1). */}
+      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <svg width="13" height="13" aria-hidden="true">
+            <rect width="13" height="13" rx="2" className="fill-primary" />
+          </svg>
+          Hoy
+        </span>
+        {hayReferencia ? (
+          <span className="flex items-center gap-1.5">
+            <svg width="15" height="13" aria-hidden="true">
+              <line x1="0" y1="6.5" x2="15" y2="6.5" className="stroke-muted-foreground" strokeWidth={2} />
+            </svg>
+            {referenceLabel}
+          </span>
+        ) : null}
+        {data.some((d) => d.inProgress) ? (
+          <span className="flex items-center gap-1.5">
+            <svg width="13" height="13" aria-hidden="true">
+              <rect width="13" height="13" rx="2" className="fill-accent stroke-primary/40" strokeWidth={1} />
+            </svg>
+            Hora en curso
+          </span>
+        ) : null}
       </div>
     </div>
   )

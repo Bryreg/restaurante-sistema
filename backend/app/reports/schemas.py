@@ -41,6 +41,19 @@ class HourBucketOut(BaseModel):
     hour: int
     gross: int
     net: int
+    #: La MISMA hora del mismo día de la semana pasada, neta. Es la
+    #: referencia que convierte «$118.000 a las 4 p. m.» en «$118.000, y el
+    #: lunes pasado fueron $132.000»: un número solo no dice si la tarde
+    #: está floja o si los lunes son así.
+    #:
+    #: Se compara contra el mismo día de la semana y no contra ayer a
+    #: propósito: un restaurante no tiene la misma curva un martes que un
+    #: sábado, y «ayer» haría ver todos los lunes como una caída.
+    #:
+    #: `None` —nunca `0`— cuando esa semana no existe todavía en los datos
+    #: o la sede no estaba operando: «no hay con qué comparar» no es «esa
+    #: hora vendió cero».
+    net_last_week: int | None = None
 
 
 class MethodAmountOut(BaseModel):

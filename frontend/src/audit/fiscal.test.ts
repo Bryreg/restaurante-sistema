@@ -146,6 +146,16 @@ describe("los reportes y el documento fiscal no calculan plata en el cliente", (
     // (`sent_at_payment_ratio`), y el bimestre a partir del mes. Nada de plata.
     "features/reports/lib.ts",
     "features/reports/AccountantReportTab.tsx",
+    // La escala del eje de una gráfica: dónde van las cuatro líneas de guía
+    // y cómo se rotulan («200k»). Son las marcas de la regla contra la que
+    // se dibujan las barras, no una cifra que alguien lea como plata: las
+    // barras usan los enteros del servidor sin tocar, y toda cifra que sí se
+    // lee en pesos pasa por `formatCOP` sobre ese mismo entero.
+    //
+    // Vive en su propio archivo —treinta líneas— justamente para que la
+    // excepción sea ésta y no `charts.tsx` entero, donde mañana alguien
+    // podría derivar un saldo sin que este guardián se entere.
+    "features/reports/escalaEje.ts",
   ];
 
   function offenders(pattern: RegExp): string[] {
