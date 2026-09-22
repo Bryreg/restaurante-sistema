@@ -261,6 +261,17 @@ class OrderOut(BaseModel):
 
 
 class TableStatusOut(BaseModel):
+    """El estado de una mesa para el plano del salón (maqueta `m2b`).
+
+    `served_by` y `is_slow` los publica el SERVIDOR y no los deriva la
+    pantalla. `is_slow` sobre todo: «lenta» es una regla de negocio —cuántos
+    minutos son demasiados— y ya existe una, la de
+    `app.reports.service.UNSENT_MINUTES_THRESHOLD` /
+    `UNPAID_MINUTES_THRESHOLD`, que alimenta las notificaciones de comanda
+    atascada. Calcularla de nuevo en el cliente crearía una segunda regla que
+    se desincroniza con la primera el día que alguien cambie una de las dos.
+    """
+
     id: int
     number: str
     seats: int
@@ -269,6 +280,11 @@ class TableStatusOut(BaseModel):
     opened_at: datetime | None = None
     covers: int | None = None
     total: int | None = None
+    #: Quién abrió la mesa, congelado en la comanda. `None` si está libre.
+    served_by: str | None = None
+    #: La mesa pasó el umbral: sin enviar a cocina, o pidió la cuenta hace
+    #: rato. Es el estado «lenta» de la maqueta.
+    is_slow: bool = False
 
 
 class ZoneStatusOut(BaseModel):

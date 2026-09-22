@@ -26,14 +26,25 @@ from app.stores.models import Store, Table
 
 import_all_models()
 
-#: Qué mesa, cuántos comensales y qué pidieron. `number` es TEXTO en el
-#: modelo, no un entero — la primera versión de esto buscaba por `2` y no
-#: encontraba ninguna mesa, en silencio.
+#: Qué mesa, cuántos comensales, qué pidieron, hace cuántos minutos, y si ya
+#: se marchó a cocina. `number` es TEXTO en el modelo, no un entero — la
+#: primera versión de esto buscaba por `2` y no encontraba ninguna mesa, en
+#: silencio.
+#:
+#: **Lo de marchar importa.** El servidor marca una mesa como demorada cuando
+#: lleva más de `UNSENT_MINUTES_THRESHOLD` (15 min) con platos sin enviar a
+#: cocina. Si el guion abre tres mesas y no marcha ninguna, a los quince
+#: minutos las tres se ponen rojas y el plano queda todo en alarma — que es
+#: la misma falla que «una diferencia que aparece todos los días enseña a
+#: ignorar las diferencias». Un salón real tiene casi todo marchado y a lo
+#: sumo una mesa atrasada.
 MESAS = [
-    ("2", 2, ["Bandeja paisa", "Limonada de coco", "Gaseosa"]),
+    ("2", 2, ["Bandeja paisa", "Limonada de coco", "Gaseosa"], 18, True),
     ("5", 4, ["Ajiaco santafereño", "Pescado frito (mojarra)", "Arroz con pollo",
-              "Jugo de mango", "Cerveza Águila"]),
-    ("7", 3, ["Lomo al trapo", "Pechuga a la plancha", "Limonada de coco"]),
+              "Jugo de mango", "Cerveza Águila"], 34, True),
+    # Ésta sí queda sin marchar y sin pasar el umbral: es la mesa que el mesero
+    # acaba de tomar.
+    ("7", 3, ["Lomo al trapo", "Pechuga a la plancha", "Limonada de coco"], 6, False),
 ]
 
 
@@ -74,12 +85,12 @@ def main() -> None:
     abiertas = []
     try:
         # Escalonadas hacia atrás: la mesa 2 lleva más rato sentada que la 7.
-        for i, (numero, comensales, platos) in enumerate(MESAS):
+        for numero, comensales, platos, hace_minutos, marchada in MESAS:
             mesa = mesas.get(numero)
             if mesa is None:
                 print(f"  (no existe la mesa {numero})")
                 continue
-            clock.set_clock(lambda t=base - timedelta(minutes=42 - i * 14): t)
+            clock.set_clock(lambda t=base - timedelta(minutes=hace_minutos): t)
             orden = orders_service.create_order(
                 db, actor=actor, store=store,
                 payload=OrderCreateIn(channel="dine_in", table_ids=[mesa.id], covers=comensales),
@@ -96,13 +107,22 @@ def main() -> None:
                 db, order=orden, actor=actor,
                 payload=AddItemsIn(expected_version=orden.version, items=items),
             )
+            if marchada:
+                orden = orders_service.send_order(
+                    db, order=orden, actor=actor, expected_version=orden.version
+                )
             db.commit()
-            abiertas.append((numero, comensales, len(items), orders_service.compute_order_totals(db, orden).total))
+            abiertas.append(
+                (numero, comensales, len(items),
+                 orders_service.compute_order_totals(db, orden).total, hace_minutos, marchada)
+            )
     finally:
         clock.set_clock(None)
 
-    for numero, comensales, n, total in abiertas:
-        print(f"  mesa {numero}: {comensales} comensales, {n} ítems, ${total:,}".replace(",", "."))
+    for numero, comensales, n, total, hace, marchada in abiertas:
+        estado = "marchada" if marchada else "SIN marchar (recién tomada)"
+        print(f"  mesa {numero}: {comensales} comensales. {n} ítems. ${total:,}"
+              f". hace {hace} min. {estado}".replace(",", "."))
     print(f"\n  {len(abiertas)} mesas ocupadas, {len(mesas) - len(abiertas)} libres.")
 
 

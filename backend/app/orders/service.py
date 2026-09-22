@@ -550,6 +550,31 @@ def _check_version(db: Session, order: Order, expected_version: int, *, actor: A
 # ---------------------------------------------------------------------------
 
 
+def _table_is_slow(db: Session, order: Order, *, now: datetime) -> bool:
+    """¿La mesa pasó el umbral de «demasiado tiempo»?
+
+    Usa LOS MISMOS umbrales que las notificaciones de comanda atascada
+    (`app.reports.service`), a propósito: son una regla de producto sola, y
+    tener dos copias del número garantiza que un día digan cosas distintas.
+    Se importa acá adentro y no arriba para no crear un ciclo entre
+    `app.orders` y `app.reports`.
+    """
+    from app.reports.service import UNPAID_MINUTES_THRESHOLD, UNSENT_MINUTES_THRESHOLD
+
+    minutos = int((now - order.opened_at).total_seconds() // 60)
+    if order.status == OrderStatus.TO_PAY:
+        return minutos > UNPAID_MINUTES_THRESHOLD
+    if order.kitchen_view_enabled:
+        pendiente = db.execute(
+            select(OrderItem.id)
+            .where(OrderItem.order_id == order.id, OrderItem.status == OrderItemStatus.PENDING)
+            .limit(1)
+        ).first()
+        if pendiente is not None:
+            return minutos > UNSENT_MINUTES_THRESHOLD
+    return False
+
+
 def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
     zones = list(db.execute(select(Zone).where(Zone.store_id == store_id, Zone.active.is_(True)).order_by(Zone.sort_order, Zone.id)).scalars())
     zones_out: list[ZoneStatusOut] = []
@@ -577,6 +602,8 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
                     opened_at=order.opened_at,
                     covers=order.covers,
                     total=total,
+                    served_by=order.opened_by_employee_name,
+                    is_slow=_table_is_slow(db, order, now=clock.now_utc()),
                 )
             )
         zones_out.append(ZoneStatusOut(id=zone.id, name=zone.name, tables=tables_out))

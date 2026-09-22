@@ -281,6 +281,15 @@ export interface TableStatusOut {
   covers?: number | null
   /** Total tal como llega de `compute_order_totals` — el servidor lo calcula. */
   total?: number | null
+  /** Quién abrió la mesa, congelado en la comanda. */
+  served_by?: string | null
+  /**
+   * La mesa pasó el umbral de «demasiado tiempo». **Lo decide el servidor**
+   * con la misma regla que las notificaciones de comanda atascada: cuántos
+   * minutos son demasiados es negocio, y dos copias del número se
+   * desincronizan.
+   */
+  is_slow?: boolean
 }
 
 export interface ZoneStatusOut {

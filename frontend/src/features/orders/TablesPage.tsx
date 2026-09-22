@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { Link2, Move, Plus, Users } from "lucide-react"
+import { Link2, Move, Plus } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -12,7 +12,6 @@ import {
   type TableStatusOut,
   type ZoneStatusOut,
 } from "@/api/orders"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState } from "@/components/EmptyState"
@@ -26,21 +25,15 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useSession } from "@/app/session"
-import { formatCOP } from "@/lib/money"
 import { errorMessage } from "@/lib/errors"
 
 import { AuthorizerDialog } from "./AuthorizerDialog"
-import { TABLES_STATUS_QUERY_KEY, useAuthorizerFlow, useTablesStatus } from "./hooks"
+import { MesaCard, type EstadoMesa } from "@/components/pos/MesaCard"
 import { elapsedLabel } from "./lib"
+import { TABLES_STATUS_QUERY_KEY, useAuthorizerFlow, useTablesStatus } from "./hooks"
 
 type Mode = "idle" | "merge" | "move"
 
-const STATUS_LABEL: Record<string, string> = { free: "Libre", occupied: "Ocupada", to_pay: "Por cobrar" }
-const STATUS_VARIANT: Record<string, "outline" | "secondary" | "default"> = {
-  free: "outline",
-  occupied: "secondary",
-  to_pay: "default",
-}
 
 export function TablesPage(): React.JSX.Element {
   const { hasFeature } = useSession()
@@ -281,21 +274,31 @@ export function TablesPage(): React.JSX.Element {
       ) : zones.length === 0 ? (
         <EmptyState title="Esta sede todavía no tiene zonas ni mesas activas" />
       ) : (
-        zones.map((zone) => (
-          <section key={zone.id} className="space-y-3">
-            <h2 className="text-sm font-medium text-muted-foreground">{zone.name}</h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {(zone.tables ?? []).map((table) => {
-                const isSelected = selected.includes(table.id)
-                return (
-                  <button
+        <div className="rounded-xl border bg-card p-4">
+          {/* La maqueta pone acá una fila de marcas del sitio —«Entrada»,
+              «Ventanal / Calle 63», «Paso a cocina»— que orientan a quien mira
+              el plano. Este producto NO tiene ese dato: no hay referencias
+              físicas del local en ninguna parte del modelo. Poner los nombres
+              de zona en su lugar sólo repetía el título que ya está debajo de
+              cada grupo, así que la fila queda fuera hasta que exista el dato
+              de verdad. */}
+          {zones.map((zone) => (
+            <section key={zone.id} className="mb-4 last:mb-0">
+              <h2 className="mb-2 text-xs tracking-wider text-muted-foreground uppercase">{zone.name}</h2>
+              {/* `auto-fill` con mínimo de 124 px: el plano se adapta al ancho
+                  de la tablet sin que nadie declare cuántas columnas hay. */}
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-2.5">
+                {(zone.tables ?? []).map((table) => (
+                  <MesaCard
                     key={table.id}
-                    type="button"
-                    aria-label={`Mesa ${table.number}, ${STATUS_LABEL[table.status ?? "free"]}`}
-                    aria-pressed={mode !== "idle" ? isSelected : undefined}
-                    className={`flex min-h-[88px] flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring ${
-                      isSelected ? "border-primary ring-2 ring-primary" : "border-border"
-                    }`}
+                    numero={table.number ?? "—"}
+                    puestos={table.covers ?? table.seats ?? 0}
+                    estado={(table.status ?? "free") as EstadoMesa}
+                    tiempo={table.opened_at ? elapsedLabel(table.opened_at) : null}
+                    total={table.status === "free" ? null : table.total}
+                    atiende={table.served_by}
+                    lenta={table.is_slow ?? false}
+                    seleccionada={selected.includes(table.id)}
                     onClick={() => {
                       if (mode !== "idle") {
                         toggleSelected(table)
@@ -307,28 +310,12 @@ export function TablesPage(): React.JSX.Element {
                         navigate(`/pos/comanda/${table.order_id}`)
                       }
                     }}
-                  >
-                    <div className="flex w-full items-center justify-between">
-                      <span className="text-base font-semibold">Mesa {table.number}</span>
-                      <Badge variant={STATUS_VARIANT[table.status ?? "free"]}>
-                        {STATUS_LABEL[table.status ?? "free"]}
-                      </Badge>
-                    </div>
-                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                      <Users className="size-3" aria-hidden="true" />
-                      {table.covers ?? table.seats ?? "—"}
-                    </span>
-                    {table.status !== "free" ? (
-                      <span className="text-xs text-muted-foreground">
-                        {elapsedLabel(table.opened_at)} · {formatCOP(table.total)}
-                      </span>
-                    ) : null}
-                  </button>
-                )
-              })}
-            </div>
-          </section>
-        ))
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       )}
 
       <Dialog open={openTable !== null} onOpenChange={(next) => !next && setOpenTable(null)}>

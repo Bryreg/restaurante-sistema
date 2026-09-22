@@ -41,6 +41,15 @@
     --color-success-foreground: var(--success-foreground);
     --color-warning: var(--warning);
     --color-warning-foreground: var(--warning-foreground);
+    /* Fondo suave y borde de cada estado. Salen de m2b (`--ok-soft`,
+       `--warn-soft`, `--bad-soft` y sus `-line`). Siguen siendo DE ESTADO:
+       tiñen una tarjeta para decir cómo está algo, nunca visten una acción. */
+    --color-success-soft: var(--success-soft);
+    --color-success-line: var(--success-line);
+    --color-warning-soft: var(--warning-soft);
+    --color-warning-line: var(--warning-line);
+    --color-destructive-soft: var(--destructive-soft);
+    --color-destructive-line: var(--destructive-line);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -90,6 +99,12 @@
     --success-foreground: oklch(1 0 0);
     --warning: oklch(0.5553 0.1455 49.00);           /* m2b --warn      #B45309 */
     --warning-foreground: oklch(1 0 0);
+    --success-soft: oklch(0.9520 0.0299 152.53);     /* m2b --ok-soft    #E6F4EA */
+    --success-line: oklch(0.8419 0.0713 152.44);     /* m2b --ok-line    #A8D5B8 */
+    --warning-soft: oklch(0.9497 0.0290 80.12);      /* m2b --warn-soft  #FBF0E0 */
+    --warning-line: oklch(0.8258 0.0844 78.40);      /* m2b --warn-line  #E4C08A */
+    --destructive-soft: oklch(0.9430 0.0209 20.24);  /* m2b --bad-soft   #FBEAEA */
+    --destructive-line: oklch(0.8104 0.0842 20.26);  /* m2b --bad-line   #E8AEAE */
     --border: oklch(0.8979 0.0215 259.19);           /* m2b --line      #D5DEEC */
     --input: oklch(0.8166 0.0316 258.94);            /* m2b --line-2    #B7C4D8 */
     --ring: oklch(0.4244 0.1809 265.64);             /* m2b --brand: el foco es azul */
