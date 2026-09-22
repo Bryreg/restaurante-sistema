@@ -735,6 +735,7 @@ def simular_turno(
     cierra_dia: bool,
     avance: float,
     dejar_abierto: bool = False,
+    hasta_hora: int | None = None,
 ) -> dict[str, Any]:
     """Un turno de caja completo: apertura, servicio, movimientos y cierre.
 
@@ -792,7 +793,16 @@ def simular_turno(
 
     # ---- el servicio -------------------------------------------------------
     inicio = _utc(dia, primera_venta, 0)
-    fin = _utc(dia, ultima_venta, 0)
+    # `hasta_hora` recorta la ventana al reloj de verdad. Sin esto, el turno
+    # EN CURSO repartía sus tiquetes por toda la franja del servicio y
+    # sellaba ventas a las 14:30 cuando eran las 13:00: la gráfica de «Hoy»
+    # mostraba una columna en una hora que todavía no había pasado, y la
+    # columna «en curso» quedaba en el medio en vez de al final. Una venta
+    # con fecha futura no es un detalle de presentación — es un documento
+    # fiscal mal sellado.
+    fin = _utc(dia, min(ultima_venta, hasta_hora), 0) if hasta_hora is not None else _utc(dia, ultima_venta, 0)
+    if fin <= inicio:
+        fin = inicio + timedelta(minutes=30)
     minutos_totales = max(1, int((fin - inicio).total_seconds() // 60))
     # ¿Las propinas en efectivo de este turno terminan en el cajón? Es la
     # excepción, no la regla, y se decide UNA vez para todo el turno.
@@ -1150,7 +1160,8 @@ def generar(db: Session, *, meses: float, semilla: int, hoy_en_curso: bool = Fal
                 avance_cena = min(1.0, (hora_local - HORA_CENA) / 5 + 0.25)
                 en_curso = max(4, int((del_dia - almuerzo) * avance_cena))
                 r = simular_turno(ctx, dia=hoy, servicio="cena", tiquetes=en_curso,
-                                  cierra_dia=True, avance=1.0, dejar_abierto=True)
+                                  cierra_dia=True, avance=1.0, dejar_abierto=True,
+                                  hasta_hora=hora_local)
                 turnos += 1
                 tiquetes += r["tiquetes"]
                 print(f"  {hoy:%Y-%m-%d}  almuerzo cerrado y cena EN CURSO ({hora_local}:00 Bogotá)")
@@ -1162,7 +1173,8 @@ def generar(db: Session, *, meses: float, semilla: int, hoy_en_curso: bool = Fal
                 avance_almuerzo = min(1.0, max(0.12, (hora_local - HORA_APERTURA + 1) / 6))
                 en_curso = max(4, int(almuerzo * avance_almuerzo))
                 r = simular_turno(ctx, dia=hoy, servicio="almuerzo", tiquetes=en_curso,
-                                  cierra_dia=False, avance=1.0, dejar_abierto=True)
+                                  cierra_dia=False, avance=1.0, dejar_abierto=True,
+                                  hasta_hora=hora_local)
                 turnos += 1
                 tiquetes += r["tiquetes"]
                 print(f"  {hoy:%Y-%m-%d}  almuerzo EN CURSO ({hora_local}:00 Bogotá)")

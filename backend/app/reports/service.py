@@ -746,23 +746,55 @@ def _inventory_reliability(db: Session, store: Store) -> tuple[bool | None, int 
 
 
 def _con_referencia(
-    by_hour: dict[int, HourBucketOut], semana_pasada: dict[int, int], hubo: bool
+    by_hour: dict[int, HourBucketOut], semana_pasada: dict[int, int], hubo: bool, cutoff_hour: int
 ) -> list[HourBucketOut]:
-    """Las horas de hoy, más las que SÓLO existieron la semana pasada.
+    """Las horas de hoy, más las que SÓLO existieron la semana pasada, más
+    las de adentro que no vendieron nada.
 
-    Si el lunes pasado se vendió a las 11 y hoy esa hora todavía está en
-    cero, la hora tiene que aparecer igual: sin ella la gráfica arranca a
-    las 12 y la caída de las 11 no se ve — que es justamente la pregunta
-    que la comparación viene a contestar.
+    Dos rellenos distintos, y conviene no confundirlos:
+
+    - **La hora que sólo existió la semana pasada.** Si el lunes pasado se
+      vendió a las 11 y hoy esa hora todavía está en cero, la hora tiene que
+      aparecer igual: sin ella la gráfica arranca a las 12 y la caída de las
+      11 no se ve, que es justo la pregunta que la comparación contesta.
+
+    - **El hueco de adentro.** Entre la primera y la última hora de la
+      jornada, una hora sin ventas **es** una hora de cero ventas: el local
+      estaba abierto y no entró nadie. Sin ella el eje salta de las 14 a las
+      17 con las dos columnas pegadas, y la tarde muerta —que es un dato del
+      negocio— se ve como si no hubiera existido. Esto NO contradice
+      «`null` no es 0»: esa regla es para cuando no se sabe. Acá se sabe.
+
+    El relleno es sólo hacia ADENTRO: no inventa horas antes de la primera
+    ni después de la última, porque de esas sí no se sabe si el local estaba
+    abierto. Y la REFERENCIA de una hora rellenada queda en `None`, nunca en
+    cero: que hoy no se haya vendido a las tres no dice nada de la semana
+    pasada.
+
+    El orden es el del día OPERATIVO, no el del reloj: con corte a las 6, la
+    1 a. m. es la hora diecinueve de la jornada y va al final, no al
+    principio.
     """
-    if not hubo:
-        return list(by_hour.values())
-    faltantes = [
-        HourBucketOut(hour=h, gross=0, net=0, net_last_week=neto)
-        for h, neto in semana_pasada.items()
-        if h not in by_hour
-    ]
-    return list(by_hour.values()) + faltantes
+    if not hubo and not by_hour:
+        return []
+
+    salida = dict(by_hour)
+    if hubo:
+        for h, neto in semana_pasada.items():
+            if h not in salida:
+                salida[h] = HourBucketOut(hour=h, gross=0, net=0, net_last_week=neto)
+
+    def altura(hora: int) -> int:
+        return (hora - cutoff_hour) % 24
+
+    if salida:
+        alturas = [altura(h) for h in salida]
+        for a in range(min(alturas), max(alturas) + 1):
+            hora = (a + cutoff_hour) % 24
+            if hora not in salida:
+                salida[hora] = HourBucketOut(hour=hora, gross=0, net=0, net_last_week=None)
+
+    return sorted(salida.values(), key=lambda b: altura(b.hour))
 
 
 def today_report(db: Session, *, store: Store) -> TodayOut:
@@ -873,7 +905,10 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     return TodayOut(
         store_id=store.id,
         business_date=business_date,
-        sales_by_hour=sorted(_con_referencia(by_hour, neto_semana_pasada, hubo_semana_pasada), key=lambda h: h.hour),
+        # Ya viene ordenado por altura del día operativo: con corte a las 6,
+        # la 1 a. m. va al final de la jornada y no al principio. Ordenarlo
+        # otra vez por número de hora lo rompería.
+        sales_by_hour=_con_referencia(by_hour, neto_semana_pasada, hubo_semana_pasada, store.cutoff_hour),
         gross=gross,
         net=net,
         tax=tax,

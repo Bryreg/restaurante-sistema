@@ -32,6 +32,7 @@ from app.orders.schemas import (
     OrderItemIn,
     TakeoutIn,
 )
+from app.orders.models import OrderItem
 from app.reservations import service as reservations_service
 from app.reservations.schemas import ReservationIn
 from app.shifts.models import Shift, ShiftStatus
@@ -239,7 +240,12 @@ def _abrir_mesa(
             # Servido: por el servicio, plato por plato. Lo que sigue en la
             # comanda sigue cobrándose igual.
             clock.set_clock(lambda t=base - timedelta(minutes=max(0, minutos_cocina - 12)): t)
-            for item in list(orden.items):
+            # `Order` no tiene relación `items`: los renglones se consultan,
+            # como hace el propio servicio.
+            renglones = list(
+                db.execute(select(OrderItem).where(OrderItem.order_id == orden.id)).scalars()
+            )
+            for item in renglones:
                 orders_service.mark_served(db, order=orden, item_id=item.id, actor=actor)
             estado = "servida"
         else:
