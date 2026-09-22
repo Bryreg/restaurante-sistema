@@ -454,11 +454,15 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0022", (
-        f"la cadena quedó en {version!r}; el punto de llegada después de sacar "
-        "`tolerance_identified_cause` es 0022 (`0022_drop_tolerance_identified_cause`). "
+    # **Re-apuntado por el plano de `m2b`**, con el motivo que este test pide:
+    # `0023_reservations` (el dominio de reservas, que hace que el sexto estado
+    # del plano deje de ser una promesa) y `0024_floor_landmarks_and_counter`
+    # (las referencias del salón y la bandera de barra). La cadena llega a 0024.
+    assert version == "0024", (
+        f"la cadena quedó en {version!r}; el punto de llegada después de reservas y "
+        "el plano es 0024 (`0024_floor_landmarks_and_counter`). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3 y 0022"
+        "2b, 2c, H-3, la fase 3, A-3, 0022 y el plano de m2b"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -531,9 +535,18 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # a propósito: es todo derivado. Ojo al comparar con `docs/ESTADO.md`, que
     # para 1b anotó "53 tablas" contando la de control de Alembic: es el mismo
     # esquema contado de dos maneras.
-    assert len(tablas) == 93, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; la fase 3 lo deja en 93 "
-        f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina). Actualizá este "
+    #
+    # **Re-apuntado por reservas** (`0023_reservations`), con el mismo criterio
+    # que 2b y 2c y por la razón que este test declara arriba: el número se
+    # mueve A PROPÓSITO con cada migración que agregue una tabla, porque eso es
+    # lo que convierte «me olvidé de encadenar la migración» en un rojo. De 93
+    # a **94**: `reservations`, el dominio del sexto estado del plano.
+    # `0024_floor_landmarks_and_counter` NO mueve este número: agrega dos
+    # columnas (`zones.landmarks`, `tables.is_counter`), no una tabla — igual
+    # que `0019_invoice_total` en su momento.
+    assert len(tablas) == 94, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; con reservas queda en 94 "
+        f"(93 al cerrar la fase 3 + `reservations`). Actualizá este "
         f"número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 
