@@ -21,7 +21,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core import clock, features
+from app.core import clock, features, tz
 from app.core.errors import AppError
 from app.core.modules import find_spec_safe
 from app.fiscal.models import (
@@ -33,6 +33,7 @@ from app.fiscal.models import (
 )
 from app.fiscal.provider import EmitResult, get_provider
 from app.fiscal.schemas import (
+    DeviceFiscalRangeOut,
     DocumentEvidenceOut,
     ExportBundleOut,
     ExportManifestEntry,
@@ -52,6 +53,20 @@ PREFIX = "POS"  # sólo para `internal_receipt` (FiscalCounter); todo lo demás 
 LEGEND_POS_EQUIVALENT_PENDING = "DOCUMENTO PENDIENTE DE TRANSMISIÓN A LA DIAN"
 LEGEND_INVOICE_PENDING = "FACTURA ELECTRÓNICA PENDIENTE DE TRANSMISIÓN A LA DIAN"
 LEGEND_INTERNAL_RECEIPT = "COMPROBANTE INTERNO — no es factura ni documento equivalente"
+
+#: Lo que la pantalla de Cobro dice al pie sobre qué va a salir. Vive acá,
+#: al lado de las leyendas impresas, y por el mismo motivo: nombra figuras
+#: de la DIAN. `NOTICE_RANGE_EXHAUSTED` incluye la acción correctiva, como
+#: todo mensaje de error del sistema.
+NOTICE_POS_EQUIVALENT = "Sale un documento equivalente POS con el impuesto discriminado."
+NOTICE_INTERNAL_RECEIPT = (
+    "Sale un comprobante interno: esta sede no está obligada a documento equivalente. "
+    "No es factura ni documento equivalente."
+)
+NOTICE_RANGE_EXHAUSTED = (
+    "No hay numeración disponible para el documento equivalente de esta sede: el cobro va a fallar. "
+    "Pedí a un administrador que cargue el rango en Admin → Fiscal antes de cerrar la cuenta."
+)
 LEGEND_SENT = "DOCUMENTO ENVIADO A LA DIAN — a la espera de validación"
 LEGEND_VALIDATED = "DOCUMENTO VALIDADO POR LA DIAN"
 LEGEND_REJECTED = "DOCUMENTO RECHAZADO POR LA DIAN — corregí y reenviá, o anulalo por nota"
@@ -1082,3 +1097,50 @@ def admin_list_notes(db: Session, *, store_id: int, date_from: date | None, date
         }
         for d in rows
     ]
+
+
+def device_fiscal_range(db: Session, *, organization_id: int, store_id: int) -> DeviceFiscalRangeOut:
+    """El rango vigente de la sede para lo que va a salir de un cobro normal.
+
+    «Normal» es `pos_equivalent`: el documento equivalente POS, que es el que
+    sale salvo que el cliente pida factura o la venta cruce el umbral de UVT.
+    Anticipar eso acá exigiría el total de la venta y el cliente, que todavía
+    no existen cuando la pantalla se dibuja — y la pantalla no promete el
+    número, promete de qué talonario sale.
+
+    Con `fiscal.dee_pos` apagada la sede no está obligada y lo que sale es un
+    comprobante interno: se devuelve el tipo y nada más. Una resolución
+    inventada en esa pantalla es exactamente la clase de dato que después
+    alguien lee en voz alta frente a un cliente.
+    """
+    if not features.is_enabled(db, organization_id, store_id, "fiscal.dee_pos"):
+        return DeviceFiscalRangeOut(document_type="internal_receipt", notice=NOTICE_INTERNAL_RECEIPT)
+
+    # La fecha operativa de la sede, con su corte — no `date.today()`: un
+    # cobro de la 1 a. m. pertenece al día anterior y su rango vigente es el
+    # de ese día.
+    store = db.get(Store, store_id)
+    business_date = tz.today_business_date(store.cutoff_hour if store is not None else 0)
+    candidates = _vigent_ranges(
+        db, store_id=store_id, document_type=FiscalDocumentType.POS_EQUIVALENT, business_date=business_date
+    )
+    usable = next((r for r in candidates if r.next_number <= r.to_number), None)
+    row = usable or (candidates[0] if candidates else None)
+    if row is None:
+        # Sin rango vigente el cobro va a fallar con `NO_FISCAL_RANGE`. La
+        # pantalla se entera ACÁ, antes de que el cliente esté esperando.
+        return DeviceFiscalRangeOut(
+            document_type="pos_equivalent", notice=NOTICE_RANGE_EXHAUSTED, exhausted=True
+        )
+
+    return DeviceFiscalRangeOut(
+        document_type="pos_equivalent",
+        notice=NOTICE_RANGE_EXHAUSTED if usable is None else NOTICE_POS_EQUIVALENT,
+        prefix=row.prefix,
+        resolution_number=row.resolution_number,
+        from_number=row.from_number,
+        to_number=row.to_number,
+        valid_until=row.valid_until,
+        remaining=max(0, row.to_number - row.next_number + 1),
+        exhausted=usable is None,
+    )

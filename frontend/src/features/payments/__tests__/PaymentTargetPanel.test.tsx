@@ -63,13 +63,17 @@ describe("PaymentTargetPanel — A-10 (la venta discriminada, y el total que hay
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /sí, \$\s?7\.870/i }));
+    // El botón de aceptar la propina con la forma de `m2b`: el porcentaje que
+    // manda el servidor y su monto, no «Sí, $X».
+    await user.click(await screen.findByRole("button", { name: /10%\s*·\s*\$\s?7\.870/i }));
 
     // Venta y propina siguen discriminadas (la propina va aparte de la venta
     // y del impuesto), pero el total existe: sin él, el mesero suma de cabeza
     // delante del cliente. 85.000 + 7.870.
     expect(await screen.findByText("Venta")).toBeInTheDocument();
-    expect(screen.getByText("Propina")).toBeInTheDocument();
+    // Dos veces: el título de la tarjeta de propina y el renglón del
+    // desglose del cobro. Las dos son legítimas y ninguna es la otra.
+    expect(screen.getAllByText("Propina").length).toBeGreaterThan(1);
     expect(screen.getByText("Total a cobrar")).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?92\.870/).length).toBeGreaterThan(0);
   });

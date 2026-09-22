@@ -19,6 +19,8 @@ from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError, UnauthorizedError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
+from app.fiscal import service as fiscal_service
+from app.fiscal.schemas import DeviceFiscalRangeOut
 from app.orders import service as orders_service
 from app.payments import service
 from app.payments.schemas import DevicePaymentMethodOut, DocumentPrintableOut, PaymentIn
@@ -93,6 +95,26 @@ def get_device_payment_methods(
 ) -> list[DevicePaymentMethodOut]:
     store = _store_of(db, actor)
     return service.device_payment_methods(db, store_id=store.id)
+
+
+# ---------------------------------------------------------------------------
+# Dispositivo: de qué talonario sale el documento de este cobro
+# ---------------------------------------------------------------------------
+
+
+@router.get("/device/fiscal-range")
+def get_device_fiscal_range(
+    actor: Actor = Depends(current_device), db: Session = Depends(get_db)
+) -> DeviceFiscalRangeOut:
+    """Lo que la pantalla de Cobro dice al pie: qué documento va a salir, con
+    qué resolución, y cuántos números quedan.
+
+    Vive acá y no en `app.fiscal.router` a propósito: ese router es admin
+    entero y dice en su encabezado que el dispositivo nunca lo ve. Esto es lo
+    poco que el salón sí necesita, y es de sólo lectura.
+    """
+    store = _store_of(db, actor)
+    return fiscal_service.device_fiscal_range(db, organization_id=store.organization_id, store_id=store.id)
 
 
 # ---------------------------------------------------------------------------

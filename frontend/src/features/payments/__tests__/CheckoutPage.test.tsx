@@ -89,15 +89,23 @@ describe("CheckoutPage", () => {
     expect(typeof presentBillCall[2]).toBe("string");
 
     expect(await screen.findByText("NO ES FACTURA — documento informativo")).toBeInTheDocument();
-    expect(screen.getByText(/¿desea incluir servicio voluntario del 10%\?/i)).toBeInTheDocument();
+    // La pregunta de propina con la forma de `m2b`: tres opciones, y el
+    // porcentaje del botón es el que manda el servidor — la pantalla nunca
+    // saca un porcentaje de la base por su cuenta.
+    expect(screen.getByRole("heading", { name: "Propina" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /no incluir/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /otro valor/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /sí, \$\s?4\.630/i }));
+    await user.click(screen.getByRole("button", { name: /10%\s*·\s*\$\s?4\.630/i }));
     // La venta y la propina se discriminan (propina separada de la venta y
     // del impuesto, regla dura), Y se muestra lo que hay que cobrar: sin ese
     // número el mesero suma de cabeza frente al cliente.
     expect(await screen.findByText("Venta")).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?50\.000/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Propina")).toBeInTheDocument();
+    // «Propina» aparece dos veces a propósito: el título de la tarjeta de
+    // `m2b` y el renglón del desglose del cobro. Se busca el del desglose,
+    // que es el que lleva la cifra al lado.
+    expect(screen.getAllByText("Propina").length).toBeGreaterThan(1);
     expect(screen.getAllByText(/\$\s?4\.630/).length).toBeGreaterThan(0);
     expect(screen.getByText("Total a cobrar")).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?54\.630/).length).toBeGreaterThan(0);
@@ -109,7 +117,8 @@ describe("CheckoutPage", () => {
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": false });
 
     await screen.findByText("Pagos");
-    expect(screen.queryByText(/¿desea incluir servicio voluntario/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Propina" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /no incluir/i })).not.toBeInTheDocument();
   });
 
   it("con pos.split_bill apagada no ofrece dividir la cuenta", async () => {

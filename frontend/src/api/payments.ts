@@ -152,3 +152,35 @@ export interface PaymentOut {
 export function payOrder(orderId: number, body: PaymentIn, idempotencyKey: string): Promise<PaymentOut> {
   return api<PaymentOut>(`/orders/${orderId}/payments`, { method: "POST", body, idempotencyKey });
 }
+
+/**
+ * De qué talonario sale el documento de este cobro
+ * (`GET /device/fiscal-range`).
+ *
+ * `remaining` y `exhausted` los calcula el servidor: la pantalla no resta
+ * consecutivos. Todo lo demás puede venir `null` cuando la sede no está
+ * obligada a documento equivalente (`fiscal.dee_pos` apagada) — ahí sale un
+ * comprobante interno y NO hay resolución que mostrar.
+ */
+export interface DeviceFiscalRangeOut {
+  document_type?: "pos_equivalent" | "invoice" | "internal_receipt" | "credit_note" | "debit_note";
+  /**
+   * La frase del pie, **tal cual la manda el servidor**. Nombra figuras de la
+   * DIAN, así que la escribe el backend al lado de las leyendas impresas
+   * (`LEGEND_*`): escrita acá, una corrección legal exigiría desplegar el
+   * frontend. La pantalla la imprime; no la arma ni la completa.
+   */
+  notice?: string;
+  prefix?: string | null;
+  resolution_number?: string | null;
+  from_number?: number | null;
+  to_number?: number | null;
+  /** "YYYY-MM-DD". */
+  valid_until?: string | null;
+  remaining?: number | null;
+  exhausted?: boolean;
+}
+
+export function getDeviceFiscalRange(): Promise<DeviceFiscalRangeOut> {
+  return api<DeviceFiscalRangeOut>("/device/fiscal-range");
+}

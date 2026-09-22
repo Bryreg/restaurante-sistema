@@ -242,3 +242,34 @@ class AdminNoteListItem(BaseModel):
     total: int
     business_date: date
     issued_at: datetime
+
+
+class DeviceFiscalRangeOut(BaseModel):
+    """Qué documento va a salir de este cobro, para la pantalla del salón.
+
+    Es lo mínimo que el operador necesita antes de cerrar la cuenta: qué tipo
+    de documento sale, con qué resolución, y si quedan números. **No es la
+    máquina de estados DIAN** —eso sigue siendo del administrador— ni trae
+    costos ni márgenes.
+
+    `remaining` y `exhausted` los calcula el servidor. Restarlos en la
+    pantalla obligaría a publicar `next_number`, que es estado interno de la
+    reserva de consecutivos, y a que dos clientes coincidieran en la resta.
+    """
+
+    document_type: DocumentTypeLiteral
+    #: La frase que la pantalla del salón muestra al pie, **tal cual**. La
+    #: escribe el servidor por la misma razón que las leyendas impresas
+    #: (`LEGEND_*`): nombra figuras de la DIAN, y una corrección legal no
+    #: puede depender de desplegar el frontend. La pantalla la imprime, no la
+    #: arma ni la completa.
+    notice: str
+    #: `None` cuando el tipo no se numera dentro de un rango DIAN (la sede no
+    #: está obligada). La pantalla no inventa una resolución.
+    prefix: str | None = None
+    resolution_number: str | None = None
+    from_number: int | None = None
+    to_number: int | None = None
+    valid_until: date | None = None
+    remaining: int | None = None
+    exhausted: bool = False
