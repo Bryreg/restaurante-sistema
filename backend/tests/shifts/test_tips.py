@@ -181,3 +181,30 @@ def test_tip_payout_replays_with_the_same_idempotency_key(
     second = admin_client.post(f"/api/v1/admin/tips/payouts?store_id={store.id}", json=payload, headers=headers)
     assert first.status_code == 201 and second.status_code == 201
     assert first.json() == second.json()
+
+
+def test_tip_payout_accepts_the_wall_clock_hour_the_screen_sends(
+    admin_client: TestClient, open_shift: Any, employees: dict, store: Store, db: Session
+) -> None:
+    """`TipsTab.tsx` manda `paid_at` desde un `<input type="datetime-local">`:
+    `"2026-01-15T15:00"`, sin zona. Antes se guardaba naive y la columna
+    `UTCDateTime` lo rechazaba con un `500` (lo encontró `python -m app.demo`
+    registrando el reparto como lo hace la pantalla). La zona la pone el
+    servidor: las 15:00 de Bogotá son las 20:00 UTC."""
+    from app.shifts.models import TipPayout
+
+    shift = open_shift(cash_responsible=employees["cashier"])
+    resp = admin_client.post(
+        f"/api/v1/admin/tips/payouts?store_id={store.id}",
+        json={
+            "shift_ids": [shift["id"]],
+            "distribution": [{"employee_id": employees["operator"].id, "amount": 1500}],
+            "paid_at": "2026-01-15T15:00",
+            "method": "cash",
+        },
+        headers=idem(),
+    )
+    assert resp.status_code == 201, resp.text
+    stored = db.get(TipPayout, resp.json()["id"])
+    assert stored is not None
+    assert stored.paid_at.isoformat().startswith("2026-01-15T20:00")

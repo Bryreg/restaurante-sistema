@@ -497,6 +497,39 @@ def _open_roster_entry(db: Session, shift: Shift, employee_id: int) -> ShiftRost
     ).scalars().first()
 
 
+def _end_open_roster(db: Session, *, actor: Actor, shift: Shift, at: datetime) -> None:
+    """Al cerrar el turno, la jornada de quien sigue adentro termina con él.
+
+    Sin esto, una entrada sin `out_at` de un turno ya cerrado se contaba
+    hasta `clock.now_utc()` en nómina (`app/payroll/service.py`,
+    `_worked_intervals`) y en el reparto de propinas por horas: la persona
+    responsable de caja —que por regla NO puede marcar salida por el roster
+    (`NOT_CASH_RESPONSIBLE`)— acumulaba cientos de horas extra por semana.
+    Una pausa abierta también se cierra en `at`.
+    """
+    entries = db.execute(
+        select(ShiftRoster).where(ShiftRoster.shift_id == shift.id, ShiftRoster.out_at.is_(None))
+    ).scalars().all()
+    for entry in entries:
+        if entry.pauses and entry.pauses[-1].get("end") is None:
+            pauses = list(entry.pauses)
+            pauses[-1] = {**pauses[-1], "end": at.isoformat()}
+            entry.pauses = pauses
+        entry.out_at = max(at, entry.in_at)
+        record_audit(
+            db,
+            actor=actor,
+            organization_id=shift.organization_id,
+            store_id=shift.store_id,
+            entity="shift_roster",
+            entity_id=entry.id,
+            action="out_on_close",
+            before=None,
+            after={"employee_id": entry.employee_id, "action": "out_on_close", "at": entry.out_at.isoformat()},
+        )
+    db.flush()
+
+
 def roster_action(db: Session, *, actor: Actor, shift: Shift, payload: RosterActionIn) -> ShiftRoster:
     _require_open(shift)
     employee = _get_org_employee(db, shift.organization_id, payload.employee_id)
@@ -1066,6 +1099,7 @@ def _finalize_close(
     shift.to_deposit = to_deposit
 
     db.flush()
+    _end_open_roster(db, actor=actor, shift=shift, at=now)
 
     if closes_day:
         _close_business_day(db, shift.business_day_id)
@@ -1290,6 +1324,7 @@ def close_administrative(db: Session, *, actor: Actor, shift: Shift, store: Stor
     shift.to_deposit = breakdown["expected"] - cash_settings.opening_cash_fixed
 
     db.flush()
+    _end_open_roster(db, actor=actor, shift=shift, at=now)
     _close_business_day(db, shift.business_day_id)
 
     record_audit(
