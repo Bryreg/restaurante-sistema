@@ -44,6 +44,9 @@ alembic upgrade head
 # datos de ejemplo — un comando aparte, nunca al arrancar; corre dos veces sin duplicar nada
 python -m app.seed
 
+# meses de operación inventada, sobre una base recién sembrada (ver abajo)
+python -m app.demo_operacion --meses 6
+
 # arranque
 PYTHONPATH=. DATABASE_URL=sqlite:///./dev.db uvicorn app.main:app --reload --port 8000
 # /docs sirve el OpenAPI; si existe ../frontend/dist, main.py lo sirve con fallback SPA
@@ -58,6 +61,40 @@ npm run dev -- --port 5173   # proxea /api -> :8000 (mismo origen; ver vite.conf
 |---|---|---|---|
 | backend | `backend/` | `uvicorn app.main:app --reload --port 8000` | 8000 |
 | frontend | `frontend/` | `npm run dev -- --port 5173` | 5173 |
+
+### `app.seed` y `app.demo_operacion` son dos cosas distintas
+
+`app.seed` deja el sistema **listo para operar**: la carta, el personal, la
+configuración fiscal, los rangos de numeración. `app.demo_operacion` deja el
+sistema **operado**: seis meses de turnos abiertos y cerrados, comandas
+cobradas, plata que entró y salió del cajón, diferencias de arqueo con su
+causa, obligaciones vencidas y pagadas.
+
+**Se corre sobre una base recién sembrada y sin turno abierto.** No es
+idempotente —correrlo dos veces genera dos veces la operación— y por eso no se
+corre solo. La misma semilla (`--semilla`) da el mismo restaurante.
+
+Lo que hace que los datos sirvan: **todo entra por los servicios reales**
+(`app.shifts.service`, `app.orders.service`, `app.payments.service`), los
+mismos que usa el POS. El esperado del cajón lo calcula `compute_breakdown`, el
+INC lo calcula el backend, el consecutivo lo reserva `reserve_next_number`.
+Datos inventados con `INSERT` cuadran con lo que el inventor creía que era la
+regla; éstos cuadran con la regla. El precio de esa decisión es que tarda ~55
+minutos para seis meses, y que el backend rechaza lo que no es válido — que es
+exactamente lo que uno quiere que pase.
+
+Tres cosas que el backend rechazó y que enseñan más que cualquier documento:
+
+- `COMBO_NOT_ACTIVE` — el corrientazo tiene horario (lunes a sábado, 11:30 a
+  15:00). No se puede vender el menú del día a las nueve de la noche.
+- `MODIFIER_SELECTION_INVALID` — la bandeja y el lomo exigen término de la
+  carne. Una comanda sin esa elección no existe.
+- `SHIFT_ALREADY_OPEN` — el índice único parcial no deja dos turnos abiertos
+  en la misma sede, ni siquiera a un generador.
+
+**No inventa nada de nadie real**: los nombres del personal son inventados, y
+el NIT, la resolución y los rangos siguen marcados `DEV-NO-ES-RESOLUCION-DIAN`.
+
 
 **En producción es UN solo servicio, no dos.** `render.yaml` (raíz) define el
 despliegue: el build construye el frontend y `main.py` sirve `frontend/dist` con
