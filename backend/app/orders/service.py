@@ -1213,6 +1213,33 @@ def patch_item(db: Session, *, order: Order, item_id: int, actor: Actor, payload
     item = _get_item_or_404(db, order, item_id)
     if item.status != OrderItemStatus.PENDING:
         raise AppError("ITEM_NOT_PENDING", "Sólo se puede editar un ítem mientras está pendiente")
+    # Las mismas guardas que `add_items`: subir la cantidad de una línea es
+    # agregar platos, y no puede saltarse ni el PIN de después de la cuenta
+    # ni el contador de porciones del día.
+    if order.bill_presented_at is not None:
+        if payload.authorizer_pin is None:
+            raise AppError("BILL_PRESENTED_NEEDS_AUTH", "La cuenta ya se presentó: pedí el PIN de un supervisor o administrador")
+        auth_service.verify_authorizer(
+            db, organization_id=order.organization_id, store_id=order.store_id, pin=payload.authorizer_pin, action="after_bill_change", requested_by=actor
+        )
+    if payload.seat is not None and not features.is_enabled(db, order.organization_id, order.store_id, "pos.seats"):
+        raise AppError("FEATURE_DISABLED", 'La función "pos.seats" está apagada; habilitala en Admin → Funciones', extra={"feature": "pos.seats"})
+    if payload.qty is not None and payload.qty > item.qty and item.product_id is not None:
+        product = db.get(Product, item.product_id)
+        extra_qty = payload.qty - item.qty
+        if product is not None and (not product.active or not product.available):
+            raise AppError("PRODUCT_UNAVAILABLE", f'"{product.name}" no está disponible', extra={"product_id": product.id, "remaining": product.daily_remaining})
+        if (
+            product is not None
+            and product.daily_remaining is not None
+            and extra_qty > product.daily_remaining
+            and features.is_enabled(db, order.organization_id, order.store_id, "pos.daily_count")
+        ):
+            raise AppError(
+                "PRODUCT_UNAVAILABLE",
+                f'Quedan {product.daily_remaining} de "{product.name}"',
+                extra={"product_id": product.id, "remaining": product.daily_remaining},
+            )
     if payload.qty is not None:
         item.qty = payload.qty
     if payload.note is not None:

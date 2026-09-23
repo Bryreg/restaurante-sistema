@@ -487,6 +487,8 @@ export interface PatchItemIn {
   qty?: number
   note?: string
   seat?: number
+  /** Con la cuenta ya presentada, el servidor pide el PIN igual que al agregar. */
+  authorizer_pin?: string
 }
 
 export interface ExpectedVersionIn {

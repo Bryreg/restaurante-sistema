@@ -484,6 +484,10 @@ class PatchItemIn(BaseModel):
     qty: int | None = Field(default=None, gt=0)
     note: str | None = None
     seat: int | None = None
+    # Con la cuenta ya presentada, cambiar un ítem pide el mismo PIN que
+    # agregar uno (`after_bill_change`): si no, subir la cantidad era la
+    # puerta de atrás de `add_items`.
+    authorizer_pin: str | None = None
 
 
 class ExpectedVersionIn(BaseModel):
