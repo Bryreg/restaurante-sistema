@@ -485,7 +485,7 @@ def test_negative_stock_is_valued_and_overdue_payables_are_totalled(
     fila = next(r for r in hoy["ingredients_negative"] if r["ingredient_id"] == ingredient_seeded.id)
     assert fila["amount"] == 29
     assert hoy["ingredients_negative_amount"] == 29
-    assert hoy["ingredients_negative_uncosted"] == 0
+    assert hoy["ingredients_negative_unvalued"] == 0
     assert hoy["payables_overdue_total"] == 0, "función encendida y nada vencido: $0 es un hecho"
     set_feature("purchases", False, store_id=store.id)
     assert _today(admin_client, store.id)["payables_overdue_total"] is None, "función apagada: null, no $0"
@@ -494,7 +494,7 @@ def test_negative_stock_is_valued_and_overdue_payables_are_totalled(
     db.commit()
     sin_costo = _today(admin_client, store.id)
     assert sin_costo["ingredients_negative_amount"] is None, "sin costo: null, no $0"
-    assert sin_costo["ingredients_negative_uncosted"] == 1
+    assert sin_costo["ingredients_negative_unvalued"] == 1
 
 
 # ---------------------------------------------------------------------------
