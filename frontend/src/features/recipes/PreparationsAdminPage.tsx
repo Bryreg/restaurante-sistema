@@ -11,6 +11,7 @@ import {
   updatePreparation,
   type PreparationAdminOut,
 } from "@/api/recipes"
+import { Cargando } from "@/components/Cargando"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import {
   DenseTable,
@@ -176,7 +177,7 @@ export function PreparationsAdminPage(): React.JSX.Element {
   })
 
   if (storeLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
+    return <Cargando texto="Cargando sedes…" className="p-4" />
   }
   if (!enabled) {
     // Patrón 13, motivo «función apagada»: la entrada de navegación

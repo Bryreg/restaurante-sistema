@@ -27,7 +27,7 @@ const AVICOLA: SupplierOut = {
 }
 
 describe("SupplierReliabilityDialog — recibido ÷ facturado, % con factura y deriva de precio, todo ya calculado por el servidor", () => {
-  it("sin recepciones en el rango, cada número se dibuja «—» con su motivo, nunca «0 %»", async () => {
+  it("sin recepciones en el rango, cada número se dibuja «Sin datos» rayado con su motivo, nunca «0 %»", async () => {
     const empty: SupplierReliabilityOut = {
       supplier_id: 3,
       date_from: "2026-06-01",
@@ -45,10 +45,10 @@ describe("SupplierReliabilityDialog — recibido ÷ facturado, % con factura y d
     await user.click(screen.getByRole("button", { name: "Confiabilidad" }))
     await waitFor(() => expect(getSupplierReliabilityMock).toHaveBeenCalled())
 
-    // Patrón 5: `null` se dibuja «—», apagado y nunca en rojo, y `StatTile`
+    // Patrón 5: `null` se dibuja «Sin datos» rayado, apagado y nunca en rojo, y `StatTile`
     // EXIGE la frase que explica por qué no se sabe. Antes decía «sin datos»
     // sin decir de qué carecía.
-    const values = await screen.findAllByText("—")
+    const values = await screen.findAllByText("Sin datos")
     expect(values).toHaveLength(3)
     expect(screen.queryByText("0 %")).not.toBeInTheDocument()
     expect(screen.getAllByText(/no es 0 %, es que no hay con qué medirlo/i).length).toBe(3)

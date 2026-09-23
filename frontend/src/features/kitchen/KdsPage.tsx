@@ -13,6 +13,7 @@ import {
   type KitchenRoundItemOut,
   type KitchenRoundOut,
 } from "@/api/kitchen"
+import { Cargando } from "@/components/Cargando"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -406,7 +407,7 @@ export function KdsPage(): React.JSX.Element {
 
         <TabsContent value="rounds" className="pt-4">
           {rounds.isLoading ? (
-            <p className="text-sm text-muted-foreground">Cargando rondas…</p>
+            <Cargando texto="Cargando rondas…" />
           ) : rounds.isError ? (
             <EmptyState
               role="alert"
@@ -431,7 +432,7 @@ export function KdsPage(): React.JSX.Element {
             física (impresora térmica real: fase 3).
           </p>
           {printJobs.isLoading ? (
-            <p className="text-sm text-muted-foreground">Cargando trabajos de impresión…</p>
+            <Cargando texto="Cargando trabajos de impresión…" />
           ) : printJobs.isError ? (
             <EmptyState
               role="alert"

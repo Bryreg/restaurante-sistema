@@ -93,7 +93,7 @@ export function HeadlineFigure({
             </dd>
           </div>
         ))}
-        <div className="mt-1 flex items-baseline gap-3 border-t-2 border-input pt-1.5 text-sm font-bold">
+        <div className="mt-1 flex items-baseline gap-3 border-t-[3px] border-double border-foreground/60 pt-1.5 text-sm font-bold">
           <dt className="min-w-0">{ledger.total.label}</dt>
           <dd className="ml-auto whitespace-nowrap tabular-nums">{ledger.total.value}</dd>
         </div>

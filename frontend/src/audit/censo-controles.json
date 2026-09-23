@@ -1,6 +1,7 @@
 {
  "app/AdminLayout.tsx": [
   "Abrir menú",
+  "Accesos del celular",
   "Banco",
   "Carta",
   "Cerrar sesión",
@@ -17,6 +18,7 @@
   "Gastos",
   "Historial",
   "Hoy",
+  "Hoy › Requiere tu atención",
   "Ingeniería de menú",
   "Inventario",
   "Notas",
@@ -31,6 +33,7 @@
   "Salir",
   "Secciones de administración",
   "Sede activa",
+  "Todas las secciones",
   "Turnos",
   "Turnos y personal",
   "Varianza y salud",
@@ -609,6 +612,7 @@
   "Reintentar"
  ],
  "features/payments/SplitBillPanel.tsx": [
+  "Partes de la cuenta",
   "Sin asignar"
  ],
  "features/payments/TipQuestion.tsx": [

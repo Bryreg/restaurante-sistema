@@ -372,7 +372,7 @@ export function DiferenciaDeCaja({
 }): React.JSX.Element {
   if (diferencia === null || diferencia === undefined) {
     return (
-      <div className={cn("rounded-xl bg-muted px-4 py-4 text-sm text-muted-foreground", className)}>
+      <div className={cn("sin-dato rounded-xl px-4 py-4 text-sm", className)}>
         Sin dato: el servidor todavía no devolvió la diferencia.
       </div>
     );

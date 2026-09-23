@@ -79,12 +79,13 @@ const SEVERITY_ICON: Record<NoticeSeverity, string> = {
  * riel—: con tres críticos seguidos, el bloque rosado se leía como un
  * estado de error de la pantalla entera.
  */
-function NoticeItem({ notice }: { notice: Notice }): React.JSX.Element {
+function NoticeItem({ notice, className }: { notice: Notice; className?: string }): React.JSX.Element {
   return (
     <li
       className={cn(
         "grid grid-cols-[auto_minmax(0,1fr)] gap-2.5 border-t border-l-[3px] px-3 py-2",
         SEVERITY_EDGE[notice.severity],
+        className,
       )}
     >
       <CircleAlert
@@ -101,6 +102,9 @@ function NoticeItem({ notice }: { notice: Notice }): React.JSX.Element {
     </li>
   )
 }
+
+/** Cuántos avisos de atención se ven en el celular antes de «Ver N más». */
+const PHONE_WARNING_LIMIT = 3
 
 function GroupHeading({ severity, count }: { severity: NoticeSeverity; count: number }): React.JSX.Element {
   return (
@@ -136,6 +140,7 @@ export function NoticeRail({
   className,
 }: NoticeRailProps): React.JSX.Element {
   const [foldedOpen, setFoldedOpen] = useState(false)
+  const [warningsOpen, setWarningsOpen] = useState(false)
 
   const bySeverity = SEVERITY_ORDER.map((severity) => ({
     severity,
@@ -193,11 +198,34 @@ export function NoticeRail({
                 ) : null}
               </>
             ) : (
-              <ul>
-                {group.items.map((notice) => (
-                  <NoticeItem key={notice.id} notice={notice} />
-                ))}
-              </ul>
+              <>
+                <ul>
+                  {group.items.map((notice, i) => (
+                    <NoticeItem
+                      key={notice.id}
+                      notice={notice}
+                      // En el celular los de atención se cortan en los
+                      // primeros: el dueño lee esto en un minuto, y con
+                      // quince avisos la cifra y los indicadores quedaban
+                      // pantallas abajo. Los críticos nunca se cortan.
+                      className={
+                        group.severity === "warning" && i >= PHONE_WARNING_LIMIT && !warningsOpen
+                          ? "max-md:hidden"
+                          : undefined
+                      }
+                    />
+                  ))}
+                </ul>
+                {group.severity === "warning" && group.items.length > PHONE_WARNING_LIMIT && !warningsOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => setWarningsOpen(true)}
+                    className="flex min-h-11 w-full items-center border-t px-3 text-left text-sm font-bold text-primary hover:bg-accent md:hidden"
+                  >
+                    Ver {group.items.length - PHONE_WARNING_LIMIT} más de atención
+                  </button>
+                ) : null}
+              </>
             )}
           </div>
         ))

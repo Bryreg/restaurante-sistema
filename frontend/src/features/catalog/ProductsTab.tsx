@@ -3,6 +3,7 @@ import { useState } from "react"
 
 import type { ProductAdminOut } from "@/api/catalog"
 import { createProduct, listCategories, listProducts, updateProduct } from "@/api/catalog"
+import { Cargando } from "@/components/Cargando"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -75,7 +76,7 @@ export function ProductsTab({ storeId }: { storeId: number }) {
   })
 
   if (categoriesQuery.isLoading || productsQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando productos…</p>
+    return <Cargando texto="Cargando productos…" />
   }
   if (categoriesQuery.isError) {
     return <p className="text-sm text-destructive">{errorMessage(categoriesQuery.error)}</p>

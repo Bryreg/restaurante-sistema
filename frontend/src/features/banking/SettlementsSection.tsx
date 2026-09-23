@@ -32,6 +32,7 @@ import {
 } from "@/api/banking"
 import { listPlatforms } from "@/api/channels"
 import { newIdempotencyKey } from "@/api/client"
+import { Cargando } from "@/components/Cargando"
 import { MoneyInput } from "@/components/MoneyInput"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
@@ -268,7 +269,7 @@ export function SettlementsSection({
       </div>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando liquidaciones…</p>
+        <Cargando texto="Cargando liquidaciones…" />
       ) : query.isError ? (
         <EmptyState
           role="alert"

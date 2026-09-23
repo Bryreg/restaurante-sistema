@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { getBankLedger, type BankLedgerEntryOut } from "@/api/banking"
+import { Cargando } from "@/components/Cargando"
 import { DenseTable, DenseTableBar, HeadlineFigure, type DenseColumn } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
@@ -51,7 +52,7 @@ export function LedgerTab({ storeId }: { storeId: number }): React.JSX.Element {
       <DateRangeFilter idPrefix="bank-ledger" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando el libro del banco…</p>
+        <Cargando texto="Cargando el libro del banco…" />
       ) : query.isError ? (
         <EmptyState reason="error" title="No se pudo cargar el libro del banco" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : entries.length === 0 ? (

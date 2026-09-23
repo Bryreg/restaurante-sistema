@@ -7,7 +7,11 @@ describe("kitchenFeature — manifiesto (CONTRATO C8, pedido 2c)", () => {
     const posPaths = kitchenFeature.posRoutes.map((r) => r.path)
     expect(posPaths).toEqual(["kds"])
 
-    expect(kitchenFeature.posNav).toEqual([{ to: "/pos/kds", label: "KDS", feature: "kitchen.kds" }])
+    // Cada entrada del salón lleva su ícono propio (el genérico era el mismo para todas).
+    for (const item of kitchenFeature.posNav) expect(item.icon).toBeDefined()
+    expect(kitchenFeature.posNav.map(({ icon: _icon, ...item }) => item)).toEqual([
+      { to: "/pos/kds", label: "Tiquetes de cocina", feature: "kitchen.kds", posGroup: "cocina" },
+    ])
   })
 
   it("no declara adminRoutes ni adminNav: el KDS es puramente de dispositivo", () => {

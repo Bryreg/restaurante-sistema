@@ -20,7 +20,7 @@ import { CsvExportButton } from "@/components/CsvExportButton"
 import { EmptyState } from "@/components/EmptyState"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { formatCOP } from "@/lib/money"
+import { Diferencia } from "@/components/Diferencia"
 import { errorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
@@ -219,7 +219,7 @@ export function VarianceTab({ storeId }: { storeId: number }): React.JSX.Element
         r.variance_value === null ? (
           <span className="text-muted-foreground italic">Sin costo</span>
         ) : (
-          formatCOP(r.variance_value)
+          <Diferencia valor={r.variance_value} faltaCuando="positivo" />
         ),
       cellTitle: (r) =>
         r.variance_value === null

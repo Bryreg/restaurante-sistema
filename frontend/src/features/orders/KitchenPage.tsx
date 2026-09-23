@@ -7,6 +7,7 @@ import { useSession } from "@/app/session"
 import { newIdempotencyKey } from "@/api/client"
 import { markReady } from "@/api/orders"
 import type { KitchenRoundItemOut, KitchenSemaphore } from "@/api/kitchen"
+import { Cargando } from "@/components/Cargando"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/EmptyState"
@@ -170,7 +171,7 @@ export function KitchenPage(): React.JSX.Element {
       </div>
 
       {rounds.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando rondas…</p>
+        <Cargando texto="Cargando rondas…" />
       ) : rows.length === 0 ? (
         <EmptyState title="No hay rondas pendientes" description="Las comandas enviadas a cocina aparecen acá." />
       ) : (

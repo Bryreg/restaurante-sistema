@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { useStoreSelection } from "@/app/storeContext"
+import { Cargando } from "@/components/Cargando"
 import { PageHeader } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -25,7 +26,7 @@ export function SalesPage(): React.JSX.Element {
   const { activeStoreId, loading: storeLoading } = useStoreSelection()
 
   if (storeLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando sedes…</p>
+    return <Cargando texto="Cargando sedes…" />
   }
   if (activeStoreId === null) {
     return <p className="text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>

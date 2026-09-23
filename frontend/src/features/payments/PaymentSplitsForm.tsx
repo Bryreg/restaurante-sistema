@@ -15,6 +15,7 @@ import {
   type PaymentSplitIn,
   type PaymentTipIn,
 } from "@/api/payments";
+import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import { MoneyInput } from "@/components/MoneyInput";
 import { PinPad } from "@/components/PinPad";
@@ -218,7 +219,7 @@ export function PaymentSplitsForm({
   });
 
   if (methodsQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando medios de pago…</p>;
+    return <Cargando texto="Cargando medios de pago…" />;
   }
 
   if (methodsQuery.isError) {

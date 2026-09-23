@@ -8,8 +8,10 @@ import {
   RefreshCw,
   Table2,
   UtensilsCrossed,
+  type LucideIcon,
 } from "lucide-react"
-import { Link } from "react-router-dom"
+import { useEffect } from "react"
+import { Link, useLocation } from "react-router-dom"
 
 import {
   getToday,
@@ -40,7 +42,9 @@ import {
   type NoticeSeverity,
   type RowStatus,
 } from "@/components/admin"
+import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
+import { SinDato } from "@/components/SinDato"
 import { StatTile } from "@/components/StatTile"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -48,6 +52,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { formatBusinessDate, formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
+import { cn } from "@/lib/utils"
 
 import { CHANNEL_LABEL } from "@/features/orders/lib"
 
@@ -55,6 +60,13 @@ import { CategoryBars } from "./charts"
 import { ALERT_LEVEL_TONE, alertRoute, methodLabel } from "./lib"
 
 const REFRESH_MS = 30_000
+
+/**
+ * El ancla de «Requiere tu atención». La usa «Avisos» de la barra inferior
+ * del celular (`app/AdminLayout.tsx`, `ANCLA_AVISOS`): el mismo texto en los
+ * dos lados, y la prueba de esta pantalla lo fija.
+ */
+const ANCLA_ATENCION = "requiere-atencion"
 
 function hourLabel(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
@@ -485,6 +497,43 @@ function OpenOrdersTable({ orders }: { orders: OpenOrderAgeOut[] }): React.JSX.E
 }
 
 /**
+ * Un indicador que llegó `null`. `StatTile` sólo sabe dibujar una cifra, y
+ * acá lo que hay que dibujar es **qué falta** (`SinDato`): rayado, apagado y
+ * nunca en rojo aunque la tarjeta vaya con tono crítico —el tono es del
+ * contexto (no hay turno), no del dato—. Mismo marco que `StatTile` para que
+ * la grilla no se vea despareja.
+ */
+function IndicadorSinDato({
+  label,
+  motivo,
+  icon: Icon,
+  tone = "default",
+  link,
+}: {
+  label: string
+  motivo: string
+  icon?: LucideIcon
+  tone?: "default" | "critical"
+  link?: FilterLinkProps
+}): React.JSX.Element {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border border-l-[3px] p-4",
+        tone === "critical" ? "border-destructive/30 border-l-destructive bg-destructive/5" : "border-border border-l-border",
+      )}
+    >
+      <div className="flex items-center gap-1.5">
+        {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+        <p className="min-w-0 text-sm text-muted-foreground">{label}</p>
+      </div>
+      <SinDato forma="bloque" motivo={motivo} className="mt-1" />
+      {link ? <FilterLink {...link} className="mt-2" /> : null}
+    </div>
+  )
+}
+
+/**
  * "Hoy" (SPEC-NEGOCIO §9.3): pulso del día + "Requiere tu atención", con los
  * patrones del escritorio del dueño aplicados (`docs/PATRONES-ADMIN.md`):
  * cabecera con la pregunta que contesta (§ 2), la plata leída como una resta
@@ -505,8 +554,25 @@ export function TodayPage(): React.JSX.Element {
     refetchInterval: REFRESH_MS,
   })
 
+  // «Avisos» de la barra del celular trae acá con `#requiere-atencion`. El
+  // enrutador no baja solo hasta un ancla, y el riel no existe hasta que
+  // llegan los datos: se espera a que estén, se baja y se deja el foco ahí
+  // para que el teclado y el lector de pantalla arranquen donde se ve.
+  // `location.key` y no sólo `hash`: tocar «Avisos» otra vez, ya parado en
+  // el ancla, tiene que volver a bajar.
+  const location = useLocation()
+  const hayDatos = query.data !== undefined
+  useEffect(() => {
+    if (location.hash !== `#${ANCLA_ATENCION}` || !hayDatos) return
+    const ancla = document.getElementById(ANCLA_ATENCION)
+    if (!ancla) return
+    // jsdom no implementa `scrollIntoView`.
+    ancla.scrollIntoView?.({ block: "start" })
+    ancla.focus({ preventScroll: true })
+  }, [location.hash, location.key, hayDatos])
+
   if (storeLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando sedes…</p>
+    return <Cargando texto="Cargando sedes…" />
   }
   if (activeStoreId === null) {
     return <p className="text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>
@@ -532,21 +598,20 @@ export function TodayPage(): React.JSX.Element {
           />
         ) : (
           <div aria-busy="true" aria-label="Cargando el pulso de hoy">
-            {/* El esqueleto copia el reparto de verdad: la banda **adentro**
-                de la columna izquierda y el riel a su lado desde arriba. Si
-                esqueletea otra cosa, la pantalla salta al llegar los datos. */}
-            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-              <div className="min-w-0 space-y-5">
-                <Skeleton className="h-[8.5rem] w-full rounded-lg" />
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-                    <Skeleton key={i} className="h-[7.5rem] rounded-lg" />
-                  ))}
-                </div>
-                <Skeleton className="h-52 w-full rounded-lg" />
-                <Skeleton className="h-60 w-full rounded-lg" />
+            {/* El esqueleto copia el reparto de verdad, en el mismo orden:
+                la banda, el riel (a su lado desde arriba en el escritorio,
+                debajo de ella en el celular), las tarjetas. Si esqueletea
+                otra cosa, la pantalla salta al llegar los datos. */}
+            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] xl:grid-rows-[repeat(3,auto)_1fr]">
+              <Skeleton className="h-[8.5rem] w-full rounded-lg xl:col-start-1" />
+              <Skeleton className="h-48 rounded-lg xl:col-start-2 xl:[grid-row:1/-1] xl:h-96" />
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:col-start-1">
+                {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                  <Skeleton key={i} className="h-[7.5rem] rounded-lg" />
+                ))}
               </div>
-              <Skeleton className="h-96 rounded-lg" />
+              <Skeleton className="h-52 w-full rounded-lg xl:col-start-1" />
+              <Skeleton className="h-60 w-full rounded-lg xl:col-start-1" />
             </div>
           </div>
         )}
@@ -654,171 +719,219 @@ export function TodayPage(): React.JSX.Element {
         }
       />
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-        <div className="min-w-0 space-y-5">
-          {/* § 4 · La plata nunca es un número suelto: es una resta. */}
-          <HeadlineFigure
-            label="Ventas netas de hoy"
-            value={formatCOP(today.net)}
-            note={
-              today.orders !== undefined
-                ? `${today.orders} ${today.orders === 1 ? "comanda pagada" : "comandas pagadas"} · el día sigue abierto`
-                : "El día sigue abierto."
+      {/* **Un solo nivel de grilla, en el orden en que se lee en el
+          celular** (`docs/diseno/propuesta.html`, Momento 5): primero la
+          respuesta —la cifra rectora—, después lo que exige actuar, y los
+          indicadores al final. Antes el riel iba último en el código y en el
+          celular quedaba abajo de todo, después de la tabla de comandas.
+          Ahora el orden del código es el de lectura —el foco y el lector de
+          pantalla lo siguen— y el escritorio no cambia: desde `xl` el riel
+          se va a la columna derecha y ocupa todas las filas
+          (`[grid-row:1/-1]`). La última fila es `1fr` para que, si el riel
+          mide más que la columna izquierda, lo que sobra caiga debajo del
+          último bloque y no repartido entre los bloques. */}
+      <div
+        className={cn(
+          "grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]",
+          tipsByMethod.length > 0 ? "xl:grid-rows-[repeat(4,auto)_1fr]" : "xl:grid-rows-[repeat(3,auto)_1fr]",
+        )}
+      >
+        {/* § 4 · La plata nunca es un número suelto: es una resta. No lleva
+            comparación contra la semana pasada: `GET /admin/today` no la
+            manda, y este lado no la calcula. */}
+        <HeadlineFigure
+          className="xl:col-start-1"
+          label="Ventas netas de hoy"
+          value={formatCOP(today.net)}
+          note={
+            today.orders !== undefined
+              ? `${today.orders} ${today.orders === 1 ? "comanda pagada" : "comandas pagadas"} · el día sigue abierto`
+              : "El día sigue abierto."
+          }
+          ledger={{
+            rows: [
+              { label: "Ventas cobradas", value: formatCOP(today.gross) },
+              { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
+            ],
+            total: { label: "Ventas netas", value: formatCOP(today.net) },
+          }}
+        />
+
+        {/* § 7 · Una columna pegada a la derecha, siempre visible, con
+            encabezado de gravedad y recuento. Lo urgente no queda nunca
+            bajo el pliegue. En el celular va justo debajo de la cifra, y
+            ahí deja de ser `sticky`: pegado arriba taparía los indicadores
+            al bajar. El envoltorio lleva el ancla de «Avisos» y se estira
+            por toda la columna para que el `sticky` del escritorio tenga
+            por dónde correr. `scroll-mt-28`: en el celular la barra
+            superior pega en dos renglones (~88 px) y taparía el título. */}
+        <div
+          id={ANCLA_ATENCION}
+          tabIndex={-1}
+          className="min-w-0 scroll-mt-28 focus:outline-none xl:col-start-2 xl:[grid-row:1/-1] xl:self-stretch"
+        >
+          <NoticeRail
+            title="Requiere tu atención"
+            className="max-xl:static"
+            notices={attention.map(toNotice)}
+            empty={
+              <AllClearEmptyState
+                title="Todo al día"
+                description="No hay comandas atascadas, agotados, devoluciones pendientes ni cierres sin revisar."
+              />
             }
-            ledger={{
-              rows: [
-                { label: "Ventas cobradas", value: formatCOP(today.gross) },
-                { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
-              ],
-              total: { label: "Ventas netas", value: formatCOP(today.net) },
-            }}
           />
+        </div>
 
-          {/* **Las ocho tarjetas en una sola grilla**, que es como `a2` las
-              dibuja (`.kpis`, ocho `.kpi` en dos filas de cuatro) y lo que
-              su propio catálogo de patrones pide: «En Hoy, ocho».
-              Desaparecen los dos rótulos de grupo «Del día» / «Ahora mismo»:
-              partían la grilla en 4 + 3 y dejaban la segunda fila coja, y lo
-              que decían —qué ya está cerrado y qué sigue vivo— lo dice el
-              pie de cada tarjeta, que es donde el dueño lo lee.
+        {/* **Las ocho tarjetas en una sola grilla**, que es como `a2` las
+            dibuja (`.kpis`, ocho `.kpi` en dos filas de cuatro) y lo que
+            su propio catálogo de patrones pide: «En Hoy, ocho».
+            Desaparecen los dos rótulos de grupo «Del día» / «Ahora mismo»:
+            partían la grilla en 4 + 3 y dejaban la segunda fila coja, y lo
+            que decían —qué ya está cerrado y qué sigue vivo— lo dice el
+            pie de cada tarjeta, que es donde el dueño lo lee.
 
-              La octava es **Propinas de hoy**, que en `a2` es una tarjeta y
-              acá vivía abajo de la raya de la banda de cifra. Sigue dicho
-              que no son venta (Ley 1935 de 2018: la propina no es del
-              restaurante) — lo dice el pie, y la cifra rectora sigue sin
-              incluirlas. */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <StatTile
-              label="Comandas pagadas"
-              value={today.orders !== undefined ? String(today.orders) : "—"}
-              hint="Cobradas y cerradas: ya no cambian."
-            />
+            La octava es **Propinas de hoy**, que en `a2` es una tarjeta y
+            acá vivía abajo de la raya de la banda de cifra. Sigue dicho
+            que no son venta (Ley 1935 de 2018: la propina no es del
+            restaurante) — lo dice el pie, y la cifra rectora sigue sin
+            incluirlas. */}
+        {/* En el celular, dos columnas (la maqueta del Momento 5): a 360 px
+            quedan 158 px por tarjeta, y una cifra de siete dígitos a
+            `text-2xl` no entra. Por debajo de `sm` la cifra baja a
+            `text-xl` y el relleno a `p-3` desde acá, sin tocar `StatTile`,
+            que usan otras setenta pantallas. */}
+        <div className="grid min-w-0 grid-cols-2 gap-3 max-sm:[&_.text-2xl]:text-xl max-sm:[&>div]:p-3 lg:grid-cols-4 xl:col-start-1">
+          <StatTile
+            label="Comandas pagadas"
+            value={today.orders !== undefined ? String(today.orders) : "—"}
+            hint="Cobradas y cerradas: ya no cambian."
+          />
+          {/* § 5 · `null` no es `0`: el servidor manda `null` cuando no
+              hay de qué sacar el número, y se dibuja qué falta. Antes
+              `formatCOP(null)` escribía un «—» sin motivo. */}
+          {today.avg_ticket === null || today.avg_ticket === undefined ? (
+            <IndicadorSinDato label="Ticket promedio" motivo="todavía no hay comandas pagadas hoy" />
+          ) : (
             <StatTile
               label="Ticket promedio"
               value={formatCOP(today.avg_ticket)}
               hint="Sobre venta neta, sin propina."
             />
+          )}
+          {today.avg_per_cover === null || today.avg_per_cover === undefined ? (
+            <IndicadorSinDato
+              label="Ticket por comensal"
+              motivo={
+                (today.orders ?? 0) === 0
+                  ? "todavía no hay comandas pagadas hoy"
+                  : "ninguna comanda pagada hoy registró comensales"
+              }
+            />
+          ) : (
             <StatTile
               label="Ticket por comensal"
               value={formatCOP(today.avg_per_cover)}
               hint="Sobre las comandas que sí contaron comensales, no sobre todas."
             />
-            {/* § 5 · `—` no es `0`, y se dibuja apagado, nunca en rojo. */}
-            {today.covers === null || today.covers === undefined ? (
-              <StatTile
-                label="Comensales"
-                value={null}
-                nullNote="No es cero: es que nadie lo contó. Las comandas de mostrador no registran comensales."
-              />
-            ) : (
-              <StatTile
-                label="Comensales"
-                value={String(today.covers)}
-                hint="Contados al abrir la mesa."
-              />
-            )}
+          )}
+          {today.covers === null || today.covers === undefined ? (
+            <IndicadorSinDato label="Comensales" motivo="todavía no hay comandas pagadas hoy" />
+          ) : (
             <StatTile
-              label="Mesas ocupadas"
-              value={`${today.tables_occupied ?? 0}/${today.tables_total ?? 0}`}
-              hint="Del total de mesas activas de la sede."
-              icon={Table2}
+              label="Comensales"
+              value={String(today.covers)}
+              hint="Contados al abrir la mesa."
             />
-            {/* § 5, regla dura: una tarjeta con tono lleva a algún lado. */}
+          )}
+          <StatTile
+            label="Mesas ocupadas"
+            value={`${today.tables_occupied ?? 0}/${today.tables_total ?? 0}`}
+            hint="Del total de mesas activas de la sede."
+            icon={Table2}
+          />
+          {/* § 5, regla dura: una tarjeta con tono lleva a algún lado. */}
+          <StatTile
+            label="Comandas abiertas"
+            value={String(openOrders.length)}
+            hint={
+              stuck
+                ? `${today.unsent_count ?? 0} sin enviar · ${today.unpaid_count ?? 0} sin cobrar`
+                : "Ninguna atascada."
+            }
+            tone={stuck ? "warning" : "default"}
+            icon={UtensilsCrossed}
+            link={{ to: "/admin/pedidos", screen: "Pedidos" }}
+          />
+          {noShift ? (
+            <IndicadorSinDato
+              label="Efectivo esperado"
+              motivo="no hay un turno de caja abierto"
+              tone="critical"
+              icon={Banknote}
+              link={{ to: "/admin/dinero", screen: "Dinero", tab: "Operacional" }}
+            />
+          ) : (
             <StatTile
-              label="Comandas abiertas"
-              value={String(openOrders.length)}
-              hint={
-                stuck
-                  ? `${today.unsent_count ?? 0} sin enviar · ${today.unpaid_count ?? 0} sin cobrar`
-                  : "Ninguna atascada."
-              }
-              tone={stuck ? "warning" : "default"}
-              icon={UtensilsCrossed}
-              link={{ to: "/admin/pedidos", screen: "Pedidos" }}
+              label="Efectivo esperado"
+              value={formatCOP(today.expected_cash)}
+              hint="Lo que el turno abierto debería tener en el cajón ahora."
+              icon={Banknote}
+              link={{ to: "/admin/dinero", screen: "Dinero", tab: "Operacional" }}
             />
-            {noShift ? (
-              <StatTile
-                label="Efectivo esperado"
-                value={null}
-                nullNote="Sin turno abierto: no hay caja de la que esperar nada. No es cero."
-                tone="critical"
-                icon={Banknote}
-                link={{ to: "/admin/dinero", screen: "Dinero", tab: "Operacional" }}
-              />
-            ) : (
-              <StatTile
-                label="Efectivo esperado"
-                value={formatCOP(today.expected_cash)}
-                hint="Lo que el turno abierto debería tener en el cajón ahora."
-                icon={Banknote}
-                link={{ to: "/admin/dinero", screen: "Dinero", tab: "Operacional" }}
-              />
-            )}
-            <StatTile
-              label="Propinas de hoy"
-              value={formatCOP(today.tips_total)}
-              hint="No son venta del restaurante: se reparten entre el personal."
-              icon={Coins}
-            />
-          </div>
-
-          {/* **«Ventas por hora» va acá, debajo de las dos filas de
-              tarjetas** — la segunda diferencia que el dueño nombró. Estaba
-              en el medio, partiendo la grilla de indicadores en dos, que es
-              justo lo que `a2` no hace: primero se lee el pulso entero en
-              ocho números, después se mira la forma del día. */}
-          <section className="rounded-lg border bg-card p-4">
-            <div className="flex flex-wrap items-baseline gap-2">
-              <h2 className="text-sm font-bold">Ventas por hora</h2>
-              <span className="text-xs text-muted-foreground">Netas, sin propina.</span>
-            </div>
-            <div className="mt-3">
-              <CategoryBars data={hourBars} formatValue={(v) => formatCOP(v)} emptyLabel="Todavía no hay ventas hoy" />
-            </div>
-            {peakHour ? (
-              <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">
-                La hora más fuerte del día fue la de <b className="text-foreground">{hourLabel(peakHour.hour)}</b>, con{" "}
-                <b className="text-foreground tabular-nums">{formatCOP(peakHour.net)}</b> netos.
-              </p>
-            ) : null}
-          </section>
-
-          <OpenOrdersTable orders={openOrders} />
-
-          {/* De qué está hecha la propina. `a2` no la modela —su maqueta no
-              tiene el dato— así que va al final, después de la tabla, para
-              no meterse entre las cuatro zonas que sí ordena. */}
-          {tipsByMethod.length > 0 ? (
-            <section className="rounded-lg border bg-card p-4">
-              <h2 className="text-sm font-bold">Propinas por medio</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                De qué está hecha la propina de la tarjeta de arriba. No es venta del restaurante.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-3">
-                {tipsByMethod.map((m) => (
-                  <div key={m.method} className="rounded-md border px-3 py-2 text-sm">
-                    <span className="text-muted-foreground">{methodLabel(m.method)}: </span>
-                    <span className="font-bold tabular-nums">{formatCOP(m.amount)}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ) : null}
+          )}
+          <StatTile
+            label="Propinas de hoy"
+            value={formatCOP(today.tips_total)}
+            hint="No son venta del restaurante: se reparten entre el personal."
+            icon={Coins}
+          />
         </div>
 
-        {/* § 7 · Una columna pegada a la derecha, siempre visible, con
-            encabezado de gravedad y recuento. Lo urgente no queda nunca bajo
-            el pliegue. */}
-        <NoticeRail
-          title="Requiere tu atención"
-          notices={attention.map(toNotice)}
-          empty={
-            <AllClearEmptyState
-              title="Todo al día"
-              description="No hay comandas atascadas, agotados, devoluciones pendientes ni cierres sin revisar."
-            />
-          }
-        />
+        {/* **«Ventas por hora» va acá, debajo de las dos filas de
+            tarjetas** — la segunda diferencia que el dueño nombró. Estaba
+            en el medio, partiendo la grilla de indicadores en dos, que es
+            justo lo que `a2` no hace: primero se lee el pulso entero en
+            ocho números, después se mira la forma del día. */}
+        <section className="min-w-0 rounded-lg border bg-card p-4 xl:col-start-1">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h2 className="text-sm font-bold">Ventas por hora</h2>
+            <span className="text-xs text-muted-foreground">Netas, sin propina.</span>
+          </div>
+          <div className="mt-3">
+            <CategoryBars data={hourBars} formatValue={(v) => formatCOP(v)} emptyLabel="Todavía no hay ventas hoy" />
+          </div>
+          {peakHour ? (
+            <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">
+              La hora más fuerte del día fue la de <b className="text-foreground">{hourLabel(peakHour.hour)}</b>, con{" "}
+              <b className="text-foreground tabular-nums">{formatCOP(peakHour.net)}</b> netos.
+            </p>
+          ) : null}
+        </section>
+
+        <div className="min-w-0 xl:col-start-1">
+          <OpenOrdersTable orders={openOrders} />
+        </div>
+
+        {/* De qué está hecha la propina. `a2` no la modela —su maqueta no
+            tiene el dato— así que va al final, después de la tabla, para
+            no meterse entre las cuatro zonas que sí ordena. */}
+        {tipsByMethod.length > 0 ? (
+          <section className="min-w-0 rounded-lg border bg-card p-4 xl:col-start-1">
+            <h2 className="text-sm font-bold">Propinas por medio</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              De qué está hecha la propina de la tarjeta de arriba. No es venta del restaurante.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              {tipsByMethod.map((m) => (
+                <div key={m.method} className="rounded-md border px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">{methodLabel(m.method)}: </span>
+                  <span className="font-bold tabular-nums">{formatCOP(m.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
     </div>
   )

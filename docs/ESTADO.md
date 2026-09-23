@@ -1598,6 +1598,50 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     - Consola: «Encountered a script tag while rendering React component» en
       todas las pantallas y avisos de Base UI `nativeButton` en tablas.
 
+35. **La dirección visual «Un solo libro, dos mesas», completa** (2026-09-23).
+    Aplica `docs/diseno/propuesta.html` en todo el sistema. Dos desvíos a
+    propósito: el salón es **claro** por defecto, con «Pantalla oscura» por
+    tablet (la cocina siempre en pizarra), y no hay «Volver a contar» en el
+    cierre porque rompería el cierre a ciegas.
+    - **Piezas nuevas** (`src/components`):
+      - `SinDato`: rayado, siempre con motivo. `StatTile` la usa cuando el
+        valor es `null`, y `cifraOSinDato` sirve para las cifras de plata.
+      - `Diferencia`: ▲/▼ + palabra, con la cifra con su signo tal como
+        llega. En caja falta el negativo; en inventario, el positivo.
+      - `DesdeHacia`: la confirmación de lo que mueve plata. Nunca calcula
+        «cómo queda». La usan retiro, consignación, pago a proveedor,
+        devolución y movimientos del cajón.
+      - `Cargando`: esqueleto con texto, en lugar de los 57 «Cargando…» sueltos.
+      - Los totales de tabla y de la banda de cifra van con doble raya.
+    - **Comanda**:
+      - un toque suma el plato; el diálogo sólo se abre si el plato exige
+        modificadores;
+      - la carta muestra un número en insignia; lo agotado sigue visible,
+        rayado;
+      - el pedido va por ronda y curso, con los modificadores en línea;
+      - el botón dice «Enviar a cocina · N ítems».
+    - **Cuenta dividida**:
+      - partes numeradas con estado, medio y «con factura»;
+      - el botón dice «Cobrar parte N · $X»;
+      - el comprobante ofrece «Seguir cobrando la mesa».
+    - **Barra del salón según quién se identificó**:
+      - Turno aparece sólo para quien maneja caja;
+      - Cocina, Tiquetes de cocina, Producción y Merma van al final;
+      - cada entrada tiene su ícono;
+      - se renombró «Comanda» a «Mostrador», «KDS» a «Tiquetes de cocina» y
+        «Producir» a «Producción».
+    - **Celular del dueño**:
+      - barra inferior Hoy · Ventas · Plata · Avisos · Más;
+      - Hoy se lee primero la cifra, después los avisos y al final los
+        indicadores;
+      - los avisos de atención se cortan en 3 con «Ver N más».
+      - Todavía no hay comparación semanal: `GET /admin/today` no la trae.
+    - **Autorizaciones**: el diálogo de PIN nombra a quién pedírselo (los
+      administradores, y los supervisores si `roles.supervisor` está prendida).
+    - **Backend**: `PATCH /orders/{id}/items/{item_id}` ahora exige el PIN
+      después de presentar la cuenta y respeta el contador de porciones del
+      día. Subir la cantidad era la puerta de atrás de `add_items`.
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

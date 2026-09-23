@@ -10,6 +10,7 @@ import {
   setModifierOptionAvailability,
   updateModifierGroup,
 } from "@/api/catalog"
+import { Cargando } from "@/components/Cargando"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -169,7 +170,7 @@ export function ModifiersTab({ storeId }: { storeId: number }) {
   })
 
   if (productsQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando productos…</p>
+    return <Cargando texto="Cargando productos…" />
   }
   if (productsQuery.isError) {
     return <p className="text-sm text-destructive">{errorMessage(productsQuery.error)}</p>
@@ -203,7 +204,7 @@ export function ModifiersTab({ storeId }: { storeId: number }) {
           Elegí un producto para ver o crear sus grupos de modificadores.
         </p>
       ) : groupsQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando modificadores…</p>
+        <Cargando texto="Cargando modificadores…" />
       ) : groupsQuery.isError ? (
         <p className="text-sm text-destructive">{errorMessage(groupsQuery.error)}</p>
       ) : (

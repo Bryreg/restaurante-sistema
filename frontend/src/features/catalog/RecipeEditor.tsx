@@ -10,6 +10,7 @@ import {
   listPreparations,
   putProductRecipe,
 } from "@/api/recipes"
+import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -100,7 +101,7 @@ export function RecipeEditor({ storeId }: { storeId: number }): React.JSX.Elemen
   })
 
   if (productsQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando productos…</p>
+    return <Cargando texto="Cargando productos…" />
   }
   if (productsQuery.isError) {
     return (
@@ -143,7 +144,7 @@ export function RecipeEditor({ storeId }: { storeId: number }): React.JSX.Elemen
       {productId === null ? (
         <p className="text-sm text-muted-foreground">Elegí un plato para ver o editar su ficha técnica.</p>
       ) : recipeQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando ficha…</p>
+        <Cargando texto="Cargando ficha…" />
       ) : recipeQuery.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(recipeQuery.error)}

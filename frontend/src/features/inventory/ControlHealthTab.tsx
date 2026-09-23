@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { getControlHealth, getFoodCost } from "@/api/inventory"
+import { Cargando } from "@/components/Cargando"
 import { GroupLabel, HeadlineFigure, NoticeRail, type Notice } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
@@ -38,7 +39,7 @@ export function ControlHealthTab({ storeId }: { storeId: number }): React.JSX.El
   })
 
   if (healthQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando salud del control…</p>
+    return <Cargando texto="Cargando salud del control…" />
   }
   if (healthQuery.isError) {
     return (

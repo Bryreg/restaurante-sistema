@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { createSurchargeTable, getSurchargeTables, type SurchargeTableOut } from "@/api/payroll"
+import { Cargando } from "@/components/Cargando"
 import { DenseTable, DenseTableBar, type DenseColumn, type RowStatus } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Button } from "@/components/ui/button"
@@ -185,7 +186,7 @@ export function SurchargeTablesTab({ storeId }: { storeId: number }): React.JSX.
       </div>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando tablas de recargos…</p>
+        <Cargando texto="Cargando tablas de recargos…" />
       ) : query.isError ? (
         <EmptyState reason="error" title="No se pudieron cargar las tablas de recargos" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : (query.data ?? []).length === 0 ? (

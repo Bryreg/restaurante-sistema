@@ -1,9 +1,10 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes, useParams } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
+import type { SubAccountOut } from "@/api/orders";
 import { buildMe, renderWithProviders } from "@/test/utils";
 
 import CheckoutPage from "../CheckoutPage";
@@ -27,12 +28,13 @@ vi.mock("@/api/payments", async () => {
 
 vi.mock("@/api/documents", async () => {
   const actual = await vi.importActual<typeof import("@/api/documents")>("@/api/documents");
-  return { ...actual, getLastDocument: vi.fn() };
+  return { ...actual, getLastDocument: vi.fn(), getDocument: vi.fn() };
 });
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const { getOrder, presentBill } = await import("@/api/orders");
+const { getOrder, presentBill, listSubAccounts, splitBill } = await import("@/api/orders");
+const { getDocument } = await import("@/api/documents");
 const { payOrder, listDevicePaymentMethods } = await import("@/api/payments");
 const { toast } = await import("sonner");
 
@@ -202,5 +204,130 @@ describe("CheckoutPage", () => {
     await waitFor(() => {
       expect(screen.getAllByText(/\$\s?61\.000/).length).toBeGreaterThan(0);
     });
+  });
+
+});
+
+describe("CheckoutPage — cuenta dividida por ítems: partes como filas numeradas", () => {
+  function subAccount(overrides: Partial<SubAccountOut> & { id: number; seq: number }): SubAccountOut {
+    return {
+      label: `Cuenta ${overrides.seq}`,
+      seat: null,
+      status: "open",
+      items: [],
+      totals: { subtotal: 41800, discount_total: 0, tax_lines: [], tax_total: 3096, total: 41800 },
+      tip: null,
+      document_id: null,
+      ...overrides,
+    };
+  }
+
+  const PARTES: SubAccountOut[] = [
+    subAccount({ id: 1, seq: 1, status: "paid", document_id: 901 }),
+    subAccount({ id: 2, seq: 2, status: "paid", document_id: 902, label: "Constructora" }),
+    subAccount({ id: 3, seq: 3 }),
+    subAccount({ id: 4, seq: 4, totals: { total: 43600 } }),
+  ];
+
+  beforeEach(() => {
+    vi.mocked(getOrder).mockReset();
+    vi.mocked(listSubAccounts).mockReset();
+    vi.mocked(splitBill).mockReset();
+    vi.mocked(getDocument).mockReset();
+    vi.mocked(listDevicePaymentMethods).mockReset().mockResolvedValue(DEVICE_PAYMENT_METHODS);
+    vi.mocked(getOrder).mockResolvedValue(buildOrder({ status: "to_pay", sub_accounts: PARTES }));
+    vi.mocked(listSubAccounts).mockResolvedValue(PARTES);
+    vi.mocked(getDocument).mockImplementation(async (id: number) =>
+      id === 901
+        ? { id, document_type: "pos_equivalent", payments: [{ method: "card", label: "Tarjeta", amount: 41800 }] }
+        : { id, document_type: "invoice", payments: [{ method: "cash", label: "Efectivo", amount: 41800 }] },
+    );
+  });
+
+  async function filas() {
+    const lista = await screen.findByRole("list", { name: "Partes de la cuenta" });
+    return within(lista).getAllByRole("listitem");
+  }
+
+  it("numera las partes en orden, con su monto del servidor y su estado en palabras", async () => {
+    renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true });
+
+    const rows = await filas();
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toHaveTextContent(/Parte 1/);
+    expect(rows[0]).toHaveTextContent(/Cobrada/);
+    expect(rows[2]).toHaveTextContent(/Parte 3.*Sigue.*\$\s?41\.800/);
+    expect(rows[2]).toHaveAttribute("aria-current", "step");
+    expect(rows[3]).toHaveTextContent(/Parte 4.*Pendiente.*\$\s?43\.600/);
+    // El nombre de fábrica no se repite; uno puesto a mano, sí.
+    expect(rows[0]).not.toHaveTextContent(/Cuenta 1/);
+    expect(rows[1]).toHaveTextContent(/Constructora/);
+  });
+
+  it("una parte cobrada dice con qué se pagó y si salió con factura, según su comprobante", async () => {
+    renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true });
+
+    const rows = await filas();
+    await waitFor(() => expect(rows[0]).toHaveTextContent(/Cobrada · Tarjeta/));
+    expect(rows[0]).not.toHaveTextContent(/con factura/);
+    await waitFor(() => expect(rows[1]).toHaveTextContent(/Efectivo · con factura/));
+    expect(getDocument).toHaveBeenCalledWith(901);
+    expect(getDocument).toHaveBeenCalledWith(902);
+  });
+
+  it("el botón principal repite la parte y el monto, y recién ahí abre el cobro de esa parte", async () => {
+    const user = userEvent.setup();
+    renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true });
+
+    const cobrar = await screen.findByRole("button", { name: /^Cobrar parte 3 · \$\s?41\.800$/ });
+    expect(screen.queryByText("Pagos")).not.toBeInTheDocument();
+
+    await user.click(cobrar);
+
+    expect(await screen.findByText("Pagos")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Cobrar parte/ })).not.toBeInTheDocument();
+  });
+
+  it("tocar una parte pendiente la pasa adelante", async () => {
+    const user = userEvent.setup();
+    renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true });
+
+    const rows = await filas();
+    await user.click(within(rows[3]).getByRole("button"));
+
+    expect(await screen.findByRole("button", { name: /^Cobrar parte 4 · \$\s?43\.600$/ })).toBeInTheDocument();
+    expect((await filas())[3]).toHaveAttribute("aria-current", "step");
+  });
+
+  it("con partes ya cobradas no ofrece rehacer la división ni cobrar todo junto", async () => {
+    renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true });
+
+    await filas();
+    expect(await screen.findByText(/la división no se puede cambiar/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cobrar todo junto" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dividir cuenta" })).not.toBeInTheDocument();
+  });
+});
+
+describe("CheckoutPage — partes iguales", () => {
+  it("pinta las partes de `per_part` como filas numeradas, sin calcular ninguna", async () => {
+    vi.mocked(getOrder).mockReset().mockResolvedValue(buildOrder());
+    vi.mocked(listDevicePaymentMethods).mockReset().mockResolvedValue(DEVICE_PAYMENT_METHODS);
+    vi.mocked(splitBill).mockReset().mockResolvedValue({ mode: "equal", parts: 3, per_part: [16667, 16667, 16666], total: 50000 });
+    const user = userEvent.setup();
+    renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true });
+
+    await user.click(await screen.findByRole("button", { name: "Partes iguales" }));
+    const partes = screen.getByLabelText("Partes");
+    await user.clear(partes);
+    await user.type(partes, "3");
+    await user.click(screen.getByRole("button", { name: "Calcular partes" }));
+
+    const lista = await screen.findByRole("list", { name: "Partes de la cuenta" });
+    const rows = within(lista).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent(/Parte 1.*Pendiente.*\$\s?16\.667/);
+    expect(rows[2]).toHaveTextContent(/Parte 3.*Pendiente.*\$\s?16\.666/);
+    expect(screen.getByText(/se cobran juntas, en un solo comprobante/i)).toBeInTheDocument();
   });
 });

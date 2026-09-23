@@ -1,4 +1,5 @@
 import { useStoreSelection } from "@/app/storeContext";
+import { Cargando } from "@/components/Cargando";
 import { PageHeader } from "@/components/admin";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -14,7 +15,7 @@ export function MoneyAdminPage(): React.JSX.Element {
   const { activeStoreId, loading } = useStoreSelection();
 
   if (loading) {
-    return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>;
+    return <Cargando texto="Cargando sedes…" className="p-4" />;
   }
   if (activeStoreId === null) {
     return <p className="p-4 text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>;

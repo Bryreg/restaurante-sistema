@@ -6,6 +6,7 @@
  * `features/orders/index.ts`/`features/shifts/index.ts` (no hay
  * `adminRoutes`/`adminNav`: el KDS es puramente de dispositivo, §9.2).
  */
+import { ReceiptText } from "lucide-react"
 import { createElement } from "react"
 import type { RouteObject } from "react-router-dom"
 
@@ -15,6 +16,12 @@ import { KdsPage } from "./KdsPage"
 
 const posRoutes: RouteObject[] = [{ path: "kds", element: createElement(KdsPage) }]
 
-const posNav: NavItem[] = [{ to: "/pos/kds", label: "KDS", feature: "kitchen.kds" }]
+// «Tiquetes de cocina» y no «KDS» (sigla que nadie dice en la cocina) ni
+// «Cocina», que ya es la vista mínima de `kitchen.view` en
+// `features/orders` — con las dos funciones encendidas, la barra tendría dos
+// «Cocina» iguales.
+const posNav: NavItem[] = [
+  { to: "/pos/kds", label: "Tiquetes de cocina", icon: ReceiptText, feature: "kitchen.kds", posGroup: "cocina" },
+]
 
 export const kitchenFeature = { posRoutes, posNav }

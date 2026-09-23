@@ -348,3 +348,17 @@ html.oficina {
 .semaforo-green { border-radius: 50%; }
 .semaforo-amber { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .semaforo-red { border-radius: 1px; }
+
+/* ── «Sin dato» (`docs/diseno/propuesta.html` § Sistema): rayado, nunca un
+   color. No saber no es estar bien ni estar mal: por eso no toma verde ni
+   rojo, y el rayado se ve igual en el libro y en la pizarra. */
+.sin-dato {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 6px,
+    color-mix(in oklab, var(--muted-foreground) 22%, transparent) 6px 8px
+  );
+  color: var(--muted-foreground);
+  font-style: italic;
+  border-radius: calc(var(--radius) - 2px);
+}

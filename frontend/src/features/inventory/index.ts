@@ -24,6 +24,7 @@
  * en curso.
  */
 
+import { Trash2 } from "lucide-react"
 import { createElement } from "react"
 import type { RouteObject } from "react-router-dom"
 
@@ -42,6 +43,6 @@ const posRoutes: RouteObject[] = [{ path: "merma", element: createElement(WasteP
 
 const adminNav: NavItem[] = [{ to: "/admin/inventario", label: "Inventario", feature: "inventory.perpetual" }]
 
-const posNav: NavItem[] = [{ to: "/pos/merma", label: "Merma", feature: "inventory.waste" }]
+const posNav: NavItem[] = [{ to: "/pos/merma", label: "Merma", icon: Trash2, feature: "inventory.waste", posGroup: "cocina" }]
 
 export const inventoryFeature = { adminRoutes, posRoutes, adminNav, posNav }

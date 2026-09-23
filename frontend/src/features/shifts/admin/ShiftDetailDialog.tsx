@@ -12,6 +12,7 @@ import {
   getShiftSummary,
   type AdminShiftListItem,
 } from "@/api/shifts";
+import { Cargando } from "@/components/Cargando";
 import { ConsequenceZone } from "@/components/admin";
 import { EmptyState } from "@/components/EmptyState";
 import { DenominationsInput, type Denomination } from "@/components/DenominationsInput";
@@ -171,7 +172,7 @@ export function ShiftDetailDialog({ shift, open, onOpenChange, onChanged }: Shif
           <div className="space-y-2">
             <h3 className="text-sm font-semibold">Cronología</h3>
             {timelineQuery.isLoading ? (
-              <p className="text-sm text-muted-foreground">Cargando…</p>
+              <Cargando texto="Cargando…" />
             ) : timelineQuery.isError ? (
               <p role="alert" className="text-sm text-destructive">
                 {errorMessage(timelineQuery.error)}

@@ -3,6 +3,7 @@ import { Download } from "lucide-react";
 import { useState } from "react";
 
 import { adminShiftsCsvUrl, listAdminShifts, type AdminShiftListItem } from "@/api/shifts";
+import { Cargando } from "@/components/Cargando";
 import { DenseTable, DenseTableBar } from "@/components/admin";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,7 @@ export function HistoryTab({ storeId }: { storeId: number }): React.JSX.Element 
       </div>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando historial…</p>
+        <Cargando texto="Cargando historial…" />
       ) : query.isError ? (
         <EmptyState
           reason="error"

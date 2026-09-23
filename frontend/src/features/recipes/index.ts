@@ -9,6 +9,7 @@
  * `catalogFeature`, no por acá.
  */
 
+import { CookingPot } from "lucide-react"
 import { createElement } from "react"
 import type { RouteObject } from "react-router-dom"
 
@@ -21,7 +22,9 @@ const posRoutes: RouteObject[] = [{ path: "produccion", element: createElement(Q
 
 const adminRoutes: RouteObject[] = [{ path: "preparaciones", element: createElement(PreparationsAdminPage) }]
 
-const posNav: NavItem[] = [{ to: "/pos/produccion", label: "Producir", feature: "catalog.preps" }]
+const posNav: NavItem[] = [
+  { to: "/pos/produccion", label: "Producción", icon: CookingPot, feature: "catalog.preps", posGroup: "cocina" },
+]
 
 const adminNav: NavItem[] = [{ to: "/admin/preparaciones", label: "Preparaciones", feature: "catalog.preps" }]
 

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { getRecipeCoverage, recipeCoverageCsvUrl } from "@/api/recipes"
+import { Cargando } from "@/components/Cargando"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
@@ -41,7 +42,7 @@ export function CoverageSection({ storeId }: { storeId: number }): React.JSX.Ele
       </div>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando…</p>
+        <Cargando texto="Cargando…" />
       ) : query.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(query.error)}

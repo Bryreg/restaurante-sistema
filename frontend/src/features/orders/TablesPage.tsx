@@ -12,6 +12,7 @@ import {
   type TableStatusOut,
   type ZoneStatusOut,
 } from "@/api/orders"
+import { Cargando } from "@/components/Cargando"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -277,7 +278,7 @@ export function TablesPage(): React.JSX.Element {
       ) : null}
 
       {tablesStatus.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando mesas…</p>
+        <Cargando texto="Cargando mesas…" />
       ) : zones.length === 0 ? (
         <EmptyState title="Esta sede todavía no tiene zonas ni mesas activas" />
       ) : (

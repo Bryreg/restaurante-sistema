@@ -1,5 +1,6 @@
 import { useStoreSelection } from "@/app/storeContext"
 import { useSession } from "@/app/session"
+import { Cargando } from "@/components/Cargando"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { CategoriesTab } from "./CategoriesTab"
@@ -17,7 +18,7 @@ export function CatalogAdminPage() {
   const { activeStoreId, loading } = useStoreSelection()
 
   if (loading) {
-    return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
+    return <Cargando texto="Cargando sedes…" className="p-4" />
   }
   if (activeStoreId === null) {
     return <p className="p-4 text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>

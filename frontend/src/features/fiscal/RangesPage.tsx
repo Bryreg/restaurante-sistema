@@ -13,6 +13,7 @@ import {
   type FiscalRangeOut,
 } from "@/api/fiscal";
 import { newIdempotencyKey } from "@/api/client";
+import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -309,7 +310,7 @@ export function RangesPage(): React.JSX.Element {
   });
 
   if (storeLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando sedes…</p>;
+    return <Cargando texto="Cargando sedes…" />;
   }
   if (activeStoreId === null) {
     return <p className="text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>;
@@ -414,7 +415,7 @@ export function RangesPage(): React.JSX.Element {
       />
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando rangos…</p>
+        <Cargando texto="Cargando rangos…" />
       ) : query.isError ? (
         <EmptyState
           role="alert"

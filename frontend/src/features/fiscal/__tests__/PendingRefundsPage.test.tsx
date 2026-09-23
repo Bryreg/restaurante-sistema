@@ -54,7 +54,7 @@ describe("PendingRefundsPage", () => {
     await user.click(screen.getByRole("button", { name: "Saldar" }));
 
     await waitFor(() => expect(listAdminShiftsMock).toHaveBeenCalled());
-    await user.click(screen.getByRole("button", { name: "Confirmar" }));
+    await user.click(screen.getByRole("button", { name: /^Devolver \$\s?12\.000$/ }));
 
     await waitFor(() => expect(settlePendingRefundMock).toHaveBeenCalledTimes(1));
     const [pendingRefundId, body] = settlePendingRefundMock.mock.calls[0];
@@ -74,6 +74,6 @@ describe("PendingRefundsPage", () => {
 
     await waitFor(() => expect(listAdminShiftsMock).toHaveBeenCalled());
     expect(await screen.findByRole("alert")).toHaveTextContent(/no hay ningún turno abierto/i);
-    expect(screen.getByRole("button", { name: "Confirmar" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Devolver \$\s?12\.000$/ })).toBeDisabled();
   });
 });

@@ -28,6 +28,7 @@ import { useRef, useState } from "react"
 
 import { newIdempotencyKey } from "@/api/client"
 import { getCardReconciliation, getPlatformReconciliation, settleCardReconciliation, type ReconciliationRowOut } from "@/api/banking"
+import { Cargando } from "@/components/Cargando"
 import { DenseTable, DenseTableBar, type DenseColumn, type RowStatus } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
@@ -36,6 +37,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Diferencia } from "@/components/Diferencia"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
@@ -73,7 +75,8 @@ function SettleDialog({
         </DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Esperado: {formatCOP(row.expected)} · Liquidado: {formatCOP(row.settled)} · Diferencia: {formatCOP(row.difference)}
+            Esperado: {formatCOP(row.expected)} · Liquidado: {formatCOP(row.settled)} · Diferencia:{" "}
+            <Diferencia valor={row.difference} />
           </p>
           <div className="space-y-1">
             <Label htmlFor="settle-note">Nota (opcional)</Label>
@@ -112,7 +115,7 @@ function reconciliationColumns(
   columns.push(
     { key: "expected", header: "Esperado", kind: "number", cell: (r) => formatCOP(r.expected) },
     { key: "settled", header: "Liquidado", kind: "number", cell: (r) => formatCOP(r.settled) },
-    { key: "difference", header: "Diferencia", kind: "number", cell: (r) => formatCOP(r.difference) },
+    { key: "difference", header: "Diferencia", kind: "number", cell: (r) => <Diferencia valor={r.difference} /> },
     {
       key: "status",
       header: "Estado",
@@ -154,7 +157,7 @@ export function ReconciliationTab({ storeId, kind }: { storeId: number; kind: "c
       <DateRangeFilter idPrefix={`reconciliation-${kind}`} from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando conciliación…</p>
+        <Cargando texto="Cargando conciliación…" />
       ) : query.isError ? (
         <EmptyState reason="error" title="No se pudo cargar la conciliación" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : rows.length === 0 ? (

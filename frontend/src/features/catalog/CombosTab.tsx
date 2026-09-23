@@ -3,6 +3,7 @@ import { useState } from "react"
 
 import type { ComboGroupIn, ComboSchedule } from "@/api/catalog"
 import { createCombo, listCombos, listProducts, updateCombo } from "@/api/catalog"
+import { Cargando } from "@/components/Cargando"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -140,7 +141,7 @@ function CreateComboDialog({ storeId }: { storeId: number }) {
           <ScheduleEditor schedule={schedule} onChange={setSchedule} />
           <div className="space-y-2">
             <Label>Opciones (al menos una para poder activarlo)</Label>
-            {productsQuery.isLoading && <p className="text-sm text-muted-foreground">Cargando productos…</p>}
+            {productsQuery.isLoading && <Cargando texto="Cargando productos…" />}
             <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
               {(productsQuery.data ?? []).map((product) => (
                 <label key={product.id} className="flex items-center gap-2 text-sm">
@@ -184,7 +185,7 @@ export function CombosTab({ storeId }: { storeId: number }) {
   })
 
   if (combosQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando combos…</p>
+    return <Cargando texto="Cargando combos…" />
   }
   if (combosQuery.isError) {
     return <p className="text-sm text-destructive">{errorMessage(combosQuery.error)}</p>

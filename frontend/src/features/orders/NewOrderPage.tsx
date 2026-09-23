@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 
 import { useSession } from "@/app/session"
 import { createOrder, type OrderChannel } from "@/api/orders"
+import { Cargando } from "@/components/Cargando"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/EmptyState"
 import { Input } from "@/components/ui/input"
@@ -261,7 +262,7 @@ export function NewOrderPage(): React.JSX.Element {
               <div className="space-y-1">
                 <Label htmlFor="platform-select">Plataforma</Label>
                 {platformsQuery.isLoading ? (
-                  <p className="text-sm text-muted-foreground">Cargando plataformas…</p>
+                  <Cargando texto="Cargando plataformas…" />
                 ) : platformsQuery.isError ? (
                   <EmptyState
                     role="alert"

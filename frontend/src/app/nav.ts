@@ -10,4 +10,15 @@ export interface NavItem {
   label: string;
   feature?: string;
   icon?: LucideIcon;
+  /**
+   * Sólo barra del salón: en qué tramo va. La barra se ordena por tramo
+   * (venta → caja → cocina) y, dentro de cada uno, en el orden de los
+   * manifiestos. Sin tramo cuenta como `venta`.
+   */
+  posGroup?: "venta" | "caja" | "cocina";
+  /**
+   * Sólo barra del salón: la ve quien puede manejar la caja — `can_charge`,
+   * o rol supervisor/administrador (`buildPosNav` en `PosLayout.tsx`).
+   */
+  needsCharge?: boolean;
 }

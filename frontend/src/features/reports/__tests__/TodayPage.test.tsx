@@ -244,4 +244,75 @@ describe("TodayPage", () => {
     expect(noticeLink("Inventario no confiable")).toHaveAttribute("href", "/admin/inventario?tab=salud")
     expect(screen.getByText(/21 días sin un conteo completo aplicado/)).toBeInTheDocument()
   })
+
+  // ---------------------------------------------------------------------
+  // El celular del dueño (`docs/diseno/propuesta.html`, Momento 5): primero
+  // la respuesta, después lo que exige actuar, los indicadores al final; y
+  // lo que llega `null` dice qué falta.
+  // ---------------------------------------------------------------------
+
+  it("orden de lectura: la cifra rectora, después «Requiere tu atención», después los indicadores", async () => {
+    getTodayMock.mockResolvedValue(baseToday())
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const cifra = await screen.findByText("Ventas netas de hoy")
+    const atencion = screen.getByRole("complementary", { name: "Requiere tu atención" })
+    const indicador = screen.getByText("Ticket promedio")
+    const tabla = screen.getByText("Ventas por hora")
+    const antes = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+    expect(antes(cifra, atencion)).toBe(true)
+    expect(antes(atencion, indicador)).toBe(true)
+    expect(antes(indicador, tabla)).toBe(true)
+  })
+
+  it("los indicadores que llegan `null` se dibujan como «Sin dato» con lo que falta, nunca como «—» ni «$ 0»", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        orders: 0,
+        covers: null,
+        avg_ticket: null,
+        avg_per_cover: null,
+        expected_cash: null,
+        net: 0,
+        gross: 0,
+        tax: 0,
+        sales_by_hour: [],
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("Ventas netas de hoy")
+    // Se busca el motivo y se mira que viva dentro del «sin dato» rayado
+    // (`SinDato`): el rótulo de adelante es cosa de ese componente.
+    const sinComandas = screen.getAllByText(/todavía no hay comandas pagadas hoy/)
+    expect(sinComandas).toHaveLength(3)
+    for (const motivo of sinComandas) expect(motivo.closest(".sin-dato")).not.toBeNull()
+    expect(screen.getByText(/no hay un turno de caja abierto/).closest(".sin-dato")).not.toBeNull()
+    expect(screen.queryByText("—")).not.toBeInTheDocument()
+  })
+
+  it("con comandas pagadas pero sin comensales contados, el ticket por comensal dice eso", async () => {
+    getTodayMock.mockResolvedValue(baseToday({ covers: 0, avg_per_cover: null }))
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const motivo = await screen.findByText(/ninguna comanda pagada hoy registró comensales/)
+    expect(motivo.closest(".sin-dato")).not.toBeNull()
+  })
+
+  it("no inventa una comparación: `GET /admin/today` no la manda", async () => {
+    getTodayMock.mockResolvedValue(baseToday())
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("Ventas netas de hoy")
+    expect(screen.queryByText(/semana pasada|semana anterior|%/)).not.toBeInTheDocument()
+  })
+
+  it("llegando con #requiere-atencion («Avisos» del celular), el foco queda en «Requiere tu atención»", async () => {
+    getTodayMock.mockResolvedValue(baseToday())
+    renderWithProviders(<TodayPage />, { me: buildMe(), route: "/admin/hoy#requiere-atencion" })
+
+    const atencion = await screen.findByRole("complementary", { name: "Requiere tu atención" })
+    await waitFor(() => expect(document.activeElement).toBe(atencion.parentElement))
+    expect(atencion.parentElement).toHaveAttribute("id", "requiere-atencion")
+  })
 })

@@ -10,6 +10,10 @@ describe("inventoryFeature", () => {
     expect(inventoryFeature.adminNav).toEqual([
       { to: "/admin/inventario", label: "Inventario", feature: "inventory.perpetual" },
     ])
-    expect(inventoryFeature.posNav).toEqual([{ to: "/pos/merma", label: "Merma", feature: "inventory.waste" }])
+    // Cada entrada del salón lleva su ícono propio (el genérico era el mismo para todas).
+    for (const item of inventoryFeature.posNav) expect(item.icon).toBeDefined()
+    expect(inventoryFeature.posNav.map(({ icon: _icon, ...item }) => item)).toEqual([
+      { to: "/pos/merma", label: "Merma", feature: "inventory.waste", posGroup: "cocina" },
+    ])
   })
 })

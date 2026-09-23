@@ -11,6 +11,7 @@ import { useSearchParams } from "react-router-dom"
 
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
+import { Cargando } from "@/components/Cargando"
 import { PageHeader } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -49,7 +50,7 @@ export function PayrollAdminPage(): React.JSX.Element {
   const tab: TabValue = tabAvailable[requestedTab] ? requestedTab : payrollEnabled ? "horas" : "propinas"
 
   if (storeLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
+    return <Cargando texto="Cargando sedes…" className="p-4" />
   }
   if (!enabled) {
     return (

@@ -16,6 +16,7 @@ import { useQuery } from "@tanstack/react-query"
 import { getVarianceByDish, type VarianceByDishRowOut } from "@/api/analytics"
 import { DenseTable, DenseTableBar, type DenseColumn } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
+import { Diferencia } from "@/components/Diferencia"
 import { formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
@@ -30,7 +31,12 @@ const VARIANCE_COLUMNS: readonly DenseColumn<VarianceByDishRowOut>[] = [
     kind: "number",
     cell: (r) => formatBasisPoints(r.theoretical_consumption_share_bp ?? null),
   },
-  { key: "value", header: "Valor de la varianza", kind: "number", cell: (r) => formatCOP(r.variance_value ?? null) },
+  {
+    key: "value",
+    header: "Valor de la varianza",
+    kind: "number",
+    cell: (r) => <Diferencia valor={r.variance_value} faltaCuando="positivo" motivoSinDato="insumos sin costo" />,
+  },
   { key: "ingredients", header: "Insumos involucrados", kind: "number", cell: (r) => r.ingredients_involved ?? "—" },
 ]
 

@@ -6,10 +6,12 @@ import {
   BellRing,
   BookOpen,
   CalendarDays,
+  CircleAlert,
   ClipboardList,
   Clock,
   Coins,
   CookingPot,
+  Ellipsis,
   FileText,
   Hash,
   Landmark,
@@ -31,8 +33,8 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
-import { useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useState, useSyncExternalStore } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
 import { logout } from "@/api/auth";
@@ -690,6 +692,173 @@ function RailContenido({
   );
 }
 
+// ---------------------------------------------------------------------------
+// El celular del dueño: la barra inferior (`docs/diseno/propuesta.html`,
+// «Celular del dueño» y Momento 5).
+// ---------------------------------------------------------------------------
+
+/** El mismo corte que `md:` de Tailwind: por debajo de 768 px es el celular. */
+const CONSULTA_CELULAR = "(max-width: 767.98px)";
+
+function suscribirCelular(avisar: () => void): () => void {
+  if (typeof window.matchMedia !== "function") return () => {};
+  const consulta = window.matchMedia(CONSULTA_CELULAR);
+  consulta.addEventListener("change", avisar);
+  return () => consulta.removeEventListener("change", avisar);
+}
+
+function esCelular(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(CONSULTA_CELULAR).matches;
+}
+
+/**
+ * **La barra inferior se monta sólo en el celular**, no se esconde con CSS
+ * nada más. Con `md:hidden` solo, el escritorio llevaría en el árbol una
+ * segunda «Hoy» y una segunda «Ventas» invisibles, y cada `getByRole("link",
+ * { name: "Hoy" })` de las pruebas —y cada lector de pantalla que no respete
+ * `display` de algún ancestro— vería dos. Sin `matchMedia` (jsdom) es
+ * escritorio: nada cambia.
+ */
+function useEsCelular(): boolean {
+  return useSyncExternalStore(suscribirCelular, esCelular, () => false);
+}
+
+/**
+ * «Avisos» no tiene pantalla propia, y es a propósito que no lleve a
+ * `/admin/notifications`: esa pantalla es **el historial y las reglas** de
+ * las notificaciones, y la campana es una lista que sólo marca leído. La
+ * propuesta lo pide explícito —«los avisos llevan a la pantalla que resuelve,
+ * nunca a una lista muerta»—, y la única lista de avisos donde cada renglón
+ * lleva a donde se resuelve es «Requiere tu atención» de Hoy, que además
+ * ya incluye las notificaciones del servidor (`today.alerts`). El ancla la
+ * pone `features/reports/TodayPage.tsx` y la baja hasta ahí al llegar.
+ */
+const ANCLA_AVISOS = "requiere-atencion";
+
+const CLASE_DESTINO =
+  "flex min-h-14 flex-col items-center justify-center gap-0.5 px-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
+
+function claseDestino(activo: boolean): string {
+  return cn(
+    CLASE_DESTINO,
+    // La marca llena del rail (`railItemClass`) acá sería un bloque de 72 px
+    // de color: la entrada activa se dice con el color del texto y una raya
+    // arriba, y `aria-current` lo dice en voz alta.
+    activo
+      ? "text-primary shadow-[inset_0_2px_0_0_var(--primary)]"
+      : "text-muted-foreground hover:text-foreground",
+  );
+}
+
+/**
+ * **Cuatro destinos y «Más»** (Hoy · Ventas · Plata · Avisos): lo que el
+ * dueño mira un domingo desde el celular, sin abrir el cajón. «Más» abre el
+ * cajón de siempre, con el rail entero agrupado por preguntas.
+ *
+ * Los flags siguen mandando: la barra se arma **desde `items`**, que ya pasó
+ * por `buildNav(hasFeature)`. Una entrada apagada no está en `items` y por lo
+ * tanto no está acá —la barra simplemente tiene un destino menos, no un hueco—.
+ * «Plata» es la primera entrada que quede encendida del grupo `¿DÓNDE ESTÁ LA
+ * PLATA?`, en el orden del rail: Dinero, y si Dinero está apagada, Banco.
+ */
+function BarraInferior({
+  items,
+  onMas,
+  masAbierto,
+}: {
+  items: NavItem[];
+  onMas: () => void;
+  masAbierto: boolean;
+}): React.JSX.Element {
+  const { pathname, hash } = useLocation();
+  const hoy = items.find((item) => item.to === "/admin/hoy");
+  const ventas = items.find((item) => item.to === "/admin/ventas");
+  const plata = items
+    .filter((item) => filaDe(item).grupo === "¿DÓNDE ESTÁ LA PLATA?")
+    .sort(porOrdenDelRail)[0];
+  const enAvisos = pathname === "/admin/hoy" && hash === `#${ANCLA_AVISOS}`;
+  const enPlata = plata ? pathname === plata.to.split("?")[0] : false;
+
+  return (
+    <nav
+      aria-label="Accesos del celular"
+      // `pb-[env(…)]`: en un iPhone sin botón la barra no queda debajo de la
+      // raya de inicio.
+      className="fixed inset-x-0 bottom-0 z-30 border-t bg-muted pb-[env(safe-area-inset-bottom)] md:hidden"
+    >
+      <ul className="grid auto-cols-fr grid-flow-col">
+        {/* Los rótulos van escritos literal, uno por destino, y no desde un
+            arreglo: el censo de controles lee el código, no el DOM. */}
+        {hoy ? (
+          <li>
+            <Link
+              to={hoy.to}
+              aria-current={pathname === hoy.to && !enAvisos ? "page" : undefined}
+              className={claseDestino(pathname === hoy.to && !enAvisos)}
+            >
+              <CalendarDays className="size-5" aria-hidden="true" />
+              Hoy
+            </Link>
+          </li>
+        ) : null}
+        {ventas ? (
+          <li>
+            <Link
+              to={ventas.to}
+              aria-current={pathname === ventas.to ? "page" : undefined}
+              className={claseDestino(pathname === ventas.to)}
+            >
+              <BarChart3 className="size-5" aria-hidden="true" />
+              Ventas
+            </Link>
+          </li>
+        ) : null}
+        {plata ? (
+          <li>
+            <Link
+              to={plata.to}
+              // El nombre accesible es «Plata», lo que se ve (WCAG 2.5.3); a
+              // qué pantalla lleva lo dice el `title`.
+              title={filaDe(plata).title}
+              aria-current={enPlata ? "page" : undefined}
+              className={claseDestino(enPlata)}
+            >
+              <Banknote className="size-5" aria-hidden="true" />
+              Plata
+            </Link>
+          </li>
+        ) : null}
+        {hoy ? (
+          <li>
+            <Link
+              to={`${hoy.to}#${ANCLA_AVISOS}`}
+              title="Hoy › Requiere tu atención"
+              aria-current={enAvisos ? "location" : undefined}
+              className={claseDestino(enAvisos)}
+            >
+              <CircleAlert className="size-5" aria-hidden="true" />
+              Avisos
+            </Link>
+          </li>
+        ) : null}
+        <li>
+          <button
+            type="button"
+            onClick={onMas}
+            aria-haspopup="dialog"
+            aria-expanded={masAbierto}
+            title="Todas las secciones"
+            className={cn(claseDestino(false), "w-full")}
+          >
+            <Ellipsis className="size-5" aria-hidden="true" />
+            Más
+          </button>
+        </li>
+      </ul>
+    </nav>
+  );
+}
+
 function AdminChrome(): React.JSX.Element {
   // Escritorio del dueño: cuerpo 14,5 px y filas de 34 px (m2b `.oficina`).
   useDensity("oficina");
@@ -698,6 +867,7 @@ function AdminChrome(): React.JSX.Element {
   const [mobileOpen, setMobileOpen] = useState(false);
   const items = buildNav(hasFeature);
   const counts = useRecuentos(activeStoreId);
+  const celular = useEsCelular();
 
   return (
     <div className="oficina flex min-h-screen bg-background text-foreground">
@@ -749,10 +919,21 @@ function AdminChrome(): React.JSX.Element {
             </Sheet>
           }
         />
-        <main className="min-w-0 flex-1 p-4 md:p-6">
+        {/* Con la barra inferior, el pie del contenido sube lo que ella mide
+            (56 px + la raya de inicio del teléfono) y un poco de aire: el
+            último renglón de la pantalla nunca queda tapado. */}
+        <main
+          className={cn(
+            "min-w-0 flex-1 p-4 md:p-6",
+            celular && "pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-6",
+          )}
+        >
           <Outlet />
         </main>
       </div>
+      {celular ? (
+        <BarraInferior items={items} onMas={() => setMobileOpen(true)} masAbierto={mobileOpen} />
+      ) : null}
     </div>
   );
 }

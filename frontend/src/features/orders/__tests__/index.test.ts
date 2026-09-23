@@ -12,10 +12,12 @@ describe("ordersFeature", () => {
 
     expect(ordersFeature.adminNav).toEqual([{ to: "/admin/pedidos", label: "Pedidos" }])
 
-    expect(ordersFeature.posNav).toEqual([
+    // Cada entrada del salón lleva su ícono propio (el genérico era el mismo para todas).
+    for (const item of ordersFeature.posNav) expect(item.icon).toBeDefined()
+    expect(ordersFeature.posNav.map(({ icon: _icon, ...item }) => item)).toEqual([
       { to: "/pos/mesas", label: "Mesas", feature: "pos.tables" },
-      { to: "/pos/comanda/nueva", label: "Comanda" },
-      { to: "/pos/cocina", label: "Cocina", feature: "kitchen.view" },
+      { to: "/pos/comanda/nueva", label: "Mostrador" },
+      { to: "/pos/cocina", label: "Cocina", feature: "kitchen.view", posGroup: "cocina" },
     ])
   })
 })

@@ -35,6 +35,7 @@ import {
   type DenseColumn,
   type LegendEntry,
 } from "@/components/admin"
+import { DesdeHacia } from "@/components/DesdeHacia"
 import { EmptyState } from "@/components/EmptyState"
 import {
   AlertDialog,
@@ -199,9 +200,11 @@ function nowLocalDatetime(): string {
 
 function RegisterPaymentForm({
   payable,
+  supplierLabel,
   onPaid,
 }: {
   payable: PayableOut
+  supplierLabel: string
   onPaid: (payment: PaymentOut) => void
 }): React.JSX.Element {
   const [amount, setAmount] = useState<number | null>(null)
@@ -351,6 +354,18 @@ function RegisterPaymentForm({
             {errorMessage(mutation.error)}
           </p>
         ) : null}
+        {/* De dónde sale y a quién va. El saldo que queda no se muestra
+            restado acá: lo recalcula el servidor con el pago vivo. */}
+        {amountValid ? (
+          <DesdeHacia
+            className="mb-3"
+            desde={fromCashDrawer ? "El cajón del turno abierto" : SUPPLIER_PAYMENT_METHOD_LABEL[method]}
+            hacia={supplierLabel}
+            monto={amount}
+            verbo="Se paga"
+            autoriza="PIN de administrador"
+          />
+        ) : null}
         <PinPad
           length={4}
           label="PIN de administrador para pagar"
@@ -477,6 +492,7 @@ export function PayableDetailDialog({
           {payable.status === "approved" && payable.balance > 0 ? (
             <RegisterPaymentForm
               payable={payable}
+              supplierLabel={supplierLabel}
               onPaid={() => {
                 invalidate()
               }}

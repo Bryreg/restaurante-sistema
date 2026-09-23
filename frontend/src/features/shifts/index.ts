@@ -5,6 +5,7 @@
  * dominio a través de `shiftsFeature` — nada más de `src/app/**` se toca
  * desde este territorio.
  */
+import { Wallet } from "lucide-react";
 import { createElement } from "react";
 import type { RouteObject } from "react-router-dom";
 
@@ -35,7 +36,9 @@ const adminNav: NavItem[] = [
   { to: "/admin/personal", label: "Turnos y personal" },
 ];
 
-const posNav: NavItem[] = [{ to: "/pos/turno", label: "Turno" }];
+// Turno es de quien maneja la caja (`needsCharge`): el mesero no lo ve en la
+// barra; abrir turno sigue a mano para todos desde `ShiftStatusStrip`.
+const posNav: NavItem[] = [{ to: "/pos/turno", label: "Turno", icon: Wallet, posGroup: "caja", needsCharge: true }];
 
 export const shiftsFeature = {
   posRoutes,

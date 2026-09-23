@@ -249,9 +249,10 @@ export function WasteAdminTab({
                 value: null,
                 // Las palabras «sin datos» son la red de `src/audit/
                 // inventory.test.ts`: un `0 %` acá se leería como «no se
-                // pierde nada», que es lo contrario del dato.
+                // pierde nada», que es lo contrario del dato. La tarjeta ya
+                // dibuja «Sin datos» rayado; esto es el motivo.
                 nullNote:
-                  "Sin datos: todavía no hay compras en la semana con qué compararlo. No es 0 %, es que no hay divisor.",
+                  "No es 0 %: queda sin datos hasta que haya compras en la semana con qué compararlo, porque no hay divisor.",
               }
             : {
                 value: formatBasisPoints(kpi.ratio),

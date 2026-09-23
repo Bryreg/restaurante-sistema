@@ -27,6 +27,7 @@ import {
   type DenseColumn,
   type RowStatus,
 } from "@/components/admin";
+import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,7 +63,7 @@ function EvidenceDialog({ documentId, onOpenChange }: { documentId: number | nul
           <DialogTitle>Evidencia — {evidence?.full_number ?? `#${documentId}`}</DialogTitle>
         </DialogHeader>
         {query.isLoading ? (
-          <p className="text-sm text-muted-foreground">Cargando…</p>
+          <Cargando texto="Cargando…" />
         ) : query.isError ? (
           <p role="alert" className="text-sm text-destructive">
             {errorMessage(query.error)}
@@ -176,7 +177,7 @@ export function DocumentsPage(): React.JSX.Element {
   });
 
   if (storeLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando sedes…</p>;
+    return <Cargando texto="Cargando sedes…" />;
   }
   if (activeStoreId === null) {
     return <p className="text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>;
@@ -308,7 +309,7 @@ export function DocumentsPage(): React.JSX.Element {
       />
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando documentos…</p>
+        <Cargando texto="Cargando documentos…" />
       ) : query.isError ? (
         <EmptyState
           role="alert"

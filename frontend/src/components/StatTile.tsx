@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 
 import { FilterLink, type FilterLinkProps } from "@/components/admin/FilterLink"
+import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
 export type StatTileTone = "default" | "warning" | "critical"
@@ -31,13 +32,13 @@ export type StatTileProps =
   | (StatTileBase & {
       /**
        * `null` NO es `0` (AGENTS.md; `docs/PATRONES-ADMIN.md` § 5). Se dibuja
-       * `—`, apagado y **nunca en rojo**: no saber no es estar mal.
+       * «Sin datos» rayado, apagado y **nunca en rojo**: no saber no es estar mal.
        */
       value: null
       /**
        * Por qué no se sabe, obligatorio: «222 contados, sin registrar en 31
-       * comandas de mostrador. No es cero: es que nadie lo contó». Un `—`
-       * sin esta frase es el bug que el patrón vino a matar.
+       * comandas de mostrador. No es cero: es que nadie lo contó». Un «sin
+       * datos» sin esta frase es el bug que el patrón vino a matar.
        */
       nullNote: string
     })
@@ -78,6 +79,19 @@ const TONE_VALUE: Record<StatTileTone, string> = {
 }
 
 /**
+ * La cifra de plata de una tarjeta, o su «sin datos» con motivo. Para las
+ * cifras que el servidor puede mandar `null` (el ticket promedio de un
+ * período sin ventas): `value={formatCOP(x)}` dibujaba un «—» mudo.
+ * Se usa como `<StatTile label="…" {...cifraOSinDato(x, "sin ventas en el período")} />`.
+ */
+export function cifraOSinDato(
+  value: number | null | undefined,
+  nullNote: string,
+): { value: string; nullNote?: never } | { value: null; nullNote: string } {
+  return value === null || value === undefined ? { value: null, nullNote } : { value: formatCOP(value) }
+}
+
+/**
  * "Un KPI que decide → stat tile con su contexto" (SPEC-NEGOCIO §9.3), más el
  * pie que dice **de qué está hecha** la cifra (`docs/PATRONES-ADMIN.md` § 5):
  * «96 en mesa · 31 mostrador · 21 domicilio». Máximo un nivel de énfasis por
@@ -100,15 +114,16 @@ export function StatTile(props: StatTileProps): React.JSX.Element {
         {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
         <p className="min-w-0 text-sm text-muted-foreground">{label}</p>
       </div>
+      {/* Sin dato se dibuja rayado (`.sin-dato`), apagado y NUNCA en rojo,
+          aunque el tono sea crítico: no saber no es estar mal. El motivo va
+          en el renglón de abajo, que es obligatorio por tipos. */}
       <p
         className={cn(
-          "mt-1 text-2xl font-semibold tabular-nums",
-          // `—` se dibuja apagado, NUNCA en rojo, aunque el tono sea crítico:
-          // no saber no es estar mal.
-          isNull ? "font-normal text-muted-foreground" : TONE_VALUE[tone],
+          "mt-1 tabular-nums",
+          isNull ? "sin-dato px-2 py-1 text-base font-normal" : cn("text-2xl font-semibold", TONE_VALUE[tone]),
         )}
       >
-        {isNull ? "—" : value}
+        {isNull ? "Sin datos" : value}
       </p>
       {props.value === null ? (
         <p className="mt-1 text-xs text-muted-foreground">{props.nullNote}</p>

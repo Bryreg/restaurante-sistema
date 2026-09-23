@@ -19,6 +19,7 @@ import { useState } from "react"
 
 import { ApiError } from "@/api/client"
 import { approvePayable, getPayableDetail, type PayableDetailOut } from "@/api/expenses"
+import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -118,7 +119,7 @@ export function PayablesApprovalTab({ storeId: _storeId }: { storeId: number }):
       {payableId === null ? (
         <EmptyState title="Ingresá el id de una cuenta por pagar para revisar su factura" />
       ) : query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando la cuenta por pagar…</p>
+        <Cargando texto="Cargando la cuenta por pagar…" />
       ) : query.isError ? (
         <EmptyState role="alert" title="No se pudo cargar esa cuenta por pagar" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : query.data ? (
