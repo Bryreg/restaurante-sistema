@@ -132,17 +132,14 @@ INGREDIENTS: list[tuple[str, str, str, str, int, int, str, str, str, bool, bool,
 # Insumos que ya trae el seed y que el simulador sólo liga a su proveedor.
 SEED_INGREDIENT_SUPPLIER = {
     "Pechuga de pollo": "Frigorífico El Llano SAS",
-    "Pollo en pechuga": "Frigorífico El Llano SAS",
     "Papa criolla": "Fruver La Cosecha",
     "Limón": "Fruver La Cosecha",
     "Arroz blanco": "Mayorista El Surtidor",
-    "Arroz": "Mayorista El Surtidor",
     "Panela": "Mayorista El Surtidor",
     "Leche entera": "Lácteos San Fernando",
     "Leche deslactosada": "Lácteos San Fernando",
     "Gaseosa 400ml (botella)": "Distribuidora Andina de Bebidas",
     "Sal de mesa": "Mayorista El Surtidor",
-    "Sal": "Mayorista El Surtidor",
 }
 
 # Preparaciones: nombre, modo, rinde (qty, unidad), merma de proceso %, vida

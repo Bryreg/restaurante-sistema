@@ -95,8 +95,13 @@ def seed_recipes(db: Session, store: Store) -> None:
         ).scalar_one_or_none()
 
     # -- Insumos con costo oficial, umbral > 0 y un yield distinto de 100 ---
+    # Los tres primeros los carga ya `app/inventory/seed.py` con otro nombre
+    # parecido; antes se sembraban dos veces («Pollo en pechuga» y «Pechuga de
+    # pollo», «Arroz» y «Arroz blanco», «Sal» y «Sal de mesa»), y el pollo
+    # desmechado consumía el duplicado, que quedaba en negativo para siempre.
+    # Con el mismo nombre, `_get_or_create_ingredient` reutiliza el que existe.
     pollo = _get_or_create_ingredient(
-        db, store, name="Pollo en pechuga", category="Proteínas", base_unit=BaseUnit.G, purchase_unit="kg",
+        db, store, name="Pechuga de pollo", category="Proteínas", base_unit=BaseUnit.G, purchase_unit="kg",
         purchase_factor=1000, yield_pct=85, official_cost_micros=12_000_000, estimated_cost_micros=None,
         min_stock=2_000, lead_time_days=2, perishable=True, key_item=True, consumption_untracked=False,
         substitute_ingredient_id=None, supplier_id=None,
@@ -108,7 +113,7 @@ def seed_recipes(db: Session, store: Store) -> None:
         substitute_ingredient_id=None, supplier_id=None,
     )
     arroz = _get_or_create_ingredient(
-        db, store, name="Arroz", category="Abarrotes", base_unit=BaseUnit.G, purchase_unit="kg",
+        db, store, name="Arroz blanco", category="Abarrotes", base_unit=BaseUnit.G, purchase_unit="kg",
         purchase_factor=1000, yield_pct=100, official_cost_micros=4_000_000, estimated_cost_micros=None,
         min_stock=10_000, lead_time_days=7, perishable=False, key_item=False, consumption_untracked=False,
         substitute_ingredient_id=None, supplier_id=None,
@@ -134,7 +139,7 @@ def seed_recipes(db: Session, store: Store) -> None:
     # `consumption_untracked`: sin receta, se mide entre dos conteos (§4.1) —
     # se declara pero no entra en ninguna línea de receta.
     _get_or_create_ingredient(
-        db, store, name="Sal", category="Abarrotes", base_unit=BaseUnit.G, purchase_unit="kg",
+        db, store, name="Sal de mesa", category="Abarrotes", base_unit=BaseUnit.G, purchase_unit="kg",
         purchase_factor=1000, yield_pct=100, official_cost_micros=2_000_000, estimated_cost_micros=None,
         min_stock=1_000, lead_time_days=14, perishable=False, key_item=False, consumption_untracked=True,
         substitute_ingredient_id=None, supplier_id=None,
