@@ -75,20 +75,19 @@ describe("el rail del admin: la tabla de grupos", () => {
   })
 
   /**
-   * Los nombres son las preguntas del dueño de «Un solo libro, dos mesas»
-   * (`docs/diseno/propuesta.html` § Navegación). Antes fueron los de la maqueta
-   * `a2` (`EL DÍA · LA CARTA Y EL COSTO · LA PLATA…`); este `toEqual` es el que
-   * hace que cambiarlos sea una decisión y no un descuido.
+   * Los nombres son los de la maqueta `a2`, que es la que el dueño eligió
+   * mirándola contra la app. Eran `Operación · Costos · Plata · Ley · Gente ·
+   * Sistema`; este `toEqual` es el que hace que cambiarlos sea una decisión
+   * y no un descuido.
    */
-  it("los siete grupos existen, con las preguntas del dueño, y ninguno queda vacío", () => {
+  it("los seis grupos existen, con los nombres de a2, y ninguno queda vacío", () => {
     expect(GRUPOS).toEqual([
-      "¿CÓMO VA?",
-      "¿QUÉ VENDÍ?",
-      "¿CUÁNTO ME CUESTA?",
-      "¿DÓNDE ESTÁ LA PLATA?",
-      "¿ESTOY AL DÍA CON LA DIAN?",
-      "¿QUIÉN TRABAJA?",
-      "AJUSTES",
+      "EL DÍA",
+      "LA CARTA Y EL COSTO",
+      "LA PLATA",
+      "LO FISCAL",
+      "LA GENTE",
+      "EL SISTEMA",
     ])
     const vacios = GRUPOS.filter(
       (grupo) => !TODAS.some((item) => RAIL[item.to]?.grupo === grupo),
@@ -112,9 +111,9 @@ describe("el rail del admin: el orden dentro del grupo", () => {
    * pantalla principal de plata, última de su propio grupo. El orden de
    * lectura lo manda `RAIL`.
    */
-  it("«¿DÓNDE ESTÁ LA PLATA?» abre con Dinero, no lo deja al final", () => {
+  it("«LA PLATA» abre con Dinero, no lo deja al final", () => {
     const plata = Object.entries(RAIL)
-      .filter(([, fila]) => fila.grupo === "¿DÓNDE ESTÁ LA PLATA?")
+      .filter(([, fila]) => fila.grupo === "LA PLATA")
       .map(([, fila]) => fila.label)
     expect(plata[0]).toBe("Dinero")
   })

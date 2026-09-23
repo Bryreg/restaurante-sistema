@@ -1602,7 +1602,11 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     Aplica `docs/diseno/propuesta.html` en todo el sistema. Dos desvíos a
     propósito: el salón es **claro** por defecto, con «Pantalla oscura» por
     tablet (la cocina siempre en pizarra), y no hay «Volver a contar» en el
-    cierre porque rompería el cierre a ciegas.
+    cierre porque rompería el cierre a ciegas. El menú del admin conserva
+    los grupos de a2 (`EL DÍA · LA CARTA Y EL COSTO · LA PLATA…`): se probó
+    agruparlo por las preguntas de la propuesta y el dueño eligió quedarse
+    con a2, que son más cortos. Las preguntas siguen como subtítulo de cada
+    pantalla.
     - **Piezas nuevas** (`src/components`):
       - `SinDato`: rayado, siempre con motivo. `StatTile` la usa cuando el
         valor es `null`, y `cifraOSinDato` sirve para las cifras de plata.

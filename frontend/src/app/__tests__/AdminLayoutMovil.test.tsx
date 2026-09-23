@@ -153,7 +153,7 @@ describe("AdminLayout en el celular: barra inferior", () => {
     await user.click(mas);
 
     const cajon = await screen.findByRole("dialog");
-    expect(within(cajon).getByRole("group", { name: "¿DÓNDE ESTÁ LA PLATA?" })).toBeInTheDocument();
+    expect(within(cajon).getByRole("group", { name: "LA PLATA" })).toBeInTheDocument();
     expect(within(cajon).getByRole("link", { name: "Configuración" })).toBeInTheDocument();
     expect(mas).toHaveAttribute("aria-expanded", "true");
   });
