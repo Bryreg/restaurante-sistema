@@ -350,9 +350,14 @@ def uncosted_products(db: Session, *, store_id: int, date_from: date, date_to: d
     congelado (`OrderItem.name`), no de `Product.name`: si el plato se renombró
     después, el reporte tiene que decir cómo se llamaba cuando se vendió.
     """
+    from app.catalog.models import Product
     from app.inventory.models import StockMovement
     from app.orders.models import Order, OrderItem
 
+    # El cargo de domicilio es un cargo, no un plato: nunca tiene ficha y no
+    # mueve inventario a propósito. Contarlo acá pintaba en «Hoy» un aviso
+    # permanente de «plato vendido sin descontar nada» que no pide nada.
+    cargos = select(Product.id).where(Product.is_delivery_fee.is_(True))
     descontó = (
         select(StockMovement.id)
         .where(StockMovement.ref_type == "order_item", StockMovement.ref_id == OrderItem.id)
@@ -372,6 +377,7 @@ def uncosted_products(db: Session, *, store_id: int, date_from: date, date_to: d
             Order.business_date <= date_to,
             OrderItem.product_id.is_not(None),
             OrderItem.voided_at.is_(None),
+            OrderItem.product_id.not_in(cargos),
             ~descontó,
         )
         .group_by(OrderItem.product_id)

@@ -107,3 +107,23 @@ def test_product_sold_without_recipe_appears_in_uncosted_products(
     flagged = next(r for r in rows if r["product_id"] == no_recipe_product.id)
     assert flagged["items_sold"] == 1
     assert flagged["qty_sold"] == 1
+
+
+def test_delivery_fee_is_not_a_dish_that_discounts_nothing(
+    db: Session, org: Any, store: Any, employees: dict[str, Any], make_product: Any,
+) -> None:
+    """El cargo de domicilio nunca tiene ficha ni mueve inventario, a
+    propósito. Contarlo como «plato vendido sin descontar nada» dejaba en Hoy
+    un aviso permanente que no pedía nada (operación simulada, 2026-09-22)."""
+    today = clock.now_utc().date()
+    fee = make_product("Cargo de domicilio (cobertura)")
+    fee.is_delivery_fee = True
+    dish = make_product("Plato sin ficha (cobertura del cargo)")
+    db.flush()
+
+    _sell_one(db, org, store, employees["cashier"], fee, today)
+    _sell_one(db, org, store, employees["cashier"], dish, today)
+
+    flagged_ids = {r["product_id"] for r in uncosted_products(db, store_id=store.id, date_from=today, date_to=today)}
+    assert fee.id not in flagged_ids
+    assert dish.id in flagged_ids
