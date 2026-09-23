@@ -268,23 +268,30 @@ export default function CheckoutPage(): React.JSX.Element {
         </div>
       ) : null}
 
-      <div className="space-y-1 rounded-md border p-4 text-sm">
-        <div className="flex justify-between">
-          <span>Subtotal</span>
-          <span className="tabular-nums">{formatCOP(order.totals?.subtotal)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Descuentos</span>
-          <span className="tabular-nums">{formatCOP(order.totals?.discount_total)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Impuesto</span>
-          <span className="tabular-nums">{formatCOP(order.totals?.tax_total)}</span>
-        </div>
-        <div className="flex justify-between text-base font-semibold">
-          <span>Total</span>
-          <span className="tabular-nums">{formatCOP(order.totals?.total)}</span>
-        </div>
+      {/* El total manda: grande y primero, porque es lo que se le dice a la
+          mesa. El desglose va chico debajo, para quien lo pregunte. */}
+      <div className="rounded-xl bg-card p-4 ring-1 ring-border">
+        <p className="text-sm text-muted-foreground">Total de la cuenta</p>
+        <p
+          className="text-4xl leading-tight font-extrabold tabular-nums sm:text-5xl"
+          style={{ fontStretch: "115%" }}
+        >
+          {formatCOP(order.totals?.total)}
+        </p>
+        <dl className="mt-3 grid grid-cols-3 gap-2 border-t pt-3 text-sm">
+          <div>
+            <dt className="text-muted-foreground">Subtotal</dt>
+            <dd className="tabular-nums">{formatCOP(order.totals?.subtotal)}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Descuentos</dt>
+            <dd className="tabular-nums">{formatCOP(order.totals?.discount_total)}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Impuesto</dt>
+            <dd className="tabular-nums">{formatCOP(order.totals?.tax_total)}</dd>
+          </div>
+        </dl>
       </div>
 
       {splitBillFlag ? (

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Banknote, Check, CircleCheck, Lock, Receipt, TriangleAlert } from "lucide-react";
+import { Banknote, Check, CircleCheck, Lock, Receipt } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -17,19 +17,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DenominationsInput, type Denomination } from "@/components/DenominationsInput";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/MoneyInput";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/errors";
+import { cn } from "cn";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
 import { PhotoCaptureField } from "./PhotoCaptureField";
 import {
+  DiferenciaDeCaja,
   FilaCuadre,
   PanelSello,
   PasoPastilla,
@@ -79,13 +74,6 @@ const CAUSE_LABEL: Record<CashDifferenceCause, string> = {
 
 function emptyDenominations(): Denomination[] {
   return DENOMINATIONS.map((value) => ({ value, count: 0 }));
-}
-
-/** Qué dice la diferencia, leyendo su signo — el valor se pinta como llega. */
-function tituloDiferencia(diferencia: number | undefined): string {
-  if (diferencia === undefined) return "Diferencia";
-  if (diferencia === 0) return "El cajón cuadra";
-  return diferencia < 0 ? "Falta plata en el cajón" : "Sobra plata en el cajón";
 }
 
 type Step = 1 | 2 | 3;
@@ -403,20 +391,7 @@ export function CloseWizard({
               />
             </div>
 
-            <div className="mt-3 flex items-baseline gap-3 rounded-md bg-muted px-3 py-2.5">
-              {diferencia === 0 ? (
-                <CircleCheck aria-hidden="true" className="size-5 shrink-0 self-center text-success" />
-              ) : (
-                <TriangleAlert aria-hidden="true" className="size-5 shrink-0 self-center text-destructive" />
-              )}
-              <span className="min-w-0">
-                <span className="text-sm font-bold">{tituloDiferencia(diferencia)}</span>
-                <span className="block text-xs text-muted-foreground">Diferencia</span>
-              </span>
-              <span className="ml-auto text-xl font-bold whitespace-nowrap tabular-nums">
-                {formatCOP(diferencia)}
-              </span>
-            </div>
+            <DiferenciaDeCaja diferencia={diferencia} className="mt-3" />
           </div>
         </TarjetaCierre>
 
@@ -457,11 +432,7 @@ export function CloseWizard({
         pastilla={<PasoPastilla tono="activo">Paso 3 de 3</PasoPastilla>}
       >
         <div className="space-y-4 px-4 py-3">
-          <FilaCuadre
-            rotulo="Diferencia a confirmar"
-            detalle="Exactamente la que mostró el paso 2"
-            valor={review.difference}
-          />
+          <DiferenciaDeCaja diferencia={review.difference} anunciaCausa={false} />
 
           {requiresCause ? (
             <div className="space-y-3">
@@ -470,20 +441,31 @@ export function CloseWizard({
                   La diferencia supera la tolerancia de causa desconocida: elegí una causa identificada.
                 </p>
               ) : null}
-              <div className="space-y-1">
-                <Label htmlFor="close-cause">Causa</Label>
-                <Select value={cause || undefined} onValueChange={(v) => setCause(v as CashDifferenceCause)}>
-                  <SelectTrigger id="close-cause" className="h-11 w-full">
-                    <SelectValue placeholder="Elegí una causa" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {causeOptions.map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              {/* Botones grandes y no un desplegable: se elige con un toque, de pie
+                  y cansada, y las opciones se ven todas a la vez. */}
+              <div className="space-y-2">
+                <p id="close-cause-label" className="text-sm font-medium">
+                  ¿Qué creés que pasó?
+                </p>
+                <div role="radiogroup" aria-labelledby="close-cause-label" className="grid gap-2 sm:grid-cols-2">
+                  {causeOptions.map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={cause === value}
+                      onClick={() => setCause(value)}
+                      className={cn(
+                        "min-h-14 rounded-lg px-4 text-left text-base font-semibold ring-1 transition-colors",
+                        cause === value
+                          ? "bg-foreground text-background ring-foreground"
+                          : "bg-card text-foreground ring-border hover:bg-muted",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="space-y-1">
                 <Label htmlFor="close-cause-note">Nota</Label>

@@ -1049,8 +1049,7 @@
   "Todavía no hay zonas"
  ],
  "features/shifts/CloseWizard.tsx": [
-  "Continuar",
-  "Elegí una causa"
+  "Continuar"
  ],
  "features/shifts/DeliverySettlementPanel.tsx": [
   "Cancelar",
