@@ -45,12 +45,17 @@ def test_sustained_with_zero_or_one_applied_counts_is_null_with_a_reason(
     assert body["reason"]
 
 
-def _noon_utc(day_offset: int, *, base: datetime) -> datetime:
-    """`base + N días`, a las 12:00 hora de Bogotá (17:00 UTC, Bogotá es
-    UTC-5 todo el año): lejos de cualquier `cutoff_hour` de sede (por
-    defecto 06:00) para que `business_date` sea siempre el mismo día
-    calendario, sin ambigüedad de madrugada."""
-    return base + timedelta(days=day_offset, hours=17)
+def _noon_utc(step: int, *, base: datetime) -> datetime:
+    """Paso `step` de la escena, a las 12:00 hora de Bogotá (17:00 UTC,
+    Bogotá es UTC-5 todo el año): lejos de cualquier `cutoff_hour` de sede
+    (por defecto 06:00) para que `business_date` sea siempre el mismo día
+    calendario, sin ambigüedad de madrugada.
+
+    Los conteos caen en los pasos pares y las ventas en los impares; cada
+    par de pasos son TRES días (`3 * step // 2`: 0, 1, 3, 4, 6, 7, 9), para
+    que cada ventana entre conteos dure 72 h, holgadamente sobre la mínima
+    que exige el food cost real (`app.inventory.hooks.FOOD_COST_MIN_WINDOW_HOURS`)."""
+    return base + timedelta(days=3 * step // 2, hours=17)
 
 
 def test_sustained_two_of_three_windows_over_threshold_is_red(
@@ -122,6 +127,17 @@ def test_sustained_two_of_three_windows_over_threshold_is_red(
     assert exceed_flags.count(True) == 2, body
     # La más reciente es `window_index == 1` (ventana 3, roja).
     assert body["windows"][0]["exceeds_red"] is True
+    # Números fijados (informe #4/#15): un plato de $25.000 con INC 8 % son
+    # $23.148 netos. Ventana roja: real (10 + 2.000) ÷ 23.148 → 868 bp,
+    # teórico 10 ÷ 23.148 → 4 bp, brecha 864. Ventana verde: 4 − 4 = 0.
+    assert [w["gap_bp"] for w in body["windows"]] == [864, 0, 864]
+    assert [w["real_pct_bp"] for w in body["windows"]] == [868, 4, 868]
+    for w in body["windows"]:
+        assert (w["window_days"], w["window_hours"]) == (3, 72)
+        assert w["orders_in_window"] == 1
+        assert w["costed_pct_bp"] == 10000
+    assert body["windows_skipped"] == 0
+    assert (body["min_window_days"], body["min_costed_pct_bp"]) == (1, 8000)
 
 
 def test_sustained_two_windows_one_over_threshold_is_not_red(
@@ -201,3 +217,49 @@ def test_variance_level_semaphore_is_untouched_by_this_territory(db: Any) -> Non
     assert "def _variance_level" not in source
     assert "_variance_level(" not in source
     assert "inventory_service" not in source, "este territorio no importa app.inventory.service"
+
+
+def test_sustained_skips_windows_shorter_than_a_day(
+    db: Any,
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Any,
+    store: Store,
+    employees: dict[str, Employee],
+    clock: Any,
+    open_shift: Any,
+    enable_analytics: Callable[[], None],
+    create_ingredient: Callable[..., dict[str, Any]],
+    apply_full_count: Callable[..., dict[str, Any]],
+    main_product: Any,
+    set_recipe: Callable[..., Any],
+    sell: Callable[..., Any],
+) -> None:
+    """Tres conteos a 16 h uno del otro, con fuga en las dos ventanas: antes
+    daban «sostenido en rojo»; con ventanas de horas el food cost real es
+    ruido (informe #3), así que no cuentan — `null` con motivo, nunca rojo
+    ni verde."""
+    enable_analytics()
+    ing = create_ingredient(name="Insumo ventana corta", official_cost="1", min_stock="1")
+    set_recipe(main_product.id, lines=[{"ingredient_id": ing["id"], "qty": "10", "unit": "g"}])
+    base = datetime(2026, 5, 1, 17, tzinfo=timezone.utc)
+    open_shift()
+
+    clock.set(base)
+    apply_full_count({ing["id"]: "20000"})
+    clock.set(base + timedelta(hours=8))
+    identify(device_client, employees["cashier"])
+    sell(main_product, qty=1)
+    clock.set(base + timedelta(hours=16))
+    apply_full_count({ing["id"]: "17990"})
+    clock.set(base + timedelta(hours=24))
+    identify(device_client, employees["cashier"])
+    sell(main_product, qty=1)
+    clock.set(base + timedelta(hours=32))
+    apply_full_count({ing["id"]: "15980"})
+
+    body = admin_client.get("/api/v1/admin/control-health/sustained", params={"store_id": store.id}).json()
+    assert body["sustained_red"] is None, body
+    assert body["windows_evaluated"] == 0
+    assert body["windows_skipped"] == 2
+    assert "24 h" in body["reason"]

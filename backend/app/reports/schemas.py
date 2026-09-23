@@ -275,7 +275,7 @@ class TodayOut(BaseModel):
     # amount`); con la lista vacía y la función encendida, `0`.
     payables_overdue_total: int | None = None
     ingredients_negative_amount: int | None = None
-    ingredients_negative_uncosted: int = 0
+    ingredients_negative_unvalued: int = 0
     # Contra qué comparar el día (analista #3, científico (d)1).
     comparison: TodayComparisonOut | None = None
     sales_by_hour_reference: list[HourBucketOut] = []

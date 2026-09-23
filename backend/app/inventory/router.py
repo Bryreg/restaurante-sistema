@@ -509,7 +509,10 @@ def post_apply_count(
 def get_variance(
     request: Request,
     store_id: int = Query(...),
-    count_id: int = Query(...),
+    # Opcional: sin `count_id` se usa el último conteo aplicado de la sede
+    # (la pestaña abre con él sin que el dueño tenga que elegirlo — informe
+    # del analista, #12). `available: false` con motivo si no hay ninguno.
+    count_id: int | None = Query(None),
     format: str | None = Query(None),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
@@ -518,7 +521,9 @@ def get_variance(
     store = admin_store(db, actor, store_id)
     out = service.variance_report(db, store=store, count_id=count_id)
     if wants_csv(request):
-        return csv_response([r.model_dump(mode="json") for r in out.rows], f"variance-{count_id}.csv")
+        return csv_response(
+            [r.model_dump(mode="json") for r in out.rows], f"variance-{out.count_id or 'sin-conteo'}.csv"
+        )
     return out
 
 

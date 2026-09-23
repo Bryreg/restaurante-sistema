@@ -1384,7 +1384,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         negative_amount = sum(costed_negatives)
     else:
         negative_amount = 0 if not negatives else None
-    negative_uncosted = sum(1 for n in negatives if n.amount is None)
+    negative_unvalued = sum(1 for n in negatives if n.amount is None)
     payables_enabled = _hooks_if_enabled(db, store, module="app.purchases.hooks", feature="purchases") is not None
     payables_overdue = _payables_overdue(db, store)
 
@@ -1422,7 +1422,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         days_since_last_full_count=days_since_last_full_count,
         payables_overdue_total=(sum(p.balance for p in payables_overdue) if payables_enabled else None),
         ingredients_negative_amount=negative_amount,
-        ingredients_negative_uncosted=negative_uncosted,
+        ingredients_negative_unvalued=negative_unvalued,
         comparison=comparison,
         sales_by_hour_reference=sales_by_hour_reference,
         yesterday_close=yesterday_close,

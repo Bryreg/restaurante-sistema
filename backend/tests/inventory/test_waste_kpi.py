@@ -99,3 +99,15 @@ def test_waste_kpi_stops_being_null_once_there_are_purchases_in_the_week(
     # $40 / $1.000 = 4 % = 400 puntos básicos.
     assert kpi["ratio"] == 400
     assert isinstance(kpi["ratio"], int)
+    # Informe de visualización, #14: el texto sale en es-CO («4,0 %», coma
+    # decimal y espacio fino), nunca «4.00 %» con punto inglés.
+    assert kpi["label"] == "4,0 % de las compras de la semana"
+
+
+def test_waste_kpi_label_uses_colombian_percent_format() -> None:
+    from app.core.percent import format_pct_bp
+
+    assert format_pct_bp(1234) == "12,3 %"
+    assert format_pct_bp(1250) == "12,5 %"
+    assert format_pct_bp(5) == "0,1 %"
+    assert format_pct_bp(123456) == "1.234,6 %"

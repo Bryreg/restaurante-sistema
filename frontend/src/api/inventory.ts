@@ -643,15 +643,38 @@ export interface VarianceRowOut {
   variance_pct_bp: number | null
   /** Semáforo YA CALCULADO por el servidor contra los umbrales de la sede
    * (`GET/PUT /admin/stores/{id}/inventory-settings`) — el cliente nunca
-   * compara `variance_pct_bp` contra un umbral propio. */
+   * compara `variance_pct_bp` contra un umbral propio. `red` es SÓLO
+   * faltante: un sobrante, por grande que sea, llega como mucho a `yellow`
+   * (ámbar). */
+  level: VarianceLevel
+}
+
+/** Un renglón del Pareto de varianza por insumo (ordenado por |$| desc; a
+ * igual |$|, faltante primero). Todo viene del backend: la pantalla no
+ * suma, no ordena por plata ni acumula. */
+export interface VarianceParetoRowOut {
+  ingredient_id: number
+  ingredient_name: string
+  /** Pesos enteros con signo: positivo = faltante. */
+  variance_value: number
+  /** |variance_value|, pesos enteros: el alto de la barra. */
+  abs_value: number
+  direction: "shortage" | "surplus"
+  /** |valor| ÷ Σ |valor|, puntos básicos. */
+  share_bp: number
+  /** Acumulado de |valor| hasta este renglón ÷ Σ |valor|, puntos básicos
+   * (el último da 10000). La línea del Pareto. */
+  cumulative_bp: number
   level: VarianceLevel
 }
 
 export interface VarianceOut {
-  count_id: number
+  /** `null` sólo cuando se pidió el último conteo (sin `countId`) y la sede
+   * no tiene ninguno aplicado (`available: false` con `reason`). */
+  count_id: number | null
   opening_count_id: number | null
   window_from: string | null
-  window_to: string
+  window_to: string | null
   /** `false` con `reason` cuando no hay un conteo completo/aplicado anterior
    * contra el cual comparar — nunca una lista vacía sin explicación. */
   available: boolean
@@ -659,12 +682,30 @@ export interface VarianceOut {
   rows: VarianceRowOut[]
   yellow_threshold_bp: number
   red_threshold_bp: number
+  /** El conteo aplicado más reciente de la sede (cualquier alcance), para
+   * abrir la pestaña con él sin que el dueño lo elija. `null` sin ninguno. */
+  latest_applied_count_id: number | null
+  /** Pareto por insumo: sólo renglones con varianza valorizada ≠ 0. */
+  pareto: VarianceParetoRowOut[]
+  /** Σ |valor| del Pareto, pesos; `null` sin renglones valorizados. */
+  total_abs_variance_value: number | null
+  /** Σ de faltantes (positivo), pesos; `null` sin renglones valorizados. */
+  shortage_value: number | null
+  /** Σ de sobrantes (negativo, con su signo), pesos; `null` igual. */
+  surplus_value: number | null
+  /** Σ con signo, pesos; `null` igual. */
+  net_variance_value: number | null
+  /** Renglones con varianza pero sin costo resuelto (fuera del Pareto). */
+  unvalued_rows: number
 }
 
 /** La varianza sólo existe sobre un conteo ya APLICADO
- * (`400 COUNT_NOT_APPLIED` si no). */
-export function getVariance(params: { storeId: number; countId: number }): Promise<VarianceOut> {
-  return api<VarianceOut>("/admin/variance", { query: { store_id: params.storeId, count_id: params.countId } })
+ * (`400 COUNT_NOT_APPLIED` si no). Sin `countId`, el backend usa el último
+ * conteo aplicado de la sede. */
+export function getVariance(params: { storeId: number; countId?: number | null }): Promise<VarianceOut> {
+  return api<VarianceOut>("/admin/variance", {
+    query: { store_id: params.storeId, count_id: params.countId ?? undefined },
+  })
 }
 
 export function varianceCsvUrl(params: { storeId: number; countId: number }): string {
@@ -677,10 +718,12 @@ export function varianceCsvUrl(params: { storeId: number; countId: number }): st
 
 /** `(inventario inicial + compras − final) ÷ ventas netas`, **sólo entre dos
  * conteos completos consecutivos aplicados** dentro del rango. `pct_bp` es
- * `null` con `reason` sin esos dos conteos — o con salud del control "no
- * confiable" — **jamás `0`**. Puede ser negativo (el inventario creció más
- * de lo que explican compras − ventas): `formatBasisPoints` respeta el
- * signo. */
+ * `null` con `reason` sin esos dos conteos, con salud del control "no
+ * confiable", con una ventana más corta que `min_window_days`, con compras
+ * en $0 habiendo recepciones, o si el resultado sería negativo — **jamás
+ * `0`** y ya nunca negativo. Ventas, compras e inventario usan los mismos
+ * instantes (`window_from`, `window_to`); las comandas cuentan por su hora
+ * de cobro. */
 export interface FoodCostOut {
   available: boolean
   reason: string | null
@@ -694,6 +737,25 @@ export interface FoodCostOut {
   closing_value: number | null
   net_sales: number | null
   pct_bp: number | null
+  /** Horas y días COMPLETOS de la ventana; `null` sin par de conteos. */
+  window_hours: number | null
+  window_days: number | null
+  /** Comandas cobradas en la ventana (el `n`); `null` sin par de conteos. */
+  orders_in_window: number | null
+  /** Food cost teórico de lo vendido en la misma ventana, puntos básicos
+   * (costo congelado ÷ ventas netas de lo que tiene ficha). `null` con
+   * `theoretical_reason` sin ventas, sin fichas o con cobertura bajo
+   * `min_costed_pct_bp`. */
+  theoretical_pct_bp: number | null
+  theoretical_reason: string | null
+  /** Qué parte de las ventas netas de la ventana tenía ficha con costo, bp. */
+  costed_pct_bp: number | null
+  /** `pct_bp − theoretical_pct_bp`, puntos básicos (positivo = se gastó más
+   * insumo del que explican las ventas). `null` si falta cualquiera. */
+  gap_bp: number | null
+  /** Umbrales usados: ventana mínima (días) y cobertura mínima (bp). */
+  min_window_days: number
+  min_costed_pct_bp: number
 }
 
 /** Reporte de un solo objeto, no una lista — no exporta CSV (la regla

@@ -758,6 +758,87 @@ def inventory_staleness(db: Session, *, store_id: int, cutoff_hour: int) -> Inve
 
 
 # ---------------------------------------------------------------------------
+# Food cost por VENTANA DE CONTEO — reglas compartidas por `app.inventory.
+# service.food_cost_report` (la ventana más reciente) y `app.analytics.
+# service` (salud sostenida, ventanas históricas). Viven acá, una sola vez,
+# por el mismo motivo que `INVENTORY_STALE_DAYS`: dos endpoints que publican
+# el mismo food cost no pueden tener dos umbrales ni dos redondeos.
+# ---------------------------------------------------------------------------
+
+# Ventana mínima entre dos conteos completos para publicar un food cost real:
+# 24 h. Con menos, la variación de inventario de unas horas no se compensa
+# con lo vendido en esas horas (lo sensible es cuándo se descontó el insumo
+# contra cuándo se cobró la comanda) y el porcentaje sale absurdo — el caso
+# real fue una ventana de 16 h que dio −77,75 % (informe de visualización,
+# #3). El informe sugería 3 días, pero las invariantes de conteo de
+# `tests/audit/test_counts_invariants.py` (que no se ablandan) fijan que dos
+# conteos completos a 24 h publican food cost real: un día de negocio
+# completo es el piso. Una ventana de 1-3 días se publica con `window_days`
+# al lado para que la pantalla la marque como muestra chica.
+FOOD_COST_MIN_WINDOW_HOURS = 24
+FOOD_COST_MIN_WINDOW_DAYS = FOOD_COST_MIN_WINDOW_HOURS // 24
+
+# Cobertura mínima de fichas técnicas, en bp de las ventas netas: por debajo
+# de 80 % el food cost teórico describe a una minoría de lo vendido, y la
+# brecha real − teórico mide la falta de fichas, no la fuga (informe #4).
+# Por encima, el teórico se ESCALA a la cobertura (costo teórico ÷ ventas
+# netas de lo costeado) para no inflar la brecha con lo que no tiene ficha.
+FOOD_COST_MIN_COSTED_BP = 8000
+
+
+def window_span(window_from: datetime, window_to: datetime) -> tuple[int, int]:
+    """`(horas, días)` completos entre dos instantes (truncados, nunca
+    redondeados hacia arriba: una ventana de 71 h no son 3 días)."""
+    seconds = int((window_to - window_from).total_seconds())
+    hours = max(seconds, 0) // 3600
+    return hours, hours // 24
+
+
+def window_is_too_short(window_from: datetime, window_to: datetime) -> bool:
+    return (window_to - window_from).total_seconds() < FOOD_COST_MIN_WINDOW_HOURS * 3600
+
+
+@dataclass(frozen=True)
+class TheoreticalFoodCost:
+    """Food cost TEÓRICO de lo vendido en una ventana. `pct_bp` es el costo
+    congelado de los ítems con ficha ÷ las ventas netas de ESOS MISMOS ítems
+    (escalado a la cobertura); `costed_pct_bp` es qué parte de las ventas
+    netas tenía ficha. `pct_bp` es `None` con `reason` sin ventas, sin
+    ninguna ficha, o con cobertura bajo `FOOD_COST_MIN_COSTED_BP`."""
+
+    pct_bp: int | None
+    costed_pct_bp: int | None
+    reason: str | None
+
+
+def _half_up_pos(numerator: int, denominator: int) -> int:
+    q, r = divmod(numerator, denominator)
+    return q + 1 if r * 2 >= denominator else q
+
+
+def theoretical_food_cost(*, net_sales: int, costed_net: int, theoretical_cost_micros: int | None) -> TheoreticalFoodCost:
+    from app.core.percent import format_pct_bp
+    from app.core.quantity import micros_to_pesos
+
+    if net_sales <= 0:
+        return TheoreticalFoodCost(None, None, "No hubo ventas cobradas en la ventana")
+    costed_pct_bp = _half_up_pos(max(costed_net, 0) * 10000, net_sales)
+    if theoretical_cost_micros is None or costed_net <= 0:
+        return TheoreticalFoodCost(
+            None, 0, "Ninguno de los platos vendidos en la ventana tenía ficha técnica con costo"
+        )
+    if costed_pct_bp < FOOD_COST_MIN_COSTED_BP:
+        return TheoreticalFoodCost(
+            None,
+            costed_pct_bp,
+            f"Sólo el {format_pct_bp(costed_pct_bp)} de lo vendido tiene ficha técnica con costo; "
+            f"hace falta al menos el {format_pct_bp(FOOD_COST_MIN_COSTED_BP, decimals=0)} para comparar",
+        )
+    cost_pesos = micros_to_pesos(theoretical_cost_micros)
+    return TheoreticalFoodCost(_half_up_pos(max(cost_pesos, 0) * 10000, costed_net), costed_pct_bp, None)
+
+
+# ---------------------------------------------------------------------------
 # Lecturas auxiliares para `GET /admin/today` (territorio de `app.reports`;
 # publicadas acá, mismo patrón que `low_stock_alerts`/`negative_stock_alerts`,
 # para que ese dominio no reimplemente el cálculo de estado de un lote ni el

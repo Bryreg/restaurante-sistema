@@ -384,3 +384,76 @@ def mark_platform_order_cancelled(
         reason=reason,
     )
     return order
+
+
+# ---------------------------------------------------------------------------
+# Lectura para el food cost real / teórico por VENTANA DE CONTEO
+# (`app.inventory.service.food_cost_report`, `app.analytics.service`). Sólo
+# lectura: no escribe nada, no mueve ningún estado.
+# ---------------------------------------------------------------------------
+
+
+class SalesWindow:
+    """Lo vendido en una ventana de INSTANTES `(paid_after, paid_until]`,
+    atribuido por `Order.paid_at`: una comanda cae en exactamente una
+    ventana (intervalo semiabierto), nunca en dos. Todo en pesos enteros
+    salvo `theoretical_cost_micros`, que se deja en micros para que quien
+    lo use redondee una sola vez al final (regla B-2 de `app.reports`).
+
+    - `orders`: comandas cobradas en la ventana.
+    - `net_sales`: Σ base (sin impuesto, sin propina, con descuentos) de
+      los ítems vivos — `compute_order_totals`, la única matemática de la
+      venta; es lo mismo que `total − tax_total` del documento.
+    - `costed_net`: la parte de `net_sales` que viene de ítems con costo
+      congelado (`unit_cost_micros` no nulo).
+    - `theoretical_cost_micros`: Σ `unit_cost_micros × qty` de esos ítems;
+      `None` si ninguno tenía costo (nunca `0` mudo)."""
+
+    __slots__ = ("orders", "net_sales", "costed_net", "theoretical_cost_micros")
+
+    def __init__(self, *, orders: int, net_sales: int, costed_net: int, theoretical_cost_micros: int | None) -> None:
+        self.orders = orders
+        self.net_sales = net_sales
+        self.costed_net = costed_net
+        self.theoretical_cost_micros = theoretical_cost_micros
+
+
+def sales_in_window(db: Session, *, store_id: int, paid_after: datetime, paid_until: datetime) -> SalesWindow:
+    # Import diferido a propósito: este módulo no importa `app.orders.service`
+    # a nivel de módulo (ver el docstring de arriba: evitar el ciclo con el
+    # turno). Acá sólo se LEE su matemática de totales, no se escribe nada.
+    from app.orders.service import compute_order_totals
+
+    orders = list(
+        db.execute(
+            select(Order).where(
+                Order.store_id == store_id,
+                Order.status == OrderStatus.PAID,
+                Order.paid_at.is_not(None),
+                Order.paid_at > paid_after,
+                Order.paid_at <= paid_until,
+            )
+        ).scalars()
+    )
+    net_sales = 0
+    costed_net = 0
+    cost_micros = 0
+    any_costed = False
+    for order in orders:
+        base_by_item = {lt.item_id: lt.base for lt in compute_order_totals(db, order).lines}
+        items = db.execute(
+            select(OrderItem).where(OrderItem.order_id == order.id, OrderItem.status != OrderItemStatus.VOIDED)
+        ).scalars()
+        for item in items:
+            base = base_by_item.get(item.id, 0)
+            net_sales += base
+            if item.unit_cost_micros is not None:
+                any_costed = True
+                costed_net += base
+                cost_micros += int(item.unit_cost_micros) * int(item.qty)
+    return SalesWindow(
+        orders=len(orders),
+        net_sales=net_sales,
+        costed_net=costed_net,
+        theoretical_cost_micros=cost_micros if any_costed else None,
+    )

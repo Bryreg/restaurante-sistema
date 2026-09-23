@@ -568,7 +568,7 @@ describe("TodayPage", () => {
           { ingredient_id: 2, name: "Leche entera", qty_base: -400, min_stock: 2000, base_unit: "ml", negative_since: null, probable_cause: null, amount: 1600 },
         ],
         ingredients_negative_amount: 65963,
-        ingredients_negative_uncosted: 1,
+        ingredients_negative_unvalued: 1,
       }),
     )
     renderWithProviders(<TodayPage />, { me: buildMe() })

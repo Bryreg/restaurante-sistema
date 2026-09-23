@@ -143,7 +143,7 @@ interface AttentionItem {
 function directAttentionItems(today: {
   payables_overdue_total?: number | null
   ingredients_negative_amount?: number | null
-  ingredients_negative_uncosted?: number
+  ingredients_negative_unvalued?: number
   expected_cash?: number | null
   unsent_count?: number
   unpaid_count?: number
@@ -262,7 +262,7 @@ function directAttentionItems(today: {
   if (negative.length > 0) {
     const names = negative.slice(0, 3).map((i) => i.name ?? `#${i.ingredient_id}`)
     const rest = negative.length - names.length
-    const uncostedNeg = today.ingredients_negative_uncosted ?? 0
+    const uncostedNeg = today.ingredients_negative_unvalued ?? 0
     items.push({
       key: "ingredients-negative",
       title: `${negative.length} insumo${negative.length === 1 ? "" : "s"} en negativo`,

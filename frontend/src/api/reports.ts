@@ -279,10 +279,10 @@ export interface TodayOut {
   // Revisión de datos (septiembre). Plata en juego del riel, sumada por el
   // servidor: `null` = función apagada (`payables_overdue_total`) o ningún
   // insumo en negativo con costo (`ingredients_negative_amount`, y
-  // `ingredients_negative_uncosted` dice cuántos quedaron sin valorar).
+  // `ingredients_negative_unvalued` dice cuántos quedaron sin valorar).
   payables_overdue_total?: number | null
   ingredients_negative_amount?: number | null
-  ingredients_negative_uncosted?: number
+  ingredients_negative_unvalued?: number
   /** `null` sólo si un servidor viejo no la manda. */
   comparison?: TodayComparisonOut | null
   /** Mismo día de la semana pasada, día COMPLETO, misma forma que
