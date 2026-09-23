@@ -8,6 +8,7 @@ import {
   PAYMENT_METHOD_LABEL,
   listDevicePaymentMethods,
   payOrder,
+  previewChange,
   type DevicePaymentMethod,
   type PaymentMethod,
   type PaymentOut,
@@ -135,6 +136,24 @@ export function PaymentSplitsForm({
 
   const typedTotal = sumTyped(splits.map((s) => ({ amount: s.amount })));
   const remaining = totalDue - typedTotal;
+
+  // El vuelto lo calcula el SERVIDOR (`POST /payments/change-preview`, la
+  // misma cuenta del cobro): así lo que la cajera le dice al cliente antes de
+  // cobrar es exactamente lo que queda en el comprobante. Sólo las filas de
+  // efectivo con monto y recibido.
+  const filasConRecibido = splits.filter(
+    (row) => row.method === "cash" && row.amount !== null && row.amount > 0 && row.tendered !== null,
+  );
+  const cuerpoVuelto = filasConRecibido.map((row) => ({ amount: row.amount ?? 0, tendered: row.tendered ?? 0 }));
+  const vueltoQuery = useQuery({
+    queryKey: ["payments", "change-preview", cuerpoVuelto],
+    queryFn: () => previewChange(cuerpoVuelto),
+    enabled: cuerpoVuelto.length > 0,
+    staleTime: Infinity,
+  });
+  const vueltoDeFila = new Map(
+    filasConRecibido.map((row, index) => [row.key, vueltoQuery.data?.splits[index]] as const),
+  );
 
   function updateRow(key: number, patch: Partial<SplitRow>) {
     setSplits((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
@@ -294,6 +313,7 @@ export function PaymentSplitsForm({
                     Limpiar
                   </Button>
                 </div>
+                <VueltoDeFila preview={vueltoDeFila.get(row.key)} pendiente={vueltoQuery.isFetching} />
               </div>
             ) : null}
 
@@ -327,6 +347,14 @@ export function PaymentSplitsForm({
       ) : null}
 
       <div className="flex flex-col items-center gap-3 border-t pt-4">
+        {vueltoQuery.data && vueltoQuery.data.change_total > 0 ? (
+          <p className="text-center" role="status">
+            <span className="block text-sm text-muted-foreground">Vuelto a entregar</span>
+            <span className="text-3xl font-extrabold tabular-nums" style={{ fontStretch: "115%" }}>
+              {formatCOP(vueltoQuery.data.change_total)}
+            </span>
+          </p>
+        ) : null}
         <p className="text-sm text-muted-foreground">
           {remaining !== 0 ? "Completá los pagos para poder cobrar." : "Ingresá tu PIN para cobrar."}
         </p>
@@ -346,5 +374,31 @@ export function PaymentSplitsForm({
         />
       </div>
     </div>
+  );
+}
+
+/** El vuelto de una fila de efectivo, tal como lo devolvió el servidor. */
+function VueltoDeFila({
+  preview,
+  pendiente,
+}: {
+  preview: { change: number | null; short_by: number | null } | undefined;
+  pendiente: boolean;
+}): React.JSX.Element | null {
+  if (!preview) {
+    return pendiente ? <p className="pt-1 text-sm text-muted-foreground">Calculando el vuelto…</p> : null;
+  }
+  if (preview.change === null) {
+    return (
+      <p className="pt-1 text-sm font-semibold text-destructive" role="alert">
+        Lo recibido no alcanza: faltan {formatCOP(preview.short_by)}
+      </p>
+    );
+  }
+  return (
+    <p className="flex items-baseline gap-2 pt-1">
+      <span className="text-sm text-muted-foreground">Vuelto</span>
+      <span className="text-xl font-bold tabular-nums">{formatCOP(preview.change)}</span>
+    </p>
   );
 }

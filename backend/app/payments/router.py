@@ -21,7 +21,13 @@ from app.core.errors import AppError, UnauthorizedError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.orders import service as orders_service
 from app.payments import service
-from app.payments.schemas import DevicePaymentMethodOut, DocumentPrintableOut, PaymentIn
+from app.payments.schemas import (
+    ChangePreviewIn,
+    ChangePreviewOut,
+    DevicePaymentMethodOut,
+    DocumentPrintableOut,
+    PaymentIn,
+)
 from app.shifts import service as shifts_service
 from app.stores.models import Store
 
@@ -80,6 +86,17 @@ def post_payment(
         fn=_do,
     )
     return JSONResponse(status_code=status_code, content=resp_body)
+
+
+@router.post("/payments/change-preview")
+def post_change_preview(
+    payload: ChangePreviewIn, actor: Actor = Depends(current_operator)
+) -> ChangePreviewOut:
+    """El vuelto antes de cobrar. Sólo lectura: no toca la comanda ni el
+    cajón, así que no lleva `Idempotency-Key`. Pide persona identificada como
+    el cobro, porque es parte de cobrar."""
+    del actor
+    return ChangePreviewOut.model_validate(service.preview_change(payload.splits))
 
 
 # ---------------------------------------------------------------------------

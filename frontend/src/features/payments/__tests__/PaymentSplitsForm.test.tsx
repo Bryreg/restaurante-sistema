@@ -8,11 +8,11 @@ import { PaymentSplitsForm } from "../PaymentSplitsForm";
 
 vi.mock("@/api/payments", async () => {
   const actual = await vi.importActual<typeof import("@/api/payments")>("@/api/payments");
-  return { ...actual, payOrder: vi.fn(), listDevicePaymentMethods: vi.fn() };
+  return { ...actual, payOrder: vi.fn(), listDevicePaymentMethods: vi.fn(), previewChange: vi.fn() };
 });
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const { listDevicePaymentMethods } = await import("@/api/payments");
+const { listDevicePaymentMethods, previewChange } = await import("@/api/payments");
 
 function renderForm() {
   return renderWithProviders(
@@ -138,5 +138,46 @@ describe("PaymentSplitsForm — el monto arranca con lo que hay que cobrar", () 
     // Sin más interacción, lo tecleado se queda: nada lo pisa.
     await new Promise((r) => setTimeout(r, 50));
     expect(monto.value).toBe("20000");
+  });
+});
+
+describe("PaymentSplitsForm — el vuelto antes de cobrar", () => {
+  it("pinta el vuelto que calcula el servidor, sin hacer la cuenta en la pantalla", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue([
+      { code: "cash", label: "Efectivo", dian_code: "10", requires_reference: false },
+    ]);
+    // Un valor que la pantalla NO podría inventar restando (100.000 − 50.000
+    // sería 50.000): si aparece 7.777 es porque se pinta lo que dijo el servidor.
+    vi.mocked(previewChange).mockResolvedValue({
+      splits: [{ change: 7777, short_by: null }],
+      change_total: 7777,
+    });
+
+    renderForm();
+    await screen.findByText("Pagos");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "+$ 100.000" }));
+
+    await waitFor(() => expect(previewChange).toHaveBeenCalledWith([{ amount: 50000, tendered: 100000 }]));
+    expect(await screen.findByText("Vuelto a entregar")).toBeInTheDocument();
+    expect(screen.getAllByText("$ 7.777").length).toBeGreaterThan(0);
+  });
+
+  it("si lo recibido no alcanza lo dice, en vez de un vuelto de cero", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue([
+      { code: "cash", label: "Efectivo", dian_code: "10", requires_reference: false },
+    ]);
+    vi.mocked(previewChange).mockResolvedValue({
+      splits: [{ change: null, short_by: 30000 }],
+      change_total: 0,
+    });
+
+    renderForm();
+    await screen.findByText("Pagos");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "+$ 20.000" }));
+
+    expect(await screen.findByText(/lo recibido no alcanza: faltan \$ 30\.000/i)).toBeInTheDocument();
+    expect(screen.queryByText("Vuelto a entregar")).not.toBeInTheDocument();
   });
 });

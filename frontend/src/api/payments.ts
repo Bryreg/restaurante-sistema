@@ -152,3 +152,23 @@ export interface PaymentOut {
 export function payOrder(orderId: number, body: PaymentIn, idempotencyKey: string): Promise<PaymentOut> {
   return api<PaymentOut>(`/orders/${orderId}/payments`, { method: "POST", body, idempotencyKey });
 }
+
+/**
+ * El vuelto ANTES de cobrar (`POST /payments/change-preview`): la caja lo
+ * pide mientras teclea lo recibido, para decírselo al cliente. La cuenta la
+ * hace el servidor con la misma función del cobro; esta pantalla sólo la
+ * pinta. `change: null` = lo recibido no alcanza (no es un vuelto de 0).
+ */
+export interface ChangePreviewSplit {
+  change: number | null;
+  short_by: number | null;
+}
+
+export interface ChangePreviewOut {
+  splits: ChangePreviewSplit[];
+  change_total: number;
+}
+
+export function previewChange(splits: { amount: number; tendered: number }[]): Promise<ChangePreviewOut> {
+  return api<ChangePreviewOut>("/payments/change-preview", { method: "POST", body: { splits } });
+}
