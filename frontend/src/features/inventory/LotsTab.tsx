@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errorMessage } from "@/lib/errors"
+import { formatCantidad } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 import { LOT_STATUS_LABEL } from "./lib"
@@ -116,7 +117,7 @@ export function LotsTab({
       kind: "number",
       cell: (l) => {
         const unit = unitByIngredient.get(l.ingredient_id)
-        return `${l.qty_remaining} ${unit ? (UNIT_LABEL[unit] ?? unit) : ""}`.trim()
+        return formatCantidad(l.qty_remaining, unit ? (UNIT_LABEL[unit] ?? unit) : "")
       },
     },
     {

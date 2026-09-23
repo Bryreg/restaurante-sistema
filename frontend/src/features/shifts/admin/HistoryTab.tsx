@@ -13,9 +13,15 @@ import { formatBusinessDate } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 
 import { SHIFT_LEGEND, shiftColumns } from "./OperationalTab";
+import { CashSummary } from "./CashSummary";
 import { ShiftDetailDialog } from "./ShiftDetailDialog";
 
-/** Dinero → Historial: `GET /admin/shifts?from&to&store_id`, con exportar CSV. */
+/**
+ * Dinero → Historial: `GET /admin/shifts?from&to&store_id`, con exportar CSV.
+ * Arriba, la respuesta a «¿la caja cuadra?» (`CashSummary`, con los mismos
+ * filtros): cuántos cierres con faltante y por cuánto, por día y por
+ * responsable (informe de visualización #10).
+ */
 export function HistoryTab({ storeId }: { storeId: number }): React.JSX.Element {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -45,6 +51,8 @@ export function HistoryTab({ storeId }: { storeId: number }): React.JSX.Element 
           <Input id="history-to" type="date" className="h-10" value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
       </div>
+
+      <CashSummary filters={filters} />
 
       {query.isLoading ? (
         <Cargando texto="Cargando historial…" />

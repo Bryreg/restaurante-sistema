@@ -234,13 +234,14 @@ def post_cancel_obligation(
 
 
 # ---------------------------------------------------------------------------
-# Configuración (costos fijos) — no está en el contrato mínimo, agregada
-# porque `GET /admin/break-even` la necesita para publicar `fixed_costs` (ver
-# entregable de este agente).
+# Configuración (costos fijos) — OBSOLETA para el cálculo: el punto de
+# equilibrio usa los costos fijos registrados (`service.compute_fixed_costs`),
+# no este número escrito a mano. Las dos rutas siguen vivas (sin migración, y
+# la pantalla vieja todavía las llama), marcadas `deprecated` en el OpenAPI.
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/expenses/settings")
+@router.get("/admin/expenses/settings", deprecated=True)
 def get_settings(
     store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
 ) -> ExpensesSettingsOut:
@@ -251,7 +252,7 @@ def get_settings(
     return ExpensesSettingsOut.model_validate(row)
 
 
-@router.patch("/admin/expenses/settings")
+@router.patch("/admin/expenses/settings", deprecated=True)
 def patch_settings(
     payload: ExpensesSettingsIn,
     store_id: int,
@@ -277,17 +278,7 @@ def get_break_even(
     db: Session = Depends(get_db),
 ) -> BreakEvenOut:
     store = admin_store(db, actor, store_id)
-    result = service.compute_break_even(db, store=store, date_from=date_from, date_to=date_to)
-    return BreakEvenOut(
-        store_id=store.id,
-        date_from=date_from,
-        date_to=date_to,
-        fixed_costs=result.fixed_costs,
-        contribution_margin_pct_bp=result.contribution_margin_pct_bp,
-        break_even_amount=result.break_even_amount,
-        available=result.available,
-        reason=result.reason,
-    )
+    return service.compute_break_even(db, store=store, date_from=date_from, date_to=date_to)
 
 
 @router.get("/admin/profit")
@@ -299,18 +290,4 @@ def get_profit(
     db: Session = Depends(get_db),
 ) -> ProfitOut:
     store = admin_store(db, actor, store_id)
-    result = service.compute_profit(db, store=store, date_from=date_from, date_to=date_to)
-    return ProfitOut(
-        store_id=store.id,
-        date_from=date_from,
-        date_to=date_to,
-        net_sales=result.net_sales,
-        cost=result.cost,
-        expenses=result.expenses,
-        obligations=result.obligations,
-        payroll=result.payroll,
-        payroll_reason=result.payroll_reason,
-        profit=result.profit,
-        available=result.available,
-        reason=result.reason,
-    )
+    return service.compute_profit(db, store=store, date_from=date_from, date_to=date_to)

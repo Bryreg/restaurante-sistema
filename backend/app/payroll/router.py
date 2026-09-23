@@ -179,6 +179,7 @@ def _run_out(db: Session, run: Any) -> PayrollRunOut:
         reason=run.reason,
         computed_at=run.computed_at,
         computed_by_employee_name=run.computed_by_employee_name,
+        **service.run_comparison(db, run),
     )
 
 
@@ -373,6 +374,7 @@ def list_runs(
             available=r.all_available,
             reason=r.reason,
             computed_at=r.computed_at,
+            **service.run_comparison(db, r),
         )
         for r in rows
     ]
@@ -380,8 +382,19 @@ def list_runs(
 
 @router.get("/admin/payroll/runs/{run_id}", dependencies=[Depends(require_feature("payroll"))])
 def get_run(
-    run_id: int, store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+    run_id: int, store_id: int | None = None, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
 ) -> PayrollRunOut:
+    """`store_id` es opcional: `getPayrollRun(runId)` del cliente nunca lo
+    mandó y la ruta respondía 422. Sin él, la sede sale de la liquidación
+    misma y `admin_store` sigue validando que el admin la pueda ver (404,
+    nunca 403, igual que con `store_id`)."""
+    if store_id is None:
+        from app.payroll.models import PayrollRun
+
+        found = db.get(PayrollRun, run_id)
+        if found is None or found.organization_id != actor.organization_id:
+            raise AppError("NOT_FOUND", f"La liquidación {run_id} no existe en esta sede", status=404)
+        store_id = found.store_id
     store = admin_store(db, actor, store_id)
     run = service.get_run(db, store_id=store.id, run_id=run_id)
     return _run_out(db, run)

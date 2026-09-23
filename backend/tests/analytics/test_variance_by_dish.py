@@ -73,6 +73,69 @@ def test_variance_by_dish_declares_the_prorated_method_and_distributes_by_theore
     assert rows_by_product[second_product.id]["variance_value"] == 100
     assert rows_by_product[main_product.id]["theoretical_consumption_share_bp"] == 6667
     assert body["unattributed_variance_value"] == 0
+    # Faltantes primero, por |valor|; tamaño de muestra a la vista (informe #8).
+    assert [r["product_id"] for r in body["rows"]] == [main_product.id, second_product.id]
+    assert all(r["direction"] == "shortage" for r in body["rows"])
+    assert (body["window_hours"], body["window_days"], body["sales_in_window"]) == (48, 2, 2)
+    assert body["insufficient_sample"] is True
+    assert "48 h" in body["insufficient_sample_reason"] and "2 comandas" in body["insufficient_sample_reason"]
+
+
+def test_variance_by_dish_weight_is_homogeneous_in_pesos_not_mixed_units(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Any,
+    store: Store,
+    employees: dict[str, Employee],
+    clock: Any,
+    open_shift: Any,
+    enable_analytics: Callable[[], None],
+    create_ingredient: Callable[..., dict[str, Any]],
+    apply_full_count: Callable[..., dict[str, Any]],
+    main_product: Any,
+    second_product: Any,
+    set_recipe: Callable[..., Any],
+    sell: Callable[..., Any],
+) -> None:
+    """Informe #8: Bandeja gasta 1.000 g de papa ($1/g = $1.000); Sancocho
+    gasta 1 gaseosa ($2.000). Sumando cantidades crudas, la Bandeja pesaba
+    99,9 % (1.000 g contra 1 unidad); en pesos pesa 1/3."""
+    enable_analytics()
+    papa = create_ingredient(name="Papa", official_cost="1", min_stock="1")
+    gaseosa = create_ingredient(
+        name="Gaseosa", base_unit="unit", purchase_unit="unit", purchase_factor=1, official_cost="2000", min_stock="1"
+    )
+    set_recipe(main_product.id, lines=[{"ingredient_id": papa["id"], "qty": "1000", "unit": "g"}])
+    set_recipe(second_product.id, lines=[{"ingredient_id": gaseosa["id"], "qty": "1", "unit": "unit"}])
+
+    base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    open_shift()
+    clock.set(_noon_utc(0, base=base))
+    apply_full_count({papa["id"]: "10000", gaseosa["id"]: "10"})
+    clock.set(_noon_utc(1, base=base))
+    identify(device_client, employees["cashier"])
+    sell(main_product, qty=1)
+    identify(device_client, employees["cashier"])
+    sell(second_product, qty=1)
+    clock.set(_noon_utc(4, base=base))
+    # Papa: 10.000 − 1.000 − 100 de fuga = 8.900 ($100 de faltante).
+    # Gaseosa: 10 − 1 − 1 de fuga = 8 ($2.000 de faltante).
+    closing = apply_full_count({papa["id"]: "8900", gaseosa["id"]: "8"})
+
+    body = admin_client.get(
+        "/api/v1/admin/variance/by-dish", params={"store_id": store.id, "count_id": closing["id"]}
+    ).json()
+    assert body["total_variance_value"] == 2100
+    assert [r["product_id"] for r in body["rows"]] == [second_product.id, main_product.id]
+    rows = {r["product_id"]: r for r in body["rows"]}
+    assert rows[second_product.id]["variance_value"] == 2000
+    assert rows[main_product.id]["variance_value"] == 100
+    # Peso = costo teórico consumido: $2.000 vs $1.000 → 6667 / 3333.
+    assert rows[second_product.id]["theoretical_consumption_share_bp"] == 6667
+    assert rows[main_product.id]["theoretical_consumption_share_bp"] == 3333
+    assert (body["window_days"], body["sales_in_window"]) == (4, 2)
+    assert body["insufficient_sample"] is True  # 2 comandas < 20
+    assert "48 h" not in body["insufficient_sample_reason"]
 
 
 def test_variance_by_dish_without_a_previous_count_is_unavailable_with_a_reason(

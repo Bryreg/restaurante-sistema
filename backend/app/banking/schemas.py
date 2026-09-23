@@ -160,6 +160,11 @@ class OwnerHandOut(BaseModel):
     # cuentan como salidos de la mano —el sesgo que muestra menos plata— y el
     # conteo se publica para que esa suposición esté a la vista.
     tip_payouts_unknown_source: int
+    # Informe de visualización #15: fecha de negocio del cierre contado más
+    # viejo que todavía tiene saldo por consignar, y cuántos días lleva a
+    # hoy. `None` (los dos) si no queda plata de cierres sin consignar.
+    oldest_undeposited_date: date | None = None
+    oldest_undeposited_days: int | None = None
 
 
 # ---------------------------------------------------------------------------

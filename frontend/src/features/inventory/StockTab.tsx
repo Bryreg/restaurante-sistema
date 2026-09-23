@@ -18,6 +18,7 @@ import { EmptyState } from "@/components/EmptyState"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { errorMessage } from "@/lib/errors"
+import { formatCantidad } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 const UNIT_LABEL: Record<string, string> = { g: "g", ml: "ml", unit: "unidad" }
@@ -214,7 +215,7 @@ export function StockTab({
       // es el dato que la fila vino a denunciar.
       cell: (row) => (
         <span className={cn(row.negative && "font-bold text-destructive")}>
-          {row.qty_base} {unit(row)}
+          {formatCantidad(row.qty_base, unit(row))}
         </span>
       ),
     },
@@ -222,7 +223,7 @@ export function StockTab({
       key: "min",
       header: "Mínimo",
       kind: "number",
-      cell: (row) => `${row.min_stock} ${unit(row)}`,
+      cell: (row) => formatCantidad(row.min_stock, unit(row)),
     },
     {
       key: "status",

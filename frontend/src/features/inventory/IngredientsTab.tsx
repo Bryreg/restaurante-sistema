@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { errorMessage } from "@/lib/errors"
+import { formatCantidad } from "@/lib/format"
 
 import { formValuesToIngredientIn, formValuesToIngredientUpdateIn, IngredientForm } from "./IngredientForm"
 
@@ -180,13 +181,13 @@ export function IngredientsTab({ storeId }: { storeId: number }): React.JSX.Elem
       key: "yield",
       header: "Rendimiento",
       kind: "number",
-      cell: (i) => `${i.yield_pct} %`,
+      cell: (i) => formatCantidad(i.yield_pct, "%"),
     },
     {
       key: "min",
       header: "Mínimo",
       kind: "number",
-      cell: (i) => `${i.min_stock} ${UNIT_LABEL[i.base_unit] ?? i.base_unit}`,
+      cell: (i) => formatCantidad(i.min_stock, UNIT_LABEL[i.base_unit] ?? i.base_unit),
     },
     {
       key: "cost",

@@ -410,6 +410,50 @@ class AdminShiftListItem(BaseModel):
     reviewed_at: datetime | None = None
 
 
+class CashSummaryPersonOut(BaseModel):
+    employee_id: int
+    name: str
+    # Cierres CONTADOS con esta persona como responsable de caja.
+    closes: int
+    # Σ diferencias, con signo (negativo = faltante), en pesos.
+    diff_total: int
+    shortage_count: int
+    overage_count: int
+    # Racha actual (misma regla del aviso «Racha de diferencias de caja»).
+    current_streak: int
+
+
+class CashSummaryDayOut(BaseModel):
+    business_date: date
+    closes: int
+    diff_total: int
+
+
+class ShiftCashSummaryOut(BaseModel):
+    """`GET /admin/shifts/summary`: la cabecera de Dinero › Historial. Toda
+    cifra de plata es con signo (negativo = faltante) y sólo de cierres
+    contados; los administrativos van en `uncounted_count`, nunca como $0."""
+
+    store_id: int
+    date_from: date | None
+    date_to: date | None
+    closed_count: int
+    counted_count: int
+    uncounted_count: int
+    diff_total: int
+    shortage_total: int
+    overage_total: int
+    shortage_count: int
+    overage_count: int
+    exact_count: int
+    # Tolerancia de la sede (`tolerance_unknown_cause`), en pesos.
+    tolerance: int
+    beyond_tolerance_count: int
+    # Ordenado por `diff_total` ascendente: el faltante más grande primero.
+    by_person: list[CashSummaryPersonOut]
+    by_day: list[CashSummaryDayOut]
+
+
 class TimelineEventOut(BaseModel):
     at: datetime
     kind: str

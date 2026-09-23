@@ -606,3 +606,16 @@ def open_shift_ids_query(store_id: int) -> Select[tuple[int]]:
     from app.shifts.models import Shift, ShiftStatus
 
     return select(Shift.id).where(Shift.store_id == store_id, Shift.status == ShiftStatus.OPEN)
+
+
+def difference_streak(db: Session, *, store_id: int, employee_id: int) -> int:
+    """La racha actual de diferencias de caja de una persona (cierres
+    contados seguidos por fuera de la tolerancia de la sede; un cierre sin
+    conteo ni suma ni corta). Es LA regla del aviso «Racha de diferencias de
+    caja»: quien muestre una racha la pide acá en vez de recontarla.
+
+    Import perezoso de `service`: este módulo no puede importarlo arriba
+    (ver docstring)."""
+    from app.shifts import service
+
+    return service.current_difference_streak(db, store_id=store_id, employee_id=employee_id)

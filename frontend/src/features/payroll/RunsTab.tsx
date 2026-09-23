@@ -18,7 +18,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { createPayrollRun, getPayrollRun, getPayrollRuns, type PayrollRunLineOut } from "@/api/payroll"
+import {
+  createPayrollRun,
+  getPayrollRun,
+  getPayrollRuns,
+  type PayrollRunComparison,
+  type PayrollRunLineOut,
+} from "@/api/payroll"
 import { Cargando } from "@/components/Cargando"
 import { DenseTable, DenseTableBar, GroupLabel, type DenseColumn } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
@@ -28,11 +34,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
+import { formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
+import { formatDelta, formatRangoCorto } from "@/features/reports/lib"
 
 import { formatBasisPoints } from "@/features/inventory/lib"
 
-import { daysAgoLocal, todayLocal } from "./lib"
+import { daysAgoLocal, runsHeadline, todayLocal } from "./lib"
 
 const RUN_LINE_COLUMNS: readonly DenseColumn<PayrollRunLineOut>[] = [
   { key: "person", header: "Persona", kind: "name", cell: (l) => l.employee_name ?? `#${l.employee_id}` },
@@ -55,6 +63,55 @@ const RUN_LINE_COLUMNS: readonly DenseColumn<PayrollRunLineOut>[] = [
     cellTitle: (l) => (l.total === null ? (l.pay_reason ?? undefined) : undefined),
   },
 ]
+
+/**
+ * La liquidación en contexto (informe de visualización #14): qué parte de la
+ * venta del mismo período se lleva, y cómo quedó contra la liquidación
+ * anterior. Las dos cifras las calcula el backend (`payroll_pct_of_sales_bp`,
+ * `delta_bp`); sin dato, su motivo.
+ */
+function RunContext({ run }: { run: PayrollRunComparison }): React.JSX.Element {
+  const pct = run.payroll_pct_of_sales_bp ?? null
+  const delta = formatDelta(run.delta_bp)
+  const anterior =
+    run.previous_date_from && run.previous_date_to ? formatRangoCorto(run.previous_date_from, run.previous_date_to) : null
+  return (
+    <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+      <div className="min-w-0">
+        <dt className="text-xs text-muted-foreground">De la venta del período</dt>
+        <dd data-testid="payroll-pct">
+          {pct === null ? (
+            <SinDato motivo={run.payroll_pct_reason ?? null} />
+          ) : (
+            <>
+              <span className="font-semibold">{formatPct(pct)}</span>
+              {run.net_sales !== null && run.net_sales !== undefined ? (
+                <span className="text-muted-foreground"> de {formatCOP(run.net_sales)} vendidos</span>
+              ) : null}
+            </>
+          )}
+        </dd>
+      </div>
+      <div className="min-w-0">
+        <dt className="text-xs text-muted-foreground">Contra la liquidación anterior</dt>
+        <dd data-testid="payroll-delta">
+          {delta === null ? (
+            <SinDato motivo={run.previous_reason ?? null} />
+          ) : (
+            <>
+              <span className="font-semibold">{delta}</span>
+              <span className="text-muted-foreground">
+                {" "}
+                · antes {formatCOP(run.previous_total ?? null)}
+                {anterior ? ` (${anterior})` : ""}
+              </span>
+            </>
+          )}
+        </dd>
+      </div>
+    </dl>
+  )
+}
 
 function RunDetail({ runId }: { runId: number }): React.JSX.Element {
   // El detalle vive en su propia ruta y se pide sólo al desplegarlo: el
@@ -187,6 +244,11 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
       ) : (
         <GroupLabel label="Liquidado" says="ya calculado y guardado: queda como constancia de con qué tabla se hizo">
         <div className="space-y-3">
+          {runsHeadline(query.data ?? []) ? (
+            <h3 data-testid="runs-headline" className="text-lg leading-snug font-semibold">
+              {runsHeadline(query.data ?? [])}
+            </h3>
+          ) : null}
           {(query.data ?? []).map((run) => (
             <div key={run.id} className="rounded-lg border p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -200,6 +262,7 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground">{formatBusinessDate(run.date_from)} – {formatBusinessDate(run.date_to)}</p>
+                  {run.available ? <RunContext run={run} /> : null}
                 </div>
                 <Button type="button" variant="outline" size="sm" onClick={() => setExpandedId(expandedId === run.id ? null : run.id)}>
                   {expandedId === run.id ? "Ocultar detalle" : "Ver detalle"}

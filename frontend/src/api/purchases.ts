@@ -62,17 +62,72 @@ export interface SupplierOut {
   active: boolean
 }
 
-/** `null` en cualquier campo cuando no hay recepciones en el rango — "sin
- * datos", nunca `0` (AGENTS.md § "null no es 0"). Los tres porcentajes ya
- * vienen resueltos como enteros (puntos porcentuales), no se recalculan acá. */
+/** Confiabilidad de UN insumo con UN proveedor en el período (informe
+ * científico #5). Por insumo porque sólo dentro de un insumo las cantidades
+ * están en la misma unidad. Porcentajes en puntos básicos (10.000 = 100 %). */
+export interface IngredientReliabilityOut {
+  ingredient_id: number
+  name: string
+  base_unit: string
+  n_receptions: number
+  /** Recibido ÷ facturado de este insumo; `null` sin cantidad facturada. */
+  received_over_invoiced_bp: number | null
+  /** Deriva de precio CON SIGNO (+ subió, − bajó): mediana ponderada por
+   * plata de cada línea contra la línea anterior del mismo insumo y proveedor
+   * (aunque sea de antes del período). `null` si no hay contra qué medir. */
+  price_drift_bp: number | null
+  n_price_comparisons: number
+  /** Plata del insumo en el período (pesos, sin impuesto). */
+  spend: number
+}
+
+/** `null` en cualquier indicador cuando no hay recepciones en el rango —
+ * "sin datos", nunca `0` (AGENTS.md § "null no es 0"). Todo viene resuelto
+ * del servidor; no se recalcula acá. */
 export interface SupplierReliabilityOut {
   supplier_id: number
   date_from: string
   date_to: string
   receptions: number
+  /** Compatibilidad: por ciento entero, redondeado de los `_bp`. `avg_price_drift_pct` ahora tiene signo. */
   received_over_invoiced_pct: number | null
   invoice_share_pct: number | null
   avg_price_drift_pct: number | null
+  /** Resumen del proveedor: mediana ponderada por plata de los valores por
+   * insumo. El servidor siempre los manda; son optativos sólo para no romper
+   * los dobles de prueba escritos antes de que existieran. */
+  received_over_invoiced_bp?: number | null
+  invoice_share_bp?: number | null
+  price_drift_bp?: number | null
+  n_receptions?: number
+  n_ingredients?: number
+  spend?: number
+  /** Ordenados por plata, el que más pesa primero. */
+  ingredients?: IngredientReliabilityOut[]
+}
+
+export interface SupplierReliabilityRowOut extends SupplierReliabilityOut {
+  name: string
+  active: boolean
+}
+
+/** `GET /admin/suppliers/reliability`: todos los proveedores de la sede de
+ * una vez, ordenados por nombre (los sin recepciones, con indicadores `null`). */
+export interface SuppliersReliabilityOut {
+  store_id: number
+  date_from: string
+  date_to: string
+  rows: SupplierReliabilityRowOut[]
+}
+
+export function getSuppliersReliability(params: {
+  storeId: number
+  from: string
+  to: string
+}): Promise<SuppliersReliabilityOut> {
+  return api<SuppliersReliabilityOut>("/admin/suppliers/reliability", {
+    query: { store_id: params.storeId, from: params.from, to: params.to },
+  })
 }
 
 export function listSuppliers(storeId: number, params: { active?: boolean } = {}): Promise<SupplierOut[]> {
@@ -314,6 +369,33 @@ export function listPayables(params: PayablesQuery): Promise<PayableOut[]> {
       to: params.to,
     },
   })
+}
+
+/** Tramo de antigüedad: `current` = todavía no vence (incluye las que vencen
+ * hoy); los demás, días de vencida desde `due_date`. */
+export type PayablesAgingBucket = "current" | "1_30" | "31_60" | "over_60"
+
+/** `GET /admin/payables/summary` (informe de visualización #8). Plata en
+ * pesos, saldos vivos (monto − pagos no anulados) de cuentas no canceladas;
+ * incluye las `pending_review`. «Vencida» es la misma regla que
+ * `PayableOut.overdue`. */
+export interface PayablesSummaryOut {
+  store_id: number
+  as_of: string
+  total_open: number
+  total_overdue: number
+  /** Saldo de las que vencen entre hoy y hoy + 7 días. */
+  due_next_7_days: number
+  open_count: number
+  overdue_count: number
+  /** Siempre los cuatro tramos, en orden, aunque estén en cero. */
+  aging: { bucket: PayablesAgingBucket; amount: number; count: number }[]
+  /** Ordenado por `open` descendente. */
+  by_supplier: { supplier_id: number; name: string; open: number; overdue: number }[]
+}
+
+export function getPayablesSummary(storeId: number): Promise<PayablesSummaryOut> {
+  return api<PayablesSummaryOut>("/admin/payables/summary", { query: { store_id: storeId } })
 }
 
 export function payablesCsvUrl(params: PayablesQuery): string {

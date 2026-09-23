@@ -89,11 +89,18 @@ def get_menu_engineering(
     store_id: int = Query(...),
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    # Opcional: sólo los platos de esa categoría, con los umbrales
+    # calculados dentro de ella (comparar bebidas contra fuertes no dice nada).
+    category_id: int | None = Query(default=None),
+    # Mínimo de unidades vendidas para clasificar un plato (muestra chica).
+    min_units: int = Query(default=service.MENU_MIN_UNITS_DEFAULT, ge=1, le=100_000),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> MenuEngineeringOut:
     store = admin_store(db, actor, store_id)
-    return service.menu_engineering(db, store=store, date_from=date_from, date_to=date_to)
+    return service.menu_engineering(
+        db, store=store, date_from=date_from, date_to=date_to, category_id=category_id, min_units=min_units
+    )
 
 
 @router.get("/admin/variance/by-dish", dependencies=[Depends(require_feature("inventory.variance"))])

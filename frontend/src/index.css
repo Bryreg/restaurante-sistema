@@ -291,6 +291,13 @@ html.oficina {
   body {
     @apply bg-background text-foreground;
     }
+  /* El navegador centra el `<th>` por defecto, y Tailwind no lo resetea: la
+     cabecera de una columna de texto quedaba al medio y sus datos a la
+     izquierda, corridos del título. Toda cabecera arranca donde arrancan sus
+     datos; las de cifras se alinean a la derecha con su propia clase o estilo. */
+  th {
+    text-align: start;
+    }
   html {
     @apply font-sans;
     }
@@ -361,4 +368,49 @@ html.oficina {
   color: var(--muted-foreground);
   font-style: italic;
   border-radius: calc(var(--radius) - 2px);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   TINTA DE DATOS (`src/components/charts`). Paleta validada con
+   `validate_palette.js` (guía de visualización): categórica clara sobre
+   #FFFFFF y oscura sobre #18221D/#1B2622 pasan banda, croma, CVD (peor par
+   adyacente ΔE 9,2 / 9,4) y visión normal (16,7 / 16,6). En claro, aqua y
+   magenta quedan bajo 3:1: por eso todo gráfico lleva etiqueta directa o su
+   tabla gemela.
+
+   · `--data-1..5`  categórica en ORDEN FIJO (el orden es el mecanismo de
+     seguridad para daltonismo: nunca se cicla ni se reordena por puesto).
+   · `--data-ink`   tinta de una sola serie (= data-1). El AÑIL (`--primary`)
+     NUNCA es dato: es la voz de «actuá acá».
+   · `--data-muted` gris de referencia (promedio, semana pasada, «otros»).
+   · `--diverge-*`  polaridad: faltante (rojo, el mismo del ▼) / sobrante
+     (ámbar) con gris neutro al medio. Siempre con ▲/▼ y la cifra con signo:
+     en oscuro el ámbar queda apenas fuera de la banda categórica, que para
+     un polo divergente es orientativa.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+    --data-1: #3a8fc7;
+    --data-2: #eb6834;
+    --data-3: #1baf7a;
+    --data-4: #9d5bb0;
+    --data-5: #e87ba4;
+    --data-ink: var(--data-1);
+    --data-muted: #8C9993;
+    --diverge-falta: #C4302B;
+    --diverge-sobra: #d9a54a;
+    --diverge-mid: #E8ECE6;
+}
+.dark,
+html.salon.salon-oscuro,
+html.salon.cocina {
+    --data-1: #3a8fc7;
+    --data-2: #d95926;
+    --data-3: #199e70;
+    --data-4: #9d6fe0;
+    --data-5: #e0608f;
+    --data-ink: var(--data-1);
+    --data-muted: #7D8A84;
+    --diverge-falta: #e5534b;
+    --diverge-sobra: #d9a54a;
+    --diverge-mid: #383835;
 }

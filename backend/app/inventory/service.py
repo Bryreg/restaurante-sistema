@@ -21,6 +21,7 @@ from app.auth.models import Employee
 from app.core import clock, features, tz
 from app.core.errors import AppError, NotFoundError
 from app.core.modules import find_spec_safe
+from app.core.percent import format_pct_bp
 from app.core.quantity import (
     format_cost_micros,
     format_qty_base,
@@ -67,6 +68,7 @@ from app.inventory.schemas import (
     StockMovementOut,
     StockRowOut,
     VarianceOut,
+    VarianceParetoRowOut,
     VarianceRowOut,
     WasteAdminOut,
     WasteIn,
@@ -648,10 +650,10 @@ def weekly_waste_kpi(db: Session, *, store: Store, business_date: date) -> Waste
     if purchases_pesos <= 0:
         return WasteKpiOut(ratio=None, label="sin datos")
     ratio_bp = (waste_pesos * 10000 + purchases_pesos // 2) // purchases_pesos
-    # Formateo sin `float`: `ratio_bp` son puntos básicos (1 % == 100); se
-    # arma el texto a mano, mismo estilo que `format_cost_micros`.
-    whole_pct, frac_bp = divmod(ratio_bp, 100)
-    label = f"{whole_pct}.{frac_bp:02d} % de las compras de la semana"
+    # Formateo sin `float` y en es-CO («12,3 %», nunca el «12.34 %» inglés
+    # que salía antes — informe de visualización, hallazgo 14): el mismo
+    # formateador que espeja `formatPct` del frontend.
+    label = f"{format_pct_bp(ratio_bp)} de las compras de la semana"
     return WasteKpiOut(ratio=ratio_bp, label=label)
 
 
@@ -1241,15 +1243,104 @@ def _variance_level(
     return "red"
 
 
-def variance_report(db: Session, *, store: Store, count_id: int) -> VarianceOut:
+def _signed_variance_level(
+    *, pct_bp: int | None, theoretical: int, variance_qty: int, settings: StoreInventorySettings
+) -> str:
+    """El semáforo que publica `variance_report`: `_variance_level` (que
+    queda INTACTO — `tests/audit/test_contract_fase3_invariants.py` fija su
+    lógica) más el signo. Informe de visualización, #9: `pct_bp` es
+    |varianza| ÷ teórico, así que un SOBRANTE grande (papa criolla,
+    −1.222 g) salía rojo. El rojo es sólo para faltante (plata que se fue);
+    un sobrante grande es un error de conteo o de receta del otro signo:
+    ámbar (`yellow`), igual que la rama `theoretical == 0` de ese semáforo."""
+    level = _variance_level(pct_bp=pct_bp, theoretical=theoretical, variance_qty=variance_qty, settings=settings)
+    if level == "red" and variance_qty < 0:
+        return "yellow"
+    return level
+
+
+def _latest_applied_count(db: Session, *, store_id: int) -> StockCount | None:
+    stmt = (
+        select(StockCount)
+        .where(StockCount.store_id == store_id, StockCount.status == StockCountStatus.APPLIED)
+        .order_by(StockCount.opened_at.desc(), StockCount.id.desc())
+        .limit(1)
+    )
+    return db.execute(stmt).scalars().first()
+
+
+def _variance_pareto(rows: list[VarianceRowOut]) -> dict[str, Any]:
+    """Pareto de varianza por insumo sobre los renglones ya calculados: |$|
+    desc (a igual |$|, faltante primero y después por id), participación y
+    acumulado en bp sobre Σ |$|. El acumulado se redondea sobre la suma
+    parcial (nunca sumando participaciones ya redondeadas), así el último
+    renglón da 10000 exacto."""
+    valued = [r for r in rows if r.variance_value is not None and r.variance_value != 0]
+    unvalued = sum(1 for r in rows if r.variance_value is None)
+    if not valued:
+        return {
+            "pareto": [], "total_abs_variance_value": None, "shortage_value": None,
+            "surplus_value": None, "net_variance_value": None, "unvalued_rows": unvalued,
+        }
+    ordered = sorted(
+        valued, key=lambda r: (-abs(r.variance_value or 0), 0 if (r.variance_value or 0) > 0 else 1, r.ingredient_id)
+    )
+    total_abs = sum(abs(r.variance_value or 0) for r in ordered)
+    pareto: list[VarianceParetoRowOut] = []
+    running = 0
+    for r in ordered:
+        value = r.variance_value or 0
+        running += abs(value)
+        pareto.append(
+            VarianceParetoRowOut(
+                ingredient_id=r.ingredient_id,
+                ingredient_name=r.ingredient_name,
+                variance_value=value,
+                abs_value=abs(value),
+                direction="shortage" if value > 0 else "surplus",
+                share_bp=(abs(value) * 10000 + total_abs // 2) // total_abs,
+                cumulative_bp=(running * 10000 + total_abs // 2) // total_abs,
+                level=r.level,
+            )
+        )
+    return {
+        "pareto": pareto,
+        "total_abs_variance_value": total_abs,
+        "shortage_value": sum(r.variance_value or 0 for r in ordered if (r.variance_value or 0) > 0),
+        "surplus_value": sum(r.variance_value or 0 for r in ordered if (r.variance_value or 0) < 0),
+        "net_variance_value": sum(r.variance_value or 0 for r in ordered),
+        "unvalued_rows": unvalued,
+    }
+
+
+def variance_report(db: Session, *, store: Store, count_id: int | None) -> VarianceOut:
     """`GET /admin/variance?count_id`. Identidad `inicial + entradas - final
     = uso real`, contra el uso teórico que ya está en el libro
     (`cause=SALE` + `cause=PRODUCTION_OUT`, SPEC-NEGOCIO §5.3). `entradas`
     EXCLUYE `count_adjustment` a propósito: el ajuste del conteo ANTERIOR ya
     quedó absorbido en `inicial` (que es el valor CONTADO, no el del libro),
-    así que sumarlo de nuevo acá lo contaría dos veces."""
-    count = count_or_404(db, store, count_id)
+    así que sumarlo de nuevo acá lo contaría dos veces.
+
+    `count_id=None` = el último conteo aplicado de la sede (cualquier
+    alcance). La respuesta trae además el Pareto por insumo (`pareto`,
+    ordenado por |$| con acumulado) — se eligió extender esta respuesta en
+    vez de abrir `/variance/pareto`: es la misma ventana y los mismos
+    renglones, y una segunda ruta obligaría a la pantalla a pedir dos veces
+    lo mismo y a confiar en que las dos calculen igual."""
     settings = get_inventory_settings(db, store)
+    latest = _latest_applied_count(db, store_id=store.id)
+    if count_id is None:
+        if latest is None:
+            return VarianceOut(
+                count_id=None, opening_count_id=None, window_from=None, window_to=None, available=False,
+                reason="Todavía no hay ningún conteo aplicado en esta sede: la varianza sale al aplicar el segundo",
+                rows=[], yellow_threshold_bp=settings.variance_yellow_threshold_bp,
+                red_threshold_bp=settings.variance_red_threshold_bp, latest_applied_count_id=None,
+            )
+        count = latest
+    else:
+        count = count_or_404(db, store, count_id)
+    latest_id = latest.id if latest is not None else None
     if count.status != StockCountStatus.APPLIED:
         raise AppError(
             code="COUNT_NOT_APPLIED", message="La varianza sólo se calcula sobre un conteo ya aplicado"
@@ -1267,6 +1358,7 @@ def variance_report(db: Session, *, store: Store, count_id: int) -> VarianceOut:
             rows=[],
             yellow_threshold_bp=settings.variance_yellow_threshold_bp,
             red_threshold_bp=settings.variance_red_threshold_bp,
+            latest_applied_count_id=latest_id,
         )
 
     previous_lines = {
@@ -1305,7 +1397,7 @@ def variance_report(db: Session, *, store: Store, count_id: int) -> VarianceOut:
             variance_pct_bp: int | None = (numerator + theoretical // 2) // theoretical
         else:
             variance_pct_bp = None
-        level = _variance_level(
+        level = _signed_variance_level(
             pct_bp=variance_pct_bp, theoretical=theoretical, variance_qty=variance_qty, settings=settings
         )
 
@@ -1337,6 +1429,8 @@ def variance_report(db: Session, *, store: Store, count_id: int) -> VarianceOut:
         rows=rows,
         yellow_threshold_bp=settings.variance_yellow_threshold_bp,
         red_threshold_bp=settings.variance_red_threshold_bp,
+        latest_applied_count_id=latest_id,
+        **_variance_pareto(rows),
     )
 
 
@@ -1345,35 +1439,9 @@ def variance_report(db: Session, *, store: Store, count_id: int) -> VarianceOut:
 # ---------------------------------------------------------------------------
 
 
-def _sale_document_types() -> tuple[Any, ...]:
-    from app.fiscal.models import FiscalDocumentType
-
-    # Mismo criterio que `app.reports.service.SALE_DOCUMENT_TYPES`
-    # (documentos que representan una venta real cobrada; las notas quedan
-    # fuera). Se declara acá en vez de importarlo de `app.reports` para no
-    # acoplar `inventory` a un módulo que otro agente edita en paralelo en
-    # este mismo pedido -- son dos dominios leyendo la misma tabla con el
-    # mismo criterio documentado, no una segunda fuente de verdad sobre CÓMO
-    # se calcula (el criterio en sí -- qué tipos de documento son "venta" --
-    # está fijado por SPEC-NEGOCIO §8.2, no inventado acá).
-    return (
-        FiscalDocumentType.POS_EQUIVALENT,
-        FiscalDocumentType.INVOICE,
-        FiscalDocumentType.INTERNAL_RECEIPT,
-    )
-
-
-def _net_sales(db: Session, *, store_id: int, date_from: date, date_to: date) -> int:
-    from app.fiscal.models import FiscalDocument
-
-    stmt = select(func.coalesce(func.sum(FiscalDocument.total - FiscalDocument.tax_total), 0)).where(
-        FiscalDocument.store_id == store_id,
-        FiscalDocument.business_date >= date_from,
-        FiscalDocument.business_date <= date_to,
-        FiscalDocument.document_type.in_(_sale_document_types()),
-        FiscalDocument.status == "issued",
-    )
-    return int(db.execute(stmt).scalar_one())
+# (Las ventas netas de la ventana ya no se leen de `FiscalDocument` por
+# `business_date` acá: salen de `app.orders.hooks.sales_in_window`, por
+# instante de cobro — ver `food_cost_report`.)
 
 
 def _two_most_recent_consecutive_full_counts(
@@ -1430,72 +1498,140 @@ def _purchases_value(db: Session, *, store: Store, window_from: datetime, window
     return micros_to_pesos(total_micros)
 
 
+def _purchase_movements_in_window(db: Session, *, store: Store, window_from: datetime, window_to: datetime) -> int:
+    stmt = select(func.count(StockMovement.id)).where(
+        StockMovement.store_id == store.id,
+        StockMovement.cause == MovementCause.PURCHASE,
+        StockMovement.at > window_from,
+        StockMovement.at <= window_to,
+    )
+    return int(db.execute(stmt).scalar_one())
+
+
+def _receptions_in_dates(db: Session, *, store: Store, date_from: date, date_to: date) -> int:
+    """Recepciones de mercancía registradas en `app.purchases` entre dos
+    fechas de negocio, vía su hook publicado (`reception_invoice_ratio`
+    devuelve `(con_factura, total)`). `0` si ese dominio no está en el árbol
+    o no responde con la firma esperada: la guarda que lo usa sólo puede
+    APAGAR un food cost, nunca inventarlo."""
+    if find_spec_safe("app.purchases.hooks") is None:
+        return 0
+    fn = getattr(importlib.import_module("app.purchases.hooks"), "reception_invoice_ratio", None)
+    if not callable(fn):
+        return 0
+    try:
+        _with_invoice, total = fn(db, store_id=store.id, date_from=date_from, date_to=date_to)
+    except TypeError:
+        return 0
+    return int(total)
+
+
+def _empty_food_cost(reason: str) -> FoodCostOut:
+    return FoodCostOut(
+        available=False,
+        reason=reason,
+        opening_count_id=None, closing_count_id=None, window_from=None, window_to=None,
+        opening_value=None, purchases_value=None, closing_value=None, net_sales=None, pct_bp=None,
+        min_window_days=hooks.FOOD_COST_MIN_WINDOW_DAYS, min_costed_pct_bp=hooks.FOOD_COST_MIN_COSTED_BP,
+    )
+
+
 def food_cost_report(db: Session, *, store: Store, date_from: date, date_to: date) -> FoodCostOut:
     """`GET /admin/food-cost?from&to`: `(inicial + compras - final) ÷ ventas
     netas`, **sólo entre dos conteos completos consecutivos** dentro del
     rango. Sin ellos, o con "inventario no confiable" (`hooks.
     inventory_staleness` -- RONDA 2, H-4: misma fuente que `control_health`,
     ninguno de los dos vuelve a sumar días por su cuenta), `null` **con
-    motivo** -- jamás `0`."""
+    motivo** -- jamás `0`.
+
+    **Una sola ventana para todo** (informe de visualización, #3): antes las
+    ventas se tomaban por `business_date` inclusivo en los dos extremos y el
+    inventario por instante, así que una ventana de 16 h se comparaba contra
+    días enteros de venta, y la venta del día límite caía en dos ventanas.
+    Ahora ventas, compras e inventario usan los mismos instantes
+    `(opening.opened_at, closing.opened_at]` — las comandas por `paid_at`
+    (`app.orders.hooks.sales_in_window`).
+
+    Guardas (el número existe pero no se publica, `null` con motivo):
+    ventana más corta que `hooks.FOOD_COST_MIN_WINDOW_HOURS` (24 h); compras en $0
+    habiendo recepciones; costo real negativo. El teórico de la misma
+    ventana y la brecha viajan al lado (`theoretical_pct_bp`, `gap_bp`)."""
+    from app.orders import hooks as orders_hooks
+
     staleness = hooks.inventory_staleness(db, store_id=store.id, cutoff_hour=store.cutoff_hour)
     if staleness.unreliable:
         if staleness.days_since_last_full_count is None:
-            reason = (
+            stale_reason = (
                 "Inventario no confiable: nunca se aplicó un conteo completo "
                 f"(hacen falta uno hace menos de {staleness.stale_days} días)"
             )
         else:
-            reason = (
+            stale_reason = (
                 f"Inventario no confiable: {staleness.days_since_last_full_count} días desde el último "
                 f"conteo completo aplicado (más de {staleness.stale_days})"
             )
-        return FoodCostOut(
-            available=False,
-            reason=reason,
-            opening_count_id=None, closing_count_id=None, window_from=None, window_to=None,
-            opening_value=None, purchases_value=None, closing_value=None, net_sales=None, pct_bp=None,
-        )
+        return _empty_food_cost(stale_reason)
 
     pair = _two_most_recent_consecutive_full_counts(db, store=store, date_from=date_from, date_to=date_to)
     if pair is None:
-        return FoodCostOut(
-            available=False,
-            reason="Hacen falta dos conteos completos aplicados y consecutivos en el período para calcular el food cost real",
-            opening_count_id=None, closing_count_id=None, window_from=None, window_to=None,
-            opening_value=None, purchases_value=None, closing_value=None, net_sales=None, pct_bp=None,
+        return _empty_food_cost(
+            "Hacen falta dos conteos completos aplicados y consecutivos en el período para calcular el food cost real"
         )
     opening_count, closing_count = pair
+    w_from, w_to = opening_count.opened_at, closing_count.opened_at
 
     opening_value = _count_inventory_value(db, store=store, count=opening_count)
     closing_value = _count_inventory_value(db, store=store, count=closing_count)
-    purchases_value = _purchases_value(db, store=store, window_from=opening_count.opened_at, window_to=closing_count.opened_at)
-    net_sales = _net_sales(db, store_id=store.id, date_from=opening_count.business_date, date_to=closing_count.business_date)
-
-    window_from = opening_count.opened_at.isoformat()
-    window_to = closing_count.opened_at.isoformat()
-
-    if net_sales <= 0:
-        return FoodCostOut(
-            available=False,
-            reason="No hay ventas netas registradas en el período entre los dos conteos",
-            opening_count_id=opening_count.id, closing_count_id=closing_count.id,
-            window_from=window_from, window_to=window_to,
-            opening_value=opening_value, purchases_value=purchases_value, closing_value=closing_value,
-            net_sales=net_sales, pct_bp=None,
-        )
+    purchases_value = _purchases_value(db, store=store, window_from=w_from, window_to=w_to)
+    sales = orders_hooks.sales_in_window(db, store_id=store.id, paid_after=w_from, paid_until=w_to)
+    net_sales = sales.net_sales
+    window_hours, window_days = hooks.window_span(w_from, w_to)
+    theoretical = hooks.theoretical_food_cost(
+        net_sales=net_sales, costed_net=sales.costed_net, theoretical_cost_micros=sales.theoretical_cost_micros
+    )
 
     food_cost_pesos = opening_value + purchases_value - closing_value
-    pct_bp = (abs(food_cost_pesos) * 10000 + net_sales // 2) // net_sales
-    if food_cost_pesos < 0:
-        pct_bp = -pct_bp
+    reason: str | None = None
+    if net_sales <= 0:
+        reason = "No hay ventas netas registradas en el período entre los dos conteos"
+    elif hooks.window_is_too_short(w_from, w_to):
+        reason = (
+            f"Los dos últimos conteos completos están a {window_hours} h de distancia; hacen falta al menos "
+            f"{hooks.FOOD_COST_MIN_WINDOW_HOURS} h (un día completo) entre conteos para que el food cost real "
+            "sea confiable"
+        )
+    elif purchases_value <= 0 and (
+        _purchase_movements_in_window(db, store=store, window_from=w_from, window_to=w_to) > 0
+        or _receptions_in_dates(
+            db, store=store, date_from=opening_count.business_date, date_to=closing_count.business_date
+        ) > 0
+    ):
+        reason = (
+            "Hubo recepciones de mercancía entre los dos conteos pero las compras suman $0: "
+            "falta el costo de esas recepciones, así que el food cost real saldría inventado"
+        )
+    elif food_cost_pesos < 0:
+        reason = (
+            "El inventario final vale más que el inicial más las compras: falta registrar compras "
+            "o algún conteo tiene errores, así que el food cost real no se puede calcular"
+        )
+
+    pct_bp: int | None = None
+    if reason is None:
+        pct_bp = (food_cost_pesos * 10000 + net_sales // 2) // net_sales  # food_cost_pesos >= 0 acá
+    gap_bp = pct_bp - theoretical.pct_bp if pct_bp is not None and theoretical.pct_bp is not None else None
 
     return FoodCostOut(
-        available=True,
-        reason=None,
+        available=reason is None,
+        reason=reason,
         opening_count_id=opening_count.id, closing_count_id=closing_count.id,
-        window_from=window_from, window_to=window_to,
+        window_from=w_from.isoformat(), window_to=w_to.isoformat(),
         opening_value=opening_value, purchases_value=purchases_value, closing_value=closing_value,
         net_sales=net_sales, pct_bp=pct_bp,
+        window_hours=window_hours, window_days=window_days, orders_in_window=sales.orders,
+        theoretical_pct_bp=theoretical.pct_bp, theoretical_reason=theoretical.reason,
+        costed_pct_bp=theoretical.costed_pct_bp, gap_bp=gap_bp,
+        min_window_days=hooks.FOOD_COST_MIN_WINDOW_DAYS, min_costed_pct_bp=hooks.FOOD_COST_MIN_COSTED_BP,
     )
 
 

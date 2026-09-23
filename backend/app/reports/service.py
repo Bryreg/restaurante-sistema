@@ -25,6 +25,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -33,11 +34,12 @@ import importlib
 from types import ModuleType
 
 from app.audit.models import AuditLog
-from app.catalog.models import Product
+from app.catalog.models import Category, Product
 from app.core import clock, features, tz
 from app.core.errors import AppError
+from app.core.money import format_cop
 from app.core.modules import find_spec_safe
-from app.core.quantity import format_qty_base, micros_to_pesos
+from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.fiscal import service as fiscal_service
 from app.fiscal.models import FiscalDocument, FiscalDocumentType
 from app.notifications.models import Notification
@@ -63,8 +65,11 @@ from app.reports.schemas import (
     MethodAmountOut,
     NegativeStockAlertOut,
     OpenOrderAgeOut,
+    DayCloseOut,
     PayableAlertOut,
     PrepAlertOut,
+    PreviousPeriodOut,
+    TodayComparisonOut,
     SalesBucketOut,
     SalesReportOut,
     TodayOut,
@@ -72,8 +77,9 @@ from app.reports.schemas import (
     UnavailableLogRowOut,
     UnavailableProductOut,
 )
+from app.shifts import hooks as shifts_hooks
 from app.shifts import service as shifts_service
-from app.shifts.models import Shift, ShiftStatus
+from app.shifts.models import BusinessDay, Shift, ShiftStatus
 from app.stores.models import Store, Table, Zone
 
 # Documentos que representan una venta real (comprobante emitido al cobrar):
@@ -152,6 +158,15 @@ class _Bucket:
     theoretical_cost_micros: int = 0
     has_theoretical_cost: bool = False
     costed_net: int = 0
+    # Revisión de datos (sep. 2026). `covers_net`: neto SÓLO de las comandas
+    # que tienen comensales (numerador de `avg_per_cover`, científico #1).
+    # `payments`: pagos (partes de un cobro) en `group_by=method`
+    # (científico #10). `units`/`item_ids`: unidades por ítem distinto en
+    # `group_by=product|category`.
+    covers_net: int = 0
+    payments: int = 0
+    units: int = 0
+    item_ids: set[int] = field(default_factory=set)
 
 
 def _document_cost_stats(db: Session, documents: list[FiscalDocument]) -> dict[int, tuple[int | None, int, int]]:
@@ -272,7 +287,8 @@ def _sale_documents(db: Session, *, store_id: int, date_from: date, date_to: dat
 
 def _group_key(doc: FiscalDocument, group_by: str | None) -> tuple[str, str] | None:
     """`(key, label)` para agrupar UN documento entero (todo `group_by`
-    salvo `"method"`, que reparte cada documento entre sus `splits`)."""
+    salvo `"method"`, que reparte cada documento entre sus `splits`, y
+    `"product"`/`"category"`, que lo reparten entre sus líneas)."""
     if group_by is None or group_by == "business_date":
         return (doc.business_date.isoformat(), doc.business_date.isoformat())
     if group_by == "shift":
@@ -287,13 +303,124 @@ def _group_key(doc: FiscalDocument, group_by: str | None) -> tuple[str, str] | N
     return None  # "zone" y "method" necesitan datos externos al documento
 
 
+def _hours_from_cutoff(cutoff_hour: int) -> list[int]:
+    """Las 24 horas de reloj en el orden del DÍA OPERATIVO: arranca en la
+    hora de corte de la sede (una venta a la 01:00 con corte a las 06:00 es
+    el final del día, no el principio — científico #12)."""
+    return [(cutoff_hour + i) % 24 for i in range(24)]
+
+
+def _first_activity_date(db: Session, store_id: int) -> date | None:
+    """Primer día operativo con actividad real de la sede (un día abierto o
+    un comprobante emitido), o `None` si nunca operó. Es el piso de los
+    períodos rellenados: antes de esto la sede «no existía», y eso es
+    `null`, no «vendió $0»."""
+    first_day = db.execute(
+        select(func.min(BusinessDay.business_date)).where(BusinessDay.store_id == store_id)
+    ).scalar_one()
+    first_doc = db.execute(
+        select(func.min(FiscalDocument.business_date)).where(
+            FiscalDocument.store_id == store_id, FiscalDocument.document_type.in_(SALE_DOCUMENT_TYPES)
+        )
+    ).scalar_one()
+    candidates = [d for d in (first_day, first_doc) if d is not None]
+    return min(candidates) if candidates else None
+
+
+def _operated_dates(db: Session, store_id: int, date_from: date, date_to: date) -> set[date]:
+    """Días operativos que la sede ABRIÓ (hay `BusinessDay`) dentro del rango."""
+    return set(
+        db.execute(
+            select(BusinessDay.business_date).where(
+                BusinessDay.store_id == store_id,
+                BusinessDay.business_date >= date_from,
+                BusinessDay.business_date <= date_to,
+            )
+        ).scalars()
+    )
+
+
+def _signed_bp(numerator: int, denominator: int) -> int:
+    """`numerator / denominator` en puntos básicos, half-up sobre el valor
+    absoluto y con el signo del numerador (`money.round_half_up` sólo acepta
+    no negativos; la variación de un período puede ser negativa)."""
+    magnitude = money.round_half_up(abs(numerator) * 10_000, denominator)
+    return magnitude if numerator >= 0 else -magnitude
+
+
+def _delta_bp(current: int | None, previous: int | None) -> int | None:
+    """Variación de `current` contra `previous`, en puntos básicos con signo.
+    `None` sin valor anterior o con anterior `<= 0`: sin divisor no hay
+    variación (nunca un «+100 %» inventado contra cero)."""
+    if current is None or previous is None or previous <= 0:
+        return None
+    return _signed_bp(current - previous, previous)
+
+
+@dataclass
+class _ItemInfo:
+    product_id: int | None
+    combo_id: int | None
+    name: str
+    qty: int
+    unit_cost_micros: int | None
+
+
+def _items_info(db: Session, documents: list[FiscalDocument]) -> dict[int, _ItemInfo]:
+    """Ítems de las líneas de los documentos, con lo CONGELADO al vender
+    (`OrderItem.name`, `qty`, `unit_cost_micros`) — nunca la carta actual."""
+    item_ids = {int(line["item_id"]) for doc in documents for line in (doc.lines or [])}
+    if not item_ids:
+        return {}
+    rows = db.execute(
+        select(
+            OrderItem.id, OrderItem.product_id, OrderItem.combo_id, OrderItem.name, OrderItem.qty, OrderItem.unit_cost_micros
+        ).where(OrderItem.id.in_(item_ids))
+    ).all()
+    return {
+        item_id: _ItemInfo(product_id=pid, combo_id=cid, name=name, qty=qty, unit_cost_micros=ucm)
+        for item_id, pid, cid, name, qty, ucm in rows
+    }
+
+
+def _product_categories(db: Session, product_ids: set[int]) -> dict[int, tuple[str, str]]:
+    """`product_id -> (key, label)` de su categoría. **Aproximación
+    declarada**: el ítem vendido no congela la categoría (no hay columna, y
+    agregarla es migración), así que se lee la categoría ACTUAL del
+    producto. Mover un plato de categoría mueve su historia; cambiar el
+    precio o el nombre, no (esos sí están congelados)."""
+    if not product_ids:
+        return {}
+    rows = db.execute(
+        select(Product.id, Category.id, Category.name)
+        .join(Category, Product.category_id == Category.id)
+        .where(Product.id.in_(product_ids))
+    ).all()
+    return {pid: (str(cid), cname) for pid, cid, cname in rows}
+
+
 def aggregate_sales(
     db: Session, *, store_id: int, date_from: date, date_to: date, group_by: str | None
 ) -> tuple[list[SalesBucketOut], SalesBucketOut]:
     """Agrega documentos de venta (SPEC-NEGOCIO §10) por `group_by` (`None` =
     un solo total). Devuelve `(filas, total)`; el total es la misma
     agregación sin partir por grupo, así "Hoy" y "Ventas" nunca pueden
-    mostrar un total distinto de la suma de sus filas."""
+    mostrar un total distinto de la suma de sus filas.
+
+    **Orden de las filas** (revisión de datos sep. 2026, científico #2 y #13
+    — decidido acá, una sola vez, para que ninguna pantalla lo reordene):
+
+    - `business_date`: cronológico, y con TODOS los días entre el primer
+      día con actividad de la sede y hoy (acotados a `[from, to]`); un día
+      sin ventas es una fila con `net=0` y `operated` dice si abrió.
+    - `hour`: las 24 horas en el orden del día operativo (desde el
+      `cutoff_hour` de la sede), con `0` explícito.
+    - `shift`: por apertura real del turno (`Shift.opened_at`, luego id) —
+      nunca por la etiqueta como texto («#10» antes que «#2»).
+    - `method`, `channel`, `employee`, `zone`, `product`, `category`: por
+      `net` descendente (la pregunta es «quién/qué pesa más»), empate por
+      etiqueta.
+    """
     documents = _sale_documents(db, store_id=store_id, date_from=date_from, date_to=date_to)
     # Pedido 2a: costo teórico por documento, en MICROS, leído del
     # `unit_cost_micros` congelado en cada ítem — nunca de la ficha actual
@@ -305,16 +432,30 @@ def aggregate_sales(
     buckets: dict[str, _Bucket] = {}
     total_bucket = _Bucket(label="total")
     order_ids_all: set[int] = {d.order_id for d in documents}
+    covers_map = _order_covers_map(db, order_ids_all)
 
     zone_map: dict[int, tuple[str, str]] = {}
     if group_by == "zone":
         zone_map = _order_zone_map(db, order_ids_all)
+    items: dict[int, _ItemInfo] = {}
+    categories: dict[int, tuple[str, str]] = {}
+    if group_by in ("product", "category"):
+        items = _items_info(db, documents)
+        if group_by == "category":
+            categories = _product_categories(db, {i.product_id for i in items.values() if i.product_id is not None})
+
+    def _has_covers(order_id: int) -> bool:
+        covers = covers_map.get(order_id)
+        return covers is not None and covers > 0
 
     for doc in documents:
+        doc_net = doc.total - doc.tax_total
         total_bucket.gross += doc.total
         total_bucket.tax += doc.tax_total
         total_bucket.tips += doc.tip_amount
         total_bucket.order_ids.add(doc.order_id)
+        if _has_covers(doc.order_id):
+            total_bucket.covers_net += doc_net
         doc_cost_micros, doc_costed_net, _doc_total_net = cost_stats.get(doc.id, (None, 0, 0))
         if doc_cost_micros is not None:
             total_bucket.theoretical_cost_micros += doc_cost_micros
@@ -326,6 +467,8 @@ def aggregate_sales(
             # "pertenece" a un método de cobro, sólo a un plato — el total
             # sigue exacto (se acumuló arriba), las filas por método quedan
             # sin costo (`has_theoretical_cost=False` -> `null`, declarado).
+            # Revisión de datos (científico #10): cada `split` es UN pago y
+            # se cuenta como tal (`payments`), no como una comanda más.
             splits = doc.payments_snapshot or []
             amounts = [int(s.get("amount", 0)) for s in splits]
             tax_shares = money.prorate(doc.tax_total, amounts) if amounts else []
@@ -336,6 +479,52 @@ def aggregate_sales(
                 bucket.tax += tax_share
                 bucket.tips += int(split.get("tip_amount", 0))
                 bucket.order_ids.add(doc.order_id)
+                bucket.payments += 1
+                total_bucket.payments += 1
+            continue
+
+        if group_by in ("product", "category"):
+            # Cada línea del comprobante va a su plato: `line["net"]` es la
+            # línea CON impuesto (nombre de `app.orders.money`) y
+            # `line["base"]` sin impuesto — la misma unidad que el `net` de
+            # este reporte. Unidades: la `qty` congelada del ítem, UNA vez
+            # por ítem (una sub-cuenta trae porciones, no platos).
+            for line in doc.lines or []:
+                item_id = int(line["item_id"])
+                info = items.get(item_id)
+                if info is None:
+                    continue
+                if group_by == "product":
+                    if info.product_id is not None:
+                        key, label = (str(info.product_id), info.name)
+                    elif info.combo_id is not None:
+                        key, label = (f"combo-{info.combo_id}", info.name)
+                    else:
+                        key, label = (f"item-{info.name}", info.name)
+                else:
+                    if info.product_id is not None:
+                        key, label = categories.get(info.product_id, ("none", "Sin categoría"))
+                    elif info.combo_id is not None:
+                        key, label = ("combos", "Combos")
+                    else:
+                        key, label = ("none", "Sin categoría")
+                bucket = buckets.setdefault(key, _Bucket(label=label))
+                if group_by == "product":
+                    # La etiqueta es el nombre congelado del ítem MÁS
+                    # RECIENTE (los documentos vienen en orden cronológico).
+                    bucket.label = label
+                line_net = int(line["net"])
+                line_tax = int(line["tax"])
+                bucket.gross += line_net
+                bucket.tax += line_tax
+                bucket.order_ids.add(doc.order_id)
+                if item_id not in bucket.item_ids:
+                    bucket.item_ids.add(item_id)
+                    bucket.units += info.qty
+                if info.unit_cost_micros is not None:
+                    bucket.theoretical_cost_micros += info.unit_cost_micros * int(line["qty"])
+                    bucket.has_theoretical_cost = True
+                    bucket.costed_net += int(line["base"])
             continue
 
         if group_by == "zone":
@@ -352,56 +541,179 @@ def aggregate_sales(
         bucket.tax += doc.tax_total
         bucket.tips += doc.tip_amount
         bucket.order_ids.add(doc.order_id)
+        if _has_covers(doc.order_id):
+            bucket.covers_net += doc_net
         if doc_cost_micros is not None:
             bucket.theoretical_cost_micros += doc_cost_micros
             bucket.has_theoretical_cost = True
         bucket.costed_net += doc_costed_net
 
-    covers_map = _order_covers_map(db, order_ids_all)
+    by_method = group_by == "method"
+    by_line = group_by in ("product", "category")
 
-    def _to_out(key: str, bucket: _Bucket) -> SalesBucketOut:
+    def _to_out(key: str, bucket: _Bucket, *, is_total: bool = False) -> SalesBucketOut:
         net = bucket.gross - bucket.tax
         orders_count = len(bucket.order_ids)
         covers_sum = sum(c for oid in bucket.order_ids if (c := covers_map.get(oid)) is not None)
-        avg_ticket = money.round_half_up(net, orders_count) if orders_count > 0 and net >= 0 else None
-        avg_per_cover = money.round_half_up(net, covers_sum) if covers_sum > 0 and net >= 0 else None
+        method_row = by_method and not is_total
+        # En una fila por medio, `orders` cuenta pagos (científico #10): el
+        # ticket promedio es por pago, no por una comanda contada dos veces.
+        count_for_ticket = bucket.payments if method_row else orders_count
+        avg_ticket = (
+            money.round_half_up(net, count_for_ticket) if count_for_ticket > 0 and net >= 0 and not (by_line and not is_total) else None
+        )
+        # Científico #1: el ticket por comensal divide el neto de las
+        # comandas QUE TIENEN comensales por esos comensales — antes dividía
+        # el neto de TODAS (mostrador y domicilio incluidos) y lo inflaba.
+        avg_per_cover = (
+            money.round_half_up(bucket.covers_net, covers_sum)
+            if covers_sum > 0 and bucket.covers_net >= 0 and not method_row and not (by_line and not is_total)
+            else None
+        )
         # Conversión a pesos ÚNICA, acá, después de sumar micros a través de
         # TODOS los documentos del bucket (ronda 2, B-2) — nunca antes.
         theoretical_cost = micros_to_pesos(bucket.theoretical_cost_micros) if bucket.has_theoretical_cost else None
         gross_margin = (net - theoretical_cost) if theoretical_cost is not None else None
-        costed_pct = (
-            money.round_half_up(bucket.costed_net * 100, net) if net > 0 and bucket.costed_net > 0 else (0 if net > 0 else None)
-        )
+        if method_row:
+            costed_pct: int | None = None
+        else:
+            costed_pct = (
+                money.round_half_up(bucket.costed_net * 100, net) if net > 0 and bucket.costed_net > 0 else (0 if net > 0 else None)
+            )
+        if method_row:
+            covers_out: int | None = None
+        elif by_line and not is_total:
+            covers_out = None
+        else:
+            covers_out = covers_sum if orders_count > 0 else None
         return SalesBucketOut(
             key=key,
             label=bucket.label,
             gross=bucket.gross,
             net=net,
             tax=bucket.tax,
-            tips=bucket.tips,
-            orders=orders_count,
-            covers=covers_sum if orders_count > 0 else None,
+            tips=None if (by_line and not is_total) else bucket.tips,
+            orders=bucket.payments if method_row else orders_count,
+            covers=covers_out,
             avg_ticket=avg_ticket,
             avg_per_cover=avg_per_cover,
             theoretical_cost=theoretical_cost,
             gross_margin=gross_margin,
             costed_pct=costed_pct,
+            payments=bucket.payments if by_method else None,
+            units=bucket.units if (by_line and not is_total) else None,
         )
 
     order_key: list[str]
-    if group_by in (None, "business_date"):
+    if group_by is None:
         order_key = sorted(buckets.keys())
+    elif group_by == "business_date":
+        order_key = _business_date_keys(db, store_id, date_from, date_to, buckets)
+    elif group_by == "hour":
+        cutoff_hour = db.execute(select(Store.cutoff_hour).where(Store.id == store_id)).scalar_one_or_none() or 0
+        for hour in range(24):
+            buckets.setdefault(str(hour), _Bucket(label=f"{hour:02d}:00"))
+        order_key = [str(h) for h in _hours_from_cutoff(cutoff_hour)]
+    elif group_by == "shift":
+        shift_ids = [int(k) for k in buckets if k.isdigit()]
+        opened: dict[int, datetime] = (
+            {sid: at for sid, at in db.execute(select(Shift.id, Shift.opened_at).where(Shift.id.in_(shift_ids))).all()}
+            if shift_ids
+            else {}
+        )
+        order_key = sorted(
+            buckets.keys(),
+            key=lambda k: (0, opened[int(k)], int(k)) if k.isdigit() and int(k) in opened else (1, clock.now_utc(), 0),
+        )
     else:
-        order_key = sorted(buckets.keys(), key=lambda k: buckets[k].label)
+        order_key = sorted(buckets.keys(), key=lambda k: (-(buckets[k].gross - buckets[k].tax), buckets[k].label))
 
     rows = [_to_out(k, buckets[k]) for k in order_key]
-    total_out = _to_out("total", total_bucket)
+    if group_by == "business_date":
+        operated = _operated_dates(db, store_id, date_from, date_to)
+        rows = [r.model_copy(update={"operated": date.fromisoformat(r.key) in operated}) for r in rows]
+    total_out = _to_out("total", total_bucket, is_total=True)
+
+    # Participación de cada fila en el neto (científico #10): repartida con
+    # `money.prorate` para que las filas sumen EXACTO 10.000 bp.
+    nets = [r.net for r in rows]
+    if rows and total_out.net > 0 and all(n >= 0 for n in nets) and sum(nets) > 0:
+        shares = money.prorate(10_000, nets)
+        rows = [r.model_copy(update={"share_bp": s}) for r, s in zip(rows, shares)]
     return rows, total_out
+
+
+def _business_date_keys(
+    db: Session, store_id: int, date_from: date, date_to: date, buckets: dict[str, _Bucket]
+) -> list[str]:
+    """TODOS los días del rango (científico #2): un día sin ventas es una
+    fila con `net=0`, no un hueco que el gráfico de línea se come. El rango
+    se acota al tramo en que la sede EXISTIÓ — desde su primer día con
+    actividad hasta hoy (o el último comprobante, si un reloj de prueba
+    quedó atrás) —: antes de abrir no «vendió $0», no existía; y un rango
+    `2020-01-01..2099-12-31` no puede devolver 29.000 filas."""
+    store = db.get(Store, store_id)
+    cutoff_hour = store.cutoff_hour if store is not None else 0
+    first = _first_activity_date(db, store_id)
+    if first is None:
+        return sorted(buckets.keys())
+    last = tz.today_business_date(cutoff_hour)
+    if buckets:
+        last = max(last, max(date.fromisoformat(k) for k in buckets))
+    start = max(date_from, first)
+    end = min(date_to, last)
+    day = start
+    while day <= end:
+        key = day.isoformat()
+        buckets.setdefault(key, _Bucket(label=key))
+        day += timedelta(days=1)
+    return sorted(buckets.keys())
+
+
+def _previous_period(
+    db: Session, *, store_id: int, date_from: date, date_to: date, current: SalesBucketOut
+) -> PreviousPeriodOut:
+    """El período del mismo largo inmediatamente anterior (analista #7):
+    `[from − n, from − 1]`, con `n = to − from + 1` días. Se calcula con la
+    MISMA agregación (`aggregate_sales`), nunca con una suma aparte."""
+    length = (date_to - date_from).days + 1
+    prev_to = date_from - timedelta(days=1)
+    prev_from = date_from - timedelta(days=length)
+    first = _first_activity_date(db, store_id)
+    if first is None or first > prev_to:
+        return PreviousPeriodOut(
+            date_from=prev_from,
+            date_to=prev_to,
+            net=None,
+            orders=None,
+            avg_ticket=None,
+            delta_bp=None,
+            orders_delta_bp=None,
+            avg_ticket_delta_bp=None,
+            partial=False,
+            null_reason="La sede todavía no operaba en el período anterior: no hay contra qué comparar.",
+        )
+    _rows, prev = aggregate_sales(db, store_id=store_id, date_from=prev_from, date_to=prev_to, group_by=None)
+    return PreviousPeriodOut(
+        date_from=prev_from,
+        date_to=prev_to,
+        net=prev.net,
+        orders=prev.orders,
+        avg_ticket=prev.avg_ticket,
+        delta_bp=_delta_bp(current.net, prev.net),
+        orders_delta_bp=_delta_bp(current.orders, prev.orders),
+        avg_ticket_delta_bp=_delta_bp(current.avg_ticket, prev.avg_ticket),
+        partial=first > prev_from,
+        null_reason=None,
+    )
 
 
 def sales_report(db: Session, *, store_id: int, date_from: date, date_to: date, group_by: str) -> SalesReportOut:
     _validate_range(date_from, date_to)
     rows, total = aggregate_sales(db, store_id=store_id, date_from=date_from, date_to=date_to, group_by=group_by)
+    total = total.model_copy(
+        update={"previous_period": _previous_period(db, store_id=store_id, date_from=date_from, date_to=date_to, current=total)}
+    )
     return SalesReportOut(
         store_id=store_id, date_from=date_from, date_to=date_to, group_by=group_by, rows=rows, total=total  # type: ignore[arg-type]
     )
@@ -590,19 +902,168 @@ def _unreviewed_closes_count(db: Session, store: Store) -> int:
     )
 
 
+# Tipos de notificación de diferencias de caja que el riel de «Hoy» agrupa en
+# UN aviso resumen (`cash_diff_summary`, analista #4): ocho tarjetas sueltas
+# de «Diferencia de caja al cierre» con el mismo peso tapaban lo demás. Las
+# notificaciones siguen existiendo tal cual en la campana
+# (`GET /admin/notifications`); sólo el riel de Hoy las resume.
+CASH_DIFF_NOTIFICATION_TYPES = ("cash_difference", "cash_difference_critical", "difference_streak")
+CASH_DIFF_SUMMARY_TYPE = "cash_diff_summary"
+_ALERT_LEVEL_RANK = {"critical": 0, "warning": 1, "info": 2}
+
+
+def _alert_sort_key(alert: AlertOut) -> tuple[int, int, int, float]:
+    """Gravedad, después plata en juego (`|amount|` desc, sin monto al
+    final), después lo más reciente primero."""
+    return (
+        _ALERT_LEVEL_RANK.get(alert.level, 3),
+        1 if alert.amount is None else 0,
+        -abs(alert.amount or 0),
+        -alert.created_at.timestamp(),
+    )
+
+
 def _recent_alerts(db: Session, store: Store, *, limit: int = 30) -> list[AlertOut]:
     rows = list(
         db.execute(
             select(Notification)
-            .where(Notification.store_id == store.id, Notification.read_at.is_(None))
+            .where(
+                Notification.store_id == store.id,
+                Notification.read_at.is_(None),
+                Notification.type.not_in(CASH_DIFF_NOTIFICATION_TYPES),
+            )
             .order_by(Notification.created_at.desc())
             .limit(limit)
         ).scalars()
     )
-    return [
+    alerts = [
         AlertOut(type=n.type, level=n.level, title=n.title, body=n.body, created_at=n.created_at, payload=n.payload)
         for n in rows
     ]
+    summary = _cash_diff_summary(db, store)
+    if summary is not None:
+        alerts.append(summary)
+    alerts.sort(key=_alert_sort_key)
+    return alerts
+
+
+def _current_difference_streak(db: Session, store: Store, employee_id: int) -> int:
+    """La racha de diferencias de caja de esa persona, con LA regla de
+    turnos (`app.shifts.hooks.difference_streak`: cierres contados seguidos
+    por fuera de la tolerancia de la sede; un cierre sin conteo ni suma ni
+    corta). Antes se recontaba acá con otra regla y el aviso de Hoy podía
+    decir una racha distinta de la que muestra Dinero."""
+    return shifts_hooks.difference_streak(db, store_id=store.id, employee_id=employee_id)
+
+
+def _cash_diff_summary(db: Session, store: Store) -> AlertOut | None:
+    """UN aviso con todas las diferencias de caja al cierre sin leer
+    (analista #4): cuántos cierres, faltante y sobrante por separado (se
+    compensan en el neto y el dueño tiene que ver los dos), el neto con
+    signo en `amount`, y quién está en racha. La diferencia se lee del
+    TURNO (`Shift.difference`, la fuente), no del texto de la notificación:
+    un turno reabierto y vuelto a cerrar cuadrado sale del resumen."""
+    notifications = list(
+        db.execute(
+            select(Notification).where(
+                Notification.store_id == store.id,
+                Notification.read_at.is_(None),
+                Notification.type.in_(CASH_DIFF_NOTIFICATION_TYPES),
+            )
+        ).scalars()
+    )
+    if not notifications:
+        return None
+    shift_ids: set[int] = set()
+    critical_shift_ids: set[int] = set()
+    streak_employee_ids: set[int] = set()
+    for n in notifications:
+        payload = n.payload or {}
+        if n.type == "difference_streak":
+            if payload.get("employee_id") is not None:
+                streak_employee_ids.add(int(payload["employee_id"]))
+            continue
+        if payload.get("shift_id") is None:
+            continue
+        shift_ids.add(int(payload["shift_id"]))
+        if n.type == "cash_difference_critical":
+            critical_shift_ids.add(int(payload["shift_id"]))
+
+    shifts = (
+        list(db.execute(select(Shift).where(Shift.id.in_(shift_ids), Shift.store_id == store.id)).scalars())
+        if shift_ids
+        else []
+    )
+    with_difference = [s for s in shifts if s.difference is not None and s.difference != 0]
+    shortage = [s for s in with_difference if s.difference < 0]  # type: ignore[operator]
+    surplus = [s for s in with_difference if s.difference > 0]  # type: ignore[operator]
+    shortage_total = sum(s.difference for s in shortage)  # type: ignore[misc]
+    surplus_total = sum(s.difference for s in surplus)  # type: ignore[misc]
+
+    streaks: list[dict[str, Any]] = []
+    for employee_id in sorted(streak_employee_ids):
+        streak = _current_difference_streak(db, store, employee_id)
+        if streak < 2:
+            continue
+        name = db.execute(
+            select(Shift.cash_responsible_name)
+            .where(Shift.store_id == store.id, Shift.cash_responsible_id == employee_id)
+            .order_by(Shift.closed_at.desc().nulls_last(), Shift.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        streaks.append({"employee_id": employee_id, "employee_name": name or f"#{employee_id}", "streak": streak})
+    streaks.sort(key=lambda s: (-s["streak"], s["employee_name"]))
+
+    if not with_difference and not streaks:
+        return None
+
+    closed_dates = [tz.business_date_for(s.closed_at, store.cutoff_hour) for s in with_difference if s.closed_at is not None]
+    today = tz.today_business_date(store.cutoff_hour)
+    first_date = min(closed_dates) if closed_dates else None
+    last_date = max(closed_dates) if closed_dates else None
+    days = (today - first_date).days + 1 if first_date is not None else None
+    count = len(with_difference)
+
+    parts: list[str] = []
+    if shortage:
+        parts.append(f"faltante {format_cop(shortage_total)} en {len(shortage)} {'cierre' if len(shortage) == 1 else 'cierres'}")
+    if surplus:
+        parts.append(f"sobrante {format_cop(surplus_total)} en {len(surplus)} {'cierre' if len(surplus) == 1 else 'cierres'}")
+    body = ""
+    if parts:
+        body = parts[0][0].upper() + "; ".join(parts)[1:] + "."
+    if count and days is not None:
+        body = f"{body} En {'el último día' if days == 1 else f'los últimos {days} días'}.".strip()
+    for s in streaks:
+        body = f"{body} {s['employee_name']} lleva {s['streak']} cierres seguidos con diferencia.".strip()
+
+    if count:
+        title = f"{count} {'cierre' if count == 1 else 'cierres'} de caja con diferencia"
+    else:
+        title = "Racha de diferencias de caja"
+    level = "critical" if (critical_shift_ids & {s.id for s in with_difference}) else "warning"
+    return AlertOut(
+        type=CASH_DIFF_SUMMARY_TYPE,
+        level=level,
+        title=title,
+        body=body,
+        created_at=max(n.created_at for n in notifications),
+        amount=(shortage_total + surplus_total) if count else None,
+        payload={
+            "count": count,
+            "shortage_count": len(shortage),
+            "shortage_total": shortage_total,
+            "surplus_count": len(surplus),
+            "surplus_total": surplus_total,
+            "net_total": shortage_total + surplus_total,
+            "critical_count": len(critical_shift_ids & {s.id for s in with_difference}),
+            "shift_ids": sorted(s.id for s in with_difference),
+            "first_business_date": first_date.isoformat() if first_date else None,
+            "last_business_date": last_date.isoformat() if last_date else None,
+            "days": days,
+            "streaks": streaks,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -654,12 +1115,33 @@ def _negative_stock_alerts(db: Session, store: Store) -> list[NegativeStockAlert
     hooks = _hooks_if_enabled(db, store, module="app.inventory.hooks", feature="inventory.perpetual")
     if hooks is None:
         return []
-    return [
-        NegativeStockAlertOut(
-            **{**row, "qty_base": format_qty_base(row["qty_base"]), "min_stock": format_qty_base(row["min_stock"])}
+    out: list[NegativeStockAlertOut] = []
+    for row in hooks.negative_stock_alerts(db, store_id=store.id):
+        out.append(
+            NegativeStockAlertOut(
+                **{**row, "qty_base": format_qty_base(row["qty_base"]), "min_stock": format_qty_base(row["min_stock"])},
+                amount=_negative_stock_amount(db, hooks, store, ingredient_id=row["ingredient_id"], qty_base=row["qty_base"]),
+            )
         )
-        for row in hooks.negative_stock_alerts(db, store_id=store.id)
-    ]
+    # Analista #4: primero lo que más plata tiene en juego; los sin costo al
+    # final (no se sabe cuánto pesan, no que pesen cero).
+    out.sort(key=lambda n: (n.amount is None, -(n.amount or 0), n.name))
+    return out
+
+
+def _negative_stock_amount(db: Session, hooks: ModuleType, store: Store, *, ingredient_id: int, qty_base: int) -> int | None:
+    """Cuánto vale lo que falta: `|qty_base|` × costo vigente del insumo,
+    con la jerarquía COMPLETA del dueño del dato
+    (`app.inventory.hooks.resolve_ingredient_cost`) — acumulado en micros
+    (`line_cost_micros`) y redondeado a pesos una sola vez. `None` cuando el
+    insumo no tiene costo todavía (nunca `0` mudo)."""
+    ingredient = hooks.get_ingredient(db, store_id=store.id, ingredient_id=ingredient_id)
+    if ingredient is None:
+        return None
+    cost_micros, _source = hooks.resolve_ingredient_cost(db, ingredient)
+    if cost_micros is None:
+        return None
+    return micros_to_pesos(line_cost_micros(abs(qty_base), cost_micros))
 
 
 def _prep_alerts(db: Session, store: Store) -> list[PrepAlertOut]:
@@ -745,30 +1227,129 @@ def _inventory_reliability(db: Session, store: Store) -> tuple[bool | None, int 
     return staleness.unreliable, staleness.days_since_last_full_count
 
 
+# ---------------------------------------------------------------------------
+# Revisión de datos (sep. 2026): ventas por hora completas, comparación
+# contra la semana pasada y el cierre de ayer para «Hoy».
+# ---------------------------------------------------------------------------
+
+
+def _hour_buckets(
+    documents: list[FiscalDocument], *, cutoff_hour: int, now_local_hour: int | None
+) -> list[HourBucketOut]:
+    """Las 24 horas del día operativo, desde `cutoff_hour`, con `0`
+    explícito (científico #12). `now_local_hour` es la hora actual para el
+    día EN CURSO: las horas posteriores salen con `pending=True` (su `0` es
+    «todavía no pasó»). `None` = día completo (referencia), nada pendiente."""
+    gross: dict[int, int] = defaultdict(int)
+    net: dict[int, int] = defaultdict(int)
+    orders: dict[int, set[int]] = defaultdict(set)
+    for doc in documents:
+        hour = _bogota_hour(doc.issued_at)
+        gross[hour] += doc.total
+        net[hour] += doc.total - doc.tax_total
+        orders[hour].add(doc.order_id)
+    hours = _hours_from_cutoff(cutoff_hour)
+    current_index = hours.index(now_local_hour) if now_local_hour is not None else 23
+    return [
+        HourBucketOut(hour=h, gross=gross[h], net=net[h], orders=len(orders[h]), pending=index > current_index)
+        for index, h in enumerate(hours)
+    ]
+
+
+def _today_comparison(
+    db: Session, store: Store, *, business_date: date, now: datetime, net: int, orders: int, first_activity: date | None
+) -> tuple[TodayComparisonOut, list[HourBucketOut]]:
+    """Hoy contra el mismo día de la semana pasada, hasta la misma hora
+    (analista #3), y la serie por hora de ese día COMPLETO (la línea gris
+    de referencia)."""
+    reference_date = business_date - timedelta(days=7)
+    # Al minuto, no al microsegundo: el mismo `GET /admin/today` pedido dos
+    # veces seguidas tiene que dar el mismo payload (el invariante de
+    # snapshots de `tests/audit/test_reports_invariants.py` lo compara
+    # entero). Cuentan los comprobantes de ese día hasta el FINAL de ese
+    # minuto.
+    until = (now - timedelta(days=7)).replace(second=0, microsecond=0)
+    if first_activity is None or first_activity > reference_date:
+        return (
+            TodayComparisonOut(
+                reference_business_date=reference_date,
+                until=until,
+                net=None,
+                orders=None,
+                delta_bp=None,
+                orders_delta_bp=None,
+                reference_operated=None,
+                null_reason="La sede todavía no operaba el mismo día de la semana pasada: no hay contra qué comparar.",
+            ),
+            [],
+        )
+    reference_docs = _sale_documents(db, store_id=store.id, date_from=reference_date, date_to=reference_date)
+    same_hour_docs = [d for d in reference_docs if d.issued_at < until + timedelta(minutes=1)]
+    ref_net = sum(d.total - d.tax_total for d in same_hour_docs)
+    ref_orders = len({d.order_id for d in same_hour_docs})
+    operated = reference_date in _operated_dates(db, store.id, reference_date, reference_date)
+    comparison = TodayComparisonOut(
+        reference_business_date=reference_date,
+        until=until,
+        net=ref_net,
+        orders=ref_orders,
+        delta_bp=_delta_bp(net, ref_net),
+        orders_delta_bp=_delta_bp(orders, ref_orders),
+        reference_operated=operated,
+        null_reason=None,
+    )
+    return comparison, _hour_buckets(reference_docs, cutoff_hour=store.cutoff_hour, now_local_hour=None)
+
+
+def _yesterday_close(db: Session, store: Store, *, business_date: date, first_activity: date | None) -> DayCloseOut | None:
+    """El día operativo anterior completo: lo que Hoy muestra antes de la
+    primera venta (analista #3). `None` si la sede todavía no operaba."""
+    yesterday = business_date - timedelta(days=1)
+    if first_activity is None or first_activity > yesterday:
+        return None
+    _rows, total = aggregate_sales(db, store_id=store.id, date_from=yesterday, date_to=yesterday, group_by=None)
+    return DayCloseOut(
+        business_date=yesterday,
+        net=total.net,
+        orders=total.orders,
+        avg_ticket=total.avg_ticket,
+        operated=yesterday in _operated_dates(db, store.id, yesterday, yesterday),
+    )
+
+
 def today_report(db: Session, *, store: Store) -> TodayOut:
     now = clock.now_utc()
     business_date = tz.today_business_date(store.cutoff_hour)
 
     documents = _sale_documents(db, store_id=store.id, date_from=business_date, date_to=business_date)
 
-    by_hour: dict[int, HourBucketOut] = {}
     gross = tax = tips_total = 0
+    covers_net = 0
     order_ids: set[int] = set()
+    covers_map = _order_covers_map(db, {d.order_id for d in documents})
     for doc in documents:
         gross += doc.total
         tax += doc.tax_total
         tips_total += doc.tip_amount
         order_ids.add(doc.order_id)
-        hour = _bogota_hour(doc.issued_at)
-        bucket = by_hour.setdefault(hour, HourBucketOut(hour=hour, gross=0, net=0))
-        by_hour[hour] = HourBucketOut(hour=hour, gross=bucket.gross + doc.total, net=bucket.net + (doc.total - doc.tax_total))
+        covers = covers_map.get(doc.order_id)
+        if covers is not None and covers > 0:
+            covers_net += doc.total - doc.tax_total
 
     net = gross - tax
-    covers_map = _order_covers_map(db, order_ids)
     covers_sum = sum(c for oid in order_ids if (c := covers_map.get(oid)) is not None)
     orders_count = len(order_ids)
     avg_ticket = money.round_half_up(net, orders_count) if orders_count > 0 else None
-    avg_per_cover = money.round_half_up(net, covers_sum) if covers_sum > 0 else None
+    # Científico #1: neto de las comandas CON comensales ÷ esos comensales
+    # (mismo arreglo que `aggregate_sales`); antes el numerador era el neto
+    # de todas las comandas, mostrador y domicilio incluidos.
+    avg_per_cover = money.round_half_up(covers_net, covers_sum) if covers_sum > 0 and covers_net >= 0 else None
+
+    first_activity = _first_activity_date(db, store.id)
+    comparison, sales_by_hour_reference = _today_comparison(
+        db, store, business_date=business_date, now=now, net=net, orders=orders_count, first_activity=first_activity
+    )
+    yesterday_close = _yesterday_close(db, store, business_date=business_date, first_activity=first_activity)
 
     tables_status = orders_service.tables_status(db, store_id=store.id)
     tables_total = sum(len(z.tables) for z in tables_status.zones)
@@ -794,10 +1375,23 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
 
     inventory_unreliable, days_since_last_full_count = _inventory_reliability(db, store)
 
+    negatives = _negative_stock_alerts(db, store)
+    costed_negatives = [n.amount for n in negatives if n.amount is not None]
+    inventory_enabled = _hooks_if_enabled(db, store, module="app.inventory.hooks", feature="inventory.perpetual") is not None
+    if not inventory_enabled:
+        negative_amount: int | None = None
+    elif costed_negatives:
+        negative_amount = sum(costed_negatives)
+    else:
+        negative_amount = 0 if not negatives else None
+    negative_unvalued = sum(1 for n in negatives if n.amount is None)
+    payables_enabled = _hooks_if_enabled(db, store, module="app.purchases.hooks", feature="purchases") is not None
+    payables_overdue = _payables_overdue(db, store)
+
     return TodayOut(
         store_id=store.id,
         business_date=business_date,
-        sales_by_hour=sorted(by_hour.values(), key=lambda h: h.hour),
+        sales_by_hour=_hour_buckets(documents, cutoff_hour=store.cutoff_hour, now_local_hour=_bogota_hour(now)),
         gross=gross,
         net=net,
         tax=tax,
@@ -818,14 +1412,20 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         unreviewed_closes_count=_unreviewed_closes_count(db, store),
         alerts=_recent_alerts(db, store),
         ingredients_below_min=_low_stock_alerts(db, store),
-        ingredients_negative=_negative_stock_alerts(db, store),
+        ingredients_negative=negatives,
         preps_without_production=_prep_alerts(db, store),
         products_discounting_nothing=_uncosted_products(db, store, business_date=business_date),
         lots_expiring_or_expired=_lot_alerts(db, store, business_date=business_date),
-        payables_overdue=_payables_overdue(db, store),
+        payables_overdue=payables_overdue,
         payables_pending_review_count=_payables_pending_review_count(db, store),
         inventory_unreliable=inventory_unreliable,
         days_since_last_full_count=days_since_last_full_count,
+        payables_overdue_total=(sum(p.balance for p in payables_overdue) if payables_enabled else None),
+        ingredients_negative_amount=negative_amount,
+        ingredients_negative_unvalued=negative_unvalued,
+        comparison=comparison,
+        sales_by_hour_reference=sales_by_hour_reference,
+        yesterday_close=yesterday_close,
     )
 
 

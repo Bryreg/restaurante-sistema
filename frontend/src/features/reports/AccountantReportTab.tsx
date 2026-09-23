@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
+import { formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
 import { methodLabel, todayInBogota } from "./lib"
@@ -31,7 +32,9 @@ const BIMESTER_LABEL: Record<number, string> = {
 function rateLine(row: AccountantRowOut): string {
   if (row.by_rate.length === 0) return "—"
   return row.by_rate
-    .map((r) => `${r.rate}%: base ${formatCOP(r.documents_base)} / nota ${formatCOP(r.notes_base)}`)
+    // `rate` llega como por ciento entero (8, 19): ×100 lo pasa a puntos
+    // básicos, la unidad de `formatPct`, para escribirlo «8 %».
+    .map((r) => `${formatPct(r.rate * 100, 0)}: base ${formatCOP(r.documents_base)} / nota ${formatCOP(r.notes_base)}`)
     .join(" · ")
 }
 

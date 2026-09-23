@@ -94,11 +94,14 @@ def test_replenishment_suggests_qty_and_min_from_consumption_times_lead_time(
     body = resp.json()
     assert body["available"] is True
     row = next(r for r in body["rows"] if r["ingredient_id"] == ing["id"])
-    # Consumo total en la ventana: 3.000 g (300 g × 10 días) -> promedio
-    # 100 g/día (3.000 ÷ 30, la ventana completa de `lookback_days`).
-    assert row["avg_daily_consumption"] == "100"
-    # Mínimo propuesto: 100 g/día × 4 días de lead time = 400 g.
-    assert row["suggested_min"] == "400"
+    # Consumo total: 3.000 g (300 g × 10 días). Informe #17: se divide por
+    # los días REALES con historial (el primer movimiento del insumo fue
+    # hace 10 días de negocio, hoy incluido), no por 30 fijos: 300 g/día.
+    assert row["history_days"] == 10
+    assert row["avg_daily_consumption"] == "300"
+    assert row["median_daily_consumption"] == "300"
+    # Mínimo propuesto: 300 g/día × 4 días de lead time = 1.200 g.
+    assert row["suggested_min"] == "1200"
     assert row["lead_time_days"] == 4
     # Stock actual: 1.000 - 3.000 = -2.000 g (negativo: se permite vender
     # aunque el sistema diga que no hay, SPEC-NEGOCIO §5.2). min_stock=500
@@ -161,3 +164,37 @@ def test_replenishment_flags_consumption_untracked_ingredients(
     # `suggested_qty` sigue siendo un número real (no depende del consumo,
     # sólo de `min_stock` vs `current_stock`), nunca `null`.
     assert row["suggested_qty"] == "1000"
+
+
+def test_replenishment_median_ignores_a_spike_and_counts_idle_days_as_zero(
+    db: Any,
+    admin_client: TestClient,
+    store: Store,
+    employees: dict[str, Employee],
+    clock: Any,
+    enable_analytics: Callable[[], None],
+    create_ingredient: Callable[..., dict[str, Any]],
+) -> None:
+    """5 días de historia: 100, 100, 0 (sin uso), 100 y un pico de 1.000 g.
+    Promedio 1.300 ÷ 5 = 260 g; mediana de [0, 100, 100, 100, 1.000] = 100 g."""
+    enable_analytics()
+    admin = employees["admin"]
+    ing = create_ingredient(name="Insumo con pico", min_stock="10", lead_time_days=2)
+    day = datetime(2026, 7, 1, 17, tzinfo=timezone.utc)
+    for i, grams in enumerate([100, 100, 0, 100, 1000]):
+        clock.set(day + timedelta(days=i))
+        if grams:
+            hooks.record_movement(
+                db, organization_id=store.organization_id, store_id=store.id, ingredient_id=ing["id"],
+                qty_base=-grams * 1000, cause=MovementCause.SALE, cost_micros=1_000_000,
+                cost_source=CostSource.OFFICIAL, actor=_actor(store, admin),
+                business_date=_business_date(store, clock.now()), at=clock.now(),
+            )
+    db.commit()
+
+    body = admin_client.get("/api/v1/admin/replenishment", params={"store_id": store.id}).json()
+    row = next(r for r in body["rows"] if r["ingredient_id"] == ing["id"])
+    assert row["history_days"] == 5
+    assert row["avg_daily_consumption"] == "260"
+    assert row["median_daily_consumption"] == "100"
+    assert row["suggested_min"] == "520"  # promedio × 2 días de plazo

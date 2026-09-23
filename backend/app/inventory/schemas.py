@@ -388,19 +388,63 @@ class VarianceRowOut(BaseModel):
     variance_value: int | None
     cost_source: CostSourceLiteral
     variance_pct_bp: int | None  # |variance| / teórico, en puntos básicos (× 10.000); null si teórico == 0
+    # Semáforo. El rojo es SÓLO para faltante (`variance_qty > 0`): un
+    # sobrante (se contó más de lo que el libro explica) llega como mucho a
+    # `yellow`, por grande que sea (informe de visualización, #9).
+    level: VarianceLevelLiteral
+
+
+class VarianceParetoRowOut(BaseModel):
+    """Un renglón del Pareto de varianza por insumo: los insumos ordenados
+    por |valor| descendente (a igual valor, el faltante primero), con la
+    participación y el acumulado de |valor| sobre el total de |valor|."""
+
+    ingredient_id: int
+    ingredient_name: str
+    # Con signo, pesos enteros (misma convención que `VarianceRowOut.
+    # variance_value`): positivo = faltante (se usó más de lo esperado).
+    variance_value: int
+    # |variance_value|, pesos enteros — el alto de la barra del Pareto.
+    abs_value: int
+    direction: Literal["shortage", "surplus"]
+    # |valor| de este renglón ÷ Σ |valor| de todos, en bp.
+    share_bp: int
+    # Σ |valor| de este renglón y todos los anteriores ÷ Σ |valor|, en bp
+    # (el último renglón da 10000 exacto).
+    cumulative_bp: int
     level: VarianceLevelLiteral
 
 
 class VarianceOut(BaseModel):
-    count_id: int
+    # `None` sólo cuando se pidió «el último» (`count_id` omitido) y la sede
+    # no tiene ningún conteo aplicado (`available: false` con `reason`).
+    count_id: int | None
     opening_count_id: int | None
     window_from: datetime | None
-    window_to: datetime
+    window_to: datetime | None
     available: bool
     reason: str | None
     rows: list[VarianceRowOut]
     yellow_threshold_bp: int
     red_threshold_bp: int
+    # El conteo aplicado más reciente de la sede (cualquier alcance), para
+    # que la pantalla abra con él sin pedirle al dueño que lo elija. `None`
+    # si no hay ninguno.
+    latest_applied_count_id: int | None = None
+    # Pareto: sólo los renglones con `variance_value` distinto de 0 y no
+    # nulo, ordenados por |valor| desc. Los que no tienen costo resuelto no
+    # entran (no hay |$| que ordenar) y se cuentan en `unvalued_rows`.
+    pareto: list[VarianceParetoRowOut] = []
+    # Σ |valor| del Pareto (el 100 % del acumulado); `None` si no hay
+    # ningún renglón valorizado con varianza.
+    total_abs_variance_value: int | None = None
+    # Σ de los faltantes (positivo) y Σ de los sobrantes (negativo, con su
+    # signo), pesos; `None` en las mismas condiciones que el total.
+    shortage_value: int | None = None
+    surplus_value: int | None = None
+    # Σ con signo (faltantes + sobrantes), pesos.
+    net_variance_value: int | None = None
+    unvalued_rows: int = 0
 
 
 class FoodCostOut(BaseModel):
@@ -420,7 +464,35 @@ class FoodCostOut(BaseModel):
     purchases_value: int | None
     closing_value: int | None
     net_sales: int | None
+    # Food cost REAL en bp de `net_sales`, con signo. `null` con `reason`
+    # también cuando el cálculo existe pero no tiene sentido: ventana más
+    # corta que `min_window_days`, compras en $0 habiendo recepciones, o
+    # resultado negativo (el inventario final vale más que inicial + compras).
     pct_bp: int | None
+    # La ventana son los INSTANTES de apertura de los dos conteos
+    # (`window_from`, `window_to`); ventas e inventario usan la misma: las
+    # comandas cuentan por `paid_at` en `(window_from, window_to]`, así una
+    # venta nunca cae en dos ventanas. Horas y días COMPLETOS (truncados).
+    # `null` sólo cuando no hay par de conteos.
+    window_hours: int | None = None
+    window_days: int | None = None
+    # Comandas cobradas en la ventana (el `n` del porcentaje).
+    orders_in_window: int | None = None
+    # Food cost TEÓRICO de lo vendido en la misma ventana (costo congelado ÷
+    # ventas netas de lo costeado), en bp. `null` con `theoretical_reason`
+    # sin ventas, sin fichas o con cobertura bajo `min_costed_pct_bp`.
+    theoretical_pct_bp: int | None = None
+    theoretical_reason: str | None = None
+    # Qué parte de las ventas netas de la ventana tenía ficha con costo, en bp.
+    costed_pct_bp: int | None = None
+    # `pct_bp − theoretical_pct_bp` (puntos básicos de brecha: positivo =
+    # se gastó más insumo del que explican las ventas). `null` si falta
+    # cualquiera de los dos.
+    gap_bp: int | None = None
+    # Umbrales usados, publicados para que la pantalla los muestre sin
+    # conocerlos por fuera (`app.inventory.hooks`).
+    min_window_days: int = 1
+    min_costed_pct_bp: int = 8000
 
 
 class ControlHealthOut(BaseModel):

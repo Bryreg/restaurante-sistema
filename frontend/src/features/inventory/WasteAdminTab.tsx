@@ -19,8 +19,9 @@ import { StatTile } from "@/components/StatTile"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errorMessage } from "@/lib/errors"
+import { formatPct } from "@/lib/format"
 
-import { daysAgoLocal, formatBasisPoints, todayLocal, WASTE_TYPE_LABEL } from "./lib"
+import { daysAgoLocal, todayLocal, WASTE_TYPE_LABEL } from "./lib"
 
 const LEGEND: readonly LegendEntry[] = [
   {
@@ -61,7 +62,7 @@ const LEGEND: readonly LegendEntry[] = [
  * **Deuda cerrada en 2b** (`outputs-2a/ENTREGA.md §5`, O-6): `ratio` dejó de
  * ser una fracción 0..1 y pasó a ser un entero en puntos básicos reales
  * (`app.inventory.schemas.WasteKpiOut.ratio: int | None`, 100 = 1 %). Se
- * formatea con `formatBasisPoints` (`./lib.ts`), nunca con
+ * formatea con `formatPct` (`@/lib/format`, «4,4 %» en es-CO), nunca con
  * `Math.round(kpi.ratio * 100)` — esa cuenta, correcta para la fracción de
  * 2a, con la escala nueva da cien veces más (250 bp × 100 = "25000 %").
  */
@@ -255,7 +256,7 @@ export function WasteAdminTab({
                   "No es 0 %: queda sin datos hasta que haya compras en la semana con qué compararlo, porque no hay divisor.",
               }
             : {
-                value: formatBasisPoints(kpi.ratio),
+                value: formatPct(kpi.ratio),
                 hint: "Referencia del sector: 4–10 %.",
               })}
         />

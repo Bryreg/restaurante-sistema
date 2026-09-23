@@ -212,6 +212,22 @@ class PayrollRunOut(BaseModel):
     reason: str | None
     computed_at: datetime
     computed_by_employee_name: str | None
+    # Informe de visualización #14. `net_sales`: ventas netas del MISMO
+    # período (pesos, sin impuesto ni propina). `payroll_pct_of_sales_bp`:
+    # `total_amount / net_sales` en puntos básicos; `None` con motivo en
+    # `payroll_pct_reason` si no hay total o no hubo venta. `previous_*`: la
+    # liquidación más reciente cuyo período termina antes de éste;
+    # `delta_bp` = (total − anterior) / anterior, con signo, `None` con motivo
+    # en `previous_reason`.
+    net_sales: int | None = None
+    payroll_pct_of_sales_bp: int | None = None
+    payroll_pct_reason: str | None = None
+    previous_run_id: int | None = None
+    previous_date_from: date | None = None
+    previous_date_to: date | None = None
+    previous_total: int | None = None
+    delta_bp: int | None = None
+    previous_reason: str | None = None
     # A-5: **qué fórmula se usó**, publicado en la respuesta y no sólo
     # anotado en un docstring.
     #
@@ -241,6 +257,22 @@ class PayrollRunSummaryOut(BaseModel):
     available: bool
     reason: str | None
     computed_at: datetime
+    # Informe de visualización #14. `net_sales`: ventas netas del MISMO
+    # período (pesos, sin impuesto ni propina). `payroll_pct_of_sales_bp`:
+    # `total_amount / net_sales` en puntos básicos; `None` con motivo en
+    # `payroll_pct_reason` si no hay total o no hubo venta. `previous_*`: la
+    # liquidación más reciente cuyo período termina antes de éste;
+    # `delta_bp` = (total − anterior) / anterior, con signo, `None` con motivo
+    # en `previous_reason`.
+    net_sales: int | None = None
+    payroll_pct_of_sales_bp: int | None = None
+    payroll_pct_reason: str | None = None
+    previous_run_id: int | None = None
+    previous_date_from: date | None = None
+    previous_date_to: date | None = None
+    previous_total: int | None = None
+    delta_bp: int | None = None
+    previous_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------

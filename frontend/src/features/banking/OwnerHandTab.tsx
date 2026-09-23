@@ -15,9 +15,54 @@ import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { StatTile } from "@/components/StatTile"
 import { errorMessage } from "@/lib/errors"
+import { formatFechaCorta } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
 import { daysAgoLocal, todayLocal } from "./lib"
+
+/**
+ * Cuántos días puede quedarse en la mano la plata de un cierre antes de que
+ * la tarjeta pase a ámbar (informe de visualización #15). Tres: lo normal es
+ * consignar dos veces por semana, así que ningún cierre debería pasar más
+ * de tres días fuera del banco. Más que eso es efectivo expuesto (robo,
+ * mezcla con plata personal) y una conciliación que no va a cuadrar con el
+ * extracto. Es un umbral de lectura, no una cifra de plata.
+ */
+export const DIAS_SIN_CONSIGNAR_AVISO = 3
+
+function dias(n: number): string {
+  return `${n} ${n === 1 ? "día" : "días"}`
+}
+
+/** La antigüedad de la plata más vieja sin consignar, tal como la manda el servidor. */
+function PlataMasVieja({ date, days }: { date: string | null | undefined; days: number | null | undefined }): React.JSX.Element {
+  if (days === null || days === undefined) {
+    // `null` acá NO es «sin dato»: el servidor lo manda cuando no queda
+    // plata de cierres por consignar. Es «al día», y así se dice.
+    return (
+      <StatTile
+        label="Plata más vieja sin consignar"
+        value="Al día"
+        hint="No queda plata de ningún cierre por consignar."
+      />
+    )
+  }
+  const tarde = days > DIAS_SIN_CONSIGNAR_AVISO
+  return (
+    <StatTile
+      label="Plata más vieja sin consignar"
+      value={days === 0 ? "De hoy" : `Hace ${dias(days)}`}
+      tone={tarde ? "warning" : "default"}
+      hint={
+        `Del cierre del ${formatFechaCorta(date)}. ` +
+        (tarde
+          ? `Pasa de ${DIAS_SIN_CONSIGNAR_AVISO} días fuera del banco: consignala.`
+          : `Hasta ${DIAS_SIN_CONSIGNAR_AVISO} días fuera del banco es lo normal.`)
+      }
+      link={{ to: "/admin/banco?tab=por-consignar", screen: "Banco", tab: "Por consignar" }}
+    />
+  )
+}
 
 export function OwnerHandTab({ storeId }: { storeId: number }): React.JSX.Element {
   const [from, setFrom] = useState(daysAgoLocal(30))
@@ -47,7 +92,7 @@ export function OwnerHandTab({ storeId }: { storeId: number }): React.JSX.Elemen
           <HeadlineFigure
             label="Saldo en mano"
             value={formatCOP(query.data?.balance ?? null)}
-            note={`Lo que salió del cajón entre el ${from} y el ${to} y todavía no volvió al banco ni se gastó.`}
+            note={`Lo que salió del cajón entre el ${formatFechaCorta(from)} y el ${formatFechaCorta(to)} y todavía no volvió al banco ni se gastó.`}
             ledger={{
               rows: [
                 { label: "Retirado", value: formatCOP(query.data?.withdrawn ?? null) },
@@ -57,6 +102,9 @@ export function OwnerHandTab({ storeId }: { storeId: number }): React.JSX.Elemen
               total: { label: "Saldo en mano", value: formatCOP(query.data?.balance ?? null) },
             }}
           />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <PlataMasVieja date={query.data?.oldest_undeposited_date} days={query.data?.oldest_undeposited_days} />
+          </div>
           {query.data?.withdrawn_from_pickups !== undefined || query.data?.spent_on_tips !== undefined ? (
             <GroupLabel label="De dónde sale y en qué se fue" says="el desglose que el servidor manda cuando lo tiene">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

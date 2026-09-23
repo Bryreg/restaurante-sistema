@@ -38,7 +38,10 @@ from app.purchases.schemas import (
     ReceptionReverseIn,
     SupplierIn,
     SupplierOut,
+    PayablesSummaryOut,
     SupplierReliabilityOut,
+    SupplierReliabilityRowOut,
+    SuppliersReliabilityOut,
     SupplierUpdateIn,
 )
 
@@ -145,6 +148,27 @@ def list_suppliers(
     store = admin_store(db, actor, store_id)
     rows = service.list_suppliers(db, store_id=store.id, active=active)
     return [SupplierOut.model_validate(r) for r in rows]
+
+
+@router.get("/admin/suppliers/reliability")
+def suppliers_reliability(
+    store_id: int,
+    date_from: date = Query(..., alias="from"),
+    date_to: date = Query(..., alias="to"),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> SuppliersReliabilityOut:
+    """Todos los proveedores de la sede de una vez, para compararlos en la
+    lista (informe de visualización #9). Misma matemática, por insumo, que
+    `GET /admin/suppliers/{id}/reliability`."""
+    store = admin_store(db, actor, store_id)
+    rows = service.suppliers_reliability(db, store_id=store.id, date_from=date_from, date_to=date_to)
+    return SuppliersReliabilityOut(
+        store_id=store.id,
+        date_from=date_from,
+        date_to=date_to,
+        rows=[SupplierReliabilityRowOut(date_from=date_from, date_to=date_to, **row) for row in rows],
+    )
 
 
 @router.post("/admin/suppliers", status_code=201)
@@ -319,6 +343,17 @@ def list_payables(
     if wants_csv(request):
         return csv_response([r.model_dump(mode="json") for r in out], filename="payables.csv")
     return out
+
+
+@router.get("/admin/payables/summary")
+def payables_summary(
+    store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> PayablesSummaryOut:
+    """Cabecera de cuentas por pagar (informe de visualización #8). Va ANTES
+    de `/admin/payables/{payable_id}`: si no, «summary» se intenta leer como
+    id y responde 422."""
+    store = admin_store(db, actor, store_id)
+    return PayablesSummaryOut(store_id=store.id, **service.payables_summary(db, store_id=store.id))
 
 
 @router.get("/admin/payables/{payable_id}")

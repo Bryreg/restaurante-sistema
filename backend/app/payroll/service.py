@@ -840,6 +840,65 @@ def get_run(db: Session, *, store_id: int, run_id: int) -> PayrollRun:
     return run
 
 
+def _signed_bp(numerator: int, denominator: int) -> int:
+    """`numerator / denominator` en puntos básicos, mitad hacia arriba sobre
+    el valor absoluto, con signo (`denominator > 0`)."""
+    magnitude = (abs(numerator) * 20_000 + denominator) // (2 * denominator)
+    return -magnitude if numerator < 0 else magnitude
+
+
+def run_comparison(db: Session, run: PayrollRun) -> dict[str, Any]:
+    """Contexto de una liquidación (informe de visualización #14): cuánto
+    pesa la nómina sobre la venta neta del MISMO período y cómo se compara
+    con la liquidación anterior.
+
+    - Ventas netas vía `app.reports.hooks.period_sales` (la única
+      agregación de documentos de venta; sin impuesto ni propina).
+    - «Anterior» = la liquidación más reciente de la sede cuyo período
+      termina antes de que empiece éste (si se liquidó dos veces el mismo
+      período, cuenta la última calculada).
+    Todo `None` va con su motivo en `payroll_pct_reason`/`previous_reason`."""
+    from app.reports import hooks as reports_hooks
+
+    sales = reports_hooks.period_sales(db, store_id=run.store_id, date_from=run.date_from, date_to=run.date_to)
+    pct_bp: int | None = None
+    pct_reason: str | None = None
+    if run.total_amount is None:
+        pct_reason = "La liquidación no tiene total (le falta un dato de nómina); no hay porcentaje que calcular."
+    elif sales.net <= 0:
+        pct_reason = "No hubo ventas netas en el período de esta liquidación."
+    else:
+        pct_bp = _signed_bp(run.total_amount, sales.net)
+
+    previous = db.execute(
+        select(PayrollRun)
+        .where(PayrollRun.store_id == run.store_id, PayrollRun.date_to < run.date_from)
+        .order_by(PayrollRun.date_to.desc(), PayrollRun.computed_at.desc(), PayrollRun.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    delta_bp: int | None = None
+    previous_reason: str | None = None
+    if previous is None:
+        previous_reason = "No hay una liquidación anterior a este período."
+    elif previous.total_amount is None or run.total_amount is None:
+        previous_reason = "Una de las dos liquidaciones no tiene total; no se pueden comparar."
+    elif previous.total_amount <= 0:
+        previous_reason = "La liquidación anterior fue de $0; no hay variación porcentual."
+    else:
+        delta_bp = _signed_bp(run.total_amount - previous.total_amount, previous.total_amount)
+    return {
+        "net_sales": sales.net,
+        "payroll_pct_of_sales_bp": pct_bp,
+        "payroll_pct_reason": pct_reason,
+        "previous_run_id": previous.id if previous is not None else None,
+        "previous_date_from": previous.date_from if previous is not None else None,
+        "previous_date_to": previous.date_to if previous is not None else None,
+        "previous_total": previous.total_amount if previous is not None else None,
+        "delta_bp": delta_bp,
+        "previous_reason": previous_reason,
+    }
+
+
 def run_lines(db: Session, *, run_id: int) -> list[PayrollRunLine]:
     stmt = select(PayrollRunLine).where(PayrollRunLine.run_id == run_id).order_by(PayrollRunLine.employee_name.asc())
     return list(db.execute(stmt).scalars())

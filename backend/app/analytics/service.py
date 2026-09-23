@@ -46,12 +46,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.analytics.schemas import (
+    MenuClassCountsOut,
     MenuClassLiteral,
     MenuEngineeringOut,
     MenuEngineeringRowOut,
@@ -62,7 +62,9 @@ from app.analytics.schemas import (
     VarianceByDishOut,
     VarianceByDishRowOut,
 )
+from app.catalog import hooks as catalog_hooks
 from app.core.errors import AppError, NotFoundError
+from app.core.percent import format_pct_bp
 from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.inventory import hooks as inventory_hooks
 from app.inventory.models import (
@@ -76,31 +78,14 @@ from app.inventory.models import (
     StoreInventorySettings,
 )
 from app.orders import service as orders_service
-from app.orders.models import Order, OrderItem, OrderItemStatus, OrderStatus
+from app.orders import hooks as orders_hooks
+from app.orders.models import Order, OrderChannel, OrderItem, OrderItemStatus, OrderStatus
 from app.orders.money import prorate
 from app.stores.models import Store
 
 # ---------------------------------------------------------------------------
 # Compartido.
 # ---------------------------------------------------------------------------
-
-# Mismo criterio que `app.reports.service.SALE_DOCUMENT_TYPES` y
-# `app.inventory.service._sale_document_types()`: documentos que representan
-# una venta real cobrada. Redeclarado acá EN VEZ DE importar `app.reports`
-# (territorio ajeno de este pedido, y un módulo que otro agente no está
-# editando, pero cuyo import cruzado no aporta nada que `app.fiscal.models`
-# no dé ya) — mismo patrón que `app.inventory.service` ya sigue por el mismo
-# motivo ("no acoplar un dominio a un módulo que otro agente edita en
-# paralelo en este mismo pedido").
-def _sale_document_types() -> tuple[Any, ...]:
-    from app.fiscal.models import FiscalDocumentType
-
-    return (
-        FiscalDocumentType.POS_EQUIVALENT,
-        FiscalDocumentType.INVOICE,
-        FiscalDocumentType.INTERNAL_RECEIPT,
-    )
-
 
 def _validate_range(date_from: date, date_to: date) -> None:
     if date_from > date_to:
@@ -137,47 +122,9 @@ def _signed_pct_bp(value_pesos: int, denominator_pesos: int) -> int:
     return _signed_half_up(value_pesos * 10000, denominator_pesos)
 
 
-def _net_sales(db: Session, *, store_id: int, date_from: date, date_to: date) -> int:
-    from app.fiscal.models import FiscalDocument
-
-    stmt = select(func.coalesce(func.sum(FiscalDocument.total - FiscalDocument.tax_total), 0)).where(
-        FiscalDocument.store_id == store_id,
-        FiscalDocument.business_date >= date_from,
-        FiscalDocument.business_date <= date_to,
-        FiscalDocument.document_type.in_(_sale_document_types()),
-        FiscalDocument.status == "issued",
-    )
-    return int(db.execute(stmt).scalar_one())
-
-
-def _theoretical_cost_pesos(db: Session, *, store_id: int, date_from: date, date_to: date) -> int | None:
-    """Costo TEÓRICO (congelado) de lo vendido en `[date_from, date_to]`,
-    sobre comandas pagadas, ítems no anulados. Se acumula en MICROS a través
-    de TODOS los ítems y se redondea a pesos una sola vez, al final —misma
-    regla que protege el food cost teórico en `app.reports.service`. `None`
-    cuando NINGÚN ítem vendido en el rango tenía costo congelado (nunca `0`
-    mudo)."""
-    stmt = (
-        select(OrderItem.unit_cost_micros, OrderItem.qty)
-        .join(Order, OrderItem.order_id == Order.id)
-        .where(
-            Order.store_id == store_id,
-            Order.business_date >= date_from,
-            Order.business_date <= date_to,
-            Order.status == OrderStatus.PAID,
-            OrderItem.status != OrderItemStatus.VOIDED,
-        )
-    )
-    total_micros = 0
-    any_costed = False
-    for unit_cost_micros, qty in db.execute(stmt).all():
-        if unit_cost_micros is None:
-            continue
-        any_costed = True
-        total_micros += int(unit_cost_micros) * int(qty)
-    if not any_costed:
-        return None
-    return micros_to_pesos(total_micros)
+# (Las ventas netas y el costo teórico de una ventana ya no se leen acá por
+# `business_date`: salen de `app.orders.hooks.sales_in_window`, por instante
+# de cobro, la misma lectura que usa `app.inventory.service.food_cost_report`.)
 
 
 # ---------------------------------------------------------------------------
@@ -191,18 +138,66 @@ _POPULARITY_RULE_NUM = 7
 _POPULARITY_RULE_DEN = 10
 
 
+# Mínimo de unidades vendidas para clasificar un plato (informe #7: «Sopa
+# de guineo», con 18, salía «Perro»). Configurable por query (`min_units`).
+MENU_MIN_UNITS_DEFAULT = 20
+
+_ACTION_BY_CLASS: dict[str, str] = {
+    "star": "Mantener",
+    "plowhorse": "Revisar precio",
+    "puzzle": "Promocionar",
+    "dog": "Sacar o rediseñar",
+}
+
+
 @dataclass
 class _ProductAgg:
     name: str = ""
     qty_sold: int = 0
     revenue_net: int = 0
+    # Ingreso neto y unidades de los ítems CON costo congelado: el margen se
+    # calcula sólo sobre ellos (nunca costo de una parte contra ingreso del
+    # todo — informe #4).
+    costed_revenue_net: int = 0
     cost_micros: int = 0
     qty_costed: int = 0
     has_cost: bool = False
 
 
-def menu_engineering(db: Session, *, store: Store, date_from: date, date_to: date) -> MenuEngineeringOut:
+def _empty_menu(
+    store: Store, date_from: date, date_to: date, reason: str, *, category_id: int | None, min_units: int, excluded: int = 0
+) -> MenuEngineeringOut:
+    return MenuEngineeringOut(
+        store_id=store.id, date_from=date_from, date_to=date_to, available=False, reason=reason,
+        popularity_threshold_bp=None, avg_contribution_margin_per_unit=None, rows=[],
+        category_id=category_id, min_units=min_units, min_costed_pct_bp=inventory_hooks.FOOD_COST_MIN_COSTED_BP,
+        costed_pct_bp=None, counts_by_class=MenuClassCountsOut(), excluded_products=excluded,
+    )
+
+
+def menu_engineering(
+    db: Session,
+    *,
+    store: Store,
+    date_from: date,
+    date_to: date,
+    category_id: int | None = None,
+    min_units: int = MENU_MIN_UNITS_DEFAULT,
+) -> MenuEngineeringOut:
+    """Matriz de Kasavana–Smith sobre lo vendido en el período.
+
+    Informe de visualización #7 / analista #5: (1) los CARGOS
+    (`is_delivery_fee`) y la comida de personal (`staff_meal`, precio 0) no
+    son platos que el cliente elige: se excluyen de la matriz Y de los
+    umbrales (el cargo de domicilio bajaba el umbral de popularidad a
+    1/21); (2) un plato con menos de `min_units` unidades no se clasifica
+    (`classification: None`, `insufficient_sample: True`) pero sigue en la
+    mezcla; (3) el margen se compara POR UNIDAD, y se publica
+    (`contribution_margin_per_unit`); (4) `category_id` filtra y los
+    umbrales se calculan dentro de la categoría."""
     _validate_range(date_from, date_to)
+    if min_units < 1:
+        raise AppError("VALIDATION_ERROR", "min_units: tiene que ser al menos 1", status=400)
 
     orders = list(
         db.execute(
@@ -215,19 +210,26 @@ def menu_engineering(db: Session, *, store: Store, date_from: date, date_to: dat
         ).scalars()
     )
     if not orders:
-        return MenuEngineeringOut(
-            store_id=store.id,
-            date_from=date_from,
-            date_to=date_to,
-            available=False,
-            reason="No hay ventas cobradas en el período",
-            popularity_threshold_bp=None,
-            avg_contribution_margin_per_unit=None,
-            rows=[],
+        return _empty_menu(
+            store, date_from, date_to, "No hay ventas cobradas en el período", category_id=category_id, min_units=min_units
         )
 
     agg: dict[int, _ProductAgg] = {}
+    staff_meal_products: set[int] = set()
     for order in orders:
+        if order.channel == OrderChannel.STAFF_MEAL:
+            # Comida de personal: sale a precio 0, no es una venta que el
+            # cliente eligió. Se cuenta sólo para informar la exclusión.
+            for pid in db.execute(
+                select(OrderItem.product_id).where(
+                    OrderItem.order_id == order.id,
+                    OrderItem.status != OrderItemStatus.VOIDED,
+                    OrderItem.product_id.is_not(None),
+                )
+            ).scalars():
+                if pid is not None:
+                    staff_meal_products.add(int(pid))
+            continue
         # `compute_order_totals` es LA única matemática de la venta
         # (`app.orders.money`): reusada tal cual, sobre los campos
         # CONGELADOS del ítem (nunca la carta de hoy) — no se reimplementa
@@ -246,68 +248,102 @@ def menu_engineering(db: Session, *, store: Store, date_from: date, date_to: dat
             row = agg.setdefault(item.product_id, _ProductAgg())
             row.name = item.name  # último nombre congelado visto, no el de la carta actual
             row.qty_sold += item.qty
-            row.revenue_net += base_by_item.get(item.id, 0)
+            base = base_by_item.get(item.id, 0)
+            row.revenue_net += base
             if item.unit_cost_micros is not None:
                 row.has_cost = True
                 row.cost_micros += int(item.unit_cost_micros) * item.qty
                 row.qty_costed += item.qty
+                row.costed_revenue_net += base
+
+    facts = catalog_hooks.product_facts(
+        db, store_id=store.id, product_ids=sorted(set(agg) | staff_meal_products)
+    )
+    fee_ids = {pid for pid, f in facts.items() if f.is_delivery_fee}
+    excluded_ids = (fee_ids & set(agg)) | (staff_meal_products - set(agg))
+    for pid in fee_ids:
+        agg.pop(pid, None)
+    if category_id is not None:
+        agg = {pid: r for pid, r in agg.items() if pid in facts and facts[pid].category_id == category_id}
 
     if not agg:
-        return MenuEngineeringOut(
-            store_id=store.id,
-            date_from=date_from,
-            date_to=date_to,
-            available=False,
-            reason="No hay platos vendidos (con producto de carta) en el período",
-            popularity_threshold_bp=None,
-            avg_contribution_margin_per_unit=None,
-            rows=[],
+        return _empty_menu(
+            store, date_from, date_to,
+            "No hay platos vendidos (con producto de carta) en el período"
+            + (" para esa categoría" if category_id is not None else ""),
+            category_id=category_id, min_units=min_units, excluded=len(excluded_ids),
         )
 
+    min_costed_bp = inventory_hooks.FOOD_COST_MIN_COSTED_BP
     total_qty = sum(r.qty_sold for r in agg.values())
     n_products = len(agg)
     popularity_threshold_bp = (
         _POPULARITY_RULE_NUM * 10000 // (_POPULARITY_RULE_DEN * n_products)
     )
 
-    # Margen de contribución promedio, PONDERADO por unidad vendida, sólo
-    # entre los platos con costo (nunca se promedia con `None` como si fuera
-    # cero — "el promedio de 'sin dato' no es cero").
+    def _coverage_ok(row: _ProductAgg) -> bool:
+        return row.has_cost and row.qty_costed > 0 and row.qty_costed * 10000 >= min_costed_bp * row.qty_sold
+
+    # Margen de contribución promedio POR UNIDAD, ponderado por las unidades
+    # con costo, sólo entre los platos con cobertura suficiente (nunca se
+    # promedia con `None` como si fuera cero — "el promedio de 'sin dato' no
+    # es cero").
     costed_margin_total = 0
     costed_qty_total = 0
     for row in agg.values():
-        if row.has_cost:
-            margin = row.revenue_net - micros_to_pesos(row.cost_micros)
-            costed_margin_total += margin
-            costed_qty_total += row.qty_sold
+        if _coverage_ok(row):
+            costed_margin_total += row.costed_revenue_net - micros_to_pesos(row.cost_micros)
+            costed_qty_total += row.qty_costed
     avg_margin_per_unit = (
         _signed_half_up(costed_margin_total, costed_qty_total) if costed_qty_total > 0 else None
     )
+    revenue_total = sum(r.revenue_net for r in agg.values())
+    costed_revenue_total = sum(r.costed_revenue_net for r in agg.values())
+    costed_pct_bp = _half_up(max(costed_revenue_total, 0) * 10000, revenue_total) if revenue_total > 0 else None
 
+    counts = MenuClassCountsOut()
     rows: list[MenuEngineeringRowOut] = []
     for product_id, row in agg.items():
         popularity_share_bp = _half_up(row.qty_sold * 10000, total_qty)
         theoretical_cost = micros_to_pesos(row.cost_micros) if row.has_cost else None
-        contribution_margin = (row.revenue_net - theoretical_cost) if theoretical_cost is not None else None
+        contribution_margin = (row.costed_revenue_net - theoretical_cost) if theoretical_cost is not None else None
+        margin_per_unit = (
+            _signed_half_up(contribution_margin, row.qty_costed)
+            if contribution_margin is not None and row.qty_costed > 0
+            else None
+        )
         margin_pct_bp = (
-            _signed_pct_bp(contribution_margin, row.revenue_net)
-            if contribution_margin is not None and row.revenue_net > 0
+            _signed_pct_bp(contribution_margin, row.costed_revenue_net)
+            if contribution_margin is not None and row.costed_revenue_net > 0
             else None
         )
         costed_qty_pct_bp = _half_up(row.qty_costed * 10000, row.qty_sold) if row.qty_sold > 0 else None
 
-        classification: MenuClassLiteral
+        classification: MenuClassLiteral | None
         reason: str
-        if contribution_margin is None or avg_margin_per_unit is None:
+        insufficient = row.qty_sold < min_units
+        if insufficient:
+            classification = None
+            reason = (
+                f"vendió {row.qty_sold} unidades en el período; hacen falta al menos {min_units} "
+                "para clasificarlo con confianza"
+            )
+            counts.insufficient_sample += 1
+        elif contribution_margin is None or avg_margin_per_unit is None:
             classification = "unclassified"
             reason = "sin costo congelado suficiente para calcular margen en el período"
+        elif not _coverage_ok(row):
+            classification = "unclassified"
+            reason = (
+                f"sólo {row.qty_costed} de {row.qty_sold} unidades tenían ficha con costo; "
+                f"hace falta al menos el {format_pct_bp(min_costed_bp, decimals=0)} para clasificar"
+            )
         else:
             popular = popularity_share_bp >= popularity_threshold_bp
-            profitable = contribution_margin >= avg_margin_per_unit * row.qty_sold if row.qty_sold else False
-            # Compara el margen TOTAL del plato contra lo que el promedio
-            # por unidad hubiera dado con sus mismas unidades — equivalente
-            # a comparar el margen unitario, sin dividir (evita crear otra
-            # cantidad intermedia con redondeo).
+            # Margen UNITARIO del plato contra el promedio unitario, sin
+            # dividir (evita comparar dos cifras ya redondeadas):
+            # margin/qty_costed >= total/qty_total  <=>  margin*qty_total >= total*qty_costed.
+            profitable = contribution_margin * costed_qty_total >= costed_margin_total * row.qty_costed
             if popular and profitable:
                 classification, reason = "star", "alta popularidad y margen sobre el promedio"
             elif popular and not profitable:
@@ -316,20 +352,28 @@ def menu_engineering(db: Session, *, store: Store, date_from: date, date_to: dat
                 classification, reason = "puzzle", "baja popularidad, margen sobre el promedio"
             else:
                 classification, reason = "dog", "baja popularidad y margen bajo el promedio"
+        if classification is not None:
+            setattr(counts, classification, getattr(counts, classification) + 1)
 
+        fact = facts.get(product_id)
         rows.append(
             MenuEngineeringRowOut(
                 product_id=product_id,
                 product_name=row.name,
+                category_id=fact.category_id if fact else None,
+                category_name=fact.category_name if fact else None,
                 qty_sold=row.qty_sold,
                 popularity_share_bp=popularity_share_bp,
                 revenue_net=row.revenue_net,
                 theoretical_cost=theoretical_cost,
                 contribution_margin=contribution_margin,
+                contribution_margin_per_unit=margin_per_unit,
                 margin_pct_bp=margin_pct_bp,
                 costed_qty_pct_bp=costed_qty_pct_bp,
+                insufficient_sample=insufficient,
                 classification=classification,
                 classification_reason=reason,
+                recommended_action=_ACTION_BY_CLASS.get(classification) if classification else None,
             )
         )
 
@@ -344,6 +388,12 @@ def menu_engineering(db: Session, *, store: Store, date_from: date, date_to: dat
         popularity_threshold_bp=popularity_threshold_bp,
         avg_contribution_margin_per_unit=avg_margin_per_unit,
         rows=rows,
+        category_id=category_id,
+        min_units=min_units,
+        min_costed_pct_bp=min_costed_bp,
+        costed_pct_bp=costed_pct_bp,
+        counts_by_class=counts,
+        excluded_products=len(excluded_ids),
     )
 
 
@@ -446,35 +496,63 @@ class _WindowGap:
     gap_bp: int
     real_pct_bp: int
     theoretical_pct_bp: int
+    window_hours: int
+    window_days: int
+    orders: int
+    costed_pct_bp: int
+
+
+def _purchase_movement_count(db: Session, *, store: Store, window_from: datetime, window_to: datetime) -> int:
+    stmt = select(func.count(StockMovement.id)).where(
+        StockMovement.store_id == store.id,
+        StockMovement.cause == MovementCause.PURCHASE,
+        StockMovement.at > window_from,
+        StockMovement.at <= window_to,
+    )
+    return int(db.execute(stmt).scalar_one())
 
 
 def _window_food_cost_gap_bp(db: Session, *, store: Store, opening: StockCount, closing: StockCount) -> _WindowGap | None:
     """Brecha de food cost (real − teórico, en puntos básicos) para la
-    ventana `[opening, closing]` — la MISMA ventana que `app.inventory.
-    service.food_cost_report` usa para el food cost real (entre dos conteos
-    completos aplicados consecutivos), extendida acá con el food cost
-    TEÓRICO de la misma ventana (que ninguna función publicada calcula
-    todavía). `None` cuando la ventana no tiene ventas netas o ningún ítem
-    con costo congelado — "no computable", nunca `0`."""
-    net_sales = _net_sales(db, store_id=store.id, date_from=opening.business_date, date_to=closing.business_date)
-    if net_sales <= 0:
+    ventana `[opening, closing]` — la MISMA ventana y las MISMAS guardas que
+    `app.inventory.service.food_cost_report`: ventas por instante de cobro
+    (`app.orders.hooks.sales_in_window`, nunca `business_date` inclusivo),
+    teórico escalado a la cobertura de fichas y umbrales de
+    `app.inventory.hooks` (ventana mínima, cobertura mínima). `None` —
+    "no computable", nunca `0`— cuando la ventana no tiene ventas, es más
+    corta que el mínimo, no alcanza la cobertura, tiene compras en $0 con
+    recepciones o da un costo real negativo."""
+    w_from, w_to = opening.opened_at, closing.opened_at
+    if inventory_hooks.window_is_too_short(w_from, w_to):
+        return None
+    sales = orders_hooks.sales_in_window(db, store_id=store.id, paid_after=w_from, paid_until=w_to)
+    if sales.net_sales <= 0:
+        return None
+    theoretical = inventory_hooks.theoretical_food_cost(
+        net_sales=sales.net_sales, costed_net=sales.costed_net, theoretical_cost_micros=sales.theoretical_cost_micros
+    )
+    if theoretical.pct_bp is None or theoretical.costed_pct_bp is None:
         return None
 
     opening_value = _count_inventory_value(db, store=store, count=opening)
     closing_value = _count_inventory_value(db, store=store, count=closing)
-    purchases_value = _purchases_value(db, store=store, window_from=opening.opened_at, window_to=closing.opened_at)
-    real_cost = opening_value + purchases_value - closing_value
-    real_pct_bp = _signed_pct_bp(real_cost, net_sales)
-
-    theoretical_cost = _theoretical_cost_pesos(
-        db, store_id=store.id, date_from=opening.business_date, date_to=closing.business_date
-    )
-    if theoretical_cost is None:
+    purchases_value = _purchases_value(db, store=store, window_from=w_from, window_to=w_to)
+    if purchases_value <= 0 and _purchase_movement_count(db, store=store, window_from=w_from, window_to=w_to) > 0:
         return None
-    theoretical_pct_bp = _signed_pct_bp(theoretical_cost, net_sales)
+    real_cost = opening_value + purchases_value - closing_value
+    if real_cost < 0:
+        return None
+    real_pct_bp = _signed_pct_bp(real_cost, sales.net_sales)
+    hours, days = inventory_hooks.window_span(w_from, w_to)
 
     return _WindowGap(
-        gap_bp=real_pct_bp - theoretical_pct_bp, real_pct_bp=real_pct_bp, theoretical_pct_bp=theoretical_pct_bp
+        gap_bp=real_pct_bp - theoretical.pct_bp,
+        real_pct_bp=real_pct_bp,
+        theoretical_pct_bp=theoretical.pct_bp,
+        window_hours=hours,
+        window_days=days,
+        orders=sales.orders,
+        costed_pct_bp=theoretical.costed_pct_bp,
     )
 
 
@@ -482,21 +560,24 @@ def control_health_sustained(db: Session, *, store: Store) -> SustainedOut:
     """D-1: `sustained_red` es `True` cuando la brecha de food cost superó
     el umbral rojo en al menos 2 de las últimas 3 ventanas COMPUTABLES
     (con food cost real disponible) — nunca de "las últimas 3 que haya",
-    ciegamente: una ventana sin ventas netas o sin costo congelado no se
-    cuenta ni a favor ni en contra, se salta y se sigue buscando hacia atrás
-    en el historial. Con menos de 2 ventanas computables: `None` con
-    `reason`, nunca verde."""
+    ciegamente: una ventana sin ventas netas, sin costo congelado
+    suficiente o más corta que el mínimo no se cuenta ni a favor ni en
+    contra, se salta (`windows_skipped`) y se sigue buscando hacia atrás en
+    el historial. Con menos de 2 ventanas computables: `None` con `reason`,
+    nunca verde."""
     red_threshold_bp = _red_threshold_bp(db, store_id=store.id)
     counts = _applied_full_counts_desc(db, store_id=store.id)  # más reciente primero
 
     windows_out: list[SustainedWindowOut] = []
     exceed_count = 0
+    skipped = 0
     for idx in range(len(counts) - 1):
         if len(windows_out) >= _SUSTAINED_WINDOWS_NEEDED:
             break
         closing, opening = counts[idx], counts[idx + 1]  # counts está en orden descendente
         gap = _window_food_cost_gap_bp(db, store=store, opening=opening, closing=closing)
         if gap is None:
+            skipped += 1
             continue
         exceeds = gap.gap_bp > red_threshold_bp
         if exceeds:
@@ -512,30 +593,42 @@ def control_health_sustained(db: Session, *, store: Store) -> SustainedOut:
                 theoretical_pct_bp=gap.theoretical_pct_bp,
                 gap_bp=gap.gap_bp,
                 exceeds_red=exceeds,
+                window_hours=gap.window_hours,
+                window_days=gap.window_days,
+                orders_in_window=gap.orders,
+                costed_pct_bp=gap.costed_pct_bp,
             )
         )
 
-    if len(windows_out) < _SUSTAINED_MIN_WINDOWS:
+    def _out(sustained_red: bool | None, reason: str | None) -> SustainedOut:
         return SustainedOut(
             store_id=store.id,
-            sustained_red=None,
+            sustained_red=sustained_red,
             windows_evaluated=len(windows_out),
-            reason=(
-                "sin historial suficiente: hacen falta al menos TRES conteos completos "
-                "aplicados (dos períodos entre conteos) para saber si la brecha se sostiene"
-            ),
+            reason=reason,
             red_threshold_bp=red_threshold_bp,
             windows=windows_out,
+            min_window_days=inventory_hooks.FOOD_COST_MIN_WINDOW_DAYS,
+            min_costed_pct_bp=inventory_hooks.FOOD_COST_MIN_COSTED_BP,
+            windows_skipped=skipped,
         )
 
-    return SustainedOut(
-        store_id=store.id,
-        sustained_red=exceed_count >= _SUSTAINED_RED_HITS_REQUIRED,
-        windows_evaluated=len(windows_out),
-        reason=None,
-        red_threshold_bp=red_threshold_bp,
-        windows=windows_out,
-    )
+    if len(windows_out) < _SUSTAINED_MIN_WINDOWS:
+        reason = (
+            "sin historial suficiente: hacen falta al menos TRES conteos completos "
+            "aplicados (dos períodos entre conteos) para saber si la brecha se sostiene"
+        )
+        if skipped:
+            reason += (
+                f"; {skipped} período(s) entre conteos no cuentan porque duran menos de "
+                f"{inventory_hooks.FOOD_COST_MIN_WINDOW_HOURS} h, no tienen ventas, les falta ficha con costo "
+                "a más del "
+                f"{format_pct_bp(10000 - inventory_hooks.FOOD_COST_MIN_COSTED_BP, decimals=0)} de lo vendido, "
+                "o su food cost real no tiene sentido"
+            )
+        return _out(None, reason)
+
+    return _out(exceed_count >= _SUSTAINED_RED_HITS_REQUIRED, None)
 
 
 # ---------------------------------------------------------------------------
@@ -585,6 +678,7 @@ class _IngredientVarianceRow:
     ingredient_id: int
     variance_qty: int
     variance_value: int | None
+    cost_micros: int | None = None
 
 
 def _ingredient_variance_rows(db: Session, *, store: Store, opening: StockCount, closing: StockCount) -> list[_IngredientVarianceRow]:
@@ -618,7 +712,11 @@ def _ingredient_variance_rows(db: Session, *, store: Store, opening: StockCount,
             continue
         cost_micros, _source = inventory_hooks.resolve_ingredient_cost(db, ingredient)
         variance_value = micros_to_pesos(line_cost_micros(variance_qty, cost_micros)) if cost_micros is not None else None
-        rows.append(_IngredientVarianceRow(ingredient_id=ing_id, variance_qty=variance_qty, variance_value=variance_value))
+        rows.append(
+            _IngredientVarianceRow(
+                ingredient_id=ing_id, variance_qty=variance_qty, variance_value=variance_value, cost_micros=cost_micros
+            )
+        )
     return rows
 
 
@@ -649,6 +747,16 @@ def _dish_consumption_weights(
             continue
         weights[product_id] = weights.get(product_id, 0) + (-int(qty_base))
     return weights
+
+
+# Menos comandas que esto en la ventana y el reparto por plato es ruido
+# (misma regla de «muestra chica» que el informe de visualización pide en
+# todo porcentaje o promedio: n < 20).
+VARIANCE_BY_DISH_MIN_SALES = 20
+# Y una ventana de menos de 3 días también (misma regla del informe: «con n
+# < 20 o una ventana de menos de 3 días se muestra en gris»). Es sólo una
+# marca: el reparto se publica igual.
+VARIANCE_BY_DISH_MIN_WINDOW_DAYS = 3
 
 
 def variance_by_dish(db: Session, *, store: Store, count_id: int | None) -> VarianceByDishOut:
@@ -723,11 +831,14 @@ def variance_by_dish(db: Session, *, store: Store, count_id: int | None) -> Vari
     per_product_ingredient_count: dict[int, int] = {}
     total_variance_value = 0
     unattributed = 0
-    grand_total_weight = 0
-    per_product_grand_weight: dict[int, int] = {}
+    # Peso HOMOGÉNEO para publicar (informe #8): costo teórico consumido por
+    # plato, en micros de peso (cantidad teórica × costo del insumo). Antes
+    # se sumaban cantidades crudas de insumos con unidades distintas.
+    grand_total_weight_micros = 0
+    per_product_weight_micros: dict[int, int] = {}
 
     for irow in ingredient_rows:
-        if irow.variance_value is None:
+        if irow.variance_value is None or irow.cost_micros is None:
             continue  # sin costo resuelto: no hay con qué valorar en pesos, se omite del reparto (declarado)
         total_variance_value += irow.variance_value
         weights = _dish_consumption_weights(
@@ -737,17 +848,29 @@ def variance_by_dish(db: Session, *, store: Store, count_id: int | None) -> Vari
             unattributed += irow.variance_value
             continue
         product_ids = sorted(weights.keys())
+        # El prorrateo de UN insumo sí puede usar cantidades: todas están en
+        # la misma unidad base de ese insumo.
         shares = prorate(abs(irow.variance_value), [weights[pid] for pid in product_ids])
         sign = -1 if irow.variance_value < 0 else 1
-        for pid, share, w in zip(product_ids, shares, [weights[pid] for pid in product_ids]):
+        for pid, share in zip(product_ids, shares):
             per_product_value[pid] = per_product_value.get(pid, 0) + sign * share
             per_product_ingredient_count[pid] = per_product_ingredient_count.get(pid, 0) + 1
-            per_product_grand_weight[pid] = per_product_grand_weight.get(pid, 0) + w
-            grand_total_weight += w
+            weight_micros = line_cost_micros(weights[pid], irow.cost_micros)
+            per_product_weight_micros[pid] = per_product_weight_micros.get(pid, 0) + weight_micros
+            grand_total_weight_micros += weight_micros
 
     rows: list[VarianceByDishRowOut] = []
-    for pid, value in sorted(per_product_value.items(), key=lambda kv: -abs(kv[1])):
-        share_bp = _half_up(per_product_grand_weight.get(pid, 0) * 10000, grand_total_weight) if grand_total_weight else 0
+    # Faltantes primero (positivo = se usó más de lo esperado), cada grupo
+    # por |valor| desc; un reparto en 0 exacto va al final.
+    ordered = sorted(
+        per_product_value.items(), key=lambda kv: (0 if kv[1] > 0 else 1, -abs(kv[1]), kv[0])
+    )
+    for pid, value in ordered:
+        share_bp = (
+            _half_up(per_product_weight_micros.get(pid, 0) * 10000, grand_total_weight_micros)
+            if grand_total_weight_micros
+            else 0
+        )
         rows.append(
             VarianceByDishRowOut(
                 product_id=pid,
@@ -755,8 +878,29 @@ def variance_by_dish(db: Session, *, store: Store, count_id: int | None) -> Vari
                 theoretical_consumption_share_bp=share_bp,
                 variance_value=value,
                 ingredients_involved=per_product_ingredient_count.get(pid, 0),
+                direction="shortage" if value > 0 else "surplus",
             )
         )
+
+    window_hours, window_days = inventory_hooks.window_span(opening.opened_at, count.opened_at)
+    sales = orders_hooks.sales_in_window(
+        db, store_id=store.id, paid_after=opening.opened_at, paid_until=count.opened_at
+    )
+    sample_problems: list[str] = []
+    if count.opened_at - opening.opened_at < timedelta(days=VARIANCE_BY_DISH_MIN_WINDOW_DAYS):
+        sample_problems.append(
+            f"la ventana entre conteos dura {window_hours} h (hacen falta al menos "
+            f"{VARIANCE_BY_DISH_MIN_WINDOW_DAYS} días)"
+        )
+    if sales.orders < VARIANCE_BY_DISH_MIN_SALES:
+        sample_problems.append(
+            f"se cobraron {sales.orders} comandas en la ventana (hacen falta al menos {VARIANCE_BY_DISH_MIN_SALES})"
+        )
+    insufficient_reason = (
+        "Muestra insuficiente: " + " y ".join(sample_problems) + "; el reparto por plato es orientativo"
+        if sample_problems
+        else None
+    )
 
     return VarianceByDishOut(
         store_id=store.id,
@@ -770,6 +914,13 @@ def variance_by_dish(db: Session, *, store: Store, count_id: int | None) -> Vari
         total_variance_value=total_variance_value,
         unattributed_variance_value=unattributed,
         rows=rows,
+        window_hours=window_hours,
+        window_days=window_days,
+        sales_in_window=sales.orders,
+        insufficient_sample=bool(sample_problems),
+        insufficient_sample_reason=insufficient_reason,
+        min_window_days=VARIANCE_BY_DISH_MIN_WINDOW_DAYS,
+        min_sales_in_window=VARIANCE_BY_DISH_MIN_SALES,
     )
 
 
@@ -804,7 +955,50 @@ REPLENISHMENT_LOOKBACK_DAYS = 30
 _CONSUMPTION_CAUSES = (MovementCause.SALE, MovementCause.PRODUCTION_OUT)
 
 
+def _daily_consumption(
+    db: Session, *, store_id: int, ingredient_id: int, date_from: date, date_to: date
+) -> dict[date, int]:
+    """`business_date -> consumo` (positivo, milésimas de unidad base) de
+    ventas y producción, por FECHA DE NEGOCIO (columna propia)."""
+    stmt = (
+        select(StockMovement.business_date, func.coalesce(func.sum(StockMovement.qty_base), 0))
+        .where(
+            StockMovement.store_id == store_id,
+            StockMovement.ingredient_id == ingredient_id,
+            StockMovement.business_date >= date_from,
+            StockMovement.business_date <= date_to,
+            StockMovement.cause.in_(_CONSUMPTION_CAUSES),
+            StockMovement.qty_base < 0,
+        )
+        .group_by(StockMovement.business_date)
+    )
+    return {d: -int(total) for d, total in db.execute(stmt).all()}
+
+
+def _first_movement_date(db: Session, *, store_id: int, ingredient_id: int) -> date | None:
+    return db.execute(
+        select(func.min(StockMovement.business_date)).where(
+            StockMovement.store_id == store_id, StockMovement.ingredient_id == ingredient_id
+        )
+    ).scalar_one_or_none()
+
+
+def _median_half_up(values: list[int]) -> int:
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2:
+        return ordered[mid]
+    return _half_up(ordered[mid - 1] + ordered[mid], 2)
+
+
 def replenishment(db: Session, *, store: Store) -> ReplenishmentOut:
+    """Informe #17: el consumo diario se divide por los días REALES con
+    historial dentro de la ventana (desde el primer movimiento del insumo, o
+    el inicio de la ventana si es anterior, hasta hoy inclusive — 30 días en
+    total, no los 31 que daba `today − 30`), no por 30 fijos: con 14 días
+    de historia el promedio salía a la mitad. Se publica además la mediana
+    diaria (días sin consumo cuentan como 0)."""
     ingredients = list(
         db.execute(
             select(Ingredient).where(Ingredient.store_id == store.id, Ingredient.active.is_(True))
@@ -822,12 +1016,16 @@ def replenishment(db: Session, *, store: Store) -> ReplenishmentOut:
     from app.core import tz as tz_module
 
     today = tz_module.today_business_date(store.cutoff_hour)
-    since_date = today - timedelta(days=REPLENISHMENT_LOOKBACK_DAYS)
+    since_date = today - timedelta(days=REPLENISHMENT_LOOKBACK_DAYS - 1)
 
     rows: list[ReplenishmentRowOut] = []
     for ing in ingredients:
         current = inventory_hooks.current_stock(db, store_id=store.id, ingredient_id=ing.id)
         suggested_qty_base = max(0, ing.min_stock - current)
+
+        first = _first_movement_date(db, store_id=store.id, ingredient_id=ing.id)
+        history_start = max(since_date, first) if first is not None else None
+        history_days = (today - history_start).days + 1 if history_start is not None and history_start <= today else 0
 
         if ing.consumption_untracked:
             rows.append(
@@ -838,6 +1036,8 @@ def replenishment(db: Session, *, store: Store) -> ReplenishmentOut:
                     current_stock=format_qty_base(current),
                     min_stock=format_qty_base(ing.min_stock),
                     avg_daily_consumption=None,
+                    median_daily_consumption=None,
+                    history_days=history_days,
                     lead_time_days=ing.lead_time_days,
                     suggested_qty=format_qty_base(suggested_qty_base),
                     suggested_min=None,
@@ -847,25 +1047,30 @@ def replenishment(db: Session, *, store: Store) -> ReplenishmentOut:
             )
             continue
 
-        consumed_negative = _movement_sum_by_business_date(
-            db, store_id=store.id, ingredient_id=ing.id, date_from=since_date, date_to=today,
-            positive=False, causes=_CONSUMPTION_CAUSES,
-        )
-        total_consumed = -consumed_negative if consumed_negative < 0 else 0
+        daily: dict[date, int] = {}
+        if history_start is not None and history_days > 0:
+            daily = _daily_consumption(
+                db, store_id=store.id, ingredient_id=ing.id, date_from=history_start, date_to=today
+            )
+        total_consumed = sum(daily.values())
 
         avg_daily_consumption: str | None = None
+        median_daily_consumption: str | None = None
         suggested_min: str | None = None
         reason: str | None = None
-        based_on = f"consumo de los últimos {REPLENISHMENT_LOOKBACK_DAYS} días"
+        based_on = f"consumo de {history_days} día(s) con historial (de los últimos {REPLENISHMENT_LOOKBACK_DAYS})"
 
-        if total_consumed <= 0:
+        if total_consumed <= 0 or history_days <= 0:
             reason = f"sin consumo registrado en los últimos {REPLENISHMENT_LOOKBACK_DAYS} días"
         else:
-            avg_daily_consumption = format_qty_base(_half_up(total_consumed, REPLENISHMENT_LOOKBACK_DAYS))
+            assert history_start is not None  # history_days > 0 lo garantiza
+            series = [daily.get(history_start + timedelta(days=i), 0) for i in range(history_days)]
+            avg_daily_consumption = format_qty_base(_half_up(total_consumed, history_days))
+            median_daily_consumption = format_qty_base(_median_half_up(series))
             if ing.lead_time_days is None:
                 reason = "sin lead_time_days configurado para este insumo"
             else:
-                suggested_min_base = _half_up(total_consumed * ing.lead_time_days, REPLENISHMENT_LOOKBACK_DAYS)
+                suggested_min_base = _half_up(total_consumed * ing.lead_time_days, history_days)
                 suggested_min = format_qty_base(suggested_min_base)
                 based_on = f"{based_on} × lead_time_days ({ing.lead_time_days} días)"
 
@@ -877,6 +1082,8 @@ def replenishment(db: Session, *, store: Store) -> ReplenishmentOut:
                 current_stock=format_qty_base(current),
                 min_stock=format_qty_base(ing.min_stock),
                 avg_daily_consumption=avg_daily_consumption,
+                median_daily_consumption=median_daily_consumption,
+                history_days=history_days,
                 lead_time_days=ing.lead_time_days,
                 suggested_qty=format_qty_base(suggested_qty_base),
                 suggested_min=suggested_min,
@@ -889,29 +1096,3 @@ def replenishment(db: Session, *, store: Store) -> ReplenishmentOut:
     return ReplenishmentOut(
         store_id=store.id, available=True, reason=None, lookback_days=REPLENISHMENT_LOOKBACK_DAYS, rows=rows
     )
-
-
-def _movement_sum_by_business_date(
-    db: Session,
-    *,
-    store_id: int,
-    ingredient_id: int,
-    date_from: date,
-    date_to: date,
-    positive: bool,
-    causes: tuple[MovementCause, ...] | None = None,
-) -> int:
-    """Igual que `_movement_sum`, pero acotado por FECHA DE NEGOCIO (columna
-    propia, nunca derivada de `at`) en vez de instante UTC — correcto para
-    "los últimos N días de negocio", que es lo que pide reposición (una
-    ventana operativa, no un instante puntual como la de un conteo)."""
-    stmt = select(func.coalesce(func.sum(StockMovement.qty_base), 0)).where(
-        StockMovement.store_id == store_id,
-        StockMovement.ingredient_id == ingredient_id,
-        StockMovement.business_date >= date_from,
-        StockMovement.business_date <= date_to,
-    )
-    if causes is not None:
-        stmt = stmt.where(StockMovement.cause.in_(causes))
-    stmt = stmt.where(StockMovement.qty_base > 0 if positive else StockMovement.qty_base < 0)
-    return int(db.execute(stmt).scalar_one())

@@ -143,6 +143,9 @@ export function settleObligation(
 
 export interface ExpensesSettingsOut {
   store_id: number
+  /** @deprecated Ya no entra al punto de equilibrio: los costos fijos se
+   * calculan solos (obligaciones + nómina + gastos del período). Se guarda
+   * y se lee, pero nada lo suma. */
   fixed_costs: number | null
   updated_at: string | null
 }
@@ -166,13 +169,43 @@ export function updateExpensesSettings(
 // GET /admin/break-even — punto de equilibrio del período.
 // ---------------------------------------------------------------------------
 
+/** Un renglón de los costos fijos del período, en pesos. `source`: de qué
+ * registro sale (obligaciones por vencimiento, nómina del período, gastos no
+ * anulados). Sólo llegan renglones con plata. */
+export interface FixedCostLine {
+  label: string
+  amount: number
+  source: "obligations" | "payroll" | "expenses"
+}
+
 export interface BreakEvenOut {
   store_id?: number
   date_from?: string
   date_to?: string
+  /** Costos fijos AUTOMÁTICOS del período (obligaciones + nómina + gastos).
+   * `null` sólo si la nómina no se puede calcular (motivo en `reason`). */
   fixed_costs: number | null
+  fixed_costs_source?: "automatic"
+  fixed_costs_breakdown?: FixedCostLine[]
+  /** Ventas netas del período (pesos, sin impuesto ni propina). */
+  net_sales?: number
+  /** Por ciento ENTERO (0-100) de la venta neta con costo teórico; `null` sin venta. */
+  costed_pct?: number | null
+  /** Mínimo de `costed_pct` para confiar en el margen (95). Por debajo, margen y equilibrio son `null` con motivo. */
+  costed_pct_min?: number
   contribution_margin_pct_bp: number | null
   break_even_amount: number | null
+  /** Ventas netas / equilibrio, en puntos básicos (puede pasar de 10.000). */
+  progress_bp?: number | null
+  /** Lo que falta vender para el equilibrio, en pesos; 0 si ya se pasó, nunca negativo. */
+  gap_amount?: number | null
+  /** Días que faltan al ritmo diario de lo transcurrido del período (hacia
+   * arriba). 0 si ya se pasó; `null` sin equilibrio, sin ventas, o si el
+   * período ya terminó o no empezó. */
+  days_to_break_even_at_current_pace?: number | null
+  /** Días transcurridos del período (hoy incluido); `null` fuera del período. */
+  days_elapsed?: number | null
+  days_in_period?: number
   available: boolean
   reason: string | null
 }
@@ -188,8 +221,18 @@ export function getBreakEven(params: PeriodQuery): Promise<BreakEvenOut> {
 // obligaciones, nómina, `profit`).
 // ---------------------------------------------------------------------------
 
-export interface ProfitOut {
-  store_id?: number
+/** Un renglón del estado de resultados. `pct_of_sales_bp` = `amount / net_sales`
+ * en puntos básicos, con signo; `null` sin venta neta o sin `amount`. */
+export interface ProfitLine {
+  key: "net_sales" | "cost" | "expenses" | "obligations" | "payroll" | "profit"
+  label: string
+  amount: number | null
+  pct_of_sales_bp: number | null
+}
+
+/** Un período de la utilidad. Usa EXACTAMENTE los mismos costos fijos que
+ * `BreakEvenOut` (mismo `fixed_costs`/`fixed_costs_breakdown`). */
+export interface ProfitPeriodOut {
   date_from?: string
   date_to?: string
   net_sales: number | null
@@ -197,9 +240,23 @@ export interface ProfitOut {
   expenses: number | null
   obligations: number | null
   payroll: number | null
+  payroll_reason?: string | null
+  fixed_costs?: number | null
+  fixed_costs_breakdown?: FixedCostLine[]
+  /** Por ciento ENTERO (0-100) de la venta neta con costo teórico. */
+  costed_pct?: number | null
   profit: number | null
+  /** En orden: ventas, costo, nómina, obligaciones, gastos, utilidad. */
+  lines?: ProfitLine[]
   available: boolean
   reason: string | null
+}
+
+export interface ProfitOut extends ProfitPeriodOut {
+  store_id?: number
+  costed_pct_min?: number
+  /** El período inmediatamente anterior, de la misma cantidad de días. */
+  previous_period?: ProfitPeriodOut | null
 }
 
 export function getProfit(params: PeriodQuery): Promise<ProfitOut> {
