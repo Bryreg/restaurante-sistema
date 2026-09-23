@@ -1574,25 +1574,27 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       sede; el libro del banco repetía claves de React (`id` de tablas
       distintas); «Nómina» y «Propinas» se encendían juntas en el rail.
 
-    **Abiertos, piden decisión:**
-    - **El KDS muestra todo lo que alguna vez se envió** y nadie marcó
-      «servido»: a las dos semanas, 460 rondas, semáforo rojo y 14 días de
-      espera. `GET /kitchen/rounds` no filtra por estado de comanda ni por
-      fecha. Ocultar lo cobrado rompe el mostrador (se cobra antes de
-      cocinar); propuesta: lo `ready` de comandas cobradas sale, y nada de
-      días operativos anteriores.
-    - **Con una sesión de admin abierta en el navegador, activar el POS entra
-      en bucle**: `device/activate` responde 200 pero `/auth/me` prefiere la
-      cookie de admin y la pantalla vuelve a «Activar dispositivo» sin
-      mensaje. Decidir: activar cierra la sesión de admin, o el POS pide su
-      identidad de dispositivo explícitamente.
+    **Resueltos el 2026-09-23, con la decisión del dueño:**
+    - **KDS**: `app.kitchen.service.live_rounds` / `visible_items`. Anuladas,
+      fusionadas y compensadas salen; de días anteriores sólo sigue lo
+      abierto; de lo cobrado hoy sólo sigue lo pendiente (en mostrador se
+      cobra antes de cocinar). Lo mismo para la cola de impresión.
+    - **POS en bucle con el admin abierto**: un navegador, un rol. Activar el
+      dispositivo cierra la sesión de administrador en ese navegador, y la
+      pantalla lo avisa antes.
+    - **La campana de notificaciones tumbaba la app** (`Menu.GroupLabel`
+      fuera de `Menu.Group`), y tocar un aviso no lo marcaba leído (`onSelect`
+      es de Radix). Admin y POS tienen `errorElement` en español. Las reglas
+      mostraban 14 tipos con el código crudo; ahora todos tienen nombre y
+      explicación, con un test que cruza la lista del backend.
+    - El seed ya no siembra insumos duplicados, y el cargo de domicilio no
+      sale como «plato que no descuenta nada».
+    - **DIAN**: se puede emitir con software propio (factura y DE POS).
+      Plan en `docs/PLAN-DIAN.md`, pendiente de aprobación.
+
+    **Sigue abierto:**
     - Las dos comandas de ejemplo del seed (`shift_id=NULL`) las adopta el
-      primer turno y bloquean su cierre hasta cobrarlas o anularlas.
-    - El seed trae insumos duplicados («Pechuga de pollo»/«Pollo en
-      pechuga», «Arroz»/«Arroz blanco», «Sal»/«Sal de mesa»); el pollo
-      desmechado consume el duplicado y queda en negativo.
-    - «Cargo de domicilio» aparece en «plato vendido sin descontar nada»: es
-      un cargo, no un plato, y el aviso es ruido.
+      primer turno; el cierre ofrece trasladarlas, así que no bloquea.
     - Consola: «Encountered a script tag while rendering React component» en
       todas las pantallas y avisos de Base UI `nativeButton` en tablas.
 

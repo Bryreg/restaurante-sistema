@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildMe, renderWithProviders } from "@/test/utils";
 
 import { NotificationBell } from "../NotificationBell";
-import { TYPE_HELP, TYPE_LABEL } from "../NotificationsPage";
+import { TYPE_HELP, TYPE_LABEL } from "../types";
 
 const listNotifications = vi.fn();
 const markNotificationRead = vi.fn();

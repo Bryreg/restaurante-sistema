@@ -30,6 +30,23 @@ import { channelLabel, courseLabel, elapsedFromSeconds, SEMAPHORE_CLASS, SEMAPHO
 // queda en un estado raro.
 // -----------------------------------------------------------------------
 
+/**
+ * Las estaciones de fábrica (`DEFAULT_STATIONS` en `app/stores/service.py`)
+ * son códigos; en la pantalla de cocina salían crudos («hot_kitchen»). Una
+ * estación que el dueño creó con su propio nombre se muestra tal cual.
+ */
+const STATION_LABEL: Record<string, string> = {
+  hot_kitchen: "Cocina caliente",
+  cold_kitchen: "Cocina fría",
+  bar: "Bar",
+  desserts: "Postres",
+  none: "Sin estación",
+}
+
+function stationLabel(code: string): string {
+  return STATION_LABEL[code] ?? code
+}
+
 function ItemRow({ item, onChanged }: { item: KitchenRoundItemOut; onChanged: () => void }): React.JSX.Element {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -252,7 +269,7 @@ function PrintJobRow({ job, onChanged }: { job: KitchenPrintJobOut; onChanged: (
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
           <p className="font-medium">
-            Comanda #{job.order_id} · Ronda {job.round_no} · {job.station}
+            Comanda #{job.order_id} · Ronda {job.round_no} · {stationLabel(job.station)}
           </p>
           <p className="text-xs text-muted-foreground">
             {channelLabel(job.channel)}
@@ -282,7 +299,7 @@ function PrintJobRow({ job, onChanged }: { job: KitchenPrintJobOut; onChanged: (
             className="h-11"
             disabled={pending}
             onClick={() => void handleConfirm()}
-            aria-label={`Confirmar impresión: comanda ${job.order_id}, ronda ${job.round_no}, ${job.station}`}
+            aria-label={`Confirmar impresión: comanda ${job.order_id}, ronda ${job.round_no}, ${stationLabel(job.station)}`}
           >
             <Printer className="size-4" aria-hidden="true" />
             {pending ? "Registrando…" : job.printed ? "Reimprimir" : "Confirmar impresión"}
@@ -370,7 +387,7 @@ export function KdsPage(): React.JSX.Element {
               aria-pressed={station === value}
               onClick={() => setStation(value)}
             >
-              {value}
+              {stationLabel(value)}
             </Button>
           ))}
         </div>

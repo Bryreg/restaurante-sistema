@@ -798,6 +798,11 @@ emite en modo **«pendiente de transmisión»** con leyenda visible, y el establ
 sigue cumpliendo como lo hace hoy: es un riesgo legal del dueño, no algo que el
 software pueda resolver solo.
 
+> **Nota 2026-09-23.** El proveedor tecnológico no es la única vía: la
+> Resolución Única 000227/2025 (art. 1.5.1.5.1.1) admite «desarrollo propio»
+> también para el documento equivalente POS. La alternativa, con fases y
+> riesgos, está en `docs/PLAN-DIAN.md`; queda a decisión del dueño.
+
 El modelo, desde el día uno:
 
 - **Tipos de documento**: documento equivalente POS, factura electrónica de venta,
