@@ -1,96 +1,115 @@
 /**
- * Los costos fijos de la sede — la PUERTA DE ENTRADA del punto de equilibrio.
+ * De dónde salen los costos fijos del período — ya NO se escriben a mano.
  *
- * Existe por el hallazgo A-1 del cierre de la fase 3: `GET`/`PATCH
- * /admin/expenses/settings` estaban construidos y probados, pero **ninguna
- * pantalla los consumía**, así que `GET /admin/break-even` respondía
- * `available: false` para siempre y el motivo que devolvía le nombraba al
- * dueño una ruta de API que no puede abrir. La matemática estaba bien en las
- * dos puntas; lo que faltaba era por dónde entra el dato.
- *
- * Va DENTRO de la pestaña del punto de equilibrio, no en una pantalla de
- * configuración aparte, y a propósito: el lugar donde alguien se entera de que
- * le faltan los costos fijos es exactamente donde tiene que poder cargarlos.
+ * Antes esto era un formulario (`PATCH /admin/expenses/settings`) con un
+ * número suelto que alguien tipeaba ($14,5 M). El sistema ya conocía los
+ * costos fijos de verdad —obligaciones + nómina + gastos: $19,6 M— y por
+ * eso el punto de equilibrio decía «ya lo pasaste» mientras Utilidad
+ * mostraba una pérdida (informe de visualización #2). Ahora el backend los
+ * suma solo (`fixed_costs` + `fixed_costs_breakdown`, los MISMOS en
+ * `GET /admin/break-even` y en `GET /admin/profit`), y esta tarjeta explica
+ * de qué registro sale cada renglón y dónde se corrige. La ruta de
+ * `settings` quedó obsoleta en el backend: nada la suma.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import type { FixedCostLine } from "@/api/expenses"
+import { FilterLink, type FilterLinkProps } from "@/components/admin"
+import { BarList, ChartFrame } from "@/components/charts"
+import { SinDato } from "@/components/SinDato"
+import { formatCOP } from "@/lib/money"
 
-import { getExpensesSettings, updateExpensesSettings } from "@/api/expenses"
-import { MoneyInput } from "@/components/MoneyInput"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { errorMessage } from "@/lib/errors"
+/** Dónde se carga (y se corrige) cada origen. */
+const FIXED_COST_ORIGIN: Record<FixedCostLine["source"], { nombre: string; link: FilterLinkProps }> = {
+  obligations: {
+    nombre: "Obligaciones",
+    link: { to: "/admin/gastos?tab=obligaciones", screen: "Obligaciones y gastos", tab: "Obligaciones" },
+  },
+  payroll: {
+    nombre: "Nómina",
+    link: { to: "/admin/nomina?tab=liquidaciones", screen: "Nómina y propinas", tab: "Liquidaciones" },
+  },
+  expenses: {
+    nombre: "Gastos",
+    link: { to: "/admin/gastos?tab=gastos", screen: "Obligaciones y gastos", tab: "Gastos" },
+  },
+}
 
-export function FixedCostsCard({ storeId }: { storeId: number }): React.JSX.Element {
-  const queryClient = useQueryClient()
-  const [draft, setDraft] = useState<number | null>(null)
-  const [touched, setTouched] = useState(false)
+const ORDEN_ORIGEN: FixedCostLine["source"][] = ["obligations", "payroll", "expenses"]
 
-  const query = useQuery({
-    queryKey: ["expenses", "settings", storeId],
-    queryFn: () => getExpensesSettings(storeId),
-  })
+/**
+ * El desglose de los costos fijos automáticos: barras por renglón (nominal,
+ * ordenado por plata), tabla gemela con el origen de cada uno y los enlaces
+ * a donde se cargan. `total` es el `fixed_costs` del servidor; acá no se
+ * suma nada.
+ */
+export function FixedCostsCard({
+  total,
+  breakdown,
+  reason,
+}: {
+  total: number | null
+  breakdown: FixedCostLine[]
+  /** Por qué `total` es `null` (la nómina no se pudo calcular). */
+  reason?: string | null
+}): React.JSX.Element {
+  // Elegir el renglón más grande es seleccionar, no calcular.
+  const mayor = breakdown.reduce<FixedCostLine | null>((m, l) => (m === null || l.amount > m.amount ? l : m), null)
 
-  // El valor guardado sólo se copia al borrador mientras la persona no haya
-  // tocado el campo: un refetch en segundo plano no le pisa lo que está
-  // escribiendo (es la misma regla que el conteo de inventario: "un borrador
-  // local nunca pisa un valor confirmado", y tampoco al revés).
-  useEffect(() => {
-    if (!touched && query.data) setDraft(query.data.fixed_costs)
-  }, [query.data, touched])
-
-  const mutation = useMutation({
-    mutationFn: () => updateExpensesSettings(storeId, { fixed_costs: draft }),
-    onSuccess: (saved) => {
-      setTouched(false)
-      setDraft(saved.fixed_costs)
-      // El punto de equilibrio y la utilidad dependen de esto: se reconsultan
-      // los dos, no sólo el que está a la vista.
-      void queryClient.invalidateQueries({ queryKey: ["expenses", "settings", storeId] })
-      void queryClient.invalidateQueries({ queryKey: ["expenses", "break-even", storeId] })
-      void queryClient.invalidateQueries({ queryKey: ["expenses", "profit", storeId] })
-    },
-  })
+  const titular =
+    total === null
+      ? "Los costos fijos del período no se pueden sumar todavía"
+      : mayor === null
+        ? "No hay costos fijos registrados en el período"
+        : `${formatCOP(total)} de costos fijos; lo que más pesa es ${mayor.label.toLowerCase()} (${formatCOP(mayor.amount)})`
 
   return (
-    <div className="rounded-lg border p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-1.5">
-          <Label htmlFor="fixed-costs">Costos fijos del período</Label>
-          <MoneyInput
-            id="fixed-costs"
-            value={draft}
-            onChange={(v) => {
-              setTouched(true)
-              setDraft(v)
-            }}
-            disabled={query.isLoading || mutation.isPending}
-          />
-          <p className="text-xs text-muted-foreground">
-            Arriendo, servicios y todo lo que se paga esté abierto o cerrado. Sin este dato el punto de equilibrio no
-            se puede calcular, y el sistema lo dice con el motivo en vez de mostrar una cifra en cero.
+    <div className="space-y-3 rounded-lg border bg-card p-4">
+      <ChartFrame
+        titular={titular}
+        detalle={
+          <>
+            Se calculan solos con lo que ya está registrado en el período: obligaciones que vencen, la nómina de
+            las horas trabajadas y los gastos no anulados. <b>No se escriben a mano</b>: si un renglón está mal, se
+            corrige donde se cargó.
+          </>
+        }
+        tabla={{
+          columnas: [
+            { key: "label", header: "Renglón" },
+            { key: "origen", header: "De dónde sale" },
+            { key: "amount", header: "Monto", align: "right" },
+          ],
+          filas: breakdown.map((l) => ({
+            label: l.label,
+            origen: FIXED_COST_ORIGIN[l.source].nombre,
+            amount: formatCOP(l.amount),
+          })),
+        }}
+      >
+        {total === null ? (
+          <SinDato forma="bloque" motivo={reason} />
+        ) : breakdown.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Ni obligaciones, ni nómina, ni gastos en el período. Cargalos y el cálculo sale solo.
           </p>
-        </div>
-        <Button type="button" onClick={() => mutation.mutate()} disabled={!touched || mutation.isPending}>
-          {mutation.isPending ? "Guardando…" : "Guardar costos fijos"}
-        </Button>
+        ) : (
+          <BarList
+            datos={breakdown.map((l, i) => ({
+              key: `${l.source}-${i}`,
+              etiqueta: l.label,
+              valor: l.amount,
+              // El origen sólo se escribe si el rótulo no lo dice ya («Nómina · Nómina»).
+              detalle: l.label === FIXED_COST_ORIGIN[l.source].nombre ? undefined : FIXED_COST_ORIGIN[l.source].nombre,
+            }))}
+            formato={formatCOP}
+          />
+        )}
+      </ChartFrame>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
+        <span>Se cargan en:</span>
+        {ORDEN_ORIGEN.map((s) => (
+          <FilterLink key={s} {...FIXED_COST_ORIGIN[s].link} />
+        ))}
       </div>
-
-      {query.isError ? (
-        <p role="alert" className="mt-3 text-sm text-destructive">
-          No se pudieron leer los costos fijos: {errorMessage(query.error)}
-        </p>
-      ) : null}
-      {mutation.isError ? (
-        <p role="alert" className="mt-3 text-sm text-destructive">
-          {errorMessage(mutation.error)}
-        </p>
-      ) : null}
-      {!query.isLoading && !query.isError && query.data?.fixed_costs === null && !touched ? (
-        <p className="mt-3 text-sm text-muted-foreground">
-          Todavía no hay costos fijos cargados para esta sede.
-        </p>
-      ) : null}
     </div>
   )
 }

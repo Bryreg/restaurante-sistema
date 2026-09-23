@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
+import { useSearchParams } from "react-router-dom"
 
 import { listPayables, payablesCsvUrl, type PayableOut, type PayableStatus, type SupplierOut } from "@/api/purchases"
 import { CsvExportButton } from "@/components/CsvExportButton"
@@ -41,6 +42,7 @@ import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { PayableDetailDialog } from "./PayableDetailDialog"
+import { PayablesSummary } from "./PayablesSummary"
 import { defaultDateRange, PAYABLE_STATUS_LABEL, supplierName } from "./lib"
 
 /**
@@ -55,7 +57,16 @@ export function PayablesTab({ storeId, suppliers }: { storeId: number; suppliers
   const [range, setRange] = useState(() => defaultDateRange(90))
   const [supplierId, setSupplierId] = useState<number | null>(null)
   const [status, setStatus] = useState<PayableStatus | "all">("all")
-  const [overdueOnly, setOverdueOnly] = useState(false)
+  // «Sólo vencidas» vive en la URL (`?vencidas=1`): así la tarjeta «Vencido»
+  // del resumen —y cualquier aviso— puede llegar con el filtro puesto.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const overdueOnly = searchParams.get("vencidas") === "1"
+  const setOverdueOnly = (on: boolean) => {
+    const next = new URLSearchParams(searchParams)
+    if (on) next.set("vencidas", "1")
+    else next.delete("vencidas")
+    setSearchParams(next, { replace: true })
+  }
 
   const query = useQuery({
     queryKey: ["purchases", "payables", storeId, range.from, range.to, supplierId, status, overdueOnly],
@@ -70,7 +81,13 @@ export function PayablesTab({ storeId, suppliers }: { storeId: number; suppliers
       }),
   })
 
-  const payables = query.data ?? []
+  // Orden por defecto (informe #8): las vencidas primero, después las que
+  // todavía tienen saldo y al final las ya pagadas o canceladas; dentro de
+  // cada grupo, la que vence antes. Ordenar filas no es calcular plata.
+  const grupo = (p: PayableOut) => (p.overdue ? 0 : p.status !== "cancelled" && p.balance > 0 ? 1 : 2)
+  const payables = [...(query.data ?? [])].sort(
+    (a, b) => grupo(a) - grupo(b) || a.due_date.localeCompare(b.due_date) || a.id - b.id,
+  )
 
   const overdue = payables.filter((p) => p.overdue).length
 
@@ -134,6 +151,8 @@ export function PayablesTab({ storeId, suppliers }: { storeId: number; suppliers
   }
 
   return (
+    <div className="space-y-6">
+    <PayablesSummary storeId={storeId} />
     <DenseTable
       caption="Cuentas por pagar"
       columns={columns}
@@ -215,6 +234,7 @@ export function PayablesTab({ storeId, suppliers }: { storeId: number; suppliers
         )
       }
     />
+    </div>
   )
 }
 

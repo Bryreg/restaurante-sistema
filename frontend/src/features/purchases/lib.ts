@@ -16,12 +16,15 @@
  */
 
 import type {
+  PayablesAgingBucket,
+  PayablesSummaryOut,
   PayableStatus,
   ReceptionStatus,
   SupplierOut,
   SupplierPaymentMethod,
 } from "@/api/purchases"
 import { daysAgoInBogota, todayInBogota } from "@/features/reports/lib"
+import { formatCOP } from "@/lib/money"
 
 export const SUPPLIER_PAYMENT_METHOD_LABEL: Record<SupplierPaymentMethod, string> = {
   cash: "Efectivo",
@@ -108,3 +111,37 @@ export function supplierName(suppliers: SupplierOut[], supplierId: number): stri
 export function defaultDateRange(days: number): { from: string; to: string } {
   return { from: daysAgoInBogota(days), to: todayInBogota() }
 }
+
+// ---------------------------------------------------------------------------
+// Resumen de cuentas por pagar (informe de visualización #8): rótulos de los
+// tramos y el titular. Las cifras vienen de `GET /admin/payables/summary`.
+// ---------------------------------------------------------------------------
+
+export const AGING_LABEL: Record<PayablesAgingBucket, string> = {
+  current: "Al día",
+  "1_30": "1 a 30 días vencida",
+  "31_60": "31 a 60 días vencida",
+  over_60: "Más de 60 días vencida",
+}
+
+/** Etiqueta corta para el eje (a 390 px no caben las largas). */
+export const AGING_EJE: Record<PayablesAgingBucket, string> = {
+  current: "Al día",
+  "1_30": "1–30 d",
+  "31_60": "31–60 d",
+  over_60: "+60 d",
+}
+
+export function cuentas(n: number): string {
+  return `${n} ${n === 1 ? "cuenta" : "cuentas"}`
+}
+
+/** «Debés $X · $Y vencido · $Z vence en 7 días», con las cifras del servidor. */
+export function payablesHeadline(s: PayablesSummaryOut): string {
+  if (s.open_count === 0) return "No le debés nada a ningún proveedor"
+  const partes = [`Debés ${formatCOP(s.total_open)}`]
+  partes.push(s.overdue_count > 0 ? `${formatCOP(s.total_overdue)} vencido` : "nada vencido")
+  if (s.due_next_7_days > 0) partes.push(`${formatCOP(s.due_next_7_days)} vence en 7 días`)
+  return partes.join(" · ")
+}
+

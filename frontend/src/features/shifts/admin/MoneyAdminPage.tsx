@@ -1,9 +1,12 @@
+import { useSearchParams } from "react-router-dom";
+
 import { useStoreSelection } from "@/app/storeContext";
 import { Cargando } from "@/components/Cargando";
 import { PageHeader } from "@/components/admin";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { HistoryTab } from "./HistoryTab";
+import { moneyTabFromParam } from "./lib";
 import { OperationalTab } from "./OperationalTab";
 
 /**
@@ -13,6 +16,8 @@ import { OperationalTab } from "./OperationalTab";
  */
 export function MoneyAdminPage(): React.JSX.Element {
   const { activeStoreId, loading } = useStoreSelection();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = moneyTabFromParam(searchParams.get("tab"));
 
   if (loading) {
     return <Cargando texto="Cargando sedes…" className="p-4" />;
@@ -37,15 +42,22 @@ export function MoneyAdminPage(): React.JSX.Element {
           },
         ]}
       >
-        <Tabs defaultValue="operational">
+        <Tabs
+          value={tab}
+          onValueChange={(value) => {
+            const next = new URLSearchParams(searchParams);
+            next.set("tab", String(value));
+            setSearchParams(next, { replace: true });
+          }}
+        >
           <TabsList className="mt-1">
-            <TabsTrigger value="operational">Operacional</TabsTrigger>
-            <TabsTrigger value="history">Historial</TabsTrigger>
+            <TabsTrigger value="operacional">Operacional</TabsTrigger>
+            <TabsTrigger value="historial">Historial</TabsTrigger>
           </TabsList>
-          <TabsContent value="operational" className="pt-4">
+          <TabsContent value="operacional" className="pt-4">
             <OperationalTab storeId={activeStoreId} />
           </TabsContent>
-          <TabsContent value="history" className="pt-4">
+          <TabsContent value="historial" className="pt-4">
             <HistoryTab storeId={activeStoreId} />
           </TabsContent>
         </Tabs>

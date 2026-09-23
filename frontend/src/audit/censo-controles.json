@@ -784,7 +784,6 @@
   "Teléfono (opcional)"
  ],
  "features/purchases/SupplierReliabilityDialog.tsx": [
-  "Deriva promedio de precio",
   "No se pudo calcular la confiabilidad",
   "Recepciones con factura",
   "Recepciones en el rango",

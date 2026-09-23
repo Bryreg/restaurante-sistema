@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -54,7 +54,7 @@ describe("SupplierReliabilityDialog — recibido ÷ facturado, % con factura y d
     expect(screen.getAllByText(/no es 0 %, es que no hay con qué medirlo/i).length).toBe(3)
   })
 
-  it("con datos, muestra los tres porcentajes tal cual el servidor los calculó", async () => {
+  it("con datos, muestra los tres porcentajes tal cual el servidor los calculó, la deriva con signo y el detalle por insumo", async () => {
     getSupplierReliabilityMock.mockResolvedValue({
       supplier_id: 3,
       date_from: "2026-06-01",
@@ -63,14 +63,51 @@ describe("SupplierReliabilityDialog — recibido ÷ facturado, % con factura y d
       received_over_invoiced_pct: 98,
       invoice_share_pct: 100,
       avg_price_drift_pct: 3,
-    })
+      received_over_invoiced_bp: 9800,
+      invoice_share_bp: 10_000,
+      price_drift_bp: 286,
+      n_receptions: 4,
+      n_ingredients: 2,
+      spend: 144_086,
+      ingredients: [
+        {
+          ingredient_id: 15,
+          name: "Chorizo antioqueño",
+          base_unit: "unit",
+          n_receptions: 4,
+          received_over_invoiced_bp: 10_000,
+          price_drift_bp: 1100,
+          n_price_comparisons: 3,
+          spend: 131_213,
+        },
+        {
+          ingredient_id: 16,
+          name: "Lomo de res",
+          base_unit: "g",
+          n_receptions: 4,
+          received_over_invoiced_bp: 9300,
+          price_drift_bp: -40,
+          n_price_comparisons: 3,
+          spend: 12_873,
+        },
+      ],
+    } satisfies SupplierReliabilityOut)
 
     const user = userEvent.setup()
     renderWithProviders(<SupplierReliabilityDialog supplier={AVICOLA} />)
     await user.click(screen.getByRole("button", { name: "Confiabilidad" }))
 
-    expect(await screen.findByText("98 %")).toBeInTheDocument()
-    expect(screen.getByText("100 %")).toBeInTheDocument()
-    expect(screen.getByText("3 %")).toBeInTheDocument()
+    expect(await screen.findByText(/^98,0\s%$/)).toBeInTheDocument()
+    expect(screen.getByText("Recepciones con factura").closest('[class*="rounded-lg"]')).toHaveTextContent(/100,0\s%/)
+    expect(screen.getByText(/^▲ \+2,9\s%$/)).toBeInTheDocument()
+    // Cuatro recepciones es muestra chica: se dice.
+    expect(screen.getByText(/Muestra chica: Sobre 4 recepciones/)).toBeInTheDocument()
+
+    const tabla = screen.getByRole("table", { name: /confiabilidad por insumo/i })
+    const chorizo = within(tabla).getByText("Chorizo antioqueño").closest("tr")!
+    expect(within(chorizo).getByText(/▲ \+11,0\s%/).closest("[data-tono]")).toHaveAttribute("data-tono", "critical")
+    const lomo = within(tabla).getByText("Lomo de res").closest("tr")!
+    expect(within(lomo).getByText(/93,0\s%/).closest("[data-tono]")).toHaveAttribute("data-tono", "critical")
+    expect(within(lomo).getByText(/▼ −0,4\s%/)).toBeInTheDocument()
   })
 })
