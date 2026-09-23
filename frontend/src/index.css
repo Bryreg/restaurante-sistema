@@ -291,6 +291,13 @@ html.oficina {
   body {
     @apply bg-background text-foreground;
     }
+  /* El navegador centra el `<th>` por defecto, y Tailwind no lo resetea: la
+     cabecera de una columna de texto quedaba al medio y sus datos a la
+     izquierda, corridos del título. Toda cabecera arranca donde arrancan sus
+     datos; las de cifras se alinean a la derecha con su propia clase o estilo. */
+  th {
+    text-align: start;
+    }
   html {
     @apply font-sans;
     }
