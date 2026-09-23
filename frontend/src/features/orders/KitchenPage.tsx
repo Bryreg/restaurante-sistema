@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2 } from "lucide-react"
 import { useEffect, useState } from "react"
 
+import { useCocinaPantalla } from "@/app/salonTheme"
 import { useSession } from "@/app/session"
 import { newIdempotencyKey } from "@/api/client"
 import { markReady } from "@/api/orders"
@@ -104,6 +105,7 @@ function ItemRow({
  * navega a ninguna otra pantalla (CONTRATO-INTERNO §6.2).
  */
 export function KitchenPage(): React.JSX.Element {
+  useCocinaPantalla()
   const { hasFeature } = useSession()
   const enabled = hasFeature("kitchen.view")
   const queryClient = useQueryClient()

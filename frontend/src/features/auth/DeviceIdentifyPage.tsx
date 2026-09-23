@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useDensity } from "@/app/density";
+import { useSalonTheme } from "@/app/salonTheme";
 import { useSession } from "@/app/session";
 import { deviceIdentify } from "@/api/auth";
 import type { DeviceEmployee } from "@/api/employees";
@@ -20,6 +21,7 @@ export default function DeviceIdentifyPage(): React.JSX.Element {
   // Ídem `DeviceActivatePage`: vive fuera de `PosLayout` y es el otro
   // teclado de PIN de la tablet.
   useDensity("salon");
+  useSalonTheme();
   const { refresh } = useSession();
   const navigate = useNavigate();
   const [employee, setEmployee] = useState<DeviceEmployee | null>(null);

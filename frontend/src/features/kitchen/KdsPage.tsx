@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, Printer, Rocket, Undo2 } from "lucide-react"
 import { useEffect, useState } from "react"
 
+import { useCocinaPantalla } from "@/app/salonTheme"
 import { useSession } from "@/app/session"
 import {
   bumpItem,
@@ -327,6 +328,7 @@ function PrintJobRow({ job, onChanged }: { job: KitchenPrintJobOut; onChanged: (
 // -----------------------------------------------------------------------
 
 export function KdsPage(): React.JSX.Element {
+  useCocinaPantalla()
   const { hasFeature } = useSession()
   const enabled = hasFeature("kitchen.kds")
   const queryClient = useQueryClient()

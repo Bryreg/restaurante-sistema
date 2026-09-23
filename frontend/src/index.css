@@ -74,10 +74,12 @@
    Dos superficies de un mismo libro de cuentas:
    · EL LIBRO (`:root`, la oficina del dueño): papel claro de libro contable,
      tinta verde-negra, cifras en columna.
-   · LA PIZARRA (`html.salon`, salón y cocina): fondo oscuro que no encandila
-     bajo luces de cocina, tiza clara. Es FIJA: no sigue el claro/oscuro del
-     sistema operativo, porque no es una preferencia sino una condición del
-     lugar (ruido, grasa, luz dura).
+   · EL SALÓN (`html.salon`): claro por defecto, con más contraste que el
+     libro, porque con luz de día una pantalla oscura refleja y se lee peor.
+     Cada tablet puede pasarse a LA PIZARRA oscura (bar, noche).
+   · LA PIZARRA (`html.salon.salon-oscuro`, y siempre `html.salon.cocina`):
+     fondo oscuro, tiza clara. En la cocina es fija: pantalla mirada de lejos
+     con tiquetes claros encima.
 
    El AÑIL es la única voz de «actuá acá». El rojo es SÓLO «falta plata» o
    error: por eso la marca no puede ser roja. Verde azulado = cuadra/sobra;
@@ -165,11 +167,50 @@
     --sidebar-ring: #8D9BFF;
 }
 
-/* La pizarra: salón y cocina. Gana sobre `.dark` y sobre el claro, porque va
-   con más especificidad (`html.salon`, y `html.salon.dark` por si el
-   interruptor quedó puesto desde el admin). */
-html.salon,
-html.salon.dark {
+/* EL SALÓN CLARO (por defecto): mesas y caja con luz de día. No es el libro
+   de la oficina: tinta más oscura, gris secundario más firme y líneas más
+   visibles, porque se lee de pie y a un brazo de distancia. `html.salon` gana
+   sobre `.dark` (más especificidad): el claro/oscuro del admin no manda acá;
+   manda la elección de la tablet (`src/app/salonTheme.ts`). */
+html.salon {
+    color-scheme: light;
+    --background: #F7F8F5;
+    --foreground: #101814;
+    --card: #FFFFFF;
+    --card-foreground: #101814;
+    --popover: #FFFFFF;
+    --popover-foreground: #101814;
+    --primary: #3D4FE0;
+    --primary-foreground: #FFFFFF;
+    --secondary: #E6EBE4;
+    --secondary-foreground: #101814;
+    --muted: #E6EBE4;
+    --muted-foreground: #3E4B45;
+    --accent: #E3E6FB;
+    --accent-foreground: #2F3DB8;
+    --destructive: #C4302B;
+    --destructive-foreground: #FFFFFF;
+    --success: #0F7A6A;
+    --success-foreground: #FFFFFF;
+    --warning: #9A6412;
+    --warning-foreground: #FFFFFF;
+    --border: #C9D1C8;
+    --input: #B3BDB2;
+    --ring: #3D4FE0;
+    --sidebar: #E6EBE4;
+    --sidebar-foreground: #101814;
+    --sidebar-primary: #101814;
+    --sidebar-primary-foreground: #F7F8F5;
+    --sidebar-accent: #DCE2DA;
+    --sidebar-accent-foreground: #101814;
+    --sidebar-border: #C9D1C8;
+    --sidebar-ring: #3D4FE0;
+}
+
+/* LA PIZARRA: la tablet que eligió «pantalla oscura» (bar, noche) y SIEMPRE
+   la cocina (`html.cocina`, puesta por el KDS mientras está abierto). */
+html.salon.salon-oscuro,
+html.salon.cocina {
     color-scheme: dark;
     --background: #121A17;           /* pizarra                   */
     --foreground: #EEF2EF;           /* tiza                      */

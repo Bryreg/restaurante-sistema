@@ -1,6 +1,6 @@
-import { LayoutGrid, LogOut, Users } from "lucide-react";
+import { LayoutGrid, LogOut, Moon, Sun, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { deviceDeactivate, deviceRelease } from "@/api/auth";
@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 
 import type { NavItem } from "./nav";
 import { useDensity } from "./density";
+import { useSalonTheme } from "./salonTheme";
 import { useSession } from "./session";
 
 /** [...ordersFeature.posNav, ...shiftsFeature.posNav, ...recipesFeature.posNav,
@@ -167,6 +168,10 @@ const ROLE_LABEL: Record<string, string> = {
 export default function PosLayout(): React.JSX.Element | null {
   // Tablet del salón: cuerpo 17 px y objetivo táctil de 52 px (m2b `.salon`).
   useDensity("salon");
+  const [pantalla, setPantalla] = useSalonTheme();
+  // En la cocina la pizarra es fija (`useCocinaPantalla`): ahí el botón no
+  // cambiaría nada visible, así que no se ofrece.
+  const enCocina = /^\/pos\/(kds|cocina)\b/.test(useLocation().pathname);
   const { me, refresh, hasFeature } = useSession();
   const navigate = useNavigate();
   const [releasing, setReleasing] = useState(false);
@@ -225,6 +230,23 @@ export default function PosLayout(): React.JSX.Element | null {
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Por tablet: la de la terraza queda clara, la del bar oscura. */}
+          {enCocina ? null : (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-11 gap-2"
+              aria-pressed={pantalla === "oscuro"}
+              onClick={() => setPantalla(pantalla === "oscuro" ? "claro" : "oscuro")}
+            >
+              {pantalla === "oscuro" ? (
+                <Sun className="size-4" aria-hidden="true" />
+              ) : (
+                <Moon className="size-4" aria-hidden="true" />
+              )}
+              {pantalla === "oscuro" ? "Pantalla clara" : "Pantalla oscura"}
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useDensity } from "@/app/density";
+import { useSalonTheme } from "@/app/salonTheme";
 import { useSession } from "@/app/session";
 import { deviceActivate } from "@/api/auth";
 import { PinPad } from "@/components/PinPad";
@@ -23,6 +24,7 @@ export default function DeviceActivatePage(): React.JSX.Element {
   // pantalla es un teclado de PIN en una tablet y necesita el objetivo
   // táctil de 52 px tanto como las de adentro.
   useDensity("salon");
+  useSalonTheme();
   const { me, refresh } = useSession();
   const navigate = useNavigate();
   const [storeId, setStoreId] = useState("");
