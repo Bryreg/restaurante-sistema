@@ -20,15 +20,14 @@ def test_the_change_is_what_was_tendered_minus_what_it_pays() -> None:
     assert cash_change(amount=41_800, tendered=40_000) is None
 
 
-def test_preview_over_http_needs_a_person_and_writes_nothing(
-    device_client: Any, identify: Any, employees: Any
-) -> None:
+def test_preview_over_http_needs_the_device_not_a_person(client: Any, device_client: Any) -> None:
+    """Sin persona identificada responde igual: un 401 acá cerraría la sesión
+    de la cajera en medio del cobro (y cada consulta la renovaría)."""
     body = {"splits": [{"amount": 41_800, "tendered": 50_000}, {"amount": 20_000, "tendered": 10_000}]}
 
-    anonymous = device_client.post("/api/v1/payments/change-preview", json=body)
-    assert anonymous.status_code == 401
+    sin_dispositivo = client.post("/api/v1/payments/change-preview", json=body)
+    assert sin_dispositivo.status_code == 401
 
-    identify(device_client, employees["cashier"])
     resp = device_client.post("/api/v1/payments/change-preview", json=body)
     assert resp.status_code == 200, resp.text
     assert resp.json() == {

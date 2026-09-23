@@ -59,7 +59,7 @@ import importlib
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -596,3 +596,13 @@ def register_delivery_settlement_reversal(
             "de la liquidación, y recién ahí anulala"
         ),
     )
+
+
+def open_shift_ids_query(store_id: int) -> Select[tuple[int]]:
+    """Los turnos abiertos de la sede, como subconsulta para un `IN`. La usa
+    la cocina (`app.kitchen.service.live_rounds`): mientras el turno que
+    cobró siga abierto, lo que todavía no se cocinó sigue siendo trabajo,
+    aunque ya haya pasado la hora de corte."""
+    from app.shifts.models import Shift, ShiftStatus
+
+    return select(Shift.id).where(Shift.store_id == store_id, Shift.status == ShiftStatus.OPEN)

@@ -90,11 +90,17 @@ def post_payment(
 
 @router.post("/payments/change-preview")
 def post_change_preview(
-    payload: ChangePreviewIn, actor: Actor = Depends(current_operator)
+    payload: ChangePreviewIn, actor: Actor = Depends(current_device)
 ) -> ChangePreviewOut:
     """El vuelto antes de cobrar. Sólo lectura: no toca la comanda ni el
-    cajón, así que no lleva `Idempotency-Key`. Pide persona identificada como
-    el cobro, porque es parte de cobrar."""
+    cajón, así que no lleva `Idempotency-Key`.
+
+    Pide el DISPOSITIVO y no la persona (`current_operator`), a propósito: la
+    pantalla la consulta en cada cambio de lo recibido, y con persona
+    (1) un 401 por sesión vencida cerraría la sesión en medio del cobro
+    —el cobro mismo ya pide el PIN— y (2) cada consulta renovaría la sesión
+    de la persona, así que teclear montos la mantendría viva para siempre.
+    Es una resta sin datos: no hay nada que proteger detrás de un PIN."""
     del actor
     return ChangePreviewOut.model_validate(service.preview_change(payload.splits))
 

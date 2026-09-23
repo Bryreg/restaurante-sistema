@@ -308,10 +308,14 @@ class Api:
         return self._do("PATCH", path, json=json, **kw)
 
 
+# La hora de corte de la sede; `Demo.login` la lee de la API.
+CUTOFF_HOUR = 6
+
+
 def set_local(day: date, hhmm: str) -> None:
     hh, mm = (int(x) for x in hhmm.split(":"))
     local = datetime(day.year, day.month, day.day, hh, mm, tzinfo=BOGOTA)
-    if hh < 6:  # madrugada: pertenece al día operativo anterior, cae al día siguiente
+    if hh < CUTOFF_HOUR:  # madrugada: pertenece al día operativo anterior, cae al día siguiente
         local += timedelta(days=1)
     instant = local.astimezone(timezone.utc)
     clock.set_clock(lambda: instant)
@@ -384,8 +388,10 @@ class Demo:
 
     def login(self) -> None:
         self.admin.post("/auth/admin/login", {"email": ADMIN[0], "password": ADMIN[1]})
+        global CUTOFF_HOUR
         stores = self.admin.get("/admin/stores")
         self.store_id = stores[0]["id"]
+        CUTOFF_HOUR = int(stores[0].get("cutoff_hour", 6))
         self.pos.post("/auth/device/activate", {"store_id": self.store_id, "store_pin": STORE_PIN})
 
     def configure(self) -> None:

@@ -60,7 +60,7 @@ def test_paid_counter_order_still_shows_what_the_kitchen_has_not_cooked(
 
 def test_paid_order_leaves_the_kitchen_once_the_dish_is_ready(
     device_client: TestClient, identify: Any, employees: Any, open_shift: Any, new_order: Any, add_items: Any,
-    send_order: Any, main_product: Any,
+    send_order: Any, main_product: Any, clock: Any,
 ) -> None:
     open_shift()
     identify(device_client, employees["cashier"])
@@ -72,21 +72,45 @@ def test_paid_order_leaves_the_kitchen_once_the_dish_is_ready(
     assert order["id"] in _round_order_ids(device_client)
 
     _pay(device_client, order["id"])
+    # Recién marcado: sigue a la vista un rato, para poder deshacer un toque equivocado.
+    assert order["id"] in _round_order_ids(device_client)
+    clock.advance(minutes=11)
+    identify(device_client, employees["cashier"])
     assert order["id"] not in _round_order_ids(device_client)
 
 
-def test_yesterdays_paid_orders_are_not_kitchen_work_today(
+def test_a_shift_selling_past_the_cutoff_keeps_its_kitchen(
     device_client: TestClient, identify: Any, employees: Any, open_shift: Any, new_order: Any, add_items: Any,
     send_order: Any, main_product: Any, clock: Any,
 ) -> None:
-    """Un plato cobrado ayer y que nadie cocinó en el sistema no es trabajo de hoy."""
+    """Pasada la hora de corte el «hoy» cambia, pero mientras el turno siga
+    abierto lo que cobró y todavía no se cocinó sigue siendo trabajo."""
     open_shift()
+    identify(device_client, employees["cashier"])
+    order = _send_one(device_client, new_order, add_items, send_order, main_product)
+    _pay(device_client, order["id"])
+
+    clock.advance(days=1)
+    identify(device_client, employees["cashier"])
+    assert order["id"] in _round_order_ids(device_client)
+
+
+def test_yesterdays_paid_orders_of_a_closed_shift_are_not_kitchen_work(
+    device_client: TestClient, admin_client: TestClient, identify: Any, employees: Any, open_shift: Any,
+    new_order: Any, add_items: Any, send_order: Any, main_product: Any, clock: Any,
+) -> None:
+    """Un plato cobrado en un turno ya cerrado de otro día no es trabajo de hoy."""
+    shift = open_shift()
     identify(device_client, employees["cashier"])
     order = _send_one(device_client, new_order, add_items, send_order, main_product)
     _pay(device_client, order["id"])
     assert order["id"] in _round_order_ids(device_client)
 
-    clock.advance(days=1)
+    clock.advance(days=2)
+    closed = admin_client.post(
+        f"/api/v1/admin/shifts/{shift['id']}/close-administrative", json={"reason": "abandonado"}
+    )
+    assert closed.status_code in (200, 201), closed.text
     identify(device_client, employees["cashier"])
     assert order["id"] not in _round_order_ids(device_client)
 

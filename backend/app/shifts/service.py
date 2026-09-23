@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, select
@@ -276,6 +276,19 @@ def compute_breakdown(db: Session, shift: Shift) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 
+def end_of_business_day(db: Session, shift: Shift, store: Store) -> datetime | None:
+    """El instante (UTC) en que termina el día operativo del turno: la hora
+    de corte del día siguiente a su `business_date`. Pasado este punto el
+    turno ya es abandonado (`is_shift_stale`)."""
+    day = db.get(BusinessDay, shift.business_day_id)
+    if day is None:
+        return None
+    cutoff_local = datetime.combine(
+        day.business_date + timedelta(days=1), time(hour=store.cutoff_hour), tzinfo=tz.BOGOTA
+    )
+    return cutoff_local.astimezone(timezone.utc)
+
+
 def is_shift_stale(db: Session, shift: Shift, store: Store) -> bool:
     """Un turno abierto pasada la hora de corte del día SIGUIENTE a su
     `business_date` es un turno abandonado (`docs/SPEC-NEGOCIO.md §3.1`).
@@ -526,6 +539,43 @@ def _end_open_roster(db: Session, *, actor: Actor, shift: Shift, at: datetime) -
             action="out_on_close",
             before=None,
             after={"employee_id": entry.employee_id, "action": "out_on_close", "at": entry.out_at.isoformat()},
+        )
+    db.flush()
+
+
+def _reopen_roster_closed_by_close(db: Session, *, actor: Actor, shift: Shift) -> None:
+    from app.audit.models import AuditLog
+
+    closed_ids = {
+        int(row.entity_id)
+        for row in db.execute(
+            select(AuditLog).where(
+                AuditLog.entity == "shift_roster",
+                AuditLog.action == "out_on_close",
+                AuditLog.store_id == shift.store_id,
+                AuditLog.at >= (shift.closed_at or shift.opened_at),
+            )
+        ).scalars()
+        if row.entity_id is not None
+    }
+    if not closed_ids:
+        return
+    entries = db.execute(
+        select(ShiftRoster).where(ShiftRoster.shift_id == shift.id, ShiftRoster.id.in_(closed_ids))
+    ).scalars().all()
+    for entry in entries:
+        before_out = entry.out_at
+        entry.out_at = None
+        record_audit(
+            db,
+            actor=actor,
+            organization_id=shift.organization_id,
+            store_id=shift.store_id,
+            entity="shift_roster",
+            entity_id=entry.id,
+            action="in_on_reopen",
+            before={"out_at": before_out.isoformat() if before_out else None},
+            after={"employee_id": entry.employee_id, "action": "in_on_reopen"},
         )
     db.flush()
 
@@ -1324,7 +1374,12 @@ def close_administrative(db: Session, *, actor: Actor, shift: Shift, store: Stor
     shift.to_deposit = breakdown["expected"] - cash_settings.opening_cash_fixed
 
     db.flush()
-    _end_open_roster(db, actor=actor, shift=shift, at=now)
+    # Un turno abandonado se rescata a veces días después: la jornada de quien
+    # quedó adentro no puede estirarse hasta el rescate. Termina, como tarde,
+    # cuando terminó su día operativo — ya es un tope generoso, y queda en la
+    # auditoría para que el dueño la ajuste si sabe la hora real.
+    fin_del_dia = end_of_business_day(db, shift, store)
+    _end_open_roster(db, actor=actor, shift=shift, at=min(now, fin_del_dia) if fin_del_dia else now)
     _close_business_day(db, shift.business_day_id)
 
     record_audit(
@@ -1360,6 +1415,11 @@ def reopen_shift(db: Session, *, actor: Actor, shift: Shift, reason: str) -> Shi
     if shift.closes_day and day is not None and day.status == BusinessDayStatus.CLOSED:
         day.status = BusinessDayStatus.OPEN
         day.closed_at = None
+
+    # Quien quedó adentro cuando se cerró (el cierre le terminó la jornada,
+    # `_end_open_roster`) vuelve a quedar adentro: el turno sigue siendo el
+    # mismo. Se reconocen por la auditoría `out_on_close` de este cierre.
+    _reopen_roster_closed_by_close(db, actor=actor, shift=shift)
 
     shift.status = ShiftStatus.OPEN
     shift.reopen_reason = reason

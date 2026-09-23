@@ -148,6 +148,7 @@ describe("PaymentSplitsForm — el vuelto antes de cobrar", () => {
     ]);
     // Un valor que la pantalla NO podría inventar restando (100.000 − 50.000
     // sería 50.000): si aparece 7.777 es porque se pinta lo que dijo el servidor.
+    vi.mocked(previewChange).mockClear();
     vi.mocked(previewChange).mockResolvedValue({
       splits: [{ change: 7777, short_by: null }],
       change_total: 7777,
@@ -161,6 +162,8 @@ describe("PaymentSplitsForm — el vuelto antes de cobrar", () => {
     await waitFor(() => expect(previewChange).toHaveBeenCalledWith([{ amount: 50000, tendered: 100000 }]));
     expect(await screen.findByText("Vuelto a entregar")).toBeInTheDocument();
     expect(screen.getAllByText("$ 7.777").length).toBeGreaterThan(0);
+    // Un billete, una consulta: se pregunta cuando se deja de teclear.
+    expect(previewChange).toHaveBeenCalledTimes(1);
   });
 
   it("si lo recibido no alcanza lo dice, en vez de un vuelto de cero", async () => {
