@@ -210,7 +210,7 @@ function entradasDelRail() {
 }
 
 describe("AdminLayout: el rail agrupado", () => {
-  it("las entradas vienen repartidas en los seis grupos con rótulo, no en una lista plana", async () => {
+  it("las entradas vienen repartidas en los grupos con rótulo, no en una lista plana", async () => {
     renderAdmin(
       buildMe({
         features: {
@@ -224,21 +224,23 @@ describe("AdminLayout: el rail agrupado", () => {
 
     await screen.findByRole("link", { name: "Hoy" });
     for (const grupo of [
-      "EL DÍA",
-      "LA CARTA Y EL COSTO",
-      "LA PLATA",
-      "LO FISCAL",
-      "LA GENTE",
-      "EL SISTEMA",
+      "¿CÓMO VA?",
+      "¿QUÉ VENDÍ?",
+      "¿CUÁNTO ME CUESTA?",
+      "¿DÓNDE ESTÁ LA PLATA?",
+      "¿ESTOY AL DÍA CON LA DIAN?",
+      // «¿QUIÉN TRABAJA?» no: en este test `@/features/shifts` está
+      // simulado, y un grupo sin entradas no se dibuja.
+      "AJUSTES",
     ]) {
       expect(screen.getByRole("group", { name: grupo })).toBeInTheDocument();
     }
     // Y cada entrada vive dentro de su grupo, no suelta en la navegación.
     expect(
-      within(screen.getByRole("group", { name: "EL DÍA" })).getByRole("link", { name: "Hoy" }),
+      within(screen.getByRole("group", { name: "¿CÓMO VA?" })).getByRole("link", { name: "Hoy" }),
     ).toBeInTheDocument();
     expect(
-      within(screen.getByRole("group", { name: "LO FISCAL" })).getByRole("link", {
+      within(screen.getByRole("group", { name: "¿ESTOY AL DÍA CON LA DIAN?" })).getByRole("link", {
         name: "Documentos fiscales",
       }),
     ).toBeInTheDocument();

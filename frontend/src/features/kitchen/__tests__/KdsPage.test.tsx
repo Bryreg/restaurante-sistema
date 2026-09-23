@@ -63,7 +63,7 @@ describe("KdsPage", () => {
     await waitFor(() => expect(screen.getByText(/bandeja paisa/i)).toBeInTheDocument())
     expect(screen.getByText(/a tiempo/i)).toBeInTheDocument()
 
-    await user.click(screen.getByRole("button", { name: /bump: bandeja paisa/i }))
+    await user.click(screen.getByRole("button", { name: /marcar listo: bandeja paisa/i }))
 
     await waitFor(() => expect(bumpItemMock).toHaveBeenCalledWith(101))
   })
@@ -85,7 +85,7 @@ describe("KdsPage", () => {
     renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
 
     await waitFor(() => expect(screen.getByText(/bandeja paisa/i)).toBeInTheDocument())
-    await user.click(screen.getByRole("button", { name: /bump: bandeja paisa/i }))
+    await user.click(screen.getByRole("button", { name: /marcar listo: bandeja paisa/i }))
 
     await waitFor(() => expect(bumpItemMock).toHaveBeenCalledTimes(1))
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
@@ -128,8 +128,8 @@ describe("KdsPage", () => {
     const user = userEvent.setup()
     renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
 
-    await waitFor(() => expect(screen.getByText(/bumpeado por ana/i)).toBeInTheDocument())
-    await user.click(screen.getByRole("button", { name: /deshacer bump: bandeja paisa/i }))
+    await waitFor(() => expect(screen.getByText(/lo marcó listo ana/i)).toBeInTheDocument())
+    await user.click(screen.getByRole("button", { name: /deshacer listo: bandeja paisa/i }))
 
     await waitFor(() => expect(unbumpItemMock).toHaveBeenCalledWith(101))
   })

@@ -149,12 +149,13 @@ export function buildNav(hasFeature: (key: string) => boolean): NavItem[] {
  * lo que se ve (WCAG 2.5.3), y truncar pierde eso.
  */
 export const GRUPOS = [
-  "EL DÍA",
-  "LA CARTA Y EL COSTO",
-  "LA PLATA",
-  "LO FISCAL",
-  "LA GENTE",
-  "EL SISTEMA",
+  "¿CÓMO VA?",
+  "¿QUÉ VENDÍ?",
+  "¿CUÁNTO ME CUESTA?",
+  "¿DÓNDE ESTÁ LA PLATA?",
+  "¿ESTOY AL DÍA CON LA DIAN?",
+  "¿QUIÉN TRABAJA?",
+  "AJUSTES",
 ] as const;
 export type Grupo = (typeof GRUPOS)[number];
 
@@ -193,111 +194,112 @@ export interface FilaDelRail {
  * «Ajustes» no lo es.
  */
 export const RAIL: Record<string, FilaDelRail> = {
-  // EL DÍA — lo que está pasando ahora.
-  "/admin/hoy": { grupo: "EL DÍA", icon: CalendarDays, label: "Hoy", title: "Hoy" },
-  "/admin/ventas": { grupo: "EL DÍA", icon: BarChart3, label: "Ventas", title: "Ventas" },
+  // ¿CÓMO VA? — la portada: el pulso del día y lo que requiere atención.
+  "/admin/hoy": { grupo: "¿CÓMO VA?", icon: CalendarDays, label: "Hoy", title: "Hoy" },
+
+  // ¿QUÉ VENDÍ? — la venta y a quién.
+  "/admin/ventas": { grupo: "¿QUÉ VENDÍ?", icon: BarChart3, label: "Ventas", title: "Ventas" },
   "/admin/pedidos": {
-    grupo: "EL DÍA",
+    grupo: "¿QUÉ VENDÍ?",
     icon: ClipboardList,
     label: "Pedidos",
     title: "Pedidos",
     cuenta: "pedidos",
   },
+  "/admin/clientes": { grupo: "¿QUÉ VENDÍ?", icon: Users, label: "Clientes", title: "Clientes" },
 
-  // LA CARTA Y EL COSTO — la cadena que convierte un plato en plata gastada: la receta de
-  // la Carta es lo que lo vuelve un costo, y por eso va con Inventario y
-  // Compras y no con Operación.
-  "/admin/carta": { grupo: "LA CARTA Y EL COSTO", icon: BookOpen, label: "Carta", title: "Carta" },
+  // ¿CUÁNTO ME CUESTA? — la cadena que convierte un plato en plata gastada:
+  // la ficha de la Carta lo vuelve un costo, por eso va con Inventario y Compras.
+  "/admin/carta": { grupo: "¿CUÁNTO ME CUESTA?", icon: BookOpen, label: "Carta", title: "Carta" },
   "/admin/preparaciones": {
-    grupo: "LA CARTA Y EL COSTO",
+    grupo: "¿CUÁNTO ME CUESTA?",
     icon: CookingPot,
     label: "Preparaciones",
     title: "Preparaciones",
   },
   "/admin/inventario": {
-    grupo: "LA CARTA Y EL COSTO",
+    grupo: "¿CUÁNTO ME CUESTA?",
     icon: Package,
     label: "Inventario",
     title: "Inventario",
     cuenta: "inventario",
   },
   "/admin/compras": {
-    grupo: "LA CARTA Y EL COSTO",
+    grupo: "¿CUÁNTO ME CUESTA?",
     icon: ShoppingCart,
     label: "Compras",
     title: "Compras",
     cuenta: "compras",
   },
   "/admin/analitica": {
-    grupo: "LA CARTA Y EL COSTO",
+    grupo: "¿CUÁNTO ME CUESTA?",
     icon: Target,
     label: "Ingeniería de menú",
     title: "Ingeniería de menú",
   },
   "/admin/analitica?tab=varianza": {
-    grupo: "LA CARTA Y EL COSTO",
+    grupo: "¿CUÁNTO ME CUESTA?",
     icon: Activity,
     label: "Varianza y salud",
     title: "Varianza y salud",
   },
   "/admin/analitica?tab=reposicion": {
-    grupo: "LA CARTA Y EL COSTO",
+    grupo: "¿CUÁNTO ME CUESTA?",
     icon: PackagePlus,
     label: "Reposición",
     title: "Reposición",
   },
 
-  // LA PLATA.
-  "/admin/dinero": { grupo: "LA PLATA", icon: Banknote, label: "Dinero", title: "Dinero" },
-  "/admin/banco": { grupo: "LA PLATA", icon: Landmark, label: "Banco", title: "Banco" },
-  "/admin/gastos": { grupo: "LA PLATA", icon: Receipt, label: "Gastos", title: "Gastos" },
-  "/admin/nomina": { grupo: "LA PLATA", icon: Wallet, label: "Nómina", title: "Nómina" },
-  "/admin/nomina?tab=propinas": {
-    grupo: "LA PLATA",
-    icon: Coins,
-    label: "Propinas",
-    title: "Propinas",
-  },
+  // ¿DÓNDE ESTÁ LA PLATA? — caja, banco y gastos. Dinero abre el grupo.
+  "/admin/dinero": { grupo: "¿DÓNDE ESTÁ LA PLATA?", icon: Banknote, label: "Dinero", title: "Dinero" },
+  "/admin/banco": { grupo: "¿DÓNDE ESTÁ LA PLATA?", icon: Landmark, label: "Banco", title: "Banco" },
+  "/admin/gastos": { grupo: "¿DÓNDE ESTÁ LA PLATA?", icon: Receipt, label: "Gastos", title: "Gastos" },
 
-  // LO FISCAL.
+  // ¿ESTOY AL DÍA CON LA DIAN? — documentos, numeración, notas y devoluciones.
   "/admin/fiscal/documentos": {
-    grupo: "LO FISCAL",
+    grupo: "¿ESTOY AL DÍA CON LA DIAN?",
     icon: FileText,
     label: "Documentos",
     title: "Documentos fiscales",
   },
   "/admin/fiscal/rangos": {
-    grupo: "LO FISCAL",
+    grupo: "¿ESTOY AL DÍA CON LA DIAN?",
     icon: Hash,
     label: "Rangos",
     title: "Rangos de numeración",
   },
-  "/admin/fiscal/notas": { grupo: "LO FISCAL", icon: StickyNote, label: "Notas", title: "Notas" },
+  "/admin/fiscal/notas": { grupo: "¿ESTOY AL DÍA CON LA DIAN?", icon: StickyNote, label: "Notas", title: "Notas" },
   "/admin/fiscal/devoluciones-pendientes": {
-    grupo: "LO FISCAL",
+    grupo: "¿ESTOY AL DÍA CON LA DIAN?",
     icon: Undo2,
     label: "Devoluciones",
     title: "Devoluciones pendientes",
     cuenta: "devoluciones",
   },
 
-  // LA GENTE. `Clock` y no una silueta: «Clientes» ya es una silueta doble, y a
-  // 16 px una persona y dos personas se confunden.
-  "/admin/personal": { grupo: "LA GENTE", icon: Clock, label: "Turnos", title: "Turnos y personal" },
-  "/admin/clientes": { grupo: "LA GENTE", icon: Users, label: "Clientes", title: "Clientes" },
+  // ¿QUIÉN TRABAJA? — turnos del personal primero; después lo que se les paga.
+  // `Clock` y no una silueta: «Clientes» ya es una silueta doble.
+  "/admin/personal": { grupo: "¿QUIÉN TRABAJA?", icon: Clock, label: "Turnos", title: "Turnos y personal" },
+  "/admin/nomina": { grupo: "¿QUIÉN TRABAJA?", icon: Wallet, label: "Nómina", title: "Nómina" },
+  "/admin/nomina?tab=propinas": {
+    grupo: "¿QUIÉN TRABAJA?",
+    icon: Coins,
+    label: "Propinas",
+    title: "Propinas",
+  },
 
-  // EL SISTEMA. `BellRing` para la pantalla de reglas, `Bell` para la campana del
-  // pie: son dos cosas distintas y no pueden tener el mismo ícono.
-  "/admin/features": { grupo: "EL SISTEMA", icon: ToggleLeft, label: "Funciones", title: "Funciones" },
+  // AJUSTES — al pie. `BellRing` para la pantalla de reglas, `Bell` para la
+  // campana: son dos cosas distintas y no pueden tener el mismo ícono.
+  "/admin/features": { grupo: "AJUSTES", icon: ToggleLeft, label: "Funciones", title: "Funciones" },
   "/admin/settings": {
-    grupo: "EL SISTEMA",
+    grupo: "AJUSTES",
     icon: Settings,
     label: "Configuración",
     title: "Configuración",
   },
-  "/admin/audit": { grupo: "EL SISTEMA", icon: ScrollText, label: "Historial", title: "Historial" },
+  "/admin/audit": { grupo: "AJUSTES", icon: ScrollText, label: "Historial", title: "Historial" },
   "/admin/notifications": {
-    grupo: "EL SISTEMA",
+    grupo: "AJUSTES",
     icon: BellRing,
     label: "Notificaciones",
     title: "Notificaciones",
@@ -312,7 +314,7 @@ export const RAIL: Record<string, FilaDelRail> = {
  */
 function filaDe(item: NavItem): FilaDelRail {
   return (
-    RAIL[item.to] ?? { grupo: "EL SISTEMA", icon: LayoutGrid, label: item.label, title: item.label }
+    RAIL[item.to] ?? { grupo: "AJUSTES", icon: LayoutGrid, label: item.label, title: item.label }
   );
 }
 

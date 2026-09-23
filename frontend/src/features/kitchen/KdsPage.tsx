@@ -72,14 +72,14 @@ function ItemRow({ item, onChanged }: { item: KitchenRoundItemOut; onChanged: ()
   }
 
   return (
-    <li className="space-y-1.5 rounded-md border p-3">
+    <li className="tiquete-item space-y-1.5 py-2.5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
-          <p className="text-base font-medium">
+          <p className="tiquete-plato">
             {item.qty ?? 1}× {item.name ?? "—"}
           </p>
-          {item.modifiers_text ? <p className="text-sm font-semibold text-foreground">{item.modifiers_text}</p> : null}
-          {item.note ? <p className="text-sm italic text-muted-foreground">Nota: {item.note}</p> : null}
+          {item.modifiers_text ? <p className="tiquete-detalle font-semibold">{item.modifiers_text}</p> : null}
+          {item.note ? <p className="tiquete-detalle italic">Nota: {item.note}</p> : null}
           <div className="flex flex-wrap items-center gap-1.5">
             {item.course ? <Badge variant="outline">{courseLabel(item.course)}</Badge> : null}
             {fired ? (
@@ -87,14 +87,17 @@ function ItemRow({ item, onChanged }: { item: KitchenRoundItemOut; onChanged: ()
                 Marchado
               </Badge>
             ) : null}
+            {/* Forma y color a la vez (● a tiempo, ▲ por vencer, ■ demorado):
+                la urgencia se lee también sin distinguir rojo de verde. */}
             <span
-              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${SEMAPHORE_CLASS[semaphore]}`}
+              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-xs font-medium ${SEMAPHORE_CLASS[semaphore]}`}
             >
+              <i className={`semaforo semaforo-${semaphore}`} aria-hidden="true" />
               {elapsedFromSeconds(item.elapsed_seconds ?? 0)} · {SEMAPHORE_LABEL[semaphore]}
             </span>
           </div>
           {ready && item.bumped_by ? (
-            <p className="text-xs text-muted-foreground">Bumpeado por {item.bumped_by.name}</p>
+            <p className="tiquete-detalle text-xs">Lo marcó listo {item.bumped_by.name}</p>
           ) : null}
         </div>
         <Button
@@ -103,7 +106,7 @@ function ItemRow({ item, onChanged }: { item: KitchenRoundItemOut; onChanged: ()
           className="h-11 min-w-[104px] shrink-0"
           disabled={pending}
           onClick={() => void handleToggle()}
-          aria-label={ready ? `Deshacer bump: ${item.name ?? "ítem"}` : `Bump: ${item.name ?? "ítem"}`}
+          aria-label={ready ? `Deshacer listo: ${item.name ?? "ítem"}` : `Marcar listo: ${item.name ?? "ítem"}`}
         >
           {pending ? (
             "…"
@@ -115,7 +118,7 @@ function ItemRow({ item, onChanged }: { item: KitchenRoundItemOut; onChanged: ()
           ) : (
             <>
               <CheckCircle2 className="size-4" aria-hidden="true" />
-              Bump
+              Listo
             </>
           )}
         </Button>
@@ -187,10 +190,10 @@ function OrderCard({ group, onChanged }: { group: OrderGroup; onChanged: () => v
   }
 
   return (
-    <article className="space-y-3 rounded-lg border p-3">
-      <header className="flex flex-wrap items-start justify-between gap-2">
+    <article className="tiquete space-y-2 p-3">
+      <header className="tiquete-cabeza flex flex-wrap items-start justify-between gap-2 pb-2">
         <div className="min-w-0 space-y-1">
-          <p className="text-base font-semibold">Comanda #{group.orderId}</p>
+          <p className="tiquete-numero">Comanda #{group.orderId}</p>
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge variant="outline">{channelLabel(group.channel)}</Badge>
             {group.tables && group.tables.length > 0 ? <Badge variant="outline">Mesa {group.tables.join(", ")}</Badge> : null}
@@ -211,7 +214,7 @@ function OrderCard({ group, onChanged }: { group: OrderGroup; onChanged: () => v
           disabled={expediting || !hasSent}
           onClick={() => void handleExpedite()}
           aria-label={`Expedir comanda completa #${group.orderId}`}
-          title="Bumpea de un golpe todos los ítems enviados de esta comanda, en todas sus rondas"
+          title="Marca listos de un golpe todos los ítems enviados de esta comanda, en todas sus rondas"
         >
           <Rocket className="size-4" aria-hidden="true" />
           {expediting ? "Expidiendo…" : "Expedir comanda"}
@@ -225,11 +228,11 @@ function OrderCard({ group, onChanged }: { group: OrderGroup; onChanged: () => v
       {group.rounds.map((round) => (
         <div key={`${round.order_id}-${round.round_no}`} className="space-y-2">
           {group.rounds.length > 1 ? (
-            <p className="text-xs font-medium text-muted-foreground">
+            <p className="tiquete-detalle font-mono text-xs font-medium">
               Ronda {round.round_no} · {elapsedFromSeconds(round.elapsed_seconds ?? 0)}
             </p>
           ) : null}
-          <ul className="space-y-2">
+          <ul>
             {(round.items ?? []).map((item) => (
               <ItemRow key={item.item_id} item={item} onChanged={onChanged} />
             ))}
