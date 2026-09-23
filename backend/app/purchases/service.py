@@ -793,11 +793,13 @@ def payables_summary(db: Session, *, store_id: int) -> dict[str, Any]:
         supplier.id: supplier.name
         for supplier in db.execute(select(Supplier).where(Supplier.id.in_(by_supplier))).scalars()
     } if by_supplier else {}
-    suppliers = [
-        {"supplier_id": sid, "name": names.get(sid, f"Proveedor #{sid}"), **totals}
-        for sid, totals in by_supplier.items()
+    # Se ordena sobre los totales tipados (`dict[str, int]`) y no sobre la
+    # fila armada: en la fila `open` y `name` comparten dict y mypy los ve
+    # como `object`.
+    ordered = sorted(by_supplier.items(), key=lambda item: (-item[1]["open"], names.get(item[0], "")))
+    suppliers: list[dict[str, Any]] = [
+        {"supplier_id": sid, "name": names.get(sid, f"Proveedor #{sid}"), **totals} for sid, totals in ordered
     ]
-    suppliers.sort(key=lambda r: (-r["open"], r["name"]))
     return {
         "as_of": today,
         "total_open": total_open,
