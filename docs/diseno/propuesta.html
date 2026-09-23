@@ -1,0 +1,534 @@
+<title>Un solo libro, dos mesas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* ---------- Tokens del documento (la propuesta en sí) ---------- */
+:root{
+  --papel:#F3F5F1; --papel-2:#E8ECE6; --tinta:#17231E; --tinta-2:#46544D; --tinta-3:#6B7872;
+  --linea:#D3DAD2; --anil:#3D4FE0; --anil-suave:#E3E6FB;
+  --faltante:#C4302B; --sobrante:#0F7A6A; --pendiente:#B7791F;
+  --fondo-mock:#FFFFFF;
+  --sans:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --papel:#101714; --papel-2:#18221D; --tinta:#E9EEEA; --tinta-2:#B7C2BC; --tinta-3:#8C9993;
+    --linea:#2A3630; --anil:#8D9BFF; --anil-suave:#232A55; --fondo-mock:#18221D;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --papel:#101714; --papel-2:#18221D; --tinta:#E9EEEA; --tinta-2:#B7C2BC; --tinta-3:#8C9993;
+  --linea:#2A3630; --anil:#8D9BFF; --anil-suave:#232A55; --fondo-mock:#18221D;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--papel);color:var(--tinta);font-family:var(--sans);font-size:16px;line-height:1.55;padding-inline:20px;padding-block:0 64px}
+.pagina{max-width:1120px;margin-inline:auto}
+h1,h2,h3{text-wrap:balance;line-height:1.1;margin:0}
+p{margin:0}
+a{color:var(--anil)}
+:focus-visible{outline:3px solid var(--anil);outline-offset:2px;border-radius:4px}
+.num{font-variant-numeric:tabular-nums}
+
+/* Cabecera */
+.cabecera{padding-block:56px 40px;border-bottom:1px solid var(--linea);display:grid;gap:18px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--tinta-3)}
+.cabecera h1{font-size:clamp(40px,7vw,76px);font-weight:750;font-stretch:112%;letter-spacing:-.02em}
+.cabecera h1 em{font-style:normal;font-stretch:70%;font-weight:600;color:var(--tinta-2)}
+.tesis{max-width:62ch;font-size:19px;color:var(--tinta-2)}
+.dos-mundos{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px}
+.mundo{padding:16px 18px;border-radius:10px;display:grid;gap:6px}
+.mundo.salon{background:#121A17;color:#EEF2EF}
+.mundo.oficina{background:#FFFFFF;color:#17231E;border:1px solid #D3DAD2}
+.mundo b{font-size:15px;letter-spacing:.02em}
+.mundo span{font-size:14px;opacity:.82}
+
+/* Índice */
+nav.indice{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--papel);border-bottom:1px solid var(--linea);display:flex;gap:4px;overflow-x:auto;padding-block:10px;margin-bottom:8px}
+nav.indice a{white-space:nowrap;text-decoration:none;color:var(--tinta-2);font-size:14px;padding:6px 10px;border-radius:6px}
+nav.indice a:hover{background:var(--papel-2);color:var(--tinta)}
+
+section{padding-block:48px;border-bottom:1px solid var(--linea);display:grid;gap:22px}
+section>header{display:grid;gap:8px;max-width:70ch}
+section h2{font-size:clamp(28px,4vw,40px);font-weight:720;font-stretch:108%}
+section>header p{color:var(--tinta-2)}
+h3{font-size:20px;font-weight:680}
+.razon{border-left:3px solid var(--anil);padding:4px 0 4px 14px;color:var(--tinta-2);font-size:15px;max-width:70ch}
+.razon b{color:var(--tinta)}
+
+/* ---------- Mockups: cada mundo trae su propia paleta fija ---------- */
+.escena{display:grid;gap:14px}
+.escena-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline}
+.momento{font-family:var(--mono);font-size:12px;color:var(--tinta-3)}
+.marco{overflow-x:auto;border-radius:14px}
+.tablet{--p:#121A17;--p2:#1B2622;--p3:#26332D;--tiza:#EEF2EF;--tiza-2:#A9B6AF;--anil-s:#8D9BFF;
+  background:var(--p);color:var(--tiza);border-radius:14px;min-width:760px;padding:14px;display:grid;gap:12px;font-size:15px}
+.movil{background:#FFFFFF;color:#17231E;border:1px solid #D3DAD2;border-radius:28px;width:min(360px,100%);padding:18px 16px;display:grid;gap:14px;margin-inline:auto}
+.oficina-m{background:#FFFFFF;color:#17231E;border:1px solid #D3DAD2;border-radius:14px;min-width:540px;padding:18px;display:grid;gap:14px;font-size:14px}
+.par{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px;align-items:start}
+
+/* Piezas del salón */
+.barra{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--tiza-2);font-size:13px}
+.barra .quien{display:flex;gap:10px;align-items:center;color:var(--tiza)}
+.ficha{width:34px;height:34px;border-radius:50%;background:var(--p3);display:grid;place-items:center;font-weight:700;font-size:13px}
+.expira{font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:999px;background:var(--p3)}
+.comanda{display:grid;grid-template-columns:1.55fr 1fr;gap:12px}
+.cats{display:flex;gap:6px;flex-wrap:wrap}
+.cat{padding:10px 14px;border-radius:10px;background:var(--p2);font-weight:600;font-size:14px}
+.cat.on{background:var(--tiza);color:var(--p)}
+.platos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.plato{min-height:74px;background:var(--p2);border-radius:12px;padding:10px 12px;display:grid;align-content:space-between;gap:4px;position:relative}
+.plato b{font-size:15px;font-weight:650;line-height:1.2}
+.plato span{font-size:13px;color:var(--tiza-2)}
+.plato .n{position:absolute;top:8px;right:8px;background:var(--anil-s);color:#10163F;border-radius:999px;font-size:12px;font-weight:800;min-width:24px;height:24px;display:grid;place-items:center;padding-inline:6px}
+.plato.agotado{opacity:.45;background:repeating-linear-gradient(135deg,var(--p2) 0 8px,var(--p) 8px 10px)}
+.plato.agotado span::before{content:"Agotado · "}
+.pedido{background:var(--p2);border-radius:12px;padding:12px;display:grid;gap:8px;align-content:start}
+.pedido h4{margin:0;font-size:13px;font-weight:600;color:var(--tiza-2);text-transform:uppercase;letter-spacing:.06em}
+.linea-p{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:start;padding-block:6px;border-bottom:1px solid var(--p3)}
+.linea-p .q{font-weight:800}
+.linea-p small{display:block;color:var(--tiza-2);font-size:12.5px}
+.curso{font-family:var(--mono);font-size:11px;color:var(--tiza-2);letter-spacing:.06em;text-transform:uppercase;padding-top:6px}
+.boton-grande{height:56px;border-radius:12px;border:0;font:inherit;font-weight:750;font-size:17px;display:flex;align-items:center;justify-content:center;gap:10px;width:100%}
+.b-accion{background:var(--anil-s);color:#10163F}
+.b-sec{background:var(--p3);color:var(--tiza)}
+
+/* Cobro */
+.cobro{display:grid;grid-template-columns:1fr 1.2fr;gap:12px}
+.partes{display:grid;gap:6px}
+.parte{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;background:var(--p2);border-radius:10px;padding:10px 12px}
+.parte .medio{font-family:var(--mono);font-size:11.5px;padding:3px 7px;border-radius:6px;background:var(--p3)}
+.parte.hecha{opacity:.6}
+.parte.hecha .ok::before{content:"✓ "}
+.parte.activa{outline:2px solid var(--anil-s)}
+.total{display:grid;gap:2px;background:var(--p2);border-radius:12px;padding:14px}
+.total .cifra{font-size:40px;font-weight:780;font-stretch:115%;font-variant-numeric:tabular-nums;line-height:1}
+.total small{color:var(--tiza-2)}
+.propina{display:flex;gap:6px;flex-wrap:wrap}
+.chip-s{padding:8px 12px;border-radius:999px;background:var(--p3);font-size:13.5px;font-weight:600}
+.chip-s.on{background:var(--tiza);color:var(--p)}
+.factura{border:1px dashed var(--tiza-2);border-radius:10px;padding:10px 12px;display:grid;gap:4px;font-size:13.5px}
+.factura b{font-family:var(--mono);font-weight:500}
+
+/* KDS */
+.kds{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.tiquete{background:#F2EEE3;color:#1A1A17;border-radius:4px 4px 10px 10px;display:grid;align-content:start;font-stretch:72%;box-shadow:0 1px 0 rgba(0,0,0,.25)}
+.tiquete header{padding:8px 10px;display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px dashed #BDB6A6}
+.tiquete header b{font-size:22px;font-weight:800}
+.tiquete header span{font-family:var(--mono);font-size:12px}
+.tiquete ul{list-style:none;margin:0;padding:8px 10px;display:grid;gap:6px}
+.tiquete li{font-size:17px;font-weight:650;line-height:1.15}
+.tiquete li small{display:block;font-weight:500;font-size:13.5px;color:#5C574C}
+.tiempo{display:flex;align-items:center;gap:8px;padding:8px 10px;font-family:var(--mono);font-weight:600;font-size:14px;font-stretch:100%}
+.tiempo i{width:14px;height:14px;display:inline-block;flex:none}
+.t-ok{background:#D9EEE7}.t-ok i{border-radius:50%;background:#0F7A6A}
+.t-alerta{background:#F5E6C8}.t-alerta i{background:#B7791F;clip-path:polygon(50% 0,100% 100%,0 100%)}
+.t-tarde{background:#C4302B;color:#fff}.t-tarde i{background:#fff}
+.estaciones{display:flex;gap:6px}
+
+/* Cierre */
+.cierre{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pasos{display:flex;gap:6px;font-size:13px}
+.paso{padding:6px 10px;border-radius:999px;background:var(--p2);color:var(--tiza-2)}
+.paso.on{background:var(--tiza);color:var(--p);font-weight:700}
+.paso.hecho::before{content:"✓ "}
+.billetes{display:grid;gap:4px}
+.billete{display:grid;grid-template-columns:90px 1fr 90px;align-items:center;gap:8px;background:var(--p2);border-radius:8px;padding:6px 10px;font-variant-numeric:tabular-nums}
+.billete .cant{font-family:var(--mono);background:var(--p3);border-radius:6px;padding:4px 8px;text-align:center}
+.billete .sub{text-align:right;color:var(--tiza-2)}
+.diferencia{border-radius:12px;padding:16px;display:grid;gap:10px;background:#3A1614;border:2px solid #E0534D}
+.diferencia .cifra{font-size:44px;font-weight:800;font-stretch:115%;line-height:1;font-variant-numeric:tabular-nums;color:#FFB4AE}
+.diferencia .cifra::before{content:"▼ ";font-size:28px}
+.causas{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.causa{background:#2A1110;border:1px solid #6B2A27;border-radius:10px;padding:10px;font-size:14px;font-weight:600}
+.causa.on{background:#FFB4AE;color:#3A1614}
+
+/* Móvil del dueño */
+.m-top{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#46544D}
+.m-hero{display:grid;gap:4px}
+.m-hero .cifra{font-size:42px;font-weight:780;font-stretch:118%;line-height:1;font-variant-numeric:tabular-nums}
+.m-hero small{color:#46544D}
+.spark{width:100%;height:56px}
+.atencion{display:grid;gap:8px}
+.aviso{display:grid;grid-template-columns:auto 1fr;gap:10px;padding:10px 12px;border-radius:10px;background:#F3F5F1;align-items:start}
+.aviso i{width:12px;height:12px;margin-top:5px;flex:none}
+.aviso.crit i{background:#C4302B}
+.aviso.warn i{background:#B7791F;clip-path:polygon(50% 0,100% 100%,0 100%)}
+.aviso b{font-size:14.5px;display:block}
+.aviso span{font-size:13px;color:#46544D}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kpi{border:1px solid #D3DAD2;border-radius:10px;padding:10px;display:grid;gap:2px}
+.kpi small{font-size:12px;color:#46544D}
+.kpi b{font-size:20px;font-variant-numeric:tabular-nums}
+.sindato{background:repeating-linear-gradient(135deg,#F3F5F1 0 6px,#E8ECE6 6px 8px)}
+.sindato b{color:#6B7872;font-weight:600;font-size:15px}
+
+/* Oficina: compras */
+.o-cab{display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap}
+.o-cab h4{margin:0;font-size:22px;font-weight:720;font-stretch:105%}
+.miga{font-size:12.5px;color:#6B7872}
+table.libro{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.libro th{text-align:left;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:#6B7872;font-weight:600;padding:8px;border-bottom:1.5px solid #17231E}
+.libro td{padding:9px 8px;border-bottom:1px solid #E1E6DF;vertical-align:top}
+.libro td.din,.libro th.din{text-align:right}
+.libro tr.difiere td{background:#FBF1DE}
+.estado{font-size:12px;font-weight:650;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.e-rev{background:#FBF1DE;color:#7A4E0E}
+.e-ok{background:#DCEFE9;color:#0B5A4E}
+.e-venc{background:#F8DCDA;color:#8E1F1B}
+.lote{font-family:var(--mono);font-size:12px;color:#46544D}
+.barra-acc{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.b-of{height:40px;padding:0 16px;border-radius:8px;border:1px solid #C8D0C7;background:#fff;font:inherit;font-weight:600}
+.b-of.pri{background:#3D4FE0;border-color:#3D4FE0;color:#fff}
+
+/* ---------- Navegación ---------- */
+.nav-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px}
+.arbol{background:var(--fondo-mock);border:1px solid var(--linea);border-radius:12px;padding:18px;display:grid;gap:14px}
+.pregunta{display:grid;gap:4px}
+.pregunta b{font-size:16px}
+.pregunta span{font-size:14px;color:var(--tinta-2)}
+.pregunta .q{font-family:var(--mono);font-size:12px;color:var(--anil)}
+.barra-salon{display:flex;gap:6px;flex-wrap:wrap}
+.barra-salon span{background:#121A17;color:#EEF2EF;border-radius:10px;padding:10px 12px;font-weight:650;font-size:14px}
+.barra-salon span.rol{background:transparent;color:var(--tinta-2);border:1px dashed var(--linea);font-weight:500}
+
+/* ---------- Estados ---------- */
+.estados{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.est{background:var(--fondo-mock);border:1px solid var(--linea);border-radius:12px;padding:16px;display:grid;gap:8px;align-content:start}
+.est .tipo{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--tinta-3)}
+.est b{font-size:16px}
+.est p{font-size:14px;color:var(--tinta-2)}
+.est .accion{font-size:14px;font-weight:650;color:var(--anil)}
+.esqueleto{height:10px;border-radius:5px;background:linear-gradient(90deg,var(--papel-2),var(--linea),var(--papel-2));background-size:200% 100%;animation:brillo 1.4s linear infinite}
+@keyframes brillo{to{background-position:-200% 0}}
+@media (prefers-reduced-motion: reduce){.esqueleto{animation:none}}
+.rayado{height:44px;border-radius:8px;background:repeating-linear-gradient(135deg,var(--papel-2) 0 6px,var(--linea) 6px 8px);display:grid;place-items:center;font-size:13px;color:var(--tinta-2);font-weight:600}
+
+/* ---------- Sistema ---------- */
+.muestras{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.muestra{border:1px solid var(--linea);border-radius:10px;overflow:hidden;display:grid}
+.muestra i{height:56px;display:block}
+.muestra div{padding:8px 10px;display:grid;gap:1px;font-size:13px}
+.muestra code{font-family:var(--mono);font-size:12px;color:var(--tinta-3)}
+.escala{display:grid;gap:10px}
+.escala div{display:grid;grid-template-columns:130px 1fr;gap:14px;align-items:baseline;border-bottom:1px solid var(--linea);padding-bottom:10px}
+.escala code{font-family:var(--mono);font-size:12px;color:var(--tinta-3)}
+.componentes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.comp{border:1px solid var(--linea);border-radius:12px;padding:16px;display:grid;gap:10px;background:var(--fondo-mock);align-content:start}
+.comp p{font-size:14px;color:var(--tinta-2)}
+.pin{display:grid;grid-template-columns:repeat(3,56px);gap:8px;justify-content:center}
+.pin span{height:56px;border-radius:12px;background:#1B2622;color:#EEF2EF;display:grid;place-items:center;font-family:var(--mono);font-size:22px}
+.puntos{display:flex;gap:10px;justify-content:center}
+.puntos i{width:14px;height:14px;border-radius:50%;border:2px solid var(--tinta-2)}
+.puntos i.on{background:var(--tinta);border-color:var(--tinta)}
+.confirma{border:2px solid var(--tinta);border-radius:10px;padding:12px;display:grid;gap:8px}
+.confirma .desde-hacia{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;font-variant-numeric:tabular-nums}
+.confirma .desde-hacia b{font-size:20px}
+.confirma .desde-hacia s{color:var(--tinta-3)}
+.plata-fila{display:grid;grid-template-columns:1fr auto;gap:4px 10px;font-variant-numeric:tabular-nums;font-size:14.5px}
+.plata-fila .neg{color:var(--faltante);font-weight:700}
+.plata-fila .neg::before{content:"▼ "}
+.plata-fila .pos{color:var(--sobrante);font-weight:700}
+.plata-fila .pos::before{content:"▲ "}
+.plata-fila .nd{color:var(--tinta-3);font-style:italic}
+ul.reglas{margin:0;padding-left:20px;display:grid;gap:8px;max-width:75ch;color:var(--tinta-2)}
+ul.reglas b{color:var(--tinta)}
+footer.pie{padding-block:32px;color:var(--tinta-3);font-size:14px;display:grid;gap:6px}
+
+@media (max-width:700px){
+  .comanda,.cobro,.cierre{grid-template-columns:1fr}
+  .platos{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+
+<div class="pagina">
+
+<header class="cabecera">
+  <span class="eyebrow">Restaurante Sistema · propuesta de diseño · septiembre 2026</span>
+  <h1>Un solo libro,<br><em>dos mesas.</em></h1>
+  <p class="tesis">El restaurante vive en dos lugares: el salón, donde todo pasa de pie, con prisa y con las manos ocupadas, y la oficina del dueño, donde se lee con calma y se decide. Esta propuesta los diseña como dos superficies distintas de <b>un mismo libro de cuentas</b>. Lo que se anota en la pizarra del salón aparece, sin retoques, en las columnas de la oficina.</p>
+  <div class="dos-mundos" role="list">
+    <div class="mundo salon" role="listitem"><b>La pizarra · salón y cocina</b><span>Fondo oscuro que no deslumbra bajo luces de cocina. Tiza clara, objetivos de 56 px, estado dicho por forma y no solo por color.</span></div>
+    <div class="mundo oficina" role="listitem"><b>El libro · la oficina del dueño</b><span>Papel claro, cifras alineadas en columna, la plata siempre con signo y con dirección. Denso, pero en orden.</span></div>
+  </div>
+</header>
+
+<nav class="indice" aria-label="Secciones de la propuesta">
+  <a href="#direccion">Dirección</a><a href="#navegacion">Navegación</a><a href="#momentos">Seis momentos</a><a href="#estados">Estados</a><a href="#sistema">Sistema</a><a href="#razones">Razones</a>
+</nav>
+
+<!-- ======================= DIRECCIÓN ======================= -->
+<section id="direccion">
+  <header><span class="eyebrow">1 · Dirección de experiencia</span><h2>Cada pantalla responde a una persona, un momento y una decisión</h2>
+  <p>La interfaz actual es un solo sistema visual para todos. La propuesta los separa en dos, porque las condiciones son opuestas.</p></header>
+  <div class="par">
+    <div class="comp"><h3>La pizarra</h3>
+      <p><b>Quién:</b> cajera, meseros, cocina, supervisor. <b>Dónde:</b> tablet compartida, de pie, con ruido, con una mano, con grasa en los dedos.</p>
+      <p><b>Principios:</b> una acción principal por pantalla, siempre abajo y al alcance del pulgar. Nada depende de leer letra chica. Quién opera y cuánto le queda de sesión están siempre visibles, porque la tablet cambia de mano muchas veces por turno. El PIN de otra persona se pide ahí mismo y dice <i>a quién</i>.</p></div>
+    <div class="comp"><h3>El libro</h3>
+      <p><b>Quién:</b> el dueño y el administrador. <b>Dónde:</b> celular el domingo, computador el lunes.</p>
+      <p><b>Principios:</b> primero la respuesta, después el detalle. Toda cifra de plata lleva dirección (▲ entra, ▼ falta), no solo color. «Sin dato» se ve distinto de cero, siempre rayado y con su porqué. Las tablas se leen como un libro contable: cifras a la derecha, totales con doble línea.</p></div>
+  </div>
+  <p class="razon"><b>Por qué dos superficies y no un tema oscuro.</b> No es un modo de preferencia. El salón necesita contraste alto y objetivos grandes; la oficina necesita densidad y columnas. Si fuera una sola superficie, las dos saldrían perdiendo.</p>
+</section>
+
+<!-- ======================= NAVEGACIÓN ======================= -->
+<section id="navegacion">
+  <header><span class="eyebrow">2 · Arquitectura de navegación</span><h2>La oficina se ordena por las preguntas del dueño</h2>
+  <p>Hoy el admin tiene más de veinte secciones agrupadas por módulo técnico. La propuesta las agrupa por la pregunta que el dueño se hace, y cada grupo abre en su respuesta.</p></header>
+  <div class="nav-grid">
+    <div class="arbol" aria-label="Navegación de la oficina">
+      <div class="pregunta"><span class="q">¿Cómo va?</span><b>Hoy</b><span>Pulso del día y «requiere tu atención». Es la portada.</span></div>
+      <div class="pregunta"><span class="q">¿Qué vendí?</span><b>Ventas</b><span>Ventas, pedidos, clientes, informe del contador.</span></div>
+      <div class="pregunta"><span class="q">¿Cuánto me cuesta?</span><b>Cocina y bodega</b><span>Carta y fichas, preparaciones, inventario, compras y proveedores, análisis de la carta.</span></div>
+      <div class="pregunta"><span class="q">¿Dónde está la plata?</span><b>Plata</b><span>Turnos y caja, banco y consignaciones, gastos, utilidad y punto de equilibrio.</span></div>
+      <div class="pregunta"><span class="q">¿Estoy al día?</span><b>DIAN</b><span>Documentos, rangos, notas, devoluciones.</span></div>
+      <div class="pregunta"><span class="q">¿Quién trabaja?</span><b>Equipo</b><span>Personal, nómina, propinas, autorizaciones.</span></div>
+      <div class="pregunta"><span class="q">Aparte, al pie</span><b>Ajustes</b><span>Sede, caja, ventas, canales, funciones, auditoría, avisos.</span></div>
+    </div>
+    <div class="arbol" aria-label="Navegación del salón">
+      <h3>Salón: cinco destinos como máximo, según el rol</h3>
+      <div class="barra-salon"><span>Mesas</span><span>Mostrador</span><span>Cobrar</span><span>Turno</span><span class="rol">+ Cocina · Producción · Merma, si el rol lo usa</span></div>
+      <p style="font-size:14px;color:var(--tinta-2)">La barra la decide <b>quién se identificó</b>, no la tablet. El mesero ve Mesas y Mostrador; la cajera suma Cobrar y Turno; la cocina abre directo en su pantalla de tiquetes. Una función apagada no deja un hueco: la barra simplemente tiene menos destinos.</p>
+      <h3>Celular del dueño</h3>
+      <p style="font-size:14px;color:var(--tinta-2)">Barra inferior con cuatro destinos (Hoy · Ventas · Plata · Avisos) y «Más» para el resto. Los avisos llevan a la pantalla que resuelve, nunca a una lista muerta.</p>
+    </div>
+  </div>
+  <p class="razon"><b>Por qué preguntas y no módulos.</b> El dueño no piensa en «recepciones» ni en «conciliación»: piensa «¿qué le debo al del pollo?». Agrupar por pregunta baja de 22 destinos a 6, y cada grupo cabe en una pantalla con pestañas.</p>
+</section>
+
+<!-- ======================= MOMENTOS ======================= -->
+<section id="momentos">
+  <header><span class="eyebrow">3 · Seis momentos críticos</span><h2>Diseñado para el peor minuto del turno</h2>
+  <p>Todos los ejemplos usan datos de la operación simulada de dos semanas: los mismos platos, personas y montos.</p></header>
+
+  <!-- Momento 1 -->
+  <div class="escena" id="m1">
+    <div class="escena-cab"><h3>Tomar el pedido de la mesa 3</h3><span class="momento">Viernes 1:04 p. m. · tablet del salón · Yuliana, mesera</span></div>
+    <div class="marco"><div class="tablet" role="img" aria-label="Maqueta: comanda en tablet con carta a la izquierda y pedido a la derecha">
+      <div class="barra"><div class="quien"><span class="ficha">YP</span><span>Yuliana Pérez · <b>Mesa 3</b> · 4 comensales</span></div><span class="expira">sesión 2:40</span></div>
+      <div class="comanda">
+        <div style="display:grid;gap:10px;align-content:start">
+          <div class="cats"><span class="cat">Entradas</span><span class="cat">Sopas</span><span class="cat on">Fuertes</span><span class="cat">Bebidas</span><span class="cat">Postres</span></div>
+          <div class="platos">
+            <div class="plato"><span class="n">2</span><b>Bandeja paisa</b><span class="num">$38.000</span></div>
+            <div class="plato"><b>Arroz con pollo</b><span class="num">$26.000</span></div>
+            <div class="plato"><span class="n">1</span><b>Pechuga a la plancha</b><span class="num">$30.000</span></div>
+            <div class="plato"><b>Frijoles con garra</b><span class="num">$26.000</span></div>
+            <div class="plato agotado"><b>Pescado frito</b><span class="num">$34.000</span></div>
+            <div class="plato"><b>Lomo al trapo</b><span class="num">$42.000</span></div>
+          </div>
+        </div>
+        <div class="pedido">
+          <h4>Ronda 1 · sin enviar</h4>
+          <span class="curso">Fuertes</span>
+          <div class="linea-p"><span class="q">2×</span><span>Bandeja paisa<small>1 poco asada · 1 a punto</small></span><span class="num">$76.000</span></div>
+          <div class="linea-p"><span class="q">1×</span><span>Pechuga a la plancha<small>+ papa criolla · sin cebolla</small></span><span class="num">$35.000</span></div>
+          <span class="curso">Bebidas</span>
+          <div class="linea-p"><span class="q">3×</span><span>Limonada de coco</span><span class="num">$27.000</span></div>
+          <button class="boton-grande b-accion" type="button">Enviar a cocina · 6 ítems</button>
+        </div>
+      </div>
+    </div></div>
+    <p class="razon"><b>Por qué así.</b> Un toque suma un plato; el término de la carne se pregunta en línea, dentro del pedido y sin ventana, solo cuando el plato lo exige. El número sobre el plato evita contar mentalmente. Lo agotado sigue visible pero rayado, para que el mesero lo sepa antes de ofrecerlo. El botón dice cuántos ítems salen: con ruido, la confirmación es el número.</p>
+  </div>
+
+  <!-- Momento 2 -->
+  <div class="escena" id="m2">
+    <div class="escena-cab"><h3>Mesa de seis que divide la cuenta</h3><span class="momento">1:52 p. m. · Luz Marina, cajera · uno pide factura a nombre de su empresa</span></div>
+    <div class="marco"><div class="tablet" role="img" aria-label="Maqueta: cobro dividido en seis partes con distintos medios">
+      <div class="barra"><div class="quien"><span class="ficha">LG</span><span>Luz Marina Gómez · cobrando <b>Mesa 5</b></span></div><span class="expira">sesión 2:58</span></div>
+      <div class="cobro">
+        <div style="display:grid;gap:10px;align-content:start">
+          <div class="total"><small>Total de la cuenta</small><span class="cifra">$228.000</span><small class="num">Incluye INC 8 % $16.889 · propina aparte</small></div>
+          <div><small style="color:var(--tiza-2)">¿Propina? Se pregunta siempre.</small>
+          <div class="propina" style="margin-top:6px"><span class="chip-s">No</span><span class="chip-s on">10 % · $22.800</span><span class="chip-s">Otra</span></div></div>
+          <div class="factura"><span>Factura electrónica para la parte 2</span><b>NIT 900.765.432-1</b><span>Constructora Los Cerros SAS · contabilidad@loscerros.test</span></div>
+        </div>
+        <div class="partes">
+          <div class="parte hecha"><span class="num">1</span><span class="ok">Datáfono</span><span class="medio">datáfono</span><b class="num">$41.800</b></div>
+          <div class="parte hecha"><span class="num">2</span><span class="ok">Datáfono · con factura</span><span class="medio">datáfono</span><b class="num">$41.800</b></div>
+          <div class="parte activa"><span class="num">3</span><span>Nequi · referencia NQ4471903</span><span class="medio">nequi</span><b class="num">$41.800</b></div>
+          <div class="parte"><span class="num">4</span><span>Efectivo · recibe $50.000</span><span class="medio">efectivo</span><b class="num">$41.800</b></div>
+          <div class="parte"><span class="num">5</span><span>Efectivo</span><span class="medio">efectivo</span><b class="num">$41.800</b></div>
+          <div class="parte"><span class="num">6</span><span>Efectivo</span><span class="medio">efectivo</span><b class="num">$41.800</b></div>
+          <button class="boton-grande b-accion" type="button">Cobrar parte 3 · $41.800</button>
+          <button class="boton-grande b-sec" type="button">Vuelto de la parte 4: $8.200</button>
+        </div>
+      </div>
+    </div></div>
+    <p class="razon"><b>Por qué así.</b> Cada parte es una fila con su medio y su estado. La cajera avanza de arriba abajo y el sistema nunca pierde qué falta. La factura se pega a la parte que la pidió, no a la mesa. El vuelto se calcula y se dice en voz alta en un botón, no en una cuenta mental con fila de gente.</p>
+  </div>
+
+  <!-- Momento 3 -->
+  <div class="escena" id="m3">
+    <div class="escena-cab"><h3>La cocina con doce platos en espera</h3><span class="momento">1:20 p. m. · pantalla fija sobre el pase · cocina caliente</span></div>
+    <div class="marco"><div class="tablet" role="img" aria-label="Maqueta: pantalla de cocina con tiquetes y semáforo por forma">
+      <div class="barra"><div class="estaciones"><span class="cat on">Cocina caliente · 12</span><span class="cat">Fría · 3</span><span class="cat">Bar · 5</span></div><span>Toca un plato para marcarlo listo · mantené para deshacer</span></div>
+      <div class="kds">
+        <article class="tiquete"><header><b>Mesa 1</b><span>ronda 2</span></header><ul><li>2× Bandeja paisa<small>1 poco asada</small></li><li>1× Lomo al trapo<small>a punto</small></li></ul><div class="tiempo t-tarde"><i></i>24 min · demorado</div></article>
+        <article class="tiquete"><header><b>Domicilio</b><span>#482</span></header><ul><li>1× Pescado frito<small>sin limón</small></li></ul><div class="tiempo t-alerta"><i></i>16 min · por vencer</div></article>
+        <article class="tiquete"><header><b>Mesa 5</b><span>ronda 1</span></header><ul><li>3× Ajiaco</li><li>1× Sancocho</li></ul><div class="tiempo t-ok"><i></i>6 min · a tiempo</div></article>
+        <article class="tiquete"><header><b>Rappi</b><span>RP-7c1a</span></header><ul><li>2× Arroz con pollo</li><li>1× Patacón con hogao</li></ul><div class="tiempo t-ok"><i></i>3 min · a tiempo</div></article>
+      </div>
+    </div></div>
+    <p class="razon"><b>Por qué así.</b> Tiquetes de papel en letra condensada: el formato que la cocina ya lee, visible a dos metros. El atraso se dice con <b>forma y color a la vez</b> (● a tiempo, ▲ por vencer, ■ demorado), así lo ve también quien no distingue rojo de verde. El más atrasado va primero a la izquierda. Cobrar una mesa no saca sus platos si todavía no están listos.</p>
+  </div>
+
+  <!-- Momento 4 -->
+  <div class="escena" id="m4">
+    <div class="escena-cab"><h3>El cierre a ciegas: faltan $18.000</h3><span class="momento">10:31 p. m. · Luz Marina, cansada, después de contar</span></div>
+    <div class="marco"><div class="tablet" role="img" aria-label="Maqueta: cierre de caja con diferencia negativa y causas">
+      <div class="barra"><div class="pasos"><span class="paso hecho">Contar</span><span class="paso on">Revisar</span><span class="paso">Confirmar</span></div><span>Turno del lunes 21 · responsable Luz Marina</span></div>
+      <div class="cierre">
+        <div class="billetes">
+          <div class="billete"><span class="num">$50.000</span><span class="cant">9</span><span class="sub num">$450.000</span></div>
+          <div class="billete"><span class="num">$20.000</span><span class="cant">14</span><span class="sub num">$280.000</span></div>
+          <div class="billete"><span class="num">$10.000</span><span class="cant">12</span><span class="sub num">$120.000</span></div>
+          <div class="billete"><span class="num">$5.000</span><span class="cant">9</span><span class="sub num">$45.000</span></div>
+          <div class="billete"><span class="num">Monedas</span><span class="cant">—</span><span class="sub num">$6.000</span></div>
+          <div class="billete" style="background:transparent"><b>Contaste</b><span></span><b class="sub num" style="color:var(--tiza)">$901.000</b></div>
+        </div>
+        <div class="diferencia" role="alert">
+          <span style="font-size:14px">Recién ahora el sistema compara con lo esperado:</span>
+          <span class="cifra">$18.000</span>
+          <span style="font-size:15px">faltan en efectivo. Datáfono y transferencias cuadran.</span>
+          <span style="font-size:13.5px;color:#FFB4AE">¿Qué creés que pasó? Elegí una causa para poder cerrar.</span>
+          <div class="causas"><span class="causa">Error en vueltos</span><span class="causa">Gasto sin soporte</span><span class="causa">Venta sin registrar</span><span class="causa on">No sé</span></div>
+          <button class="boton-grande b-sec" type="button" style="background:#FFB4AE;color:#3A1614">Volver a contar</button>
+        </div>
+      </div>
+    </div></div>
+    <p class="razon"><b>Por qué así.</b> Se cuenta por billete, como se hace con el fajo en la mano, y el total se suma solo. La diferencia aparece <b>después</b> de contar, grande y con dirección (▼ falta); se nombra el monto sin sonar a acusación. «Volver a contar» es la primera salida, porque un recuento resuelve muchos faltantes; «No sé» es una causa válida y no un callejón sin salida.</p>
+  </div>
+
+  <!-- Momento 5 y 6 -->
+  <div class="par">
+    <div class="escena" id="m5">
+      <div class="escena-cab"><h3>El dueño, un domingo, en el celular</h3><span class="momento">Menos de un minuto</span></div>
+      <div class="movil" role="img" aria-label="Maqueta: resumen semanal del dueño en el celular">
+        <div class="m-top"><span>Sede Centro</span><span>Semana 15–21 sep</span></div>
+        <div class="m-hero"><small>Ventas netas de la semana</small><span class="cifra">$15,9 M</span><small class="num" style="color:#0B5A4E;font-weight:650">▲ 6 % contra la semana anterior</small></div>
+        <svg class="spark" viewBox="0 0 300 56" aria-hidden="true"><path d="M0 44 L50 38 L100 40 L150 30 L200 12 L250 20 L300 34 L300 56 L0 56Z" fill="#E3E6FB"/><path d="M0 44 L50 38 L100 40 L150 30 L200 12 L250 20 L300 34" fill="none" stroke="#3D4FE0" stroke-width="2.5"/><circle cx="300" cy="34" r="4" fill="#3D4FE0"/></svg>
+        <div class="atencion">
+          <div class="aviso crit"><i></i><div><b>3 cuentas por pagar vencidas</b><span>Frigorífico El Llano, Lácteos San Fernando…</span></div></div>
+          <div class="aviso warn"><i></i><div><b>Luz Marina: 3 cierres seguidos con diferencia</b><span>Suman ▼ $41.000 esta semana</span></div></div>
+          <div class="aviso warn"><i></i><div><b>Merma de aguacate 1,5× la semana pasada</b><span>7 unidades · $18.200</span></div></div>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><small>Costo de comida</small><b>31,4 %</b></div>
+          <div class="kpi"><small>Por consignar</small><b>$919.000</b></div>
+          <div class="kpi"><small>Ticket promedio</small><b>$63.200</b></div>
+          <div class="kpi sindato"><small>Varianza de inventario</small><b>Sin dato: falta el conteo del lunes</b></div>
+        </div>
+      </div>
+      <p class="razon"><b>Por qué así.</b> Primero la respuesta («¿fue buena la semana?»), luego lo que le exige actuar, y los números al final. «Sin dato» se ve rayado y dice qué falta, nunca un $0 engañoso.</p>
+    </div>
+
+    <div class="escena" id="m6">
+      <div class="escena-cab"><h3>Lunes de compras</h3><span class="momento">8:30 a. m. · recibir y aprobar</span></div>
+      <div class="marco"><div class="oficina-m" role="img" aria-label="Maqueta: recepciones de compras con lotes y una diferencia de factura">
+        <div class="o-cab"><div><span class="miga">Cocina y bodega › Compras</span><h4>Recepciones de hoy</h4></div><span class="estado e-rev">2 por revisar</span></div>
+        <table class="libro">
+          <thead><tr><th>Proveedor</th><th>Factura</th><th>Lotes</th><th class="din">Recibido</th><th class="din">Facturado</th><th>Estado</th></tr></thead>
+          <tbody>
+            <tr><td>Frigorífico El Llano</td><td class="lote">FE-48213</td><td class="lote">8 lotes · vence 26 sep</td><td class="din">$1.284.600</td><td class="din">$1.284.600</td><td><span class="estado e-ok">Cuadra</span></td></tr>
+            <tr class="difiere"><td>Pescadería Pacífico Azul</td><td class="lote">FE-51877</td><td class="lote">2 lotes · vence 25 sep</td><td class="din">$372.000</td><td class="din">$386.500</td><td><span class="estado e-rev">▼ $14.500</span></td></tr>
+            <tr><td>Fruver La Cosecha</td><td class="lote">sin factura</td><td class="lote">20 insumos</td><td class="din">$684.300</td><td class="din" style="color:#6B7872;font-style:italic">no aplica</td><td><span class="estado e-ok">Plaza</span></td></tr>
+            <tr><td>Mayorista El Surtidor</td><td class="lote">FE-10442</td><td class="lote">sin perecederos</td><td class="din">$912.000</td><td class="din">$912.000</td><td><span class="estado e-rev">Por aprobar</span></td></tr>
+          </tbody>
+        </table>
+        <div class="barra-acc"><button class="b-of" type="button">Ver la diferencia de la pescadería</button><button class="b-of pri" type="button">Aprobar 2 que cuadran</button></div>
+      </div></div>
+      <p class="razon"><b>Por qué así.</b> Una fila por proveedor, cifras alineadas a la derecha. La diferencia entre recibido y facturado es lo único resaltado. Aprobar en lote solo lo que cuadra; lo que no cuadra exige mirarse.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= ESTADOS ======================= -->
+<section id="estados">
+  <header><span class="eyebrow">4 · Estados</span><h2>Cada pantalla tiene seis caras, y todas dicen qué hacer</h2></header>
+  <div class="estados">
+    <div class="est"><span class="tipo">Vacío</span><b>Todavía no hay recepciones esta semana</b><p>Cuando llegue el primer proveedor, registralo acá con su factura.</p><span class="accion">Registrar recepción</span></div>
+    <div class="est"><span class="tipo">Cargando</span><div class="esqueleto" style="width:70%"></div><div class="esqueleto"></div><div class="esqueleto" style="width:50%"></div><p>Esqueleto con la forma real del contenido, no una rueda girando.</p></div>
+    <div class="est"><span class="tipo">Error</span><b>No se pudo traer el cierre del turno 14</b><p>Lo guardado no se perdió. Revisá la conexión y volvé a intentar.</p><span class="accion">Volver a intentar</span></div>
+    <div class="est"><span class="tipo">Sin permiso</span><b>Anular este plato pide un supervisor</b><p>Ya salió a cocina. Pedile a Supervisor Demo que teclee su PIN acá.</p><span class="accion">Pedir autorización</span></div>
+    <div class="est"><span class="tipo">Función apagada</span><b>La nómina no está en tu plan</b><p>Las horas del personal se siguen registrando en cada turno; se ven acá cuando la prendas.</p><span class="accion">Ver funciones</span></div>
+    <div class="est"><span class="tipo">Sin dato</span><div class="rayado">Sin dato</div><p>Falta el conteo completo del lunes para calcular la varianza. No es cero.</p><span class="accion">Hacer el conteo</span></div>
+  </div>
+</section>
+
+<!-- ======================= SISTEMA ======================= -->
+<section id="sistema">
+  <header><span class="eyebrow">5 · Sistema de diseño</span><h2>Pocas piezas, reglas firmes</h2></header>
+
+  <h3>Color: la plata tiene sus propios colores</h3>
+  <div class="muestras">
+    <div class="muestra"><i style="background:#17231E"></i><div><b>Tinta</b><code>#17231E</code></div></div>
+    <div class="muestra"><i style="background:#F3F5F1;border-bottom:1px solid #D3DAD2"></i><div><b>Papel</b><code>#F3F5F1</code></div></div>
+    <div class="muestra"><i style="background:#121A17"></i><div><b>Pizarra</b><code>#121A17</code></div></div>
+    <div class="muestra"><i style="background:#3D4FE0"></i><div><b>Añil · acción</b><code>#3D4FE0 / #8D9BFF</code></div></div>
+    <div class="muestra"><i style="background:#C4302B"></i><div><b>▼ Faltante</b><code>#C4302B</code></div></div>
+    <div class="muestra"><i style="background:#0F7A6A"></i><div><b>▲ Sobrante / cuadra</b><code>#0F7A6A</code></div></div>
+    <div class="muestra"><i style="background:#B7791F"></i><div><b>▲ Pendiente</b><code>#B7791F</code></div></div>
+    <div class="muestra"><i style="background:repeating-linear-gradient(135deg,#F3F5F1 0 6px,#D3DAD2 6px 8px)"></i><div><b>Sin dato</b><code>rayado, nunca un color</code></div></div>
+  </div>
+  <p class="razon"><b>Por qué añil y no el rojo «de restaurante».</b> En este sistema el rojo significa que falta plata. Si la marca fuera roja, la alarma se perdería en la decoración. El añil es la única voz de «actuá acá» y no compite con ninguna señal de dinero.</p>
+
+  <h3>Tipografía: una familia, tres anchos</h3>
+  <div class="escala">
+    <div><code>Cifra · 118 %</code><span style="font-size:40px;font-weight:780;font-stretch:118%;font-variant-numeric:tabular-nums;line-height:1">$15.920.400</span></div>
+    <div><code>Título · 108 %</code><span style="font-size:26px;font-weight:720;font-stretch:108%">Recepciones de hoy</span></div>
+    <div><code>Tiquete · 70 %</code><span style="font-size:22px;font-weight:750;font-stretch:70%">2× BANDEJA PAISA · MESA 1</span></div>
+    <div><code>Cuerpo · 100 %</code><span style="font-size:16px">El cierre pide la causa cuando la diferencia pasa la tolerancia de Ajustes › Caja.</span></div>
+    <div><code>Códigos · Plex Mono</code><span style="font-family:var(--mono);font-size:15px">DEVPOS-000139 · NQ4471903 · PIN ••••</span></div>
+  </div>
+  <p class="razon"><b>Por qué Archivo.</b> Un solo archivo de fuente, con eje de ancho: condensada, entran más platos por tiquete; expandida, la cifra del dueño se lee de un vistazo. Todas las cifras van con números tabulares, para que las columnas de plata no bailen.</p>
+
+  <h3>Componentes clave</h3>
+  <div class="componentes">
+    <div class="comp"><b>Teclado de PIN</b>
+      <div class="puntos" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i></div>
+      <div class="pin" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span></div>
+      <p>Teclas de 56 px, sin eco del dígito. Solo escucha el teclado físico cuando tiene el foco (no se come lo que se escribe en un campo de plata).</p></div>
+    <div class="comp"><b>Confirmar lo que mueve plata</b>
+      <div class="confirma"><span style="font-size:13px;color:var(--tinta-2)">Retiro de caja · autoriza Admin Demo</span>
+        <div class="desde-hacia"><span><s class="num">$1.184.000</s><br><small>en caja</small></span><span>→</span><span><b class="num">$434.000</b><br><small>después del retiro</small></span></div>
+        <span class="num" style="font-weight:700">Sale: $750.000 · sobre SOBRE-0921</span></div>
+      <p>Siempre dice de dónde sale, adónde va y cómo queda. El botón repite el monto: «Retirar $750.000», nunca «Aceptar».</p></div>
+    <div class="comp"><b>Fila de plata</b>
+      <div class="plata-fila"><span>Contado vs. esperado</span><span class="neg">$18.000</span><span>Datáfono</span><span class="pos">$0 · cuadra</span><span>Varianza de inventario</span><span class="nd">sin dato: falta conteo</span></div>
+      <p>La dirección va con flecha y palabra, no solo con color. «Sin dato» está en cursiva gris y siempre dice qué falta.</p></div>
+  </div>
+
+  <h3>Reglas que viajan con cada pantalla</h3>
+  <ul class="reglas">
+    <li><b>El operador nunca ve un costo.</b> Los componentes de costo solo existen en el libro; la pizarra no los importa.</li>
+    <li><b>Quién opera siempre está visible</b> en la pizarra, con el tiempo de sesión restante.</li>
+    <li><b>Una acción principal por pantalla</b>, en añil, abajo y a lo ancho en el salón.</li>
+    <li><b>Toda autorización nombra a la persona</b> que puede darla y se pide en la misma pantalla.</li>
+    <li><b>Mensajes en palabras del dueño</b>, con la pantalla que lo arregla. Nunca un código.</li>
+    <li><b>Movimiento mínimo</b>: solo para confirmar (un plato que entra al pedido, un tiquete que sale). Respeta «reducir movimiento».</li>
+    <li><b>Contraste AA</b> en los dos mundos; objetivos de 56 px en el salón y de 40 px en el libro.</li>
+  </ul>
+</section>
+
+<!-- ======================= RAZONES ======================= -->
+<section id="razones">
+  <header><span class="eyebrow">6 · Razones y próximos pasos</span><h2>Qué cambia, en una frase por mundo</h2></header>
+  <ul class="reglas">
+    <li><b>Salón:</b> menos toques y ninguna cuenta mental. El sistema cuenta platos, partes, vueltos y minutos por la persona que está apurada.</li>
+    <li><b>Cocina:</b> tiquetes que se leen desde lejos y un semáforo que no depende del color.</li>
+    <li><b>Caja:</b> el cierre a ciegas se siente como contar un fajo, y la diferencia se muestra sin acusar a nadie.</li>
+    <li><b>Oficina:</b> seis preguntas en vez de veintidós módulos; cada cifra con dirección y cada vacío con su porqué.</li>
+  </ul>
+  <p class="razon"><b>Para construirlo sin romper nada:</b> (1) tokens de los dos mundos sobre el Tailwind actual; (2) la barra del salón por rol; (3) el nuevo agrupamiento del admin (solo cambia <code>nav.ts</code>/<code>AdminLayout</code>, las rutas quedan); (4) pantalla por pantalla, empezando por el cierre y el cobro, que es donde se mueve la plata.</p>
+</section>
+
+<footer class="pie">
+  <span>Propuesta hecha con la skill ui-ux-pro-max a partir de <code>docs/PROMPT-DISENO-UI.md</code>. Todos los montos y nombres vienen de la operación simulada de dos semanas; los proveedores, clientes y NIT son ficticios.</span>
+</footer>
+</div>
