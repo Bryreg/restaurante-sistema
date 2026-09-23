@@ -23,7 +23,7 @@ export default function DeviceActivatePage(): React.JSX.Element {
   // pantalla es un teclado de PIN en una tablet y necesita el objetivo
   // táctil de 52 px tanto como las de adentro.
   useDensity("salon");
-  const { refresh } = useSession();
+  const { me, refresh } = useSession();
   const navigate = useNavigate();
   const [storeId, setStoreId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +56,12 @@ export default function DeviceActivatePage(): React.JSX.Element {
         <h1 className="text-xl font-semibold">Activar este dispositivo</h1>
         <p className="text-sm text-muted-foreground">Se hace una sola vez por tablet o PC del salón.</p>
       </div>
+      {me?.kind === "admin" ? (
+        <p role="status" className="w-full max-w-xs rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          Este navegador tiene abierta la sesión de administrador de {me.user?.name ?? "la organización"}. Activarlo
+          como punto de venta la cierra acá: para volver al admin, entrá de nuevo con tu correo.
+        </p>
+      ) : null}
       <div className="w-full max-w-xs space-y-2">
         <Label htmlFor="store-id">Número de sede</Label>
         <Input
