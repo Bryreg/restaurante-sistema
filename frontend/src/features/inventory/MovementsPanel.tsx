@@ -24,6 +24,7 @@ import { EmptyState } from "@/components/EmptyState"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errorMessage } from "@/lib/errors"
+import { formatCantidad } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 import { CAUSE_LABEL, daysAgoLocal, todayLocal } from "./lib"
@@ -129,7 +130,7 @@ export function MovementsPanel({ ingredients }: { ingredients: IngredientOut[] }
       kind: "number",
       cell: (m) => (
         <span className={cn(Number(m.qty_base) < 0 && "text-destructive")}>
-          {m.qty_base} {unit}
+          {formatCantidad(m.qty_base, unit)}
         </span>
       ),
     },

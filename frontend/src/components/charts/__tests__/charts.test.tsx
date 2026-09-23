@@ -209,10 +209,14 @@ describe("DivergingBars", () => {
     expect(container.querySelector('[data-fila="t4"] [data-barra]')).toBeNull()
   })
 
-  it("faltaCuando positivo invierte el color, no el signo", () => {
+  it("faltaCuando positivo invierte color y flecha, no el signo de la cifra", () => {
+    // La flecha dice faltante (▼) o sobrante (▲) en todo el sistema, igual
+    // que `Diferencia`; el signo de la cifra es el del servidor.
     const { container } = render(<DivergingBars datos={datos} formato={formatCOP} faltaCuando="positivo" />)
     const t2 = container.querySelector('[data-fila="t2"]')!
-    expect(t2).toHaveTextContent("▲")
+    expect(t2).toHaveTextContent("▼")
+    expect(t2.querySelector("[data-cifra]")!.textContent).toMatch(/5\.000$/)
+    expect(t2.querySelector("[data-cifra]")!.textContent).not.toMatch(/^−/)
     expect(t2).toHaveTextContent("faltante")
     expect((t2.querySelector("[data-barra]") as HTMLElement).style.background).toBe("var(--diverge-falta)")
   })

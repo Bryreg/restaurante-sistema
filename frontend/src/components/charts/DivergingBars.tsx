@@ -63,7 +63,10 @@ export function DivergingBars({
         const v = d.valor
         const falta = esFalta(v)
         const cero = v === 0
-        const flecha = cero ? "=" : v < 0 ? "▼" : "▲"
+        // La flecha dice faltante (▼) o sobrante (▲), igual que `Diferencia` en
+        // todo el sistema: en la varianza de inventario el faltante es
+        // positivo, y una flecha que siguiera al signo diría lo contrario.
+        const flecha = cero ? "=" : falta ? "▼" : "▲"
         const palabra = cero ? palabras.cero : falta ? palabras.falta : palabras.sobra
         const color = falta ? "var(--diverge-falta)" : "var(--diverge-sobra)"
         const mitad = tope > 0 ? ((v < 0 ? -v : v) / tope) * 50 : 0

@@ -172,12 +172,12 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
     {
       key: "contact",
       header: "Contacto",
-      widthPx: 200,
       cell: (s) => (
-        <span className="block truncate">
-          {s.contact_name ?? "—"}
-          {s.contact_phone ? ` · ${s.contact_phone}` : ""}
-        </span>
+        // Sólo el nombre, con tope de ancho: con las tres columnas de
+        // confiabilidad la tabla no cabía a 1440 px y «Desactivar» quedaba
+        // detrás del scroll. Nombre y teléfono siguen en el `title` de la
+        // celda y en el formulario de «Editar».
+        <span className="block max-w-[86px] truncate">{s.contact_name ?? s.contact_phone ?? "—"}</span>
       ),
       cellTitle: (s) => [s.contact_name, s.contact_phone].filter(Boolean).join(" · ") || undefined,
     },

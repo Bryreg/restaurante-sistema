@@ -20,4 +20,11 @@ describe("entradaActiva", () => {
   it("una ruta que no está activa nunca se enciende", () => {
     expect(entradaActiva("/admin/hoy", false, "", RAIL)).toBe(false);
   });
+
+  it("una entrada puede reclamar pestañas hermanas: Salud sostenida enciende «Varianza y salud», no Ingeniería de menú", () => {
+    const analitica = ["/admin/analitica", "/admin/analitica?tab=varianza", "/admin/analitica?tab=reposicion"];
+    expect(entradaActiva("/admin/analitica?tab=varianza", true, "?tab=salud-sostenida", analitica)).toBe(true);
+    expect(entradaActiva("/admin/analitica", true, "?tab=salud-sostenida", analitica)).toBe(false);
+    expect(entradaActiva("/admin/analitica", true, "?tab=ingenieria-menu", analitica)).toBe(true);
+  });
 });

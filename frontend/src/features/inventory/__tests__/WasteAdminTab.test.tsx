@@ -15,12 +15,12 @@ vi.mock("@/api/inventory", async () => {
 })
 
 describe("WasteAdminTab — el KPI mermas ÷ compras es entero en puntos básicos, no una fracción (deuda 2a → 2b cerrada)", () => {
-  it("ratio=437 (puntos básicos) se pinta «4,37 %», nunca «43700%» (Math.round(ratio*100) de 2a)", async () => {
+  it("ratio=437 (puntos básicos) se pinta «4,4 %» con el formato único es-CO (científico #14), nunca «43700%» (Math.round(ratio*100) de 2a)", async () => {
     getWasteListMock.mockResolvedValue({ items: [], weekly_kpi: { ratio: 437, label: "4,37 % de las compras" } })
 
     renderWithProviders(<WasteAdminTab storeId={1} ingredients={[]} />)
 
-    await waitFor(() => expect(screen.getByText("4,37 %")).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/^4,4\s%$/)).toBeInTheDocument())
     expect(screen.queryByText(/43700/)).not.toBeInTheDocument()
   })
 

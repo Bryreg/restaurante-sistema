@@ -385,13 +385,28 @@ const DICE: Record<Recuento, (n: number) => string> = {
  */
 export function entradaActiva(to: string, rutaActiva: boolean, search: string, todas: string[]): boolean {
   if (!rutaActiva) return false;
-  const [ruta, query] = to.split("?");
+  const [ruta] = to.split("?");
   const tab = new URLSearchParams(search).get("tab");
-  if (query !== undefined) return new URLSearchParams(query).get("tab") === tab;
-  return !todas.some((otra) => {
-    const [otraRuta, otraQuery] = otra.split("?");
-    return otraRuta === ruta && otraQuery !== undefined && new URLSearchParams(otraQuery).get("tab") === tab;
-  });
+  const propias = pestanasDe(to);
+  if (propias.length > 0) return tab !== null && propias.includes(tab);
+  return !todas.some((otra) => otra !== to && otra.split("?")[0] === ruta && tab !== null && pestanasDe(otra).includes(tab));
+}
+
+/**
+ * Pestañas que una entrada del rail reclama además de la de su `?tab=`:
+ * «Varianza y salud» abre en Varianza por plato pero también es suya la
+ * pestaña Salud sostenida. Sin esto, en Salud sostenida se encendía
+ * «Ingeniería de menú» (la entrada sin pestaña de la misma ruta).
+ */
+const PESTANAS_HERMANAS: Record<string, readonly string[]> = {
+  "/admin/analitica?tab=varianza": ["salud-sostenida"],
+};
+
+function pestanasDe(to: string): string[] {
+  const query = to.split("?")[1];
+  if (query === undefined) return [];
+  const tab = new URLSearchParams(query).get("tab");
+  return [...(tab === null ? [] : [tab]), ...(PESTANAS_HERMANAS[to] ?? [])];
 }
 
 function SidebarNav({

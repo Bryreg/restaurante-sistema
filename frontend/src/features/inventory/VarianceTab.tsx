@@ -6,6 +6,8 @@ import {
   listCounts,
   varianceCsvUrl,
   type VarianceLevel,
+  type VarianceOut,
+  type VarianceParetoRowOut,
   type VarianceRowOut,
 } from "@/api/inventory"
 import {
@@ -15,6 +17,7 @@ import {
   type LegendEntry,
   type RowStatus,
 } from "@/components/admin"
+import { ChartFrame, Pareto, type ParetoDatum } from "@/components/charts"
 import { COST_SOURCE_LABEL } from "@/components/CostValue"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { EmptyState } from "@/components/EmptyState"
@@ -22,11 +25,12 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Diferencia } from "@/components/Diferencia"
 import { errorMessage } from "@/lib/errors"
+import { formatFechaCorta, formatPct } from "@/lib/format"
+import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
-import { formatBasisPoints } from "./lib"
-
-const UNIT_LABEL: Record<string, string> = { g: "g", ml: "ml", unit: "unidad" }
+import { cantidad, textoVentana } from "./lib"
+import { varianceDetalle, varianceTitular } from "./titulares"
 
 const LEVEL_LABEL: Record<VarianceLevel, string> = {
   green: "Verde",
@@ -64,6 +68,66 @@ const LEGEND: readonly LegendEntry[] = [
   },
 ]
 
+/** ▼ faltante / ▲ sobrante: la misma lectura que `Diferencia`, para que la dirección no sea sólo color. */
+function flecha(p: VarianceParetoRowOut): string {
+  return p.direction === "shortage" ? "▼" : "▲"
+}
+
+/**
+ * La concentración de la varianza (científico #9, analista #12): Pareto
+ * por insumo con el acumulado que manda el servidor, el titular con el
+ * total y cuántos insumos explican el 80 %, y la tabla gemela con la
+ * dirección en rojo (faltante) o ámbar (sobrante; nunca rojo).
+ */
+function VarianceConcentration({ data }: { data: VarianceOut }): React.JSX.Element {
+  const datos: ParetoDatum[] = data.pareto.map((p) => ({
+    key: String(p.ingredient_id),
+    etiqueta: `${flecha(p)} ${p.ingredient_name}`,
+    valor: p.abs_value,
+    acumulado_bp: p.cumulative_bp,
+  }))
+  const titular = varianceTitular(data)
+  const detalle = varianceDetalle(data)
+  const ventana = textoVentana(null, null, data.window_from, data.window_to)
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <ChartFrame
+        titular={titular}
+        detalle={
+          <>
+            {detalle ? <span className="block">{detalle}</span> : null}
+            <span className="block">
+              Varianza en pesos por insumo, de mayor a menor (sin signo: ▼ faltante, ▲ sobrante), con el acumulado en
+              gris. Conteo #{data.opening_count_id ?? "—"} contra #{data.count_id ?? "—"}
+              {ventana ? `, ${ventana}` : ""}.
+            </span>
+          </>
+        }
+        tabla={{
+          columnas: [
+            { key: "insumo", header: "Insumo" },
+            { key: "valor", header: "Varianza", align: "right" },
+            { key: "part", header: "Parte del total", align: "right" },
+            { key: "acum", header: "Acumulado", align: "right" },
+          ],
+          filas: data.pareto.map((p) => ({
+            insumo: p.ingredient_name,
+            valor: <Diferencia valor={p.variance_value} faltaCuando="positivo" />,
+            part: formatPct(p.share_bp),
+            acum: formatPct(p.cumulative_bp),
+          })),
+        }}
+      >
+        {datos.length > 0 ? (
+          <Pareto datos={datos} formato={formatCOP} etiquetaValor="Varianza en pesos (sin signo)" resumen={`${titular}.`} />
+        ) : (
+          <p className="text-sm text-muted-foreground">Ningún insumo con varianza valorizada distinta de cero.</p>
+        )}
+      </ChartFrame>
+    </div>
+  )
+}
+
 /**
  * Admin → Inventario → Varianza (SPEC-NEGOCIO §5.4 / §9.3): uso real contra
  * uso teórico, en cantidad y en pesos con el origen del costo. El semáforo
@@ -81,33 +145,36 @@ export function VarianceTab({ storeId }: { storeId: number }): React.JSX.Element
   })
   const appliedCounts = (countsQuery.data ?? []).filter((c) => c.status === "applied")
 
+  // Sin elegir nada, el servidor usa el último conteo aplicado (analista
+  // #12: la pestaña ya no abre vacía).
   const varianceQuery = useQuery({
     queryKey: ["inventory", "variance", storeId, countId],
-    queryFn: () => getVariance({ storeId, countId: countId as number }),
-    enabled: countId !== null,
+    queryFn: () => getVariance({ storeId, countId }),
   })
+  const shownCountId = countId ?? varianceQuery.data?.count_id ?? null
 
   const picker = (
     <>
       <div className="flex items-center gap-2">
         <Label htmlFor="variance-count">Conteo aplicado</Label>
         <Select
-          value={countId === null ? undefined : String(countId)}
+          value={shownCountId === null ? undefined : String(shownCountId)}
           onValueChange={(v) => setCountId(Number(v))}
         >
-          <SelectTrigger id="variance-count" className="h-8 w-56">
+          <SelectTrigger id="variance-count" className="h-8 w-full min-w-0 sm:w-80">
             <SelectValue placeholder="Elegí un conteo aplicado" />
           </SelectTrigger>
           <SelectContent>
             {appliedCounts.map((count) => (
               <SelectItem key={count.id} value={String(count.id)}>
-                #{count.id} — {count.scope === "full" ? "Completo" : "Críticos"} — {count.business_date}
+                #{count.id} — {count.scope === "full" ? "Completo" : "Críticos"} — {formatFechaCorta(count.business_date)}
+                {count.id === varianceQuery.data?.latest_applied_count_id ? " (el último)" : ""}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
-      {countId !== null ? <CsvExportButton href={varianceCsvUrl({ storeId, countId })} /> : null}
+      {shownCountId !== null ? <CsvExportButton href={varianceCsvUrl({ storeId, countId: shownCountId })} /> : null}
     </>
   )
 
@@ -123,13 +190,6 @@ export function VarianceTab({ storeId }: { storeId: number }): React.JSX.Element
         title="Todavía no hay ningún conteo aplicado en esta sede"
         description="La varianza compara un conteo aplicado contra el aplicado anterior. Hacen falta dos."
         action={{ label: "Ir a Conteos", to: "/admin/inventario?tab=conteos" }}
-      />
-    )
-  } else if (countId === null) {
-    empty = (
-      <EmptyState
-        title="Elegí un conteo aplicado"
-        description="La varianza compara ese conteo contra el aplicado inmediatamente anterior."
       />
     )
   } else if (varianceQuery.isError) {
@@ -173,31 +233,31 @@ export function VarianceTab({ storeId }: { storeId: number }): React.JSX.Element
       key: "opening",
       header: "Inicial",
       kind: "number",
-      cell: (r) => `${r.opening_qty} ${UNIT_LABEL[r.base_unit] ?? r.base_unit}`,
+      cell: (r) => cantidad(r.opening_qty, r.base_unit),
     },
     {
       key: "inflow",
       header: "Entradas",
       kind: "number",
-      cell: (r) => `${r.inflow_qty} ${UNIT_LABEL[r.base_unit] ?? r.base_unit}`,
+      cell: (r) => cantidad(r.inflow_qty, r.base_unit),
     },
     {
       key: "closing",
       header: "Final",
       kind: "number",
-      cell: (r) => `${r.closing_qty} ${UNIT_LABEL[r.base_unit] ?? r.base_unit}`,
+      cell: (r) => cantidad(r.closing_qty, r.base_unit),
     },
     {
       key: "real",
       header: "Uso real",
       kind: "number",
-      cell: (r) => `${r.real_usage_qty} ${UNIT_LABEL[r.base_unit] ?? r.base_unit}`,
+      cell: (r) => cantidad(r.real_usage_qty, r.base_unit),
     },
     {
       key: "theoretical",
       header: "Uso teórico",
       kind: "number",
-      cell: (r) => `${r.theoretical_usage_qty} ${UNIT_LABEL[r.base_unit] ?? r.base_unit}`,
+      cell: (r) => cantidad(r.theoretical_usage_qty, r.base_unit),
     },
     {
       key: "variance",
@@ -205,7 +265,7 @@ export function VarianceTab({ storeId }: { storeId: number }): React.JSX.Element
       kind: "number",
       cell: (r) => (
         <span className={cn(r.level === "red" && "font-bold text-destructive")}>
-          {r.variance_qty} {UNIT_LABEL[r.base_unit] ?? r.base_unit}
+          {cantidad(r.variance_qty, r.base_unit)}
         </span>
       ),
     },
@@ -230,7 +290,7 @@ export function VarianceTab({ storeId }: { storeId: number }): React.JSX.Element
       key: "pct",
       header: "%",
       kind: "number",
-      cell: (r) => formatBasisPoints(r.variance_pct_bp),
+      cell: (r) => formatPct(r.variance_pct_bp),
     },
     {
       key: "level",
@@ -245,41 +305,42 @@ export function VarianceTab({ storeId }: { storeId: number }): React.JSX.Element
   ]
 
   return (
-    <DenseTable
-      caption="Varianza entre dos conteos aplicados"
-      columns={columns}
-      rows={rows}
-      rowKey={(r) => String(r.ingredient_id)}
-      rowStatus={(r) => LEVEL_STATUS[r.level]}
-      legend={LEGEND}
-      bar={
-        countId !== null && varianceQuery.isLoading ? (
-          <div className="flex flex-wrap items-center gap-2 border-b bg-muted px-3 py-2">
-            <p className="text-xs text-muted-foreground">Calculando varianza…</p>
-            <div className="ml-auto flex flex-wrap items-center gap-2">{picker}</div>
-          </div>
-        ) : (
-          <DenseTableBar
-            shown={rows.length}
-            total={rows.length}
-            noun="insumos comparados"
-            hidden={
-              rows.length > 0 ? `${rows.filter((r) => r.level !== "green").length} para revisar` : undefined
-            }
-          >
-            {picker}
-          </DenseTableBar>
-        )
-      }
-      note={
-        <>
-          El semáforo lo decide el <b>servidor</b> contra los umbrales de la sede: cambiarlos en Configuración
-          cambia los colores de acá. Una varianza no es un robo —es todo lo que las recetas no explican:
-          porciones generosas, mermas sin registrar, recetas desactualizadas—.
-        </>
-      }
-      empty={varianceQuery.isLoading && countId !== null ? undefined : empty}
-    />
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">{picker}</div>
+      {varianceQuery.data?.available ? <VarianceConcentration data={varianceQuery.data} /> : null}
+      <DenseTable
+        caption="Varianza entre dos conteos aplicados"
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => String(r.ingredient_id)}
+        rowStatus={(r) => LEVEL_STATUS[r.level]}
+        legend={LEGEND}
+        bar={
+          varianceQuery.isLoading ? (
+            <div className="flex flex-wrap items-center gap-2 border-b bg-muted px-3 py-2">
+              <p className="text-xs text-muted-foreground">Calculando varianza…</p>
+            </div>
+          ) : (
+            <DenseTableBar
+              shown={rows.length}
+              total={rows.length}
+              noun="insumos comparados"
+              hidden={
+                rows.length > 0 ? `${rows.filter((r) => r.level !== "green").length} para revisar` : undefined
+              }
+            />
+          )
+        }
+        note={
+          <>
+            El semáforo lo decide el <b>servidor</b> contra los umbrales de la sede: cambiarlos en Configuración
+            cambia los colores de acá. Una varianza no es un robo —es todo lo que las recetas no explican:
+            porciones generosas, mermas sin registrar, recetas desactualizadas—.
+          </>
+        }
+        empty={varianceQuery.isLoading ? undefined : empty}
+      />
+    </div>
   )
 }
 

@@ -11,6 +11,7 @@
  */
 import type { LotStatus, MovementCause, WasteType } from "@/api/inventory"
 import { daysAgoInBogota, todayInBogota } from "@/features/reports/lib"
+import { formatCantidad, formatFechaCorta, formatPct } from "@/lib/format"
 
 export const todayLocal = todayInBogota
 export const daysAgoLocal = daysAgoInBogota
@@ -53,6 +54,84 @@ export const LOT_STATUS_LABEL: Record<LotStatus, string> = {
   expiring: "Por vencer",
   expired: "Vencido",
   depleted: "Agotado",
+}
+
+// ---------------------------------------------------------------------------
+// Cantidades y ventanas (formateo, nunca cálculo).
+// ---------------------------------------------------------------------------
+
+/** La unidad base en palabras. */
+export const UNIT_LABEL: Record<string, string> = { g: "g", ml: "ml", unit: "unidad" }
+
+/**
+ * Una cantidad de inventario con su unidad, en es-CO: «0,024 unidad»,
+ * «10.000 g». Recibe el texto decimal del backend tal cual; sólo lo escribe
+ * (`formatCantidad`), nunca lo reescala.
+ */
+export function cantidad(qty: string | number | null | undefined, baseUnit: string): string {
+  return formatCantidad(qty, UNIT_LABEL[baseUnit] ?? baseUnit)
+}
+
+const FECHA_BOGOTA = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Bogota",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+})
+
+/**
+ * «lun 21 sep» a partir de un INSTANTE (el borde de una ventana entre
+ * conteos). Se pasa a la fecha de Bogotá antes de escribirla: un conteo de
+ * las 9 p. m. del 21 viaja como «…T02:00Z» del 22.
+ */
+export function fechaCortaDeInstante(iso: string | null | undefined): string {
+  if (!iso) return formatFechaCorta(null)
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return formatFechaCorta(null)
+  return formatFechaCorta(FECHA_BOGOTA.format(d))
+}
+
+/**
+ * Cuánto dura una ventana entre conteos, como la manda el servidor: en días
+ * completos si llega a uno, si no en horas («16 h»). `null` si no hay
+ * ventana.
+ */
+export function duracionVentana(hours: number | null | undefined, days: number | null | undefined): string | null {
+  if (days !== null && days !== undefined && days >= 1) return `${days} ${days === 1 ? "día" : "días"}`
+  if (hours !== null && hours !== undefined) return `${hours} h`
+  return null
+}
+
+/** «16 h, del lun 21 sep al mar 22 sep»: la ventana escrita para `ChartFrame.muestra`. */
+export function textoVentana(
+  hours: number | null | undefined,
+  days: number | null | undefined,
+  from: string | null | undefined,
+  to: string | null | undefined,
+): string | undefined {
+  const dura = duracionVentana(hours, days)
+  const desde = from ? fechaCortaDeInstante(from) : null
+  const hasta = to ? fechaCortaDeInstante(to) : null
+  const rango = desde && hasta ? (desde === hasta ? `el ${desde}` : `del ${desde} al ${hasta}`) : null
+  if (dura && rango) return `${dura}, ${rango}`
+  return dura ?? rango ?? undefined
+}
+
+/**
+ * Una diferencia de porcentajes en PUNTOS («5,2 puntos»), a partir de los
+ * puntos básicos del servidor (`gap_bp`, `red_threshold_bp`). Es
+ * `formatPct` con otra palabra: una brecha entre dos porcentajes no es un
+ * porcentaje. `sinSigno` quita el signo del TEXTO para decirlo con palabras
+ * («por debajo»), sin hacer ninguna cuenta.
+ */
+export function formatPuntos(bp: number | null | undefined, { sinSigno = false, corto = false } = {}): string {
+  const pct = formatPct(bp)
+  if (pct === "—") return pct
+  let cifra = pct.replace(/\s*%$/, "")
+  if (sinSigno) cifra = cifra.replace(/^[-−]/, "")
+  else cifra = cifra.replace(/^-/, "−")
+  if (corto) return `${cifra} pts`
+  return `${cifra} ${/^[-−]?1,0$/.test(cifra) ? "punto" : "puntos"}`
 }
 
 // ---------------------------------------------------------------------------

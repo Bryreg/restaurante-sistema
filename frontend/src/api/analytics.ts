@@ -219,6 +219,8 @@ export function getControlHealthSustained(storeId: number): Promise<SustainedHea
 export interface ReplenishmentRowOut {
   ingredient_id: number
   ingredient_name?: string | null
+  /** Unidad base del insumo («g», «ml», «unidad»): la manda el backend. */
+  base_unit?: string | null
   current_stock?: string | null
   min_stock?: string | null
   /** Promedio diario sobre `history_days` (no 30 fijos). */
