@@ -1,21 +1,18 @@
 /**
- * SVG/CSS propio, sin librería (SPEC-NEGOCIO §9.3: "no agregues una
- * librería de charts sin justificación — SVG/CSS propio primero"). Dos
- * formas nada más, elegidas por la pregunta que responden:
+ * Lo que queda del primer par de gráficos de «Hoy»/«Ventas». Esas dos
+ * pantallas ya dibujan con el sistema compartido (`@/components/charts`:
+ * `ChartFrame` con titular y tabla gemela, `ColumnChart`, `BarList`,
+ * `Stacked100`, `TrendLine`). La línea vieja (`TrendLine` de acá, sin ejes ni
+ * marcadores) se borró: no tenía más usos.
  *
- * - `CategoryBars`: comparación entre categorías (canal, medio, persona,
- *   hora del día, zona) → barras con eje desde cero.
- * - `TrendLine`: tendencia en el tiempo (día operativo, turno, una
- *   secuencia con orden propio) → línea.
- *
- * Los dos son puramente de presentación: reciben números YA calculados por
- * el backend y sólo los dibujan (ninguna suma/resta/multiplicación de
- * plata acá). El color es un solo token (`--primary`) referenciado por
- * variable CSS, nunca un hex/oklch hardcodeado, y nunca es la única señal:
- * cada barra/punto va acompañado del número exacto en texto, y la tabla de
- * la pantalla que los usa es la alternativa accesible completa (WCAG 2.1:
- * "tabla accesible como alternativa de todo gráfico") — el propio SVG lleva
- * `role="img"` con un `aria-label` que dice eso mismo.
+ * `CategoryBars` sigue porque otra pantalla lo importa
+ * (`features/orders/OrdersAdminPage.tsx`, tiempos de cocina por estación) y
+ * su API no es la de `BarList`. Quedó corregido en lo que el informe de
+ * visualización marcó como trampa (científico #6): ya no usa `Math.abs` —un
+ * negativo no se dibuja como si fuera positivo: su barra queda en cero y la
+ * cifra con signo al lado— y la tinta es la de datos (`--data-ink`), no el
+ * añil de acción. Para cifras con signo, `DivergingBars`; para lo nuevo,
+ * `BarList`.
  */
 
 export interface CategoryBarDatum {
@@ -24,6 +21,7 @@ export interface CategoryBarDatum {
   value: number
 }
 
+/** Para pantallas nuevas, `BarList` de `@/components/charts`. */
 export function CategoryBars({
   data,
   formatValue = (v: number) => String(v),
@@ -36,7 +34,7 @@ export function CategoryBars({
   if (data.length === 0) {
     return <p className="text-sm text-muted-foreground">{emptyLabel}</p>
   }
-  const max = Math.max(1, ...data.map((d) => Math.abs(d.value)))
+  const max = Math.max(1, ...data.map((d) => d.value))
   return (
     <div
       className="space-y-2"
@@ -48,84 +46,15 @@ export function CategoryBars({
           <span className="w-28 shrink-0 truncate text-muted-foreground" title={d.label}>
             {d.label}
           </span>
-          <span className="h-4 min-w-8 flex-1 overflow-hidden rounded-sm bg-muted">
+          <span className="h-2.5 min-w-8 flex-1">
             <span
-              className="block h-full rounded-sm bg-primary"
-              style={{ width: `${Math.max(0, (Math.abs(d.value) / max) * 100)}%` }}
+              className="block h-full rounded-r-[4px]"
+              style={{ width: `${(Math.max(0, d.value) / max) * 100}%`, background: "var(--data-ink)" }}
             />
           </span>
           <span className="w-24 shrink-0 text-right tabular-nums">{formatValue(d.value)}</span>
         </div>
       ))}
-    </div>
-  )
-}
-
-export interface TrendPoint {
-  key: string
-  label: string
-  value: number
-}
-
-const TREND_WIDTH = 100
-const TREND_HEIGHT = 40
-
-export function TrendLine({
-  data,
-  formatValue = (v: number) => String(v),
-  emptyLabel = "Sin datos en este período",
-}: {
-  data: TrendPoint[]
-  formatValue?: (value: number) => string
-  emptyLabel?: string
-}): React.JSX.Element {
-  if (data.length === 0) {
-    return <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-  }
-  if (data.length === 1) {
-    const only = data[0]!
-    return (
-      <p className="text-sm">
-        {only.label}: <span className="font-medium tabular-nums">{formatValue(only.value)}</span>
-      </p>
-    )
-  }
-
-  const values = data.map((d) => d.value)
-  const max = Math.max(...values, 0)
-  const min = Math.min(...values, 0)
-  const span = max - min || 1
-  const points = data
-    .map((d, i) => {
-      const x = (i / (data.length - 1)) * TREND_WIDTH
-      const y = TREND_HEIGHT - ((d.value - min) / span) * TREND_HEIGHT
-      return `${x},${y}`
-    })
-    .join(" ")
-  const zeroY = TREND_HEIGHT - ((0 - min) / span) * TREND_HEIGHT
-  const first = data[0]!
-  const last = data[data.length - 1]!
-
-  return (
-    <div className="space-y-1">
-      <svg
-        viewBox={`0 0 ${TREND_WIDTH} ${TREND_HEIGHT}`}
-        preserveAspectRatio="none"
-        className="h-28 w-full"
-        role="img"
-        aria-label="Tendencia en el tiempo; el detalle exacto está en la tabla de abajo"
-      >
-        <line x1={0} y1={zeroY} x2={TREND_WIDTH} y2={zeroY} stroke="var(--border)" strokeWidth={0.5} />
-        <polyline points={points} fill="none" stroke="var(--primary)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
-      </svg>
-      <div className="flex justify-between text-xs text-muted-foreground">
-        <span>
-          {first.label}: <span className="tabular-nums">{formatValue(first.value)}</span>
-        </span>
-        <span>
-          {last.label}: <span className="tabular-nums">{formatValue(last.value)}</span>
-        </span>
-      </div>
     </div>
   )
 }

@@ -14,14 +14,18 @@ import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 
 import {
+  CASH_DIFF_SUMMARY_ALERT_TYPE,
   getToday,
   type AlertOut,
+  type CashDiffSummaryPayload,
+  type HourBucketOut,
   type IngredientAlertOut,
   type LotAlertOut,
   type NegativeStockAlertOut,
   type OpenOrderAgeOut,
   type PayableAlertOut,
   type PrepAlertOut,
+  type TodayOut,
   type UnavailableProductOut,
   type UncostedProductOut,
 } from "@/api/reports"
@@ -43,6 +47,7 @@ import {
   type RowStatus,
 } from "@/components/admin"
 import { Cargando } from "@/components/Cargando"
+import { ChartFrame, ColumnChart, type ColumnDatum } from "@/components/charts"
 import { EmptyState } from "@/components/EmptyState"
 import { SinDato } from "@/components/SinDato"
 import { StatTile } from "@/components/StatTile"
@@ -51,13 +56,21 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatBusinessDate, formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
+import { formatDuracion, formatFechaCorta, formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
 import { CHANNEL_LABEL } from "@/features/orders/lib"
 
-import { CategoryBars } from "./charts"
-import { ALERT_LEVEL_TONE, alertRoute, methodLabel } from "./lib"
+import {
+  ALERT_LEVEL_TONE,
+  alertRoute,
+  businessDateOfInstant,
+  deltaWord,
+  formatDelta,
+  methodLabel,
+  weekdayName,
+} from "./lib"
 
 const REFRESH_MS = 30_000
 
@@ -70,6 +83,11 @@ const ANCLA_ATENCION = "requiere-atencion"
 
 function hourLabel(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
+}
+
+/** La hora corta para el eje: «06», «13». */
+function hourTick(hour: number): string {
+  return String(hour).padStart(2, "0")
 }
 
 /**
@@ -111,9 +129,21 @@ interface AttentionItem {
   tab?: string
   /** El filtro que el enlace deja puesto, en palabras. Sin filtro, no hay pastilla. */
   filter?: string
+  /**
+   * La plata en juego, en pesos enteros, TAL COMO LA MANDA el servidor
+   * (`AlertOut.amount`, `payables_overdue_total`,
+   * `ingredients_negative_amount`). Sólo ordena y se escribe: `null`/ausente
+   * = el aviso no es de plata, y no se dibuja «$ 0».
+   */
+  amount?: number | null
+  /** Cómo se escribe `amount` en el riel, si no es un `formatCOP` pelado. */
+  amountText?: string
 }
 
 function directAttentionItems(today: {
+  payables_overdue_total?: number | null
+  ingredients_negative_amount?: number | null
+  ingredients_negative_uncosted?: number
   expected_cash?: number | null
   unsent_count?: number
   unpaid_count?: number
@@ -232,12 +262,19 @@ function directAttentionItems(today: {
   if (negative.length > 0) {
     const names = negative.slice(0, 3).map((i) => i.name ?? `#${i.ingredient_id}`)
     const rest = negative.length - names.length
+    const uncostedNeg = today.ingredients_negative_uncosted ?? 0
     items.push({
       key: "ingredients-negative",
       title: `${negative.length} insumo${negative.length === 1 ? "" : "s"} en negativo`,
       body:
         (rest > 0 ? `${names.join(", ")} y ${rest} más — ` : `${names.join(", ")} — `) +
-        "deuda de registro, no bloquea la venta. Revisá la causa probable en Movimientos.",
+        "deuda de registro, no bloquea la venta. Revisá la causa probable en Movimientos." +
+        (uncostedNeg > 0
+          ? ` ${uncostedNeg} sin costo todavía: no entran en el monto.`
+          : ""),
+      // Lo que vale lo que falta, sumado por el servidor. `null` = ningún
+      // insumo en negativo tiene costo: no hay monto, no «$ 0».
+      amount: today.ingredients_negative_amount ?? null,
       to: "/admin/inventario?tab=stock&negative=1",
       ctaLabel: "Ver Stock",
       tone: "critical",
@@ -316,6 +353,9 @@ function directAttentionItems(today: {
       key: "payables-overdue",
       title: `${payablesOverdue.length} cuenta${payablesOverdue.length === 1 ? "" : "s"} por pagar vencida${payablesOverdue.length === 1 ? "" : "s"}`,
       body: rest > 0 ? `${names.join(", ")} y ${rest} más.` : names.join(", "),
+      // El saldo vencido sumado por el servidor (`payables_overdue_total`):
+      // sumar los `balance` acá sería matemática de plata en el cliente.
+      amount: today.payables_overdue_total ?? null,
       to: "/admin/compras?tab=cuentas-por-pagar",
       ctaLabel: "Ver Compras",
       tone: "critical",
@@ -366,22 +406,75 @@ function directAttentionItems(today: {
 /** Tipos que ya tienen su propia tarjeta directa arriba — evita mostrar el mismo aviso dos veces. */
 const DEDUPED_ALERT_TYPES = new Set(["order_unsent_too_long", "order_unpaid_too_long", "product_unavailable", "pending_refund"])
 
+/**
+ * El aviso resumen de caja (`cash_diff_summary`): el texto lo escribe el
+ * servidor; acá se le suma quién lleva racha, que viaja en el `payload`
+ * («Luz Marina Gómez, 3 cierres seguidos»). Nada se suma ni se cuenta de
+ * nuevo: `streaks` ya llega ordenada, la más larga primero.
+ */
+function cashSummaryBody(alert: AlertOut): string {
+  const payload = alert.payload as Partial<CashDiffSummaryPayload> | null | undefined
+  const streaks = payload?.streaks ?? []
+  if (streaks.length === 0) return alert.body
+  const rachas = streaks
+    .slice(0, 2)
+    .map((s) => `${s.employee_name}, ${s.streak} cierres seguidos`)
+    .join("; ")
+  const resto = streaks.length > 2 ? ` y ${streaks.length - 2} más` : ""
+  return `${alert.body} Racha: ${rachas}${resto}.`
+}
+
+/** «faltan $ 68.000» / «sobran $ 12.000»: la palabra dice el signo, sin «−$» con «faltante». */
+function cashSummaryAmount(amount: number): string {
+  if (amount < 0) return `faltan ${formatCOP(-amount)}`
+  if (amount > 0) return `sobran ${formatCOP(amount)}`
+  return formatCOP(amount)
+}
+
 function alertToItem(alert: AlertOut): AttentionItem {
   const route = alertRoute(alert.type)
+  const summary = alert.type === CASH_DIFF_SUMMARY_ALERT_TYPE
+  const amount = alert.amount ?? null
   return {
     key: `alert-${alert.type}-${alert.created_at}`,
     title: alert.title,
-    body: alert.body,
+    body: summary ? cashSummaryBody(alert) : alert.body,
     to: route.to,
     ctaLabel: route.label,
     tone: ALERT_LEVEL_TONE[alert.level] ?? "default",
     screen: route.screen,
     tab: route.tab,
     filter: route.filter,
+    amount,
+    amountText: summary && amount !== null ? cashSummaryAmount(amount) : undefined,
   }
 }
 
 const TONE_RANK: Record<AttentionTone, number> = { critical: 0, warning: 1, default: 2 }
+
+/** Cuánta plata mueve el aviso, para ORDENAR (no se dibuja): sin monto, al final. */
+function magnitude(item: AttentionItem): number {
+  return item.amount === null || item.amount === undefined ? -1 : Math.abs(item.amount)
+}
+
+/**
+ * Gravedad primero y, dentro de la misma gravedad, la plata en juego de
+ * mayor a menor (el mismo criterio con que el servidor ordena `alerts`).
+ * Los que no son de plata quedan después, en el orden en que llegaron.
+ */
+function sortAttention(items: AttentionItem[]): AttentionItem[] {
+  return items
+    .map((item, i) => ({ item, i }))
+    .sort((a, b) => {
+      const tono = TONE_RANK[a.item.tone] - TONE_RANK[b.item.tone]
+      if (tono !== 0) return tono
+      const ma = magnitude(a.item)
+      const mb = magnitude(b.item)
+      if (ma !== mb) return mb > ma ? 1 : -1
+      return a.i - b.i
+    })
+    .map(({ item }) => item)
+}
 
 /**
  * Un aviso, con el enlace que nombra a dónde lleva **en palabras**
@@ -401,6 +494,8 @@ function toNotice(item: AttentionItem): Notice {
     title: item.title,
     consequence: item.body,
     link,
+    amount:
+      item.amount === null || item.amount === undefined ? undefined : (item.amountText ?? formatCOP(item.amount)),
   }
 }
 
@@ -411,55 +506,98 @@ function openOrderStatus(order: OpenOrderAgeOut): RowStatus {
   return "none"
 }
 
-function minutesCell(minutes: number | null | undefined): string {
-  return minutes === null || minutes === undefined ? "—" : `${minutes} min`
+/**
+ * De qué día operativo viene una comanda abierta, dicho contra el de hoy:
+ * «Viene de ayer» o «Viene del lun 21 sep». `null` = es de hoy, o no se sabe
+ * (sin `opened_at` o sin la hora de corte de la sede): no se adivina.
+ */
+function carriedOverLabel(
+  order: OpenOrderAgeOut,
+  ctx: { businessDate: string; yesterday: string | null; cutoffHour: number | null | undefined },
+): string | null {
+  if (!order.opened_at || ctx.cutoffHour === null || ctx.cutoffHour === undefined) return null
+  const opened = businessDateOfInstant(order.opened_at, ctx.cutoffHour)
+  // Fechas ISO: compararlas como texto es compararlas en el calendario.
+  if (opened === null || opened >= ctx.businessDate) return null
+  if (ctx.yesterday !== null && opened === ctx.yesterday) return "Viene de ayer"
+  return `Viene del ${formatFechaCorta(opened)}`
 }
 
-const OPEN_ORDER_COLUMNS: readonly DenseColumn<OpenOrderAgeOut>[] = [
-  // Un número de comanda es UNA palabra: `#1418`, nunca `141` / `8` (§ 8).
-  { key: "id", header: "Comanda", kind: "id", cell: (o) => `#${o.id}` },
-  // La celda escribe la palabra del negocio, no el enum: `Mesa`, no `dine_in`.
-  { key: "channel", header: "Canal", cell: (o) => (o.channel ? (CHANNEL_LABEL[o.channel] ?? o.channel) : "—") },
-  { key: "tables", header: "Mesa", kind: "secondary", cell: (o) => (o.tables ?? []).join(", ") || "—" },
-  {
-    key: "opened",
-    header: "Abierta hace",
-    kind: "number",
-    cell: (o) => minutesCell(o.minutes_since_opened),
-    cellTitle: (o) => (o.opened_at ? formatInstant(o.opened_at) : undefined),
-  },
-  {
-    key: "presented",
-    header: "Presentada hace",
-    kind: "number",
-    cell: (o) => minutesCell(o.minutes_since_bill_presented),
-    cellTitle: (o) => (o.bill_presented_at ? formatInstant(o.bill_presented_at) : undefined),
-  },
-  { key: "total", header: "Total", kind: "number", cell: (o) => formatCOP(o.total) },
-  {
-    key: "flags",
-    header: "Aviso",
-    cell: (o) => (
-      <span className="flex items-center gap-1">
-        {o.unsent_flag ? <Badge variant="secondary">Sin enviar</Badge> : null}
-        {o.unpaid_flag ? <Badge variant="destructive">Sin cobrar</Badge> : null}
-        {!o.unsent_flag && !o.unpaid_flag ? <span className="text-muted-foreground">—</span> : null}
-      </span>
-    ),
-  },
-]
+function openOrderColumns(ctx: {
+  businessDate: string
+  yesterday: string | null
+  cutoffHour: number | null | undefined
+}): readonly DenseColumn<OpenOrderAgeOut>[] {
+  return [
+    // Un número de comanda es UNA palabra: `#1418`, nunca `141` / `8` (§ 8).
+    { key: "id", header: "Comanda", kind: "id", cell: (o) => `#${o.id}` },
+    // La celda escribe la palabra del negocio, no el enum: `Mesa`, no `dine_in`.
+    { key: "channel", header: "Canal", cell: (o) => (o.channel ? (CHANNEL_LABEL[o.channel] ?? o.channel) : "—") },
+    { key: "tables", header: "Mesa", kind: "secondary", cell: (o) => (o.tables ?? []).join(", ") || "—" },
+    {
+      key: "opened",
+      header: "Abierta hace",
+      kind: "number",
+      // «16 h 8 min», no «968 min»; y si la comanda cruzó el corte del día,
+      // se dice: una mesa de anoche no es una mesa lenta de hoy.
+      cell: (o) => {
+        const carried = carriedOverLabel(o, ctx)
+        return carried ? (
+          <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
+            <Badge variant="outline" className="font-normal">
+              {carried}
+            </Badge>
+            {formatDuracion(o.minutes_since_opened)}
+          </span>
+        ) : (
+          formatDuracion(o.minutes_since_opened)
+        )
+      },
+      cellTitle: (o) => (o.opened_at ? formatInstant(o.opened_at) : undefined),
+    },
+    {
+      key: "presented",
+      header: "Presentada hace",
+      kind: "number",
+      cell: (o) => formatDuracion(o.minutes_since_bill_presented),
+      cellTitle: (o) => (o.bill_presented_at ? formatInstant(o.bill_presented_at) : undefined),
+    },
+    { key: "total", header: "Total", kind: "number", cell: (o) => formatCOP(o.total) },
+    {
+      key: "flags",
+      header: "Aviso",
+      cell: (o) => (
+        <span className="flex items-center gap-1">
+          {o.unsent_flag ? <Badge variant="secondary">Sin enviar</Badge> : null}
+          {o.unpaid_flag ? <Badge variant="destructive">Sin cobrar</Badge> : null}
+          {!o.unsent_flag && !o.unpaid_flag ? <span className="text-muted-foreground">—</span> : null}
+        </span>
+      ),
+    },
+  ]
+}
 
 /**
  * **Tabla densa** de las comandas todavía abiertas (`docs/PATRONES-ADMIN.md`
  * § 8): barra con el recuento, franja de estado en la primera celda, la
  * palabra del negocio en vez del enum y la leyenda al pie, una sola vez.
  */
-function OpenOrdersTable({ orders }: { orders: OpenOrderAgeOut[] }): React.JSX.Element {
+function OpenOrdersTable({
+  orders,
+  businessDate,
+  yesterday,
+  cutoffHour,
+}: {
+  orders: OpenOrderAgeOut[]
+  businessDate: string
+  yesterday: string | null
+  cutoffHour: number | null | undefined
+}): React.JSX.Element {
   const flagged = orders.filter((o) => o.unsent_flag || o.unpaid_flag).length
   return (
     <DenseTable
       caption="Comandas todavía abiertas, con canal, mesa, antigüedad y total."
-      columns={OPEN_ORDER_COLUMNS}
+      columns={openOrderColumns({ businessDate, yesterday, cutoffHour })}
       rows={orders}
       rowKey={(o) => String(o.id)}
       rowStatus={openOrderStatus}
@@ -530,6 +668,142 @@ function IndicadorSinDato({
       <SinDato forma="bloque" motivo={motivo} className="mt-1" />
       {link ? <FilterLink {...link} className="mt-2" /> : null}
     </div>
+  )
+}
+
+/**
+ * La comparación de la cifra rectora: hoy contra el mismo día de la semana
+ * pasada HASTA LA MISMA HORA (`TodayOut.comparison`). Todo viene hecho del
+ * servidor —el neto de entonces y la variación en puntos básicos—; acá sólo
+ * se escribe. Sin comparación posible se dice por qué, nunca «0 %».
+ */
+function todayComparison(
+  c: TodayOut["comparison"],
+): { label: string; delta: string; detail?: string } | undefined {
+  if (!c) return undefined
+  const dia = weekdayName(c.reference_business_date)
+  const label = `Contra el ${dia} pasado a esta hora`
+  if (c.net === null) {
+    return {
+      label: c.null_reason ?? `No hay datos del ${dia} pasado: no hay contra qué comparar.`,
+      delta: "Sin dato",
+    }
+  }
+  const delta = formatDelta(c.delta_bp)
+  if (delta === null) {
+    // Sin divisor no hay variación: se dice qué pasó ese día, corto.
+    return {
+      label,
+      delta: "Sin dato",
+      detail: c.reference_operated === false ? "ese día no abrió" : `no había vendido: ${formatCOP(c.net)}`,
+    }
+  }
+  return { label, delta, detail: `entonces ${formatCOP(c.net)}` }
+}
+
+/**
+ * «Ventas por hora» (analista #3, científico #12): columnas —la hora es
+ * ORDINAL—, las 24 horas en el orden del día operativo tal como llegan (desde
+ * el corte, nunca reordenadas por `hour`). Una hora `pending` todavía no
+ * pasó: va como hueco rayado, no como venta $ 0. La marca gris de cada
+ * columna es el mismo día de la semana pasada, día completo.
+ */
+function HourlySales({ today }: { today: TodayOut }): React.JSX.Element {
+  const hours: HourBucketOut[] = today.sales_by_hour ?? []
+  const reference = today.sales_by_hour_reference ?? []
+  const c = today.comparison ?? null
+  const dia = c ? weekdayName(c.reference_business_date) : null
+
+  if (hours.length === 0) {
+    return (
+      <section className="min-w-0 rounded-lg border bg-card p-4 xl:col-start-1">
+        <h2 className="text-sm font-bold">Ventas por hora</h2>
+        <p className="mt-2 text-sm text-muted-foreground">Todavía no hay ventas hoy.</p>
+      </section>
+    )
+  }
+
+  const referenceByHour = new Map(reference.map((h) => [h.hour, h.net]))
+  const hasReference = reference.length > 0
+  const datos: ColumnDatum[] = hours.map((h) => ({
+    key: String(h.hour),
+    etiqueta: hourTick(h.hour),
+    valor: h.pending ? null : h.net,
+  }))
+  const serieReferencia = hasReference ? hours.map((h) => referenceByHour.get(h.hour) ?? null) : undefined
+  const pendingCount = hours.filter((h) => h.pending).length
+  // Elegir la hora más alta de una serie que el servidor ya mandó es
+  // selección, no matemática de negocio: no se suma ni se promedia nada.
+  const peak = hours.reduce<HourBucketOut | null>(
+    (best, h) => (h.pending || h.net <= 0 ? best : best === null || h.net > best.net ? h : best),
+    null,
+  )
+
+  let titular: string
+  if (c && c.delta_bp !== null && c.delta_bp !== undefined && dia) {
+    const palabra = deltaWord(c.delta_bp)
+    titular =
+      palabra === "igual"
+        ? `Vas igual que el ${dia} pasado a esta hora`
+        : `Vas ${formatPct(c.delta_bp < 0 ? -c.delta_bp : c.delta_bp)} ${palabra} del ${dia} pasado a esta hora`
+  } else if (peak) {
+    titular = `La hora más fuerte va siendo la de las ${hourLabel(peak.hour)}`
+  } else if (c && c.net === 0 && dia) {
+    titular = `Todavía no hay ventas; el ${dia} pasado a esta hora tampoco`
+  } else {
+    titular = "Todavía no hay ventas hoy"
+  }
+
+  const detalle = [
+    "Venta neta por hora de reloj, sin propina, desde el corte del día.",
+    hasReference && dia ? `La marca gris es el ${dia} pasado, día completo.` : null,
+    pendingCount > 0 ? "Rayado: horas que todavía no llegan (no son $ 0)." : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
+
+  const refLabel = dia ? `${dia.charAt(0).toUpperCase()}${dia.slice(1)} pasado` : "Semana pasada"
+
+  return (
+    <section className="min-w-0 rounded-lg border bg-card p-4 xl:col-start-1">
+      <h2 className="mb-2 text-xs font-bold tracking-wider text-muted-foreground uppercase">Ventas por hora</h2>
+      <ChartFrame
+        titular={titular}
+        detalle={detalle}
+        tabla={{
+          columnas: [
+            { key: "hora", header: "Hora" },
+            { key: "hoy", header: "Hoy", align: "right" },
+            ...(hasReference ? [{ key: "ref", header: `${refLabel} (día completo)`, align: "right" as const }] : []),
+            { key: "comandas", header: "Comandas", align: "right" },
+          ],
+          filas: hours.map((h) => ({
+            hora: hourLabel(h.hour),
+            hoy: h.pending ? <span className="text-muted-foreground italic">todavía no llega</span> : formatCOP(h.net),
+            ref: hasReference ? formatCOP(referenceByHour.get(h.hour)) : undefined,
+            comandas: h.pending ? "" : String(h.orders ?? "—"),
+          })),
+        }}
+      >
+        <ColumnChart
+          datos={datos}
+          formato={formatCOP}
+          serieReferencia={serieReferencia}
+          etiquetaSerie="Hoy"
+          etiquetaSerieReferencia={`${refLabel}, día completo`}
+          resumen={
+            `Columnas de venta neta por hora de hoy${peak ? `; la más alta, las ${hourLabel(peak.hour)} con ${formatCOP(peak.net)}` : ", todavía sin ventas"}` +
+            `${pendingCount > 0 ? `; ${pendingCount} horas todavía no llegan` : ""}. El detalle está en la tabla.`
+          }
+        />
+      </ChartFrame>
+      {peak && c && c.delta_bp !== null && c.delta_bp !== undefined ? (
+        <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">
+          La hora más fuerte del día va siendo la de las <b className="text-foreground">{hourLabel(peak.hour)}</b>, con{" "}
+          <b className="text-foreground">{formatCOP(peak.net)}</b> netos.
+        </p>
+      ) : null}
+    </section>
   )
 }
 
@@ -623,20 +897,18 @@ export function TodayPage(): React.JSX.Element {
     return <EmptyState title="Sin datos" />
   }
 
-  const attention = [
+  const attention = sortAttention([
     ...directAttentionItems(today),
     ...(today.alerts ?? []).filter((a) => !DEDUPED_ALERT_TYPES.has(a.type)).map(alertToItem),
-  ].sort((a, b) => TONE_RANK[a.tone] - TONE_RANK[b.tone])
+  ])
 
-  const hourBuckets = today.sales_by_hour ?? []
-  const hourBars = hourBuckets.map((h) => ({ key: String(h.hour), label: hourLabel(h.hour), value: h.net }))
-  // Elegir el máximo de una serie que el servidor ya mandó es selección, no
-  // matemática de negocio: acá no se suma, ni se promedia, ni se deriva un
-  // saldo (AGENTS.md § "una sola matemática, en el backend").
-  const peakHour = hourBuckets.reduce<(typeof hourBuckets)[number] | null>(
-    (best, h) => (best === null || h.net > best.net ? h : best),
-    null,
-  )
+  const comparison = todayComparison(today.comparison)
+  // Antes de la primera venta, «$ 0» rayado no le dice nada al dueño: se
+  // muestra cómo cerró ayer (`yesterday_close`), y el libro sigue siendo el
+  // de hoy. Si ayer la sede no abrió, su $ 0 tampoco dice nada: queda hoy.
+  const yesterday = today.yesterday_close ?? null
+  // Un ayer abierto pero sin ventas tampoco dice nada: sólo con comandas.
+  const beforeFirstSale = today.orders === 0 && yesterday !== null && yesterday.operated && yesterday.orders > 0
 
   const openOrders = today.open_orders ?? []
   const stuck = (today.unsent_count ?? 0) > 0 || (today.unpaid_count ?? 0) > 0
@@ -736,26 +1008,50 @@ export function TodayPage(): React.JSX.Element {
           tipsByMethod.length > 0 ? "xl:grid-rows-[repeat(4,auto)_1fr]" : "xl:grid-rows-[repeat(3,auto)_1fr]",
         )}
       >
-        {/* § 4 · La plata nunca es un número suelto: es una resta. No lleva
-            comparación contra la semana pasada: `GET /admin/today` no la
-            manda, y este lado no la calcula. */}
-        <HeadlineFigure
-          className="xl:col-start-1"
-          label="Ventas netas de hoy"
-          value={formatCOP(today.net)}
-          note={
-            today.orders !== undefined
-              ? `${today.orders} ${today.orders === 1 ? "comanda pagada" : "comandas pagadas"} · el día sigue abierto`
-              : "El día sigue abierto."
-          }
-          ledger={{
-            rows: [
-              { label: "Ventas cobradas", value: formatCOP(today.gross) },
-              { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
-            ],
-            total: { label: "Ventas netas", value: formatCOP(today.net) },
-          }}
-        />
+        {/* § 4 · La plata nunca es un número suelto: es una resta, y se
+            compara contra el mismo día de la semana pasada a la misma hora
+            (`comparison`, del servidor: acá no se calcula). */}
+        {beforeFirstSale && yesterday ? (
+          <HeadlineFigure
+            className="xl:col-start-1"
+            label="Todavía no hay ventas hoy · ayer cerró en"
+            value={formatCOP(yesterday.net)}
+            note={[
+              formatFechaCorta(yesterday.business_date),
+              `${yesterday.orders} ${yesterday.orders === 1 ? "comanda pagada" : "comandas pagadas"}`,
+              yesterday.avg_ticket !== null ? `ticket promedio ${formatCOP(yesterday.avg_ticket)}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            ledger={{
+              rows: [
+                { label: "Cobrado hoy", value: formatCOP(today.gross) },
+                { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
+              ],
+              total: { label: "Ventas netas de hoy", value: formatCOP(today.net) },
+            }}
+            comparison={comparison}
+          />
+        ) : (
+          <HeadlineFigure
+            className="xl:col-start-1"
+            label="Ventas netas de hoy"
+            value={formatCOP(today.net)}
+            note={
+              today.orders !== undefined
+                ? `${today.orders} ${today.orders === 1 ? "comanda pagada" : "comandas pagadas"} · el día sigue abierto`
+                : "El día sigue abierto."
+            }
+            ledger={{
+              rows: [
+                { label: "Ventas cobradas", value: formatCOP(today.gross) },
+                { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
+              ],
+              total: { label: "Ventas netas", value: formatCOP(today.net) },
+            }}
+            comparison={comparison}
+          />
+        )}
 
         {/* § 7 · Una columna pegada a la derecha, siempre visible, con
             encabezado de gravedad y recuento. Lo urgente no queda nunca
@@ -893,24 +1189,17 @@ export function TodayPage(): React.JSX.Element {
             en el medio, partiendo la grilla de indicadores en dos, que es
             justo lo que `a2` no hace: primero se lee el pulso entero en
             ocho números, después se mira la forma del día. */}
-        <section className="min-w-0 rounded-lg border bg-card p-4 xl:col-start-1">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <h2 className="text-sm font-bold">Ventas por hora</h2>
-            <span className="text-xs text-muted-foreground">Netas, sin propina.</span>
-          </div>
-          <div className="mt-3">
-            <CategoryBars data={hourBars} formatValue={(v) => formatCOP(v)} emptyLabel="Todavía no hay ventas hoy" />
-          </div>
-          {peakHour ? (
-            <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">
-              La hora más fuerte del día fue la de <b className="text-foreground">{hourLabel(peakHour.hour)}</b>, con{" "}
-              <b className="text-foreground tabular-nums">{formatCOP(peakHour.net)}</b> netos.
-            </p>
-          ) : null}
-        </section>
+        <HourlySales today={today} />
 
         <div className="min-w-0 xl:col-start-1">
-          <OpenOrdersTable orders={openOrders} />
+          <OpenOrdersTable
+            orders={openOrders}
+            businessDate={today.business_date}
+            yesterday={yesterday?.business_date ?? null}
+            // La sesión del administrador no siempre trae la sede; las horas
+            // de `sales_by_hour` arrancan en su hora de corte (del servidor).
+            cutoffHour={cutoffHour ?? today.sales_by_hour?.[0]?.hour}
+          />
         </div>
 
         {/* De qué está hecha la propina. `a2` no la modela —su maqueta no

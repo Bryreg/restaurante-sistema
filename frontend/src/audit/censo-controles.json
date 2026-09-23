@@ -918,8 +918,7 @@
   "Sin agotados en este período"
  ],
  "features/reports/charts.tsx": [
-  "Comparación por categoría; el detalle exacto está en la tabla de abajo",
-  "Tendencia en el tiempo; el detalle exacto está en la tabla de abajo"
+  "Comparación por categoría; el detalle exacto está en la tabla de abajo"
  ],
  "features/settings/CashSection.tsx": [
   "Base fija de apertura",

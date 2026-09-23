@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { getSales, salesCsvUrl, type SalesBucketOut, type SalesGroupBy } from "@/api/reports"
+import { getSales, salesCsvUrl, type PreviousPeriodOut, type SalesBucketOut } from "@/api/reports"
 import {
   DenseTable,
   DenseTableBar,
@@ -11,29 +11,74 @@ import {
   type DenseColumn,
 } from "@/components/admin"
 import { Cargando } from "@/components/Cargando"
+import {
+  BarList,
+  ChartFrame,
+  ColumnChart,
+  Stacked100,
+  TrendLine,
+  type ColumnaTabla,
+  type Muestra,
+} from "@/components/charts"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { StatTile, cifraOSinDato } from "@/components/StatTile"
+import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errorMessage } from "@/lib/errors"
+import { formatFechaCorta, formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
-import { CategoryBars, TrendLine } from "./charts"
+import { CHANNEL_LABEL } from "@/features/orders/lib"
+
 import {
   daysAgoInBogota,
+  formatDelta,
   formatPercentInt,
+  formatRangoCorto,
   GROUP_BY_LABEL,
-  isSequentialGroupBy,
+  GROUP_BY_OPTION,
+  isLineGroupBy,
   methodLabel,
   recipeCoverageTone,
+  shortDay,
   todayInBogota,
+  type SalesGrouping,
 } from "./lib"
 
-function bucketLabel(row: SalesBucketOut, groupBy: SalesGroupBy): string {
+/** El orden del selector: primero el tiempo, después cómo se pagó, quién y qué. */
+const GROUP_BY_ORDER: readonly SalesGrouping[] = [
+  "business_date",
+  "shift",
+  "hour",
+  "method",
+  "channel",
+  "employee",
+  "zone",
+  "product",
+  "category",
+]
+
+function bucketLabel(row: SalesBucketOut, groupBy: SalesGrouping): string {
   if (groupBy === "method") return methodLabel(row.key)
+  if (groupBy === "channel") return CHANNEL_LABEL[row.key] ?? row.label ?? row.key
+  if (groupBy === "business_date") return formatFechaCorta(row.key)
   return row.label ?? row.key
+}
+
+/** La etiqueta corta del eje: «vie 18», «#12», «13». */
+function axisLabel(row: SalesBucketOut, groupBy: SalesGrouping): string {
+  if (groupBy === "business_date") return shortDay(formatFechaCorta(row.key))
+  if (groupBy === "shift") return (row.label ?? row.key).replace(/^Turno\s*/i, "")
+  if (groupBy === "hour") return String(row.key).padStart(2, "0")
+  return bucketLabel(row, groupBy)
+}
+
+/** Un día que la sede NO abrió (`operated=false`): su $ 0 no es un mal día. */
+function isClosedDay(row: SalesBucketOut): boolean {
+  return row.operated === false
 }
 
 const DEFAULT_DAYS_BACK = 6
@@ -46,7 +91,7 @@ const DEFAULT_DAYS_BACK = 6
 export function SalesTab({ storeId }: { storeId: number }): React.JSX.Element {
   const [from, setFrom] = useState(daysAgoInBogota(DEFAULT_DAYS_BACK))
   const [to, setTo] = useState(todayInBogota())
-  const [groupBy, setGroupBy] = useState<SalesGroupBy>("business_date")
+  const [groupBy, setGroupBy] = useState<SalesGrouping>("business_date")
 
   const query = useQuery({
     queryKey: ["admin-sales", storeId, from, to, groupBy],
@@ -68,14 +113,14 @@ export function SalesTab({ storeId }: { storeId: number }): React.JSX.Element {
           <DateRangeFilter idPrefix="sales" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
           <div className="space-y-1">
             <Label htmlFor="sales-group-by">Agrupar por</Label>
-            <Select value={groupBy} onValueChange={(v) => setGroupBy(v as SalesGroupBy)}>
-              <SelectTrigger id="sales-group-by" className="h-10 w-44">
-                <SelectValue />
+            <Select value={groupBy} onValueChange={(v) => setGroupBy(v as SalesGrouping)}>
+              <SelectTrigger id="sales-group-by" className="h-10 w-48">
+                <SelectValue>{(v: string) => GROUP_BY_OPTION[v as SalesGrouping] ?? v}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(GROUP_BY_LABEL).map(([value, label]) => (
+                {GROUP_BY_ORDER.map((value) => (
                   <SelectItem key={value} value={value}>
-                    {label}
+                    {GROUP_BY_OPTION[value]}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -106,39 +151,307 @@ export function SalesTab({ storeId }: { storeId: number }): React.JSX.Element {
   )
 }
 
-/** La fila de cierre de la tabla, dentro del `<tfoot>` (§ 8). */
-function totalsRow(total: SalesBucketOut): React.JSX.Element {
+// ---------------------------------------------------------------------------
+// La tabla: columnas según lo que tiene sentido para cada agrupación.
+// ---------------------------------------------------------------------------
+
+interface SalesColumn extends DenseColumn<SalesBucketOut> {
+  /** Lo que va en la fila de total (`<tfoot>`); sin esto, vacío. */
+  total?: (t: SalesBucketOut) => React.ReactNode
+}
+
+function salesColumns(groupBy: SalesGrouping): readonly SalesColumn[] {
+  const line = isLineGroupBy(groupBy)
+  const method = groupBy === "method"
+  const cols: (SalesColumn | false)[] = [
+    {
+      key: "bucket",
+      header: GROUP_BY_LABEL[groupBy],
+      kind: "name",
+      cell: (r) =>
+        groupBy === "business_date" && isClosedDay(r) ? (
+          <span className="inline-flex items-center gap-1.5">
+            {bucketLabel(r, groupBy)}
+            <Badge variant="outline" className="font-normal">
+              No abrió
+            </Badge>
+          </span>
+        ) : (
+          bucketLabel(r, groupBy)
+        ),
+      total: () => "Total",
+    },
+    { key: "gross", header: "Cobrado", kind: "number", cell: (r) => formatCOP(r.gross), total: (t) => formatCOP(t.gross) },
+    { key: "net", header: "Neto", kind: "number", cell: (r) => formatCOP(r.net), total: (t) => formatCOP(t.net) },
+    {
+      key: "share",
+      header: "Participación",
+      kind: "number",
+      cell: (r) => formatPct(r.share_bp),
+    },
+    { key: "tax", header: "Impuesto", kind: "number", cell: (r) => formatCOP(r.tax), total: (t) => formatCOP(t.tax) },
+    // La propina se deja sobre la cuenta, no sobre un plato: en las
+    // agrupaciones por línea la columna no existe (el total sí la trae).
+    !line && { key: "tips", header: "Propinas", kind: "number", cell: (r) => formatCOP(r.tips), total: (t) => formatCOP(t.tips) },
+    line && { key: "units", header: "Unidades", kind: "number", cell: (r) => r.units ?? "—", total: (t) => t.units ?? "—" },
+    method
+      ? {
+          // Por medio de pago cuenta PAGOS: una comanda mitad efectivo y mitad
+          // tarjeta son dos pagos de verdad.
+          key: "payments",
+          header: "Pagos",
+          kind: "number",
+          cell: (r) => r.payments ?? r.orders ?? "—",
+          total: (t) => t.payments ?? "—",
+        }
+      : { key: "orders", header: "Comandas", kind: "number", cell: (r) => r.orders ?? "—", total: (t) => t.orders ?? "—" },
+    !line && !method && { key: "covers", header: "Comensales", kind: "number", cell: (r) => r.covers ?? "—", total: (t) => t.covers ?? "—" },
+    !line && { key: "avg", header: "Ticket prom.", kind: "number", cell: (r) => formatCOP(r.avg_ticket), total: (t) => formatCOP(t.avg_ticket) },
+    !method && { key: "cost", header: "Costo teórico", kind: "number", cell: (r) => formatCOP(r.theoretical_cost), total: (t) => formatCOP(t.theoretical_cost) },
+    !method && { key: "margin", header: "Margen bruto", kind: "number", cell: (r) => formatCOP(r.gross_margin), total: (t) => formatCOP(t.gross_margin) },
+    !method && { key: "coverage", header: "Cobertura", kind: "number", cell: (r) => formatPercentInt(r.costed_pct), total: (t) => formatPercentInt(t.costed_pct) },
+  ]
+  return cols.filter((c): c is SalesColumn => c !== false)
+}
+
+/** La fila de cierre de la tabla, dentro del `<tfoot>` (§ 8), con las mismas columnas. */
+function totalsRow(columns: readonly SalesColumn[], total: SalesBucketOut): React.JSX.Element {
   return (
     <tr className="font-bold">
-      <td className="px-2 py-1.5">Total</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{formatCOP(total.gross)}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{formatCOP(total.net)}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{formatCOP(total.tax)}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{formatCOP(total.tips)}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{total.orders ?? "—"}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{total.covers ?? "—"}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{formatCOP(total.avg_ticket)}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{formatCOP(total.theoretical_cost)}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{formatCOP(total.gross_margin)}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{formatPercentInt(total.costed_pct)}</td>
+      {columns.map((c) => (
+        <td key={c.key} className={c.kind === "number" ? "px-2 py-1.5 text-right tabular-nums" : "px-2 py-1.5"}>
+          {c.total ? c.total(total) : ""}
+        </td>
+      ))}
     </tr>
   )
 }
 
-function salesColumns(groupBy: SalesGroupBy): readonly DenseColumn<SalesBucketOut>[] {
-  return [
-    { key: "bucket", header: GROUP_BY_LABEL[groupBy], kind: "name", cell: (r) => bucketLabel(r, groupBy) },
-    { key: "gross", header: "Cobrado", kind: "number", cell: (r) => formatCOP(r.gross) },
-    { key: "net", header: "Neto", kind: "number", cell: (r) => formatCOP(r.net) },
-    { key: "tax", header: "Impuesto", kind: "number", cell: (r) => formatCOP(r.tax) },
-    { key: "tips", header: "Propinas", kind: "number", cell: (r) => formatCOP(r.tips) },
-    { key: "orders", header: "Comandas", kind: "number", cell: (r) => r.orders ?? "—" },
-    { key: "covers", header: "Comensales", kind: "number", cell: (r) => r.covers ?? "—" },
-    { key: "avg", header: "Ticket prom.", kind: "number", cell: (r) => formatCOP(r.avg_ticket) },
-    { key: "cost", header: "Costo teórico", kind: "number", cell: (r) => formatCOP(r.theoretical_cost) },
-    { key: "margin", header: "Margen bruto", kind: "number", cell: (r) => formatCOP(r.gross_margin) },
-    { key: "coverage", header: "Cobertura", kind: "number", cell: (r) => formatPercentInt(r.costed_pct) },
-  ]
+// ---------------------------------------------------------------------------
+// La comparación de la cifra rectora.
+// ---------------------------------------------------------------------------
+
+/**
+ * El período del mismo largo inmediatamente anterior (`total.previous_period`):
+ * el neto de entonces y la variación los manda el servidor; acá sólo se
+ * escriben. Sin comparación posible, se dice por qué — nunca «0 %».
+ */
+function periodComparison(
+  p: PreviousPeriodOut | null | undefined,
+): { label: string; delta: string; detail?: string } | undefined {
+  if (!p) return undefined
+  const label = `Contra el período anterior (${formatRangoCorto(p.date_from, p.date_to)})`
+  if (p.net === null) {
+    return { label: p.null_reason ?? "No hay datos del período anterior: no hay contra qué comparar.", delta: "Sin dato" }
+  }
+  const parcial = p.partial ? " La sede empezó a operar dentro de ese período: es contra menos días." : ""
+  const delta = formatDelta(p.delta_bp)
+  if (delta === null) {
+    return {
+      label: `${label}: vendió ${formatCOP(p.net)}, así que no hay variación que calcular.${parcial}`,
+      delta: "Sin dato",
+    }
+  }
+  return {
+    label: `${label}${p.partial ? " · parcial" : ""}`,
+    delta,
+    detail: `antes ${formatCOP(p.net)}`,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// El gráfico: la forma la decide la agrupación (`@/components/charts`).
+// ---------------------------------------------------------------------------
+
+/** La fila más alta (selección, no cuenta), sin los días cerrados ni los sin dato. */
+function peakRow(rows: SalesBucketOut[]): SalesBucketOut | null {
+  let best: SalesBucketOut | null = null
+  for (const r of rows) {
+    if (isClosedDay(r) || r.net === undefined || r.net <= 0) continue
+    if (best === null || r.net > (best.net as number)) best = r
+  }
+  return best
+}
+
+/** «, 16,1 % del período» si el servidor mandó la participación. */
+function shareTail(r: SalesBucketOut, what: string): string {
+  return r.share_bp === null || r.share_bp === undefined ? "" : `, ${formatPct(r.share_bp)} ${what}`
+}
+
+function nominalTitular(top: SalesBucketOut, groupBy: SalesGrouping): string {
+  const name = bucketLabel(top, groupBy)
+  const pct = top.share_bp === null || top.share_bp === undefined ? null : formatPct(top.share_bp)
+  if (pct === null) return `${name} encabeza con ${formatCOP(top.net)}`
+  switch (groupBy) {
+    case "method":
+      return `${name} se lleva el ${pct} de la venta neta`
+    case "channel":
+      return `${name} hace el ${pct} de la venta neta`
+    case "employee":
+      return `${name} vendió el ${pct} del período`
+    case "product":
+      return `${name} es el plato que más vende: ${pct} de la venta neta`
+    default:
+      return `${name} hace el ${pct} de la venta neta`
+  }
+}
+
+function SalesChart({
+  rows,
+  total,
+  groupBy,
+  range,
+}: {
+  rows: SalesBucketOut[]
+  total: SalesBucketOut
+  groupBy: SalesGrouping
+  range: { from: string; to: string }
+}): React.JSX.Element {
+  const ventana = formatRangoCorto(range.from, range.to)
+  const muestra: Muestra | undefined =
+    groupBy === "method"
+      ? total.payments !== null && total.payments !== undefined
+        ? { n: total.payments, unidad: "pagos", ventana }
+        : undefined
+      : total.orders !== undefined
+        ? { n: total.orders, unidad: "comandas", ventana }
+        : undefined
+
+  const closedDays = groupBy === "business_date" ? rows.filter(isClosedDay).length : 0
+  const shareCol: ColumnaTabla = { key: "share", header: "Participación", align: "right" }
+  const countCol: ColumnaTabla = isLineGroupBy(groupBy)
+    ? { key: "count", header: "Unidades", align: "right" }
+    : groupBy === "method"
+      ? { key: "count", header: "Pagos", align: "right" }
+      : { key: "count", header: "Comandas", align: "right" }
+  const tabla = {
+    columnas: [
+      { key: "label", header: GROUP_BY_LABEL[groupBy] },
+      { key: "net", header: "Venta neta", align: "right" as const },
+      shareCol,
+      countCol,
+    ],
+    filas: rows.map((r) => ({
+      label:
+        groupBy === "business_date" && isClosedDay(r) ? `${bucketLabel(r, groupBy)} · no abrió` : bucketLabel(r, groupBy),
+      net: formatCOP(r.net),
+      share: formatPct(r.share_bp),
+      count: String(
+        (isLineGroupBy(groupBy) ? r.units : groupBy === "method" ? (r.payments ?? r.orders) : r.orders) ?? "—",
+      ),
+    })),
+  }
+
+  // --- En el tiempo y en orden propio: columnas (o línea, si son muchas). ---
+  if (groupBy === "business_date" || groupBy === "shift" || groupBy === "hour") {
+    const peak = peakRow(rows)
+    const puntos = rows.map((r) => ({
+      key: r.key,
+      etiqueta: axisLabel(r, groupBy),
+      // Día cerrado → hueco rayado: no es «vendió $ 0», es «no abrió».
+      valor: isClosedDay(r) ? null : (r.net ?? null),
+    }))
+    const noun = groupBy === "business_date" ? "día" : groupBy === "shift" ? "turno" : "hora"
+    let titular: string
+    if (peak === null) titular = "No hubo ventas en el período"
+    else if (groupBy === "business_date")
+      titular = `El ${formatFechaCorta(peak.key)} fue el día más fuerte: ${formatCOP(peak.net)}${shareTail(peak, "del período")}`
+    else if (groupBy === "shift")
+      titular = `El ${bucketLabel(peak, groupBy)} fue el que más vendió: ${formatCOP(peak.net)}${shareTail(peak, "del período")}`
+    else
+      titular = `La hora más fuerte es la de las ${axisLabel(peak, groupBy)}:00, con ${formatCOP(peak.net)}${shareTail(peak, "de la venta")}`
+
+    const detalle = [
+      groupBy === "business_date"
+        ? "Venta neta por día operativo, sin propina."
+        : groupBy === "shift"
+          ? "Venta neta por turno, en el orden en que se abrieron."
+          : "Venta neta por hora de reloj, desde el corte del día, sumando el período.",
+      closedDays > 0
+        ? `Rayado: ${closedDays === 1 ? "un día que la sede no abrió" : `${closedDays} días que la sede no abrió`} (no es venta $ 0).`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" ")
+    const resumen =
+      `${rows.length} ${noun === "hora" ? "horas" : `${noun}s`}` +
+      (peak ? `; el más alto, ${bucketLabel(peak, groupBy)} con ${formatCOP(peak.net)}` : ", sin ventas") +
+      (closedDays > 0 ? `; ${closedDays} sin abrir` : "") +
+      ". El detalle está en la tabla."
+
+    return (
+      <ChartFrame titular={titular} detalle={detalle} muestra={muestra} tabla={tabla}>
+        {rows.length > 45 ? (
+          <TrendLine puntos={puntos} formato={formatCOP} resumen={`Línea de ${resumen}`} />
+        ) : (
+          <ColumnChart
+            datos={puntos}
+            formato={formatCOP}
+            resaltar={peak?.key}
+            resumen={`Columnas de ${resumen}`}
+          />
+        )}
+      </ChartFrame>
+    )
+  }
+
+  // --- Composición (medio de pago, canal): barra 100 % con `share_bp`. ---
+  const top = rows.reduce<SalesBucketOut | null>(
+    (best, r) => (r.net === undefined ? best : best === null || r.net > (best.net as number) ? r : best),
+    null,
+  )
+  const titular = top ? nominalTitular(top, groupBy) : "No hubo ventas en el período"
+  const allShares = rows.length > 0 && rows.every((r) => r.share_bp !== null && r.share_bp !== undefined)
+
+  if ((groupBy === "method" || groupBy === "channel") && allShares) {
+    return (
+      <ChartFrame
+        titular={titular}
+        detalle={
+          groupBy === "method"
+            ? "Participación de cada medio en la venta neta del período, sin propina."
+            : "Participación de cada canal en la venta neta del período."
+        }
+        muestra={muestra}
+        tabla={tabla}
+      >
+        <Stacked100
+          partes={rows.map((r) => ({
+            key: r.key,
+            etiqueta: bucketLabel(r, groupBy),
+            share_bp: r.share_bp as number,
+            valor: formatCOP(r.net),
+          }))}
+        />
+      </ChartFrame>
+    )
+  }
+
+  // --- Nominal (persona, zona, plato, categoría): barras, top 7 y «y N más». ---
+  return (
+    <ChartFrame
+      titular={titular}
+      detalle={`Venta neta por ${GROUP_BY_LABEL[groupBy].toLowerCase()}, de mayor a menor.`}
+      muestra={muestra}
+      tabla={tabla}
+    >
+      <BarList
+        datos={rows.map((r) => ({
+          key: r.key,
+          etiqueta: bucketLabel(r, groupBy),
+          valor: r.net ?? null,
+          detalle: isLineGroupBy(groupBy)
+            ? r.units !== null && r.units !== undefined
+              ? `${r.units} u.`
+              : undefined
+            : r.share_bp !== null && r.share_bp !== undefined
+              ? formatPct(r.share_bp)
+              : undefined,
+        }))}
+        formato={formatCOP}
+      />
+    </ChartFrame>
+  )
 }
 
 function SalesReport({
@@ -148,25 +461,27 @@ function SalesReport({
   onResetRange,
 }: {
   report: { rows: SalesBucketOut[]; total: SalesBucketOut }
-  groupBy: SalesGroupBy
+  groupBy: SalesGrouping
   range: { from: string; to: string }
   onResetRange: () => void
 }): React.JSX.Element {
   const { rows, total } = report
-  const rangeLabel = `${range.from} a ${range.to}`
+  const rangeLabel = formatRangoCorto(range.from, range.to)
+  const columns = salesColumns(groupBy)
 
   return (
     <div className="space-y-5">
       {/* § 4 · La cifra rectora de esta pantalla, con el libro que la deriva
-          —cobrado − impuesto = neto— y las propinas ABAJO DE LA RAYA, que es
-          lo que mata la tarjeta «Propinas» (error de categoría: la propina no
+          —cobrado − impuesto = neto—, la comparación contra el período
+          anterior (del servidor) y las propinas ABAJO DE LA RAYA, que es lo
+          que mata la tarjeta «Propinas» (error de categoría: la propina no
           es del restaurante, Ley 1935 de 2018). */}
       <HeadlineFigure
         label="Ventas netas del período"
         value={formatCOP(total.net)}
         note={
           total.orders !== undefined
-            ? `${total.orders} ${total.orders === 1 ? "comanda pagada" : "comandas pagadas"} · agrupadas por ${GROUP_BY_LABEL[groupBy].toLowerCase()}`
+            ? `${total.orders} ${total.orders === 1 ? "comanda pagada" : "comandas pagadas"} · ${rangeLabel}`
             : undefined
         }
         ledger={{
@@ -177,7 +492,23 @@ function SalesReport({
           total: { label: "Ventas netas", value: formatCOP(total.net) },
         }}
         belowTheLine={{ label: "Propinas (informativo) — no son venta", value: formatCOP(total.tips) }}
+        comparison={periodComparison(total.previous_period)}
       />
+
+      {rows.length === 0 ? (
+        <FilterEmptyState
+          title="Sin ventas en este período"
+          filters={[rangeLabel]}
+          onRemove={onResetRange}
+          description="No hay ninguna venta cobrada en el rango de fechas elegido. El filtro puesto es el período."
+        />
+      ) : (
+        // El gráfico va ARRIBA de las tarjetas (analista #7): la forma del
+        // período se lee antes que los promedios.
+        <section className="min-w-0 rounded-lg border bg-card p-4">
+          <SalesChart rows={rows} total={total} groupBy={groupBy} range={range} />
+        </section>
+      )}
 
       <GroupLabel label="Del período" says="cerrado, ya no cambia">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -242,58 +573,47 @@ function SalesReport({
         </div>
       </GroupLabel>
 
-      {rows.length === 0 ? (
-        <FilterEmptyState
-          title="Sin ventas en este período"
-          filters={[rangeLabel]}
-          onRemove={onResetRange}
-          description="No hay ninguna venta cobrada en el rango de fechas elegido. El filtro puesto es el período."
+      {rows.length === 0 ? null : (
+        <DenseTable
+          caption={`Ventas del período agrupadas por ${GROUP_BY_LABEL[groupBy].toLowerCase()}, con cobrado, neto, participación, impuesto y costo.`}
+          columns={columns}
+          rows={rows}
+          rowKey={(r) => r.key}
+          maxBodyHeightPx={420}
+          bar={
+            <DenseTableBar
+              shown={rows.length}
+              total={rows.length}
+              noun={GROUP_BY_LABEL[groupBy].toLowerCase()}
+              hidden={`del ${rangeLabel}`}
+            />
+          }
+          footer={totalsRow(columns, total)}
+          legend={[
+            {
+              term: "Cobrado ≠ neto",
+              meaning: "lo cobrado incluye el impuesto al consumo, que no es del restaurante. El neto es lo que queda.",
+            },
+            isLineGroupBy(groupBy)
+              ? {
+                  term: "Sin propinas",
+                  meaning: "la propina se deja sobre la cuenta, no sobre un plato: por eso no tiene columna acá. El total de arriba sí la muestra, aparte.",
+                }
+              : {
+                  term: "Propinas",
+                  meaning: "van en su columna porque se cobran, pero no son venta ni entran en el neto.",
+                },
+            groupBy === "method"
+              ? {
+                  term: "Pagos, no comandas",
+                  meaning: "una comanda pagada mitad en efectivo y mitad con tarjeta cuenta un pago en cada medio.",
+                }
+              : {
+                  term: "Cobertura «—»",
+                  meaning: "no es 0 %: es que no hubo venta costeada para medirla en ese renglón.",
+                },
+          ]}
         />
-      ) : (
-        <section className="space-y-3">
-          {isSequentialGroupBy(groupBy) ? (
-            <TrendLine
-              data={rows.map((r) => ({ key: r.key, label: bucketLabel(r, groupBy), value: r.net ?? 0 }))}
-              formatValue={(v) => formatCOP(v)}
-            />
-          ) : rows.length <= 12 ? (
-            <CategoryBars
-              data={rows.map((r) => ({ key: r.key, label: bucketLabel(r, groupBy), value: r.net ?? 0 }))}
-              formatValue={(v) => formatCOP(v)}
-            />
-          ) : null}
-
-          <DenseTable
-            caption={`Ventas del período agrupadas por ${GROUP_BY_LABEL[groupBy].toLowerCase()}, con cobrado, neto, impuesto, propinas y costo.`}
-            columns={salesColumns(groupBy)}
-            rows={rows}
-            rowKey={(r) => r.key}
-            maxBodyHeightPx={420}
-            bar={
-              <DenseTableBar
-                shown={rows.length}
-                total={rows.length}
-                noun={GROUP_BY_LABEL[groupBy].toLowerCase()}
-                hidden={`del ${rangeLabel}`}
-              />
-            }
-            footer={totalsRow(total)}
-            legend={[
-              {
-                term: "Cobrado ≠ neto",
-                meaning: "lo cobrado incluye el impuesto al consumo, que no es del restaurante. El neto es lo que queda.",
-              },
-              {
-                term: "Propinas",
-                meaning: "van en su columna porque se cobran, pero no son venta ni entran en el neto.",
-              },
-              {
-                term: "Cobertura «—»",
-                meaning: "no es 0 %: es que no hubo venta costeada para medirla en ese renglón.",
-              },
-            ]}
-          />
-        </section>
       )}
     </div>
   )

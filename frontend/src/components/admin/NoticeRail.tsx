@@ -12,6 +12,13 @@ interface NoticeBase {
   title: React.ReactNode
   /** A dónde lleva, con el filtro nombrado en palabras. */
   link?: FilterLinkProps
+  /**
+   * La plata en juego, **ya formateada** por quien llama («$ 1.500.506»,
+   * «−$ 68.000 faltante»): va a la derecha del título para que el riel se
+   * lea también por tamaño. Opcional: un aviso que no es de plata no la
+   * lleva (nunca «$ 0»). El orden lo decide quien arma `notices`.
+   */
+  amount?: React.ReactNode
 }
 
 /**
@@ -93,7 +100,16 @@ function NoticeItem({ notice, className }: { notice: Notice; className?: string 
         aria-hidden="true"
       />
       <div className="min-w-0">
-        <p className="text-sm leading-snug font-bold">{notice.title}</p>
+        {notice.amount !== undefined && notice.amount !== null ? (
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+            <p className="min-w-0 text-sm leading-snug font-bold">{notice.title}</p>
+            <p className="shrink-0 text-sm font-bold whitespace-nowrap tabular-nums" data-notice-amount="">
+              {notice.amount}
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm leading-snug font-bold">{notice.title}</p>
+        )}
         {notice.consequence ? (
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{notice.consequence}</p>
         ) : null}

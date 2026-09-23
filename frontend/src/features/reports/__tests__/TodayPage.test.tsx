@@ -1,7 +1,11 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
+import { formatPct } from "@/lib/format"
 import { buildMe, renderWithProviders } from "@/test/utils"
+
+/** `formatPct` escribe «12,3 %» con espacio fino; Testing Library compara el texto ya normalizado a espacios comunes. */
+const pct = (bp: number): string => formatPct(bp).replace(/\s+/g, " ")
 
 import { TodayPage } from "../TodayPage"
 
@@ -83,7 +87,13 @@ describe("TodayPage", () => {
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
     await waitFor(() => expect(screen.getAllByText("Sin turno abierto").length).toBeGreaterThan(0))
-    expect(screen.queryByText("$ 0")).not.toBeInTheDocument()
+    // La tarjeta de efectivo dice qué falta; ningún texto de la página (fuera
+    // del eje del gráfico, cuyo «$ 0» es la base de las columnas) es «$ 0».
+    const efectivo = screen.getByText("Efectivo esperado").closest("div.rounded-lg") as HTMLElement
+    expect(within(efectivo).queryByText("$ 0")).not.toBeInTheDocument()
+    expect(within(efectivo).getByText(/no hay un turno de caja abierto/).closest(".sin-dato")).not.toBeNull()
+    const ceros = screen.queryAllByText("$ 0").filter((el) => el.closest("svg") === null)
+    expect(ceros).toEqual([])
   })
 
   it("una alerta de tipo conocido (fiscal_range_low) se lista con su enlace correctivo", async () => {
@@ -299,12 +309,12 @@ describe("TodayPage", () => {
     expect(motivo.closest(".sin-dato")).not.toBeNull()
   })
 
-  it("no inventa una comparación: `GET /admin/today` no la manda", async () => {
+  it("no inventa una comparación: un servidor que no manda `comparison` no la muestra", async () => {
     getTodayMock.mockResolvedValue(baseToday())
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
     await screen.findByText("Ventas netas de hoy")
-    expect(screen.queryByText(/semana pasada|semana anterior|%/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/pasado a esta hora|semana anterior|%/)).not.toBeInTheDocument()
   })
 
   it("llegando con #requiere-atencion («Avisos» del celular), el foco queda en «Requiere tu atención»", async () => {
@@ -314,5 +324,301 @@ describe("TodayPage", () => {
     const atencion = await screen.findByRole("complementary", { name: "Requiere tu atención" })
     await waitFor(() => expect(document.activeElement).toBe(atencion.parentElement))
     expect(atencion.parentElement).toHaveAttribute("id", "requiere-atencion")
+  })
+
+  // ---------------------------------------------------------------------
+  // Revisión de datos (sep. 2026): comparación, cierre de ayer, horas que
+  // todavía no llegan, el aviso resumen de caja y el orden por plata.
+  // ---------------------------------------------------------------------
+
+  it("la cifra rectora se compara con el mismo día de la semana pasada a la misma hora, tal como lo manda el servidor", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        comparison: {
+          reference_business_date: "2026-09-08", // martes
+          until: "2026-09-08T19:00:00Z",
+          net: 82450,
+          orders: 4,
+          delta_bp: 1230,
+          orders_delta_bp: 2500,
+          reference_operated: true,
+          null_reason: null,
+        },
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("Contra el martes pasado a esta hora")
+    // `delta_bp` 1.230 se escribe «▲ 12,3 %»: sólo cambia de unidad.
+    expect(screen.getByText(`▲ ${pct(1230)}`)).toBeInTheDocument()
+    expect(screen.getByText("entonces $ 82.450")).toBeInTheDocument()
+    // El titular del gráfico concluye con la misma cifra, sin calcular otra.
+    expect(
+      screen.getByRole("heading", { name: `Vas ${formatPct(1230)} arriba del martes pasado a esta hora` }),
+    ).toBeInTheDocument()
+  })
+
+  it("una variación negativa se escribe «▼» y «abajo», con el valor sin signo", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        comparison: {
+          reference_business_date: "2026-09-08",
+          until: "2026-09-08T19:00:00Z",
+          net: 120000,
+          orders: 7,
+          delta_bp: -2284,
+          orders_delta_bp: null,
+          reference_operated: true,
+          null_reason: null,
+        },
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText(`▼ ${pct(2284)}`)
+    expect(
+      screen.getByRole("heading", { name: `Vas ${formatPct(2284)} abajo del martes pasado a esta hora` }),
+    ).toBeInTheDocument()
+  })
+
+  it("sin contra qué comparar dice por qué: `null` no es «0 %»", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        comparison: {
+          reference_business_date: "2026-09-08",
+          until: "2026-09-08T19:00:00Z",
+          net: null,
+          orders: null,
+          delta_bp: null,
+          orders_delta_bp: null,
+          reference_operated: null,
+          null_reason: "La sede todavía no operaba el mismo día de la semana pasada: no hay contra qué comparar.",
+        },
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText(/La sede todavía no operaba el mismo día de la semana pasada/)
+    expect(screen.getByText("Sin dato")).toBeInTheDocument()
+    expect(screen.queryByText(/0,0\s%/)).not.toBeInTheDocument()
+  })
+
+  it("si el mismo día de la semana pasada vendió $ 0 a esta hora, no hay variación (sin divisor), y se dice", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        comparison: {
+          reference_business_date: "2026-09-08",
+          until: "2026-09-08T19:00:00Z",
+          net: 0,
+          orders: 0,
+          delta_bp: null,
+          orders_delta_bp: null,
+          reference_operated: false,
+          null_reason: null,
+        },
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("ese día no abrió")
+    expect(screen.getByText("Contra el martes pasado a esta hora")).toBeInTheDocument()
+    expect(screen.getByText("Sin dato")).toBeInTheDocument()
+    expect(screen.queryByText(/▲|▼/)).not.toBeInTheDocument()
+  })
+
+  it("antes de la primera venta muestra cómo cerró ayer en vez de un «$ 0» suelto", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        orders: 0,
+        net: 0,
+        gross: 0,
+        tax: 0,
+        covers: null,
+        avg_ticket: null,
+        avg_per_cover: null,
+        sales_by_hour: [],
+        yesterday_close: { business_date: "2026-09-14", net: 1954300, orders: 31, avg_ticket: 63042, operated: true },
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("Todavía no hay ventas hoy · ayer cerró en")
+    expect(screen.getByText("$ 1.954.300")).toBeInTheDocument()
+    expect(screen.getByText(/lun 14 sep · 31 comandas pagadas · ticket promedio \$ 63\.042/)).toBeInTheDocument()
+    // El libro sigue siendo el de hoy: lo de hoy es $ 0 de verdad (el día está abierto).
+    expect(screen.getByText("Ventas netas de hoy")).toBeInTheDocument()
+  })
+
+  it("si ayer la sede no abrió (o no vendió), su $ 0 no se muestra como cierre: queda la cifra de hoy", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        orders: 0,
+        net: 0,
+        gross: 0,
+        tax: 0,
+        sales_by_hour: [],
+        yesterday_close: { business_date: "2026-09-14", net: 0, orders: 0, avg_ticket: null, operated: false },
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("Ventas netas de hoy")
+    expect(screen.queryByText(/ayer cerró en/)).not.toBeInTheDocument()
+  })
+
+  it("ventas por hora: columnas en el orden en que llegan, una hora `pending` es hueco (no $ 0) y la semana pasada va de referencia", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        sales_by_hour: [
+          { hour: 11, gross: 0, net: 0, orders: 0, pending: false },
+          { hour: 12, gross: 100000, net: 92593, orders: 3, pending: false },
+          { hour: 13, gross: 0, net: 0, orders: 0, pending: true },
+          { hour: 0, gross: 0, net: 0, orders: 0, pending: true },
+        ],
+        sales_by_hour_reference: [
+          { hour: 11, gross: 20000, net: 18519, orders: 1, pending: false },
+          { hour: 12, gross: 80000, net: 74074, orders: 2, pending: false },
+          { hour: 13, gross: 60000, net: 55556, orders: 2, pending: false },
+          { hour: 0, gross: 0, net: 0, orders: 0, pending: false },
+        ],
+        comparison: {
+          reference_business_date: "2026-09-08",
+          until: "2026-09-08T17:00:00Z",
+          net: 92593,
+          orders: 3,
+          delta_bp: 0,
+          orders_delta_bp: 0,
+          reference_operated: true,
+          null_reason: null,
+        },
+      }),
+    )
+    const { container } = renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByRole("heading", { name: "Vas igual que el martes pasado a esta hora" })
+    // La hora con 0 real es columna; las que todavía no llegan son hueco.
+    expect(container.querySelector('[data-columna="11"]')).not.toBeNull()
+    expect(container.querySelector('[data-hueco="11"]')).toBeNull()
+    expect(container.querySelector('[data-hueco="13"]')).not.toBeNull()
+    expect(container.querySelector('[data-columna="13"]')).toBeNull()
+    expect(container.querySelector('[data-hueco="0"]')).not.toBeNull()
+    // Las 00 van después de las 13 (orden del día operativo, como llegan).
+    const hueco13 = container.querySelector('[data-hueco="13"]') as Element
+    const hueco0 = container.querySelector('[data-hueco="0"]') as Element
+    expect(hueco13.compareDocumentPosition(hueco0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Una marca de referencia por hora con dato (4: la de las 00 es $ 0 real).
+    expect(container.querySelectorAll("[data-referencia-serie]")).toHaveLength(4)
+    expect(screen.getByText(/Rayado: horas que todavía no llegan/)).toBeInTheDocument()
+  })
+
+  it("el aviso resumen de caja lleva a Dinero › Historial, dice la plata en juego y quién lleva racha", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        alerts: [
+          {
+            type: "cash_diff_summary",
+            level: "warning",
+            title: "8 cierres de caja con diferencia",
+            body: "Faltante -$ 68.000 en 8 cierres. En los últimos 14 días.",
+            created_at: "2026-09-15T03:00:00Z",
+            amount: -68000,
+            payload: {
+              count: 8,
+              shortage_count: 8,
+              shortage_total: -68000,
+              surplus_count: 0,
+              surplus_total: 0,
+              net_total: -68000,
+              critical_count: 0,
+              shift_ids: [1, 2, 3, 4, 5, 6, 7, 8],
+              first_business_date: "2026-09-02",
+              last_business_date: "2026-09-14",
+              days: 14,
+              streaks: [{ employee_id: 7, employee_name: "Luz Marina Gómez", streak: 3 }],
+            },
+          },
+        ],
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("8 cierres de caja con diferencia")
+    expect(noticeLink("8 cierres de caja con diferencia")).toHaveAttribute("href", "/admin/dinero?tab=historial")
+    expect(screen.getByText("Dinero › Historial")).toBeInTheDocument()
+    const item = screen.getByText("8 cierres de caja con diferencia").closest("li") as HTMLElement
+    // La palabra dice el signo: «faltan $ 68.000», no «-$ 68.000 faltante».
+    expect(within(item).getByText("faltan $ 68.000")).toBeInTheDocument()
+    expect(within(item).getByText(/Racha: Luz Marina Gómez, 3 cierres seguidos\./)).toBeInTheDocument()
+  })
+
+  it("los avisos van por gravedad y, dentro de cada una, por plata en juego; el monto se ve en cada uno que lo tiene", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        alerts: [
+          { type: "waste_spike", level: "warning", title: "Merma alta", body: "Cilantro.", created_at: "2026-09-15T10:00:00Z", payload: null, amount: null },
+          { type: "cash_over_threshold", level: "warning", title: "Caja chica", body: "Poco.", created_at: "2026-09-15T10:00:00Z", payload: null, amount: 5000 },
+          { type: "cash_over_threshold", level: "warning", title: "Caja grande", body: "Mucho.", created_at: "2026-09-15T11:00:00Z", payload: null, amount: 900000 },
+        ],
+        payables_overdue: [
+          { payable_id: 1, supplier_id: 1, supplier_name: "Distribuidora La 70", due_date: "2026-09-01", balance: 450000, days_overdue: 14 },
+          { payable_id: 2, supplier_id: 2, supplier_name: "Lácteos del Valle", due_date: "2026-09-03", balance: 1050506, days_overdue: 12 },
+        ],
+        payables_overdue_total: 1500506,
+        ingredients_negative: [
+          { ingredient_id: 2, name: "Leche entera", qty_base: -400, min_stock: 2000, base_unit: "ml", negative_since: null, probable_cause: null, amount: 1600 },
+        ],
+        ingredients_negative_amount: 65963,
+        ingredients_negative_uncosted: 1,
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("Caja grande")
+    const titulos = within(screen.getByRole("complementary", { name: "Requiere tu atención" }))
+      .getAllByRole("listitem")
+      .map((li) => li.querySelector("p")?.textContent)
+    // Críticos (cuentas vencidas $ 1.500.506 antes que insumos $ 65.963), y
+    // después los de atención de mayor a menor plata; el que no es de plata, al final.
+    expect(titulos).toEqual([
+      "2 cuentas por pagar vencidas",
+      "1 insumo en negativo",
+      "Caja grande",
+      "Caja chica",
+      "Merma alta",
+    ])
+    // El total vencido lo suma el servidor; acá sólo se escribe.
+    const vencidas = screen.getByText("2 cuentas por pagar vencidas").closest("li") as HTMLElement
+    expect(within(vencidas).getByText("$ 1.500.506")).toBeInTheDocument()
+    const negativos = screen.getByText("1 insumo en negativo").closest("li") as HTMLElement
+    expect(within(negativos).getByText("$ 65.963")).toBeInTheDocument()
+    expect(within(negativos).getByText(/1 sin costo todavía/)).toBeInTheDocument()
+    // Un aviso sin monto no dibuja «$ 0».
+    const merma = screen.getByText("Merma alta").closest("li") as HTMLElement
+    expect(merma.querySelector("[data-notice-amount]")).toBeNull()
+  })
+
+  it("comandas abiertas: el tiempo en horas y minutos, y marca las que vienen del día anterior", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        business_date: "2026-09-15",
+        yesterday_close: { business_date: "2026-09-14", net: 100000, orders: 3, avg_ticket: 33333, operated: true },
+        open_orders: [
+          // 22:00 del 14 en Bogotá (03:00 UTC del 15): con corte a las 3, es del 14.
+          { id: 458, channel: "dine_in", tables: ["1"], opened_at: "2026-09-15T03:00:00Z", minutes_since_opened: 968, total: 80000 },
+          // 12:00 del 15 en Bogotá: es de hoy.
+          { id: 461, channel: "dine_in", tables: ["2"], opened_at: "2026-09-15T17:00:00Z", minutes_since_opened: 45, total: 20000 },
+        ],
+      }),
+    )
+    renderWithProviders(<TodayPage />, {
+      me: buildMe({ store: { id: 1, name: "Sede Centro", cutoff_hour: 3, active_channels: [] } }),
+    })
+
+    await screen.findByText("16 h 8 min")
+    expect(screen.queryByText("968 min")).not.toBeInTheDocument()
+    expect(screen.getByText("45 min")).toBeInTheDocument()
+    expect(screen.getAllByText("Viene de ayer")).toHaveLength(1)
+    const fila458 = screen.getByText("#458").closest("tr") as HTMLElement
+    expect(within(fila458).getByText("Viene de ayer")).toBeInTheDocument()
   })
 })
