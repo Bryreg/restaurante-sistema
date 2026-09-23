@@ -15,6 +15,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.core.modules import find_spec_safe
+from app.orders.money import round_half_up
 from app.stores.models import Store
 
 _WIDE_RANGE = {"from": "2020-01-01", "to": "2099-12-31"}
@@ -195,3 +196,123 @@ def test_profit_payroll_seam(admin_client: TestClient, store: Store, set_feature
         assert body["available"] is False
     else:
         assert body["payroll"] is None or isinstance(body["payroll"], int)
+
+
+# ---------------------------------------------------------------------------
+# Informe de visualización #2: Utilidad y Punto de equilibrio cuentan la
+# MISMA historia (mismos costos fijos, mismo costo de venta), cada renglón
+# en % de la venta, y el período anterior al lado.
+# ---------------------------------------------------------------------------
+
+_JANUARY = {"from": "2026-01-01", "to": "2026-01-31"}
+
+
+def test_profit_and_break_even_use_the_same_fixed_costs_and_agree_on_the_sign(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Callable[..., Any],
+    employees: Any,
+    open_shift: Callable[..., dict[str, Any]],
+    sell: Callable[..., Any],
+    drink_product: Any,
+    ingredient_seeded: Any,
+    set_recipe: Callable[..., Any],
+    store: Store,
+    set_feature: Callable[..., None],
+    clock: Any,
+) -> None:
+    """Con los mismos datos: ventas por ENCIMA del equilibrio ⇔ utilidad
+    positiva, y ventas por DEBAJO ⇔ utilidad negativa. Antes el equilibrio
+    usaba un costo fijo escrito a mano y podía decir «ya lo superaste» al
+    lado de una pérdida."""
+    set_feature("payroll", False)
+    set_recipe(drink_product.id, lines=[{"ingredient_id": ingredient_seeded.id, "qty": "10", "unit": "g"}])
+    open_shift()
+    identify(device_client, employees["cashier"])
+    sell(drink_product, qty=1)
+    sales = admin_client.get(
+        "/api/v1/admin/sales", params={"store_id": store.id, **_JANUARY, "group_by": "business_date"}
+    ).json()["total"]
+    net, cost = sales["net"], sales["theoretical_cost"]
+    contribution = net - cost
+    assert contribution > 2_000, "precondición: la venta deja margen"
+
+    def _both() -> tuple[dict[str, Any], dict[str, Any]]:
+        be = admin_client.get("/api/v1/admin/break-even", params={"store_id": store.id, **_JANUARY}).json()
+        pr = admin_client.get("/api/v1/admin/profit", params={"store_id": store.id, **_JANUARY}).json()
+        return be, pr
+
+    # (a) Fijos de $1.000, menos que el margen: se pasó el equilibrio y hay utilidad.
+    small = admin_client.post(
+        f"/api/v1/admin/obligations?store_id={store.id}",
+        json={"category": "rent", "description": "Chica", "amount": 1_000, "due_date": "2026-01-05"},
+        headers=_idem(),
+    ).json()
+    be, pr = _both()
+    assert be["fixed_costs"] == pr["fixed_costs"] == 1_000
+    assert be["fixed_costs_breakdown"] == pr["fixed_costs_breakdown"]
+    assert pr["profit"] == net - cost - 1_000
+    assert pr["profit"] > 0
+    assert net > be["break_even_amount"]
+    assert be["gap_amount"] == 0
+    assert be["progress_bp"] > 10_000
+    assert be["days_to_break_even_at_current_pace"] == 0
+
+    # (b) Mismos datos, fijos de $100.000: no llega al equilibrio y pierde plata.
+    admin_client.post(f"/api/v1/admin/obligations/{small['id']}/cancel", json={"reason": "prueba"}, headers=_idem())
+    admin_client.post(
+        f"/api/v1/admin/obligations?store_id={store.id}",
+        json={"category": "rent", "description": "Grande", "amount": 100_000, "due_date": "2026-01-05"},
+        headers=_idem(),
+    )
+    be, pr = _both()
+    assert be["fixed_costs"] == pr["fixed_costs"] == 100_000
+    assert pr["profit"] == net - cost - 100_000
+    assert pr["profit"] < 0
+    assert net < be["break_even_amount"]
+    assert be["gap_amount"] == be["break_even_amount"] - net > 0
+    assert be["progress_bp"] < 10_000
+
+    # Cada renglón como % de la venta neta, con signo.
+    lines = {line["key"]: line for line in pr["lines"]}
+    assert [line["key"] for line in pr["lines"]] == ["net_sales", "cost", "payroll", "obligations", "expenses", "profit"]
+    assert lines["net_sales"]["pct_of_sales_bp"] == 10_000
+    assert lines["cost"]["amount"] == cost
+    assert lines["cost"]["pct_of_sales_bp"] == round_half_up(cost * 10_000, net)
+    assert lines["obligations"]["pct_of_sales_bp"] == round_half_up(100_000 * 10_000, net)
+    assert lines["profit"]["amount"] == pr["profit"]
+    assert lines["profit"]["pct_of_sales_bp"] == -round_half_up(-pr["profit"] * 10_000, net)
+    assert pr["costed_pct"] == 100
+
+
+def test_profit_previous_period_has_the_same_length_and_the_same_lines(
+    admin_client: TestClient, store: Store, set_feature: Callable[..., None]
+) -> None:
+    set_feature("payroll", False)
+    admin_client.post(
+        f"/api/v1/admin/obligations?store_id={store.id}",
+        json={"category": "rent", "description": "Arriendo de enero", "amount": 500_000, "due_date": "2026-01-10"},
+        headers=_idem(),
+    )
+    admin_client.post(
+        f"/api/v1/admin/expenses?store_id={store.id}",
+        json={"category": "maintenance", "description": "Nevera", "amount": 200_000, "business_date": "2026-02-10", "source": "bank"},
+        headers=_idem(),
+    )
+
+    body = admin_client.get(
+        "/api/v1/admin/profit", params={"store_id": store.id, "from": "2026-02-01", "to": "2026-02-28"}
+    ).json()
+    assert body["profit"] == -200_000
+    assert body["fixed_costs_breakdown"] == [{"label": "Gastos de mantenimiento", "amount": 200_000, "source": "expenses"}]
+    # Sin venta neta no hay porcentaje: `null`, nunca 0.
+    assert all(line["pct_of_sales_bp"] is None for line in body["lines"])
+
+    previous = body["previous_period"]
+    assert previous["date_from"] == "2026-01-04"
+    assert previous["date_to"] == "2026-01-31"
+    assert previous["obligations"] == 500_000
+    assert previous["expenses"] == 0
+    assert previous["profit"] == -500_000
+    assert [line["key"] for line in previous["lines"]] == [line["key"] for line in body["lines"]]
+    assert "previous_period" not in previous

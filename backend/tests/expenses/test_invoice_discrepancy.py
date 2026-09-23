@@ -70,8 +70,9 @@ def test_approve_with_discrepancy_blocks_without_confirmation_naming_both_figure
     error = blocked.json()["error"]
     assert error["code"] == "INVOICE_DISCREPANCY"
     # El mensaje NOMBRA LAS DOS CIFRAS (literal, spec.md § 1 D-2).
-    assert "15200" in error["message"]
-    assert "14500" in error["message"]
+    # Plata escrita como la escribe la app (`format_cop`), no «$15200».
+    assert "$ 15.200" in error["message"]
+    assert "$ 14.500" in error["message"]
 
     # Sigue sin aprobar: el estado no cambió con el intento bloqueado.
     still_pending = admin_client.get(f"/api/v1/admin/payables/{payable_id}").json()

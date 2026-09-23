@@ -77,6 +77,7 @@ from app.reports.schemas import (
     UnavailableLogRowOut,
     UnavailableProductOut,
 )
+from app.shifts import hooks as shifts_hooks
 from app.shifts import service as shifts_service
 from app.shifts.models import BusinessDay, Shift, ShiftStatus
 from app.stores.models import Store, Table, Zone
@@ -908,9 +909,6 @@ def _unreviewed_closes_count(db: Session, store: Store) -> int:
 # (`GET /admin/notifications`); sólo el riel de Hoy las resume.
 CASH_DIFF_NOTIFICATION_TYPES = ("cash_difference", "cash_difference_critical", "difference_streak")
 CASH_DIFF_SUMMARY_TYPE = "cash_diff_summary"
-# Hasta cuántos cierres hacia atrás se mira para contar la racha de una
-# persona (sólo lectura; la regla que DISPARA la racha es de `app.shifts`).
-_STREAK_LOOKBACK_SHIFTS = 30
 _ALERT_LEVEL_RANK = {"critical": 0, "warning": 1, "info": 2}
 
 
@@ -950,27 +948,12 @@ def _recent_alerts(db: Session, store: Store, *, limit: int = 30) -> list[AlertO
 
 
 def _current_difference_streak(db: Session, store: Store, employee_id: int) -> int:
-    """Cierres seguidos (del más reciente hacia atrás) de esa persona como
-    responsable de caja con diferencia distinta de cero. Un cierre sin
-    conteo (`difference` nulo) CORTA la racha: no se sabe si cuadró, y
-    contarlo como diferencia sería inventar (a diferencia de `difference
-    or 0`, científico #16)."""
-    differences = db.execute(
-        select(Shift.difference)
-        .where(
-            Shift.store_id == store.id,
-            Shift.cash_responsible_id == employee_id,
-            Shift.status == ShiftStatus.CLOSED,
-        )
-        .order_by(Shift.closed_at.desc(), Shift.id.desc())
-        .limit(_STREAK_LOOKBACK_SHIFTS)
-    ).scalars()
-    streak = 0
-    for difference in differences:
-        if difference is None or difference == 0:
-            break
-        streak += 1
-    return streak
+    """La racha de diferencias de caja de esa persona, con LA regla de
+    turnos (`app.shifts.hooks.difference_streak`: cierres contados seguidos
+    por fuera de la tolerancia de la sede; un cierre sin conteo ni suma ni
+    corta). Antes se recontaba acá con otra regla y el aviso de Hoy podía
+    decir una racha distinta de la que muestra Dinero."""
+    return shifts_hooks.difference_streak(db, store_id=store.id, employee_id=employee_id)
 
 
 def _cash_diff_summary(db: Session, store: Store) -> AlertOut | None:

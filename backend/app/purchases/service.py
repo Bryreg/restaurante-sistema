@@ -36,6 +36,8 @@ from app.auth.deps import Actor
 from app.auth.models import Employee
 from app.core import clock, tz
 from app.core.errors import AppError, NotFoundError
+from app.core.money import format_cop
+from app.core.percent import format_pct_bp
 from app.core.quantity import (
     COST_SCALE,
     QTY_SCALE,
@@ -334,7 +336,7 @@ def create_reception(db: Session, *, actor: Actor, store: Store, payload: Recept
                     )
                 else:
                     message = (
-                        f'lines[{idx}]: el precio de "{ingredient_name}" se aleja más de {PRICE_JUMP_PCT}% del promedio '
+                        f'lines[{idx}]: el precio de "{ingredient_name}" se aleja más de {format_pct_bp(PRICE_JUMP_PCT * 100, decimals=0)} del promedio '
                         "ponderado; si es correcto, repetí la recepción con confirm_price: true"
                     )
                 raise AppError(code=code, message=message, status=409)
@@ -520,55 +522,169 @@ def reverse_reception(db: Session, *, actor: Actor, reception: Reception, author
     return reception
 
 
-def supplier_reliability(db: Session, *, supplier: Supplier, date_from: date, date_to: date) -> dict[str, Any]:
-    """Recibido ÷ facturado, % de recepciones con factura, y una deriva
-    promedio de precio (simplificación declarada en el entregable §5: se
-    compara cada línea contra el promedio ponderado DE TODO el período
-    consultado, no contra "el promedio justo antes de esa línea")."""
-    receptions = db.execute(
-        select(Reception).where(
+def _signed_bp(numerator: int, denominator: int) -> int:
+    """`numerator / denominator` en puntos básicos, redondeo mitad hacia
+    arriba sobre el valor absoluto y CON signo (`denominator > 0`). Nada de
+    `//`, que trunca hacia abajo y corre los negativos, ni de `abs`, que
+    pierde si el precio subió o bajó."""
+    magnitude = (abs(numerator) * 20_000 + denominator) // (2 * denominator)
+    return -magnitude if numerator < 0 else magnitude
+
+
+def _weighted_median(pairs: list[tuple[int, int]]) -> int | None:
+    """Mediana ponderada (inferior) de `(valor, peso)`. Pesos en cero valen
+    todos igual (una línea regalada no puede borrar la mediana)."""
+    if not pairs:
+        return None
+    if sum(w for _v, w in pairs) <= 0:
+        pairs = [(v, 1) for v, _w in pairs]
+    ordered = sorted((v, w) for v, w in pairs if w > 0)
+    total = sum(w for _v, w in ordered)
+    acc = 0
+    for value, weight in ordered:
+        acc += weight
+        if acc * 2 >= total:
+            return value
+    return ordered[-1][0]
+
+
+def _pct_from_bp(bp: int | None) -> int | None:
+    """Puntos básicos a por ciento entero (compatibilidad de los campos
+    `*_pct`), mitad hacia arriba sobre el valor absoluto, con signo."""
+    if bp is None:
+        return None
+    return -((-bp + 50) // 100) if bp < 0 else (bp + 50) // 100
+
+
+def _supplier_reliability_data(
+    db: Session, *, supplier: Supplier, date_from: date, date_to: date
+) -> dict[str, Any]:
+    """Confiabilidad de un proveedor, calculada POR INSUMO (informe
+    científico #5, analista #9).
+
+    Antes se sumaba `qty_received_base` de todos los insumos juntos (gramos
+    con mililitros con unidades) y la «deriva de precio» comparaba cada línea
+    contra el costo promedio de TODOS los insumos del período (la sal contra
+    la pechuga), con `//` que trunca y `abs` que borra si el precio subió o
+    bajó. Ahora:
+
+    - Recibido ÷ facturado se calcula dentro de cada insumo (misma unidad).
+    - La deriva de cada línea es su costo unitario sin impuesto contra el de
+      la línea ANTERIOR del mismo insumo con el mismo proveedor (aunque esa
+      anterior sea de antes del período), con signo. La del insumo es la
+      mediana de sus líneas ponderada por plata.
+    - El resumen del proveedor es la mediana de sus insumos ponderada por la
+      plata de cada insumo en el período.
+    """
+    history = db.execute(
+        select(ReceptionLine, Reception)
+        .join(Reception, Reception.id == ReceptionLine.reception_id)
+        .where(
             Reception.supplier_id == supplier.id,
             Reception.status == ReceptionStatus.CONFIRMED,
-            Reception.business_date >= date_from,
             Reception.business_date <= date_to,
         )
-    ).scalars().all()
-    if not receptions:
-        return {
-            "receptions": 0,
-            "received_over_invoiced_pct": None,
-            "invoice_share_pct": None,
-            "avg_price_drift_pct": None,
+        .order_by(Reception.at, Reception.id, ReceptionLine.id)
+    ).all()
+
+    receptions_in_window: dict[int, Reception] = {}
+    last_cost: dict[int, int] = {}
+    per_ingredient: dict[int, dict[str, Any]] = {}
+    for line, reception in history:
+        in_window = reception.business_date >= date_from
+        previous = last_cost.get(line.ingredient_id)
+        last_cost[line.ingredient_id] = line.unit_cost_micros
+        if not in_window:
+            continue
+        receptions_in_window[reception.id] = reception
+        bucket = per_ingredient.setdefault(
+            line.ingredient_id,
+            {"received": 0, "invoiced": 0, "spend_micros": 0, "drifts": [], "receptions": set()},
+        )
+        weight = line_cost_micros(line.qty_received_base, line.unit_cost_micros)
+        bucket["received"] += line.qty_received_base
+        bucket["invoiced"] += line.qty_invoiced_base
+        bucket["spend_micros"] += weight
+        bucket["receptions"].add(reception.id)
+        if previous is not None and previous > 0:
+            bucket["drifts"].append((_signed_bp(line.unit_cost_micros - previous, previous), weight))
+
+    ingredients_by_id: dict[int, Ingredient] = {}
+    if per_ingredient:
+        ingredients_by_id = {
+            row.id: row for row in db.execute(select(Ingredient).where(Ingredient.id.in_(per_ingredient))).scalars()
         }
 
-    reception_ids = [r.id for r in receptions]
-    lines = db.execute(select(ReceptionLine).where(ReceptionLine.reception_id.in_(reception_ids))).scalars().all()
+    ingredient_rows: list[dict[str, Any]] = []
+    for ingredient_id, bucket in per_ingredient.items():
+        ingredient = ingredients_by_id.get(ingredient_id)
+        received_bp = _signed_bp(bucket["received"], bucket["invoiced"]) if bucket["invoiced"] > 0 else None
+        ingredient_rows.append(
+            {
+                "ingredient_id": ingredient_id,
+                "name": ingredient.name if ingredient is not None else f"Insumo #{ingredient_id}",
+                "base_unit": (
+                    (ingredient.base_unit.value if hasattr(ingredient.base_unit, "value") else str(ingredient.base_unit))
+                    if ingredient is not None
+                    else ""
+                ),
+                "n_receptions": len(bucket["receptions"]),
+                "received_over_invoiced_bp": received_bp,
+                "price_drift_bp": _weighted_median(bucket["drifts"]),
+                "n_price_comparisons": len(bucket["drifts"]),
+                "spend": micros_to_pesos(bucket["spend_micros"]),
+                "_weight": bucket["spend_micros"],
+            }
+        )
+    ingredient_rows.sort(key=lambda r: (-r["_weight"], r["name"]))
 
-    total_received = sum(line.qty_received_base for line in lines)
-    total_invoiced = sum(line.qty_invoiced_base for line in lines)
-    received_pct = (total_received * 100 // total_invoiced) if total_invoiced > 0 else None
-
-    with_invoice = sum(1 for r in receptions if not r.no_invoice)
-    invoice_share_pct = with_invoice * 100 // len(receptions)
-
-    if lines:
-        total_qty = sum(line.qty_received_base for line in lines)
-        avg_cost = (sum(line.qty_received_base * line.unit_cost_micros for line in lines) // total_qty) if total_qty > 0 else None
-    else:
-        avg_cost = None
-
-    avg_price_drift_pct: int | None = None
-    if avg_cost:
-        drifts = [abs(line.unit_cost_micros - avg_cost) * 100 // avg_cost for line in lines]
-        if drifts:
-            avg_price_drift_pct = sum(drifts) // len(drifts)
+    received_bp = _weighted_median(
+        [(r["received_over_invoiced_bp"], r["_weight"]) for r in ingredient_rows if r["received_over_invoiced_bp"] is not None]
+    )
+    drift_bp = _weighted_median(
+        [(r["price_drift_bp"], r["_weight"]) for r in ingredient_rows if r["price_drift_bp"] is not None]
+    )
+    n_receptions = len(receptions_in_window)
+    with_invoice = sum(1 for r in receptions_in_window.values() if not r.no_invoice)
+    invoice_share_bp = _signed_bp(with_invoice, n_receptions) if n_receptions else None
+    spend_micros = sum(r["_weight"] for r in ingredient_rows)
+    for row in ingredient_rows:
+        del row["_weight"]
 
     return {
-        "receptions": len(receptions),
-        "received_over_invoiced_pct": received_pct,
-        "invoice_share_pct": invoice_share_pct,
-        "avg_price_drift_pct": avg_price_drift_pct,
+        "receptions": n_receptions,
+        "received_over_invoiced_pct": _pct_from_bp(received_bp),
+        "invoice_share_pct": _pct_from_bp(invoice_share_bp),
+        "avg_price_drift_pct": _pct_from_bp(drift_bp),
+        "received_over_invoiced_bp": received_bp,
+        "invoice_share_bp": invoice_share_bp,
+        "price_drift_bp": drift_bp,
+        "n_receptions": n_receptions,
+        "n_ingredients": len(ingredient_rows),
+        "spend": micros_to_pesos(spend_micros),
+        "ingredients": ingredient_rows,
     }
+
+
+def supplier_reliability(db: Session, *, supplier: Supplier, date_from: date, date_to: date) -> dict[str, Any]:
+    if date_from > date_to:
+        raise AppError("VALIDATION_ERROR", "from: tiene que ser anterior o igual a to", status=400)
+    return _supplier_reliability_data(db, supplier=supplier, date_from=date_from, date_to=date_to)
+
+
+def suppliers_reliability(db: Session, *, store_id: int, date_from: date, date_to: date) -> list[dict[str, Any]]:
+    """La confiabilidad de TODOS los proveedores de la sede, de una vez
+    (`GET /admin/suppliers/reliability`), ordenados por nombre. Un proveedor
+    sin recepciones en el período sale con `n_receptions: 0` y los
+    indicadores en `null` — sin dato, no «100 %»."""
+    if date_from > date_to:
+        raise AppError("VALIDATION_ERROR", "from: tiene que ser anterior o igual a to", status=400)
+    out: list[dict[str, Any]] = []
+    for supplier in list_suppliers(db, store_id=store_id):
+        data = _supplier_reliability_data(db, supplier=supplier, date_from=date_from, date_to=date_to)
+        out.append({"supplier_id": supplier.id, "name": supplier.name, "active": supplier.active, **data})
+    out.sort(key=lambda r: r["name"].lower())
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -625,6 +741,75 @@ def list_payables(
     return rows
 
 
+def payables_summary(db: Session, *, store_id: int) -> dict[str, Any]:
+    """Totales de cuentas por pagar para la cabecera de la pantalla
+    (`GET /admin/payables/summary`, informe de visualización #8): cuánto se
+    debe, cuánto está vencido, cuánto vence en 7 días, por antigüedad y por
+    proveedor. El saldo sale de la MISMA regla que `payable_balance` (monto −
+    pagos no anulados), y «vencida» es la MISMA que `PayableOut.overdue`
+    (`due_date` antes de hoy y saldo > 0, con el mismo «hoy»), así que la
+    cabecera no puede contradecir a la tabla de abajo."""
+    today = clock.now_utc().date()
+    paid_by_payable = {
+        payable_id: int(paid)
+        for payable_id, paid in db.execute(
+            select(Payment.payable_id, func.sum(Payment.amount))
+            .join(Payable, Payable.id == Payment.payable_id)
+            .where(Payable.store_id == store_id, Payment.voided_at.is_(None))
+            .group_by(Payment.payable_id)
+        ).all()
+    }
+    payables = db.execute(
+        select(Payable).where(Payable.store_id == store_id, Payable.status != PayableStatus.CANCELLED)
+    ).scalars().all()
+
+    aging_keys = ("current", "1_30", "31_60", "over_60")
+    aging: dict[str, dict[str, Any]] = {key: {"bucket": key, "amount": 0, "count": 0} for key in aging_keys}
+    by_supplier: dict[int, dict[str, int]] = {}
+    total_open = total_overdue = due_next_7 = open_count = overdue_count = 0
+    horizon = today + timedelta(days=7)
+    for payable in payables:
+        balance = payable.amount - paid_by_payable.get(payable.id, 0)
+        if balance <= 0:
+            continue
+        total_open += balance
+        open_count += 1
+        supplier_bucket = by_supplier.setdefault(payable.supplier_id, {"open": 0, "overdue": 0})
+        supplier_bucket["open"] += balance
+        days_late = (today - payable.due_date).days
+        if days_late > 0:
+            total_overdue += balance
+            overdue_count += 1
+            supplier_bucket["overdue"] += balance
+            key = "1_30" if days_late <= 30 else "31_60" if days_late <= 60 else "over_60"
+        else:
+            key = "current"
+            if payable.due_date <= horizon:
+                due_next_7 += balance
+        aging[key]["amount"] += balance
+        aging[key]["count"] += 1
+
+    names = {
+        supplier.id: supplier.name
+        for supplier in db.execute(select(Supplier).where(Supplier.id.in_(by_supplier))).scalars()
+    } if by_supplier else {}
+    suppliers = [
+        {"supplier_id": sid, "name": names.get(sid, f"Proveedor #{sid}"), **totals}
+        for sid, totals in by_supplier.items()
+    ]
+    suppliers.sort(key=lambda r: (-r["open"], r["name"]))
+    return {
+        "as_of": today,
+        "total_open": total_open,
+        "total_overdue": total_overdue,
+        "due_next_7_days": due_next_7,
+        "open_count": open_count,
+        "overdue_count": overdue_count,
+        "aging": [aging[key] for key in aging_keys],
+        "by_supplier": suppliers,
+    }
+
+
 def list_payments(db: Session, *, payable_id: int, include_voided: bool = True) -> list[Payment]:
     """El historial de pagos de una cuenta por pagar, del más viejo al más
     nuevo.
@@ -675,8 +860,8 @@ def approve_payable(
         raise AppError(
             code="INVOICE_DISCREPANCY",
             message=(
-                f"La factura del proveedor dice ${invoice_total} pero el cálculo de la recepción da "
-                f"${payable.amount}; si es correcto, repetí la aprobación con confirm_discrepancy: true"
+                f"La factura del proveedor dice {format_cop(invoice_total) if invoice_total is not None else '—'} pero el cálculo de la recepción da "
+                f"{format_cop(payable.amount)}; si es correcto, repetí la aprobación con confirm_discrepancy: true"
             ),
             status=409,
         )
@@ -730,7 +915,7 @@ def create_payment(db: Session, *, actor: Actor, payable: Payable, payload: Any)
     if payload.amount > balance:
         raise AppError(
             code="PAYMENT_EXCEEDS_BALANCE",
-            message=f"El pago (${payload.amount}) supera el saldo pendiente (${balance})",
+            message=f"El pago ({format_cop(payload.amount)}) supera el saldo pendiente ({format_cop(balance)})",
             status=400,
         )
 

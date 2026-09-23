@@ -172,6 +172,12 @@ export interface OwnerHandOut {
   withdrawn_from_shift_close?: number | null
   spent_on_tips?: number | null
   spent_on_refunds?: number | null
+  /** Informe de visualización #15: fecha de negocio (ISO) del cierre contado
+   * más viejo que sigue con saldo por consignar, y cuántos días lleva a hoy.
+   * Los dos `null` si no queda plata de cierres sin consignar. No se acota al
+   * `from` del período: la plata de antes que sigue en la mano es la más vieja. */
+  oldest_undeposited_date?: string | null
+  oldest_undeposited_days?: number | null
   reason?: string | null
 }
 

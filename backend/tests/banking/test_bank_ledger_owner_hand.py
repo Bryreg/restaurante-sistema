@@ -426,3 +426,55 @@ def test_owner_hand_says_how_many_tip_payouts_did_not_declare_their_source(
         "la suposición quedó escondida: quien lee la mano del dueño no tiene forma de "
         "saber que ese número descansa sobre un reparto que nadie declaró"
     )
+
+
+def test_owner_hand_says_how_many_days_the_oldest_undeposited_cash_has_been_waiting(
+    admin_client: TestClient,
+    open_shift: Callable[..., dict],
+    close_shift: Callable[..., dict],
+    store: Any,
+    db: Session,
+) -> None:
+    """Informe de visualización #15: la plata más vieja sin consignar es el
+    cierre contado más antiguo con saldo por consignar, contado a HOY y sin
+    acotarse al `from` del período (la plata de antes del período que sigue
+    en la mano es justamente la más vieja). Consignada toda: `null`."""
+    from datetime import timedelta
+
+    from app.shifts.models import BusinessDay, Shift
+
+    bd = today_business_date(store)
+    shift = open_shift(total=200_000)
+    assert close_shift(shift["id"], counted_cash=250_000)["to_deposit"] == 50_000
+
+    # El cierre queda en un día de negocio de hace 4 días.
+    row = db.get(Shift, shift["id"])
+    assert row is not None
+    day = db.get(BusinessDay, row.business_day_id)
+    assert day is not None
+    day.business_date = bd - timedelta(days=4)
+    db.commit()
+
+    params = {"store_id": store.id, "from": bd.isoformat(), "to": bd.isoformat()}
+    body = admin_client.get(f"{API}/admin/bank/owner-hand", params=params).json()
+    assert body["oldest_undeposited_date"] == (bd - timedelta(days=4)).isoformat()
+    assert body["oldest_undeposited_days"] == 4
+
+    # Consignación parcial: sigue esperando la misma plata.
+    admin_client.post(
+        f"{API}/admin/deposits",
+        params={"store_id": store.id},
+        json={"amount": 30_000, "receipt_photo": "c.jpg", "allocations": [{"shift_id": shift["id"], "amount": 30_000}]},
+        headers=idem(),
+    )
+    assert admin_client.get(f"{API}/admin/bank/owner-hand", params=params).json()["oldest_undeposited_days"] == 4
+
+    admin_client.post(
+        f"{API}/admin/deposits",
+        params={"store_id": store.id},
+        json={"amount": 20_000, "receipt_photo": "c.jpg", "allocations": [{"shift_id": shift["id"], "amount": 20_000}]},
+        headers=idem(),
+    )
+    body = admin_client.get(f"{API}/admin/bank/owner-hand", params=params).json()
+    assert body["oldest_undeposited_days"] is None
+    assert body["oldest_undeposited_date"] is None

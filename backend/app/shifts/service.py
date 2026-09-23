@@ -413,7 +413,7 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
     if total != cash_settings.opening_cash_fixed and not payload.opening_cause:
         raise AppError(
             "OPENING_DIFFERENCE_NEEDS_CAUSE",
-            f"La base contada (${total}) no coincide con la base fija (${cash_settings.opening_cash_fixed}): "
+            f"La base contada ({format_cop(total)}) no coincide con la base fija ({format_cop(cash_settings.opening_cash_fixed)}): "
             "elegí una causa para poder abrir el turno",
             status=400,
         )
@@ -763,7 +763,7 @@ def create_cash_movement(
             if not payload.authorizer_pin:
                 raise AppError(
                     "PETTY_CASH_LIMIT",
-                    f"El egreso supera el límite de caja menor (${settings.petty_cash_limit}): pedí el PIN de un administrador",
+                    f"El egreso supera el límite de caja menor ({format_cop(settings.petty_cash_limit)}): pedí el PIN de un administrador",
                     status=400,
                 )
             authorizer = auth_service.verify_authorizer(
@@ -1084,26 +1084,64 @@ def review_close(db: Session, *, shift: Shift, store: Store, count: ShiftCloseCo
     }
 
 
+def _cop_or_dash(value: Any) -> str:
+    """Plata de un texto de la cronología; sin dato es «—», nunca «$None»."""
+    return format_cop(int(value)) if isinstance(value, int) else "—"
+
+
+#: Cuántos cierres hacia atrás se miran para la racha (una racha más larga
+#: que esto ya se reportó varias veces).
+_STREAK_LOOKBACK = 60
+
+
+def difference_streak_from(differences: list[int | None], tolerance: int) -> int:
+    """Racha de cierres con diferencia de caja, del más reciente hacia
+    atrás: cuenta los que se pasan de `tolerance` (en valor absoluto) y
+    corta en el primero que queda dentro. Un cierre SIN CONTEO (`None`) no
+    es dato: ni suma ni corta, se salta.
+
+    Antes era `(difference or 0) != 0`: el `None` se leía como «cuadró en
+    cero» y una diferencia de $50 contaba igual que una de $50.000 (informe
+    científico #16). `tolerance` es `tolerance_unknown_cause` de la sede, la
+    misma con la que el cierre exige una causa identificada."""
+    streak = 0
+    for difference in differences:
+        if difference is None:
+            continue
+        if abs(difference) <= tolerance:
+            break
+        streak += 1
+    return streak
+
+
+def current_difference_streak(db: Session, *, store_id: int, employee_id: int) -> int:
+    """La racha ACTUAL de una persona como responsable de caja en la sede
+    (`difference_streak_from` sobre sus últimos cierres). Publicada en
+    `app.shifts.hooks` para que el aviso de Hoy use la misma regla."""
+    settings = stores_service.get_cash_settings(db, store_id)
+    differences = list(
+        db.execute(
+            select(Shift.difference)
+            .where(
+                Shift.store_id == store_id,
+                Shift.cash_responsible_id == employee_id,
+                Shift.status == ShiftStatus.CLOSED,
+                Shift.closed_without_count.is_(False),
+            )
+            .order_by(Shift.closed_at.desc(), Shift.id.desc())
+            .limit(_STREAK_LOOKBACK)
+        ).scalars()
+    )
+    return difference_streak_from(differences, settings.tolerance_unknown_cause)
+
+
 def _check_difference_streak(db: Session, shift: Shift, store: Store) -> None:
     settings = stores_service.get_cash_settings(db, store.id)
     n = settings.streak_alert_shifts
     if not n or n <= 0:
         return
-    recent = list(
-        db.execute(
-            select(Shift)
-            .where(
-                Shift.store_id == shift.store_id,
-                Shift.cash_responsible_id == shift.cash_responsible_id,
-                Shift.status == ShiftStatus.CLOSED,
-            )
-            .order_by(Shift.closed_at.desc())
-            .limit(n)
-        ).scalars()
-    )
-    if len(recent) < n:
-        return
-    if all((s.difference or 0) != 0 for s in recent):
+    streak = current_difference_streak(db, store_id=shift.store_id, employee_id=shift.cash_responsible_id)
+    if streak >= n:
         notify(
             db,
             organization_id=shift.organization_id,
@@ -1111,7 +1149,10 @@ def _check_difference_streak(db: Session, shift: Shift, store: Store) -> None:
             type="difference_streak",
             level="warning",
             title="Racha de diferencias de caja",
-            body=f"{shift.cash_responsible_name} cerró {n} turnos seguidos con diferencia distinta de cero.",
+            body=(
+                f"{shift.cash_responsible_name} cerró {streak} turnos seguidos con una diferencia de más de "
+                f"{format_cop(settings.tolerance_unknown_cause)}."
+            ),
             payload={"employee_id": shift.cash_responsible_id, "shift_id": shift.id},
             dedupe_key=f"difference_streak:{shift.id}",
         )
@@ -1565,6 +1606,90 @@ def list_admin_shifts(
     return list(db.execute(stmt).scalars())
 
 
+def cash_summary(db: Session, *, store: Store, date_from: date | None, date_to: date | None) -> dict[str, Any]:
+    """Resumen de caja del historial de turnos (Dinero › Historial, informe
+    de visualización #10): ¿la caja cuadra?, en total, por día y por
+    responsable. Sólo entran a las sumas los cierres CONTADOS (`difference`
+    no nulo y no administrativos): un cierre sin conteo no cuadró ni dejó de
+    cuadrar, así que se cuenta aparte (`uncounted_count`) y nunca como $0.
+
+    `diff_total` es con signo (negativo = faltante). `beyond_tolerance_count`
+    usa la misma tolerancia con la que el cierre exige una causa
+    identificada."""
+    settings = stores_service.get_cash_settings(db, store.id)
+    tolerance = settings.tolerance_unknown_cause
+    stmt = (
+        select(Shift, BusinessDay.business_date)
+        .join(BusinessDay, Shift.business_day_id == BusinessDay.id)
+        .where(Shift.store_id == store.id, Shift.status == ShiftStatus.CLOSED)
+    )
+    if date_from is not None:
+        stmt = stmt.where(BusinessDay.business_date >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(BusinessDay.business_date <= date_to)
+    rows = db.execute(stmt.order_by(BusinessDay.business_date, Shift.closed_at, Shift.id)).all()
+
+    diff_total = shortage = overage = beyond = uncounted = 0
+    shortage_total = overage_total = 0
+    people: dict[int, dict[str, Any]] = {}
+    days: dict[date, dict[str, Any]] = {}
+    for shift, business_date in rows:
+        if shift.closed_without_count or shift.difference is None:
+            uncounted += 1
+            continue
+        d = shift.difference
+        diff_total += d
+        if d < 0:
+            shortage += 1
+            shortage_total += d
+        elif d > 0:
+            overage += 1
+            overage_total += d
+        if abs(d) > tolerance:
+            beyond += 1
+        person = people.setdefault(
+            shift.cash_responsible_id,
+            {
+                "employee_id": shift.cash_responsible_id,
+                "name": shift.cash_responsible_name,
+                "closes": 0,
+                "diff_total": 0,
+                "shortage_count": 0,
+                "overage_count": 0,
+            },
+        )
+        person["name"] = shift.cash_responsible_name
+        person["closes"] += 1
+        person["diff_total"] += d
+        person["shortage_count"] += 1 if d < 0 else 0
+        person["overage_count"] += 1 if d > 0 else 0
+        day = days.setdefault(business_date, {"business_date": business_date, "closes": 0, "diff_total": 0})
+        day["closes"] += 1
+        day["diff_total"] += d
+
+    by_person = list(people.values())
+    for person in by_person:
+        person["current_streak"] = current_difference_streak(db, store_id=store.id, employee_id=person["employee_id"])
+    # El faltante más grande primero: es lo que el dueño viene a buscar.
+    by_person.sort(key=lambda p: (p["diff_total"], -p["shortage_count"], p["name"]))
+    counted = len(rows) - uncounted
+    return {
+        "closed_count": len(rows),
+        "counted_count": counted,
+        "uncounted_count": uncounted,
+        "diff_total": diff_total,
+        "shortage_total": shortage_total,
+        "overage_total": overage_total,
+        "shortage_count": shortage,
+        "overage_count": overage,
+        "exact_count": counted - shortage - overage,
+        "tolerance": tolerance,
+        "beyond_tolerance_count": beyond,
+        "by_person": by_person,
+        "by_day": [days[k] for k in sorted(days)],
+    }
+
+
 def list_business_days(db: Session, *, store_id: int, date_from: date | None, date_to: date | None) -> list[BusinessDay]:
     stmt = select(BusinessDay).where(BusinessDay.store_id == store_id)
     if date_from is not None:
@@ -1640,18 +1765,18 @@ def build_timeline(db: Session, shift: Shift) -> list[dict[str, Any]]:
             {
                 "at": m.at,
                 "kind": "movement",
-                "summary": f"{_movement_kind_label(m.kind)} ({_movement_cause_label(m.cause)}) por ${m.amount:,}".replace(",", "."),
+                "summary": f"{_movement_kind_label(m.kind)} ({_movement_cause_label(m.cause)}) por {format_cop(m.amount)}",
                 "employee_name": m.employee_name,
                 "data": {"id": m.id, "kind": m.kind, "cause": m.cause, "amount": m.amount},
             }
         )
 
     for s in db.execute(select(CashSwap).where(CashSwap.shift_id == shift.id)).scalars():
-        events.append({"at": s.at, "kind": "swap", "summary": f"Cambio de denominaciones por ${s.amount}", "employee_name": s.employee_name, "data": {"id": s.id, "amount": s.amount}})
+        events.append({"at": s.at, "kind": "swap", "summary": f"Cambio de denominaciones por {format_cop(s.amount)}", "employee_name": s.employee_name, "data": {"id": s.id, "amount": s.amount}})
 
     for p in db.execute(select(CashPickup).where(CashPickup.shift_id == shift.id)).scalars():
         events.append(
-            {"at": p.at, "kind": "pickup", "summary": f"Retiro de ${p.amount}", "employee_name": p.employee_name, "data": {"id": p.id, "amount": p.amount}}
+            {"at": p.at, "kind": "pickup", "summary": f"Retiro de {format_cop(p.amount)}", "employee_name": p.employee_name, "data": {"id": p.id, "amount": p.amount}}
         )
         if p.reversed_at is not None:
             events.append(
@@ -1661,7 +1786,7 @@ def build_timeline(db: Session, shift: Shift) -> list[dict[str, Any]]:
     for h in db.execute(select(ShiftHandover).where(ShiftHandover.shift_id == shift.id)).scalars():
         label = "Relevo" if h.kind == "handover" else "Arqueo sorpresa"
         events.append(
-            {"at": h.at, "kind": h.kind, "summary": f"{label} por {h.from_responsible_name} (diferencia ${h.breakdown.get('difference')})", "employee_name": h.from_responsible_name, "data": {"id": h.id}}
+            {"at": h.at, "kind": h.kind, "summary": f"{label} por {h.from_responsible_name} (diferencia {_cop_or_dash(h.breakdown.get('difference'))})", "employee_name": h.from_responsible_name, "data": {"id": h.id}}
         )
 
     for c in db.execute(select(ShiftCloseCount).where(ShiftCloseCount.shift_id == shift.id)).scalars():
@@ -1672,7 +1797,7 @@ def build_timeline(db: Session, shift: Shift) -> list[dict[str, Any]]:
     if shift.closed_at is not None:
         label = "Cierre administrativo" if shift.closed_without_count else "Cierre"
         events.append(
-            {"at": shift.closed_at, "kind": "close", "summary": f"{label}: diferencia ${shift.difference}", "employee_name": shift.closed_by_employee_name, "data": {"difference": shift.difference, "to_deposit": shift.to_deposit}}
+            {"at": shift.closed_at, "kind": "close", "summary": f"{label}: diferencia {_cop_or_dash(shift.difference)}", "employee_name": shift.closed_by_employee_name, "data": {"difference": shift.difference, "to_deposit": shift.to_deposit}}
         )
 
     if shift.reopened_at is not None:
@@ -1701,9 +1826,10 @@ def employee_activity(
 ) -> dict[str, Any]:
     """Turnos, entradas/salidas, diferencias y racha, autorizaciones dadas.
 
-    "Racha" acá es la cantidad de cierres consecutivos más recientes con
-    diferencia distinta de cero en los que esta persona fue responsable de
-    caja (mismo criterio que `_check_difference_streak`, pero de lectura).
+    "Racha" acá es la cantidad de cierres consecutivos más recientes en los
+    que esta persona fue responsable de caja y la diferencia se pasó de la
+    tolerancia de la sede (`difference_streak_from`, la misma regla del
+    aviso; sin sede en la consulta, tolerancia 0).
     """
 
     employee = db.get(Employee, employee_id)
@@ -1745,12 +1871,10 @@ def employee_activity(
             closed_as_responsible.append(shift)
 
     closed_as_responsible.sort(key=lambda s: s.closed_at or clock.now_utc(), reverse=True)
-    streak = 0
-    for shift in closed_as_responsible:
-        if (shift.difference or 0) != 0:
-            streak += 1
-        else:
-            break
+    tolerance = stores_service.get_cash_settings(db, store_id).tolerance_unknown_cause if store_id is not None else 0
+    streak = difference_streak_from(
+        [None if s.closed_without_count else s.difference for s in closed_as_responsible], tolerance
+    )
 
     authorizations = list(
         db.execute(

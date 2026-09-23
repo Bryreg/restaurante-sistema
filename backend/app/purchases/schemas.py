@@ -60,14 +60,99 @@ class SupplierOut(OutModel):
     active: bool
 
 
+class IngredientReliabilityOut(BaseModel):
+    """Confiabilidad de UN insumo con UN proveedor en el período. Todo se
+    calcula por insumo porque sólo dentro de un insumo las cantidades están
+    en la misma unidad base (nunca se suman gramos con unidades)."""
+
+    ingredient_id: int
+    name: str
+    base_unit: str
+    n_receptions: int
+    # Recibido ÷ facturado de este insumo, en puntos básicos (10.000 = 100 %).
+    received_over_invoiced_bp: int | None
+    # Deriva de precio CON SIGNO (+ subió, − bajó), en puntos básicos: la
+    # mediana ponderada por plata de cada línea contra la línea anterior del
+    # mismo insumo y el mismo proveedor (aunque esa anterior sea de antes del
+    # período). `None` si ninguna línea tiene una anterior contra qué medir.
+    price_drift_bp: int | None
+    n_price_comparisons: int
+    # Plata del insumo en el período (Σ cantidad recibida × costo unitario
+    # sin impuesto), en pesos: el peso de este insumo en la mediana del
+    # proveedor.
+    spend: int
+
+
 class SupplierReliabilityOut(BaseModel):
     supplier_id: int
     date_from: date
     date_to: date
     receptions: int
+    # Compatibilidad con el diálogo existente: en por ciento entero,
+    # redondeados de los `_bp` de abajo (misma matemática, otra unidad).
     received_over_invoiced_pct: int | None
     invoice_share_pct: int | None
     avg_price_drift_pct: int | None
+    # Resumen del proveedor: mediana PONDERADA POR PLATA de los valores por
+    # insumo (nunca una suma de cantidades de insumos distintos).
+    received_over_invoiced_bp: int | None
+    invoice_share_bp: int | None
+    price_drift_bp: int | None
+    n_receptions: int
+    n_ingredients: int
+    spend: int
+    ingredients: list[IngredientReliabilityOut]
+
+
+class SupplierReliabilityRowOut(SupplierReliabilityOut):
+    name: str
+    active: bool
+
+
+class SuppliersReliabilityOut(BaseModel):
+    store_id: int
+    date_from: date
+    date_to: date
+    rows: list[SupplierReliabilityRowOut]
+
+
+# ---------------------------------------------------------------------------
+# Resumen de cuentas por pagar (`GET /admin/payables/summary`).
+# ---------------------------------------------------------------------------
+
+AgingBucketLiteral = Literal["current", "1_30", "31_60", "over_60"]
+
+
+class PayablesAgingOut(BaseModel):
+    """`current` = todavía no vence (incluye las que vencen hoy); los demás,
+    días de vencida contados desde `due_date`."""
+
+    bucket: AgingBucketLiteral
+    amount: int
+    count: int
+
+
+class PayablesSupplierOut(BaseModel):
+    supplier_id: int
+    name: str
+    open: int
+    overdue: int
+
+
+class PayablesSummaryOut(BaseModel):
+    store_id: int
+    as_of: date
+    # Saldo vivo (monto − pagos no anulados) de las cuentas no canceladas con
+    # saldo > 0, en pesos. Incluye las `pending_review`: es plata que se debe
+    # aunque todavía no se haya aprobado.
+    total_open: int
+    total_overdue: int
+    # Saldo de las que vencen entre hoy y hoy + 7 días (las dos puntas).
+    due_next_7_days: int
+    open_count: int
+    overdue_count: int
+    aging: list[PayablesAgingOut]
+    by_supplier: list[PayablesSupplierOut]
 
 
 # ---------------------------------------------------------------------------

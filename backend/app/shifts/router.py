@@ -27,6 +27,7 @@ from app.core.idempotency import hash_request_body, idempotency_key, run_idempot
 from app.shifts import service, tips as tips_service
 from app.shifts.models import BusinessDay, CashMovement, CashPickup, CashSwap, HandoverKind, Shift, ShiftHandover, ShiftStatus
 from app.shifts.schemas import (
+    ShiftCashSummaryOut,
     AdminAdjustOpeningIn,
     AdminCloseAdministrativeIn,
     AdminReopenIn,
@@ -628,6 +629,26 @@ def admin_list_shifts(
     if wants_csv(request):
         return csv_response([r.model_dump(mode="json") for r in rows], filename="shifts.csv")
     return rows
+
+
+@router.get("/admin/shifts/summary")
+def admin_shifts_summary(
+    store_id: int,
+    date_from: date | None = Query(None, alias="from"),
+    date_to: date | None = Query(None, alias="to"),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> ShiftCashSummaryOut:
+    """Resumen de caja del mismo rango que `GET /admin/shifts` (informe de
+    visualización #10): diferencias con signo, faltantes/sobrantes y cortes
+    por responsable y por día."""
+    store = admin_store(db, actor, store_id)
+    return ShiftCashSummaryOut(
+        store_id=store.id,
+        date_from=date_from,
+        date_to=date_to,
+        **service.cash_summary(db, store=store, date_from=date_from, date_to=date_to),
+    )
 
 
 @router.get("/admin/shifts/{shift_id}/timeline")

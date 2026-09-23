@@ -418,14 +418,17 @@ def test_cash_differences_collapse_into_one_summary_alert_with_amount(
 ) -> None:
     """Tres cierres de la misma cajera: −$18.000, −$2.000 y +$5.000 (uno
     crítico) más la racha. En vez de cuatro tarjetas sueltas, UNA:
-    «3 cierres de caja con diferencia», faltante −$20.000 en 2 y sobrante
-    $5.000 en 1, neto −$15.000 en `amount`, y la racha con nombre."""
+    «3 cierres de caja con diferencia», faltante −$50.000 en 2 y sobrante
+    $35.000 en 1, neto −$15.000 en `amount`, y la racha con nombre."""
     open_shift()
     identify(device_client, employees["cashier"])
     venta = sell(main_product, qty=1)
     original = db.get(Shift, db.get(FiscalDocument, venta["document"]["id"]).shift_id)
     now = clock.now()
-    diffs = [-18_000, -2_000, 5_000]
+    # Las tres pasan la tolerancia de la sede ($ 20.000 por defecto): la
+    # racha usa la regla de turnos (`shifts.hooks.difference_streak`), que
+    # no cuenta lo tolerado.
+    diffs = [-28_000, -22_000, 35_000]
     clones = [
         _clone_shift(db, original, shift_id=original.id + 1 + i, opened_at=now - timedelta(days=3 - i), difference=d)
         for i, d in enumerate(diffs)
@@ -448,13 +451,13 @@ def test_cash_differences_collapse_into_one_summary_alert_with_amount(
     assert resumen["title"] == "3 cierres de caja con diferencia"
     assert resumen["amount"] == -15_000
     payload = resumen["payload"]
-    assert (payload["shortage_count"], payload["shortage_total"]) == (2, -20_000)
-    assert (payload["surplus_count"], payload["surplus_total"]) == (1, 5_000)
+    assert (payload["shortage_count"], payload["shortage_total"]) == (2, -50_000)
+    assert (payload["surplus_count"], payload["surplus_total"]) == (1, 35_000)
     assert payload["critical_count"] == 1
     assert payload["streaks"] == [
         {"employee_id": original.cash_responsible_id, "employee_name": original.cash_responsible_name, "streak": 3}
     ]
-    assert "Faltante -$ 20.000 en 2 cierres; sobrante $ 5.000 en 1 cierre." in resumen["body"]
+    assert "Faltante -$ 50.000 en 2 cierres; sobrante $ 35.000 en 1 cierre." in resumen["body"]
     assert f"{original.cash_responsible_name} lleva 3 cierres seguidos con diferencia." in resumen["body"]
     otro = alerts[types.index("fiscal_contingency_overdue")]
     assert otro["amount"] is None

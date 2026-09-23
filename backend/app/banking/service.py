@@ -49,6 +49,7 @@ from app.banking.schemas import (
 from app.channels.models import DeliveryPlatform, PlatformReceivable, PlatformReceivableStatus
 from app.core import clock, tz
 from app.core.errors import AppError, NotFoundError
+from app.core.money import format_cop
 from app.payments.models import Payment
 from app.refunds.models import PendingRefund, PendingRefundStatus, SettleFrom
 from app.shifts.hooks import methods_in_bucket
@@ -177,7 +178,7 @@ def _validate_allocations(
     if allocated_total > amount:
         raise AppError(
             code="ALLOCATION_EXCEEDS_DEPOSIT",
-            message=f"Las imputaciones suman ${allocated_total} pero la consignación es de ${amount}",
+            message=f"Las imputaciones suman {format_cop(allocated_total)} pero la consignación es de {format_cop(amount)}",
             status=400,
         )
 
@@ -191,8 +192,8 @@ def _validate_allocations(
             raise AppError(
                 code="DEPOSIT_EXCEEDS_PENDING",
                 message=(
-                    f"El turno #{shift.id} sólo tiene ${outstanding} pendiente por consignar; "
-                    f"no se le puede imputar ${line.amount}"
+                    f"El turno #{shift.id} sólo tiene {format_cop(outstanding)} pendiente por consignar; "
+                    f"no se le puede imputar {format_cop(line.amount)}"
                 ),
                 status=400,
             )
@@ -482,7 +483,7 @@ def bank_ledger(db: Session, *, store: Store, date_from: date, date_to: date) ->
 # ---------------------------------------------------------------------------
 
 
-def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> dict[str, int]:
+def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> dict[str, Any]:
     """`retirado − consignado − gastado = saldo` (checklist de la fase).
 
     **`withdrawn`** (retirado) tiene DOS fuentes, y las dos son plata que
@@ -654,6 +655,8 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
     spent = spent_on_refunds + spent_on_tips
     balance = withdrawn - deposited - spent
 
+    oldest_date, oldest_days = _oldest_undeposited(db, store=store, date_to=date_to)
+
     return {
         "withdrawn": withdrawn,
         "deposited": deposited,
@@ -665,7 +668,42 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
         "spent_on_refunds": spent_on_refunds,
         "uncounted_shifts": uncounted_shifts,
         "tip_payouts_unknown_source": tip_payouts_unknown_source,
+        "oldest_undeposited_date": oldest_date,
+        "oldest_undeposited_days": oldest_days,
     }
+
+
+def _oldest_undeposited(db: Session, *, store: Store, date_to: date) -> tuple[date | None, int | None]:
+    """La plata más vieja que sigue sin consignar (informe de visualización
+    #15): el cierre de turno CONTADO más antiguo, hasta `date_to`, al que
+    todavía le queda saldo por consignar (`to_deposit` − imputaciones vivas,
+    la misma cuenta de `GET /admin/deposits/pending`). Devuelve su fecha de
+    negocio y cuántos días lleva a hoy (fecha de negocio de la sede).
+
+    No se acota a `date_from` a propósito: la plata de antes del período que
+    sigue en la mano es justamente la más vieja. Los retiros a mitad de
+    turno (`CashPickup`) no se imputan a una consignación, así que no tienen
+    antigüedad medible y no entran; los cierres sin conteo tampoco (su
+    `to_deposit` no es un arqueo). `(None, None)` si no queda nada."""
+    rows = db.execute(
+        select(Shift, BusinessDay.business_date)
+        .join(BusinessDay, BusinessDay.id == Shift.business_day_id)
+        .where(
+            Shift.organization_id == store.organization_id,
+            Shift.store_id == store.id,
+            Shift.status == ShiftStatus.CLOSED,
+            Shift.closed_without_count.is_(False),
+            Shift.to_deposit.is_not(None),
+            Shift.to_deposit > 0,
+            BusinessDay.business_date <= date_to,
+        )
+        .order_by(BusinessDay.business_date, Shift.id)
+    ).all()
+    for shift, business_date in rows:
+        if (shift.to_deposit or 0) - _allocated_live_for_shift(db, shift.id) > 0:
+            today = tz.today_business_date(store.cutoff_hour)
+            return business_date, max((today - business_date).days, 0)
+    return None, None
 
 
 # ---------------------------------------------------------------------------

@@ -577,6 +577,54 @@ export function listAdminShifts(filters: AdminShiftFilters): Promise<AdminShiftL
   });
 }
 
+/** Un responsable de caja en el resumen del historial. Plata en pesos, con
+ * signo (negativo = faltante), sólo de cierres CONTADOS. */
+export interface CashSummaryPerson {
+  employee_id: number;
+  name: string;
+  /** Cierres contados como responsable de caja en el rango. */
+  closes: number;
+  diff_total: number;
+  shortage_count: number;
+  overage_count: number;
+  /** Racha actual: cierres contados seguidos por fuera de la tolerancia (misma regla del aviso). */
+  current_streak: number;
+}
+
+/** `GET /admin/shifts/summary?store_id&from&to` (informe de visualización
+ * #10): la cabecera de Dinero › Historial, con los mismos filtros que
+ * `listAdminShifts`. Los cierres sin conteo van en `uncounted_count`, nunca
+ * como $0. */
+export interface ShiftCashSummary {
+  store_id: number;
+  date_from: string | null;
+  date_to: string | null;
+  closed_count: number;
+  counted_count: number;
+  uncounted_count: number;
+  /** Σ diferencias con signo (negativo = faltante). */
+  diff_total: number;
+  /** Σ de los faltantes (≤ 0) y de los sobrantes (≥ 0). */
+  shortage_total: number;
+  overage_total: number;
+  shortage_count: number;
+  overage_count: number;
+  exact_count: number;
+  /** Tolerancia de la sede (`tolerance_unknown_cause`), en pesos. */
+  tolerance: number;
+  beyond_tolerance_count: number;
+  /** Ordenado por `diff_total` ascendente: el faltante más grande primero. */
+  by_person: CashSummaryPerson[];
+  /** Un renglón por día de negocio con cierres contados, en orden de fecha. */
+  by_day: { business_date: string; closes: number; diff_total: number }[];
+}
+
+export function getAdminShiftsSummary(filters: AdminShiftFilters): Promise<ShiftCashSummary> {
+  return api<ShiftCashSummary>("/admin/shifts/summary", {
+    query: { store_id: filters.storeId, from: filters.from, to: filters.to },
+  });
+}
+
 /** URL de exportación CSV con los mismos filtros (`?format=csv`). */
 export function adminShiftsCsvUrl(filters: AdminShiftFilters): string {
   const params = new URLSearchParams();

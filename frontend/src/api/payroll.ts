@@ -151,7 +151,26 @@ export interface PayrollRunLineOut {
  * `app/payroll/schemas.py::PayrollCalculationMethodLiteral`. */
 export type PayrollCalculationMethod = "additive_surcharges"
 
-export interface PayrollRunOut {
+/** Informe de visualización #14: la liquidación en contexto. Todo lo calcula
+ * el backend; `null` va con su motivo en `payroll_pct_reason` /
+ * `previous_reason`. */
+export interface PayrollRunComparison {
+  /** Ventas netas del MISMO período (pesos, sin impuesto ni propina). */
+  net_sales?: number | null
+  /** `total_amount / net_sales`, en puntos básicos (10.000 = 100 %). */
+  payroll_pct_of_sales_bp?: number | null
+  payroll_pct_reason?: string | null
+  /** La liquidación más reciente cuyo período termina antes de éste. */
+  previous_run_id?: number | null
+  previous_date_from?: string | null
+  previous_date_to?: string | null
+  previous_total?: number | null
+  /** (total − anterior) / anterior, en puntos básicos, con signo. */
+  delta_bp?: number | null
+  previous_reason?: string | null
+}
+
+export interface PayrollRunOut extends PayrollRunComparison {
   id: number
   /** A-5: `additive_surcharges` paga base + recargos de forma aditiva e
    * independiente. Es auditable recargo por recargo y sirve para control
@@ -185,7 +204,7 @@ export interface PayrollRunIn {
  * «esta liquidación no informó qué tabla de recargos usó» cuando el backend
  * sí las informa — en `GET /admin/payroll/runs/{id}`.
  */
-export interface PayrollRunSummaryOut {
+export interface PayrollRunSummaryOut extends PayrollRunComparison {
   id: number
   store_id?: number
   date_from?: string
