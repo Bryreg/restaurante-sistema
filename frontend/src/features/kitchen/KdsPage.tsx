@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, Printer, Rocket, Undo2 } from "lucide-react"
 import { useEffect, useState } from "react"
 
-import { useCocinaPantalla } from "@/app/salonTheme"
+import { useCocinaPantalla } from "@/app/theme"
 import { useSession } from "@/app/session"
 import {
   bumpItem,

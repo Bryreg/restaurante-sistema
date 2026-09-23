@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { useCocinaPantalla, useSalonTheme } from "@/app/salonTheme";
+import { useCocinaPantalla, useSalonTheme } from "@/app/theme";
 
 describe("pantalla del salón por dispositivo", () => {
   afterEach(() => {

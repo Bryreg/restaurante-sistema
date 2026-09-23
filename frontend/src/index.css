@@ -171,7 +171,7 @@
    de la oficina: tinta más oscura, gris secundario más firme y líneas más
    visibles, porque se lee de pie y a un brazo de distancia. `html.salon` gana
    sobre `.dark` (más especificidad): el claro/oscuro del admin no manda acá;
-   manda la elección de la tablet (`src/app/salonTheme.ts`). */
+   manda la elección de la tablet (`useSalonTheme` en `src/app/theme.tsx`). */
 html.salon {
     color-scheme: light;
     --background: #F7F8F5;

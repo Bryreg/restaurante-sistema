@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useDensity } from "@/app/density";
-import { useSalonTheme } from "@/app/salonTheme";
+import { useSalonTheme } from "@/app/theme";
 import { useSession } from "@/app/session";
 import { deviceActivate } from "@/api/auth";
 import { PinPad } from "@/components/PinPad";

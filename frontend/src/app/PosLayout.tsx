@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 
 import type { NavItem } from "./nav";
 import { useDensity } from "./density";
-import { useSalonTheme } from "./salonTheme";
+import { useSalonTheme } from "./theme";
 import { useSession } from "./session";
 
 /** [...ordersFeature.posNav, ...shiftsFeature.posNav, ...recipesFeature.posNav,
