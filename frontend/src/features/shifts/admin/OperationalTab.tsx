@@ -10,9 +10,11 @@ import {
   type LegendEntry,
   type RowStatus,
 } from "@/components/admin";
+import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Diferencia } from "@/components/Diferencia";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
 
@@ -81,7 +83,12 @@ export function shiftColumns(
     { key: "who", header: "Responsable", cell: (s) => s.cash_responsible?.name ?? "—" },
     { key: "expected", header: "Esperado", kind: "number", cell: (s) => formatCOP(s.expected_cash) },
     { key: "counted", header: "Contado", kind: "number", cell: (s) => formatCOP(s.counted_cash) },
-    { key: "difference", header: "Diferencia", kind: "number", cell: (s) => formatCOP(s.difference) },
+    {
+      key: "difference",
+      header: "Diferencia",
+      kind: "number",
+      cell: (s) => <Diferencia valor={s.difference} motivoSinDato="sin conteo de cierre" />,
+    },
     {
       key: "reviewed",
       header: "Revisión",
@@ -122,7 +129,7 @@ export function OperationalTab({ storeId }: { storeId: number }): React.JSX.Elem
   });
 
   if (query.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando turnos de hoy…</p>;
+    return <Cargando texto="Cargando turnos de hoy…" />;
   }
   if (query.isError) {
     return (

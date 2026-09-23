@@ -3,6 +3,7 @@ import { useState } from "react"
 
 import type { CategoryOut } from "@/api/catalog"
 import { createCategory, listCategories, updateCategory } from "@/api/catalog"
+import { Cargando } from "@/components/Cargando"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -42,7 +43,7 @@ export function CategoriesTab({ storeId }: { storeId: number }) {
   })
 
   if (categoriesQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando categorías…</p>
+    return <Cargando texto="Cargando categorías…" />
   }
   if (categoriesQuery.isError) {
     return <p className="text-sm text-destructive">{errorMessage(categoriesQuery.error)}</p>

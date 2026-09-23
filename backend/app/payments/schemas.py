@@ -289,3 +289,31 @@ class DevicePaymentMethodOut(BaseModel):
     label: str
     dian_code: str
     requires_reference: bool
+
+
+# ---------------------------------------------------------------------------
+# Vista previa del vuelto (`POST /payments/change-preview`): la caja la pide
+# mientras teclea lo recibido, para decirle al cliente el vuelto ANTES de
+# cobrar. No escribe nada; la cuenta es `service.cash_change`, la misma del
+# cobro.
+# ---------------------------------------------------------------------------
+
+
+class ChangePreviewSplitIn(BaseModel):
+    amount: int = Field(ge=0)
+    tendered: int = Field(ge=0)
+
+
+class ChangePreviewIn(BaseModel):
+    splits: list[ChangePreviewSplitIn] = Field(default_factory=list, max_length=20)
+
+
+class ChangePreviewSplitOut(BaseModel):
+    # `null` si lo recibido no alcanza: no hay vuelto, y no es 0.
+    change: int | None
+    short_by: int | None
+
+
+class ChangePreviewOut(BaseModel):
+    splits: list[ChangePreviewSplitOut]
+    change_total: int

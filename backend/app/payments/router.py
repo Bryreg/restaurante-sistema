@@ -21,7 +21,13 @@ from app.core.errors import AppError, UnauthorizedError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.orders import service as orders_service
 from app.payments import service
-from app.payments.schemas import DevicePaymentMethodOut, DocumentPrintableOut, PaymentIn
+from app.payments.schemas import (
+    ChangePreviewIn,
+    ChangePreviewOut,
+    DevicePaymentMethodOut,
+    DocumentPrintableOut,
+    PaymentIn,
+)
 from app.shifts import service as shifts_service
 from app.stores.models import Store
 
@@ -80,6 +86,23 @@ def post_payment(
         fn=_do,
     )
     return JSONResponse(status_code=status_code, content=resp_body)
+
+
+@router.post("/payments/change-preview")
+def post_change_preview(
+    payload: ChangePreviewIn, actor: Actor = Depends(current_device)
+) -> ChangePreviewOut:
+    """El vuelto antes de cobrar. Sólo lectura: no toca la comanda ni el
+    cajón, así que no lleva `Idempotency-Key`.
+
+    Pide el DISPOSITIVO y no la persona (`current_operator`), a propósito: la
+    pantalla la consulta en cada cambio de lo recibido, y con persona
+    (1) un 401 por sesión vencida cerraría la sesión en medio del cobro
+    —el cobro mismo ya pide el PIN— y (2) cada consulta renovaría la sesión
+    de la persona, así que teclear montos la mantendría viva para siempre.
+    Es una resta sin datos: no hay nada que proteger detrás de un PIN."""
+    del actor
+    return ChangePreviewOut.model_validate(service.preview_change(payload.splits))
 
 
 # ---------------------------------------------------------------------------

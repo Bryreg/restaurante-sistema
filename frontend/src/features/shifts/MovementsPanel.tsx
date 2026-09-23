@@ -10,8 +10,10 @@ import {
   type CashMovementIn,
   type CashMovementKind,
 } from "@/api/shifts";
+import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import { MoneyInput } from "@/components/MoneyInput";
+import { DesdeHacia } from "@/components/DesdeHacia";
 import { PinPad } from "@/components/PinPad";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -193,6 +195,16 @@ export function MovementsPanel({ shiftId }: { shiftId: number }): React.JSX.Elem
           </p>
         ) : null}
 
+        {amount !== null && amount > 0 ? (
+          <DesdeHacia
+            className="sm:col-span-2"
+            desde={kind === "expense" ? "El cajón del turno" : CAUSE_LABEL[cause]}
+            hacia={kind === "expense" ? CAUSE_LABEL[cause] : "El cajón del turno"}
+            monto={amount}
+            verbo={kind === "expense" ? "Sale" : "Entra"}
+          />
+        ) : null}
+
         {needsAuthorizerPin ? (
           <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 sm:col-span-2">
             <PinPad
@@ -212,7 +224,7 @@ export function MovementsPanel({ shiftId }: { shiftId: number }): React.JSX.Elem
       </form>
 
       {summary.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando movimientos…</p>
+        <Cargando texto="Cargando movimientos…" />
       ) : movements.length === 0 ? (
         <EmptyState title="Todavía no hay movimientos en este turno" />
       ) : (

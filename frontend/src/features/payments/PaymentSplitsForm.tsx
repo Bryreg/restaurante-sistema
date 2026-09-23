@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -8,12 +8,14 @@ import {
   PAYMENT_METHOD_LABEL,
   listDevicePaymentMethods,
   payOrder,
+  previewChange,
   type DevicePaymentMethod,
   type PaymentMethod,
   type PaymentOut,
   type PaymentSplitIn,
   type PaymentTipIn,
 } from "@/api/payments";
+import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import { MoneyInput } from "@/components/MoneyInput";
 import { PinPad } from "@/components/PinPad";
@@ -136,6 +138,37 @@ export function PaymentSplitsForm({
   const typedTotal = sumTyped(splits.map((s) => ({ amount: s.amount })));
   const remaining = totalDue - typedTotal;
 
+  // El vuelto lo calcula el SERVIDOR (`POST /payments/change-preview`, la
+  // misma cuenta del cobro): así lo que la cajera le dice al cliente antes de
+  // cobrar es exactamente lo que queda en el comprobante. Sólo las filas de
+  // efectivo con monto y recibido.
+  const filasConRecibido = splits.filter(
+    (row) => row.method === "cash" && row.amount !== null && row.amount > 0 && row.tendered !== null,
+  );
+  const cuerpoVuelto = filasConRecibido.map((row) => ({ amount: row.amount ?? 0, tendered: row.tendered ?? 0 }));
+  // Se pregunta cuando la cajera deja de teclear (300 ms), no en cada dígito:
+  // «100000» serían seis consultas. Mientras llega la nueva respuesta queda
+  // la anterior, atenuada, en vez de que el vuelto parpadee.
+  const claveVuelto = JSON.stringify(cuerpoVuelto);
+  const [claveDiferida, setClaveDiferida] = useState(claveVuelto);
+  useEffect(() => {
+    const id = window.setTimeout(() => setClaveDiferida(claveVuelto), 300);
+    return () => window.clearTimeout(id);
+  }, [claveVuelto]);
+  const cuerpoDiferido = JSON.parse(claveDiferida) as { amount: number; tendered: number }[];
+  const vueltoQuery = useQuery({
+    queryKey: ["payments", "change-preview", claveDiferida],
+    queryFn: () => previewChange(cuerpoDiferido),
+    enabled: cuerpoDiferido.length > 0 && cuerpoVuelto.length > 0,
+    staleTime: Infinity,
+    placeholderData: keepPreviousData,
+  });
+  const vueltoViejo = vueltoQuery.isPlaceholderData || claveDiferida !== claveVuelto;
+  const vueltoDeFila = new Map(
+    filasConRecibido.map((row, index) => [row.key, vueltoQuery.data?.splits[index]] as const),
+  );
+  const hayVuelto = cuerpoVuelto.length > 0 && vueltoQuery.data !== undefined;
+
   function updateRow(key: number, patch: Partial<SplitRow>) {
     setSplits((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
   }
@@ -186,7 +219,7 @@ export function PaymentSplitsForm({
   });
 
   if (methodsQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando medios de pago…</p>;
+    return <Cargando texto="Cargando medios de pago…" />;
   }
 
   if (methodsQuery.isError) {
@@ -294,6 +327,9 @@ export function PaymentSplitsForm({
                     Limpiar
                   </Button>
                 </div>
+                {row.method === "cash" && row.tendered !== null && hayVuelto ? (
+                  <VueltoDeFila preview={vueltoDeFila.get(row.key)} viejo={vueltoViejo} />
+                ) : null}
               </div>
             ) : null}
 
@@ -327,6 +363,14 @@ export function PaymentSplitsForm({
       ) : null}
 
       <div className="flex flex-col items-center gap-3 border-t pt-4">
+        {hayVuelto && vueltoQuery.data && vueltoQuery.data.change_total > 0 ? (
+          <p className={vueltoViejo ? "text-center opacity-50" : "text-center"} role="status">
+            <span className="block text-sm text-muted-foreground">Vuelto a entregar</span>
+            <span className="text-3xl font-extrabold tabular-nums" style={{ fontStretch: "115%" }}>
+              {formatCOP(vueltoQuery.data.change_total)}
+            </span>
+          </p>
+        ) : null}
         <p className="text-sm text-muted-foreground">
           {remaining !== 0 ? "Completá los pagos para poder cobrar." : "Ingresá tu PIN para cobrar."}
         </p>
@@ -346,5 +390,32 @@ export function PaymentSplitsForm({
         />
       </div>
     </div>
+  );
+}
+
+/** El vuelto de una fila de efectivo, tal como lo devolvió el servidor. */
+function VueltoDeFila({
+  preview,
+  viejo,
+}: {
+  preview: { change: number | null; short_by: number | null } | undefined;
+  /** La respuesta es de lo tecleado hace un momento: se atenúa hasta que llegue la nueva. */
+  viejo: boolean;
+}): React.JSX.Element | null {
+  if (!preview) {
+    return <p className="pt-1 text-sm text-muted-foreground">Calculando el vuelto…</p>;
+  }
+  if (preview.change === null) {
+    return (
+      <p className={viejo ? "pt-1 text-sm font-semibold text-destructive opacity-50" : "pt-1 text-sm font-semibold text-destructive"} role="alert">
+        Lo recibido no alcanza: faltan {formatCOP(preview.short_by)}
+      </p>
+    );
+  }
+  return (
+    <p className={viejo ? "flex items-baseline gap-2 pt-1 opacity-50" : "flex items-baseline gap-2 pt-1"}>
+      <span className="text-sm text-muted-foreground">Vuelto</span>
+      <span className="text-xl font-bold tabular-nums">{formatCOP(preview.change)}</span>
+    </p>
   );
 }

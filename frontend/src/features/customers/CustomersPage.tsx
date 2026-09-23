@@ -23,6 +23,7 @@ import {
   type DenseColumn,
   type LegendEntry,
 } from "@/components/admin";
+import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import {
   AlertDialog,
@@ -236,7 +237,7 @@ function RequestsLog({ customer }: { customer: CustomerOut }) {
         <LocalCsvExportButton href={customerRequestsCsvUrl(customer.id)} label="CSV" />
       </div>
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando…</p>
+        <Cargando texto="Cargando…" />
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">Sin solicitudes registradas.</p>
       ) : (

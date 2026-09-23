@@ -167,3 +167,63 @@ def test_difference_streak_of_three_notifies(device_client, employees, open_shif
         assert confirm.status_code in (200, 201), confirm.text
 
     assert "difference_streak" in notified_types
+
+
+def test_administrative_close_caps_the_roster_at_the_end_of_the_business_day(
+    admin_client, open_shift, employees, store, db: Session, clock
+) -> None:
+    """Un turno abandonado se rescata a veces días después. La jornada de
+    quien quedó adentro no puede estirarse hasta el rescate: termina, como
+    tarde, a la hora de corte del día siguiente a su día operativo."""
+    from datetime import datetime, time, timedelta, timezone
+
+    from app.core import tz
+    from app.shifts.models import ShiftRoster
+
+    open_shift(cash_responsible=employees["cashier"])
+    shift = _open(db)
+    day = db.get(BusinessDay, shift.business_day_id)
+    clock.advance(days=4)
+
+    resp = admin_client.post(f"/api/v1/admin/shifts/{shift.id}/close-administrative", json={"reason": "abandonado"})
+    assert resp.status_code in (200, 201), resp.text
+
+    fin = datetime.combine(
+        day.business_date + timedelta(days=1), time(hour=store.cutoff_hour), tzinfo=tz.BOGOTA
+    ).astimezone(timezone.utc)
+    db.expire_all()
+    entries = db.query(ShiftRoster).filter(ShiftRoster.shift_id == shift.id).all()
+    assert entries
+    for entry in entries:
+        assert entry.out_at == fin
+
+
+def test_reopen_puts_back_in_whoever_the_close_clocked_out(
+    device_client, admin_client, identify, employees, open_shift, db: Session
+) -> None:
+    """El cierre termina la jornada de quien sigue adentro; si el turno se
+    reabre, esa gente vuelve a quedar adentro (es el mismo turno)."""
+    from app.shifts.models import ShiftRoster
+
+    open_shift(cash_responsible=employees["cashier"])
+    shift = _open(db)
+    count = device_client.post(
+        f"/api/v1/shifts/{shift.id}/close/count",
+        json={"counted_cash": {"denominations": [{"value": 50000, "count": 4}], "total": 200_000},
+              "tips_cash_out": 0, "photo": "x.jpg"},
+        headers=idem(),
+    )
+    device_client.post(
+        f"/api/v1/shifts/{shift.id}/close/{count.json()['count_id']}/confirm",
+        json={"difference_seen": 0, "closes_day": True},
+    )
+    db.expire_all()
+    assert all(e.out_at is not None for e in db.query(ShiftRoster).filter(ShiftRoster.shift_id == shift.id))
+
+    reopen = admin_client.post(f"/api/v1/admin/shifts/{shift.id}/reopen", json={"reason": "venta tardía"})
+    assert reopen.status_code == 200, reopen.text
+    db.expire_all()
+    cajera = db.query(ShiftRoster).filter(
+        ShiftRoster.shift_id == shift.id, ShiftRoster.employee_id == employees["cashier"].id
+    ).one()
+    assert cajera.out_at is None

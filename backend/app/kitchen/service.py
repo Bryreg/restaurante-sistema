@@ -20,10 +20,10 @@ un driver (§13, fase 3 tiene la impresora térmica real).
 from __future__ import annotations
 
 import importlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
@@ -37,8 +37,9 @@ from app.kitchen.schemas import (
     KitchenPrintJobItemOut,
     KitchenPrintJobOut,
 )
-from app.orders.models import Order, OrderItem, OrderItemStatus, OrderRound, OrderTable
-from app.stores.models import Table
+from app.core import clock, tz
+from app.orders.models import Order, OrderItem, OrderItemStatus, OrderRound, OrderStatus, OrderTable
+from app.stores.models import Store, Table
 
 if TYPE_CHECKING:
     from app.auth.deps import Actor
@@ -326,24 +327,78 @@ def tables_for_order(db: Session, *, order_id: int) -> list[str]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Qué sigue siendo trabajo de cocina.
+# ---------------------------------------------------------------------------
+
+_DEAD_ORDER_STATUSES = (OrderStatus.VOIDED, OrderStatus.MERGED, OrderStatus.COMPENSATED)
+
+
+def live_rounds(db: Session, *, store_id: int) -> list[tuple[OrderRound, Order]]:
+    """Las rondas que la cocina todavía tiene que ver, más viejas primero.
+
+    Antes se leían TODAS las rondas de la sede desde el primer día: un plato
+    que cocina despachó (`ready`) y que nadie marcó `served` se quedaba en el
+    KDS para siempre. A las dos semanas de operación eran 460 rondas en rojo
+    con 14 días de «espera» (lo encontró `python -m app.demo`). Reglas:
+
+    - una comanda anulada, fusionada o compensada ya no es trabajo;
+    - de días operativos anteriores sólo sigue lo que está abierto (una
+      comanda trasladada de turno); lo cobrado de ayer ya salió;
+    - lo cobrado sigue mientras sea de HOY o de un turno que todavía está
+      abierto (un turno que vende pasada la hora de corte no puede perder su
+      cocina), porque en mostrador se cobra antes de cocinar — pero sólo lo
+      pendiente, ver `visible_items`.
+    """
+    from app.shifts.hooks import open_shift_ids_query
+
+    store = db.get(Store, store_id)
+    today = tz.today_business_date(store.cutoff_hour) if store is not None else None
+    stmt = (
+        select(OrderRound, Order)
+        .join(Order, OrderRound.order_id == Order.id)
+        .where(Order.store_id == store_id, Order.status.not_in(_DEAD_ORDER_STATUSES))
+        .order_by(OrderRound.sent_at)
+    )
+    if today is not None:
+        turnos_abiertos = open_shift_ids_query(store_id)
+        stmt = stmt.where(
+            or_(
+                Order.status.in_((OrderStatus.OPEN, OrderStatus.TO_PAY)),
+                Order.business_date == today,
+                Order.shift_id.in_(turnos_abiertos),
+            )
+        )
+    return [(round_row, order) for round_row, order in db.execute(stmt).all()]
+
+
+# Lo marcado «Listo» de una comanda cobrada sigue a la vista este rato, para
+# que un toque equivocado se pueda deshacer desde el KDS.
+READY_GRACE = timedelta(minutes=10)
+
+
+def visible_items(order: Order, items: list[OrderItem], *, now: datetime | None = None) -> list[OrderItem]:
+    """De una comanda ya cobrada, cocina ve lo que le falta preparar; lo
+    `ready` ya se entregó con la cuenta, salvo lo recién marcado (ventana
+    `READY_GRACE`, para poder deshacer un toque equivocado)."""
+    if order.status != OrderStatus.PAID:
+        return items
+    corte = (now or clock.now_utc()) - READY_GRACE
+    return [
+        item
+        for item in items
+        if item.status == OrderItemStatus.SENT
+        or (item.status == OrderItemStatus.READY and item.ready_at is not None and item.ready_at >= corte)
+    ]
+
+
 def _station_dockets(db: Session, *, store_id: int, station: str | None) -> list[tuple[OrderRound, Order, str, list[OrderItem]]]:
     """Un docket = una (ronda, estación) con al menos un ítem `sent`/`ready`
     para esa estación. Un ítem sin estación nunca llega SENT/READY
     (`app.orders.service._apply_send`: pasa directo a `served`), así que
     agrupar por `item.station` acá es seguro sin filtrar `None` a mano."""
-    rounds = list(
-        db.execute(
-            select(OrderRound)
-            .join(Order, OrderRound.order_id == Order.id)
-            .where(Order.store_id == store_id)
-            .order_by(OrderRound.sent_at)
-        ).scalars()
-    )
     out: list[tuple[OrderRound, Order, str, list[OrderItem]]] = []
-    for round_row in rounds:
-        order = db.get(Order, round_row.order_id)
-        if order is None:
-            continue
+    for round_row, order in live_rounds(db, store_id=store_id):
         items = list(
             db.execute(
                 select(OrderItem)
@@ -354,6 +409,7 @@ def _station_dockets(db: Session, *, store_id: int, station: str | None) -> list
                 .order_by(OrderItem.id)
             ).scalars()
         )
+        items = visible_items(order, items)
         by_station: dict[str, list[OrderItem]] = {}
         for item in items:
             if item.station is None:
@@ -426,6 +482,9 @@ def register_print_job(
             .order_by(OrderItem.id)
         ).scalars()
     )
+    # La misma regla que la cola que se ve (`_station_dockets`): lo que se
+    # imprime es lo que la cocina tiene en pantalla, ni un plato más.
+    items = visible_items(order, items, now=now)
     # Estación sin ítems pendientes en esta ronda: no es un error (mismo
     # criterio que `expedite_order` con `changed_item_ids=[]`), se registra
     # igual con `item_count=0` — el llamador decide si eso vale la pena

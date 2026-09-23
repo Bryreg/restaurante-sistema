@@ -31,6 +31,7 @@ import {
   getWages,
   setArea,
 } from "@/api/payroll"
+import { Cargando } from "@/components/Cargando"
 import { DenseTable, DenseTableBar, FormField, FormSection, ScopeDestinations } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { MoneyInput } from "@/components/MoneyInput"
@@ -149,7 +150,7 @@ function WagesSection({ storeId }: { storeId: number }): React.JSX.Element {
       ) : null}
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando tarifas…</p>
+        <Cargando texto="Cargando tarifas…" />
       ) : query.isError ? (
         <EmptyState
           reason="error"
@@ -264,7 +265,7 @@ function HolidaysSection({ storeId }: { storeId: number }): React.JSX.Element {
       ) : null}
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando festivos…</p>
+        <Cargando texto="Cargando festivos…" />
       ) : query.isError ? (
         <EmptyState
           reason="error"
@@ -379,7 +380,7 @@ function AreasSection({ storeId }: { storeId: number }): React.JSX.Element {
       ) : null}
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando áreas…</p>
+        <Cargando texto="Cargando áreas…" />
       ) : query.isError ? (
         <EmptyState
           reason="error"

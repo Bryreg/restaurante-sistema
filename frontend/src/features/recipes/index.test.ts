@@ -19,7 +19,11 @@ describe("recipesFeature", () => {
 
   it("la producción rápida vive en /pos/produccion, detrás de catalog.preps", () => {
     expect(recipesFeature.posRoutes.some((r) => r.path === "produccion")).toBe(true)
-    expect(recipesFeature.posNav).toEqual([{ to: "/pos/produccion", label: "Producir", feature: "catalog.preps" }])
+    // Cada entrada del salón lleva su ícono propio (el genérico era el mismo para todas).
+    for (const item of recipesFeature.posNav) expect(item.icon).toBeDefined()
+    expect(recipesFeature.posNav.map(({ icon: _icon, ...item }) => item)).toEqual([
+      { to: "/pos/produccion", label: "Producción", feature: "catalog.preps", posGroup: "cocina" },
+    ])
   })
 
   it("Preparaciones vive en /admin/preparaciones, detrás de catalog.preps", () => {

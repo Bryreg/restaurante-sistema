@@ -1,6 +1,6 @@
 /**
- * Utilidades puras y compartidas del dominio comanda: SOLO tiempo y texto,
- * nunca plata (AGENTS.md, CONTRATO-INTERNO §6.1 "una sola matemática, en el
+ * Utilidades puras y compartidas del dominio comanda: SOLO tiempo, texto y
+ * conteo de unidades (`qty`), nunca plata (AGENTS.md, CONTRATO-INTERNO §6.1 "una sola matemática, en el
  * backend"). El tiempo transcurrido de una mesa u orden se deriva acá porque
  * el backend no lo manda para `tables/status` (sólo `opened_at`); para cocina
  * el backend ya manda `elapsed_seconds` calculado y este archivo sólo lo
@@ -126,3 +126,131 @@ export function channelPriceKey(
   return "dine_in"
 }
 
+
+/** Rótulo de curso en plural, para encabezar un grupo de líneas del pedido. */
+export const COURSE_GROUP_LABEL: Record<string, string> = {
+  beverage: "Bebidas",
+  starter: "Entradas",
+  main: "Fuertes",
+  dessert: "Postres",
+}
+
+/** Orden en que sale una comida: el pedido se lee de arriba abajo igual. */
+const COURSE_ORDER = ["beverage", "starter", "main", "dessert"]
+
+export function courseGroupLabel(course: string | null | undefined): string {
+  if (!course) return "Sin curso"
+  return COURSE_GROUP_LABEL[course] ?? course
+}
+
+/**
+ * Agrupa líneas por curso (orden de salida; un curso desconocido va al final
+ * en orden de aparición). Sólo reordena: no toca cantidades ni montos.
+ */
+export function groupByCourse<T extends { course?: string | null }>(items: T[]): { course: string; items: T[] }[] {
+  const groups = new Map<string, T[]>()
+  for (const item of items) {
+    const key = item.course ?? ""
+    const bucket = groups.get(key)
+    if (bucket) bucket.push(item)
+    else groups.set(key, [item])
+  }
+  const rank = (course: string) => {
+    const i = COURSE_ORDER.indexOf(course)
+    return i === -1 ? COURSE_ORDER.length : i
+  }
+  return [...groups.entries()]
+    .map(([course, list]) => ({ course, items: list }))
+    .sort((a, b) => rank(a.course) - rank(b.course))
+}
+
+/**
+ * Unidades de la ronda sin enviar (`pending`), por producto y por combo: el
+ * número de la insignia sobre cada plato de la carta. Cuenta cantidades —
+ * nunca plata—, que es lo único que el cliente puede sumar (AGENTS.md).
+ */
+export function unsentQtyByProduct(items: { product_id?: number | null; combo_id?: number | null; qty?: number; status?: string }[]): {
+  products: Map<number, number>
+  combos: Map<number, number>
+} {
+  const products = new Map<number, number>()
+  const combos = new Map<number, number>()
+  for (const item of items) {
+    if (item.status !== "pending") continue
+    const qty = item.qty ?? 1
+    if (item.combo_id !== null && item.combo_id !== undefined) {
+      combos.set(item.combo_id, (combos.get(item.combo_id) ?? 0) + qty)
+    } else if (item.product_id !== null && item.product_id !== undefined) {
+      products.set(item.product_id, (products.get(item.product_id) ?? 0) + qty)
+    }
+  }
+  return { products, combos }
+}
+
+/** Cuántas unidades salen con «Enviar a cocina»: la suma de `qty` pendiente. */
+export function unsentItemCount(items: { qty?: number; status?: string }[]): number {
+  let units = 0
+  for (const item of items) if (item.status === "pending") units += item.qty ?? 1
+  return units
+}
+
+/**
+ * El número de la ronda que se está armando: una más que la última enviada.
+ * Sale de `order.rounds` (el resumen del backend) y, si falta, del
+ * `round_no` más alto de los ítems — sólo una etiqueta, nunca un dato.
+ */
+export function nextRoundNo(
+  rounds: { round_no?: number }[] | null | undefined,
+  items: { round_no?: number | null }[],
+): number {
+  let last = 0
+  for (const round of rounds ?? []) last = Math.max(last, round.round_no ?? 0)
+  for (const item of items) last = Math.max(last, item.round_no ?? 0)
+  return last + 1
+}
+
+/**
+ * ¿El plato exige preguntar algo antes de entrar al pedido? Sólo si tiene
+ * un grupo de modificadores obligatorio (`required` o `min > 0`) y la
+ * función está encendida; si no, un toque lo suma directo (Momento 1 de
+ * `docs/diseno/propuesta.html`). El backend valida igual (`_resolve_modifiers`).
+ */
+export function productNeedsOptions(
+  product: { modifier_groups?: { required: boolean; min: number }[] },
+  modifiersEnabled: boolean,
+): boolean {
+  if (!modifiersEnabled) return false
+  return (product.modifier_groups ?? []).some((group) => group.required || group.min > 0)
+}
+
+/**
+ * La línea pendiente a la que un toque rápido le puede sumar una unidad sin
+ * cambiar lo que cocina recibe: mismo producto, sin modificadores, sin nota,
+ * sin asiento, en el curso por defecto, sin descuento ni cortesía. Si no hay
+ * una así, el toque agrega una línea nueva.
+ */
+export function findMergeableLine<
+  T extends {
+    product_id?: number | null
+    status?: string
+    modifiers?: unknown[] | null
+    note?: string | null
+    seat?: number | null
+    course?: string | null
+    discount?: number | null
+    courtesy?: unknown
+  },
+>(items: T[], product: { id: number; default_course?: string | null }): T | undefined {
+  const defaultCourse = product.default_course || "main"
+  return items.find(
+    (item) =>
+      item.status === "pending" &&
+      item.product_id === product.id &&
+      (item.modifiers ?? []).length === 0 &&
+      !item.note &&
+      (item.seat === null || item.seat === undefined) &&
+      (item.course ?? defaultCourse) === defaultCourse &&
+      !item.discount &&
+      !item.courtesy,
+  )
+}

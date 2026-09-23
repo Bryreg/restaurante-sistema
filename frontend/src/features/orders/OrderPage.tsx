@@ -1,4 +1,5 @@
-import { useState } from "react"
+import { Send } from "lucide-react"
+import { useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 
 import { useSession } from "@/app/session"
@@ -19,9 +20,11 @@ import {
   type DiscountReason,
   type OrderItemIn,
   type OrderItemOut,
+  type OrderOut,
   type PreBillOut,
   type VoidReason,
 } from "@/api/orders"
+import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -45,7 +48,16 @@ import {
   useOrder,
   useOrderMutationHandler,
 } from "./hooks"
-import { CHANNEL_LABEL, courseLabel, ORDER_STATUS_LABEL } from "./lib"
+import {
+  CHANNEL_LABEL,
+  courseLabel,
+  findMergeableLine,
+  nextRoundNo,
+  ORDER_STATUS_LABEL,
+  productNeedsOptions,
+  unsentItemCount,
+  unsentQtyByProduct,
+} from "./lib"
 
 type ItemTarget = { product?: CatalogProductOut; combo?: CatalogComboOut }
 type VoidTarget = { scope: "order" } | { scope: "item"; item: OrderItemOut }
@@ -79,6 +91,11 @@ export function OrderPage(): React.JSX.Element {
   const [preBillPending, setPreBillPending] = useState(false)
   const [busyItemId, setBusyItemId] = useState<number | null>(null)
   const [firingCourse, setFiringCourse] = useState<string | null>(null)
+  // Los toques rápidos en la carta van en fila: cada uno manda la versión
+  // que dejó el anterior. Sin la fila, dos toques seguidos salen con la
+  // misma `expected_version` y el segundo rebota con `STALE_VERSION` — un
+  // plato perdido en el peor minuto del turno.
+  const quickAddQueue = useRef<Promise<void>>(Promise.resolve())
 
   function saveOrder(updated: NonNullable<typeof order>) {
     if (orderId !== null) queryClient.setQueryData(orderQueryKey(orderId), updated)
@@ -88,14 +105,17 @@ export function OrderPage(): React.JSX.Element {
     return <EmptyState role="alert" title="Comanda inválida" />
   }
   if (orderQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando comanda…</p>
+    return <Cargando texto="Cargando comanda…" />
   }
   if (!order) {
     return <EmptyState role="alert" title="No se pudo cargar la comanda" description={error ?? undefined} />
   }
 
   const items = order.items ?? []
-  const pendingCount = items.filter((item) => item.status === "pending").length
+  // Contar unidades (no plata) sí es del cliente: el número del botón de
+  // enviar y el de la insignia de cada plato de la carta.
+  const unsentUnits = unsentItemCount(items)
+  const unsentQty = unsentQtyByProduct(items)
   // «Marchar» (pos.courses): un curso por cada valor distinto entre los
   // ítems vivos (no anulados) que lo tienen — el orden es el de primera
   // aparición, nunca alfabético ni inventado.
@@ -130,16 +150,67 @@ export function OrderPage(): React.JSX.Element {
   }
 
   // ---------------------------------------------------------------------
+  // Toque en la carta: suma directo salvo que el plato exija elegir algo
+  // (modificador obligatorio) o que la persona haya pedido «Elegir
+  // opciones» (Momento 1 de `docs/diseno/propuesta.html`).
+  // ---------------------------------------------------------------------
+  function handleSelectProduct(product: CatalogProductOut, options?: { withOptions: boolean }) {
+    if (options?.withOptions || productNeedsOptions(product, hasFeature("pos.modifiers"))) {
+      setItemTarget({ product })
+      return
+    }
+    enqueueQuickAdd(product)
+  }
+
+  function enqueueQuickAdd(product: CatalogProductOut, pin?: string) {
+    quickAddQueue.current = quickAddQueue.current.then(() => quickAdd(product, pin))
+  }
+
+  async function quickAdd(product: CatalogProductOut, pin?: string) {
+    // La comanda de la caché, no la del render: el toque anterior de la
+    // fila ya pudo haberla cambiado (y con ella la versión).
+    const current = (orderId !== null ? queryClient.getQueryData<OrderOut>(orderQueryKey(orderId)) : undefined) ?? order
+    if (!current) return
+    // Sumar a la línea que ya existe deja «2× Limonada» en vez de dos líneas
+    // de 1×. Sólo cuando el backend validaría lo mismo por las dos vías: con
+    // cupo diario (`daily_remaining`) o con la cuenta ya presentada, el PATCH
+    // de cantidad no revisa ni el cupo ni el PIN, así que va una línea nueva
+    // por `addItems`, que sí los revisa.
+    const canMerge = (product.daily_remaining === null || product.daily_remaining === undefined) && !current.bill_presented_at
+    const mergeable = canMerge ? findMergeableLine(current.items ?? [], product) : undefined
+    try {
+      const updated = mergeable
+        ? await patchItem(current.id, mergeable.id, { expected_version: current.version ?? 0, qty: (mergeable.qty ?? 1) + 1 })
+        : await addItems(
+            current.id,
+            { expected_version: current.version ?? 0, items: [{ product_id: product.id, qty: 1 }], authorizer_pin: pin },
+            newIdempotencyKey(),
+          )
+      saveOrder(updated)
+      if (pin !== undefined) authorizerFlow.close()
+    } catch (err) {
+      handleError(err, { pin, retry: (retryPin) => enqueueQuickAdd(product, retryPin) })
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Cantidad (sólo `pending`).
   // ---------------------------------------------------------------------
-  async function handleQtyChange(item: OrderItemOut, nextQty: number) {
+  async function handleQtyChange(item: OrderItemOut, nextQty: number, pin?: string) {
     if (!order || nextQty < 1) return
     setBusyItemId(item.id)
     try {
-      const updated = await patchItem(order.id, item.id, { expected_version: order.version ?? 0, qty: nextQty })
+      const updated = await patchItem(order.id, item.id, {
+        expected_version: order.version ?? 0,
+        qty: nextQty,
+        authorizer_pin: pin,
+      })
       saveOrder(updated)
+      if (pin !== undefined) authorizerFlow.close()
     } catch (err) {
-      handleError(err, { retry: () => void handleQtyChange(item, nextQty) })
+      // Con la cuenta presentada el servidor pide PIN (`BILL_PRESENTED_NEEDS_AUTH`),
+      // igual que al agregar: `handleError` abre el mismo diálogo.
+      handleError(err, { pin, retry: (retryPin) => void handleQtyChange(item, nextQty, retryPin) })
     } finally {
       setBusyItemId(null)
     }
@@ -323,112 +394,138 @@ export function OrderPage(): React.JSX.Element {
         </p>
       ) : null}
 
-      {isOrderOpenish ? (
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Agregar a la comanda</h2>
-          <CatalogPanel
-            channel={order.channel ?? "counter"}
-            onSelectProduct={(product) => setItemTarget({ product })}
-            onSelectCombo={(combo) => setItemTarget({ combo })}
-          />
-        </section>
-      ) : null}
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Ítems</h2>
-        <OrderItemsList
-          items={items}
-          busyItemId={busyItemId}
-          onIncrement={(item) => void handleQtyChange(item, (item.qty ?? 1) + 1)}
-          onDecrement={(item) => void handleQtyChange(item, (item.qty ?? 1) - 1)}
-          onVoid={(item) => setVoidTarget({ scope: "item", item })}
-          onCourtesy={(item) => {
-            setCourtesyError(null)
-            setCourtesyTarget(item)
-          }}
-          onDiscount={(item) => setDiscountTarget({ scope: "item", item })}
-        />
-      </section>
-
-      {hasFeature("pos.courses") && coursesInOrder.length > 0 ? (
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Marchar</h2>
-          <ul className="flex flex-wrap gap-2">
-            {coursesInOrder.map((course) => {
-              const fired = firedCourses.get(course)
-              return (
-                <li key={course}>
-                  {fired ? (
-                    <Badge variant="secondary" className="h-11 items-center px-3 text-sm">
-                      {courseLabel(course)} marchado · {formatInstant(fired.fired_at)}
-                    </Badge>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-11"
-                      disabled={firingCourse === course || !isOrderOpenish}
-                      onClick={() => void handleFireCourse(course)}
-                    >
-                      {firingCourse === course ? "Marchando…" : `Marchar ${courseLabel(course)}`}
-                    </Button>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      ) : null}
-
-      <section className="space-y-2 rounded-lg border p-4">
-        <h2 className="text-sm font-medium text-muted-foreground">Totales</h2>
-        <dl className="space-y-1 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Subtotal</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.subtotal)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Descuentos</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.discount_total)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Impuesto</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.tax_total)}</dd>
-          </div>
-          <div className="flex justify-between text-base font-semibold">
-            <dt>Total</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.total)}</dd>
-          </div>
-          {order.tip ? (
-            <div className="flex justify-between text-muted-foreground">
-              <dt>Propina sugerida ({order.tip.suggested_pct}%)</dt>
-              <dd className="tabular-nums">{formatCOP(order.tip.suggested_amount)}</dd>
-            </div>
-          ) : null}
-        </dl>
-        {hasFeature("pos.discounts") && isOrderOpenish ? (
-          <Button type="button" variant="outline" className="h-11" onClick={() => setDiscountTarget({ scope: "order" })}>
-            Descuento de la comanda
-          </Button>
+      {/* Momento 1 de `docs/diseno/propuesta.html`: en la tablet apaisada, la
+          carta a la izquierda y el pedido a la derecha; en angosto, apilados. */}
+      <div className={isOrderOpenish ? "space-y-6 lg:grid lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] lg:items-start lg:gap-6 lg:space-y-0" : "space-y-6"}>
+        {isOrderOpenish ? (
+          <section className="space-y-3">
+            <h2 className="text-sm font-medium text-muted-foreground">Agregar a la comanda</h2>
+            <CatalogPanel
+              channel={order.channel ?? "counter"}
+              unsentQty={unsentQty}
+              quickAdd
+              onSelectProduct={handleSelectProduct}
+              onSelectCombo={(combo) => setItemTarget({ combo })}
+            />
+          </section>
         ) : null}
-      </section>
+
+        <div className="space-y-6">
+          <section className="space-y-3">
+            <h2 className="text-sm font-medium text-muted-foreground">Pedido</h2>
+            <OrderItemsList
+              items={items}
+              busyItemId={busyItemId}
+              nextRoundNo={nextRoundNo(order.rounds, items)}
+              onIncrement={(item) => void handleQtyChange(item, (item.qty ?? 1) + 1)}
+              onDecrement={(item) => void handleQtyChange(item, (item.qty ?? 1) - 1)}
+              onVoid={(item) => setVoidTarget({ scope: "item", item })}
+              onCourtesy={(item) => {
+                setCourtesyError(null)
+                setCourtesyTarget(item)
+              }}
+              onDiscount={(item) => setDiscountTarget({ scope: "item", item })}
+            />
+            {/* La acción principal de la comanda: abajo del pedido, a lo ancho y
+                en añil. Dice cuántas unidades salen — con ruido, la confirmación
+                es el número. */}
+            {isOrderOpenish && hasFeature("kitchen.view") ? (
+              <Button
+                type="button"
+                size="lg"
+                className="h-14 w-full text-base font-bold"
+                disabled={sendPending || unsentUnits === 0}
+                onClick={() => void handleSend()}
+              >
+                <Send className="size-5" aria-hidden="true" />
+                {sendPending ? "Enviando…" : `Enviar a cocina · ${unsentUnits} ${unsentUnits === 1 ? "ítem" : "ítems"}`}
+              </Button>
+            ) : null}
+          </section>
+
+          {hasFeature("pos.courses") && coursesInOrder.length > 0 ? (
+            <section className="space-y-3">
+              <h2 className="text-sm font-medium text-muted-foreground">Marchar</h2>
+              <ul className="flex flex-wrap gap-2">
+                {coursesInOrder.map((course) => {
+                  const fired = firedCourses.get(course)
+                  return (
+                    <li key={course}>
+                      {fired ? (
+                        <Badge variant="secondary" className="h-11 items-center px-3 text-sm">
+                          {courseLabel(course)} marchado · {formatInstant(fired.fired_at)}
+                        </Badge>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-11"
+                          disabled={firingCourse === course || !isOrderOpenish}
+                          onClick={() => void handleFireCourse(course)}
+                        >
+                          {firingCourse === course ? "Marchando…" : `Marchar ${courseLabel(course)}`}
+                        </Button>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ) : null}
+
+          <section className="space-y-2 rounded-lg border p-4">
+            <h2 className="text-sm font-medium text-muted-foreground">Totales</h2>
+            <dl className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Subtotal</dt>
+                <dd className="tabular-nums">{formatCOP(order.totals?.subtotal)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Descuentos</dt>
+                <dd className="tabular-nums">{formatCOP(order.totals?.discount_total)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Impuesto</dt>
+                <dd className="tabular-nums">{formatCOP(order.totals?.tax_total)}</dd>
+              </div>
+              <div className="flex justify-between text-base font-semibold">
+                <dt>Total</dt>
+                <dd className="tabular-nums">{formatCOP(order.totals?.total)}</dd>
+              </div>
+              {order.tip ? (
+                <div className="flex justify-between text-muted-foreground">
+                  <dt>Propina sugerida ({order.tip.suggested_pct}%)</dt>
+                  <dd className="tabular-nums">{formatCOP(order.tip.suggested_amount)}</dd>
+                </div>
+              ) : null}
+            </dl>
+            {hasFeature("pos.discounts") && isOrderOpenish ? (
+              <Button type="button" variant="outline" className="h-11" onClick={() => setDiscountTarget({ scope: "order" })}>
+                Descuento de la comanda
+              </Button>
+            ) : null}
+          </section>
+        </div>
+      </div>
 
       {isOrderOpenish ? (
         <div className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-2 border-t bg-background p-3" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}>
           <Button type="button" variant="ghost" className="h-11" onClick={() => setVoidTarget({ scope: "order" })}>
             Anular comanda
           </Button>
-          {hasFeature("kitchen.view") ? (
-            <Button type="button" variant="outline" className="h-11" disabled={sendPending || pendingCount === 0} onClick={() => void handleSend()}>
-              {sendPending ? "Enviando…" : `Enviar (${pendingCount})`}
-            </Button>
-          ) : null}
           {hasFeature("pos.pre_bill") ? (
             <Button type="button" variant="outline" className="h-11" disabled={preBillPending} onClick={() => void handlePresentBill()}>
               {preBillPending ? "Presentando…" : "Presentar cuenta"}
             </Button>
           ) : null}
-          <Button type="button" className="h-11 px-6 text-base font-semibold" onClick={() => navigate(`/pos/cobro/${order.id}`)}>
+          {/* Una sola acción en añil por pantalla: mientras haya algo sin
+              enviar, esa es «Enviar a cocina» y cobrar queda secundario. */}
+          <Button
+            type="button"
+            variant={unsentUnits > 0 && hasFeature("kitchen.view") ? "outline" : "default"}
+            className="h-11 px-6 text-base font-semibold"
+            onClick={() => navigate(`/pos/cobro/${order.id}`)}
+          >
             {order.channel === "counter" ? "Cobrar" : "Cuenta / Cobrar"}
           </Button>
         </div>

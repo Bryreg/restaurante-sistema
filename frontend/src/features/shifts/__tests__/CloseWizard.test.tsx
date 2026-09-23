@@ -229,3 +229,41 @@ describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => 
     expect(screen.queryByRole("checkbox", { name: /trasladar/i })).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// «Un solo libro, dos mesas»: la diferencia con dirección y la causa a un toque
+// ---------------------------------------------------------------------------
+
+describe("CloseWizard — la diferencia se lee sin depender del color", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getShiftTipsMock.mockResolvedValue({ cash_out: 0 } satisfies ShiftTips);
+  });
+
+  it("un faltante se dice con flecha y palabra, y la causa se elige con un toque", async () => {
+    closeCountMock.mockResolvedValueOnce({ count_id: 7 } satisfies CloseCountResult);
+    getCloseReviewMock.mockResolvedValue(FIRST_REVIEW);
+    confirmCloseMock.mockResolvedValueOnce({ to_deposit: 45_000, closes_day: false });
+
+    const user = userEvent.setup();
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
+
+    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
+    // −5.000 llega del servidor: se muestra como «▼ $ 5.000 Faltan en efectivo».
+    expect(screen.getByText(/faltan en efectivo/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    const confirmar = await screen.findByRole("button", { name: /confirmar cierre/i });
+    // Sin causa no se puede confirmar una diferencia que la exige.
+    expect(confirmar).toBeDisabled();
+
+    await user.click(screen.getByRole("radio", { name: /error al dar cambio/i }));
+    expect(screen.getByRole("radio", { name: /error al dar cambio/i })).toHaveAttribute("aria-checked", "true");
+    await user.click(confirmar);
+
+    await waitFor(() => expect(confirmCloseMock).toHaveBeenCalledTimes(1));
+    // Viaja la diferencia CON su signo, tal como la mandó el servidor.
+    expect(confirmCloseMock.mock.calls[0][2]).toMatchObject({ difference_seen: -5_000, cause: "change_error" });
+  });
+});

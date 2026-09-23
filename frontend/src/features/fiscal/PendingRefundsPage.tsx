@@ -12,6 +12,8 @@ import {
   type SettleFrom,
 } from "@/api/fiscal";
 import { listAdminShifts } from "@/api/shifts";
+import { Cargando } from "@/components/Cargando";
+import { DesdeHacia } from "@/components/DesdeHacia";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -100,18 +102,31 @@ function SettleDialog({
                 </p>
               ) : null}
             </div>
+            <DesdeHacia
+              desde={
+                from === "shift"
+                  ? openShift
+                    ? `El cajón del turno ${openShift.id}`
+                    : "El cajón (no hay turno abierto)"
+                  : "La mano del dueño"
+              }
+              hacia={refund.customer_name ?? "Consumidor final"}
+              monto={refund.amount ?? null}
+              verbo="Se devuelve"
+            />
             {mutation.isError ? (
               <p role="alert" className="text-sm text-destructive">
                 {errorMessage(mutation.error)}
               </p>
             ) : null}
+            {/* El botón repite el monto: la confirmación es el número. */}
             <Button
               type="button"
               className="h-11 w-full"
               disabled={mutation.isPending || (from === "shift" && !openShift)}
               onClick={() => mutation.mutate()}
             >
-              {mutation.isPending ? "Saldando…" : "Confirmar"}
+              {mutation.isPending ? "Saldando…" : `Devolver ${formatCOP(refund.amount)}`}
             </Button>
           </div>
         ) : null}
@@ -151,7 +166,7 @@ export function PendingRefundsPage(): React.JSX.Element {
   const openShift = (openShiftQuery.data ?? []).find((s) => s.status === "open");
 
   if (storeLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando sedes…</p>;
+    return <Cargando texto="Cargando sedes…" />;
   }
   if (activeStoreId === null) {
     return <p className="text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>;
@@ -249,7 +264,7 @@ export function PendingRefundsPage(): React.JSX.Element {
 
       <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
         {query.isLoading ? (
-          <p className="text-sm text-muted-foreground">Cargando devoluciones…</p>
+          <Cargando texto="Cargando devoluciones…" />
         ) : query.isError ? (
           <EmptyState
             role="alert"

@@ -71,13 +71,15 @@ export function PageHeader({
 }: PageHeaderProps): React.JSX.Element {
   return (
     <header className={cn("flex flex-col gap-2", className)}>
-      <div className="flex flex-wrap items-start gap-3">
+      {/* En el celular las acciones van debajo del título: al lado, lo
+          apretaban a una columna de dos palabras por renglón. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl leading-tight font-bold">{name}</h1>
           <p className="mt-0.5 max-w-[68ch] text-sm text-muted-foreground">{question}</p>
         </div>
         {actions ? (
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">{actions}</div>
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">{actions}</div>
         ) : null}
       </div>
       {context && context.length > 0 ? (

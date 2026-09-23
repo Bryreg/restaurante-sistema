@@ -4,6 +4,8 @@ import { toast } from "sonner";
 
 import { ApiError, newIdempotencyKey } from "@/api/client";
 import { createPickup, reversePickup, type CashPickup } from "@/api/shifts";
+import { Cargando } from "@/components/Cargando";
+import { DesdeHacia } from "@/components/DesdeHacia";
 import { EmptyState } from "@/components/EmptyState";
 import { MoneyInput } from "@/components/MoneyInput";
 import { PinPad } from "@/components/PinPad";
@@ -135,6 +137,16 @@ export function PickupsPanel({ shiftId }: { shiftId: number }): React.JSX.Elemen
 
       {amountValid ? (
         <div className="flex flex-col items-center gap-3 rounded-md border p-4">
+          {/* De dónde sale y adónde va, sin «cómo queda el cajón»: el saldo
+              del cajón es justo lo que el cierre a ciegas no le muestra a la
+              cajera. */}
+          <DesdeHacia
+            className="w-full max-w-md"
+            desde={`El cajón del turno ${shiftId}`}
+            hacia={envelopeRef.trim() === "" ? "Un sobre sin número" : `El sobre ${envelopeRef.trim()}`}
+            monto={amount}
+            autoriza="PIN de administrador"
+          />
           <p className="text-sm text-muted-foreground">
             Retiro de {formatCOP(amount)} · PIN de administrador para autorizar
           </p>
@@ -148,7 +160,7 @@ export function PickupsPanel({ shiftId }: { shiftId: number }): React.JSX.Elemen
       ) : null}
 
       {summary.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando retiros…</p>
+        <Cargando texto="Cargando retiros…" />
       ) : pickups.length === 0 ? (
         <EmptyState title="Todavía no hay retiros en este turno" />
       ) : (

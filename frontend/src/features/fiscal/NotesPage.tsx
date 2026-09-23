@@ -14,6 +14,7 @@ import {
   type NoteCreateIn,
   type NoteKind,
 } from "@/api/fiscal";
+import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -439,7 +440,7 @@ export function NotesPage(): React.JSX.Element {
   });
 
   if (storeLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando sedes…</p>;
+    return <Cargando texto="Cargando sedes…" />;
   }
   if (activeStoreId === null) {
     return <p className="text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>;
@@ -519,7 +520,7 @@ export function NotesPage(): React.JSX.Element {
       />
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando notas…</p>
+        <Cargando texto="Cargando notas…" />
       ) : query.isError ? (
         <EmptyState
           role="alert"

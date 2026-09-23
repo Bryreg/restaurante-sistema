@@ -9,9 +9,9 @@ import { StatTile } from "@/components/StatTile";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Diferencia } from "@/components/Diferencia";
 import { formatBusinessDate } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
-import { formatCOP } from "@/lib/money";
 
 /**
  * Turnos y personal → Por persona (`GET /admin/employees/{id}/activity`):
@@ -100,8 +100,8 @@ export function PersonActivityTab(): React.JSX.Element {
       header: "Diferencia",
       kind: "number",
       // `null` no es `0`: un cierre sin diferencia registrada no es un cierre
-      // que cuadró. `formatCOP` ya lo dice con «—».
-      cell: (r) => formatCOP(r.difference),
+      // que cuadró.
+      cell: (r) => <Diferencia valor={r.difference} motivoSinDato="sin cierre contado" />,
     },
   ];
 
@@ -143,7 +143,7 @@ export function PersonActivityTab(): React.JSX.Element {
             <StatTile
               label="Ventas y ticket promedio"
               value={null}
-              nullNote="Sin datos: esta respuesta todavía no los trae. No es cero — es que no se están midiendo acá."
+              nullNote="Esta respuesta todavía no los trae. No es cero — es que no se están midiendo acá."
             />
           </div>
 

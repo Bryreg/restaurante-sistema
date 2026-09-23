@@ -60,7 +60,7 @@ describe("CreateDepositDialog — C5/H-6: el monto nunca sale de sumar allocatio
     await user.type(screen.getByLabelText("Monto consignado (el que dice el comprobante del banco)"), "500000")
     await user.click(screen.getByRole("button", { name: "Adjuntar comprobante (stub)" }))
 
-    const submitButton = screen.getByRole("button", { name: "Registrar consignación" })
+    const submitButton = screen.getByRole("button", { name: /^Consignar \$\s?500\.000$/ })
     expect(submitButton).toBeEnabled()
     await user.click(submitButton)
 
@@ -86,7 +86,7 @@ describe("CreateDepositDialog — C5/H-6: el monto nunca sale de sumar allocatio
     // lo publica el servidor en `DepositOut`. Ver el test de abajo.
     expect(screen.queryByText(/Remanente sin imputar/)).not.toBeInTheDocument()
 
-    const submitButton = screen.getByRole("button", { name: "Registrar consignación" })
+    const submitButton = screen.getByRole("button", { name: /^Consignar \$\s?500\.000$/ })
     expect(submitButton).toBeEnabled()
     await user.click(submitButton)
 
@@ -117,7 +117,7 @@ describe("CreateDepositDialog — C5/H-6: el monto nunca sale de sumar allocatio
     await user.type(screen.getByLabelText("Monto de este turno"), "200000")
     await user.click(screen.getByRole("button", { name: "Adjuntar comprobante (stub)" }))
 
-    const submitButton = screen.getByRole("button", { name: "Registrar consignación" })
+    const submitButton = screen.getByRole("button", { name: /^Consignar \$\s?100\.000$/ })
     expect(submitButton).toBeEnabled()
     await user.click(submitButton)
 

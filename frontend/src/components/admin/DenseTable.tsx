@@ -242,7 +242,12 @@ export function DenseTable<R>({
                 )
               })}
             </tbody>
-            {footer ? <tfoot className="bg-muted">{footer}</tfoot> : null}
+            {/* El total va bajo **doble raya**, como en el libro contable
+                (`docs/diseno/propuesta.html` § Tablas): la raya dice «esto
+                ya no es un renglón más, es la suma que da el servidor». */}
+            {footer ? (
+              <tfoot className="border-t-[3px] border-double border-foreground/60 bg-muted font-bold">{footer}</tfoot>
+            ) : null}
           </table>
         </div>
       )}

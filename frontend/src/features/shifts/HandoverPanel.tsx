@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { newIdempotencyKey } from "@/api/client";
 import { createHandover, type FrozenBreakdown, type Handover, type HandoverKind } from "@/api/shifts";
+import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import { DenominationsInput, type Denomination } from "@/components/DenominationsInput";
 import { EmployeePicker } from "@/components/EmployeePicker";
@@ -214,7 +215,7 @@ export function HandoverPanel({ shiftId }: { shiftId: number }): React.JSX.Eleme
       ) : null}
 
       {summary.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando relevos…</p>
+        <Cargando texto="Cargando relevos…" />
       ) : handovers.length === 0 ? (
         <EmptyState title="Todavía no hay relevos ni arqueos en este turno" />
       ) : (

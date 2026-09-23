@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import tz
 from app.core.errors import AppError, NotFoundError
 from app.core.modules import find_spec_safe
 from app.shifts import hooks
@@ -187,7 +188,8 @@ def register_tip_payout(
         organization_id=organization_id,
         store_id=store_id,
         shift_ids=list(shift_ids),
-        paid_at=paid_at,
+        # `<input type="datetime-local">` manda la hora sin zona: la pone el servidor.
+        paid_at=tz.from_bogota_wall_clock(paid_at),
         method=method,
         paid_from=TipPayoutSource(paid_from),
         total_amount=total_amount,

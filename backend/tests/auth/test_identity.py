@@ -12,6 +12,7 @@ from app.auth.deps import current_device
 from app.auth.models import DeviceSession, Employee
 from app.core.security import COOKIE_DEVICE, read_token
 from app.stores.models import Store
+from tests.conftest import STORE_PIN
 
 
 def test_admin_login_sets_httponly_cookie(client: TestClient, employees: dict[str, Employee]) -> None:
@@ -217,3 +218,20 @@ def test_current_device_does_not_renew_employee_expiration(
     # `GET /shifts/current` se consulta por polling y extendería la sesión
     # de la persona indefinidamente si `current_device` también renovara.
     assert _session_row(device_client, db).employee_expires_at == expires_before
+
+
+def test_activating_a_device_where_the_admin_is_logged_in_ends_up_in_the_pos(
+    admin_client: TestClient, store: Store
+) -> None:
+    """`/auth/me` prefiere la cookie de administrador: activar el POS en un
+    navegador con el admin abierto respondía 200 y `/auth/me` seguía diciendo
+    «admin», así que la pantalla volvía a «Activar dispositivo» en bucle
+    (recorrido en navegador de 2026-09-22). Activar cierra el admin ahí."""
+    assert admin_client.get("/api/v1/auth/me").json()["kind"] == "admin"
+    resp = admin_client.post(
+        "/api/v1/auth/device/activate", json={"store_id": store.id, "store_pin": STORE_PIN}
+    )
+    assert resp.status_code == 200, resp.text
+    me = admin_client.get("/api/v1/auth/me")
+    assert me.status_code == 200, me.text
+    assert me.json()["kind"] == "device"

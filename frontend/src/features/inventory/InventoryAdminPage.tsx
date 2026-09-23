@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom"
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { listIngredients } from "@/api/inventory"
+import { Cargando } from "@/components/Cargando"
 import { FeatureOffEmptyState } from "@/components/admin"
 import { PageHeader } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -92,7 +93,7 @@ export function InventoryAdminPage(): React.JSX.Element {
   })
 
   if (storeLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
+    return <Cargando texto="Cargando sedes…" className="p-4" />
   }
   if (!enabled) {
     // Patrón 13, motivo «función apagada»: la entrada de navegación

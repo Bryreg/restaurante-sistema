@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { accountantReportCsvUrl, getAccountantReport, type AccountantRowOut } from "@/api/reports"
+import { Cargando } from "@/components/Cargando"
 import { DenseTable, DenseTableBar, GroupLabel, type DenseColumn } from "@/components/admin"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { EmptyState } from "@/components/EmptyState"
@@ -127,7 +128,7 @@ export function AccountantReportTab({ storeId }: { storeId: number }): React.JSX
       </div>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando el informe del contador…</p>
+        <Cargando texto="Cargando el informe del contador…" />
       ) : query.isError ? (
         <EmptyState
           reason="error"

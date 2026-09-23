@@ -29,6 +29,7 @@ import {
   ScopeMarks,
   type DenseColumn,
 } from "@/components/admin"
+import { Cargando } from "@/components/Cargando"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
@@ -73,7 +74,7 @@ function TipsSettingsSection({ storeId }: { storeId: number }): React.JSX.Elemen
     >
       <div className="min-w-0 space-y-2">
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando…</p>
+        <Cargando texto="Cargando…" />
       ) : query.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(query.error)}

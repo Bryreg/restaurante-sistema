@@ -37,15 +37,8 @@ import { Switch } from "@/components/ui/switch";
 import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 
-const TYPE_LABEL: Record<string, string> = {
-  shift_stale: "Turno abandonado",
-  cash_difference: "Diferencia de caja",
-  cash_difference_critical: "Diferencia crítica",
-  difference_streak: "Racha de diferencias",
-  cash_over_threshold: "Efectivo sobre el umbral",
-  pin_locked: "PIN bloqueado",
-  product_unavailable: "Producto agotado",
-};
+import { TYPE_HELP, TYPE_LABEL } from "./types";
+
 
 const LEVEL_LABEL: Record<NotificationLevel, string> = {
   info: "Informativo",
@@ -53,16 +46,6 @@ const LEVEL_LABEL: Record<NotificationLevel, string> = {
   critical: "Crítico",
 };
 
-/** Qué gobierna cada regla, en palabras: a quién le llega y de dónde sale. */
-const TYPE_HELP: Record<string, string> = {
-  shift_stale: "Un turno que pasó su hora de corte y sigue abierto: el salón sigue vendiendo sobre un turno de ayer.",
-  cash_difference: "El cierre no cuadró. El umbral de esta regla no es el del cierre: ése vive en Ajustes › Caja.",
-  cash_difference_critical: "La diferencia pasó la crítica de Ajustes › Caja y el turno queda marcado para revisión.",
-  difference_streak: "Varios cierres seguidos con diferencia, aunque cada uno esté dentro de tolerancia.",
-  cash_over_threshold: "Hay más efectivo en el cajón que el umbral de retiro de Ajustes › Caja.",
-  pin_locked: "Alguien erró el PIN demasiadas veces y quedó bloqueado: no puede trabajar hasta que se destrabe.",
-  product_unavailable: "Un plato se marcó agotado en el salón y dejó de venderse.",
-};
 
 /** El nivel es **estado**, no acción: dice qué tan grave, nunca invita a tocar. */
 const LEVEL_STATUS: Record<NotificationLevel, RowStatus> = {

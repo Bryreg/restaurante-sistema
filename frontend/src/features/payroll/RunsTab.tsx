@@ -19,9 +19,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { createPayrollRun, getPayrollRun, getPayrollRuns, type PayrollRunLineOut } from "@/api/payroll"
+import { Cargando } from "@/components/Cargando"
 import { DenseTable, DenseTableBar, GroupLabel, type DenseColumn } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
+import { SinDato } from "@/components/SinDato"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatBusinessDate } from "@/lib/businessDate"
@@ -49,7 +51,7 @@ const RUN_LINE_COLUMNS: readonly DenseColumn<PayrollRunLineOut>[] = [
     key: "total",
     header: "Total",
     kind: "number",
-    cell: (l) => (l.total === null ? <span className="text-muted-foreground">Sin datos</span> : formatCOP(l.total)),
+    cell: (l) => (l.total === null ? <SinDato motivo={l.pay_reason} /> : formatCOP(l.total)),
     cellTitle: (l) => (l.total === null ? (l.pay_reason ?? undefined) : undefined),
   },
 ]
@@ -62,7 +64,7 @@ function RunDetail({ runId }: { runId: number }): React.JSX.Element {
     queryFn: () => getPayrollRun(runId),
   })
 
-  if (query.isLoading) return <p className="text-sm text-muted-foreground">Cargando el detalle…</p>
+  if (query.isLoading) return <Cargando texto="Cargando el detalle…" />
   if (query.isError) {
     return (
       <EmptyState
@@ -173,7 +175,7 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
       ) : null}
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando liquidaciones…</p>
+        <Cargando texto="Cargando liquidaciones…" />
       ) : query.isError ? (
         <EmptyState reason="error" title="No se pudieron cargar las liquidaciones" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : (query.data ?? []).length === 0 ? (
@@ -194,7 +196,7 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
                     {run.available ? (
                       formatCOP(run.total_amount)
                     ) : (
-                      <span className="text-muted-foreground">Sin datos{run.reason ? `: ${run.reason}` : ""}</span>
+                      <SinDato motivo={run.reason} />
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground">{formatBusinessDate(run.date_from)} – {formatBusinessDate(run.date_to)}</p>

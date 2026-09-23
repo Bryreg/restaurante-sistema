@@ -9,6 +9,7 @@ import {
   updatePlatform,
   type PlatformOut,
 } from "@/api/channels"
+import { Cargando } from "@/components/Cargando"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -328,7 +329,7 @@ export function ChannelsSection({ storeId }: { storeId: number | null }): React.
             </div>
 
             {query.isLoading ? (
-              <p className="text-sm text-muted-foreground">Cargando plataformas…</p>
+              <Cargando texto="Cargando plataformas…" />
             ) : query.isError ? (
               <EmptyState
                 role="alert"

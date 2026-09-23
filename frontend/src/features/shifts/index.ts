@@ -5,6 +5,7 @@
  * dominio a través de `shiftsFeature` — nada más de `src/app/**` se toca
  * desde este territorio.
  */
+import { Wallet } from "lucide-react";
 import { createElement } from "react";
 import type { RouteObject } from "react-router-dom";
 
@@ -35,7 +36,9 @@ const adminNav: NavItem[] = [
   { to: "/admin/personal", label: "Turnos y personal" },
 ];
 
-const posNav: NavItem[] = [{ to: "/pos/turno", label: "Turno" }];
+// Turno lo ve todo el que se identifica, no sólo la caja: ahí está el panel
+// donde cada persona marca su entrada, salida y pausa con su propio PIN.
+const posNav: NavItem[] = [{ to: "/pos/turno", label: "Turno", icon: Wallet, posGroup: "caja" }];
 
 export const shiftsFeature = {
   posRoutes,

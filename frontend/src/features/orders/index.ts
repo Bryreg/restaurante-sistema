@@ -6,6 +6,7 @@
  * `AdminLayout.tsx` conocen Mesas, Comanda, Cocina y Admin → Pedidos.
  */
 
+import { ChefHat, LayoutGrid, ShoppingBag } from "lucide-react"
 import { createElement } from "react"
 import type { RouteObject } from "react-router-dom"
 
@@ -28,10 +29,13 @@ const adminRoutes: RouteObject[] = [{ path: "pedidos", element: createElement(Or
 
 const adminNav: NavItem[] = [{ to: "/admin/pedidos", label: "Pedidos" }]
 
+// «Mostrador» y no «Comanda»: la barra nombra el lugar donde se atiende
+// (propuesta § navegación), igual que «Mesas». La vista mínima de cocina va
+// en el tramo de cocina, después de lo de caja (`buildPosNav`).
 const posNav: NavItem[] = [
-  { to: "/pos/mesas", label: "Mesas", feature: "pos.tables" },
-  { to: "/pos/comanda/nueva", label: "Comanda" },
-  { to: "/pos/cocina", label: "Cocina", feature: "kitchen.view" },
+  { to: "/pos/mesas", label: "Mesas", icon: LayoutGrid, feature: "pos.tables" },
+  { to: "/pos/comanda/nueva", label: "Mostrador", icon: ShoppingBag },
+  { to: "/pos/cocina", label: "Cocina", icon: ChefHat, feature: "kitchen.view", posGroup: "cocina" },
 ]
 
 export const ordersFeature = { posRoutes, adminRoutes, adminNav, posNav }

@@ -182,6 +182,12 @@ def device_activate(
     set_session_cookie(
         response, COOKIE_DEVICE, token, max_age=settings.DEVICE_SESSION_DAYS * 86400
     )
+    # Un navegador opera con un solo rol a la vez. `/auth/me` le da prioridad
+    # a la cookie de administrador, así que activar el POS en un navegador
+    # donde el dueño tenía el admin abierto respondía 200 y la pantalla
+    # volvía a «Activar dispositivo» en bucle, sin mensaje. Activar cierra
+    # la sesión de administrador en ESTE navegador (la pantalla lo avisa).
+    clear_session_cookie(response, COOKIE_ADMIN)
 
     return DeviceActivateOut(store=_store_brief(store))
 

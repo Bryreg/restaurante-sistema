@@ -181,6 +181,35 @@ class _SplitResult:
     reference: str | None
 
 
+def cash_change(*, amount: int, tendered: int) -> int | None:
+    """El vuelto de un pago en efectivo: lo recibido menos lo que se cobra con
+    ese billete. `None` si lo recibido no alcanza (nunca un vuelto negativo).
+
+    Es LA cuenta del vuelto: la usan el cobro (`_validate_and_allocate_splits`)
+    y la vista previa que la caja pide mientras teclea lo recibido
+    (`preview_change`), para que la cifra que se le dice al cliente antes de
+    cobrar sea exactamente la que queda en el comprobante."""
+    change = tendered - amount
+    return change if change >= 0 else None
+
+
+def preview_change(splits: list[Any]) -> dict[str, Any]:
+    """Vista previa del vuelto, SIN escribir nada: por cada pago en efectivo
+    con `tendered`, cuánto se devuelve (o cuánto falta si no alcanza)."""
+    rows: list[dict[str, Any]] = []
+    total = 0
+    for split in splits:
+        change = cash_change(amount=split.amount, tendered=split.tendered)
+        rows.append(
+            {
+                "change": change,
+                "short_by": None if change is not None else split.amount - split.tendered,
+            }
+        )
+        total += change or 0
+    return {"splits": rows, "change_total": total}
+
+
 def _validate_and_allocate_splits(
     splits_in: list[Any], *, methods_by_code: dict[str, dict[str, Any]], total: int, tip_amount: int
 ) -> list[_SplitResult]:
@@ -219,11 +248,12 @@ def _validate_and_allocate_splits(
         sale_remaining -= sale_part
         change = 0
         if split.method == "cash" and split.tendered is not None:
-            change = split.tendered - split.amount
-            if change < 0:
+            cash = cash_change(amount=split.amount, tendered=split.tendered)
+            if cash is None:
                 raise AppError(
                     "TENDERED_TOO_LOW", "El efectivo recibido no alcanza para cubrir este pago", status=400
                 )
+            change = cash
         results.append(
             _SplitResult(
                 method=split.method,

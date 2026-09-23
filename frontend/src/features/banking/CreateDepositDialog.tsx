@@ -29,9 +29,11 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { DesdeHacia } from "@/components/DesdeHacia"
 import { MoneyInput } from "@/components/MoneyInput"
 import { PhotoCaptureField } from "@/components/PhotoCaptureField"
 import { errorMessage } from "@/lib/errors"
+import { formatCOP } from "@/lib/money"
 
 import { todayLocal } from "./lib"
 
@@ -44,6 +46,13 @@ interface AllocationDraft {
 
 function emptyAllocation(shiftId = ""): AllocationDraft {
   return { shiftId, amount: null }
+}
+
+/** De dónde sale la plata consignada, en palabras: los turnos nombrados, o la mano del dueño. */
+function desdeConsignacion(turnos: string[]): string {
+  if (turnos.length === 0) return "La mano del dueño"
+  if (turnos.length === 1) return `El efectivo del turno ${turnos[0]}`
+  return `El efectivo de los turnos ${turnos.join(", ")}`
 }
 
 export function CreateDepositDialog({
@@ -214,8 +223,15 @@ export function CreateDepositDialog({
               {errorMessage(mutation.error)}
             </p>
           ) : null}
+          <DesdeHacia
+            desde={desdeConsignacion(allocations.map((a) => a.shiftId).filter((id) => id.trim() !== ""))}
+            hacia={bankName.trim() === "" ? "El banco" : bankName.trim()}
+            monto={amount}
+            verbo="Se consigna"
+          />
+          {/* El botón repite el monto: la confirmación es el número. */}
           <Button type="button" className="w-full" disabled={!canSubmit || mutation.isPending} onClick={() => mutation.mutate()}>
-            Registrar consignación
+            {amount !== null && amount > 0 ? `Consignar ${formatCOP(amount)}` : "Registrar consignación"}
           </Button>
         </div>
       </DialogContent>

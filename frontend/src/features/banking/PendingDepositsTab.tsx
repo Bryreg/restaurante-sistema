@@ -10,9 +10,11 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { getPendingDeposits, type PendingDepositOut } from "@/api/banking"
+import { Cargando } from "@/components/Cargando"
 import { DenseTable, DenseTableBar, type RowStatus } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
+import { SinDato } from "@/components/SinDato"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
@@ -40,7 +42,7 @@ export function PendingDepositsTab({ storeId }: { storeId: number }): React.JSX.
       <DateRangeFilter idPrefix="deposits-pending" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando saldo por consignar…</p>
+        <Cargando texto="Cargando saldo por consignar…" />
       ) : query.isError ? (
         <EmptyState reason="error" title="No se pudo cargar el saldo por consignar" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : (query.data ?? []).length === 0 ? (
@@ -63,10 +65,7 @@ export function PendingDepositsTab({ storeId }: { storeId: number }): React.JSX.
               kind: "number",
               cell: (r) =>
                 r.to_deposit === null ? (
-                  <span className="inline-flex items-baseline gap-1.5">
-                    <span className="text-muted-foreground">Sin datos</span>
-                    {r.reason ? <span className="text-xs text-muted-foreground">{r.reason}</span> : null}
-                  </span>
+                  <SinDato motivo={r.reason} />
                 ) : (
                   formatCOP(r.to_deposit)
                 ),

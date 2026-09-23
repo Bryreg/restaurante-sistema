@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { getUnavailableLog, unavailableLogCsvUrl, type UnavailableLogRowOut } from "@/api/reports"
+import { Cargando } from "@/components/Cargando"
 import { DenseTable, DenseTableBar, TimeAgo, type DenseColumn } from "@/components/admin"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
@@ -54,7 +55,7 @@ export function UnavailableLogTab({ storeId }: { storeId: number }): React.JSX.E
       </p>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando agotados…</p>
+        <Cargando texto="Cargando agotados…" />
       ) : query.isError ? (
         <EmptyState
           reason="error"

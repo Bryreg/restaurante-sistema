@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Printer, Receipt, Scale } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { useSession } from "@/app/session";
 import { getDocument, reprintDocument, type DocumentPrintable } from "@/api/documents";
 import { DIAN_STATUS_LABEL } from "@/api/fiscal";
+import { Cargando } from "@/components/Cargando";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
@@ -123,7 +124,15 @@ export default function DocumentPage(): React.JSX.Element {
     },
   });
 
+  // Viene del cobro de una parte y la cuenta todavía tiene partes sin cobrar
+  // (`CheckoutPage.handlePaid`): «Volver» regresa a ese cobro.
+  const seguirCobrando = (useLocation().state as { seguirCobrando?: number } | null)?.seguirCobrando;
+
   function backTo() {
+    if (seguirCobrando) {
+      navigate(`/pos/cobro/${seguirCobrando}`);
+      return;
+    }
     navigate(hasFeature("pos.tables") ? "/pos/mesas" : "/pos/comanda/nueva");
   }
 
@@ -132,7 +141,7 @@ export default function DocumentPage(): React.JSX.Element {
   }
 
   if (query.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando el comprobante…</p>;
+    return <Cargando texto="Cargando el comprobante…" />;
   }
 
   if (query.isError || !query.data) {
@@ -188,9 +197,9 @@ export default function DocumentPage(): React.JSX.Element {
               <Receipt aria-hidden="true" />
               {reprintMutation.isPending ? "Reimprimiendo…" : "Reimprimir"}
             </Button>
-            <Button type="button" variant="outline" className="h-11" onClick={backTo}>
+            <Button type="button" variant={seguirCobrando ? "default" : "outline"} className="h-11" onClick={backTo}>
               <ArrowLeft aria-hidden="true" />
-              Volver
+              {seguirCobrando ? "Seguir cobrando la mesa" : "Volver"}
             </Button>
           </div>
 

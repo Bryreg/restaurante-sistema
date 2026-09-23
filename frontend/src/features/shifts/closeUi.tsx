@@ -345,3 +345,72 @@ export function TarjetaTurnoCerrado({
     </div>
   );
 }
+
+/**
+ * La diferencia del cierre como protagonista («Un solo libro, dos mesas»,
+ * momento 4): grande, con dirección (▼ faltan · ▲ sobran · = cuadra) y en
+ * palabras, para que se lea sin depender del color ni del signo menos.
+ *
+ * No calcula nada: `diferencia` llega del servidor (`review.difference`).
+ * `Math.abs` es sólo de presentación —la dirección ya la dicen la flecha y la
+ * palabra, y «faltan −$ 18.000» sería una doble negación—; el valor con signo
+ * sigue siendo el que viaja en `difference_seen`.
+ *
+ * El tono no acusa: nombra el monto y dice qué sigue.
+ */
+export function DiferenciaDeCaja({
+  diferencia,
+  medio = "en efectivo",
+  anunciaCausa = true,
+  className,
+}: {
+  diferencia: number | null | undefined;
+  medio?: string;
+  /** En el paso 2 avisa que la causa viene después; en el 3 ya se está eligiendo. */
+  anunciaCausa?: boolean;
+  className?: string;
+}): React.JSX.Element {
+  if (diferencia === null || diferencia === undefined) {
+    return (
+      <div className={cn("sin-dato rounded-xl px-4 py-4 text-sm", className)}>
+        Sin dato: el servidor todavía no devolvió la diferencia.
+      </div>
+    );
+  }
+  const falta = diferencia < 0;
+  const cuadra = diferencia === 0;
+  const tono = cuadra
+    ? "bg-success/10 text-success ring-success/30"
+    : falta
+      ? "bg-destructive/10 text-destructive ring-destructive/40"
+      : "bg-warning/10 text-warning ring-warning/40";
+  const flecha = cuadra ? "=" : falta ? "▼" : "▲";
+  const palabra = cuadra ? "El cajón cuadra" : falta ? `Faltan ${medio}` : `Sobran ${medio}`;
+  return (
+    <div className={cn("rounded-xl px-4 py-4 ring-2", tono, className)}>
+      <p className="text-sm font-medium">Contado contra lo que el sistema esperaba</p>
+      <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span aria-hidden="true" className="text-3xl leading-none font-bold">
+          {flecha}
+        </span>
+        {cuadra ? null : (
+          <span
+            className="text-4xl leading-none font-extrabold tabular-nums sm:text-5xl"
+            style={{ fontStretch: "115%" }}
+          >
+            {formatCOP(Math.abs(diferencia))}
+          </span>
+        )}
+        <span className="text-lg font-semibold">{palabra}</span>
+      </p>
+      {cuadra ? null : (
+        <p className="mt-2 text-sm text-foreground/80">
+          {falta
+            ? "Puede ser un vuelto, un gasto sin soporte o un billete que se pasó al contar."
+            : "Puede ser una venta sin registrar o propina mezclada con la base."}
+          {anunciaCausa ? " En el paso siguiente elegís la causa." : null}
+        </p>
+      )}
+    </div>
+  );
+}

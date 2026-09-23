@@ -1,14 +1,43 @@
 {
  "app/AdminLayout.tsx": [
   "Abrir menú",
+  "Accesos del celular",
+  "Banco",
+  "Carta",
   "Cerrar sesión",
+  "Clientes",
+  "Compras",
   "Configuración",
+  "Devoluciones",
+  "Devoluciones pendientes",
+  "Dinero",
+  "Documentos",
+  "Documentos fiscales",
   "Elegí una sede",
   "Funciones",
+  "Gastos",
   "Historial",
+  "Hoy",
+  "Hoy › Requiere tu atención",
+  "Ingeniería de menú",
+  "Inventario",
+  "Notas",
   "Notificaciones",
+  "Nómina",
+  "Pedidos",
+  "Preparaciones",
+  "Propinas",
+  "Rangos",
+  "Rangos de numeración",
+  "Reposición",
+  "Salir",
   "Secciones de administración",
-  "Sede activa"
+  "Sede activa",
+  "Todas las secciones",
+  "Turnos",
+  "Turnos y personal",
+  "Varianza y salud",
+  "Ventas"
  ],
  "app/PosLayout.tsx": [
   "Cancelar",
@@ -457,12 +486,12 @@
   "Una preparación"
  ],
  "features/kitchen/KdsPage.tsx": [
-  "Bumpea de un golpe todos los ítems enviados de esta comanda, en todas sus rondas",
   "Cocina",
   "Curso marchado",
   "El KDS no está habilitado",
   "Estación",
   "Impresión por estación",
+  "Marca listos de un golpe todos los ítems enviados de esta comanda, en todas sus rondas",
   "Nada para imprimir",
   "No hay rondas pendientes",
   "No se pudieron cargar las rondas",
@@ -583,6 +612,7 @@
   "Reintentar"
  ],
  "features/payments/SplitBillPanel.tsx": [
+  "Partes de la cuenta",
   "Sin asignar"
  ],
  "features/payments/TipQuestion.tsx": [
@@ -858,12 +888,15 @@
   "Comandas atascadas",
   "Comandas pagadas",
   "Comensales",
+  "Corte del día a las",
+  "Después de esta hora, lo que se venda cuenta para el día siguiente.",
   "Día operativo",
   "Efectivo esperado",
   "Impuesto discriminado",
   "Inventario no confiable",
   "Mesas ocupadas",
   "No se pudo cargar «Hoy»",
+  "Propinas de hoy",
   "Reintentar",
   "Requiere tu atención",
   "Se actualiza sola cada 30 s ·",
@@ -875,7 +908,8 @@
   "Todo al día",
   "Ventas cobradas",
   "Ventas netas",
-  "Ventas netas de hoy"
+  "Ventas netas de hoy",
+  "Ver el día completo"
  ],
  "features/reports/UnavailableLogTab.tsx": [
   "Exportar CSV",
@@ -1019,8 +1053,7 @@
   "Todavía no hay zonas"
  ],
  "features/shifts/CloseWizard.tsx": [
-  "Continuar",
-  "Elegí una causa"
+  "Continuar"
  ],
  "features/shifts/DeliverySettlementPanel.tsx": [
   "Cancelar",

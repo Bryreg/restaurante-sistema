@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -80,7 +81,12 @@ export function NotificationBell({
         ) : null}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
-        <DropdownMenuLabel>Notificaciones</DropdownMenuLabel>
+        {/* `DropdownMenuLabel` es un `Menu.GroupLabel` de Base UI: fuera de un
+            `Menu.Group` lanza «MenuGroupContext is missing» y tumbaba la app
+            entera al abrir la campana. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Notificaciones</DropdownMenuLabel>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         {isLoading ? (
           <div className="px-2 py-3 text-sm text-muted-foreground">Cargando…</div>
@@ -93,7 +99,8 @@ export function NotificationBell({
             <DropdownMenuItem
               key={n.id}
               className="flex flex-col items-start gap-0.5 whitespace-normal"
-              onSelect={() => {
+              // Base UI no tiene `onSelect` (eso es de Radix): el aviso nunca se marcaba leído.
+              onClick={() => {
                 if (n.read_at === null) void handleMarkRead(n.id);
               }}
             >

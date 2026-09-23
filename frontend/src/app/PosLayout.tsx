@@ -1,9 +1,9 @@
-import { LayoutGrid, LogOut, Users } from "lucide-react";
+import { LayoutGrid, LogOut, Moon, Sun, Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
-import { deviceDeactivate, deviceRelease } from "@/api/auth";
+import { deviceDeactivate, deviceRelease, type EmployeeBrief } from "@/api/auth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,27 +25,53 @@ import { cn } from "@/lib/utils";
 
 import type { NavItem } from "./nav";
 import { useDensity } from "./density";
+import { useSalonTheme } from "./theme";
 import { useSession } from "./session";
 
-/** [...ordersFeature.posNav, ...shiftsFeature.posNav, ...recipesFeature.posNav,
- * ...inventoryFeature.posNav, ...kitchenFeature.posNav] (CONTRATO-INTERNO-1b-1.md
- * §6.2; los del medio, pedido 2a: "Producir" y "Merma"; el último, pedido 2c
- * (CONTRATO C8): "KDS", detrás de `kitchen.kds` — la vista mínima de 1b
- * ("Cocina", `kitchen.view`) sigue viniendo de `ordersFeature.posNav`, sin
- * tocar). */
-function buildPosNav(hasFeature: (key: string) => boolean): NavItem[] {
+/**
+ * La barra del salón la decide **quién se identificó**, no la tablet
+ * (`docs/diseno/propuesta.html` § navegación: «cinco destinos como máximo,
+ * según el rol»). Tres reglas:
+ *
+ * - Sin persona identificada no hay entradas de operación (`[]`).
+ * - Una función apagada (`feature`) no deja hueco: la entrada no está.
+ * - Turno lo ve todo el que se identifica. Se probó ocultárselo al mesero
+ *   (la propuesta le deja sólo Mesas y Mostrador), pero ahí vive el panel
+ *   donde cada persona marca su entrada, salida y pausa con su PIN: sin la
+ *   entrada, el mesero perdía cómo marcar su salida.
+ *
+ * Orden: venta (Mesas, Mostrador) → caja (Turno) → cocina (Cocina,
+ * Tiquetes de cocina, Producción, Merma), cada tramo en el orden de los
+ * manifiestos. No hay entrada «Cobrar»: el cobro vive en
+ * `/pos/cobro/:orderId` y se llega desde la comanda — no existe una
+ * pantalla «cuentas por cobrar» a la que apuntar.
+ */
+const GROUP_RANK: Record<NonNullable<NavItem["posGroup"]>, number> = { venta: 0, caja: 1, cocina: 2 };
+
+function buildPosNav(hasFeature: (key: string) => boolean, employee: EmployeeBrief | null | undefined): NavItem[] {
+  if (!employee) return [];
   const all: NavItem[] = [
     ...ordersFeature.posNav,
     ...shiftsFeature.posNav,
+    ...kitchenFeature.posNav,
     ...recipesFeature.posNav,
     ...inventoryFeature.posNav,
-    ...kitchenFeature.posNav,
   ];
-  return all.filter((item) => !item.feature || hasFeature(item.feature));
+  return all
+    .filter((item) => !item.feature || hasFeature(item.feature))
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => GROUP_RANK[a.item.posGroup ?? "venta"] - GROUP_RANK[b.item.posGroup ?? "venta"] || a.index - b.index)
+    .map(({ item }) => item);
 }
 
-function PosNavBar({ hasFeature }: { hasFeature: (key: string) => boolean }): React.JSX.Element | null {
-  const items = buildPosNav(hasFeature);
+function PosNavBar({
+  hasFeature,
+  employee,
+}: {
+  hasFeature: (key: string) => boolean;
+  employee: EmployeeBrief | null | undefined;
+}): React.JSX.Element | null {
+  const items = buildPosNav(hasFeature, employee);
   if (items.length === 0) return null;
 
   return (
@@ -58,14 +84,16 @@ function PosNavBar({ hasFeature }: { hasFeature: (key: string) => boolean }): Re
             to={item.to}
             className={({ isActive }) =>
               cn(
-                "flex h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+                // `min-h-14`: objetivo táctil de 56 px o más en el salón
+                // (propuesta § Sistema de diseño), no los 44 px del libro.
+                "flex min-h-14 shrink-0 items-center gap-2 rounded-md px-4 text-base font-medium transition-colors",
                 isActive
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
               )
             }
           >
-            <Icon className="size-4" aria-hidden="true" />
+            <Icon className="size-5" aria-hidden="true" />
             {item.label}
           </NavLink>
         );
@@ -167,6 +195,10 @@ const ROLE_LABEL: Record<string, string> = {
 export default function PosLayout(): React.JSX.Element | null {
   // Tablet del salón: cuerpo 17 px y objetivo táctil de 52 px (m2b `.salon`).
   useDensity("salon");
+  const [pantalla, setPantalla] = useSalonTheme();
+  // En la cocina la pizarra es fija (`useCocinaPantalla`): ahí el botón no
+  // cambiaría nada visible, así que no se ofrece.
+  const enCocina = /^\/pos\/(kds|cocina)\b/.test(useLocation().pathname);
   const { me, refresh, hasFeature } = useSession();
   const navigate = useNavigate();
   const [releasing, setReleasing] = useState(false);
@@ -225,6 +257,23 @@ export default function PosLayout(): React.JSX.Element | null {
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Por tablet: la de la terraza queda clara, la del bar oscura. */}
+          {enCocina ? null : (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-11 gap-2"
+              aria-pressed={pantalla === "oscuro"}
+              onClick={() => setPantalla(pantalla === "oscuro" ? "claro" : "oscuro")}
+            >
+              {pantalla === "oscuro" ? (
+                <Sun className="size-4" aria-hidden="true" />
+              ) : (
+                <Moon className="size-4" aria-hidden="true" />
+              )}
+              {pantalla === "oscuro" ? "Pantalla clara" : "Pantalla oscura"}
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -241,7 +290,7 @@ export default function PosLayout(): React.JSX.Element | null {
       <div className="border-b bg-muted/30 px-3 py-2">
         <shiftsFeature.ShiftStatusStrip />
       </div>
-      <PosNavBar hasFeature={hasFeature} />
+      <PosNavBar hasFeature={hasFeature} employee={me.employee} />
       <main className="flex-1 p-3">
         <Outlet />
       </main>

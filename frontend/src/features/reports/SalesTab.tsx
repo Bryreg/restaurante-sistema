@@ -10,10 +10,11 @@ import {
   HeadlineFigure,
   type DenseColumn,
 } from "@/components/admin"
+import { Cargando } from "@/components/Cargando"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
-import { StatTile } from "@/components/StatTile"
+import { StatTile, cifraOSinDato } from "@/components/StatTile"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errorMessage } from "@/lib/errors"
@@ -85,7 +86,7 @@ export function SalesTab({ storeId }: { storeId: number }): React.JSX.Element {
       </div>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando ventas…</p>
+        <Cargando texto="Cargando ventas…" />
       ) : query.isError ? (
         <EmptyState
           reason="error"
@@ -194,10 +195,14 @@ function SalesReport({
           ) : (
             <StatTile label="Comensales" value={String(total.covers)} hint="Contados al abrir la mesa." />
           )}
-          <StatTile label="Ticket promedio" value={formatCOP(total.avg_ticket)} hint="Sobre venta neta, sin propina." />
+          <StatTile
+            label="Ticket promedio"
+            {...cifraOSinDato(total.avg_ticket, "no hay comandas pagadas en el período.")}
+            hint="Sobre venta neta, sin propina."
+          />
           <StatTile
             label="Ticket por comensal"
-            value={formatCOP(total.avg_per_cover)}
+            {...cifraOSinDato(total.avg_per_cover, "ninguna comanda del período contó comensales. No es cero.")}
             hint="Sobre las comandas que sí contaron comensales."
           />
         </div>
@@ -226,13 +231,13 @@ function SalesReport({
           />
           <StatTile
             label="Costo teórico"
-            value={formatCOP(total.theoretical_cost)}
-            hint={total.theoretical_cost === null || total.theoretical_cost === undefined ? "Sin ventas costeadas en el período" : "Lo que las fichas dicen que costó."}
+            {...cifraOSinDato(total.theoretical_cost, "no hay ventas costeadas en el período: faltan fichas técnicas.")}
+            hint="Lo que las fichas dicen que costó."
           />
           <StatTile
             label="Margen bruto teórico"
-            value={formatCOP(total.gross_margin)}
-            hint={total.gross_margin === null || total.gross_margin === undefined ? "Sin ventas costeadas en el período" : "Ventas netas − costo teórico"}
+            {...cifraOSinDato(total.gross_margin, "no hay ventas costeadas en el período: faltan fichas técnicas.")}
+            hint="Ventas netas − costo teórico"
           />
         </div>
       </GroupLabel>

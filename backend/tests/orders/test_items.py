@@ -284,3 +284,55 @@ def test_rejected_batch_adds_nothing(device_client: TestClient, identify: Any, e
     after = device_client.get(f"/api/v1/orders/{order['id']}").json()
     assert after["items"] == [], "el primer plato del lote quedó agregado pese al rechazo"
     assert after["totals"]["total"] == 0
+
+
+def test_patch_qty_respects_daily_count(device_client: TestClient, identify: Any, employees: Any, open_shift: Any, set_feature: Any, new_order: Any, add_items: Any, main_product: Any, db: Any) -> None:
+    """Subir la cantidad de una línea es agregar platos: el contador de
+    porciones del día vale igual que en `add_items`, y bajar nunca choca."""
+    set_feature("pos.daily_count", True)
+    main_product.daily_count = 2
+    main_product.daily_remaining = 2
+    db.commit()
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    item_id = order["items"][0]["id"]
+    url = f"/api/v1/orders/{order['id']}/items/{item_id}"
+
+    denied = device_client.patch(url, json={"expected_version": order["version"], "qty": 4})
+    assert denied.status_code == 400, denied.text
+    assert denied.json()["error"]["code"] == "PRODUCT_UNAVAILABLE"
+    assert denied.json()["error"]["remaining"] == 2
+
+    ok = device_client.patch(url, json={"expected_version": order["version"], "qty": 3})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["items"][0]["qty"] == 3
+
+    down = device_client.patch(url, json={"expected_version": ok.json()["version"], "qty": 1})
+    assert down.status_code == 200, down.text
+
+
+def test_patch_after_bill_presented_needs_auth(device_client: TestClient, identify: Any, employees: Any, open_shift: Any, set_feature: Any, new_order: Any, add_items: Any, main_product: Any) -> None:
+    """Con la cuenta presentada, el PATCH pide el mismo PIN que agregar: si no,
+    subir la cantidad era la puerta de atrás de `add_items`."""
+    set_feature("pos.pre_bill", True)
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    item_id = order["items"][0]["id"]
+    presented = device_client.post(
+        f"/api/v1/orders/{order['id']}/bill/present", json={"expected_version": order["version"]}, headers=idem_headers()
+    )
+    assert presented.status_code == 200, presented.text
+    current = device_client.get(f"/api/v1/orders/{order['id']}").json()
+    url = f"/api/v1/orders/{order['id']}/items/{item_id}"
+
+    denied = device_client.patch(url, json={"expected_version": current["version"], "qty": 2})
+    assert denied.status_code == 400, denied.text
+    assert denied.json()["error"]["code"] == "BILL_PRESENTED_NEEDS_AUTH"
+
+    authorized = device_client.patch(url, json={"expected_version": current["version"], "qty": 2, "authorizer_pin": "9999"})
+    assert authorized.status_code == 200, authorized.text
+    assert authorized.json()["items"][0]["qty"] == 2

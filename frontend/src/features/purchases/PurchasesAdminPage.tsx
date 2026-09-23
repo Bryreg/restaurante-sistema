@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom"
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { listSuppliers } from "@/api/purchases"
+import { Cargando } from "@/components/Cargando"
 import { FeatureOffEmptyState, PageHeader } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -44,7 +45,7 @@ export function PurchasesAdminPage(): React.JSX.Element {
   })
 
   if (storeLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
+    return <Cargando texto="Cargando sedes…" className="p-4" />
   }
   if (!enabled) {
     // Patrón 13, motivo «función apagada»: la URL sobrevive al flag —los

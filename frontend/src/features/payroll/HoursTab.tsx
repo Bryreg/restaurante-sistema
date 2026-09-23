@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { getPayrollHours, type PayrollHoursRowOut } from "@/api/payroll"
+import { Cargando } from "@/components/Cargando"
 import { DenseTable, DenseTableBar, type DenseColumn } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
@@ -41,7 +42,7 @@ export function HoursTab({ storeId }: { storeId: number }): React.JSX.Element {
       <DateRangeFilter idPrefix="payroll-hours" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando la jornada del período…</p>
+        <Cargando texto="Cargando la jornada del período…" />
       ) : query.isError ? (
         <EmptyState reason="error" title="No se pudo cargar la jornada" description={errorMessage(query.error)} action={{ label: "Reintentar", onClick: () => void query.refetch() }} />
       ) : !query.data?.available ? (

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
 import { listCombos, setComboOptionAvailability, setComboToday } from "@/api/catalog"
+import { Cargando } from "@/components/Cargando"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
@@ -73,7 +74,7 @@ export function DailyMenuTab({ storeId }: { storeId: number }) {
   })
 
   if (combosQuery.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando combos…</p>
+    return <Cargando texto="Cargando combos…" />
   }
   if (combosQuery.isError) {
     return <p className="text-sm text-destructive">{errorMessage(combosQuery.error)}</p>

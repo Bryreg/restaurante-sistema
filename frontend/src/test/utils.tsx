@@ -9,7 +9,8 @@ import { SessionContext, type SessionContextValue } from "@/app/session";
 export interface RenderWithProvidersOptions {
   /** `null` simula "sin sesión" (por defecto). */
   me?: Me | null;
-  route?: string;
+  /** Un objeto para llegar con `state` de navegación, como tras un `navigate(…, { state })`. */
+  route?: string | { pathname: string; state?: unknown };
   /**
    * Reemplaza partes del valor de sesión — p. ej. un `clear` espía, para
    * comprobar que una pantalla sólo olvida la sesión cuando el servidor ya

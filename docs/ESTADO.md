@@ -1551,6 +1551,103 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     esperado ni en la columna de retiros; y el documento equivalente POS
     consecutivo y completo.
 
+34. **Dos semanas de operación simulada, y lo que encontraron** (2026-09-22).
+    `python -m app.demo --days 14` (después del seed) opera la sede por HTTP
+    como un restaurante real: seis proveedores, ~40 insumos con precio de
+    plaza, fichas técnicas de toda la carta, 32 compras con lote, 457 ventas
+    de todos los canales, 27 facturas, retiros, cierres con diferencia,
+    conteos, gastos, nómina, consignaciones y conciliaciones. Imprime cada
+    rechazo de la API como hallazgo. Después, recorrido en Chromium de las 22
+    pantallas del admin (con sus pestañas) y las 7 del POS.
+
+    **Arreglados en este cambio:**
+    - **La jornada de quien no marcaba salida no terminaba nunca.** La
+      responsable de caja no puede marcar salida (`NOT_CASH_RESPONSIBLE`) y el
+      cierre no cerraba su roster: nómina y reparto de propinas por horas la
+      contaban hasta «ahora» — 740 horas extra en una semana y el 60 % de las
+      propinas. El cierre (normal y administrativo) termina las entradas
+      abiertas a su hora, con auditoría. En el cierre ADMINISTRATIVO de un
+      turno abandonado eso es la hora del rescate: revisar esas horas.
+    - `POST /admin/tips/payouts` daba `500` con la hora que manda la pantalla
+      (`datetime-local` sin zona). Pasa por `from_bogota_wall_clock`.
+    - Preparaciones pedía insumos con `store_id=-1` (404) antes de saber la
+      sede; el libro del banco repetía claves de React (`id` de tablas
+      distintas); «Nómina» y «Propinas» se encendían juntas en el rail.
+
+    **Resueltos el 2026-09-23, con la decisión del dueño:**
+    - **KDS**: `app.kitchen.service.live_rounds` / `visible_items`. Anuladas,
+      fusionadas y compensadas salen; de días anteriores sólo sigue lo
+      abierto; de lo cobrado hoy sólo sigue lo pendiente (en mostrador se
+      cobra antes de cocinar). Lo mismo para la cola de impresión.
+    - **POS en bucle con el admin abierto**: un navegador, un rol. Activar el
+      dispositivo cierra la sesión de administrador en ese navegador, y la
+      pantalla lo avisa antes.
+    - **La campana de notificaciones tumbaba la app** (`Menu.GroupLabel`
+      fuera de `Menu.Group`), y tocar un aviso no lo marcaba leído (`onSelect`
+      es de Radix). Admin y POS tienen `errorElement` en español. Las reglas
+      mostraban 14 tipos con el código crudo; ahora todos tienen nombre y
+      explicación, con un test que cruza la lista del backend.
+    - El seed ya no siembra insumos duplicados, y el cargo de domicilio no
+      sale como «plato que no descuenta nada».
+    - **DIAN**: se puede emitir con software propio (factura y DE POS).
+      Plan en `docs/PLAN-DIAN.md`, pendiente de aprobación.
+
+    **Sigue abierto:**
+    - Las dos comandas de ejemplo del seed (`shift_id=NULL`) las adopta el
+      primer turno; el cierre ofrece trasladarlas, así que no bloquea.
+    - Consola: «Encountered a script tag while rendering React component» en
+      todas las pantallas y avisos de Base UI `nativeButton` en tablas.
+
+35. **La dirección visual «Un solo libro, dos mesas», completa** (2026-09-23).
+    Aplica `docs/diseno/propuesta.html` en todo el sistema. Dos desvíos a
+    propósito: el salón es **claro** por defecto, con «Pantalla oscura» por
+    tablet (la cocina siempre en pizarra), y no hay «Volver a contar» en el
+    cierre porque rompería el cierre a ciegas. El menú del admin conserva
+    los grupos de a2 (`EL DÍA · LA CARTA Y EL COSTO · LA PLATA…`): se probó
+    agruparlo por las preguntas de la propuesta y el dueño eligió quedarse
+    con a2, que son más cortos. Las preguntas siguen como subtítulo de cada
+    pantalla.
+    - **Piezas nuevas** (`src/components`):
+      - `SinDato`: rayado, siempre con motivo. `StatTile` la usa cuando el
+        valor es `null`, y `cifraOSinDato` sirve para las cifras de plata.
+      - `Diferencia`: ▲/▼ + palabra, con la cifra con su signo tal como
+        llega. En caja falta el negativo; en inventario, el positivo.
+      - `DesdeHacia`: la confirmación de lo que mueve plata. Nunca calcula
+        «cómo queda». La usan retiro, consignación, pago a proveedor,
+        devolución y movimientos del cajón.
+      - `Cargando`: esqueleto con texto, en lugar de los 57 «Cargando…» sueltos.
+      - Los totales de tabla y de la banda de cifra van con doble raya.
+    - **Comanda**:
+      - un toque suma el plato; el diálogo sólo se abre si el plato exige
+        modificadores;
+      - la carta muestra un número en insignia; lo agotado sigue visible,
+        rayado;
+      - el pedido va por ronda y curso, con los modificadores en línea;
+      - el botón dice «Enviar a cocina · N ítems».
+    - **Cuenta dividida**:
+      - partes numeradas con estado, medio y «con factura»;
+      - el botón dice «Cobrar parte N · $X»;
+      - el comprobante ofrece «Seguir cobrando la mesa».
+    - **Barra del salón según quién se identificó**:
+      - Turno lo ve todo el que se identifica, porque ahí cada persona
+        marca su entrada, salida y pausa (se probó ocultárselo al mesero y
+        perdía cómo marcar su salida);
+      - Cocina, Tiquetes de cocina, Producción y Merma van al final;
+      - cada entrada tiene su ícono;
+      - se renombró «Comanda» a «Mostrador», «KDS» a «Tiquetes de cocina» y
+        «Producir» a «Producción».
+    - **Celular del dueño**:
+      - barra inferior Hoy · Ventas · Plata · Avisos · Más;
+      - Hoy se lee primero la cifra, después los avisos y al final los
+        indicadores;
+      - los avisos de atención se cortan en 3 con «Ver N más».
+      - Todavía no hay comparación semanal: `GET /admin/today` no la trae.
+    - **Autorizaciones**: el diálogo de PIN nombra a quién pedírselo (los
+      administradores, y los supervisores si `roles.supervisor` está prendida).
+    - **Backend**: `PATCH /orders/{id}/items/{item_id}` ahora exige el PIN
+      después de presentar la cuenta y respeta el contador de porciones del
+      día. Subir la cantidad era la puerta de atrás de `add_items`.
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

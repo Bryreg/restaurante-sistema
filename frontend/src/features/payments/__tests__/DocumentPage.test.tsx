@@ -15,14 +15,18 @@ vi.mock("@/api/documents", async () => {
 
 const { getDocument, reprintDocument } = await import("@/api/documents");
 
-function renderDocument(features: Record<string, boolean> = {}) {
+function renderDocument(features: Record<string, boolean> = {}, state?: unknown) {
   return renderWithProviders(
     <Routes>
       <Route path="/pos/documento/:documentId" element={<DocumentPage />} />
       <Route path="/pos/mesas" element={<div>Mapa de mesas</div>} />
       <Route path="/pos/comanda/nueva" element={<div>Comanda nueva</div>} />
+      <Route path="/pos/cobro/:orderId" element={<div>Cobro de la mesa</div>} />
     </Routes>,
-    { route: "/pos/documento/900", me: buildMe({ kind: "device", features }) },
+    {
+      route: state === undefined ? "/pos/documento/900" : { pathname: "/pos/documento/900", state },
+      me: buildMe({ kind: "device", features }),
+    },
   );
 }
 
@@ -122,5 +126,18 @@ describe("DocumentPage", () => {
     await user.click(screen.getByRole("button", { name: "Volver" }));
 
     expect(await screen.findByText("Comanda nueva")).toBeInTheDocument();
+  });
+
+  it("tras cobrar una parte con partes pendientes, «Seguir cobrando la mesa» vuelve a ese cobro", async () => {
+    vi.mocked(getDocument).mockResolvedValue(buildDocument());
+    const user = userEvent.setup();
+
+    renderDocument({ "pos.tables": true }, { seguirCobrando: 42 });
+
+    await screen.findByText("POS-000123");
+    expect(screen.queryByRole("button", { name: "Volver" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Seguir cobrando la mesa" }));
+
+    expect(await screen.findByText("Cobro de la mesa")).toBeInTheDocument();
   });
 });

@@ -103,9 +103,14 @@ export function PaymentTargetPanel({
                   <span>Propina</span>
                   <span className="tabular-nums font-medium">{formatCOP(tip.amount)}</span>
                 </div>
-                <div className="flex justify-between border-t pt-1 text-base">
-                  <span className="font-medium">Total a cobrar</span>
-                  <span className="tabular-nums font-semibold">{formatCOP(saleTotal + tip.amount)}</span>
+                <div className="flex items-baseline justify-between border-t pt-2">
+                  <span className="text-base font-semibold">Total a cobrar</span>
+                  <span
+                    className="text-3xl font-extrabold tabular-nums"
+                    style={{ fontStretch: "115%" }}
+                  >
+                    {formatCOP(saleTotal + tip.amount)}
+                  </span>
                 </div>
               </>
             ) : null}

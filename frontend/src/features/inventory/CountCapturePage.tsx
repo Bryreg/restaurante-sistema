@@ -26,6 +26,7 @@ import {
   type LegendEntry,
   type RowStatus,
 } from "@/components/admin"
+import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
 import { PinPad } from "@/components/PinPad"
 import { Button } from "@/components/ui/button"
@@ -176,13 +177,13 @@ export function CountCapturePage(): React.JSX.Element {
   })
 
   if (storeLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">Cargando sedes…</p>
+    return <Cargando texto="Cargando sedes…" className="p-4" />
   }
   if (activeStoreId === null) {
     return <p className="p-4 text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>
   }
   if (query.isLoading) {
-    return <p className="p-4 text-sm text-muted-foreground">Cargando el conteo…</p>
+    return <Cargando texto="Cargando el conteo…" className="p-4" />
   }
   if (query.isError) {
     return (

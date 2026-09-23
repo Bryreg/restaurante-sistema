@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { AlertTriangle } from "lucide-react"
 
 import { getSuspiciousUnits, suspiciousUnitsCsvUrl } from "@/api/recipes"
+import { Cargando } from "@/components/Cargando"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { EmptyState } from "@/components/EmptyState"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -32,7 +33,7 @@ export function SuspiciousUnitsSection({ storeId }: { storeId: number }): React.
       </div>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">Cargando…</p>
+        <Cargando texto="Cargando…" />
       ) : query.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(query.error)}

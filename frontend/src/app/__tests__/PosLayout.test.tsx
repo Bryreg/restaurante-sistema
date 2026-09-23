@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,8 +29,8 @@ vi.mock("@/features/orders", () => ({
     adminNav: [],
     posNav: [
       { to: "/pos/mesas", label: "Mesas", feature: "pos.tables" },
-      { to: "/pos/comanda/nueva", label: "Comanda" },
-      { to: "/pos/cocina", label: "Cocina", feature: "kitchen.view" },
+      { to: "/pos/comanda/nueva", label: "Mostrador" },
+      { to: "/pos/cocina", label: "Cocina", feature: "kitchen.view", posGroup: "cocina" },
     ],
   },
 }));
@@ -40,16 +40,22 @@ vi.mock("@/features/shifts", () => ({
     posRoutes: [],
     adminRoutes: [],
     adminNav: [],
-    posNav: [{ to: "/pos/turno", label: "Turno" }],
+    posNav: [{ to: "/pos/turno", label: "Turno", posGroup: "caja" }],
     ShiftStatusStrip: () => <div data-testid="shift-status-strip" />,
   },
 }));
 
-function deviceMe(features: Record<string, boolean>): Me {
+type Employee = NonNullable<Me["employee"]>;
+
+const MESERO: Employee = { id: 7, name: "Ana", role: "operator", can_charge: false };
+const CAJERA: Employee = { id: 8, name: "Luz Marina", role: "operator", can_charge: true };
+const SUPERVISOR: Employee = { id: 9, name: "Rosa", role: "supervisor", can_charge: false };
+
+function deviceMe(features: Record<string, boolean>, employee: Employee = MESERO): Me {
   return {
     kind: "device",
     store: { id: 1, name: "Sede Centro", cutoff_hour: 6, active_channels: [] },
-    employee: { id: 7, name: "Ana", role: "operator", can_charge: false },
+    employee,
     organization: { id: 1, name: "Organización de prueba" },
     features,
   };
@@ -58,6 +64,7 @@ function deviceMe(features: Record<string, boolean>): Me {
 function renderLayout(
   features: Record<string, boolean>,
   session?: Partial<SessionContextValue>,
+  employee?: Employee,
 ) {
   return renderWithProviders(
     <Routes>
@@ -65,25 +72,94 @@ function renderLayout(
         <Route index element={<div>contenido</div>} />
       </Route>
     </Routes>,
-    { route: "/pos", me: deviceMe(features), session },
+    { route: "/pos", me: deviceMe(features, employee), session },
   );
 }
 
-describe("PosLayout — barra de navegación del POS filtrada por flags", () => {
-  it("muestra Mesas y Turno, oculta Cocina, con pos.tables encendida y kitchen.view apagada", async () => {
-    renderLayout({ "pos.tables": true, "kitchen.view": false });
+/** Los rótulos de la barra del salón, en el orden en que se ven. */
+async function rotulosDeLaBarra(): Promise<string[]> {
+  const barra = await screen.findByRole("navigation", { name: "Secciones del salón" });
+  return within(barra)
+    .getAllByRole("link")
+    .map((link) => link.textContent ?? "");
+}
 
-    expect(await screen.findByRole("link", { name: "Mesas" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Comanda" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Turno" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Cocina" })).not.toBeInTheDocument();
+const TODO_ENCENDIDO = {
+  "pos.tables": true,
+  "kitchen.view": true,
+  "kitchen.kds": true,
+  "catalog.preps": true,
+  "inventory.waste": true,
+};
+
+describe("PosLayout — la barra del salón la decide quién se identificó", () => {
+  it("el mesero también ve Turno: ahí marca su entrada, salida y pausa", async () => {
+    renderLayout({ "pos.tables": true }, undefined, MESERO);
+
+    expect(await rotulosDeLaBarra()).toEqual(["Mesas", "Mostrador", "Turno"]);
   });
 
-  it("muestra Cocina cuando kitchen.view está encendida", async () => {
-    renderLayout({ "pos.tables": false, "kitchen.view": true });
+  it("la cajera (can_charge) suma Turno, después de la venta", async () => {
+    renderLayout({ "pos.tables": true }, undefined, CAJERA);
 
-    expect(await screen.findByRole("link", { name: "Cocina" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Mesas" })).not.toBeInTheDocument();
+    expect(await rotulosDeLaBarra()).toEqual(["Mesas", "Mostrador", "Turno"]);
+  });
+
+  it("supervisor sin can_charge también ve Turno: vigila la caja aunque no cobre", async () => {
+    renderLayout({ "pos.tables": true }, undefined, SUPERVISOR);
+
+    expect(await rotulosDeLaBarra()).toContain("Turno");
+  });
+
+  it("orden: venta → caja → cocina, y la cocina en su orden", async () => {
+    renderLayout(TODO_ENCENDIDO, undefined, CAJERA);
+
+    expect(await rotulosDeLaBarra()).toEqual([
+      "Mesas",
+      "Mostrador",
+      "Turno",
+      "Cocina",
+      "Tiquetes de cocina",
+      "Producción",
+      "Merma",
+    ]);
+  });
+
+  it("una función apagada no deja hueco: la entrada simplemente no está", async () => {
+    renderLayout({ "pos.tables": false, "kitchen.view": true }, undefined, MESERO);
+
+    expect(await rotulosDeLaBarra()).toEqual(["Mostrador", "Turno", "Cocina"]);
+  });
+
+  it("con las dos vistas de cocina encendidas no hay dos «Cocina» iguales", async () => {
+    renderLayout(TODO_ENCENDIDO, undefined, MESERO);
+
+    const rotulos = await rotulosDeLaBarra();
+    expect(new Set(rotulos).size).toBe(rotulos.length);
+  });
+
+  it("los botones de la barra son objetivos de salón (min-h-14, ≥ 56 px)", async () => {
+    renderLayout({ "pos.tables": true }, undefined, CAJERA);
+
+    await rotulosDeLaBarra();
+    for (const link of within(screen.getByRole("navigation", { name: "Secciones del salón" })).getAllByRole("link")) {
+      expect(link.className).toMatch(/\bmin-h-14\b/);
+    }
+  });
+
+  it("sin persona identificada no hay entradas de operación", async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/pos" element={<PosLayout />}>
+          <Route index element={<div>contenido</div>} />
+        </Route>
+        <Route path="/pos/identify" element={<div>Identificate</div>} />
+      </Routes>,
+      { route: "/pos", me: { ...deviceMe(TODO_ENCENDIDO), employee: null } },
+    );
+
+    expect(await screen.findByText("Identificate")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Secciones del salón" })).not.toBeInTheDocument();
   });
 
   it("mantiene ShiftStatusStrip y «Cambiar de persona»", async () => {
