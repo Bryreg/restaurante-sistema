@@ -16,9 +16,4 @@ export interface NavItem {
    * manifiestos. Sin tramo cuenta como `venta`.
    */
   posGroup?: "venta" | "caja" | "cocina";
-  /**
-   * Sólo barra del salón: la ve quien puede manejar la caja — `can_charge`,
-   * o rol supervisor/administrador (`buildPosNav` en `PosLayout.tsx`).
-   */
-  needsCharge?: boolean;
 }

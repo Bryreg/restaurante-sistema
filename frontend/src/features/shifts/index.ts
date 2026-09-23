@@ -36,9 +36,9 @@ const adminNav: NavItem[] = [
   { to: "/admin/personal", label: "Turnos y personal" },
 ];
 
-// Turno es de quien maneja la caja (`needsCharge`): el mesero no lo ve en la
-// barra; abrir turno sigue a mano para todos desde `ShiftStatusStrip`.
-const posNav: NavItem[] = [{ to: "/pos/turno", label: "Turno", icon: Wallet, posGroup: "caja", needsCharge: true }];
+// Turno lo ve todo el que se identifica, no sólo la caja: ahí está el panel
+// donde cada persona marca su entrada, salida y pausa con su propio PIN.
+const posNav: NavItem[] = [{ to: "/pos/turno", label: "Turno", icon: Wallet, posGroup: "caja" }];
 
 export const shiftsFeature = {
   posRoutes,

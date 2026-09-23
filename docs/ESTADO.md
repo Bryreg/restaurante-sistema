@@ -1625,7 +1625,9 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       - el botón dice «Cobrar parte N · $X»;
       - el comprobante ofrece «Seguir cobrando la mesa».
     - **Barra del salón según quién se identificó**:
-      - Turno aparece sólo para quien maneja caja;
+      - Turno lo ve todo el que se identifica, porque ahí cada persona
+        marca su entrada, salida y pausa (se probó ocultárselo al mesero y
+        perdía cómo marcar su salida);
       - Cocina, Tiquetes de cocina, Producción y Merma van al final;
       - cada entrada tiene su ícono;
       - se renombró «Comanda» a «Mostrador», «KDS» a «Tiquetes de cocina» y

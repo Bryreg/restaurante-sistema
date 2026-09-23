@@ -40,7 +40,7 @@ vi.mock("@/features/shifts", () => ({
     posRoutes: [],
     adminRoutes: [],
     adminNav: [],
-    posNav: [{ to: "/pos/turno", label: "Turno", posGroup: "caja", needsCharge: true }],
+    posNav: [{ to: "/pos/turno", label: "Turno", posGroup: "caja" }],
     ShiftStatusStrip: () => <div data-testid="shift-status-strip" />,
   },
 }));
@@ -93,10 +93,10 @@ const TODO_ENCENDIDO = {
 };
 
 describe("PosLayout — la barra del salón la decide quién se identificó", () => {
-  it("el mesero ve Mesas y Mostrador, no Turno", async () => {
+  it("el mesero también ve Turno: ahí marca su entrada, salida y pausa", async () => {
     renderLayout({ "pos.tables": true }, undefined, MESERO);
 
-    expect(await rotulosDeLaBarra()).toEqual(["Mesas", "Mostrador"]);
+    expect(await rotulosDeLaBarra()).toEqual(["Mesas", "Mostrador", "Turno"]);
   });
 
   it("la cajera (can_charge) suma Turno, después de la venta", async () => {
@@ -128,7 +128,7 @@ describe("PosLayout — la barra del salón la decide quién se identificó", ()
   it("una función apagada no deja hueco: la entrada simplemente no está", async () => {
     renderLayout({ "pos.tables": false, "kitchen.view": true }, undefined, MESERO);
 
-    expect(await rotulosDeLaBarra()).toEqual(["Mostrador", "Cocina"]);
+    expect(await rotulosDeLaBarra()).toEqual(["Mostrador", "Turno", "Cocina"]);
   });
 
   it("con las dos vistas de cocina encendidas no hay dos «Cocina» iguales", async () => {
