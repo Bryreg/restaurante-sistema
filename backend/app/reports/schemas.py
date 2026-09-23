@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-GroupBy = Literal["business_date", "shift", "method", "channel", "employee", "hour", "zone"]
+GroupBy = Literal["business_date", "shift", "method", "channel", "employee", "hour", "zone", "product", "category"]
 
 
 class EmployeeRefOut(BaseModel):
@@ -38,9 +38,20 @@ class EmployeeRefOut(BaseModel):
 
 
 class HourBucketOut(BaseModel):
+    """Una hora de reloj de Bogotá (0-23). Revisión de datos (sep. 2026,
+    científico #12): `sales_by_hour` trae SIEMPRE las 24 horas, en el orden
+    del día operativo (arranca en `cutoff_hour` de la sede, no en las 00),
+    con `0` explícito donde no hubo venta — el hueco ya no desaparece.
+    `pending=True` marca una hora del día en curso que todavía no empezó: su
+    `0` no es un resultado, es «todavía no pasó» (el gráfico no la dibuja
+    como venta cero). `orders` = comandas con al menos un comprobante
+    emitido en esa hora."""
+
     hour: int
     gross: int
     net: int
+    orders: int = 0
+    pending: bool = False
 
 
 class MethodAmountOut(BaseModel):
@@ -75,6 +86,13 @@ class AlertOut(BaseModel):
     body: str
     created_at: datetime
     payload: dict[str, Any] | None = None
+    # Revisión de datos (sep. 2026, analista #4): la plata en juego del aviso,
+    # en pesos enteros, cuando el aviso tiene una. Con signo cuando el signo
+    # dice algo (`cash_diff_summary`: negativo = faltante neto); `None`
+    # cuando el aviso no es de plata (nunca `0` mudo). `alerts` viene
+    # ordenada por gravedad (critical > warning > info) y, dentro de la
+    # misma gravedad, por `|amount|` descendente (los `None` al final).
+    amount: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +134,11 @@ class NegativeStockAlertOut(BaseModel):
     base_unit: str
     negative_since: str | None
     probable_cause: str | None
+    # Revisión de datos (sep. 2026, analista #4): lo que vale la cantidad que
+    # falta (|qty_base| × costo vigente del insumo, jerarquía completa de
+    # `app.inventory.hooks.resolve_ingredient_cost`), en pesos enteros
+    # positivos. `None` cuando el insumo no tiene costo todavía — nunca `0`.
+    amount: int | None = None
 
 
 class PrepAlertOut(BaseModel):
@@ -165,6 +188,41 @@ class PayableAlertOut(BaseModel):
     days_overdue: int
 
 
+class TodayComparisonOut(BaseModel):
+    """Hoy contra el MISMO día de la semana pasada HASTA LA MISMA HORA
+    (revisión de datos sep. 2026, analista #3). `until` es el minuto de
+    corte del día de referencia (ahora − 7 días, truncado al minuto): sólo
+    cuentan los comprobantes de ese día emitidos hasta el final de ese
+    minuto.
+
+    `net`/`orders` son `None` (con `null_reason`) cuando la sede todavía no
+    operaba ese día — «no existía» no es «vendió $0». Si la sede ya operaba
+    pero ese día no abrió (`reference_operated=False`) o no vendió nada a
+    esta hora, `net=0` es un hecho real y `delta_bp` es `None` (no hay
+    divisor). `delta_bp` = variación del neto de hoy contra ese neto, en
+    puntos básicos con signo (−1.200 = 12 % abajo)."""
+
+    reference_business_date: date
+    until: datetime
+    net: int | None
+    orders: int | None
+    delta_bp: int | None
+    orders_delta_bp: int | None
+    reference_operated: bool | None
+    null_reason: str | None
+
+
+class DayCloseOut(BaseModel):
+    """Cómo cerró un día operativo completo (`yesterday_close`: el
+    anterior al de hoy), para mostrar antes de la primera venta."""
+
+    business_date: date
+    net: int
+    orders: int
+    avg_ticket: int | None
+    operated: bool
+
+
 class TodayOut(BaseModel):
     store_id: int
     business_date: date
@@ -209,11 +267,48 @@ class TodayOut(BaseModel):
     # `None` cuando nunca hubo uno (nunca un número inventado).
     inventory_unreliable: bool | None
     days_since_last_full_count: int | None
+    # Revisión de datos (sep. 2026). Todos opcionales con default: un
+    # consumidor viejo que no los conoce no se rompe.
+    # Plata en juego de dos grupos del riel (analista #4). `None` cuando la
+    # función está apagada / el módulo no existe (`payables_overdue_total`) o
+    # cuando NINGÚN insumo en negativo tiene costo (`ingredients_negative_
+    # amount`); con la lista vacía y la función encendida, `0`.
+    payables_overdue_total: int | None = None
+    ingredients_negative_amount: int | None = None
+    ingredients_negative_uncosted: int = 0
+    # Contra qué comparar el día (analista #3, científico (d)1).
+    comparison: TodayComparisonOut | None = None
+    sales_by_hour_reference: list[HourBucketOut] = []
+    yesterday_close: DayCloseOut | None = None
 
 
 # ---------------------------------------------------------------------------
 # GET /admin/sales
 # ---------------------------------------------------------------------------
+
+
+class PreviousPeriodOut(BaseModel):
+    """El período del MISMO largo inmediatamente anterior a `[from, to]`
+    (revisión de datos sep. 2026, analista #7 / científico (d)1). Sólo viaja
+    en `SalesReportOut.total`.
+
+    `net`/`orders` son `None` (con `null_reason`) cuando la sede no tenía
+    ninguna actividad (turno o venta) hasta `date_to` — «no existía» no es
+    «vendió $0». `partial=True` cuando la sede empezó a operar DENTRO del
+    período anterior: la comparación es contra menos días reales. Los
+    `*_delta_bp` son la variación del período actual contra éste, en puntos
+    básicos con signo; `None` cuando el valor anterior es `None` o `0`."""
+
+    date_from: date
+    date_to: date
+    net: int | None
+    orders: int | None
+    avg_ticket: int | None
+    delta_bp: int | None
+    orders_delta_bp: int | None
+    avg_ticket_delta_bp: int | None
+    partial: bool
+    null_reason: str | None
 
 
 class SalesBucketOut(BaseModel):
@@ -222,7 +317,14 @@ class SalesBucketOut(BaseModel):
     gross: int
     net: int
     tax: int
-    tips: int
+    # `None` en `group_by=product|category`: la propina se deja sobre la
+    # cuenta, no sobre un plato — repartirla sería inventar.
+    tips: int | None
+    # En `group_by=method` cuenta PAGOS (partes de un cobro), no comandas:
+    # una comanda pagada mitad efectivo y mitad tarjeta suma 1 en cada fila
+    # porque son dos pagos de verdad (científico #10). En ese mismo
+    # `group_by`, `total.orders` sigue siendo comandas distintas y
+    # `total.payments` es la suma de las filas.
     orders: int
     covers: int | None
     avg_ticket: int | None
@@ -237,7 +339,28 @@ class SalesBucketOut(BaseModel):
     # cambió por el refactor a micros.
     theoretical_cost: int | None
     gross_margin: int | None
+    # `None` también en `group_by=method`: un medio de pago no tiene ficha
+    # técnica; el `0 %` que salía antes contradecía la leyenda de la tabla.
     costed_pct: int | None
+    # Revisión de datos (sep. 2026). Todos con default: un consumidor viejo
+    # no se rompe.
+    # Participación de la fila en el neto del reporte, en puntos básicos.
+    # Repartido con `app.orders.money.prorate`, así que las filas suman
+    # EXACTO 10.000 (una barra 100 % no queda con un hueco de redondeo).
+    # `None` en `total` y cuando el neto total es `0` o alguna fila es
+    # negativa.
+    share_bp: int | None = None
+    # Sólo `group_by=method` (filas y total): cantidad de pagos.
+    payments: int | None = None
+    # Sólo `group_by=product|category`: unidades vendidas (cortesías
+    # incluidas: salieron de la cocina).
+    units: int | None = None
+    # Sólo `group_by=business_date`: la sede abrió día operativo (turno)
+    # ese día. Un día sin ventas SIEMPRE viene como fila con `net=0` (vender
+    # $0 es un hecho); `operated=False` dice además que no abrió.
+    operated: bool | None = None
+    # Sólo en `total`.
+    previous_period: PreviousPeriodOut | None = None
 
 
 class SalesReportOut(BaseModel):

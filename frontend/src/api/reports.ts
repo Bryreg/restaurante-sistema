@@ -41,10 +41,22 @@ export interface MethodAmountOut {
 // GET /admin/today
 // ---------------------------------------------------------------------------
 
+/**
+ * Una hora de reloj de Bogotá (0-23). Desde la revisión de datos de
+ * septiembre, `sales_by_hour`/`sales_by_hour_reference` traen SIEMPRE las 24
+ * horas, ya ordenadas desde el `cutoff_hour` de la sede (06, 07… 23, 00…
+ * 05), con `0` explícito donde no hubo venta. Se pintan en el orden en que
+ * llegan: nunca se reordenan por `hour`.
+ */
 export interface HourBucketOut {
   hour: number
   gross: number
   net: number
+  /** Comandas con comprobante emitido en esa hora. */
+  orders?: number
+  /** `true` = hora del día en curso que todavía no empezó: su `0` no es
+   * venta cero, es «todavía no pasó» (no se dibuja como barra en 0). */
+  pending?: boolean
 }
 
 export interface OpenOrderAgeOut {
@@ -76,7 +88,43 @@ export interface AlertOut {
   body: string
   created_at: string
   payload?: Record<string, unknown> | null
+  /**
+   * Plata en juego, en pesos enteros; con signo cuando el signo dice algo
+   * (`cash_diff_summary`: negativo = faltante neto). `null`/ausente = el
+   * aviso no es de plata (nunca `0`). La lista `alerts` ya llega ordenada:
+   * gravedad y después `|amount|` descendente.
+   */
+  amount?: number | null
 }
+
+/**
+ * `payload` del aviso `type: "cash_diff_summary"`: todas las diferencias de
+ * caja al cierre sin leer, en UN aviso (reemplaza en `alerts` a los
+ * `cash_difference`/`cash_difference_critical`/`difference_streak` sueltos,
+ * que siguen existiendo en la campana). Montos en pesos con signo
+ * (negativo = faltante). Fechas: día operativo `YYYY-MM-DD`.
+ */
+export interface CashDiffSummaryPayload {
+  count: number
+  shortage_count: number
+  /** ≤ 0 */
+  shortage_total: number
+  surplus_count: number
+  /** ≥ 0 */
+  surplus_total: number
+  /** = `amount` del aviso. */
+  net_total: number
+  critical_count: number
+  shift_ids: number[]
+  first_business_date: string | null
+  last_business_date: string | null
+  /** Días operativos desde el primer cierre con diferencia hasta hoy, inclusive. */
+  days: number | null
+  /** Personas con racha vigente (≥ 2 cierres seguidos con diferencia), la más larga primero. */
+  streaks: { employee_id: number; employee_name: string; streak: number }[]
+}
+
+export const CASH_DIFF_SUMMARY_ALERT_TYPE = "cash_diff_summary"
 
 // ---------------------------------------------------------------------------
 // Pedido 2a: las cuatro alertas que gana `GET /admin/today`
@@ -104,6 +152,10 @@ export interface NegativeStockAlertOut {
   negative_since?: string | null
   /** Server-computed; `null` cuando no hay causa clara — nunca se adivina en el cliente. */
   probable_cause?: string | null
+  /** Lo que vale la cantidad que falta (|qty| × costo vigente), en pesos
+   * enteros positivos. `null` = el insumo no tiene costo todavía. La lista
+   * llega ordenada por este monto, descendente (los `null` al final). */
+  amount?: number | null
 }
 
 export interface PrepAlertOut {
@@ -151,6 +203,34 @@ export interface PayableAlertOut {
   days_overdue: number
 }
 
+/**
+ * Hoy contra el MISMO día de la semana pasada HASTA LA MISMA HORA (`until` =
+ * ahora − 7 días, truncado al minuto). `net`/`orders` `null` (con `null_reason`) cuando la sede
+ * todavía no operaba ese día. `delta_bp`: variación del neto de hoy en
+ * puntos básicos con signo (−1.200 = 12 % abajo); `null` sin divisor
+ * (referencia en $0). `reference_operated`: si ese día la sede abrió.
+ */
+export interface TodayComparisonOut {
+  reference_business_date: string
+  until: string
+  net: number | null
+  orders: number | null
+  delta_bp: number | null
+  orders_delta_bp: number | null
+  reference_operated: boolean | null
+  null_reason: string | null
+}
+
+/** Cómo cerró un día operativo completo (`yesterday_close`). */
+export interface DayCloseOut {
+  business_date: string
+  net: number
+  orders: number
+  avg_ticket: number | null
+  /** `false` = ese día la sede no abrió (su $0 no es un mal día). */
+  operated: boolean
+}
+
 export interface TodayOut {
   store_id: number
   business_date: string
@@ -196,6 +276,22 @@ export interface TodayOut {
    * la sede lleva el control. */
   inventory_unreliable?: boolean | null
   days_since_last_full_count?: number | null
+  // Revisión de datos (septiembre). Plata en juego del riel, sumada por el
+  // servidor: `null` = función apagada (`payables_overdue_total`) o ningún
+  // insumo en negativo con costo (`ingredients_negative_amount`, y
+  // `ingredients_negative_uncosted` dice cuántos quedaron sin valorar).
+  payables_overdue_total?: number | null
+  ingredients_negative_amount?: number | null
+  ingredients_negative_uncosted?: number
+  /** `null` sólo si un servidor viejo no la manda. */
+  comparison?: TodayComparisonOut | null
+  /** Mismo día de la semana pasada, día COMPLETO, misma forma que
+   * `sales_by_hour` (24 horas, ninguna `pending`). `[]` si la sede no
+   * operaba ese día. */
+  sales_by_hour_reference?: HourBucketOut[]
+  /** Día operativo anterior, para mostrar antes de la primera venta.
+   * `null` si la sede todavía no operaba. */
+  yesterday_close?: DayCloseOut | null
 }
 
 export function getToday(storeId: number): Promise<TodayOut> {
@@ -208,13 +304,50 @@ export function getToday(storeId: number): Promise<TodayOut> {
 
 export type SalesGroupBy = "business_date" | "shift" | "method" | "channel" | "employee" | "hour" | "zone"
 
+/**
+ * «Qué se vendió»: agrupa por las LÍNEAS del comprobante (unidades, neto y
+ * costo/margen por plato o categoría, ordenado por neto desc). Tipo aparte
+ * de `SalesGroupBy` para no obligar a `Record<SalesGroupBy, …>` existentes
+ * a conocerlo antes de que la pantalla lo use; el día que lo haga, se
+ * pueden fundir.
+ */
+export type SalesLineGroupBy = "product" | "category"
+
+/**
+ * El período del mismo largo inmediatamente anterior a `[from, to]` (sólo en
+ * `SalesReportOut.total`). `net`/`orders`/`avg_ticket` `null` (con
+ * `null_reason`) si la sede no operaba todavía; `partial` = empezó a operar
+ * dentro de ese período. `*_delta_bp`: variación del período actual contra
+ * éste, en puntos básicos con signo; `null` sin divisor.
+ */
+export interface PreviousPeriodOut {
+  date_from: string
+  date_to: string
+  net: number | null
+  orders: number | null
+  avg_ticket: number | null
+  delta_bp: number | null
+  orders_delta_bp: number | null
+  avg_ticket_delta_bp: number | null
+  partial: boolean
+  null_reason: string | null
+}
+
+/**
+ * Una fila de `GET /admin/sales`. Las filas llegan YA ordenadas por el
+ * servidor y se pintan en ese orden: `business_date` cronológico con todos
+ * los días (los vacíos en `0`); `hour` las 24 horas desde el corte;
+ * `shift` por apertura real; el resto por `net` descendente.
+ */
 export interface SalesBucketOut {
   key: string
   label?: string
   gross?: number
   net?: number
   tax?: number
-  tips?: number
+  /** `null` en `product`/`category`: la propina no es de un plato. */
+  tips?: number | null
+  /** En `group_by=method` cuenta PAGOS, no comandas (ver `payments`). */
   orders?: number
   covers?: number | null
   avg_ticket?: number | null
@@ -235,15 +368,27 @@ export interface SalesBucketOut {
   theoretical_cost?: number | null
   /** = margen bruto teórico (spec: `gross_margin`): `net − theoretical_cost`. */
   gross_margin?: number | null
-  /** = `costed_pct` (spec): % de la venta neta que tuvo ficha de verdad. */
+  /** = `costed_pct` (spec): % de la venta neta que tuvo ficha de verdad.
+   * `null` en las filas por medio de pago (no aplica). */
   costed_pct?: number | null
+  /** Participación en el neto del reporte, en puntos básicos; las filas
+   * suman exacto 10.000. `null` en `total`. */
+  share_bp?: number | null
+  /** Sólo `group_by=method` (filas y total): cantidad de pagos. */
+  payments?: number | null
+  /** Sólo `group_by=product|category`: unidades vendidas. */
+  units?: number | null
+  /** Sólo `group_by=business_date`: la sede abrió ese día. */
+  operated?: boolean | null
+  /** Sólo en `total`. */
+  previous_period?: PreviousPeriodOut | null
 }
 
 export interface SalesReportOut {
   store_id: number
   date_from: string
   date_to: string
-  group_by: SalesGroupBy
+  group_by: SalesGroupBy | SalesLineGroupBy
   rows: SalesBucketOut[]
   total: SalesBucketOut
 }
@@ -252,7 +397,7 @@ export interface SalesQuery {
   storeId: number
   from: string
   to: string
-  groupBy: SalesGroupBy
+  groupBy: SalesGroupBy | SalesLineGroupBy
 }
 
 export function getSales(params: SalesQuery): Promise<SalesReportOut> {

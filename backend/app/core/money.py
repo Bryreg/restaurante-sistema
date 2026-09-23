@@ -67,3 +67,9 @@ def format_cop(value: int) -> str:
     """
     signo = "-" if value < 0 else ""
     return f"{signo}$ {abs(value):,}".replace(",", ".")
+
+
+# El formateador de porcentajes es-CO vive en `app.core.percent` (los
+# porcentajes no son plata); se re-exporta acá porque algunos dominios lo
+# buscan junto a `format_cop`, su hermano. Una sola implementación.
+from app.core.percent import format_pct_bp as format_pct_bp  # noqa: E402
