@@ -50,7 +50,7 @@ from app.core.db import get_db
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.kitchen import service
 from app.kitchen.schemas import KitchenPrintJobOut, PrintJobIn
-from app.orders.models import Order, OrderItem, OrderItemStatus, OrderRound
+from app.orders.models import OrderItem, OrderItemStatus
 from app.stores import service as stores_service
 
 router = APIRouter()
@@ -112,26 +112,14 @@ def get_kitchen_rounds(
     # idéntico").
     kds_enabled = features.is_enabled(db, actor.organization_id, store_id, "kitchen.kds")  # type: ignore[arg-type]
 
-    rounds = list(
-        db.execute(
-            select(OrderRound)
-            .join(Order, OrderRound.order_id == Order.id)
-            .where(Order.store_id == store_id)
-            .order_by(OrderRound.sent_at)
-        ).scalars()
-    )
-
     out: list[dict[str, Any]] = []
-    for round_row in rounds:
-        order = db.get(Order, round_row.order_id)
-        if order is None:
-            continue
+    for round_row, order in service.live_rounds(db, store_id=store_id):  # type: ignore[arg-type]
         items_stmt = select(OrderItem).where(
             OrderItem.round_id == round_row.id, OrderItem.status.in_([OrderItemStatus.SENT, OrderItemStatus.READY])
         )
         if station:
             items_stmt = items_stmt.where(OrderItem.station == station)
-        items = list(db.execute(items_stmt.order_by(OrderItem.id)).scalars())
+        items = service.visible_items(order, list(db.execute(items_stmt.order_by(OrderItem.id)).scalars()))
         if not items:
             continue
 
