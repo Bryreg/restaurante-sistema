@@ -626,7 +626,7 @@ describe("TodayPage", () => {
   // ---------------------------------------------------------------------
   // «Orden y aire»: cinco avisos a la vista y la explicación plegada.
   // ---------------------------------------------------------------------
-  it("«Requiere tu atención» deja cinco avisos a la vista y el resto detrás de «Ver más (n)», sin mentir en los recuentos", async () => {
+  it("«Requiere tu atención» deja cinco avisos a la vista y el resto detrás de «Ver n más», sin mentir en los recuentos", async () => {
     const alerta = (i: number) => ({
       type: "waste_spike",
       level: "warning",
@@ -643,24 +643,26 @@ describe("TodayPage", () => {
     // Los recuentos —el del encabezado y el del grupo «Aviso»— son los de
     // todos, no los de los que se ven.
     expect(within(riel).getAllByText("7")).toHaveLength(2)
-    const plegados = () =>
+    const ocultos = () =>
       within(riel)
         .getAllByRole("listitem")
-        .filter((li) => li.querySelector("[data-aviso-plegado]") !== null)
+        .filter((li) => li.classList.contains("hidden"))
         .map((li) => li.querySelector("p")?.textContent)
-    expect(plegados()).toEqual(["Aviso 6", "Aviso 7"])
+    expect(ocultos()).toEqual(["Aviso 6", "Aviso 7"])
 
-    await userEvent.click(screen.getByRole("button", { name: "Ver más (2)" }))
-    expect(plegados()).toEqual([])
-    expect(screen.getByRole("button", { name: "Ver menos" })).toHaveAttribute("aria-expanded", "true")
+    // Un solo botón, dentro del riel: no uno del riel y otro de la pantalla.
+    expect(within(riel).getAllByRole("button", { name: /^Ver / })).toHaveLength(1)
+    await userEvent.click(within(riel).getByRole("button", { name: "Ver 2 más" }))
+    expect(ocultos()).toEqual([])
+    expect(within(riel).getByRole("button", { name: "Ver menos" })).toHaveAttribute("aria-expanded", "true")
   })
 
-  it("con cinco avisos o menos no hay «Ver más»", async () => {
+  it("con cinco avisos o menos no hay «Ver n más»", async () => {
     getTodayMock.mockResolvedValue(baseToday({ unsent_count: 1, unreviewed_closes_count: 2 }))
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
     await screen.findByText("Comandas atascadas")
-    expect(screen.queryByRole("button", { name: /Ver más \(/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /^Ver \d+ más$/ })).not.toBeInTheDocument()
   })
 
   it("lo que explica va plegado (pie de tarjetas, método del gráfico, porqué de un aviso); el motivo de un «sin dato» no", async () => {

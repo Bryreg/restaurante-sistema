@@ -294,6 +294,20 @@ describe("NoticeRail · una sola forma, y el recuento no puede mentir", () => {
     expect(screen.getByText("3 lotes por vencer")).toBeInTheDocument()
   })
 
+  it("con `limit`, los críticos cuentan primero y el resto va detrás de un solo «Ver n más»", async () => {
+    const user = userEvent.setup()
+    dibujar(<NoticeRail notices={AVISOS} limit={3} />)
+    const riel = screen.getByRole("complementary", { name: "Requiere tu atención" })
+    // Dos críticos y el primero de atención a la vista; el segundo, no.
+    expect(screen.getByText("9 insumos bajo el mínimo").closest("li")).not.toHaveClass("hidden")
+    expect(screen.getByText("6 comandas atascadas").closest("li")).toHaveClass("hidden")
+    // El recuento de la gravedad sigue siendo el real.
+    expect(within(riel).getByText("Aviso").textContent).toContain("2")
+    await user.click(within(riel).getByRole("button", { name: "Ver 1 más" }))
+    expect(screen.getByText("6 comandas atascadas").closest("li")).not.toHaveClass("hidden")
+    expect(within(riel).getByRole("button", { name: "Ver menos" })).toHaveAttribute("aria-expanded", "true")
+  })
+
   it("sin avisos el riel no se vacía: dice la noticia buena", () => {
     dibujar(
       <NoticeRail

@@ -3,7 +3,6 @@ import {
   Banknote,
   BarChart3,
   CalendarDays,
-  ChevronDown,
   Clock,
   Coins,
   RefreshCw,
@@ -11,7 +10,7 @@ import {
   UtensilsCrossed,
   type LucideIcon,
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 
 import {
@@ -508,7 +507,7 @@ function sortAttention(items: AttentionItem[]): AttentionItem[] {
  * (`docs/PATRONES-ADMIN.md` § 6 y § 7): la consulta cruda
  * (`?tab=stock&negative=1`) viaja en `to` y no se dibuja nunca.
  */
-function toNotice(item: AttentionItem, plegado = false): Notice {
+function toNotice(item: AttentionItem): Notice {
   const link: FilterLinkProps = { to: item.to, screen: item.screen, tab: item.tab, filter: item.filter }
   // **Todos con la misma forma**: título, por qué duele, destino. Lo que
   // dice la gravedad es el riel de color del `NoticeRail`, no la forma del
@@ -518,9 +517,7 @@ function toNotice(item: AttentionItem, plegado = false): Notice {
   return {
     id: item.key,
     severity: SEVERITY_OF_TONE[item.tone],
-    // La marca que pliega el aviso (ver `AttentionRail`): viaja en el título
-    // porque el riel no deja poner nada en el `<li>`, y el texto no cambia.
-    title: plegado ? <span data-aviso-plegado="">{item.title}</span> : item.title,
+    title: item.title,
     consequence: item.body,
     link,
     amount:
@@ -533,21 +530,13 @@ const VISIBLE_NOTICES = 5
 
 /**
  * «Requiere tu atención» con **cinco avisos a la vista** y el resto detrás
- * de «Ver más (n)» (mapa de pantallas aprobado para Hoy).
- *
- * Los avisos no se recortan de la lista: se **marcan** (`data-aviso-plegado`)
- * y se esconden por CSS desde `md`. Así el riel sigue recibiéndolos todos y
- * sus recuentos —el total del encabezado y el de cada gravedad— siguen
- * diciendo cuántos hay de verdad, no cuántos se ven. En el celular manda el
- * corte propio del riel (los críticos enteros y tres de atención, con su
- * «Ver N más de atención»): dos cortes encimados escondían avisos que el
- * botón del riel prometía mostrar. La cola «para cuando puedas» no cuenta:
- * el riel ya la pliega.
+ * de un solo «Ver n más» (mapa de pantallas aprobado para Hoy). El corte lo
+ * hace el riel (`limit`), en cualquier ancho, y sus recuentos —el total del
+ * encabezado y el de cada gravedad— siguen diciendo cuántos hay de verdad,
+ * no cuántos se ven. La cola «para cuando puedas» no cuenta: el riel ya la
+ * pliega.
  */
 function AttentionRail({ attention }: { attention: AttentionItem[] }): React.JSX.Element {
-  const [verTodos, setVerTodos] = useState(false)
-  const urgentes = attention.filter((a) => a.tone !== "default").length
-  const ocultables = Math.max(0, urgentes - VISIBLE_NOTICES)
   // Una vez por clase de aviso, aunque haya dos del mismo tipo.
   const porQue = [
     ...new Map(
@@ -556,8 +545,8 @@ function AttentionRail({ attention }: { attention: AttentionItem[] }): React.JSX
   ]
 
   // El `sticky` del escritorio pasa del riel a este envoltorio: pegado sólo
-  // el riel, al bajar se montaba encima de «Ver más» y del plegable, que
-  // quedaban en su lugar debajo de él. El padre es el que se estira por toda
+  // el riel, al bajar se montaba encima del plegable, que quedaba en su
+  // lugar debajo de él. El padre es el que se estira por toda
   // la columna, así que el envoltorio tiene por dónde correr. Lleva también
   // el ancla de «Avisos»; `scroll-mt-28`: en el celular la barra superior
   // pega en dos renglones (~88 px) y taparía el título.
@@ -569,11 +558,10 @@ function AttentionRail({ attention }: { attention: AttentionItem[] }): React.JSX
     >
       <NoticeRail
         title="Requiere tu atención"
-        className="static md:[&_li:has([data-aviso-plegado])]:hidden"
+        className="static"
+        limit={VISIBLE_NOTICES}
         // `sortAttention` deja los urgentes primero, en el orden del riel.
-        notices={attention.map((item, i) =>
-          toNotice(item, !verTodos && item.tone !== "default" && i >= VISIBLE_NOTICES),
-        )}
+        notices={attention.map(toNotice)}
         empty={
           <AllClearEmptyState
             title="Todo al día"
@@ -581,20 +569,6 @@ function AttentionRail({ attention }: { attention: AttentionItem[] }): React.JSX
           />
         }
       />
-      {ocultables > 0 ? (
-        <button
-          type="button"
-          aria-expanded={verTodos}
-          onClick={() => setVerTodos((v) => !v)}
-          className="mt-2 hidden min-h-10 w-full items-center gap-2 rounded-lg border bg-card px-3 text-left text-sm font-bold text-primary hover:bg-accent md:flex"
-        >
-          {verTodos ? "Ver menos" : `Ver más (${ocultables})`}
-          <ChevronDown
-            aria-hidden="true"
-            className={cn("ml-auto size-4 transition-transform", verTodos && "rotate-180")}
-          />
-        </button>
-      ) : null}
       {porQue.length > 0 ? (
         <Plegable resumen="Cómo leer estos avisos" className="mt-2 px-1">
           <Definiciones items={porQue} />

@@ -40,6 +40,14 @@ export interface NoticeRailProps {
   empty?: React.ReactNode
   /** El pie: «Ordenados por gravedad». */
   footNote?: React.ReactNode
+  /**
+   * Cuántos avisos urgentes (críticos y de atención, en ese orden) se ven de
+   * entrada, en cualquier ancho; el resto queda detrás de un solo «Ver n
+   * más». Sin `limit`, el corte es el del celular de siempre: los críticos
+   * enteros y tres de atención. Los recuentos del encabezado y de cada
+   * gravedad siguen diciendo cuántos hay, no cuántos se ven.
+   */
+  limit?: number
   className?: string
 }
 
@@ -122,6 +130,20 @@ function NoticeItem({ notice, className }: { notice: Notice; className?: string 
 /** Cuántos avisos de atención se ven en el celular antes de «Ver N más». */
 const PHONE_WARNING_LIMIT = 3
 
+/** El lugar de un aviso entre los urgentes: críticos primero, después los de atención. */
+function posicionUrgente(notices: readonly Notice[], notice: Notice): number {
+  const urgentes = [
+    ...notices.filter((n) => n.severity === "critical"),
+    ...notices.filter((n) => n.severity === "warning"),
+  ]
+  return urgentes.indexOf(notice)
+}
+
+/** La última gravedad urgente con avisos: al pie de ella va «Ver n más». */
+function lastUrgent(groups: readonly { severity: NoticeSeverity }[]): NoticeSeverity | undefined {
+  return [...groups].reverse().find((g) => g.severity !== "whenever")?.severity
+}
+
 function GroupHeading({ severity, count }: { severity: NoticeSeverity; count: number }): React.JSX.Element {
   return (
     <p className="flex items-center gap-2 border-t px-3 pt-2.5 pb-1 text-[0.65rem] tracking-widest text-muted-foreground uppercase first:border-t-0">
@@ -153,10 +175,13 @@ export function NoticeRail({
   notices,
   empty,
   footNote,
+  limit,
   className,
 }: NoticeRailProps): React.JSX.Element {
   const [foldedOpen, setFoldedOpen] = useState(false)
   const [warningsOpen, setWarningsOpen] = useState(false)
+  const urgentes = notices.filter((n) => n.severity !== "whenever").length
+  const ocultos = limit === undefined || warningsOpen ? 0 : Math.max(0, urgentes - limit)
 
   const bySeverity = SEVERITY_ORDER.map((severity) => ({
     severity,
@@ -220,19 +245,39 @@ export function NoticeRail({
                     <NoticeItem
                       key={notice.id}
                       notice={notice}
-                      // En el celular los de atención se cortan en los
-                      // primeros: el dueño lee esto en un minuto, y con
-                      // quince avisos la cifra y los indicadores quedaban
-                      // pantallas abajo. Los críticos nunca se cortan.
                       className={
-                        group.severity === "warning" && i >= PHONE_WARNING_LIMIT && !warningsOpen
-                          ? "max-md:hidden"
-                          : undefined
+                        limit !== undefined
+                          ? // Con `limit`, el corte es el mismo en todo ancho y
+                            // cuenta los críticos antes que los de atención.
+                            !warningsOpen && posicionUrgente(notices, notice) >= limit
+                            ? "hidden"
+                            : undefined
+                          : // En el celular los de atención se cortan en los
+                            // primeros: el dueño lee esto en un minuto, y con
+                            // quince avisos la cifra y los indicadores quedaban
+                            // pantallas abajo. Los críticos nunca se cortan.
+                            group.severity === "warning" && i >= PHONE_WARNING_LIMIT && !warningsOpen
+                            ? "max-md:hidden"
+                            : undefined
                       }
                     />
                   ))}
                 </ul>
-                {group.severity === "warning" && group.items.length > PHONE_WARNING_LIMIT && !warningsOpen ? (
+                {limit !== undefined && group.severity === lastUrgent(bySeverity) && (ocultos > 0 || (warningsOpen && urgentes > limit)) ? (
+                  <button
+                    type="button"
+                    aria-expanded={warningsOpen}
+                    onClick={() => setWarningsOpen((open) => !open)}
+                    className="flex min-h-10 w-full items-center gap-2 border-t px-3 text-left text-sm font-bold text-primary hover:bg-accent"
+                  >
+                    {warningsOpen ? "Ver menos" : `Ver ${ocultos} más`}
+                    <ChevronDown
+                      aria-hidden="true"
+                      className={cn("ml-auto size-4 transition-transform", warningsOpen && "rotate-180")}
+                    />
+                  </button>
+                ) : null}
+                {limit === undefined && group.severity === "warning" && group.items.length > PHONE_WARNING_LIMIT && !warningsOpen ? (
                   <button
                     type="button"
                     onClick={() => setWarningsOpen(true)}
