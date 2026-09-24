@@ -49,6 +49,7 @@ from app.core.quantity import (
 from app.core.security import verify_secret
 from app.inventory import hooks as inventory_hooks
 from app.inventory.models import CostSource, Ingredient, MovementCause
+from app.photos import hooks as photos_hooks
 from app.purchases import hooks as purchases_hooks
 from app.purchases.models import (
     Payable,
@@ -352,7 +353,7 @@ def create_reception(db: Session, *, actor: Actor, store: Store, payload: Recept
         invoice_date=payload.invoice_date,
         no_invoice=payload.no_invoice,
         invoice_total=payload.invoice_total,
-        photo=payload.photo,
+        photo=photos_hooks.store_photo(db, payload.photo, organization_id=store.organization_id, store_id=store.id),
         received_by_employee_id=received_by.id,
         received_by_employee_name=received_by.name,
         created_by_employee_id=actor.employee_id or received_by.id,

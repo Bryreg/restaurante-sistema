@@ -1700,6 +1700,24 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       `governs`/`reading`/`doesNotDo`, que es lo que más texto deja en
       Tarifas y en el método de reparto de propinas.
 
+38. **Las fotos no cabían: ninguna foto real se guardó nunca en producción**
+    (2026-09-24). La pantalla manda la foto como *data URL* (cientos de KB) y
+    cada dominio la guardaba en una columna `String(500)`: en Postgres el
+    `INSERT` de un movimiento, retiro, relevo o cierre con foto fallaba por
+    largo, y una consignación con comprobante la rechazaba el esquema
+    (`max_length=500`). SQLite no hace cumplir el largo y los tests usaban
+    `"c.jpg"`: nada lo veía.
+    - **Arreglo**: dominio `app/photos` (tabla `photos`, migración `0023`).
+      `PhotoIn` valida la foto al entrar (imagen JPG/PNG/WebP, hasta 4 MB);
+      `photos.hooks.store_photo` la guarda al escribir el registro y la
+      columna de siempre se queda con `/api/v1/photos/<id>`.
+      `GET /photos/{id}` la sirve al admin y a la tablet de la misma
+      organización; a otra, 404.
+    - **Tablet**: `lib/foto.ts` achica la foto a 1600 px en JPEG (~200 KB)
+      antes de mandarla; si el navegador no puede, manda la original.
+    - Tests: `tests/photos/test_photos.py` mide el **largo** de lo guardado,
+      que es lo que Postgres rechaza y SQLite no.
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

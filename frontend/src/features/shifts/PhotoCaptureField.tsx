@@ -4,6 +4,7 @@ import { useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/errors";
+import { fotoParaEnviar } from "@/lib/foto";
 
 export interface PhotoCaptureFieldProps {
   value: string | null;
@@ -14,19 +15,11 @@ export interface PhotoCaptureFieldProps {
   disabled?: boolean;
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error("No se pudo leer la foto"));
-    reader.readAsDataURL(file);
-  });
-}
-
 /**
  * Captura una foto con `<input type="file" accept="image/*" capture>` (cámara
- * en tablet, selector de archivo en PC) y la manda como *data URL* — así lo
- * pide la spec (§ POS, "foto opcional/exigida"). La obligatoriedad la valida
+ * en tablet, selector de archivo en PC), la achica (`@/lib/foto`) y la manda
+ * como *data URL* — así lo pide la spec (§ POS, "foto opcional/exigida"); el
+ * servidor la guarda en su tabla y el registro se queda con la dirección. La obligatoriedad la valida
  * **el backend**: este campo sólo se marca visualmente `required` cuando
  * quien lo usa ya sabe (por un `400 PHOTO_REQUIRED`) que hace falta.
  */
@@ -44,7 +37,7 @@ export function PhotoCaptureField({
   async function handleFile(file: File | undefined) {
     if (!file) return;
     try {
-      const dataUrl = await fileToDataUrl(file);
+      const dataUrl = await fotoParaEnviar(file);
       onChange(dataUrl);
       setError(null);
     } catch (err) {

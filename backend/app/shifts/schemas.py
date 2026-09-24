@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.photos.hooks import PhotoIn
+
 RosterActionLiteral = Literal["in", "out", "pause_start", "pause_end"]
 CashMovementKindLiteral = Literal["income", "expense"]
 # Nombrados (y no en línea en el campo) para que
@@ -169,7 +171,7 @@ class HandoverIn(BaseModel):
     counted_transfer: int | None = None
     new_responsible_id: int | None = None
     authorizer_pin: str | None = None
-    photo: str | None = None
+    photo: PhotoIn | None = None
 
 
 class BreakdownOut(BaseModel):
@@ -209,7 +211,7 @@ class CashMovementIn(BaseModel):
     cause: CashMovementCauseLiteral
     amount: int = Field(gt=0)
     note: str | None = None
-    receipt_photo: str | None = None
+    receipt_photo: PhotoIn | None = None
     authorizer_pin: str | None = None
 
 
@@ -256,7 +258,7 @@ class CashPickupIn(BaseModel):
     envelope_ref: str | None = None
     authorizer_pin: str
     note: str | None = None
-    photo: str | None = None
+    photo: PhotoIn | None = None
 
 
 class CashPickupOut(OutModel):
@@ -286,7 +288,7 @@ class CloseCountIn(BaseModel):
     counted_card: int | None = None
     counted_transfer: int | None = None
     tips_cash_out: int = 0
-    photo: str | None = None
+    photo: PhotoIn | None = None
 
 
 class CloseCountOut(BaseModel):
@@ -342,7 +344,7 @@ class SingleStepCloseIn(BaseModel):
     counted_card: int | None = None
     counted_transfer: int | None = None
     tips_cash_out: int = 0
-    photo: str | None = None
+    photo: PhotoIn | None = None
     cause: CashDifferenceCauseLiteral | None = None
     note: str | None = None
     closes_day: bool = False

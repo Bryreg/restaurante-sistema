@@ -29,6 +29,7 @@ from app.core import modules
 from app.core.errors import AppError
 from app.core.money import format_cop
 from app.notifications.service import notify
+from app.photos import hooks as photos_hooks
 from app.stores import service as stores_service
 from app.stores.models import Store
 from app.shifts import activity_metrics, hooks
@@ -695,7 +696,7 @@ def create_handover(db: Session, *, actor: Actor, shift: Shift, store: Store, pa
         new_responsible_name=new_responsible.name if new_responsible else None,
         authorized_by_employee_id=authorizer.id if authorizer else None,
         authorized_by_employee_name=authorizer.name if authorizer else None,
-        photo=payload.photo,
+        photo=photos_hooks.store_photo(db, payload.photo, organization_id=shift.organization_id, store_id=shift.store_id),
         at=clock.now_utc(),
     )
     db.add(handover)
@@ -783,7 +784,9 @@ def create_cash_movement(
         cause=payload.cause,
         amount=payload.amount,
         note=payload.note,
-        receipt_photo=payload.receipt_photo,
+        receipt_photo=photos_hooks.store_photo(
+            db, payload.receipt_photo, organization_id=shift.organization_id, store_id=shift.store_id
+        ),
         employee_id=actor.employee_id,
         employee_name=actor.employee_name,
         authorized_by_employee_id=authorizer.id if authorizer else None,
@@ -893,7 +896,7 @@ def create_pickup(db: Session, *, actor: Actor, shift: Shift, store: Store, payl
         denominations=denominations_out,
         envelope_ref=payload.envelope_ref,
         note=payload.note,
-        photo=payload.photo,
+        photo=photos_hooks.store_photo(db, payload.photo, organization_id=shift.organization_id, store_id=shift.store_id),
         expected_at_pickup=breakdown["expected"],
         employee_id=actor.employee_id or authorizer.id,
         employee_name=actor.employee_name or authorizer.name,
@@ -1270,7 +1273,7 @@ def create_close_count(db: Session, *, actor: Actor, shift: Shift, store: Store,
         counted_card=payload.counted_card,
         counted_transfer=payload.counted_transfer,
         tips_cash_out=payload.tips_cash_out,
-        photo=payload.photo,
+        photo=photos_hooks.store_photo(db, payload.photo, organization_id=shift.organization_id, store_id=shift.store_id),
         created_by_employee_id=actor.employee_id,
         created_by_employee_name=actor.employee_name,
         created_at=clock.now_utc(),

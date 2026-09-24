@@ -76,6 +76,7 @@ from app.inventory.schemas import (
     WasteOut,
 )
 from app.notifications.service import notify
+from app.photos import hooks as photos_hooks
 from app.stores.models import Store
 
 logger = logging.getLogger("app.inventory")
@@ -522,7 +523,7 @@ def register_waste(db: Session, *, store: Store, data: WasteIn) -> Waste:
         employee_id=responsible.id,
         employee_name=responsible.name,
         note=data.note,
-        photo_url=data.photo,
+        photo_url=photos_hooks.store_photo(db, data.photo, organization_id=store.organization_id, store_id=store.id),
         at=now,
         business_date=business_date,
     )

@@ -51,6 +51,7 @@ from app.core import clock, tz
 from app.core.errors import AppError, NotFoundError
 from app.core.money import format_cop
 from app.payments.models import Payment
+from app.photos import hooks as photos_hooks
 from app.refunds.models import PendingRefund, PendingRefundStatus, SettleFrom
 from app.shifts.hooks import methods_in_bucket
 from app.shifts.models import BusinessDay, CashPickup, Shift, ShiftStatus, TipPayout, TipPayoutSource
@@ -226,7 +227,10 @@ def create_deposit(db: Session, *, actor: Actor, store: Store, payload: DepositI
         amount=payload.amount,
         bank_name=payload.bank_name,
         bank_reference=payload.bank_reference,
-        receipt_photo=payload.receipt_photo,
+        receipt_photo=photos_hooks.store_photo(
+            db, payload.receipt_photo, organization_id=store.organization_id, store_id=store.id
+        )
+        or "",
         note=payload.note,
         employee_id=actor.employee_id,
         employee_name=actor.employee_name,

@@ -60,6 +60,8 @@ MODEL_MODULES: list[str] = [
     "expenses",
     "payroll",
     "analytics",
+    # Ver el mismo comentario en `app.main.DOMAINS`.
+    "photos",
 ]
 
 

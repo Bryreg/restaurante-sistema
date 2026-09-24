@@ -13,6 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.photos.hooks import PhotoIn
+
 BaseUnitLiteral = Literal["g", "ml", "unit"]
 CostSourceLiteral = Literal["official", "weighted_average", "last_purchase", "estimated", "none"]
 MovementCauseLiteral = Literal[
@@ -162,7 +164,7 @@ class WasteIn(BaseModel):
     type: WasteTypeLiteral
     note: str | None = None
     employee_pin: str = Field(min_length=1, max_length=20)
-    photo: str | None = None
+    photo: PhotoIn | None = None
 
 
 class WasteOut(BaseModel):
