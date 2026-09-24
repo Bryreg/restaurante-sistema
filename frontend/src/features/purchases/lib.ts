@@ -17,14 +17,12 @@
 
 import type {
   PayablesAgingBucket,
-  PayablesSummaryOut,
   PayableStatus,
   ReceptionStatus,
   SupplierOut,
   SupplierPaymentMethod,
 } from "@/api/purchases"
 import { daysAgoInBogota, todayInBogota } from "@/features/reports/lib"
-import { formatCOP } from "@/lib/money"
 
 export const SUPPLIER_PAYMENT_METHOD_LABEL: Record<SupplierPaymentMethod, string> = {
   cash: "Efectivo",
@@ -134,14 +132,5 @@ export const AGING_EJE: Record<PayablesAgingBucket, string> = {
 
 export function cuentas(n: number): string {
   return `${n} ${n === 1 ? "cuenta" : "cuentas"}`
-}
-
-/** «Debés $X · $Y vencido · $Z vence en 7 días», con las cifras del servidor. */
-export function payablesHeadline(s: PayablesSummaryOut): string {
-  if (s.open_count === 0) return "No le debés nada a ningún proveedor"
-  const partes = [`Debés ${formatCOP(s.total_open)}`]
-  partes.push(s.overdue_count > 0 ? `${formatCOP(s.total_overdue)} vencido` : "nada vencido")
-  if (s.due_next_7_days > 0) partes.push(`${formatCOP(s.due_next_7_days)} vence en 7 días`)
-  return partes.join(" · ")
 }
 

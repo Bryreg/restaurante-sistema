@@ -106,7 +106,8 @@ export function ReceptionsTab({ storeId, suppliers }: { storeId: number; supplie
         ),
     },
     { key: "date", header: "Fecha", kind: "secondary", cell: (r) => formatBusinessDate(r.invoice_date) },
-    { key: "lines", header: "Líneas", kind: "number", cell: (r) => r.lines.length },
+    // Detrás de «Más columnas» (regla 3): cuántas líneas trae se ve entero en «Ver».
+    { key: "lines", header: "Líneas", kind: "number", secondary: true, cell: (r) => r.lines.length },
     {
       key: "status",
       header: "Estado",

@@ -9,13 +9,14 @@ import {
   updateIngredient,
   type IngredientOut,
 } from "@/api/inventory"
-import { DenseTable, DenseTableBar, type DenseColumn, type LegendEntry } from "@/components/admin"
+import { DenseTable, DenseTableBar, MenuDeFila, type DenseColumn, type LegendEntry } from "@/components/admin"
 import { CostValue } from "@/components/CostValue"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { EmptyState } from "@/components/EmptyState"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { errorMessage } from "@/lib/errors"
 import { formatCantidad } from "@/lib/format"
@@ -46,11 +47,12 @@ function Marks({ ingredient }: { ingredient: IngredientOut }): React.JSX.Element
 }
 
 /**
- * Las acciones de la fila. Viven en su propio componente porque cada una
- * tiene su mutación y su diálogo: la columna de acciones del patrón 8 es de
- * **ancho fijo** para que el borde derecho no se mueva de fila a fila, y eso
- * lo resuelve `DenseTable`; lo que resuelve este componente es que los
- * `useMutation` de una fila no se cuelen en la tabla entera.
+ * Las acciones de la fila, en el menú «⋯» (mapa de pantallas, regla 3: dos
+ * botones por fila en 54 filas eran 108 botones, y la vista se iba a ellos
+ * antes que a los datos). Viven en su propio componente porque cada una
+ * tiene su mutación y su diálogo: lo que resuelve este componente es que
+ * los `useMutation` de una fila no se cuelen en la tabla entera. El diálogo
+ * de edición es **controlado**: lo abre el ítem del menú, no un trigger.
  */
 function IngredientActions({
   ingredient,
@@ -82,9 +84,19 @@ function IngredientActions({
   })
 
   return (
-    <div className="flex flex-nowrap justify-end gap-1">
+    <>
+      <MenuDeFila nombre={ingredient.name}>
+        <DropdownMenuItem onClick={() => setEditing(true)}>Editar</DropdownMenuItem>
+        {/* Desactivar sólo existe si el insumo está activo: el control que
+            aparece y desaparece con el estado de la fila es de los que un
+            rediseño pierde más fácil (`docs/INVENTARIO-CONTROLES.md` § 21). */}
+        {ingredient.active ? (
+          <DropdownMenuItem disabled={deactivateMutation.isPending} onClick={() => deactivateMutation.mutate()}>
+            Desactivar
+          </DropdownMenuItem>
+        ) : null}
+      </MenuDeFila>
       <Dialog open={editing} onOpenChange={setEditing}>
-        <DialogTrigger render={<Button variant="outline" size="sm" />}>Editar</DialogTrigger>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Editar {ingredient.name}</DialogTitle>
@@ -99,20 +111,7 @@ function IngredientActions({
           />
         </DialogContent>
       </Dialog>
-      {/* Desactivar sólo existe si el insumo está activo: el control que
-          aparece y desaparece con el estado de la fila es de los que un
-          rediseño pierde más fácil (`docs/INVENTARIO-CONTROLES.md` § 21). */}
-      {ingredient.active ? (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={deactivateMutation.isPending}
-          onClick={() => deactivateMutation.mutate()}
-        >
-          Desactivar
-        </Button>
-      ) : null}
-    </div>
+    </>
   )
 }
 
@@ -172,15 +171,19 @@ export function IngredientsTab({ storeId }: { storeId: number }): React.JSX.Elem
   const columns: readonly DenseColumn<IngredientOut>[] = [
     { key: "name", header: "Nombre", kind: "name", cell: (i) => i.name },
     { key: "category", header: "Categoría", cell: (i) => i.category ?? "—" },
+    // Unidad y rendimiento, detrás de «Más columnas» (regla 3): el mínimo
+    // ya lleva la unidad, y el rendimiento se toca al editar la ficha.
     {
       key: "unit",
       header: "Unidad",
+      secondary: true,
       cell: (i) => UNIT_LABEL[i.base_unit] ?? i.base_unit,
     },
     {
       key: "yield",
       header: "Rendimiento",
       kind: "number",
+      secondary: true,
       cell: (i) => formatCantidad(i.yield_pct, "%"),
     },
     {

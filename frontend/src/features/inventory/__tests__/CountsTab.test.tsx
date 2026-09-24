@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "@/test/utils"
@@ -51,11 +52,14 @@ describe("CountsTab", () => {
         applied_by_employee_name: "Carlos",
       },
     ])
+    const user = userEvent.setup()
     renderWithProviders(<CountsTab storeId={1} />)
 
     await waitFor(() => expect(screen.getByText("#11")).toBeInTheDocument())
     expect(within(screen.getByRole("table")).getByText("Aplicado")).toBeInTheDocument()
     expect(screen.queryByText("(parcial)")).not.toBeInTheDocument()
+    // Quién lo aplicó va detrás de «Más columnas» (regla 3): a un toque, no perdido.
+    await user.click(screen.getByRole("button", { name: /Más columnas/ }))
     expect(screen.getByText(/Carlos/)).toBeInTheDocument()
   })
 

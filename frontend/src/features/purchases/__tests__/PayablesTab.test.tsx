@@ -94,13 +94,16 @@ describe("PayablesTab — el saldo mostrado es EXACTAMENTE el que manda el servi
 })
 
 describe("PayablesTab — cuánto se debe, arriba y con cifras del servidor (informe #8)", () => {
-  it("el titular dice «Debés $X · $Y vencido · $Z vence en 7 días» con los totales del resumen", async () => {
+  it("«Debés $X» es la cifra protagonista, con lo vencido y lo que vence en 7 días al lado, todo del resumen", async () => {
     listPayablesMock.mockResolvedValue([PAYABLE])
     renderWithProviders(<PayablesTab storeId={1} suppliers={[AVICOLA]} />)
 
-    expect(await screen.findByTestId("payables-headline")).toHaveTextContent(
-      "Debés $ 2.855.739 · $ 1.500.506 vencido · $ 464.469 vence en 7 días",
-    )
+    // Regla 1 del mapa de pantallas: una sola cifra grande, la del servidor.
+    const protagonista = await screen.findByTestId("payables-headline")
+    expect(protagonista).toHaveTextContent("Debés en total")
+    expect(within(protagonista).getByText("$ 2.855.739")).toHaveClass("text-4xl", "tabular-nums")
+    expect(screen.getByText("Vencido").closest("div")?.parentElement).toHaveTextContent("$ 1.500.506")
+    expect(screen.getByText("Vence en 7 días").closest("div")?.parentElement).toHaveTextContent("$ 464.469")
     expect(getPayablesSummaryMock).toHaveBeenCalledWith(1)
     // La antigüedad: el tramo más viejo con plata vencida es el que se nombra.
     expect(screen.getByText(/5 cuentas vencidas; la más vieja cae en «1 a 30 días vencida»/)).toBeInTheDocument()

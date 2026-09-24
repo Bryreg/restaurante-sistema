@@ -122,7 +122,9 @@ export function PayablesTab({ storeId, suppliers }: { storeId: number; suppliers
       ),
     },
     { key: "due", header: "Vencimiento", cell: (p) => formatBusinessDate(p.due_date) },
-    { key: "amount", header: "Total", kind: "number", cell: (p) => formatCOP(p.amount) },
+    // El total original, detrás de «Más columnas» (regla 3): lo que decide
+    // es el saldo, que es el del servidor.
+    { key: "amount", header: "Total", kind: "number", secondary: true, cell: (p) => formatCOP(p.amount) },
     {
       key: "balance",
       header: "Saldo",

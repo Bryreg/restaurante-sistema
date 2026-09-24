@@ -1,4 +1,5 @@
 import { screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { buildMe, renderWithProviders } from "@/test/utils"
@@ -47,5 +48,46 @@ describe("InventoryAdminPage", () => {
 
     await waitFor(() => expect(listIngredientsMock).toHaveBeenCalled())
     expect(screen.getByRole("tab", { name: "Insumos", selected: true })).toBeInTheDocument()
+  })
+
+  it("tres pestañas a la vista y el resto en «Más», que respeta los mismos flags (regla 4)", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<InventoryAdminPage />, {
+      me: buildMe({
+        features: { "inventory.perpetual": true, "inventory.counts": true, "inventory.lots": true, "inventory.variance": false },
+      }),
+      route: "/admin/inventario",
+    })
+
+    await waitFor(() => expect(listIngredientsMock).toHaveBeenCalled())
+    expect(screen.getAllByRole("tab").map((t) => t.textContent?.trim())).toEqual(["Insumos", "Stock", "Conteos"])
+
+    await user.click(screen.getByRole("button", { name: "Más" }))
+    expect(await screen.findByRole("menuitem", { name: "Movimientos y mermas" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Lotes" })).toBeInTheDocument()
+    // `inventory.variance` apagada: ni Varianza ni Salud del control.
+    expect(screen.queryByRole("menuitem", { name: "Varianza" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "Salud del control" })).not.toBeInTheDocument()
+  })
+
+  it("?tab=lotes (enlace de Hoy) sigue aterrizando en Lotes, y «Más» nombra dónde se está", async () => {
+    renderWithProviders(<InventoryAdminPage />, {
+      me: buildMe({ features: { "inventory.perpetual": true, "inventory.counts": true, "inventory.lots": true } }),
+      route: "/admin/inventario?tab=lotes",
+    })
+
+    expect(await screen.findByRole("button", { name: /Más: Lotes/ })).toBeInTheDocument()
+    expect(screen.getByRole("tabpanel")).toHaveTextContent(/lotes/i)
+  })
+
+  it("sin conteos, «Movimientos y mermas» ocupa el tercer lugar a la vista", async () => {
+    renderWithProviders(<InventoryAdminPage />, {
+      me: buildMe({ features: { "inventory.perpetual": true, "inventory.counts": false, "inventory.lots": false } }),
+      route: "/admin/inventario",
+    })
+
+    await waitFor(() => expect(listIngredientsMock).toHaveBeenCalled())
+    expect(screen.getAllByRole("tab").map((t) => t.textContent?.trim())).toEqual(["Insumos", "Stock", "Movimientos y mermas"])
+    expect(screen.queryByRole("button", { name: "Más" })).not.toBeInTheDocument()
   })
 })
