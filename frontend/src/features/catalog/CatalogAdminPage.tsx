@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useSearchParams } from "react-router-dom"
 
 import { useStoreSelection } from "@/app/storeContext"
 import { useSession } from "@/app/session"
@@ -42,8 +42,16 @@ export function CatalogAdminPage() {
   // la consume (`app/storeContext.tsx`, no es territorio de este módulo).
   const { activeStoreId, loading } = useStoreSelection()
   // Abre en Productos, que es la que se usa a diario (antes abría en
-  // Categorías, que se toca una vez al montar la carta).
-  const [tab, setTab] = useState<string>("products")
+  // Categorías, que se toca una vez al montar la carta). La pestaña vive en
+  // `?tab=` como en las demás pantallas: Punto de equilibrio enlaza a
+  // «Carta › Recetas» y tiene que caer ahí.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get("tab") ?? "products"
+  function setTab(value: string) {
+    const next = new URLSearchParams(searchParams)
+    next.set("tab", value)
+    setSearchParams(next, { replace: true })
+  }
 
   if (loading) {
     return <Cargando texto="Cargando sedes…" className="p-4" />
@@ -77,7 +85,7 @@ export function CatalogAdminPage() {
       <h1 className="text-lg font-semibold">Carta</h1>
 
       <Tabs value={tab} onValueChange={(value) => setTab(String(value))}>
-        <TabsList className="h-auto flex-wrap">
+        <TabsList className="h-auto flex-wrap group-data-horizontal/tabs:h-auto">
           {visibles.map((p) => (
             <TabsTrigger key={p.value} value={p.value}>
               {p.label}

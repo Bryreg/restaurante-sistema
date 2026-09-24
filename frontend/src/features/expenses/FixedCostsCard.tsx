@@ -16,7 +16,7 @@ import { FilterLink, type FilterLinkProps } from "@/components/admin"
 import { BarList, ChartFrame } from "@/components/charts"
 import { SinDato } from "@/components/SinDato"
 
-import { Explicacion } from "./Explicacion"
+import { Explicacion } from "@/components/admin"
 import { formatCOP } from "@/lib/money"
 
 /** Dónde se carga (y se corrige) cada origen. */

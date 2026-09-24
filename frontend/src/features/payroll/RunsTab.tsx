@@ -40,7 +40,7 @@ import { formatDelta, formatRangoCorto } from "@/features/reports/lib"
 
 import { formatBasisPoints } from "@/features/inventory/lib"
 
-import { Explicacion } from "./Explicacion"
+import { Explicacion } from "@/components/admin"
 import { daysAgoLocal, runsHeadline, todayLocal } from "./lib"
 
 const RUN_LINE_COLUMNS: readonly DenseColumn<PayrollRunLineOut>[] = [

@@ -13,7 +13,7 @@ import { Diferencia } from "@/components/Diferencia";
 import { formatBusinessDate } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 
-import { Explicacion } from "./Explicacion";
+import { Explicacion } from "@/components/admin";
 
 /**
  * Turnos y personal → Por persona (`GET /admin/employees/{id}/activity`):

@@ -2,10 +2,10 @@
  * **La explicación, plegada** (mapa de pantallas, regla 2: «la explicación va
  * en ¿Qué es esto?, no en la pantalla»). Lo que antes era una pista bajo cada
  * tarjeta o un párrafo bajo el título se lee cuando alguien lo pide. Es un
- * `<details>` nativo: se abre con teclado y el texto sigue en el árbol.
+ * `<details>` nativo: se abre con teclado y el texto sigue en el árbol, así
+ * que la pantalla no cambia de qué dice, sólo de qué muestra de entrada.
  *
- * Copia local a propósito: la capa compartida (`@/components/admin`) es de
- * sólo lectura en esta ola. Si el patrón se queda, sube allá y ésta se borra.
+ * El motivo de un «sin dato» NO va acá: ése queda a la vista.
  */
 export function Explicacion({
   resumen = "¿Qué es esto?",

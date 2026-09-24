@@ -25,7 +25,7 @@ import { errorMessage } from "@/lib/errors"
 import { formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
-import { Explicacion } from "./Explicacion"
+import { Explicacion } from "@/components/admin"
 import { FixedCostsCard } from "./FixedCostsCard"
 import { daysAgoLocal, todayLocal } from "./lib"
 import { breakEvenHeadline } from "./titulares"
@@ -51,7 +51,7 @@ function CoberturaAviso({ d }: { d: BreakEvenOut }): React.JSX.Element | null {
         en el margen hace falta al menos el {formatPct(minimo * 100, 0)}. La venta sin ficha entra con costo cero e
         infla el margen: por eso el punto de equilibrio no se muestra hasta completarlas.
       </p>
-      <FilterLink className="mt-1.5" to="/admin/carta" screen="Carta" tab="Recetas" />
+      <FilterLink className="mt-1.5" to="/admin/carta?tab=recipes" screen="Carta" tab="Recetas" />
     </div>
   )
 }

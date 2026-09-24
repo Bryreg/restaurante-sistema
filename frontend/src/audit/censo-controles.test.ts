@@ -47,6 +47,28 @@
  * - «Seis pestañas: dos de consignaciones y cuatro del libro del banco.»
  *   (`features/banking/BankingAdminPage.tsx`) — describía la fila de
  *   pestañas, que ahora son tres y «Más».
+ * - «Sólo lectura: acá no se cambia nada, se mira.», «Sobre el costo
+ *   congelado en la venta» y su `title` «El costo viaja congelado en el ítem
+ *   vendido…» (`features/analytics/AnalyticsAdminPage.tsx`) — franja de
+ *   contexto que explicaba; lo que decía pasó a la pregunta plegada.
+ * - «La liquidación es para control interno, no es la liquidación legal» y
+ *   «La fórmula del Código Sustantivo del Trabajo combina los recargos…»
+ *   (`features/payroll/PayrollAdminPage.tsx`) — repetían el aviso que sigue
+ *   arriba de Liquidaciones en `RunsTab.tsx`. «Nómina y propinas están las
+ *   dos encendidas.» no era un dato.
+ * - «Propinas» (la `TabsTrigger` de `PayrollAdminPage.tsx`) — **éste sí era
+ *   un control, y no se perdió: se movió.** Con el admin en ocho secciones,
+ *   Propinas es pestaña de la sección Equipo (`app/AdminLayout.tsx`, `RAIL`,
+ *   que el censo sí ve) y la página no la repite en su propia fila.
+ * - «Diez secciones, agrupadas en el índice.» y «Marcadas con un punto ámbar
+ *   en el índice.» (`features/settings/SettingsPage.tsx`) — describían un
+ *   índice de diez pestañas que ahora son tres y «Más».
+ * - «Operacional muestra los turnos de hoy; Historial, cualquier rango.»,
+ *   «Los rescates de administrador viven en el detalle de cada turno» y
+ *   «Cierre administrativo, Reabrir, Cancelar y Ajustar apertura se abren
+ *   desde «Ver detalle» de una fila.» (`features/shifts/admin/MoneyAdminPage.tsx`)
+ *   — explicaban dónde están los controles; los controles siguen donde
+ *   estaban y la explicación pasó a la pregunta plegada.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

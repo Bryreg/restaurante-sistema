@@ -46,7 +46,7 @@ import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
-import { Explicacion } from "./Explicacion"
+import { Explicacion } from "@/components/admin"
 import { todayLocal } from "./lib"
 
 type Kind = "card" | "platform"

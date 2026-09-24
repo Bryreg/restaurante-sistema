@@ -19,9 +19,15 @@
  * aparece cuando el servidor responde `PHOTO_REQUIRED`.
  */
 
-/** Etiquetas cuyo texto interior es un rótulo que alguien lee y toca. */
+/**
+ * Etiquetas cuyo texto interior es un rótulo que alguien lee y toca.
+ *
+ * Los atributos admiten `=>`: `<DropdownMenuItem onClick={() => editar(r)}>Editar<`
+ * es justo la forma en que se escriben las acciones que pasaron al menú «⋯»,
+ * y con `[^>]*` la flecha cortaba la etiqueta y el rótulo quedaba sin censar.
+ */
 const TAGS_DE_CONTROL =
-  /<(Button|NavLink|Link|TabsTrigger|AlertDialogAction|AlertDialogCancel|DropdownMenuItem|SelectItem|ToggleGroupItem)\b[^>]*>([^<>{}]+)</g
+  /<(Button|NavLink|Link|TabsTrigger|AlertDialogAction|AlertDialogCancel|DropdownMenuItem|SelectItem|ToggleGroupItem)\b(?:=>|[^>])*?>([^<>{}]+)</g
 
 /** `aria-label="…"`, `label="…"` y `label: "…"` — rótulos que no son texto interior. */
 const ROTULOS_EN_ATRIBUTO = /(?:aria-label|label|title|placeholder)(?:=|:\s*)"([^"]+)"/g

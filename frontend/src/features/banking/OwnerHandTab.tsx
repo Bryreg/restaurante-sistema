@@ -18,7 +18,7 @@ import { errorMessage } from "@/lib/errors"
 import { formatFechaCorta } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
-import { Explicacion } from "./Explicacion"
+import { Explicacion } from "@/components/admin"
 import { daysAgoLocal, todayLocal } from "./lib"
 
 /**

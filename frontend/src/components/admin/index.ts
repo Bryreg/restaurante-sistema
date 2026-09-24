@@ -43,6 +43,7 @@ export {
   type FeatureOffEmptyStateProps,
   type FilterEmptyStateProps,
 } from "./EmptyStates"
+export { Explicacion } from "./Explicacion"
 export { FilterLink, type FilterLinkProps } from "./FilterLink"
 export { FormField, FormSection, type FormFieldProps, type FormSectionProps } from "./FormSection"
 export { GroupLabel, type GroupLabelProps } from "./GroupLabel"
