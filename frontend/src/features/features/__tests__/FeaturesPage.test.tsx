@@ -61,11 +61,16 @@ describe("FeaturesPage", () => {
   });
 
   it("muestra clave, descripción, origen, dependencias y fase de cada función", async () => {
+    const user = userEvent.setup();
     renderWithProviders(<FeaturesPage />, { me: buildMe() });
 
     expect(await screen.findByText("pos.daily_menu")).toBeInTheDocument();
     expect(screen.getByText("Menú del día con opciones por día y franja")).toBeInTheDocument();
     expect(screen.getByText("Default del perfil")).toBeInTheDocument();
+    // Dependencias y fase van detrás de «Más columnas» (mapa de pantallas,
+    // regla 3): no se pierden, se piden.
+    expect(screen.queryByText("1a")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Más columnas (2)" }));
     expect(screen.getByText("pos.combos")).toBeInTheDocument();
     expect(screen.getByText("1a")).toBeInTheDocument();
   });
@@ -91,6 +96,7 @@ describe("FeaturesPage — flags nuevos del pedido 1b-1", () => {
       { key: "fiscal.dee_pos", description: "Documento equivalente POS", enabled: false, source: "profile_default", requires: [], available_from_phase: "1b" },
     ]);
 
+    const user = userEvent.setup();
     renderWithProviders(<FeaturesPage />, { me: buildMe() });
 
     // Cada clave es la primera celda de su fila (`font-mono`): puede
@@ -118,7 +124,9 @@ describe("FeaturesPage — flags nuevos del pedido 1b-1", () => {
       expect(cell, `fila de ${key}`).toBeDefined();
     }
 
-    // Dependencias visibles (`requires`), no reinventadas acá: vienen del backend.
+    // Dependencias visibles (`requires`), no reinventadas acá: vienen del
+    // backend. Viven detrás de «Más columnas».
+    await user.click(screen.getByRole("button", { name: "Más columnas (2)" }));
     const seatsRow = screen.getAllByText("pos.seats").find((el) => el.tagName === "TD")?.closest("tr");
     expect(seatsRow).toHaveTextContent("pos.tables");
 

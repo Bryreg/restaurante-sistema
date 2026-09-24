@@ -198,15 +198,20 @@ export function PendingRefundsPage(): React.JSX.Element {
     });
   }
 
+  // A la vista, cinco (mapa de pantallas, regla 3): a quién, por qué
+  // documento, cuánto, desde cuándo y en qué estado. Medio y quién autorizó
+  // van detrás de «Más columnas». «Saldar» es la única acción de la fila y
+  // queda como botón.
   const columns: readonly DenseColumn<PendingRefundOut>[] = [
     { key: "customer", header: "Cliente", kind: "name", cell: (row) => row.customer_name ?? "Consumidor final" },
     { key: "document", header: "Documento", kind: "id", cell: (row) => `#${row.document_id}` },
     { key: "amount", header: "Monto", kind: "number", cell: (row) => formatCOP(row.amount) },
-    { key: "method", header: "Medio", kind: "secondary", cell: (row) => row.method ?? "—" },
+    { key: "method", header: "Medio", kind: "secondary", secondary: true, cell: (row) => row.method ?? "—" },
     {
       key: "authorized",
       header: "Autorizó",
       kind: "secondary",
+      secondary: true,
       cell: (row) => row.authorized_by_employee_name ?? "—",
     },
     {

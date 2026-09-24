@@ -25,7 +25,6 @@ import { Cargando } from "@/components/Cargando"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
-import { StatTile } from "@/components/StatTile"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -73,6 +72,27 @@ const ORDERS_LEGEND: readonly LegendEntry[] = [
     ),
   },
 ]
+
+/**
+ * **La cifra protagonista de Pedidos** (mapa de pantallas, regla 1): grande,
+ * `tabular-nums`, y en rojo sólo cuando dice que algo falta revisar. El valor
+ * llega ya escrito; acá no se calcula nada.
+ */
+function CifraProtagonista({ label, value, alerta }: { label: string; value: string; alerta: boolean }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p
+        className={cn(
+          "mt-0.5 text-4xl leading-none font-bold tracking-tight tabular-nums",
+          alerta ? "text-destructive" : "text-foreground",
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
 
 function minutesLabel(minutes: number | null | undefined): string {
   return minutes !== null && minutes !== undefined ? `${minutes} min` : "—"
@@ -274,6 +294,8 @@ export function OrdersAdminPage(): React.JSX.Element {
 
   const report = query.data
   const rows = report?.rows ?? []
+  // Un recuento de anulaciones (no plata): cuántas llegaron tras la cuenta.
+  const anuladasTrasCuenta = rows.reduce((acc, r) => acc + (r.voids_after_bill ?? 0), 0)
 
   const filterChips = (
     <>
@@ -322,6 +344,9 @@ export function OrdersAdminPage(): React.JSX.Element {
     </>
   )
 
+  // A la vista quedan las cinco que deciden (mapa de pantallas, regla 3):
+  // número, canal, estado, total y anulaciones. Mesas, horas, tiempos, medio
+  // de pago, cortesías y descuentos van detrás de «Más columnas».
   const columns: readonly DenseColumn<AdminOrderListItem>[] = [
     // Un número de comanda es UNA palabra: `#1418`, nunca `141` / `8`.
     { key: "id", header: "#", kind: "id", cell: (r) => `#${r.id}` },
@@ -331,7 +356,7 @@ export function OrdersAdminPage(): React.JSX.Element {
       // La palabra del negocio, nunca el enum: «Mesa», no `dine_in`.
       cell: (r) => (r.channel ? (CHANNEL_LABEL[r.channel] ?? r.channel) : "—"),
     },
-    { key: "tables", header: "Mesas", cell: (r) => (r.tables ?? []).join(", ") || "—" },
+    { key: "tables", header: "Mesas", secondary: true, cell: (r) => (r.tables ?? []).join(", ") || "—" },
     {
       key: "status",
       header: "Estado",
@@ -343,19 +368,21 @@ export function OrdersAdminPage(): React.JSX.Element {
         </span>
       ),
     },
-    { key: "opened", header: "Abierta", kind: "secondary", cell: (r) => <TimeAgo iso={r.opened_at} /> },
-    { key: "paid", header: "Pagada", kind: "secondary", cell: (r) => <TimeAgo iso={r.paid_at} /> },
-    { key: "table_min", header: "Mesa (min)", kind: "number", cell: (r) => minutesLabel(r.table_minutes) },
+    { key: "opened", header: "Abierta", kind: "secondary", secondary: true, cell: (r) => <TimeAgo iso={r.opened_at} /> },
+    { key: "paid", header: "Pagada", kind: "secondary", secondary: true, cell: (r) => <TimeAgo iso={r.paid_at} /> },
+    { key: "table_min", header: "Mesa (min)", kind: "number", secondary: true, cell: (r) => minutesLabel(r.table_minutes) },
     {
       key: "bill_min",
       header: "Cuenta→cobro (min)",
       kind: "number",
+      secondary: true,
       cell: (r) => minutesLabel(r.bill_to_paid_minutes),
     },
     { key: "total", header: "Total", kind: "number", cell: (r) => formatCOP(r.total) },
     {
       key: "methods",
       header: "Medio de pago",
+      secondary: true,
       cell: (r) => (r.payment_methods ?? []).join(", ") || "—",
     },
     {
@@ -373,8 +400,8 @@ export function OrdersAdminPage(): React.JSX.Element {
       cellTitle: (r) =>
         (r.void_details ?? []).length > 0 ? (r.void_details ?? []).map(voidTrailLine).join("\n") : undefined,
     },
-    { key: "courtesies", header: "Cortesías", kind: "number", cell: (r) => r.courtesies ?? 0 },
-    { key: "discounts", header: "Descuentos", kind: "number", cell: (r) => formatCOP(r.discount_total) },
+    { key: "courtesies", header: "Cortesías", kind: "number", secondary: true, cell: (r) => r.courtesies ?? 0 },
+    { key: "discounts", header: "Descuentos", kind: "number", secondary: true, cell: (r) => formatCOP(r.discount_total) },
     {
       key: "detail",
       header: "",
@@ -401,17 +428,6 @@ export function OrdersAdminPage(): React.JSX.Element {
       <PageHeader
         name="Pedidos"
         question="Qué comandas se abrieron, cuánto tardaron y cuáles se anularon — con quién autorizó cada anulación."
-        context={
-          report
-            ? [
-                { label: "Comandas en el período", value: rows.length },
-                {
-                  label: "Anulaciones después de la cuenta",
-                  value: rows.reduce((acc, r) => acc + (r.voids_after_bill ?? 0), 0),
-                },
-              ]
-            : undefined
-        }
       />
 
       {query.isError ? (
@@ -422,24 +438,52 @@ export function OrdersAdminPage(): React.JSX.Element {
         />
       ) : (
         <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <StatTile label="Comandas en el período" value={String(rows.length)} />
-            <StatTile
-              label="Ítems enviados al cobrar"
-              value={formatPercent(report?.sent_at_payment_ratio)}
-              hint="Debieron enviarse a cocina antes de presentar la cuenta"
-            />
-            <StatTile
+          {/* **Una cifra protagonista** (mapa de pantallas, regla 1): las
+              anulaciones después de la cuenta, que son las que piden
+              autorización porque el cliente ya había visto el total. En rojo
+              sólo si hay alguna. Las otras dos cifras quedan chicas al lado.
+              Son recuentos de filas y una proporción que manda el servidor:
+              acá no se suma plata. */}
+          <section aria-label="Cifras del período" className="flex flex-wrap items-end gap-x-10 gap-y-3">
+            <CifraProtagonista
               label="Anulaciones después de la cuenta"
-              value={String(rows.reduce((acc, r) => acc + (r.voids_after_bill ?? 0), 0))}
+              value={report ? String(anuladasTrasCuenta) : "—"}
+              alerta={anuladasTrasCuenta > 0}
             />
-          </div>
+            <dl className="flex flex-wrap gap-x-8 gap-y-2">
+              {[
+                { label: "Comandas en el período", value: report ? String(rows.length) : "—" },
+                {
+                  label: "Ítems enviados al cobrar",
+                  value: formatPercent(report?.sent_at_payment_ratio),
+                  title: "Debieron enviarse a cocina antes de presentar la cuenta",
+                },
+              ].map((cifra) => (
+                <div key={cifra.label} title={cifra.title}>
+                  <dt className="text-sm text-muted-foreground">{cifra.label}</dt>
+                  <dd className="text-xl font-bold tabular-nums">{cifra.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
 
           <GroupLabel
             label="Tiempo de cocina por estación"
-            says="listo − enviado, por estación: p50 y p90 sobre las muestras del período"
+            says="p50 y p90 del período"
           >
             <KitchenStationTimes stations={report?.kitchen_times_by_station ?? []} />
+            {/* El método, plegado (mapa de pantallas, regla 2): se lee una
+                vez, no cada vez que se abre la pantalla. */}
+            <details className="mt-1 text-xs text-muted-foreground">
+              <summary className="cursor-pointer rounded-md py-1 font-medium select-none hover:text-foreground">
+                Cómo leer esto
+              </summary>
+              <p className="pb-1">
+                Minutos entre que el ítem se envió y quedó listo (listo − enviado), por estación, sobre las
+                muestras del período. p50: la mitad de los ítems estuvo lista en ese tiempo o menos; p90: nueve de
+                cada diez.
+              </p>
+            </details>
           </GroupLabel>
 
           <GroupLabel

@@ -197,6 +197,9 @@ export default function FeaturesPage(): React.JSX.Element {
       key: "requires",
       header: "Dependencias",
       kind: "secondary",
+      // Detrás de «Más columnas» (mapa de pantallas, regla 3), igual que
+      // «Desde»: la zona de consecuencia ya nombra lo que se apaga en cadena.
+      secondary: true,
       // En una sola línea y sin envolver: dos pastillas apiladas hacían
       // crecer la fila de 34 a 40 px, que es la regla dura del patrón 8.
       cell: (feature) =>
@@ -209,7 +212,7 @@ export default function FeaturesPage(): React.JSX.Element {
         ),
       cellTitle: (feature) => (feature.requires.length > 0 ? feature.requires.join(" · ") : undefined),
     },
-    { key: "phase", header: "Desde", kind: "secondary", widthPx: 70, cell: (feature) => feature.available_from_phase },
+    { key: "phase", header: "Desde", kind: "secondary", secondary: true, widthPx: 70, cell: (feature) => feature.available_from_phase },
   ];
 
   return (

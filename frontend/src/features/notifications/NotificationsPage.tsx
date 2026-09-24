@@ -88,8 +88,10 @@ function NotificationsList() {
         <Badge variant={n.level === "critical" ? "destructive" : "secondary"}>{LEVEL_LABEL[n.level]}</Badge>
       ),
     },
-    { key: "title", header: "Aviso", kind: "name", cell: (n) => n.title },
-    { key: "body", header: "Qué pasó", kind: "secondary", cell: (n) => n.body },
+    // Qué pasó, en detalle, va detrás de «Más columnas» y a un hover del
+    // aviso (mapa de pantallas, regla 2): la lista se lee por el título.
+    { key: "title", header: "Aviso", kind: "name", cell: (n) => n.title, cellTitle: (n) => n.body },
+    { key: "body", header: "Qué pasó", kind: "secondary", secondary: true, cell: (n) => n.body },
     {
       key: "at",
       header: "Cuándo",
@@ -114,35 +116,48 @@ function NotificationsList() {
   ];
 
   return (
-    <DenseTable
-      caption="Notificaciones recientes del sistema"
-      columns={columns}
-      rows={notifications}
-      rowKey={(n) => String(n.id)}
-      rowStatus={(n) => (n.read_at === null ? LEVEL_STATUS[n.level] : "none")}
-      rowInactive={(n) => n.read_at !== null}
-      maxBodyHeightPx={420}
-      bar={
-        <DenseTableBar
-          shown={notifications.length}
-          total={notifications.length}
-          noun="avisos"
-          hidden={sinLeer > 0 ? `${sinLeer} sin leer` : "ninguno sin leer"}
-        />
-      }
-      legend={[
-        {
-          term: "Leída no es resuelta",
-          meaning:
-            "marcar leída apaga el contador de la campana; lo que el aviso señala sigue ahí hasta que alguien lo arregle.",
-        },
-        {
-          term: "El nivel sale de la regla",
-          meaning: "el mismo hecho puede llegar como informativo o como crítico según cómo esté la regla de su sede.",
-        },
-      ]}
-      empty={<EmptyState title="Sin notificaciones" description="El sistema todavía no tuvo nada que avisar." />}
-    />
+    <div className="space-y-2">
+      {/* **La cifra protagonista** (mapa de pantallas, regla 1): cuántos
+          avisos de esta lista esperan que alguien los lea. Ámbar mientras
+          haya alguno. */}
+      <p className="flex items-baseline gap-2">
+        <span
+          className={`text-4xl leading-none font-bold tracking-tight tabular-nums ${sinLeer > 0 ? "text-warning" : "text-foreground"}`}
+        >
+          {sinLeer}
+        </span>
+        <span className="text-sm text-muted-foreground">{sinLeer === 1 ? "aviso sin leer" : "avisos sin leer"}</span>
+      </p>
+      <DenseTable
+        caption="Notificaciones recientes del sistema"
+        columns={columns}
+        rows={notifications}
+        rowKey={(n) => String(n.id)}
+        rowStatus={(n) => (n.read_at === null ? LEVEL_STATUS[n.level] : "none")}
+        rowInactive={(n) => n.read_at !== null}
+        maxBodyHeightPx={420}
+        bar={
+          <DenseTableBar
+            shown={notifications.length}
+            total={notifications.length}
+            noun="avisos"
+            hidden={sinLeer > 0 ? `${sinLeer} sin leer` : "ninguno sin leer"}
+          />
+        }
+        legend={[
+          {
+            term: "Leída no es resuelta",
+            meaning:
+              "marcar leída apaga el contador de la campana; lo que el aviso señala sigue ahí hasta que alguien lo arregle.",
+          },
+          {
+            term: "El nivel sale de la regla",
+            meaning: "el mismo hecho puede llegar como informativo o como crítico según cómo esté la regla de su sede.",
+          },
+        ]}
+        empty={<EmptyState title="Sin notificaciones" description="El sistema todavía no tuvo nada que avisar." />}
+      />
+    </div>
   );
 }
 
@@ -231,11 +246,15 @@ function NotificationRules({ storeId }: { storeId: number }) {
       header: "Aviso",
       kind: "name",
       cell: (rule) => TYPE_LABEL[rule.type] ?? rule.type,
+      // La explicación de qué lo dispara, a un hover y detrás de «Más
+      // columnas»: se lee una vez, no en cada fila (mapa de pantallas, regla 2).
+      cellTitle: (rule) => TYPE_HELP[rule.type],
     },
     {
       key: "what",
       header: "Qué lo dispara",
       kind: "secondary",
+      secondary: true,
       cell: (rule) => TYPE_HELP[rule.type] ?? "—",
     },
     {
@@ -299,13 +318,6 @@ function NotificationRules({ storeId }: { storeId: number }) {
             el hecho igual queda en Historial y en las pantallas donde se ve.
           </>
         }
-        doesNotDo={
-          <>
-            Apagar un aviso <b className="font-bold text-foreground">no cambia ninguna regla del negocio</b>: el
-            cierre sigue pidiendo causa y el turno abandonado sigue siendo un turno abandonado. Lo único que
-            cambia es a quién se le cuenta.
-          </>
-        }
       >
         <DenseTable
           caption="Reglas de notificación de esta sede"
@@ -332,6 +344,15 @@ function NotificationRules({ storeId }: { storeId: number }) {
               meaning: "estas reglas valen para la sede activa; otra sede puede tener las suyas.",
             },
           ]}
+          // Lo que apagar NO hace, plegado con la leyenda (mapa de pantallas,
+          // regla 2): antes iba abierto debajo de la sección.
+          note={
+            <>
+              Apagar un aviso <b className="font-bold text-foreground">no cambia ninguna regla del negocio</b>: el
+              cierre sigue pidiendo causa y el turno abandonado sigue siendo un turno abandonado. Lo único que
+              cambia es a quién se le cuenta.
+            </>
+          }
           empty={<EmptyState title="Sin reglas para esta sede" description="El servidor todavía no creó las reglas por defecto." />}
         />
       </FormSection>
