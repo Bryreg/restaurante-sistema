@@ -2,7 +2,7 @@ import { TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { useStoreSelection } from "@/app/storeContext";
-import { PageHeader, ScopeDestinations, type ScopeDestination } from "@/components/admin";
+import { MasPestanas, PageHeader, ScopeDestinations, type ScopeDestination } from "@/components/admin";
 import { PeopleSection } from "@/features/people/PeopleSection";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -18,25 +18,28 @@ import { ZonesTablesSection } from "./ZonesTablesSection";
 
 /**
  * Una pestaña de Ajustes: su rótulo, **la pregunta que contesta** (patrón 2)
- * y si lo que se toca ahí **sale de esta pantalla** (patrón 10: el punto del
- * índice sobre las secciones que se salen).
+ * y si lo que se toca ahí **sale de esta pantalla** (patrón 10: el punto
+ * ámbar sobre las secciones que se salen).
  */
 interface SettingsTab {
   value: string;
   /** El rótulo de la pestaña. No se renombra: hay marcadores y enlaces. */
   label: string;
   question: string;
-  /** Cambia pantallas del salón: el índice lo marca con un punto. */
+  /**
+   * Cambia pantallas del salón: la fila de pestañas lo marca con un punto, y
+   * debajo de la sección activa se listan sus destinos.
+   */
   leaks?: boolean;
   /** A dónde llega esta pestaña (patrón 10, el reverso de las marcas). */
   destinations?: readonly [ScopeDestination, ...ScopeDestination[]];
 }
 
 /**
- * **El índice agrupado**: diez pestañas no caben en una fila a 1280 px, y la
- * fila que no cabe se convierte en un carrusel donde las últimas cuatro
- * secciones dejan de existir para quien no sabe que están. Cuatro grupos, un
- * sustantivo cada uno (`docs/PATRONES-ADMIN.md` § 1 y el desvío 1).
+ * **Las diez secciones, por tema.** Antes se dibujaban como un índice
+ * vertical de cuatro grupos (`docs/PATRONES-ADMIN.md` § 1 y el desvío 1);
+ * con «Orden y aire» quedan tres pestañas a la vista y las demás en «Más»
+ * (ver `PRINCIPALES`). El agrupamiento sigue decidiendo el orden de «Más».
  */
 const GROUPS: readonly { group: string; tabs: readonly SettingsTab[] }[] = [
   {
@@ -202,13 +205,30 @@ const ALL_TABS: readonly SettingsTab[] = GROUPS.flatMap((g) => g.tabs);
 const LEAKING = ALL_TABS.filter((t) => t.leaks).length;
 
 /**
+ * **Las tres que se tocan seguido** (mapa de pantallas, regla 4: tres
+ * pestañas como máximo a la vista). Un restaurante que vende a domicilio y
+ * por plataformas y que piensa abrir más sedes vuelve a Sedes (una sede
+ * nueva, el PIN de un dispositivo), a Empleados (gente que entra y sale, su
+ * PIN y su límite de descuento) y a Canales y plataformas (comisiones). Las
+ * otras siete se configuran una vez y viven en «Más»; ninguna cambia su
+ * `value`.
+ */
+const PRINCIPALES: readonly string[] = ["stores", "people", "channels"];
+const VISIBLES = PRINCIPALES.map((value) => ALL_TABS.find((t) => t.value === value)).filter(
+  (t): t is SettingsTab => t !== undefined,
+);
+const EN_MAS = ALL_TABS.filter((t) => !PRINCIPALES.includes(t.value)).map(({ value, label }) => ({ value, label }));
+
+/**
  * Admin → Configuración. Cada pestaña pega contra un recurso distinto de
  * `/admin/stores/{id}/*`; la mayoría necesita la sede activa
  * (`useStoreSelection`), que ya resuelve `AdminLayout`.
  */
 export default function SettingsPage(): React.JSX.Element {
   const { activeStoreId, stores } = useStoreSelection();
-  const [tab, setTab] = useState("organization");
+  // Abre en Sedes, la primera de las tres a la vista: es también a donde
+  // llega «Crear la primera sede» desde las pantallas que la necesitan.
+  const [tab, setTab] = useState("stores");
 
   const active = ALL_TABS.find((t) => t.value === tab) ?? ALL_TABS[0];
   const storeName = stores.find((s) => s.id === activeStoreId)?.name;
@@ -224,7 +244,11 @@ export default function SettingsPage(): React.JSX.Element {
             value: storeName ?? "—",
             title: "Cada sede tiene sus propios ajustes: el selector de sede está en la lateral.",
           },
-          { label: "Secciones", value: `${ALL_TABS.length}`, title: "Diez secciones, agrupadas en el índice." },
+          {
+            label: "Secciones",
+            value: `${ALL_TABS.length}`,
+            title: `Tres a la vista y ${EN_MAS.length} en «Más».`,
+          },
           {
             label: (
               <span className="inline-flex items-center gap-1.5">
@@ -233,58 +257,33 @@ export default function SettingsPage(): React.JSX.Element {
               </span>
             ),
             value: `${LEAKING}`,
-            title: "Marcadas con un punto ámbar en el índice.",
+            title:
+              "No se quedan acá: cambian lo que el salón le exige a la gente. Las de la fila llevan un punto ámbar; debajo de cada una, plegado, dice a qué pantallas llega.",
           },
         ]}
       />
 
-      <Tabs
-        value={tab}
-        onValueChange={(next) => setTab(String(next))}
-        orientation="vertical"
-        className="items-start gap-4"
-      >
-        {/* El índice agrupado. Los rótulos de grupo van `aria-hidden`: para
-            quien navega con lector de pantalla la lista sigue siendo diez
-            pestañas y nada más, que es lo que la semántica de `tablist`
-            promete. */}
-        <TabsList
-          variant="line"
-          className="sticky top-4 w-[210px] shrink-0 items-stretch gap-0 bg-card p-2 max-lg:static max-lg:w-full max-lg:flex-row max-lg:flex-wrap"
-        >
-          {GROUPS.map((group, i) => (
-            <div key={group.group} className="contents">
-              <p
-                aria-hidden="true"
-                className={cnGroup(i)}
-              >
-                {group.group}
-              </p>
-              {group.tabs.map((item) => (
-                <TabsTrigger
-                  key={item.value}
-                  value={item.value}
-                  className="justify-start gap-1.5 px-2 py-1.5 text-left data-active:bg-accent data-active:text-primary"
-                >
-                  {item.label}
-                  {item.leaks ? (
-                    <span
-                      aria-hidden="true"
-                      title="Cambia pantallas del salón"
-                      className="ml-auto size-1.5 shrink-0 rounded-full bg-warning"
-                    />
-                  ) : null}
-                </TabsTrigger>
-              ))}
-            </div>
+      <Tabs value={tab} onValueChange={(next) => setTab(String(next))}>
+        {/* A 390 px las tres más «Más» no caben en una fila: se parten en dos
+            en vez de esconder «Más» detrás del desplazamiento horizontal. */}
+        <TabsList className="flex-wrap group-data-horizontal/tabs:h-auto">
+          {VISIBLES.map((item) => (
+            <TabsTrigger key={item.value} value={item.value} className="gap-1.5">
+              {item.label}
+              {item.leaks ? (
+                <span
+                  aria-hidden="true"
+                  title="Cambia pantallas del salón"
+                  className="size-1.5 shrink-0 rounded-full bg-warning"
+                />
+              ) : null}
+            </TabsTrigger>
           ))}
-          <p className="mt-2 border-t px-2 pt-2 text-[0.7rem] leading-snug text-muted-foreground">
-            <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 rounded-full bg-warning align-middle" />
-            Las marcadas no se quedan acá: cambian lo que el salón le exige a la gente.
-          </p>
+          {/* Tres a la vista y el resto en «Más» (mapa de pantallas, regla 4). */}
+          <MasPestanas value={tab} onValueChange={setTab} items={EN_MAS} />
         </TabsList>
 
-        <div className="min-w-0 flex-1 space-y-3">
+        <div className="min-w-0 space-y-3 pt-4">
           <TabsContent value="organization">
             <OrganizationSection />
           </TabsContent>
@@ -316,20 +315,21 @@ export default function SettingsPage(): React.JSX.Element {
             <PeopleSection storeId={activeStoreId} />
           </TabsContent>
 
-          {/* El reverso del índice (patrón 10). Vive acá y no dentro de cada
+          {/* El reverso de las pestañas (patrón 10). Vive acá y no dentro de cada
               sección a propósito: contesta «esta PESTAÑA a dónde llega», que
-              es una pregunta de la pantalla, no de un campo. */}
-          {active.destinations ? <ScopeDestinations destinations={active.destinations} /> : null}
+              es una pregunta de la pantalla, no de un campo. Plegado (mapa de
+              pantallas, regla 2): se lee al decidir un cambio, no cada vez
+              que se abre la pestaña. */}
+          {active.destinations ? (
+            <details className="text-sm">
+              <summary className="cursor-pointer rounded-md py-1 text-xs font-medium text-muted-foreground select-none hover:text-foreground">
+                ¿A qué otras pantallas llega? ({active.destinations.length})
+              </summary>
+              <ScopeDestinations destinations={active.destinations} className="mt-1" />
+            </details>
+          ) : null}
         </div>
       </Tabs>
     </div>
   );
-}
-
-/** El rótulo de grupo del índice: el primero no lleva filete arriba. */
-function cnGroup(index: number): string {
-  return [
-    "px-2 pb-1 text-[0.65rem] tracking-widest text-muted-foreground uppercase",
-    index === 0 ? "pt-0" : "mt-2 border-t pt-2",
-  ].join(" ");
 }

@@ -116,7 +116,9 @@ export function CountsTab({ storeId }: { storeId: number }): React.JSX.Element {
       kind: "secondary",
       cell: (c) => <TimeAgo iso={c.opened_at} />,
     },
-    { key: "by", header: "Por", cell: (c) => c.opened_by_employee_name },
+    // Quién lo abrió y cuándo se aplicó, detrás de «Más columnas» (regla 3):
+    // la primera lectura es cuál está abierto y cuánto falta contar.
+    { key: "by", header: "Por", secondary: true, cell: (c) => c.opened_by_employee_name },
     {
       key: "lines",
       header: "Renglones",
@@ -134,6 +136,7 @@ export function CountsTab({ storeId }: { storeId: number }): React.JSX.Element {
       key: "applied",
       header: "Aplicado el",
       kind: "secondary",
+      secondary: true,
       cell: (c) =>
         c.applied_at ? (
           <span>

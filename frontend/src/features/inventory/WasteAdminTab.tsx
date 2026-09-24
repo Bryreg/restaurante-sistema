@@ -128,7 +128,9 @@ export function WasteAdminTab({
           ? (ingredientName.get(w.ingredient_id) ?? `Insumo #${w.ingredient_id}`)
           : (preparationName.get(w.preparation_id as number) ?? `Preparación #${w.preparation_id}`),
     },
-    { key: "qty", header: "Cantidad", kind: "number", cell: (w) => w.qty },
+    // Cantidad y nota, detrás de «Más columnas» (regla 3): la primera
+    // lectura es qué se perdió, cuánto costó y quién responde.
+    { key: "qty", header: "Cantidad", kind: "number", secondary: true, cell: (w) => w.qty },
     {
       key: "cost",
       header: "Costo",
@@ -140,6 +142,7 @@ export function WasteAdminTab({
       key: "note",
       header: "Nota",
       kind: "secondary",
+      secondary: true,
       widthPx: 200,
       cell: (w) => <span className="block truncate">{w.note ?? "—"}</span>,
       cellTitle: (w) => w.note ?? undefined,

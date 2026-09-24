@@ -10,6 +10,24 @@ consecuencia son el mismo error tres veces. Su corolario de color: **azul es lo
 botón que rota un PIN ni el que aplica un conteo son rojos: **el marco avisa, el
 control sigue siendo azul.**
 
+
+**Encima de los trece patrones, siete reglas de presentación («Orden y aire»).**
+Salieron de comparar este admin con el de café-sistema, que el dueño prefiere
+por simple: la primera pantalla de Hoy decía 485 palabras contra 165.
+
+1. Una cifra protagonista por pantalla, grande y con color por significado.
+2. La explicación va en «¿Qué es esto?» (`PageHeader` pliega su pregunta); sólo
+   el motivo de un «sin dato» queda a la vista.
+3. Tablas de cinco columnas a la vista (`DenseColumn.secondary` → «Más
+   columnas»); las acciones de una fila, en «⋯» (`MenuDeFila`).
+4. Tres pestañas a la vista; el resto en «Más» (`MasPestanas`), con el mismo
+   `?tab=`.
+5. Leyendas plegadas en «Cómo leer esta tabla» (`DenseTable` lo hace solo).
+6. Aire: cuerpo de 16 px en la oficina; tarjeta sólo donde separa cosas distintas.
+7. Los controles no se tocan: cierre a ciegas, la plata la calcula el servidor,
+   el operador no ve costos, «sin dato» nunca es $ 0, y ningún control se borra:
+   se mueve.
+
 ---
 
 **1 · El armazón y el reparto del alcance.** Un control puesto en el lugar
@@ -17,10 +35,19 @@ equivocado miente sobre a cuánto alcanza. El alcance se lee por dónde vive el
 control: la **sede** alcanza a toda la app y vive en la **barra superior**, con
 la persona y su rol; el **período**, en la cabecera de pantalla; lo que **filtra
 una tabla**, en la barra de esa tabla. Los tres controles de cuenta —campana,
-tema, salida— viven en esa misma barra, a la derecha. Grupos: `EL DÍA · LA CARTA
-Y EL COSTO · LA PLATA · LO FISCAL · LA GENTE · EL SISTEMA`. El ítem igual se
-acorta —bajo `LO FISCAL`, «Documentos fiscales» es **Documentos** sin perder
-nada— para que el rail de 222 px no trunque. *Aplica a las 24.*
+tema, salida— viven en esa misma barra, a la derecha. El rail tiene **ocho
+secciones**: `Hoy · Informes · Caja · Inventario · Carta · Plata · Equipo ·
+Ajustes`, y las pantallas de cada una van como **pestañas de sección** arriba
+del contenido. La pestaña igual se acorta —«Documentos fiscales» es
+**Documentos** sin perder nada—. *Aplica a las 24.*
+
+> **Ocho secciones y no seis grupos con veinticinco enlaces.** El dueño comparó
+> el admin con el de café-sistema y el del restaurante le pareció agobiante; el
+> mapa de pantallas que aprobó pasa el rail de 25 entradas a 8. Ninguna
+> pantalla se borró ni cambió de dirección: `/admin/banco` se llega por
+> Caja › Banco. Los flags mandan igual: una pantalla apagada no es pestaña, y
+> una sección sin pantallas encendidas no está en el rail. Lo verifican
+> `src/app/__tests__/adminRail.test.tsx` y `AdminLayout.test.tsx`.
 
 > **Este patrón se dio vuelta a propósito.** Decía «no hay barra superior»,
 > porque una barra le cobra 56 px de alto a un portátil, y repartía la sede a la

@@ -5,8 +5,7 @@ import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { listIngredients } from "@/api/inventory"
 import { Cargando } from "@/components/Cargando"
-import { FeatureOffEmptyState } from "@/components/admin"
-import { PageHeader } from "@/components/admin"
+import { FeatureOffEmptyState, MasPestanas, PageHeader, type PestanaDeMas } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { ControlHealthTab } from "./ControlHealthTab"
@@ -52,6 +51,10 @@ function TabCount({ n }: { n: number | undefined }): React.JSX.Element | null {
  * backend (`app/inventory/router.py::get_control_health`). Si el `tab=` de
  * la URL apunta a una pestaña apagada, cae a "Insumos" en vez de mostrar un
  * panel roto.
+ *
+ * A la vista van las tres de todos los días —Insumos, Stock y Conteos—; el
+ * resto se elige desde «Más» (mapa de pantallas, regla 4). Mover una
+ * pestaña a «Más» no cambia su `?tab=`.
  *
  * `tab`/`below_min`/`negative` en la query string: así "Hoy" puede enlazar
  * directo a "Stock" filtrado por negativos o bajo mínimo (cada alerta de
@@ -115,6 +118,21 @@ export function InventoryAdminPage(): React.JSX.Element {
 
   const ingredients = ingredientsQuery.data ?? []
 
+  function cambiarPestana(value: string) {
+    const next = new URLSearchParams(searchParams)
+    next.set("tab", value)
+    setSearchParams(next, { replace: true })
+  }
+
+  // Las que no son de todos los días: movimientos (cuando hay conteos),
+  // varianza, lotes y salud del control, cada una detrás de su flag.
+  const masPestanas: PestanaDeMas[] = [
+    ...(countsEnabled ? [{ value: "movimientos", label: "Movimientos y mermas" }] : []),
+    ...(varianceEnabled ? [{ value: "varianza", label: "Varianza" }] : []),
+    ...(lotsEnabled ? [{ value: "lotes", label: "Lotes" }] : []),
+    ...(varianceEnabled ? [{ value: "salud", label: "Salud del control" }] : []),
+  ]
+
   return (
     <div className="space-y-4">
       {/* Patrón 2 · Cabecera de pantalla: nombre + LA PREGUNTA que la
@@ -129,14 +147,7 @@ export function InventoryAdminPage(): React.JSX.Element {
           ingredientsQuery.isSuccess ? [{ label: "Insumos activos", value: ingredients.length }] : undefined
         }
       />
-      <Tabs
-        value={tab}
-        onValueChange={(value) => {
-          const next = new URLSearchParams(searchParams)
-          next.set("tab", value)
-          setSearchParams(next, { replace: true })
-        }}
-      >
+      <Tabs value={tab} onValueChange={cambiarPestana}>
         <TabsList className="h-auto flex-wrap">
           {/* El recuento va como COMPONENTE y no como `{expresión}`: el
               censo de controles (`src/audit/censo.ts`) lee el rótulo con una
@@ -147,11 +158,14 @@ export function InventoryAdminPage(): React.JSX.Element {
             Insumos <TabCount n={ingredientsQuery.isSuccess ? ingredients.length : undefined} />
           </TabsTrigger>
           <TabsTrigger value="stock">Stock</TabsTrigger>
-          <TabsTrigger value="movimientos">Movimientos y mermas</TabsTrigger>
           {countsEnabled ? <TabsTrigger value="conteos">Conteos</TabsTrigger> : null}
-          {varianceEnabled ? <TabsTrigger value="varianza">Varianza</TabsTrigger> : null}
-          {lotsEnabled ? <TabsTrigger value="lotes">Lotes</TabsTrigger> : null}
-          {varianceEnabled ? <TabsTrigger value="salud">Salud del control</TabsTrigger> : null}
+          {/* Sin conteos, el tercer lugar a la vista es del libro de
+              movimientos: siempre hay tres a la vista si hay tres. */}
+          {countsEnabled ? null : <TabsTrigger value="movimientos">Movimientos y mermas</TabsTrigger>}
+          {/* Tres a la vista y el resto en «Más» (mapa de pantallas, regla 4).
+              Los `value` —y con ellos el `?tab=` de los enlaces de Hoy— no
+              cambian; «Más» respeta los mismos flags que las pestañas. */}
+          <MasPestanas value={tab} onValueChange={cambiarPestana} items={masPestanas} />
         </TabsList>
         <TabsContent value="insumos" className="pt-4">
           <IngredientsTab storeId={activeStoreId} />

@@ -104,6 +104,9 @@ export function LotsTab({
       key: "received",
       header: "Recibido",
       kind: "secondary",
+      // Recibido y costo, detrás de «Más columnas» (regla 3): la primera
+      // lectura de un lote es cuándo vence y cuánto queda.
+      secondary: true,
       cell: (l) => <TimeAgo iso={l.received_at} />,
     },
     {
@@ -124,6 +127,7 @@ export function LotsTab({
       key: "cost",
       header: "Costo",
       kind: "number",
+      secondary: true,
       cell: (l) => <CostValue cost={l.unit_cost} costSource={l.cost_source} />,
     },
     {

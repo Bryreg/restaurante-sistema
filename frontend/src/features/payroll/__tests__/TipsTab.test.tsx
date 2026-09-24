@@ -49,7 +49,10 @@ describe("TipsTab — D-3: la propuesta NUNCA mueve plata sola", () => {
     const banner = await screen.findByRole("status")
     expect(banner.textContent).toMatch(/es una\s*propuesta/i)
     expect(await screen.findByText("$ 60.000")).toBeInTheDocument()
-    expect(screen.getByText("$ 90.000")).toBeInTheDocument()
+    // El total del servidor, dos veces y el mismo: como cifra protagonista
+    // arriba de la tabla y en su pie.
+    expect(screen.getByTestId("tips-total")).toHaveTextContent("$ 90.000")
+    expect(screen.getAllByText("$ 90.000")).toHaveLength(2)
     expect(screen.getByRole("button", { name: "Confirmar reparto" })).toBeInTheDocument()
   })
 

@@ -33,6 +33,7 @@ import {
 import { listPlatforms } from "@/api/channels"
 import { newIdempotencyKey } from "@/api/client"
 import { Cargando } from "@/components/Cargando"
+import { DenseTable, type DenseColumn } from "@/components/admin"
 import { MoneyInput } from "@/components/MoneyInput"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
@@ -41,11 +42,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
+import { Explicacion } from "@/components/admin"
 import { todayLocal } from "./lib"
 
 type Kind = "card" | "platform"
@@ -226,6 +227,57 @@ function SettleButton({ id, kind, onDone }: { id: number; kind: Kind; onDone: ()
 
 // ---------------------------------------------------------------------------
 
+type Settlement = CardSettlementOut | PlatformSettlementOut
+
+function asCard(r: Settlement, kind: Kind): CardSettlementOut | null {
+  return kind === "card" ? (r as CardSettlementOut) : null
+}
+
+function asPlatform(r: Settlement, kind: Kind): PlatformSettlementOut | null {
+  return kind === "platform" ? (r as PlatformSettlementOut) : null
+}
+
+function settlementColumns(kind: Kind, action: (r: Settlement) => React.ReactNode): readonly DenseColumn<Settlement>[] {
+  const columns: DenseColumn<Settlement>[] = [
+    {
+      key: "from",
+      header: kind === "card" ? "Venta" : "Período",
+      kind: "name",
+      cell: (r) => formatBusinessDate(asCard(r, kind)?.sales_business_date ?? asPlatform(r, kind)?.period_from),
+    },
+    {
+      key: "to",
+      header: kind === "card" ? "Abono" : "Hasta",
+      cell: (r) => {
+        const card = asCard(r, kind)
+        return (
+          <>
+            {formatBusinessDate(card ? card.settled_business_date : asPlatform(r, kind)?.period_to)}
+            {card ? <span className="ml-1 text-xs text-muted-foreground">({card.lag_days} d)</span> : null}
+          </>
+        )
+      },
+    },
+    { key: "gross", header: "Bruto", kind: "number", secondary: true, cell: (r) => formatCOP(r.gross_amount) },
+    { key: "commission", header: "Comisión", kind: "number", secondary: true, cell: (r) => formatCOP(r.commission_amount) },
+  ]
+  if (kind === "card") {
+    columns.push({
+      key: "retention",
+      header: "Retenciones",
+      kind: "number",
+      secondary: true,
+      cell: (r) => formatCOP(asCard(r, kind)?.retention_amount ?? null),
+    })
+  }
+  columns.push(
+    { key: "net", header: "Neto", kind: "number", cell: (r) => <span className="font-medium">{formatCOP(r.net_amount)}</span> },
+    { key: "status", header: "Estado", cell: (r) => <StatusBadge status={r.status} /> },
+    { key: "actions", header: "Acciones", kind: "actions", cell: action },
+  )
+  return columns
+}
+
 export function SettlementsSection({
   storeId,
   kind,
@@ -238,7 +290,7 @@ export function SettlementsSection({
   to: string
 }): React.JSX.Element {
   const queryClient = useQueryClient()
-  const query = useQuery<Array<CardSettlementOut | PlatformSettlementOut>>({
+  const query = useQuery<Settlement[]>({
     queryKey: ["banking", "settlements", kind, storeId, from, to],
     queryFn: () =>
       kind === "card" ? listCardSettlements({ storeId, from, to }) : listPlatformSettlements({ storeId, from, to }),
@@ -253,17 +305,20 @@ export function SettlementsSection({
   const rows = query.data ?? []
 
   return (
-    <section className="space-y-3 rounded-lg border p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold">
             {kind === "card" ? "Liquidaciones del datáfono" : "Liquidaciones de plataformas"}
           </h2>
-          <p className="text-xs text-muted-foreground">
-            Lo que el {kind === "card" ? "datáfono" : "operador de la plataforma"} abonó de verdad. Mientras no haya
-            ninguna registrada, todo lo de arriba aparece como no conciliado — y eso no significa que falte plata,
-            significa que falta el dato.
-          </p>
+          {/* Regla 2 · El párrafo que explicaba la sección, plegado. */}
+          <Explicacion>
+            <p>
+              Lo que el {kind === "card" ? "datáfono" : "operador de la plataforma"} abonó de verdad. Mientras no haya
+              ninguna registrada, todo lo de arriba aparece como no conciliado — y eso no significa que falte plata,
+              significa que falta el dato.
+            </p>
+          </Explicacion>
         </div>
         <RegisterDialog storeId={storeId} kind={kind} onDone={refresh} />
       </div>
@@ -280,49 +335,21 @@ export function SettlementsSection({
       ) : rows.length === 0 ? (
         <EmptyState title="No hay liquidaciones registradas en este período" />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{kind === "card" ? "Venta" : "Período"}</TableHead>
-                <TableHead>{kind === "card" ? "Abono" : "Hasta"}</TableHead>
-                <TableHead>Bruto</TableHead>
-                <TableHead>Comisión</TableHead>
-                {kind === "card" ? <TableHead>Retenciones</TableHead> : null}
-                <TableHead>Neto</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => {
-                const card = kind === "card" ? (r as CardSettlementOut) : null
-                const platform = kind === "platform" ? (r as PlatformSettlementOut) : null
-                return (
-                  <TableRow key={r.id}>
-                    <TableCell>
-                      {formatBusinessDate(card ? card.sales_business_date : platform!.period_from)}
-                    </TableCell>
-                    <TableCell>
-                      {formatBusinessDate(card ? card.settled_business_date : platform!.period_to)}
-                      {card ? <span className="ml-1 text-xs text-muted-foreground">({card.lag_days} d)</span> : null}
-                    </TableCell>
-                    <TableCell className="tabular-nums">{formatCOP(r.gross_amount)}</TableCell>
-                    <TableCell className="tabular-nums">{formatCOP(r.commission_amount)}</TableCell>
-                    {card ? <TableCell className="tabular-nums">{formatCOP(card.retention_amount)}</TableCell> : null}
-                    <TableCell className="tabular-nums font-medium">{formatCOP(r.net_amount)}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={r.status} />
-                    </TableCell>
-                    <TableCell>
-                      {r.status === "recorded" ? <SettleButton id={r.id} kind={kind} onDone={refresh} /> : null}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </div>
+        /* Era una tabla a mano de ocho columnas (siete en plataformas): pasa a
+           `DenseTable` con las fechas, el neto y el estado a la vista, y el
+           bruto, la comisión y las retenciones detrás de «Más columnas»
+           (regla 3). «Conciliar» es la única acción de la fila: queda botón. */
+        <DenseTable
+          caption={kind === "card" ? "Liquidaciones del datáfono registradas en el período." : "Liquidaciones de plataformas registradas en el período."}
+          columns={settlementColumns(kind, (r) =>
+            r.status === "recorded" ? <SettleButton id={r.id} kind={kind} onDone={refresh} /> : null,
+          )}
+          rows={rows}
+          rowKey={(r) => String(r.id)}
+          rowInactive={(r) => r.status === "reversed"}
+          rowStatus={(r) => (r.status === "recorded" ? "warning" : r.status === "matched" ? "ok" : "none")}
+          maxBodyHeightPx={360}
+        />
       )}
     </section>
   )

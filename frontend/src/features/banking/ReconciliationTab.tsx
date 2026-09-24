@@ -114,7 +114,15 @@ function reconciliationColumns(
   }
   columns.push(
     { key: "expected", header: "Esperado", kind: "number", cell: (r) => formatCOP(r.expected) },
-    { key: "settled", header: "Liquidado", kind: "number", cell: (r) => formatCOP(r.settled) },
+    {
+      key: "settled",
+      header: "Liquidado",
+      kind: "number",
+      // Con la columna de plataforma serían seis: «Liquidado» pasa detrás de
+      // «Más columnas» (regla 3). La diferencia sigue a la vista.
+      secondary: kind === "platform",
+      cell: (r) => formatCOP(r.settled),
+    },
     { key: "difference", header: "Diferencia", kind: "number", cell: (r) => <Diferencia valor={r.difference} /> },
     {
       key: "status",

@@ -234,6 +234,9 @@ export function StockTab({
       key: "since",
       header: "Desde",
       kind: "secondary",
+      // Detrás de «Más columnas» (regla 3): el estado ya dice si es
+      // negativo; desde cuándo es el segundo vistazo.
+      secondary: true,
       // «hace 1 día» en la celda y el instante exacto en el `title` —que
       // `TimeAgo` ya pone solo—: la columna deja de gastar 130 px en un
       // minuto que a nadie le importa (`docs/PATRONES-ADMIN.md`, el defecto

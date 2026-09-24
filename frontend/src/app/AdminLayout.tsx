@@ -1,40 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  Activity,
   BarChart3,
   Banknote,
-  BellRing,
   BookOpen,
   CalendarDays,
   CircleAlert,
-  ClipboardList,
-  Clock,
-  Coins,
-  CookingPot,
   Ellipsis,
-  FileText,
-  Hash,
-  Landmark,
-  LayoutGrid,
   LogOut,
   type LucideIcon,
   Menu,
   Package,
-  PackagePlus,
   Receipt,
-  ScrollText,
   Settings,
-  ShoppingCart,
-  StickyNote,
   Store,
-  Target,
-  ToggleLeft,
-  Undo2,
   Users,
-  Wallet,
 } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
 import { logout } from "@/api/auth";
@@ -128,206 +110,152 @@ export function buildNav(hasFeature: (key: string) => boolean): NavItem[] {
 }
 
 // ---------------------------------------------------------------------------
-// El rail: grupos, íconos, nombres cortos y recuentos
-// (`docs/PATRONES-ADMIN.md` § 1).
+// El rail: ocho secciones, cada una con sus pantallas en pestañas
+// (mapa de pantallas del restaurante, «De 25 entradas a 8»).
 // ---------------------------------------------------------------------------
 
 /**
- * Los seis grupos, en el orden en que se dibujan, **con los nombres de la
- * maqueta `a2`** (`admin/a2/direccion.html`, arreglo `NAV`): el dueño la
- * miró contra la app desplegada y pidió «tal cual el diseño a2».
+ * **Ocho entradas en vez de veinticinco.** El dueño comparó el admin con el de
+ * café-sistema y dijo que el del restaurante «se ve agobiante»: el rail
+ * mostraba seis grupos con veinticinco enlaces, y la mitad eran pantallas que
+ * este restaurante abre una vez al mes. Ahora el rail tiene una fila por
+ * sección y las pantallas de cada sección van como pestañas arriba del
+ * contenido (`PestanasDeSeccion`). Ninguna pantalla se borró ni cambió de
+ * dirección: `/admin/banco` sigue siendo `/admin/banco`, sólo que se llega
+ * por Caja › Banco.
  *
- * Eran `Operación · Costos · Plata · Ley · Gente · Sistema`, un sustantivo
- * cada uno. a2 los escribe como frases con artículo —`EL DÍA`, `LA CARTA Y
- * EL COSTO`, `LO FISCAL`— que es cómo el dueño los nombra en voz alta. El
- * argumento que sostenía los sustantivos cortos era el ancho del rótulo de
- * grupo, y el rótulo de grupo no compite con nada: va solo en su renglón, a
- * 10 px, y `LA CARTA Y EL COSTO` entra en los 222 px sin truncar.
- *
- * Lo que **no** cambia es el nombre corto de cada entrada (`Documentos`,
- * `Rangos`, `Turnos`, `Devoluciones`): a2 los escribe largos y por eso
- * trunca «Devoluciones pend…» en su propio riel de 214 px. El corto tiene
- * que seguir siendo prefijo del largo para que el nombre accesible contenga
- * lo que se ve (WCAG 2.5.3), y truncar pierde eso.
+ * Los flags siguen mandando igual que antes: una pantalla apagada no aparece
+ * como pestaña, y una sección sin pantallas encendidas no aparece en el rail.
  */
-export const GRUPOS = [
-  "EL DÍA",
-  "LA CARTA Y EL COSTO",
-  "LA PLATA",
-  "LO FISCAL",
-  "LA GENTE",
-  "EL SISTEMA",
+export const SECCIONES = [
+  "Hoy",
+  "Informes",
+  "Caja",
+  "Inventario",
+  "Carta",
+  "Plata",
+  "Equipo",
+  "Ajustes",
 ] as const;
-export type Grupo = (typeof GRUPOS)[number];
+export type Seccion = (typeof SECCIONES)[number];
 
-/** Las cuatro entradas que llevan recuento. Todas salen de `GET /admin/today`. */
+/** El ícono de cada sección. Ninguna comparte el suyo con otra. */
+export const ICONO_SECCION: Record<Seccion, LucideIcon> = {
+  Hoy: CalendarDays,
+  Informes: BarChart3,
+  Caja: Banknote,
+  Inventario: Package,
+  Carta: BookOpen,
+  Plata: Receipt,
+  Equipo: Users,
+  Ajustes: Settings,
+};
+
+/** Las cuatro pantallas que llevan recuento. Todas salen de `GET /admin/today`. */
 export type Recuento = "pedidos" | "inventario" | "compras" | "devoluciones";
 
 export interface FilaDelRail {
-  grupo: Grupo;
-  /** El ícono propio. Ninguna entrada comparte el suyo con otra. */
-  icon: LucideIcon;
-  /** El texto visible en el rail: corto, para que entre en 222 px sin truncar. */
+  seccion: Seccion;
+  /** El texto visible en la pestaña: corto. */
   label: string;
   /**
-   * El nombre completo, que es el nombre accesible del enlace y su `title`.
+   * El nombre completo, que es el nombre accesible de la pestaña y su `title`.
    * **Tiene que ser idéntico al `label` del `NavItem` del dominio**, y
    * `__tests__/adminRail.test.tsx` lo verifica entrada por entrada: acá se
-   * escribe a mano para que el censo de controles lo vea —el censo lee el
-   * código y sólo mira archivos `.tsx`, así que los rótulos que viven en el
-   * `index.ts` de cada dominio no estaban protegidos por nada—.
+   * escribe a mano para que el censo de controles lo vea.
    */
   title: string;
   cuenta?: Recuento;
 }
 
 /**
- * De ruta a cómo se lee en el rail. La clave es el `to` del `NavItem`, que es
- * lo único estable: el dominio decide **si** la entrada existe (su flag) y **a
- * dónde** va; el armazón decide cómo se ve.
+ * De ruta a su sección. La clave es el `to` del `NavItem`, que es lo único
+ * estable: el dominio decide **si** la pantalla existe (su flag) y **a dónde**
+ * va; el armazón decide en qué sección se lee y en qué orden.
  *
- * Los cuatro nombres acortados son exactamente los que nombra el patrón 1
- * —Documentos, Rangos, Devoluciones, Turnos—. El resto entra entero: medido,
- * «Ingeniería de menú» son 18 caracteres y el rail da para 180 px de texto.
- * «Configuración» se queda como está y no pasa a «Ajustes» aunque la maqueta
- * lo llame así: el nombre corto tiene que ser un prefijo del largo para que
- * el nombre accesible siga conteniendo lo que se ve (WCAG 2.5.3), y
- * «Ajustes» no lo es.
+ * El orden de las filas de una sección es el orden de sus pestañas, y la
+ * primera encendida es a donde lleva la entrada del rail.
+ *
+ * - **Hoy** junta el pulso del día con las comandas abiertas: las dos dicen
+ *   qué está pasando ahora.
+ * - **Informes** junta lo que mira el período cerrado. Documentos y notas van
+ *   acá porque son el registro de lo vendido: con comprobante interno (persona
+ *   natural, sin factura electrónica) siguen existiendo y siguen siendo ley.
+ * - **Caja** junta la plata física: turnos, banco y lo que se devuelve.
+ * - **Ajustes** recibe los rangos de numeración: son configuración de la DIAN,
+ *   no algo que se mira todos los días.
  */
 export const RAIL: Record<string, FilaDelRail> = {
-  // EL DÍA — lo que está pasando ahora.
-  "/admin/hoy": { grupo: "EL DÍA", icon: CalendarDays, label: "Hoy", title: "Hoy" },
-  "/admin/ventas": { grupo: "EL DÍA", icon: BarChart3, label: "Ventas", title: "Ventas" },
-  "/admin/pedidos": {
-    grupo: "EL DÍA",
-    icon: ClipboardList,
-    label: "Pedidos",
-    title: "Pedidos",
-    cuenta: "pedidos",
-  },
+  "/admin/hoy": { seccion: "Hoy", label: "Hoy", title: "Hoy" },
+  "/admin/pedidos": { seccion: "Hoy", label: "Pedidos", title: "Pedidos", cuenta: "pedidos" },
 
-  // LA CARTA Y EL COSTO — la cadena que convierte un plato en plata gastada: la receta de
-  // la Carta es lo que lo vuelve un costo, y por eso va con Inventario y
-  // Compras y no con Operación.
-  "/admin/carta": { grupo: "LA CARTA Y EL COSTO", icon: BookOpen, label: "Carta", title: "Carta" },
-  "/admin/preparaciones": {
-    grupo: "LA CARTA Y EL COSTO",
-    icon: CookingPot,
-    label: "Preparaciones",
-    title: "Preparaciones",
-  },
-  "/admin/inventario": {
-    grupo: "LA CARTA Y EL COSTO",
-    icon: Package,
-    label: "Inventario",
-    title: "Inventario",
-    cuenta: "inventario",
-  },
-  "/admin/compras": {
-    grupo: "LA CARTA Y EL COSTO",
-    icon: ShoppingCart,
-    label: "Compras",
-    title: "Compras",
-    cuenta: "compras",
-  },
+  "/admin/ventas": { seccion: "Informes", label: "Ventas", title: "Ventas" },
   "/admin/analitica": {
-    grupo: "LA CARTA Y EL COSTO",
-    icon: Target,
+    seccion: "Informes",
     label: "Ingeniería de menú",
     title: "Ingeniería de menú",
   },
-  "/admin/analitica?tab=varianza": {
-    grupo: "LA CARTA Y EL COSTO",
-    icon: Activity,
-    label: "Varianza y salud",
-    title: "Varianza y salud",
-  },
-  "/admin/analitica?tab=reposicion": {
-    grupo: "LA CARTA Y EL COSTO",
-    icon: PackagePlus,
-    label: "Reposición",
-    title: "Reposición",
-  },
-
-  // LA PLATA.
-  "/admin/dinero": { grupo: "LA PLATA", icon: Banknote, label: "Dinero", title: "Dinero" },
-  "/admin/banco": { grupo: "LA PLATA", icon: Landmark, label: "Banco", title: "Banco" },
-  "/admin/gastos": { grupo: "LA PLATA", icon: Receipt, label: "Gastos", title: "Gastos" },
-  "/admin/nomina": { grupo: "LA PLATA", icon: Wallet, label: "Nómina", title: "Nómina" },
-  "/admin/nomina?tab=propinas": {
-    grupo: "LA PLATA",
-    icon: Coins,
-    label: "Propinas",
-    title: "Propinas",
-  },
-
-  // LO FISCAL.
+  "/admin/clientes": { seccion: "Informes", label: "Clientes", title: "Clientes" },
   "/admin/fiscal/documentos": {
-    grupo: "LO FISCAL",
-    icon: FileText,
+    seccion: "Informes",
     label: "Documentos",
     title: "Documentos fiscales",
   },
-  "/admin/fiscal/rangos": {
-    grupo: "LO FISCAL",
-    icon: Hash,
-    label: "Rangos",
-    title: "Rangos de numeración",
-  },
-  "/admin/fiscal/notas": { grupo: "LO FISCAL", icon: StickyNote, label: "Notas", title: "Notas" },
+  "/admin/fiscal/notas": { seccion: "Informes", label: "Notas", title: "Notas" },
+
+  "/admin/dinero": { seccion: "Caja", label: "Dinero", title: "Dinero" },
+  "/admin/banco": { seccion: "Caja", label: "Banco", title: "Banco" },
   "/admin/fiscal/devoluciones-pendientes": {
-    grupo: "LO FISCAL",
-    icon: Undo2,
+    seccion: "Caja",
     label: "Devoluciones",
     title: "Devoluciones pendientes",
     cuenta: "devoluciones",
   },
 
-  // LA GENTE. `Clock` y no una silueta: «Clientes» ya es una silueta doble, y a
-  // 16 px una persona y dos personas se confunden.
-  "/admin/personal": { grupo: "LA GENTE", icon: Clock, label: "Turnos", title: "Turnos y personal" },
-  "/admin/clientes": { grupo: "LA GENTE", icon: Users, label: "Clientes", title: "Clientes" },
+  "/admin/inventario": {
+    seccion: "Inventario",
+    label: "Inventario",
+    title: "Inventario",
+    cuenta: "inventario",
+  },
+  "/admin/compras": { seccion: "Inventario", label: "Compras", title: "Compras", cuenta: "compras" },
+  "/admin/analitica?tab=varianza": {
+    seccion: "Inventario",
+    label: "Varianza y salud",
+    title: "Varianza y salud",
+  },
+  "/admin/analitica?tab=reposicion": {
+    seccion: "Inventario",
+    label: "Reposición",
+    title: "Reposición",
+  },
 
-  // EL SISTEMA. `BellRing` para la pantalla de reglas, `Bell` para la campana del
-  // pie: son dos cosas distintas y no pueden tener el mismo ícono.
-  "/admin/features": { grupo: "EL SISTEMA", icon: ToggleLeft, label: "Funciones", title: "Funciones" },
-  "/admin/settings": {
-    grupo: "EL SISTEMA",
-    icon: Settings,
-    label: "Configuración",
-    title: "Configuración",
-  },
-  "/admin/audit": { grupo: "EL SISTEMA", icon: ScrollText, label: "Historial", title: "Historial" },
-  "/admin/notifications": {
-    grupo: "EL SISTEMA",
-    icon: BellRing,
-    label: "Notificaciones",
-    title: "Notificaciones",
-  },
+  "/admin/carta": { seccion: "Carta", label: "Carta", title: "Carta" },
+  "/admin/preparaciones": { seccion: "Carta", label: "Preparaciones", title: "Preparaciones" },
+
+  "/admin/gastos": { seccion: "Plata", label: "Gastos", title: "Gastos" },
+
+  "/admin/personal": { seccion: "Equipo", label: "Turnos", title: "Turnos y personal" },
+  "/admin/nomina": { seccion: "Equipo", label: "Nómina", title: "Nómina" },
+  "/admin/nomina?tab=propinas": { seccion: "Equipo", label: "Propinas", title: "Propinas" },
+
+  "/admin/settings": { seccion: "Ajustes", label: "Configuración", title: "Configuración" },
+  "/admin/features": { seccion: "Ajustes", label: "Funciones", title: "Funciones" },
+  "/admin/notifications": { seccion: "Ajustes", label: "Notificaciones", title: "Notificaciones" },
+  "/admin/fiscal/rangos": { seccion: "Ajustes", label: "Rangos", title: "Rangos de numeración" },
+  "/admin/audit": { seccion: "Ajustes", label: "Historial", title: "Historial" },
 };
 
 /**
- * La red de seguridad del rail: una entrada que el dominio agregue y que
- * nadie haya archivado acá **se sigue viendo**, al final de `EL SISTEMA` y con el
- * ícono genérico. `adminRail.test.tsx` falla si eso pasa, pero fallar en CI
- * no puede costar una entrada de navegación en producción.
+ * La red de seguridad: una pantalla que el dominio agregue y que nadie haya
+ * archivado acá **se sigue viendo**, como pestaña de Ajustes.
+ * `adminRail.test.tsx` falla si eso pasa, pero fallar en CI no puede costar
+ * una pantalla en producción.
  */
 function filaDe(item: NavItem): FilaDelRail {
-  return (
-    RAIL[item.to] ?? { grupo: "EL SISTEMA", icon: LayoutGrid, label: item.label, title: item.label }
-  );
+  return RAIL[item.to] ?? { seccion: "Ajustes", label: item.label, title: item.label };
 }
 
-/**
- * El orden **dentro** de un grupo es el de `RAIL`, no el de `buildNav`.
- *
- * `buildNav` concatena los dominios en el orden en que se fueron agregando
- * por fase, y eso alcanzaba cuando la lista era plana. Agrupada ya no: como
- * `shiftsFeature` entró en la fase 3, «Dinero» caía **después** de Banco,
- * Nómina y Propinas, y la pantalla principal de plata quedaba al final de su
- * propio grupo. El dominio sigue decidiendo si la entrada existe; el orden
- * en que se leen las cuatro de `LA PLATA` es del armazón.
- */
 const ORDEN = Object.keys(RAIL);
 function porOrdenDelRail(a: NavItem, b: NavItem): number {
   const ia = ORDEN.indexOf(a.to);
@@ -336,21 +264,25 @@ function porOrdenDelRail(a: NavItem, b: NavItem): number {
   return (ia === -1 ? ORDEN.length : ia) - (ib === -1 ? ORDEN.length : ib);
 }
 
+/** Las pantallas encendidas de una sección, en el orden de sus pestañas. */
+export function pantallasDe(items: NavItem[], seccion: Seccion): NavItem[] {
+  return items.filter((item) => filaDe(item).seccion === seccion).sort(porOrdenDelRail);
+}
+
 /**
  * Los recuentos, y de dónde salen: **`GET /admin/today`, con la misma
  * `queryKey` que usa la pantalla Hoy** (`["admin-today", storeId]`). No hay
  * ni un pedido nuevo al servidor —parado en Hoy, react-query sirve la misma
- * entrada de caché a las dos y sale una sola petición—, y los cuatro números
- * son los que ya mira el dueño en los avisos de esa pantalla, así que el
- * rail y los avisos no pueden decir cosas distintas.
+ * entrada de caché a las dos y sale una sola petición—, y los números son los
+ * que ya mira el dueño en los avisos de esa pantalla, así que el rail y los
+ * avisos no pueden decir cosas distintas.
  *
  * El del inventario suma negativos **y** bajo mínimo: los avisos de Hoy
  * cuentan los dos por separado y una insignia que muestre sólo uno
  * sub-informa la pantalla (`docs/PATRONES-ADMIN.md`, desvío 3).
  *
  * Sin `refetchInterval` a propósito: la pantalla Hoy sondea cada 30 s y el
- * rail se cuelga de ese sondeo cuando estás ahí. Ponerlo también acá haría
- * sondear `/admin/today` desde las veinticuatro pantallas.
+ * rail se cuelga de ese sondeo cuando estás ahí.
  */
 function useRecuentos(storeId: number | null): Partial<Record<Recuento, number>> {
   const { data } = useQuery({
@@ -373,15 +305,36 @@ const DICE: Record<Recuento, (n: number) => string> = {
   pedidos: (n) => `${n} comanda${n === 1 ? "" : "s"} abierta${n === 1 ? "" : "s"}`,
   inventario: (n) => `${n} insumo${n === 1 ? "" : "s"} en alerta`,
   compras: (n) => `${n} cuenta${n === 1 ? "" : "s"} por pagar sin resolver`,
-  devoluciones: (n) => `${n} pendiente${n === 1 ? "" : "s"}`,
+  devoluciones: (n) => `${n} devolucion${n === 1 ? "" : "es"} pendiente${n === 1 ? "" : "s"}`,
 };
+
+/**
+ * El recuento de una sección es la suma de los de sus pestañas, y su nombre
+ * en voz alta los nombra uno por uno: «Inventario, 3 insumos en alerta, 2
+ * cuentas por pagar sin resolver». `undefined` mientras ninguno se sabe.
+ */
+function recuentoDe(
+  pantallas: NavItem[],
+  counts: Partial<Record<Recuento, number>>,
+): { total: number | undefined; dice: string[] } {
+  let total: number | undefined;
+  const dice: string[] = [];
+  for (const item of pantallas) {
+    const cuenta = filaDe(item).cuenta;
+    const n = cuenta ? counts[cuenta] : undefined;
+    if (cuenta === undefined || n == null) continue;
+    total = (total ?? 0) + n;
+    if (n > 0) dice.push(DICE[cuenta](n));
+  }
+  return { total, dice };
+}
 
 /**
  * `NavLink` decide «activo» sólo por la ruta e ignora el `?tab=`: con
  * «Nómina» (`/admin/nomina`) y «Propinas» (`/admin/nomina?tab=propinas`) en
- * el rail, las dos quedaban encendidas a la vez. Una entrada con `?tab=` está
- * activa sólo si la pestaña coincide; una sin él, sólo si ninguna hermana de
- * la misma ruta reclama la pestaña actual.
+ * la misma sección, las dos pestañas quedaban encendidas a la vez. Una entrada
+ * con `?tab=` está activa sólo si la pestaña coincide; una sin él, sólo si
+ * ninguna hermana de la misma ruta reclama la pestaña actual.
  */
 export function entradaActiva(to: string, rutaActiva: boolean, search: string, todas: string[]): boolean {
   if (!rutaActiva) return false;
@@ -393,10 +346,10 @@ export function entradaActiva(to: string, rutaActiva: boolean, search: string, t
 }
 
 /**
- * Pestañas que una entrada del rail reclama además de la de su `?tab=`:
- * «Varianza y salud» abre en Varianza por plato pero también es suya la
- * pestaña Salud sostenida. Sin esto, en Salud sostenida se encendía
- * «Ingeniería de menú» (la entrada sin pestaña de la misma ruta).
+ * Pestañas que una entrada reclama además de la de su `?tab=`: «Varianza y
+ * salud» abre en Varianza por plato pero también es suya la pestaña Salud
+ * sostenida. Sin esto, en Salud sostenida se encendía «Ingeniería de menú»
+ * (la entrada sin pestaña de la misma ruta) y la sección saltaba a Informes.
  */
 const PESTANAS_HERMANAS: Record<string, readonly string[]> = {
   "/admin/analitica?tab=varianza": ["salud-sostenida"],
@@ -407,6 +360,18 @@ function pestanasDe(to: string): string[] {
   if (query === undefined) return [];
   const tab = new URLSearchParams(query).get("tab");
   return [...(tab === null ? [] : [tab]), ...(PESTANAS_HERMANAS[to] ?? [])];
+}
+
+/** Si la ruta de `to` es la que se está mirando (la ruta o una hija suya). */
+function rutaActivaDe(to: string, pathname: string): boolean {
+  const [ruta] = to.split("?");
+  return pathname === ruta || pathname.startsWith(`${ruta}/`);
+}
+
+/** La pantalla que se está mirando, entre las encendidas, o `undefined`. */
+export function pantallaActiva(items: NavItem[], pathname: string, search: string): NavItem | undefined {
+  const todas = items.map((item) => item.to);
+  return items.find((item) => entradaActiva(item.to, rutaActivaDe(item.to, pathname), search, todas));
 }
 
 function SidebarNav({
@@ -420,53 +385,89 @@ function SidebarNav({
   onNavigate?: () => void;
   touch?: boolean;
 }) {
-  const { search } = useLocation();
-  const todas = items.map((item) => item.to);
+  const { pathname, search } = useLocation();
+  const activa = pantallaActiva(items, pathname, search);
+  const seccionActiva = activa ? filaDe(activa).seccion : undefined;
   return (
-    <nav aria-label="Secciones de administración" className="flex flex-col">
-      {GRUPOS.map((grupo) => {
-        const delGrupo = items
-          .filter((item) => filaDe(item).grupo === grupo)
-          .sort(porOrdenDelRail);
-        if (delGrupo.length === 0) return null;
+    <nav aria-label="Secciones de administración" className="flex flex-col gap-0.5">
+      {SECCIONES.map((seccion) => {
+        const pantallas = pantallasDe(items, seccion);
+        const destino = pantallas[0];
+        if (!destino) return null;
+        const { total, dice } = recuentoDe(pantallas, counts);
+        const nombre = dice.length > 0 ? `${seccion}, ${dice.join(", ")}` : seccion;
+        const enEsta = seccion === seccionActiva;
         return (
-          <div key={grupo} className="flex flex-col">
-            {/* El rótulo de grupo no es un encabezado de navegación con
-                enlaces propios: es la etiqueta del bloque. `aria-hidden` lo
-                saca del árbol y el `aria-label` del bloque lo dice una vez. */}
-            <p
-              aria-hidden="true"
-              className="px-2 pb-1 pt-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground"
-            >
-              {grupo}
-            </p>
-            <div className="flex flex-col" role="group" aria-label={grupo}>
-              {delGrupo.map((item) => {
-                const fila = filaDe(item);
-                const n = fila.cuenta ? counts[fila.cuenta] : undefined;
-                const nombre =
-                  fila.cuenta && n != null && n > 0
-                    ? `${fila.title}, ${DICE[fila.cuenta](n)}`
-                    : fila.title;
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    onClick={onNavigate}
-                    title={fila.title}
-                    aria-label={nombre}
-                    className={({ isActive }) =>
-                      railItemClass({ active: entradaActiva(item.to, isActive, search, todas), touch })
-                    }
-                  >
-                    <RailItemContent icon={fila.icon} label={fila.label} count={n} />
-                  </NavLink>
-                );
-              })}
-            </div>
-          </div>
+          <Link
+            key={seccion}
+            to={destino.to}
+            onClick={onNavigate}
+            title={seccion}
+            aria-label={nombre}
+            aria-current={enEsta ? "page" : undefined}
+            className={railItemClass({ active: enEsta, touch })}
+          >
+            <RailItemContent icon={ICONO_SECCION[seccion]} label={seccion} count={total} />
+          </Link>
         );
       })}
+    </nav>
+  );
+}
+
+/**
+ * **Las pantallas de la sección, en pestañas**, arriba del contenido. Sólo se
+ * dibujan si la sección tiene más de una pantalla encendida: Plata, con sólo
+ * Gastos, no lleva una fila de pestañas de una sola pestaña.
+ */
+function PestanasDeSeccion({
+  items,
+  counts,
+}: {
+  items: NavItem[];
+  counts: Partial<Record<Recuento, number>>;
+}): React.JSX.Element | null {
+  const { pathname, search } = useLocation();
+  const activa = pantallaActiva(items, pathname, search);
+  if (!activa) return null;
+  const seccion = filaDe(activa).seccion;
+  const pantallas = pantallasDe(items, seccion);
+  if (pantallas.length < 2) return null;
+  return (
+    <nav aria-label={`Pantallas de ${seccion}`} className="-mt-1 mb-5 overflow-x-auto border-b">
+      <ul className="flex min-w-max gap-1">
+        {pantallas.map((item) => {
+          const fila = filaDe(item);
+          const n = fila.cuenta ? counts[fila.cuenta] : undefined;
+          const nombre =
+            fila.cuenta && n != null && n > 0 ? `${fila.title}, ${DICE[fila.cuenta](n)}` : fila.title;
+          const esta = item.to === activa.to;
+          return (
+            <li key={item.to}>
+              <Link
+                to={item.to}
+                title={fila.title}
+                aria-label={nombre}
+                aria-current={esta ? "page" : undefined}
+                className={cn(
+                  "-mb-px inline-flex min-h-10 items-center gap-1.5 border-b-2 px-3 text-sm font-medium transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  esta
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {fila.label}
+                {n != null && n > 0 ? (
+                  <span aria-hidden="true" className="text-xs font-normal tabular-nums text-muted-foreground">
+                    {n}
+                  </span>
+                ) : null}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </nav>
   );
 }
@@ -687,8 +688,7 @@ function RailContenido({
       <div className="shrink-0">
         <Identidad />
       </div>
-      {/* Sólo la lista rueda: la identidad queda fija. Con las veinticinco
-          entradas encendidas el rail mide más que un portátil. */}
+      {/* Sólo la lista rueda: la identidad queda fija. */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <SidebarNav items={items} counts={counts} onNavigate={onNavigate} touch={touch} />
       </div>
@@ -764,15 +764,14 @@ function claseDestino(activo: boolean): string {
 }
 
 /**
- * **Cuatro destinos y «Más»** (Hoy · Ventas · Plata · Avisos): lo que el
+ * **Cuatro destinos y «Más»** (Hoy · Informes · Caja · Avisos): lo que el
  * dueño mira un domingo desde el celular, sin abrir el cajón. «Más» abre el
- * cajón de siempre, con el rail entero agrupado por preguntas.
+ * cajón de siempre, con las ocho secciones.
  *
  * Los flags siguen mandando: la barra se arma **desde `items`**, que ya pasó
- * por `buildNav(hasFeature)`. Una entrada apagada no está en `items` y por lo
- * tanto no está acá —la barra simplemente tiene un destino menos, no un hueco—.
- * «Plata» es la primera entrada que quede encendida del grupo `LA PLATA`, en
- * el orden del rail: Dinero, y si Dinero está apagada, Banco.
+ * por `buildNav(hasFeature)`. Informes y Caja llevan a la primera pantalla
+ * encendida de su sección, igual que el rail; una sección sin ninguna
+ * encendida no está acá —la barra tiene un destino menos, no un hueco—.
  */
 function BarraInferior({
   items,
@@ -783,14 +782,14 @@ function BarraInferior({
   onMas: () => void;
   masAbierto: boolean;
 }): React.JSX.Element {
-  const { pathname, hash } = useLocation();
+  const { pathname, search, hash } = useLocation();
   const hoy = items.find((item) => item.to === "/admin/hoy");
-  const ventas = items.find((item) => item.to === "/admin/ventas");
-  const plata = items
-    .filter((item) => filaDe(item).grupo === "LA PLATA")
-    .sort(porOrdenDelRail)[0];
+  const informes = pantallasDe(items, "Informes")[0];
+  const caja = pantallasDe(items, "Caja")[0];
+  const activa = pantallaActiva(items, pathname, search);
+  const seccionActiva = activa ? filaDe(activa).seccion : undefined;
   const enAvisos = pathname === "/admin/hoy" && hash === `#${ANCLA_AVISOS}`;
-  const enPlata = plata ? pathname === plata.to.split("?")[0] : false;
+  const enHoy = pathname === "/admin/hoy" && !enAvisos;
 
   return (
     <nav
@@ -804,40 +803,35 @@ function BarraInferior({
             arreglo: el censo de controles lee el código, no el DOM. */}
         {hoy ? (
           <li>
-            <Link
-              to={hoy.to}
-              aria-current={pathname === hoy.to && !enAvisos ? "page" : undefined}
-              className={claseDestino(pathname === hoy.to && !enAvisos)}
-            >
+            <Link to={hoy.to} aria-current={enHoy ? "page" : undefined} className={claseDestino(enHoy)}>
               <CalendarDays className="size-5" aria-hidden="true" />
               Hoy
             </Link>
           </li>
         ) : null}
-        {ventas ? (
+        {informes ? (
           <li>
             <Link
-              to={ventas.to}
-              aria-current={pathname === ventas.to ? "page" : undefined}
-              className={claseDestino(pathname === ventas.to)}
+              to={informes.to}
+              title={filaDe(informes).title}
+              aria-current={seccionActiva === "Informes" ? "page" : undefined}
+              className={claseDestino(seccionActiva === "Informes")}
             >
               <BarChart3 className="size-5" aria-hidden="true" />
-              Ventas
+              Informes
             </Link>
           </li>
         ) : null}
-        {plata ? (
+        {caja ? (
           <li>
             <Link
-              to={plata.to}
-              // El nombre accesible es «Plata», lo que se ve (WCAG 2.5.3); a
-              // qué pantalla lleva lo dice el `title`.
-              title={filaDe(plata).title}
-              aria-current={enPlata ? "page" : undefined}
-              className={claseDestino(enPlata)}
+              to={caja.to}
+              title={filaDe(caja).title}
+              aria-current={seccionActiva === "Caja" ? "page" : undefined}
+              className={claseDestino(seccionActiva === "Caja")}
             >
               <Banknote className="size-5" aria-hidden="true" />
-              Plata
+              Caja
             </Link>
           </li>
         ) : null}
@@ -873,7 +867,7 @@ function BarraInferior({
 }
 
 function AdminChrome(): React.JSX.Element {
-  // Escritorio del dueño: cuerpo 14,5 px y filas de 34 px (m2b `.oficina`).
+  // Escritorio del dueño: cuerpo 16 px y filas de 34 px (`.oficina`).
   useDensity("oficina");
   const { hasFeature, me } = useSession();
   const { activeStoreId } = useStoreSelection();
@@ -941,6 +935,7 @@ function AdminChrome(): React.JSX.Element {
             celular && "pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-6",
           )}
         >
+          <PestanasDeSeccion items={items} counts={counts} />
           <Outlet />
         </main>
       </div>

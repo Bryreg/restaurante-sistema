@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FilePlus2, FileSearch, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -22,6 +21,7 @@ import {
   DenseTable,
   DenseTableBar,
   FilterEmptyState,
+  MenuDeFila,
   PageHeader,
   TimeAgo,
   type DenseColumn,
@@ -30,7 +30,7 @@ import {
 import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -137,6 +137,42 @@ function EvidenceDialog({ documentId, onOpenChange }: { documentId: number | nul
  * `DIAN_STATUS_LABEL`).
  */
 /**
+ * **Las acciones de un documento, en «⋯»** (mapa de pantallas, regla 3).
+ * Eran tres íconos por fila —Evidencia, Reintentar, Emitir nota— y en 450
+ * filas la vista se iba a los íconos antes que a los estados. No se pierde
+ * ninguna: «Reintentar» sigue apareciendo sólo mientras el documento no esté
+ * validado, y cada ítem conserva su explicación en el `title`.
+ *
+ * Los manejadores van con nombre y el destino de «Emitir nota» en una
+ * constante: el censo de controles lee `<DropdownMenuItem …>Rótulo<` en el
+ * código, y una flecha adentro de la etiqueta le taparía el rótulo.
+ */
+function AccionesDeDocumento({
+  row,
+  retrying,
+  onEvidence,
+  onRetry,
+}: {
+  row: AdminFiscalDocumentOut;
+  retrying: boolean;
+  onEvidence: (id: number) => void;
+  onRetry: (id: number) => void;
+}) {
+  const verEvidencia = () => onEvidence(row.id);
+  const reintentar = () => onRetry(row.id);
+  const aNota = <Link to={`/admin/fiscal/notas?document=${row.id}`} />;
+  return (
+    <MenuDeFila nombre={row.full_number ?? `documento #${row.id}`}>
+      <DropdownMenuItem onClick={verEvidencia} title="Evidencia: estado DIAN, CUDE, QR y el rango que amparó el consecutivo">Evidencia</DropdownMenuItem>
+      {row.dian_status && row.dian_status !== "validated" ? (
+        <DropdownMenuItem onClick={reintentar} disabled={retrying} title="Reintentar la transmisión a la DIAN">Reintentar</DropdownMenuItem>
+      ) : null}
+      <DropdownMenuItem render={aNota} title="Emitir una nota sobre este documento">Emitir nota</DropdownMenuItem>
+    </MenuDeFila>
+  );
+}
+
+/**
  * La franja de estado de la fila (patrón 8b): deja ver **la forma del
  * problema** sin leer. Rechazado y contingencia vencida son lo que hay que
  * atender; validado es lo que ya está cerrado; pendiente y enviado no son un
@@ -202,6 +238,9 @@ export function DocumentsPage(): React.JSX.Element {
 
   const porAtender = filteredRows.filter((row) => estadoDeFila(row) === "critical").length;
 
+  // A la vista, las cinco que deciden (mapa de pantallas, regla 3): número,
+  // tipo, estado ante la DIAN, cuándo y total. Propina, quién cobró y el
+  // cliente van detrás de «Más columnas».
   const columns: readonly DenseColumn<AdminFiscalDocumentOut>[] = [
     {
       key: "number",
@@ -238,56 +277,20 @@ export function DocumentsPage(): React.JSX.Element {
       cellTitle: (row) => (row.issued_at ? formatInstant(row.issued_at) : undefined),
     },
     { key: "total", header: "Total", kind: "number", cell: (row) => formatCOP(row.total) },
-    { key: "tip", header: "Propina", kind: "number", cell: (row) => formatCOP(row.tip_amount) },
-    { key: "charged", header: "Cobró", kind: "secondary", cell: (row) => row.charged_by ?? "—" },
-    { key: "customer", header: "Cliente", cell: (row) => row.customer_name ?? "Consumidor final" },
+    { key: "tip", header: "Propina", kind: "number", secondary: true, cell: (row) => formatCOP(row.tip_amount) },
+    { key: "charged", header: "Cobró", kind: "secondary", secondary: true, cell: (row) => row.charged_by ?? "—" },
+    { key: "customer", header: "Cliente", secondary: true, cell: (row) => row.customer_name ?? "Consumidor final" },
     {
       key: "actions",
       header: "",
       kind: "actions",
-      // Íconos en columna de ancho fijo, como manda el patrón 8: tres botones
-      // con texto se llevaban 104 px de más y hacían bailar el borde derecho
-      // de fila en fila (la de un documento validado no lleva «Reintentar»).
-      // El rótulo no se pierde: va en `aria-label` y en `title`, así que el
-      // nombre accesible sigue siendo «Evidencia», «Reintentar», «Emitir nota».
       cell: (row) => (
-        <span className="inline-flex items-center justify-end gap-0.5 whitespace-nowrap">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Evidencia"
-            title="Evidencia: estado DIAN, CUDE, QR y el rango que amparó el consecutivo"
-            onClick={() => setEvidenceId(row.id)}
-          >
-            <FileSearch className="size-4" aria-hidden="true" />
-          </Button>
-          {row.dian_status && row.dian_status !== "validated" ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Reintentar"
-              title="Reintentar la transmisión a la DIAN"
-              disabled={retryMutation.isPending}
-              onClick={() => retryMutation.mutate(row.id)}
-            >
-              <RefreshCw className="size-4" aria-hidden="true" />
-            </Button>
-          ) : (
-            <span className="inline-block size-8" aria-hidden="true" />
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Emitir nota"
-            title="Emitir una nota sobre este documento"
-            render={<Link to={`/admin/fiscal/notas?document=${row.id}`} />}
-          >
-            <FilePlus2 className="size-4" aria-hidden="true" />
-          </Button>
-        </span>
+        <AccionesDeDocumento
+          row={row}
+          retrying={retryMutation.isPending}
+          onEvidence={setEvidenceId}
+          onRetry={retryMutation.mutate}
+        />
       ),
     },
   ];
@@ -418,10 +421,17 @@ export function DocumentsPage(): React.JSX.Element {
 
       <section className="space-y-2 rounded-lg border bg-card p-3">
         <h2 className="text-sm font-bold">Exportar paquete de evidencia</h2>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Manifiesto con hash por documento y hash del manifiesto entero, para conservación mínima de 5 años sin
-          depender sólo del proveedor.
-        </p>
+        {/* Plegado (mapa de pantallas, regla 2): qué lleva el paquete se lee
+            una vez; lo que queda a la vista es el rango y el botón. */}
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer rounded-md py-0.5 font-medium select-none hover:text-foreground">
+            ¿Qué es esto?
+          </summary>
+          <p className="pt-1 leading-relaxed">
+            Manifiesto con hash por documento y hash del manifiesto entero, para conservación mínima de 5 años sin
+            depender sólo del proveedor.
+          </p>
+        </details>
         <LocalDateRangeFilter from={exportRange.from} to={exportRange.to} onChange={setExportRange} />
         {exportRange.from && exportRange.to ? (
           <LocalCsvExportButton

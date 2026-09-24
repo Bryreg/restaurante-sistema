@@ -12,7 +12,7 @@ import { useSearchParams } from "react-router-dom"
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { Cargando } from "@/components/Cargando"
-import { PageHeader } from "@/components/admin"
+import { MasPestanas, PageHeader } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -66,6 +66,12 @@ export function BankingAdminPage(): React.JSX.Element {
     return <p className="p-4 text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>
   }
 
+  function cambiarPestana(value: string) {
+    const next = new URLSearchParams(searchParams)
+    next.set("tab", value)
+    setSearchParams(next, { replace: true })
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -73,7 +79,7 @@ export function BankingAdminPage(): React.JSX.Element {
         question="Qué pasó con la plata después de que salió del cajón: qué se consignó, qué quedó en la mano y qué falta conciliar."
         context={
           bankEnabled
-            ? [{ label: "Seis pestañas: dos de consignaciones y cuatro del libro del banco." }]
+            ? []
             : [
                 {
                   label: "Sólo Consignaciones y Por consignar",
@@ -85,19 +91,27 @@ export function BankingAdminPage(): React.JSX.Element {
       >
       <Tabs
         value={tab}
-        onValueChange={(value) => {
-          const next = new URLSearchParams(searchParams)
-          next.set("tab", value)
-          setSearchParams(next, { replace: true })
-        }}
+        onValueChange={cambiarPestana}
       >
-        <TabsList className="h-auto flex-wrap">
+        {/* `h-auto` solo no alcanzaba: la lista trae `h-8` con la variante
+            horizontal, que le gana, y a 390 px «Más» quedaba en una segunda
+            línea recortada. Con la misma variante, la fila de verdad se parte. */}
+        <TabsList className="h-auto flex-wrap group-data-horizontal/tabs:h-auto">
           <TabsTrigger value="consignaciones">Consignaciones</TabsTrigger>
           <TabsTrigger value="por-consignar">Por consignar</TabsTrigger>
           {bankEnabled ? <TabsTrigger value="libro">Libro del banco</TabsTrigger> : null}
-          {bankEnabled ? <TabsTrigger value="mano">Mano del dueño</TabsTrigger> : null}
-          {bankEnabled ? <TabsTrigger value="datafono">Conciliación datáfono</TabsTrigger> : null}
-          {bankEnabled ? <TabsTrigger value="plataformas">Conciliación plataformas</TabsTrigger> : null}
+          {/* Tres a la vista y el resto en «Más» (mapa de pantallas, regla 4). */}
+          {bankEnabled ? (
+            <MasPestanas
+              value={tab}
+              onValueChange={cambiarPestana}
+              items={[
+                { value: "mano", label: "Mano del dueño" },
+                { value: "datafono", label: "Conciliación datáfono" },
+                { value: "plataformas", label: "Conciliación plataformas" },
+              ]}
+            />
+          ) : null}
         </TabsList>
         <TabsContent value="consignaciones" className="pt-4">
           <DepositsTab storeId={activeStoreId} />

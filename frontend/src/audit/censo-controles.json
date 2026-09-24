@@ -45,13 +45,10 @@
  ],
  "features/analytics/AnalyticsAdminPage.tsx": [
   "Analítica no está habilitada",
-  "El costo viaja congelado en el ítem vendido: ninguna de estas tablas revalora una venta pasada con la carta de hoy.",
   "Encenderla en Funciones",
   "Ingeniería de menú",
   "Reposición sugerida",
   "Salud sostenida",
-  "Sobre el costo congelado en la venta",
-  "Sólo lectura: acá no se cambia nada, se mira.",
   "Varianza por plato"
  ],
  "features/analytics/MenuEngineeringTab.tsx": [
@@ -111,7 +108,6 @@
   "Libro del banco",
   "Mano del dueño",
   "Por consignar",
-  "Seis pestañas: dos de consignaciones y cuatro del libro del banco.",
   "Sólo Consignaciones y Por consignar",
   "«Banco» (money.bank) está apagada: el libro, la mano del dueño y las dos conciliaciones no se dibujan. La URL de esas pestañas sigue existiendo."
  ],
@@ -628,12 +624,8 @@
  "features/payroll/PayrollAdminPage.tsx": [
   "Encenderla en Funciones",
   "Horas",
-  "La fórmula del Código Sustantivo del Trabajo combina los recargos en ocho categorías y todavía no está implementada.",
-  "La liquidación es para control interno, no es la liquidación legal",
   "Liquidaciones",
-  "Nómina y propinas están las dos encendidas.",
   "Nómina y propinas no está habilitado",
-  "Propinas",
   "Sólo «Nómina»",
   "Sólo «Propinas»",
   "Tablas de recargos",
@@ -1004,11 +996,9 @@
   "Caja",
   "Cambia pantallas del salón",
   "Canales y plataformas",
-  "Diez secciones, agrupadas en el índice.",
   "Empleados",
   "Fiscal",
   "Inventario",
-  "Marcadas con un punto ámbar en el índice.",
   "Organización",
   "Secciones",
   "Sedes",
@@ -1118,11 +1108,8 @@
   "Sin turnos para estos filtros"
  ],
  "features/shifts/admin/MoneyAdminPage.tsx": [
-  "Cierre administrativo, Reabrir, Cancelar y Ajustar apertura se abren desde «Ver detalle» de una fila.",
   "Historial",
-  "Los rescates de administrador viven en el detalle de cada turno",
-  "Operacional",
-  "Operacional muestra los turnos de hoy; Historial, cualquier rango."
+  "Operacional"
  ],
  "features/shifts/admin/OperationalTab.tsx": [
   "Ahora mismo",

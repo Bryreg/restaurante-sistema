@@ -25,10 +25,14 @@ export function SuspiciousUnitsSection({ storeId }: { storeId: number }): React.
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Líneas de ficha con una cantidad que se aparta mucho de lo esperado para su categoría de insumo — el error
-          típico de cargar «18 kg» cuando iban «18 g».
-        </p>
+        {/* La explicación, plegada (mapa de pantallas, regla 2). */}
+        <details className="text-sm text-muted-foreground">
+          <summary className="w-fit cursor-pointer font-medium select-none hover:text-foreground">¿Qué es esto?</summary>
+          <p className="mt-1 max-w-2xl">
+            Líneas de ficha con una cantidad que se aparta mucho de lo esperado para su categoría de insumo — el
+            error típico de cargar «18 kg» cuando iban «18 g».
+          </p>
+        </details>
         <CsvExportButton href={suspiciousUnitsCsvUrl(storeId)} />
       </div>
 

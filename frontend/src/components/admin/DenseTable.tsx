@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -68,6 +69,13 @@ export interface DenseColumn<R> {
   /** Lo largo va al `title` y lo corto a la celda: «hace 1 día» / el instante exacto. */
   cellTitle?: (row: R) => string | undefined
   sort?: { direction?: "asc" | "desc" | null; onSort: () => void }
+  /**
+   * **Columna secundaria**: no se dibuja hasta que alguien toca «Más
+   * columnas» (mapa de pantallas, regla 3: «tablas de cinco columnas como
+   * máximo»). No se pierde nada —la columna sigue ahí, a un toque—; lo que
+   * cambia es que la primera lectura de la tabla son las cinco que deciden.
+   */
+  secondary?: boolean
 }
 
 /** La franja de estado de la primera celda: la forma del problema, sin leer. */
@@ -103,8 +111,13 @@ export interface DenseTableProps<R> {
   bar?: React.ReactNode
   /** **Al pie y una sola vez**: el dueño quiere las filas primero. */
   legend?: readonly LegendEntry[]
-  /** Totales u otra fila de cierre, dentro del `<tfoot>`. */
-  footer?: React.ReactNode
+  /**
+   * Totales u otra fila de cierre, dentro del `<tfoot>`. Si la tabla tiene
+   * columnas secundarias, puede ser una función que recibe si están abiertas
+   * («Más columnas»): la fila de total tiene que tener las mismas celdas que
+   * el encabezado, o sus cifras quedan corridas bajo otra columna.
+   */
+  footer?: React.ReactNode | ((todasLasColumnas: boolean) => React.ReactNode)
   /** La nota del pie: lo que hace una acción, qué PIN pide, qué no borra. */
   note?: React.ReactNode
   /** Qué se dibuja sin filas. Siempre un `EmptyState` **con motivo**. */
@@ -155,6 +168,10 @@ export function DenseTable<R>({
   maxBodyHeightPx,
   className,
 }: DenseTableProps<R>): React.JSX.Element {
+  const [todas, setTodas] = useState(false)
+  const ocultas = columns.filter((column) => column.secondary).length
+  const visibles = todas ? columns : columns.filter((column) => !column.secondary)
+  const hayLeyenda = (legend && legend.length > 0) || Boolean(note)
   return (
     <section className={cn("overflow-hidden rounded-lg border bg-card", className)}>
       {bar}
@@ -170,7 +187,7 @@ export function DenseTable<R>({
             <caption className="sr-only">{caption}</caption>
             <thead>
               <tr>
-                {columns.map((column) => {
+                {visibles.map((column) => {
                   const kind = column.kind ?? "text"
                   const sorted = column.sort?.direction
                   return (
@@ -217,7 +234,7 @@ export function DenseTable<R>({
                     style={{ height: `${DENSE_ROW_HEIGHT_PX}px` }}
                     className={cn("border-b hover:bg-muted/60", inactive && "text-muted-foreground")}
                   >
-                    {columns.map((column, i) => {
+                    {visibles.map((column, i) => {
                       const kind = column.kind ?? "text"
                       return (
                         <td
@@ -246,24 +263,49 @@ export function DenseTable<R>({
                 (`docs/diseno/propuesta.html` § Tablas): la raya dice «esto
                 ya no es un renglón más, es la suma que da el servidor». */}
             {footer ? (
-              <tfoot className="border-t-[3px] border-double border-foreground/60 bg-muted font-bold">{footer}</tfoot>
+              <tfoot className="border-t-[3px] border-double border-foreground/60 bg-muted font-bold">
+                {typeof footer === "function" ? footer(todas) : footer}
+              </tfoot>
             ) : null}
           </table>
         </div>
       )}
 
-      {legend && legend.length > 0 ? (
-        <dl className="grid gap-x-5 gap-y-1 border-t bg-muted px-3 py-2 text-xs text-muted-foreground sm:grid-cols-2 xl:grid-cols-3">
-          {legend.map((entry) => (
-            <div key={entry.term} className="min-w-0">
-              <dt className="inline font-bold text-foreground">{entry.term}</dt>{" "}
-              <dd className="inline">— {entry.meaning}</dd>
-            </div>
-          ))}
-        </dl>
+      {ocultas > 0 || hayLeyenda ? (
+        <div className="flex flex-wrap items-start gap-x-4 border-t px-3 py-1.5 text-xs text-muted-foreground">
+          {ocultas > 0 ? (
+            <button
+              type="button"
+              aria-pressed={todas}
+              onClick={() => setTodas((v) => !v)}
+              className="rounded-md px-1.5 py-1 font-medium text-primary hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              {todas ? "Menos columnas" : `Más columnas (${ocultas})`}
+            </button>
+          ) : null}
+          {/* **Plegada** (mapa de pantallas, regla 5): la leyenda sostiene
+              distinciones que importan —negativo ≠ bajo mínimo, sin costo ≠
+              $ 0— pero se lee una vez, no cada vez que se abre la tabla. */}
+          {hayLeyenda ? (
+            <details className="min-w-0 flex-1 basis-full sm:basis-auto">
+              <summary className="cursor-pointer rounded-md px-1.5 py-1 font-medium select-none hover:text-foreground">
+                Cómo leer esta tabla
+              </summary>
+              {legend && legend.length > 0 ? (
+                <dl className="grid gap-x-5 gap-y-1 px-1.5 pt-1 pb-1.5 sm:grid-cols-2 xl:grid-cols-3">
+                  {legend.map((entry) => (
+                    <div key={entry.term} className="min-w-0">
+                      <dt className="inline font-bold text-foreground">{entry.term}</dt>{" "}
+                      <dd className="inline">— {entry.meaning}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+              {note ? <div className="px-1.5 pb-1.5">{note}</div> : null}
+            </details>
+          ) : null}
+        </div>
       ) : null}
-
-      {note ? <div className="border-t px-3 py-2 text-xs text-muted-foreground">{note}</div> : null}
     </section>
   )
 }

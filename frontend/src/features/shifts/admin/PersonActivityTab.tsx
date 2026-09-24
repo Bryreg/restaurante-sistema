@@ -13,6 +13,8 @@ import { Diferencia } from "@/components/Diferencia";
 import { formatBusinessDate } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 
+import { Explicacion } from "@/components/admin";
+
 /**
  * Turnos y personal → Por persona (`GET /admin/employees/{id}/activity`):
  * turnos, entradas/salidas, diferencias y racha, autorizaciones dadas. Los
@@ -138,7 +140,6 @@ export function PersonActivityTab(): React.JSX.Element {
                     nullNote: "Todavía no hay cierres de esta persona en el rango con qué armar una racha.",
                   }
                 : { value: String(activityQuery.data.difference_streak) })}
-              hint="Cierres seguidos con diferencia. No acusa a nadie: señala dónde mirar."
             />
             <StatTile
               label="Ventas y ticket promedio"
@@ -146,6 +147,13 @@ export function PersonActivityTab(): React.JSX.Element {
               nullNote="Esta respuesta todavía no los trae. No es cero — es que no se están midiendo acá."
             />
           </div>
+          {/* Regla 2 · La pista de la tarjeta de racha, plegada. Los «sin
+              datos» siguen diciendo su motivo a la vista. */}
+          <Explicacion>
+            <p>
+              La racha son los cierres seguidos con diferencia. No acusa a nadie: señala dónde mirar.
+            </p>
+          </Explicacion>
 
           <GroupLabel
             label="Turnos"

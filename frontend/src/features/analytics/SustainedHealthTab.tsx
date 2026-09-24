@@ -18,6 +18,7 @@ import { formatPct } from "@/lib/format"
 
 import { fechaCortaDeInstante, formatPuntos, textoVentana } from "@/features/inventory/lib"
 
+import { ComoLeer } from "./Aire"
 import { sustainedTitular } from "./titulares"
 
 /**
@@ -42,7 +43,15 @@ function BrechaPorVentana({ data }: { data: SustainedHealthOut }): React.JSX.Ele
     <div className="rounded-lg border bg-card p-4">
       <ChartFrame
         titular={titular}
-        detalle={`Brecha de food cost (real − teórico) por ventana entre conteos completos, en puntos; la línea roja es el umbral (${formatPuntos(data.red_threshold_bp)}). Cada punto se rotula con el día del conteo que cierra la ventana.`}
+        detalle={
+          <ComoLeer resumen="Cómo leer el gráfico">
+            <p>
+              Brecha de food cost (real − teórico) por ventana entre conteos completos, en puntos; la línea roja es el
+              umbral ({formatPuntos(data.red_threshold_bp)}). Cada punto se rotula con el día del conteo que cierra la
+              ventana.
+            </p>
+          </ComoLeer>
+        }
         muestra={{ n: comandas, unidad: "comandas", ventana: `${ventanas.length} ${ventanas.length === 1 ? "ventana" : "ventanas"}` }}
         tabla={{
           columnas: [
@@ -74,19 +83,28 @@ function BrechaPorVentana({ data }: { data: SustainedHealthOut }): React.JSX.Ele
   )
 }
 
-/** Por qué hay ventanas entre conteos que no entraron: las reglas del servidor, con sus números. */
+/**
+ * Por qué hay ventanas entre conteos que no entraron: las reglas del
+ * servidor, con sus números. El recuento queda a la vista en el rótulo del
+ * plegable; las reglas, adentro (mapa de pantallas, regla 2).
+ */
 function VentanasSaltadas({ data }: { data: SustainedHealthOut }): React.JSX.Element | null {
   const n = data.windows_skipped ?? 0
   if (n === 0) return null
   const dias = data.min_window_days
   const cobertura = data.min_costed_pct_bp
   return (
-    <p className="text-sm text-muted-foreground" data-testid="ventanas-saltadas">
-      {n === 1 ? "Una ventana entre conteos no cuenta" : `${n} ventanas entre conteos no cuentan`}: una ventana entra sólo si
-      dura {dias === undefined ? "lo mínimo" : `${dias} ${dias === 1 ? "día completo" : "días completos"}`} o más, tiene
-      ventas, tiene ficha con costo en {cobertura === undefined ? "casi todo" : `${formatPct(cobertura)} o más`} de lo vendido y
-      su food cost real tiene sentido. Contar más seguido y completar las fichas hace que entren.
-    </p>
+    <ComoLeer
+      testId="ventanas-saltadas"
+      resumen={n === 1 ? "Una ventana entre conteos no cuenta" : `${n} ventanas entre conteos no cuentan`}
+    >
+      <p>
+        Una ventana entra sólo si dura{" "}
+        {dias === undefined ? "lo mínimo" : `${dias} ${dias === 1 ? "día completo" : "días completos"}`} o más, tiene
+        ventas, tiene ficha con costo en {cobertura === undefined ? "casi todo" : `${formatPct(cobertura)} o más`} de lo
+        vendido y su food cost real tiene sentido. Contar más seguido y completar las fichas hace que entren.
+      </p>
+    </ComoLeer>
   )
 }
 
@@ -109,10 +127,12 @@ export function SustainedHealthTab({ storeId }: { storeId: number }): React.JSX.
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        «Sostenido» (D-1): la brecha de food cost real supera el umbral rojo en al menos 2 de las últimas 3 ventanas
-        de conteo — nunca por un solo conteo malo.
-      </p>
+      <ComoLeer resumen="Qué es «sostenido»">
+        <p>
+          «Sostenido» (D-1): la brecha de food cost real supera el umbral rojo en al menos 2 de las últimas 3 ventanas
+          de conteo — nunca por un solo conteo malo. Cada ventana es el período entre dos conteos completos aplicados.
+        </p>
+      </ComoLeer>
       {data ? <BrechaPorVentana data={data} /> : null}
       {/* Con `sustained_red: null` el motivo del servidor ya cuenta las ventanas que no entraron. */}
       {data && data.sustained_red !== null ? <VentanasSaltadas data={data} /> : null}
@@ -138,11 +158,9 @@ export function SustainedHealthTab({ storeId }: { storeId: number }): React.JSX.
                   : "No superó el umbral en 2 de las últimas 3 ventanas."
               }
             />
-            <StatTile
-              label="Ventanas evaluadas"
-              value={String(data.windows_evaluated)}
-              hint="Cada ventana es el período entre dos conteos completos aplicados."
-            />
+            {/* Qué es una ventana lo dice «¿Qué es esto?», arriba: la pista bajo
+                la tarjeta explicaba en vez de dar un dato (regla 2). */}
+            <StatTile label="Ventanas evaluadas" value={String(data.windows_evaluated)} />
           </div>
         </GroupLabel>
       )}

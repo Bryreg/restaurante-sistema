@@ -73,8 +73,27 @@ const INGREDIENT_COLUMNS: readonly DenseColumn<IngredientReliabilityOut>[] = [
  * «nunca factura» en el share—. `StatTile` obliga a dar la frase que
  * explica el `—`, y lo dibuja apagado y nunca en rojo.
  */
-export function SupplierReliabilityDialog({ supplier }: { supplier: SupplierOut }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
+export function SupplierReliabilityDialog({
+  supplier,
+  open: openControlado,
+  onOpenChange,
+}: {
+  supplier: SupplierOut
+  /**
+   * **Controlado** desde afuera cuando lo abre un ítem del menú «⋯» de la
+   * fila (`SuppliersTab`, mapa de pantallas regla 3): entonces no dibuja su
+   * propio botón. Sin estas dos props se abre con su botón «Confiabilidad».
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}): React.JSX.Element {
+  const [openPropio, setOpenPropio] = useState(false)
+  const controlado = openControlado !== undefined
+  const open = controlado ? openControlado : openPropio
+  const setOpen = (value: boolean) => {
+    if (!controlado) setOpenPropio(value)
+    onOpenChange?.(value)
+  }
   const [range, setRange] = useState(() => defaultDateRange(90))
 
   const query = useQuery({
@@ -96,7 +115,7 @@ export function SupplierReliabilityDialog({ supplier }: { supplier: SupplierOut 
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>Confiabilidad</DialogTrigger>
+      {controlado ? null : <DialogTrigger render={<Button variant="outline" size="sm" />}>Confiabilidad</DialogTrigger>}
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Confiabilidad de {supplier.name}</DialogTitle>

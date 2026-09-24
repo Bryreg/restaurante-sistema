@@ -319,6 +319,9 @@ export function RangesPage(): React.JSX.Element {
   const rows = query.data ?? [];
   const porAvisar = rows.filter((range) => estadoDeRango(range) !== "ok").length;
 
+  // A la vista, cinco (mapa de pantallas, regla 3): tipo, prefijo, vigencia,
+  // cuánto se consumió y los avisos. Los números del rango y la resolución
+  // van detrás de «Más columnas»: «Consumido» ya dice de cuántos.
   const columns: readonly DenseColumn<FiscalRangeOut>[] = [
     {
       key: "type",
@@ -330,12 +333,14 @@ export function RangesPage(): React.JSX.Element {
       key: "range",
       header: "Rango",
       kind: "number",
+      secondary: true,
       cell: (range) => `${range.from_number ?? "—"}–${range.to_number ?? "—"}`,
     },
     {
       key: "resolution",
       header: "Resolución",
       kind: "secondary",
+      secondary: true,
       cell: (range) =>
         `${range.resolution_number ?? "—"}${range.resolution_date ? ` · ${range.resolution_date}` : ""}`,
     },

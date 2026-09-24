@@ -11,7 +11,7 @@ import { useSearchParams } from "react-router-dom"
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { Cargando } from "@/components/Cargando"
-import { FeatureOffEmptyState, PageHeader } from "@/components/admin"
+import { FeatureOffEmptyState, MasPestanas, PageHeader } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { BreakEvenTab } from "./BreakEvenTab"
@@ -34,8 +34,11 @@ export function ExpensesAdminPage(): React.JSX.Element {
 
   const enabled = hasFeature("money.obligations")
 
+  // Sin `?tab=` se abre Utilidad: es lo primero que el dueño quiere ver
+  // (mapa de pantallas, sección «Plata»: «Utilidad y punto de equilibrio
+  // arriba»). Los `?tab=` que ya existen siguen llegando a su pestaña.
   const tabParam = searchParams.get("tab")
-  const tab: TabValue = isTabValue(tabParam) ? tabParam : "gastos"
+  const tab: TabValue = isTabValue(tabParam) ? tabParam : "utilidad"
 
   if (storeLoading) {
     return <Cargando texto="Cargando sedes…" className="p-4" />
@@ -55,26 +58,37 @@ export function ExpensesAdminPage(): React.JSX.Element {
     return <p className="p-4 text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>
   }
 
+  function cambiarPestana(value: string) {
+    const next = new URLSearchParams(searchParams)
+    next.set("tab", value)
+    setSearchParams(next, { replace: true })
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
         name="Obligaciones y gastos"
         question="Lo que cuesta tener el restaurante abierto, aunque no se venda nada: gastos del período, lo que vence, y a partir de cuánto se empieza a ganar."
       />
-      <Tabs
-        value={tab}
-        onValueChange={(value) => {
-          const next = new URLSearchParams(searchParams)
-          next.set("tab", value)
-          setSearchParams(next, { replace: true })
-        }}
-      >
-        <TabsList className="h-auto flex-wrap">
-          <TabsTrigger value="gastos">Gastos</TabsTrigger>
-          <TabsTrigger value="obligaciones">Obligaciones</TabsTrigger>
-          <TabsTrigger value="equilibrio">Punto de equilibrio</TabsTrigger>
+      <Tabs value={tab} onValueChange={cambiarPestana}>
+        {/* Tres a la vista y el resto en «Más» (mapa de pantallas, regla 4),
+            en el orden del mapa: utilidad y punto de equilibrio arriba, los
+            gastos después; obligaciones y cuentas por pagar, en «Más». */}
+        {/* `h-auto` solo no alcanzaba: la lista trae `h-8` con la variante
+            horizontal, que le gana, y a 390 px «Más» quedaba en una segunda
+            línea recortada. Con la misma variante, la fila de verdad se parte. */}
+        <TabsList className="h-auto flex-wrap group-data-horizontal/tabs:h-auto">
           <TabsTrigger value="utilidad">Utilidad</TabsTrigger>
-          <TabsTrigger value="cuentas-por-pagar">Cuentas por pagar</TabsTrigger>
+          <TabsTrigger value="equilibrio">Punto de equilibrio</TabsTrigger>
+          <TabsTrigger value="gastos">Gastos</TabsTrigger>
+          <MasPestanas
+            value={tab}
+            onValueChange={cambiarPestana}
+            items={[
+              { value: "obligaciones", label: "Obligaciones" },
+              { value: "cuentas-por-pagar", label: "Cuentas por pagar" },
+            ]}
+          />
         </TabsList>
         <TabsContent value="gastos" className="pt-4">
           <ExpensesTab storeId={activeStoreId} />

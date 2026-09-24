@@ -4,7 +4,7 @@ import { useEffect } from "react";
  * Las dos densidades de la maqueta `m2b`: un solo sistema de color, dos
  * escalas. `salon` es la tablet compartida del salón (de pie, cuerpo 17 px,
  * objetivo táctil de 52 px); `oficina` es la PC del administrador (sentado,
- * cuerpo 14,5 px, filas de 34 px).
+ * cuerpo 16 px, filas de 34 px).
  *
  * Los valores viven en `src/index.css`; acá sólo se decide CUÁL aplica.
  */

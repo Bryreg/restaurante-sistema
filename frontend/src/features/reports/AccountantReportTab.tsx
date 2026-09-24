@@ -16,6 +16,7 @@ import { formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
 import { methodLabel, todayInBogota } from "./lib"
+import { Definiciones, Plegable, type Definicion } from "./Plegable"
 
 type PeriodKind = "month" | "bimester"
 
@@ -37,6 +38,18 @@ function rateLine(row: AccountantRowOut): string {
     .map((r) => `${formatPct(r.rate * 100, 0)}: base ${formatCOP(r.documents_base)} / nota ${formatCOP(r.notes_base)}`)
     .join(" · ")
 }
+
+/**
+ * El pie de cada tarjeta, plegado debajo de «Lo devuelto» (mapa de
+ * pantallas, regla 2): las mismas frases que iban bajo cada cifra.
+ */
+const CIFRAS_EXPLICADAS: readonly Definicion[] = [
+  { term: "Base de documentos", meaning: "lo vendido sin el impuesto." },
+  { term: "Impuesto de documentos", meaning: "el impuesto al consumo discriminado: no es del restaurante." },
+  { term: "Propinas del período", meaning: "ni venta ni impuesto: va aparte por ley (Ley 1935 de 2018)." },
+  { term: "Base de notas", meaning: "lo devuelto sin el impuesto." },
+  { term: "Impuesto de notas", meaning: "el impuesto que se devuelve con la nota." },
+]
 
 /**
  * "Informe para el contador" (SPEC-NEGOCIO §8.3, §9.3): por día operativo y
@@ -146,33 +159,26 @@ export function AccountantReportTab({ storeId }: { storeId: number }): React.JSX
               los aplanaba. */}
           <GroupLabel label="Lo emitido" says="documentos equivalentes POS del período">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <StatTile
-                label="Base de documentos"
-                value={formatCOP(query.data.documents_total_base)}
-                hint="Lo vendido sin el impuesto."
-              />
-              <StatTile
-                label="Impuesto de documentos"
-                value={formatCOP(query.data.documents_total_tax)}
-                hint="El impuesto al consumo discriminado: no es del restaurante."
-              />
+              <StatTile label="Base de documentos" value={formatCOP(query.data.documents_total_base)} />
+              <StatTile label="Impuesto de documentos" value={formatCOP(query.data.documents_total_tax)} />
+              {/* Que no es venta queda dicho a la vista, corto; la ley va
+                  en «Cómo leer estas cifras». */}
               <StatTile
                 label="Propinas del período (informativo)"
                 value={formatCOP(query.data.tips_total)}
-                hint="Ni venta ni impuesto: va aparte por ley (Ley 1935 de 2018)."
+                hint="Ni venta ni impuesto."
               />
             </div>
           </GroupLabel>
 
           <GroupLabel label="Lo devuelto" says="notas crédito: restan de lo de arriba, no se suman">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <StatTile label="Base de notas" value={formatCOP(query.data.notes_total_base)} hint="Lo devuelto sin el impuesto." />
-              <StatTile
-                label="Impuesto de notas"
-                value={formatCOP(query.data.notes_total_tax)}
-                hint="El impuesto que se devuelve con la nota."
-              />
+              <StatTile label="Base de notas" value={formatCOP(query.data.notes_total_base)} />
+              <StatTile label="Impuesto de notas" value={formatCOP(query.data.notes_total_tax)} />
             </div>
+            <Plegable resumen="Cómo leer estas cifras" className="mt-2 px-1">
+              <Definiciones items={CIFRAS_EXPLICADAS} className="sm:grid-cols-2" />
+            </Plegable>
           </GroupLabel>
 
           {query.data.totals_by_method.length > 0 ? (

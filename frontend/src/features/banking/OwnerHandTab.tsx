@@ -18,6 +18,7 @@ import { errorMessage } from "@/lib/errors"
 import { formatFechaCorta } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
+import { Explicacion } from "@/components/admin"
 import { daysAgoLocal, todayLocal } from "./lib"
 
 /**
@@ -92,7 +93,9 @@ export function OwnerHandTab({ storeId }: { storeId: number }): React.JSX.Elemen
           <HeadlineFigure
             label="Saldo en mano"
             value={formatCOP(query.data?.balance ?? null)}
-            note={`Lo que salió del cajón entre el ${formatFechaCorta(from)} y el ${formatFechaCorta(to)} y todavía no volvió al banco ni se gastó.`}
+            // El libro de abajo ya dice qué es (retirado − consignado −
+            // gastado): la nota sólo dice de cuándo.
+            note={`Del ${formatFechaCorta(from)} al ${formatFechaCorta(to)}.`}
             ledger={{
               rows: [
                 { label: "Retirado", value: formatCOP(query.data?.withdrawn ?? null) },
@@ -108,27 +111,23 @@ export function OwnerHandTab({ storeId }: { storeId: number }): React.JSX.Elemen
           {query.data?.withdrawn_from_pickups !== undefined || query.data?.spent_on_tips !== undefined ? (
             <GroupLabel label="De dónde sale y en qué se fue" says="el desglose que el servidor manda cuando lo tiene">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <StatTile
-                  label="Retirado por relevo"
-                  value={formatCOP(query.data?.withdrawn_from_pickups ?? null)}
-                  hint="Sacado del cajón durante el turno."
-                />
+                <StatTile label="Retirado por relevo" value={formatCOP(query.data?.withdrawn_from_pickups ?? null)} />
                 <StatTile
                   label="Retirado al cerrar turno"
                   value={formatCOP(query.data?.withdrawn_from_shift_close ?? null)}
-                  hint="Lo que quedó a consignar y se llevó."
                 />
-                <StatTile
-                  label="Gastado en propinas"
-                  value={formatCOP(query.data?.spent_on_tips ?? null)}
-                  hint="Repartos pagados de la plata en mano."
-                />
-                <StatTile
-                  label="Gastado en devoluciones"
-                  value={formatCOP(query.data?.spent_on_refunds ?? null)}
-                  hint="Notas saldadas sin pasar por el cajón."
-                />
+                <StatTile label="Gastado en propinas" value={formatCOP(query.data?.spent_on_tips ?? null)} />
+                <StatTile label="Gastado en devoluciones" value={formatCOP(query.data?.spent_on_refunds ?? null)} />
               </div>
+              {/* Regla 2 · Las pistas de cada tarjeta, plegadas: se leen una
+                  vez, no cada vez que se abre la pestaña. */}
+              <Explicacion>
+                <p>
+                  <b>Retirado por relevo</b>: sacado del cajón durante el turno. <b>Retirado al cerrar turno</b>: lo
+                  que quedó a consignar y se llevó. <b>Gastado en propinas</b>: repartos pagados de la plata en mano.{" "}
+                  <b>Gastado en devoluciones</b>: notas saldadas sin pasar por el cajón.
+                </p>
+              </Explicacion>
             </GroupLabel>
           ) : null}
         </div>

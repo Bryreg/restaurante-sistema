@@ -12,10 +12,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import {
   DenseTable,
   DenseTableBar,
+  MenuDeFila,
   type DenseColumn,
   type LegendEntry,
 } from "@/components/admin"
@@ -67,9 +69,15 @@ import { Indicador, Recepciones } from "./ReliabilityMarks"
 import { formValuesToSupplierIn, formValuesToSupplierUpdateIn, SupplierForm } from "./SupplierForm"
 import { SupplierReliabilityDialog } from "./SupplierReliabilityDialog"
 
+/**
+ * Las tres acciones de la fila —Confiabilidad, Editar, Desactivar— en el
+ * menú «⋯» (mapa de pantallas, regla 3: eran 24 botones en ocho filas). Los
+ * dos diálogos son **controlados**: los abre el ítem del menú.
+ */
 function SupplierActions({ supplier }: { supplier: SupplierOut }): React.JSX.Element {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
+  const [reliability, setReliability] = useState(false)
 
   const updateMutation = useMutation({
     mutationFn: (values: Parameters<typeof formValuesToSupplierUpdateIn>[0]) =>
@@ -86,10 +94,19 @@ function SupplierActions({ supplier }: { supplier: SupplierOut }): React.JSX.Ele
   })
 
   return (
-    <div className="flex flex-nowrap justify-end gap-1">
-      <SupplierReliabilityDialog supplier={supplier} />
+    <>
+      <MenuDeFila nombre={supplier.name}>
+        <DropdownMenuItem onClick={() => setReliability(true)}>Confiabilidad</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setEditing(true)}>Editar</DropdownMenuItem>
+        {/* «Desactivar» sólo existe si el proveedor está activo. */}
+        {supplier.active ? (
+          <DropdownMenuItem disabled={deactivateMutation.isPending} onClick={() => deactivateMutation.mutate()}>
+            Desactivar
+          </DropdownMenuItem>
+        ) : null}
+      </MenuDeFila>
+      <SupplierReliabilityDialog supplier={supplier} open={reliability} onOpenChange={setReliability} />
       <Dialog open={editing} onOpenChange={setEditing}>
-        <DialogTrigger render={<Button variant="outline" size="sm" />}>Editar</DialogTrigger>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Editar {supplier.name}</DialogTitle>
@@ -103,18 +120,7 @@ function SupplierActions({ supplier }: { supplier: SupplierOut }): React.JSX.Ele
           />
         </DialogContent>
       </Dialog>
-      {/* «Desactivar» sólo existe si el proveedor está activo. */}
-      {supplier.active ? (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={deactivateMutation.isPending}
-          onClick={() => deactivateMutation.mutate()}
-        >
-          Desactivar
-        </Button>
-      ) : null}
-    </div>
+    </>
   )
 }
 
@@ -167,16 +173,18 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
 
   const columns: readonly DenseColumn<SupplierOut>[] = [
     { key: "name", header: "Nombre", kind: "name", cell: (s) => s.name },
-    { key: "nit", header: "NIT", kind: "id", cell: (s) => s.nit ?? "—" },
+    // NIT, contacto y factura, detrás de «Más columnas» (regla 3): la
+    // primera lectura de un proveedor es su plazo y si se le puede creer.
+    { key: "nit", header: "NIT", kind: "id", secondary: true, cell: (s) => s.nit ?? "—" },
     { key: "term", header: "Plazo", kind: "number", cell: (s) => `${s.payment_term_days} días` },
     {
       key: "contact",
       header: "Contacto",
+      secondary: true,
       cell: (s) => (
-        // Sólo el nombre, con tope de ancho: con las tres columnas de
-        // confiabilidad la tabla no cabía a 1440 px y «Desactivar» quedaba
-        // detrás del scroll. Nombre y teléfono siguen en el `title` de la
-        // celda y en el formulario de «Editar».
+        // Sólo el nombre, con tope de ancho: abierta con «Más columnas», la
+        // tabla tiene que seguir cabiendo a 1440 px. Nombre y teléfono siguen
+        // en el `title` de la celda y en el formulario de «Editar».
         <span className="block max-w-[86px] truncate">{s.contact_name ?? s.contact_phone ?? "—"}</span>
       ),
       cellTitle: (s) => [s.contact_name, s.contact_phone].filter(Boolean).join(" · ") || undefined,
@@ -184,6 +192,7 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
     {
       key: "invoice",
       header: "Factura",
+      secondary: true,
       cell: (s) => (s.invoices_required ? "Obligado a facturar" : "Factura opcional"),
     },
     {
@@ -235,80 +244,89 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
   }
 
   return (
-    <DenseTable
-      caption="Proveedores de la sede"
-      columns={columns}
-      rows={suppliers}
-      rowKey={(s) => String(s.id)}
-      rowInactive={(s) => !s.active}
-      rowStatus={(s) => {
-        const r = reliabilityById.get(s.id)
-        return r ? peorTono(tonoRecibido(r.received_over_invoiced_bp), tonoDeriva(r.price_drift_bp)) : "none"
-      }}
-      legend={SUPPLIERS_LEGEND}
-      bar={
-        <DenseTableBar
-          shown={suppliers.length}
-          total={suppliers.length}
-          noun={showInactive ? "proveedores" : "proveedores activos"}
-          hidden={
-            query.isLoading
-              ? "contando…"
-              : showInactive
-                ? inactive > 0
-                  ? `${inactive} inactivos, a la vista`
-                  : undefined
-                : "los inactivos no se están mostrando"
-          }
-        >
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="sup-show-inactive"
-              checked={showInactive}
-              onCheckedChange={(v) => setShowInactive(v === true)}
-            />
-            <Label htmlFor="sup-show-inactive">Mostrar inactivos</Label>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => downloadSuppliersCsv(suppliers)}
-            disabled={suppliers.length === 0}
+    <div className="space-y-3">
+      {/* El motivo de un «—» en las columnas de confiabilidad queda a la
+          vista, no plegado en la nota del pie (regla 2: null ≠ 0). */}
+      {reliabilityQuery.isError ? (
+        <p role="alert" className="text-sm text-muted-foreground">
+          No se pudo cargar la confiabilidad: {errorMessage(reliabilityQuery.error)}
+        </p>
+      ) : null}
+      <DenseTable
+        caption="Proveedores de la sede"
+        columns={columns}
+        rows={suppliers}
+        rowKey={(s) => String(s.id)}
+        rowInactive={(s) => !s.active}
+        rowStatus={(s) => {
+          const r = reliabilityById.get(s.id)
+          return r ? peorTono(tonoRecibido(r.received_over_invoiced_bp), tonoDeriva(r.price_drift_bp)) : "none"
+        }}
+        legend={SUPPLIERS_LEGEND}
+        bar={
+          <DenseTableBar
+            shown={suppliers.length}
+            total={suppliers.length}
+            noun={showInactive ? "proveedores" : "proveedores activos"}
+            hidden={
+              query.isLoading
+                ? "contando…"
+                : showInactive
+                  ? inactive > 0
+                    ? `${inactive} inactivos, a la vista`
+                    : undefined
+                  : "los inactivos no se están mostrando"
+            }
           >
-            Exportar CSV
-          </Button>
-          <Dialog open={creating} onOpenChange={setCreating}>
-            <DialogTrigger render={<Button size="sm" />}>Nuevo proveedor</DialogTrigger>
-            <DialogContent className="sm:max-w-xl">
-              <DialogHeader>
-                <DialogTitle>Nuevo proveedor</DialogTitle>
-              </DialogHeader>
-              <SupplierForm
-                submitting={createMutation.isPending}
-                submitLabel="Crear"
-                serverError={createMutation.isError ? errorMessage(createMutation.error) : null}
-                onSubmit={(values) => createMutation.mutate(values)}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="sup-show-inactive"
+                checked={showInactive}
+                onCheckedChange={(v) => setShowInactive(v === true)}
               />
-            </DialogContent>
-          </Dialog>
-        </DenseTableBar>
-      }
-      note={
-        <>
-          Nombre canónico, NIT, plazo de pago y si el proveedor exige factura. Nunca texto libre: cada recepción elige
-          uno de esta lista. La confiabilidad es de los últimos 90 días; el detalle por insumo está en «Confiabilidad».
-          {reliabilityQuery.isError ? ` No se pudo cargar la confiabilidad: ${errorMessage(reliabilityQuery.error)}` : ""}
-        </>
-      }
-      empty={
-        query.isLoading ? undefined : (
-          <EmptyState
-            title="Todavía no hay proveedores"
-            description="Creá el primero con «Nuevo proveedor». Sin proveedores no se puede registrar ninguna recepción."
-          />
-        )
-      }
-    />
+              <Label htmlFor="sup-show-inactive">Mostrar inactivos</Label>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadSuppliersCsv(suppliers)}
+              disabled={suppliers.length === 0}
+            >
+              Exportar CSV
+            </Button>
+            <Dialog open={creating} onOpenChange={setCreating}>
+              <DialogTrigger render={<Button size="sm" />}>Nuevo proveedor</DialogTrigger>
+              <DialogContent className="sm:max-w-xl">
+                <DialogHeader>
+                  <DialogTitle>Nuevo proveedor</DialogTitle>
+                </DialogHeader>
+                <SupplierForm
+                  submitting={createMutation.isPending}
+                  submitLabel="Crear"
+                  serverError={createMutation.isError ? errorMessage(createMutation.error) : null}
+                  onSubmit={(values) => createMutation.mutate(values)}
+                />
+              </DialogContent>
+            </Dialog>
+          </DenseTableBar>
+        }
+        note={
+          <>
+            Nombre canónico, NIT, plazo de pago y si el proveedor exige factura. Nunca texto libre: cada recepción elige
+            uno de esta lista. La confiabilidad es de los últimos 90 días; el detalle por insumo está en «Confiabilidad»,
+            en el menú «⋯» de cada fila.
+          </>
+        }
+        empty={
+          query.isLoading ? undefined : (
+            <EmptyState
+              title="Todavía no hay proveedores"
+              description="Creá el primero con «Nuevo proveedor». Sin proveedores no se puede registrar ninguna recepción."
+            />
+          )
+        }
+      />
+    </div>
   )
 }
 

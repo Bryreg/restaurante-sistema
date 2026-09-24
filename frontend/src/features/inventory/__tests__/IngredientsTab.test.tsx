@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import type { IngredientOut } from "@/api/inventory"
@@ -6,11 +7,14 @@ import { renderWithProviders } from "@/test/utils"
 
 import { IngredientsTab } from "../IngredientsTab"
 
-const { listIngredientsMock } = vi.hoisted(() => ({ listIngredientsMock: vi.fn() }))
+const { listIngredientsMock, deactivateIngredientMock } = vi.hoisted(() => ({
+  listIngredientsMock: vi.fn(),
+  deactivateIngredientMock: vi.fn(),
+}))
 
 vi.mock("@/api/inventory", async () => {
   const actual = await vi.importActual<typeof import("@/api/inventory")>("@/api/inventory")
-  return { ...actual, listIngredients: listIngredientsMock }
+  return { ...actual, listIngredients: listIngredientsMock, deactivateIngredient: deactivateIngredientMock }
 })
 
 const SAL: IngredientOut = {
@@ -50,5 +54,40 @@ describe("IngredientsTab — costo con origen, nunca un cero mudo (B-2, ronda 2)
     expect(screen.getByText("estimado")).toBeInTheDocument()
     expect(within(screen.getByRole("table")).queryByText("$ 0")).not.toBeInTheDocument()
     expect(within(screen.getByRole("table")).queryByText("Sin costo")).not.toBeInTheDocument()
+  })
+})
+
+describe("IngredientsTab — las acciones de la fila, en el menú «⋯» (mapa de pantallas, regla 3)", () => {
+  it("«Editar» abre la ficha y «Desactivar» hace la baja lógica, los dos desde el menú de la fila", async () => {
+    listIngredientsMock.mockResolvedValue([SAL])
+    deactivateIngredientMock.mockResolvedValue({ ...SAL, active: false })
+
+    const user = userEvent.setup()
+    renderWithProviders(<IngredientsTab storeId={1} />)
+
+    await screen.findByText("Sal de mesa")
+    // Ningún botón suelto por fila: sólo el «⋯».
+    expect(within(screen.getByRole("table")).queryByRole("button", { name: "Editar" })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "Acciones de Sal de mesa" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Editar" }))
+    expect(await screen.findByRole("dialog", { name: "Editar Sal de mesa" })).toBeInTheDocument()
+    await user.keyboard("{Escape}")
+
+    await user.click(screen.getByRole("button", { name: "Acciones de Sal de mesa" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Desactivar" }))
+    await waitFor(() => expect(deactivateIngredientMock).toHaveBeenCalledWith(9))
+  })
+
+  it("un insumo inactivo no ofrece «Desactivar»", async () => {
+    listIngredientsMock.mockResolvedValue([{ ...SAL, active: false }])
+
+    const user = userEvent.setup()
+    renderWithProviders(<IngredientsTab storeId={1} />)
+
+    await screen.findByText("Sal de mesa")
+    await user.click(screen.getByRole("button", { name: "Acciones de Sal de mesa" }))
+    expect(await screen.findByRole("menuitem", { name: "Editar" })).toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "Desactivar" })).not.toBeInTheDocument()
   })
 })

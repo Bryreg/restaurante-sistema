@@ -25,6 +25,7 @@ import { errorMessage } from "@/lib/errors"
 import { formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
+import { Explicacion } from "@/components/admin"
 import { FixedCostsCard } from "./FixedCostsCard"
 import { daysAgoLocal, todayLocal } from "./lib"
 import { breakEvenHeadline } from "./titulares"
@@ -50,7 +51,7 @@ function CoberturaAviso({ d }: { d: BreakEvenOut }): React.JSX.Element | null {
         en el margen hace falta al menos el {formatPct(minimo * 100, 0)}. La venta sin ficha entra con costo cero e
         infla el margen: por eso el punto de equilibrio no se muestra hasta completarlas.
       </p>
-      <FilterLink className="mt-1.5" to="/admin/carta" screen="Carta" tab="Recetas" />
+      <FilterLink className="mt-1.5" to="/admin/carta?tab=recipes" screen="Carta" tab="Recetas" />
     </div>
   )
 }
@@ -117,35 +118,36 @@ export function BreakEvenTab({ storeId }: { storeId: number }): React.JSX.Elemen
                     resumen={`${avanceTexto(d)}.`}
                   />
                   ) : null}
-                  <p className="text-xs text-muted-foreground">
-                    Venta neta sin impuesto ni propina.
-                    {d.costed_pct !== null && d.costed_pct !== undefined
-                      ? ` El ${formatPct(d.costed_pct * 100, 0)} de esa venta tiene costo de ficha técnica.`
-                      : ""}{" "}
-                    Por debajo del equilibrio, la utilidad del período es pérdida.
-                  </p>
                   <FilterLink to="/admin/gastos?tab=utilidad" screen="Obligaciones y gastos" tab="Utilidad" />
                 </section>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <StatTile
                     label="Costos fijos del período"
                     {...cifraOSinDato(d.fixed_costs, d.reason ?? "no se pudieron sumar los costos fijos")}
-                    hint="Obligaciones + nómina + gastos del período, sumados por el sistema."
                   />
-                  <StatTile
-                    label="Margen de contribución"
-                    value={formatPct(d.contribution_margin_pct_bp)}
-                    hint="De cada $100 vendidos, lo que queda después del costo de lo vendido."
-                  />
+                  <StatTile label="Margen de contribución" value={formatPct(d.contribution_margin_pct_bp)} />
                   {/* Sin `tone`: el punto de equilibrio es un umbral, no un
                       estado. Lo que dice (si se llegó o no) ya lo dice el
                       titular de arriba. */}
-                  <StatTile
-                    label="Punto de equilibrio"
-                    value={formatCOP(d.break_even_amount)}
-                    hint="Hay que vender esto para no perder plata. Por debajo, el período cierra en rojo."
-                  />
+                  <StatTile label="Punto de equilibrio" value={formatCOP(d.break_even_amount)} />
                 </div>
+                {/* Regla 2 · El párrafo de método y las pistas de las tres
+                    tarjetas, plegados: se leen una vez, no cada vez. */}
+                <Explicacion resumen="Cómo leer esto">
+                  <p>
+                    La venta es neta, sin impuesto ni propina.
+                    {d.costed_pct !== null && d.costed_pct !== undefined
+                      ? ` El ${formatPct(d.costed_pct * 100, 0)} de esa venta tiene costo de ficha técnica.`
+                      : ""}{" "}
+                    Por debajo del equilibrio, la utilidad del período es pérdida.
+                  </p>
+                  <p>
+                    <b>Costos fijos del período</b>: obligaciones + nómina + gastos del período, sumados por el
+                    sistema. <b>Margen de contribución</b>: de cada $100 vendidos, lo que queda después del costo de
+                    lo vendido. <b>Punto de equilibrio</b>: hay que vender esto para no perder plata; por debajo, el
+                    período cierra en rojo.
+                  </p>
+                </Explicacion>
               </div>
             )}
           </GroupLabel>

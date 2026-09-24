@@ -149,6 +149,9 @@ const SURCHARGE_COLUMNS: readonly DenseColumn<SurchargeTableOut>[] = [
     key: "night-range",
     header: "Franja nocturna",
     kind: "number",
+    // La franja y la jornada semanal, detrás de «Más columnas» (regla 3): a
+    // la vista quedan la vigencia, los tres porcentajes y si está revisada.
+    secondary: true,
     cell: (t) => `${t.night_start_hour}:00 – ${t.night_end_hour}:00`,
   },
   { key: "night", header: "Recargo nocturno", kind: "number", cell: (t) => formatBasisPoints(t.night_surcharge_bp) },
@@ -159,7 +162,7 @@ const SURCHARGE_COLUMNS: readonly DenseColumn<SurchargeTableOut>[] = [
     cell: (t) => formatBasisPoints(t.sunday_holiday_surcharge_bp),
   },
   { key: "overtime", header: "Hora extra", kind: "number", cell: (t) => formatBasisPoints(t.overtime_surcharge_bp) },
-  { key: "weekly", header: "Jornada semanal", kind: "number", cell: (t) => `${t.weekly_ordinary_hours} h` },
+  { key: "weekly", header: "Jornada semanal", kind: "number", secondary: true, cell: (t) => `${t.weekly_ordinary_hours} h` },
   {
     key: "reviewed",
     header: "Revisada",

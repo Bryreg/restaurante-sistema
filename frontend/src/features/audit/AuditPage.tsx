@@ -138,6 +138,10 @@ export default function AuditPage(): React.JSX.Element {
     else setEmployeeId("");
   }
 
+  // A la vista, cinco (mapa de pantallas, regla 3): cuándo, qué —entidad y su
+  // número en una sola celda—, qué acción, quién y con qué motivo, que es la
+  // pregunta de la pantalla. Los campos tocados van detrás de «Más columnas»;
+  // el detalle entero sigue en «Ver cambios», la única acción de la fila.
   const columns: readonly DenseColumn<AuditRow>[] = [
     {
       key: "at",
@@ -147,8 +151,16 @@ export default function AuditPage(): React.JSX.Element {
       cell: (row) => <TimeAgo iso={row.at} />,
       cellTitle: (row) => formatInstant(row.at),
     },
-    { key: "entity", header: "Entidad", kind: "name", cell: (row) => row.entity },
-    { key: "entity_id", header: "#", kind: "id", cell: (row) => `#${row.entity_id}` },
+    {
+      key: "entity",
+      header: "Entidad",
+      kind: "name",
+      cell: (row) => (
+        <>
+          {row.entity} <span className="font-normal text-muted-foreground tabular-nums">#{row.entity_id}</span>
+        </>
+      ),
+    },
     { key: "action", header: "Acción", cell: (row) => row.action },
     {
       key: "actor",
@@ -168,6 +180,7 @@ export default function AuditPage(): React.JSX.Element {
       key: "fields",
       header: "Campos",
       kind: "secondary",
+      secondary: true,
       widthPx: 120,
       cell: (row) => {
         const n = diffFields(row.before, row.after).length;

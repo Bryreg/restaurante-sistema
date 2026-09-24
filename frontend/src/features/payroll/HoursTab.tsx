@@ -20,7 +20,9 @@ const HOURS_COLUMNS: readonly DenseColumn<PayrollHoursRowOut>[] = [
   { key: "ordinary", header: "Ordinarias", kind: "number", cell: (r) => r.ordinary_hours ?? "—" },
   { key: "night", header: "Nocturnas", kind: "number", cell: (r) => r.night_hours ?? "—" },
   { key: "sunday", header: "Dominicales", kind: "number", cell: (r) => r.sunday_hours ?? "—" },
-  { key: "holiday", header: "Festivas", kind: "number", cell: (r) => r.holiday_hours ?? "—" },
+  // Seis serían demasiadas (regla 3): las festivas, que son las menos, van
+  // detrás de «Más columnas». Siguen en la tabla, a un toque.
+  { key: "holiday", header: "Festivas", kind: "number", secondary: true, cell: (r) => r.holiday_hours ?? "—" },
   { key: "overtime", header: "Horas extra", kind: "number", cell: (r) => r.overtime_hours ?? "—" },
 ]
 

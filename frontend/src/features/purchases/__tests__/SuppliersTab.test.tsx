@@ -71,16 +71,47 @@ describe("SuppliersTab — entidad canónica, baja lógica, NIT duplicado con me
     renderWithProviders(<SuppliersTab storeId={1} />)
 
     await screen.findByText("Distribuidora El Surtidor")
-    await user.click(screen.getByRole("button", { name: "Desactivar" }))
+    // Las acciones de la fila viven en el menú «⋯» (regla 3).
+    await user.click(screen.getByRole("button", { name: "Acciones de Distribuidora El Surtidor" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Desactivar" }))
 
     await waitFor(() => expect(deactivateSupplierMock).toHaveBeenCalledWith(1))
   })
 
-  it("con el proveedor obligado a facturar, el formulario lo dice y no lo esconde", async () => {
+  it("el menú «⋯» de la fila tiene las tres acciones, y «Editar» abre el formulario del proveedor", async () => {
     listSuppliersMock.mockResolvedValue([DISTRIBUIDORA])
+
+    const user = userEvent.setup()
     renderWithProviders(<SuppliersTab storeId={1} />)
 
     await screen.findByText("Distribuidora El Surtidor")
+    await user.click(screen.getByRole("button", { name: "Acciones de Distribuidora El Surtidor" }))
+    expect(await screen.findByRole("menuitem", { name: "Confiabilidad" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Desactivar" })).toBeInTheDocument()
+    await user.click(screen.getByRole("menuitem", { name: "Editar" }))
+    expect(await screen.findByRole("dialog", { name: "Editar Distribuidora El Surtidor" })).toBeInTheDocument()
+  })
+
+  it("un proveedor inactivo no ofrece «Desactivar» en su menú", async () => {
+    listSuppliersMock.mockResolvedValue([{ ...DISTRIBUIDORA, active: false }])
+
+    const user = userEvent.setup()
+    renderWithProviders(<SuppliersTab storeId={1} />)
+
+    await screen.findByText("Distribuidora El Surtidor")
+    await user.click(screen.getByRole("button", { name: "Acciones de Distribuidora El Surtidor" }))
+    expect(await screen.findByRole("menuitem", { name: "Editar" })).toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "Desactivar" })).not.toBeInTheDocument()
+  })
+
+  it("con el proveedor obligado a facturar, el formulario lo dice y no lo esconde", async () => {
+    listSuppliersMock.mockResolvedValue([DISTRIBUIDORA])
+    const user = userEvent.setup()
+    renderWithProviders(<SuppliersTab storeId={1} />)
+
+    await screen.findByText("Distribuidora El Surtidor")
+    // La columna «Factura» va detrás de «Más columnas» (regla 3).
+    await user.click(screen.getByRole("button", { name: /Más columnas/ }))
     // «Obligado a facturar» es a la vez la celda de la fila y un término de
     // la leyenda del pie: se acota a la tabla, que es donde el test quiere
     // verlo.

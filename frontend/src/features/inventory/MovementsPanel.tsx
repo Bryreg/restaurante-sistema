@@ -145,6 +145,8 @@ export function MovementsPanel({ ingredients }: { ingredients: IngredientOut[] }
       key: "note",
       header: "Nota",
       kind: "secondary",
+      // Detrás de «Más columnas» (regla 3); el texto entero sigue en el `title`.
+      secondary: true,
       // La nota puede ser larga: se recorta con elipsis y el texto entero va
       // al `title`. Nunca parte la palabra ni hace crecer la fila.
       widthPx: 220,

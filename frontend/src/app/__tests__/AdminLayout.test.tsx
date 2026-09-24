@@ -43,7 +43,7 @@ vi.mock("@/features/shifts", () => ({
   shiftsFeature: {
     posRoutes: [],
     adminRoutes: [],
-    adminNav: [{ to: "/admin/shifts", label: "Turnos y personal", feature: "cash.handovers" }],
+    adminNav: [{ to: "/admin/personal", label: "Turnos y personal", feature: "cash.handovers" }],
     posNav: [],
     ShiftStatusStrip: () => null,
   },
@@ -59,15 +59,30 @@ vi.mock("@/features/catalog", () => ({
 function renderAdmin(
   me: ReturnType<typeof buildMe>,
   session?: Partial<SessionContextValue>,
+  route = "/admin",
 ) {
   return renderWithProviders(
     <Routes>
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<div>contenido</div>} />
+        <Route path="*" element={<div>contenido</div>} />
       </Route>
     </Routes>,
-    { me, route: "/admin", session },
+    { me, route, session },
   );
+}
+
+/** Las entradas del rail, en el orden en que se ven. */
+function seccionesDelRail(): string[] {
+  const rail = screen.getByRole("navigation", { name: "Secciones de administración" });
+  return within(rail)
+    .getAllByRole("link")
+    .map((a) => a.getAttribute("title") ?? "");
+}
+
+/** Las pestañas de la sección en la que se está parado. */
+function pestanas(seccion: string) {
+  return screen.getByRole("navigation", { name: `Pantallas de ${seccion}` });
 }
 
 beforeEach(() => {
@@ -79,73 +94,149 @@ beforeEach(() => {
   getToday.mockRejectedValue(new ApiError(500, "UNKNOWN_ERROR", "sin datos en este test"));
 });
 
-describe("AdminLayout: sidebar por features", () => {
-  it("oculta una entrada de navegación cuya feature está apagada", async () => {
-    renderAdmin(buildMe({ features: { "cash.handovers": false } }));
-
-    expect(await screen.findByRole("link", { name: "Carta" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Turnos y personal" })).not.toBeInTheDocument();
-  });
-
-  it("muestra la entrada cuando su feature está encendida", async () => {
-    renderAdmin(buildMe({ features: { "cash.handovers": true } }));
-
-    expect(await screen.findByRole("link", { name: "Turnos y personal" })).toBeInTheDocument();
-  });
-
-  it("una entrada sin `feature` siempre se muestra (Funciones, Configuración…)", async () => {
-    renderAdmin(buildMe({ features: {} }));
-
-    expect(await screen.findByRole("link", { name: "Funciones" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Configuración" })).toBeInTheDocument();
-  });
-
-  it("integra Hoy, Ventas, Pedidos, Documentos fiscales (núcleo, sin flag) y Clientes según su feature — pedido 1b-2, sin mockear esos dominios", async () => {
-    renderAdmin(buildMe({ features: { customers: true } }));
-
-    expect(await screen.findByRole("link", { name: "Hoy" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Ventas" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Pedidos" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Documentos fiscales" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Rangos de numeración" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Clientes" })).toBeInTheDocument();
-  });
-
-  it("«Clientes» respeta su feature: apagada, no se muestra", async () => {
-    renderAdmin(buildMe({ features: { customers: false } }));
+describe("AdminLayout: ocho secciones, y los flags siguen mandando", () => {
+  it("el rail muestra secciones, no pantallas: ocho como máximo, en el orden del mapa", async () => {
+    renderAdmin(
+      buildMe({
+        features: {
+          "cash.handovers": true,
+          "inventory.perpetual": true,
+          purchases: true,
+          customers: true,
+          "money.deposits": true,
+          "money.obligations": true,
+        },
+      }),
+    );
 
     await screen.findByRole("link", { name: "Hoy" });
-    expect(screen.queryByRole("link", { name: "Clientes" })).not.toBeInTheDocument();
+    expect(seccionesDelRail()).toEqual([
+      "Hoy",
+      "Informes",
+      "Caja",
+      "Inventario",
+      "Carta",
+      "Plata",
+      "Equipo",
+      "Ajustes",
+    ]);
   });
 
-  it("«Inventario» (inventory.perpetual) y «Preparaciones» (catalog.preps) — pedido 2a: apagadas, no se muestran", async () => {
-    renderAdmin(buildMe({ features: { "inventory.perpetual": false, "catalog.preps": false } }));
+  it("una sección sin ninguna pantalla encendida no aparece", async () => {
+    renderAdmin(buildMe({ features: { "cash.handovers": false, payroll: false, "pos.tips": false } }));
+
+    await screen.findByRole("link", { name: "Hoy" });
+    expect(screen.queryByRole("link", { name: "Equipo" })).not.toBeInTheDocument();
+  });
+
+  it("la sección aparece cuando alguna de sus pantallas está encendida", async () => {
+    renderAdmin(buildMe({ features: { "cash.handovers": true } }));
+
+    const equipo = await screen.findByRole("link", { name: "Equipo" });
+    expect(equipo).toHaveAttribute("href", "/admin/personal");
+  });
+
+  it("una pantalla sin `feature` siempre está: Ajustes existe aunque todo esté apagado", async () => {
+    renderAdmin(buildMe({ features: {} }));
+
+    expect(await screen.findByRole("link", { name: "Ajustes" })).toHaveAttribute("href", "/admin/settings");
+  });
+
+  it("la entrada de la sección lleva a su primera pantalla encendida", async () => {
+    renderAdmin(buildMe({ features: { "inventory.perpetual": false, purchases: true } }));
+
+    // Sin inventario perpetuo, Inventario abre en Compras.
+    expect(await screen.findByRole("link", { name: "Inventario" })).toHaveAttribute("href", "/admin/compras");
+  });
+
+  it("apagadas inventario y compras (y varianza y reposición), no hay sección Inventario", async () => {
+    renderAdmin(
+      buildMe({
+        features: {
+          "inventory.perpetual": false,
+          purchases: false,
+          "inventory.variance": false,
+          "inventory.replenishment": false,
+        },
+      }),
+    );
 
     await screen.findByRole("link", { name: "Hoy" });
     expect(screen.queryByRole("link", { name: "Inventario" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Preparaciones" })).not.toBeInTheDocument();
+  });
+});
+
+describe("AdminLayout: las pestañas de la sección", () => {
+  it("parado en una pantalla, la sección se marca en el rail y sus pantallas van en pestañas", async () => {
+    renderAdmin(buildMe({ features: { "inventory.perpetual": true, purchases: true } }), undefined, "/admin/compras");
+
+    const rail = await screen.findByRole("navigation", { name: "Secciones de administración" });
+    expect(within(rail).getByRole("link", { name: "Inventario" })).toHaveAttribute("aria-current", "page");
+    expect(within(rail).getByRole("link", { name: "Hoy" })).not.toHaveAttribute("aria-current");
+
+    const tabs = pestanas("Inventario");
+    expect(within(tabs).getByRole("link", { name: "Inventario" })).toHaveAttribute("href", "/admin/inventario");
+    const compras = within(tabs).getByRole("link", { name: "Compras" });
+    expect(compras).toHaveAttribute("href", "/admin/compras");
+    expect(compras).toHaveAttribute("aria-current", "page");
   });
 
-  it("«Inventario» y «Preparaciones» aparecen cuando su feature está encendida", async () => {
-    renderAdmin(buildMe({ features: { "inventory.perpetual": true, "catalog.preps": true } }));
+  it("los flags mandan también en las pestañas: Compras apagada no es pestaña", async () => {
+    renderAdmin(
+      buildMe({ features: { "inventory.perpetual": true, purchases: false, "inventory.variance": true } }),
+      undefined,
+      "/admin/inventario",
+    );
 
-    expect(await screen.findByRole("link", { name: "Inventario" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Preparaciones" })).toBeInTheDocument();
+    const tabs = await screen.findByRole("navigation", { name: "Pantallas de Inventario" });
+    expect(within(tabs).queryByRole("link", { name: "Compras" })).not.toBeInTheDocument();
+    expect(within(tabs).getByRole("link", { name: "Varianza y salud" })).toBeInTheDocument();
   });
 
-  it("«Compras» (purchases) — pedido 2b: apagada, no se muestra", async () => {
-    renderAdmin(buildMe({ features: { purchases: false } }));
+  it("una sección de una sola pantalla no dibuja una fila de una pestaña", async () => {
+    renderAdmin(buildMe({ features: { "money.obligations": true } }), undefined, "/admin/gastos");
 
-    await screen.findByRole("link", { name: "Hoy" });
-    expect(screen.queryByRole("link", { name: "Compras" })).not.toBeInTheDocument();
+    await screen.findByRole("link", { name: "Plata" });
+    expect(screen.queryByRole("navigation", { name: "Pantallas de Plata" })).not.toBeInTheDocument();
   });
 
-  it("«Compras» aparece cuando purchases está encendida, y enlaza a /admin/compras", async () => {
-    renderAdmin(buildMe({ features: { purchases: true } }));
+  it("los documentos fiscales siguen visibles con comprobante interno: van en Informes", async () => {
+    renderAdmin(buildMe({ features: { "fiscal.dee_pos": false } }), undefined, "/admin/ventas");
 
-    const link = await screen.findByRole("link", { name: "Compras" });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/admin/compras");
+    const tabs = await screen.findByRole("navigation", { name: "Pantallas de Informes" });
+    // «Documentos» es lo que se ve; «Documentos fiscales», el nombre accesible.
+    const documentos = within(tabs).getByRole("link", { name: "Documentos fiscales" });
+    expect(documentos).toHaveTextContent("Documentos");
+    expect(documentos).not.toHaveTextContent("fiscales");
+    expect(within(tabs).getByRole("link", { name: "Notas" })).toBeInTheDocument();
+  });
+
+  it("los rangos de numeración son configuración: van en Ajustes", async () => {
+    renderAdmin(buildMe(), undefined, "/admin/settings");
+
+    const tabs = await screen.findByRole("navigation", { name: "Pantallas de Ajustes" });
+    expect(within(tabs).getByRole("link", { name: "Rangos de numeración" })).toHaveAttribute(
+      "href",
+      "/admin/fiscal/rangos",
+    );
+  });
+
+  it("Salud sostenida es de «Varianza y salud»: la sección es Inventario, no Informes", async () => {
+    renderAdmin(
+      buildMe({
+        features: {
+          "inventory.perpetual": true,
+          "inventory.variance": true,
+          "analytics.menu_engineering": true,
+        },
+      }),
+      undefined,
+      "/admin/analitica?tab=salud-sostenida",
+    );
+
+    const tabs = await screen.findByRole("navigation", { name: "Pantallas de Inventario" });
+    expect(within(tabs).getByRole("link", { name: "Varianza y salud" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("navigation", { name: "Pantallas de Informes" })).not.toBeInTheDocument();
   });
 });
 
@@ -194,93 +285,31 @@ describe("AdminLayout: la salida", () => {
 // íconos propios, no había recuentos, y seguía la barra superior.
 // ---------------------------------------------------------------------------
 
-/**
- * `@/features/shifts` está mockeado arriba con una ruta que el producto no
- * tiene (`/admin/shifts`), para probar el filtrado por flags. Esa entrada cae
- * a propósito en la red de seguridad del rail —fondo de Sistema, ícono
- * genérico— y no es lo que estas afirmaciones miden. Que **ninguna** entrada
- * real caiga ahí lo prueba `adminRail.test.tsx`, que no mockea nada.
- */
-const RUTA_DEL_MOCK = "/admin/shifts";
-
-function entradasDelRail() {
-  return [...document.querySelectorAll<HTMLAnchorElement>("nav a[href^='/admin']")].filter(
-    (a) => a.getAttribute("href") !== RUTA_DEL_MOCK,
-  );
-}
-
-describe("AdminLayout: el rail agrupado", () => {
-  it("las entradas vienen repartidas en los seis grupos con rótulo, no en una lista plana", async () => {
+describe("AdminLayout: los íconos del rail", () => {
+  it("cada sección trae su propio ícono: ninguno se repite y ninguno es el genérico de cuadrícula", async () => {
     renderAdmin(
       buildMe({
         features: {
+          "cash.handovers": true,
           "inventory.perpetual": true,
-          purchases: true,
-          customers: true,
-          "money.deposits": true,
-        },
-      }),
-    );
-
-    await screen.findByRole("link", { name: "Hoy" });
-    for (const grupo of [
-      "EL DÍA",
-      "LA CARTA Y EL COSTO",
-      "LA PLATA",
-      "LO FISCAL",
-      "LA GENTE",
-      "EL SISTEMA",
-    ]) {
-      expect(screen.getByRole("group", { name: grupo })).toBeInTheDocument();
-    }
-    // Y cada entrada vive dentro de su grupo, no suelta en la navegación.
-    expect(
-      within(screen.getByRole("group", { name: "EL DÍA" })).getByRole("link", { name: "Hoy" }),
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByRole("group", { name: "LO FISCAL" })).getByRole("link", {
-        name: "Documentos fiscales",
-      }),
-    ).toBeInTheDocument();
-  });
-
-  it("cada entrada trae su propio ícono: ninguno se repite y ninguno es el genérico de cuadrícula", async () => {
-    renderAdmin(
-      buildMe({
-        features: {
-          "inventory.perpetual": true,
-          "catalog.preps": true,
           purchases: true,
           customers: true,
           "money.deposits": true,
           "money.obligations": true,
-          payroll: true,
-          "pos.tips": true,
-          "analytics.menu_engineering": true,
-          "inventory.variance": true,
-          "inventory.replenishment": true,
         },
       }),
     );
 
     await screen.findByRole("link", { name: "Hoy" });
-    const iconos = entradasDelRail().map((a) => a.querySelector("svg")?.getAttribute("class") ?? "");
+    const rail = screen.getByRole("navigation", { name: "Secciones de administración" });
+    const iconos = within(rail)
+      .getAllByRole("link")
+      .map((a) => a.querySelector("svg")?.getAttribute("class") ?? "");
 
-    expect(iconos.length).toBeGreaterThanOrEqual(20);
+    expect(iconos).toHaveLength(8);
     expect(iconos.filter((c) => c === "")).toEqual([]);
     expect(iconos.filter((c) => c.includes("lucide-layout-grid"))).toEqual([]);
     expect(new Set(iconos).size).toBe(iconos.length);
-  });
-
-  it("el nombre corto es lo que se ve y el largo es el nombre accesible", async () => {
-    renderAdmin(buildMe());
-
-    // «Documentos fiscales» no entra en 222 px; «Documentos» sí, y el enlace
-    // se sigue llamando como se llamaba.
-    const enlace = await screen.findByRole("link", { name: "Documentos fiscales" });
-    expect(enlace).toHaveTextContent("Documentos");
-    expect(enlace).not.toHaveTextContent("fiscales");
-    expect(enlace).toHaveAttribute("title", "Documentos fiscales");
   });
 });
 
@@ -302,43 +331,55 @@ describe("AdminLayout: los recuentos", () => {
 
   const FLAGS = { "inventory.perpetual": true, purchases: true };
 
-  it("las cuatro entradas con recuento lo muestran, y sale de `GET /admin/today`", async () => {
+  it("la sección suma los recuentos de sus pantallas y los dice uno por uno", async () => {
     conDatosDeHoy();
     renderAdmin(buildMe({ features: FLAGS }));
 
     // El número se ve…
-    const pedidos = await screen.findByRole("link", { name: /^Pedidos,/ });
-    expect(pedidos).toHaveTextContent("9");
+    const hoy = await screen.findByRole("link", { name: /^Hoy,/ });
+    expect(hoy).toHaveTextContent("9");
     // …y se dice entero, con su unidad, para quien no lo ve.
-    expect(pedidos).toHaveAccessibleName("Pedidos, 9 comandas abiertas");
+    expect(hoy).toHaveAccessibleName("Hoy, 9 comandas abiertas");
 
-    // 5 negativos + 9 bajo mínimo = 14: los avisos de Hoy cuentan los dos por
-    // separado y una insignia que muestre sólo uno sub-informa la pantalla.
-    expect(screen.getByRole("link", { name: "Inventario, 14 insumos en alerta" })).toHaveTextContent("14");
+    // 5 negativos + 9 bajo mínimo = 14 insumos, más 2 cuentas por pagar = 16.
     expect(
-      screen.getByRole("link", { name: "Compras, 2 cuentas por pagar sin resolver" }),
-    ).toHaveTextContent("2");
-    expect(
-      screen.getByRole("link", { name: "Devoluciones pendientes, 2 pendientes" }),
-    ).toHaveTextContent("2");
+      screen.getByRole("link", {
+        name: "Inventario, 14 insumos en alerta, 2 cuentas por pagar sin resolver",
+      }),
+    ).toHaveTextContent("16");
+    expect(screen.getByRole("link", { name: "Caja, 2 devoluciones pendientes" })).toHaveTextContent("2");
 
     // Un solo pedido al servidor, el mismo que ya hacía la pantalla Hoy.
     await waitFor(() => expect(getToday).toHaveBeenCalledWith(7));
+  });
+
+  it("en las pestañas, cada pantalla muestra su propio recuento", async () => {
+    conDatosDeHoy();
+    renderAdmin(buildMe({ features: FLAGS }), undefined, "/admin/inventario");
+
+    const tabs = await screen.findByRole("navigation", { name: "Pantallas de Inventario" });
+    await waitFor(() =>
+      expect(within(tabs).getByRole("link", { name: "Inventario, 14 insumos en alerta" })).toHaveTextContent("14"),
+    );
+    expect(
+      within(tabs).getByRole("link", { name: "Compras, 2 cuentas por pagar sin resolver" }),
+    ).toHaveTextContent("2");
   });
 
   it("un recuento en cero no se dibuja: una insignia en `0` es ruido permanente", async () => {
     conDatosDeHoy({ pending_refunds_count: 0, open_orders: [] });
     renderAdmin(buildMe({ features: FLAGS }));
 
-    const devoluciones = await screen.findByRole("link", { name: "Devoluciones pendientes" });
-    expect(devoluciones).not.toHaveTextContent("0");
-    expect(screen.getByRole("link", { name: "Pedidos" })).toBeInTheDocument();
+    await waitFor(() => expect(getToday).toHaveBeenCalled());
+    const caja = await screen.findByRole("link", { name: "Caja" });
+    expect(caja).not.toHaveTextContent("0");
+    expect(screen.getByRole("link", { name: "Hoy" })).not.toHaveTextContent("0");
   });
 
   it("sin sede elegida no se inventa un recuento ni se pide el día", async () => {
     renderAdmin(buildMe({ features: FLAGS }));
 
-    await screen.findByRole("link", { name: "Pedidos" });
+    await screen.findByRole("link", { name: "Hoy" });
     expect(getToday).not.toHaveBeenCalled();
   });
 });

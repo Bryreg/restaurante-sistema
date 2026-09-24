@@ -30,6 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { errorMessage } from "@/lib/errors"
 import { formatFechaCorta, formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
+import { cn } from "@/lib/utils"
 
 import { CHANNEL_LABEL } from "@/features/orders/lib"
 
@@ -47,6 +48,7 @@ import {
   todayInBogota,
   type SalesGrouping,
 } from "./lib"
+import { Definiciones, Plegable, type Definicion } from "./Plegable"
 
 /** El orden del selector: primero el tiempo, después cómo se pagó, quién y qué. */
 const GROUP_BY_ORDER: readonly SalesGrouping[] = [
@@ -82,6 +84,21 @@ function isClosedDay(row: SalesBucketOut): boolean {
 }
 
 const DEFAULT_DAYS_BACK = 6
+
+/**
+ * El pie de cada tarjeta de «Del período» y de la cobertura, plegado debajo
+ * (mapa de pantallas, regla 2). Son las mismas frases que iban bajo cada
+ * cifra; el aviso de cobertura baja no está acá: es un estado y se ve.
+ */
+const INDICADORES_EXPLICADOS: readonly Definicion[] = [
+  { term: "Comandas pagadas", meaning: "cobradas y cerradas en el rango elegido." },
+  { term: "Comensales", meaning: "contados al abrir la mesa." },
+  { term: "Ticket promedio", meaning: "sobre venta neta, sin propina." },
+  { term: "Ticket por comensal", meaning: "sobre las comandas que sí contaron comensales." },
+  { term: "Cobertura de receta", meaning: "porción de la venta neta con ficha técnica de verdad." },
+  { term: "Costo teórico", meaning: "lo que las fichas dicen que costó." },
+  { term: "Margen bruto teórico", meaning: "ventas netas − costo teórico." },
+]
 
 /**
  * "Ventas": ¿qué vendí y cómo me pagaron?, agrupado como pida la persona
@@ -160,6 +177,14 @@ interface SalesColumn extends DenseColumn<SalesBucketOut> {
   total?: (t: SalesBucketOut) => React.ReactNode
 }
 
+/**
+ * **Cinco columnas a la vista** (mapa de pantallas, regla 3): el renglón, lo
+ * que vendió neto, qué parte del período es, cuántas comandas (o pagos, o
+ * unidades) y el ticket —o, por plato y categoría, el margen—. Todo lo demás
+ * va detrás de «Más columnas» (`secondary`), y **va después**: las cinco que
+ * deciden no cambian de lugar al abrirlas, y la fila de total, que se arma
+ * aparte, no puede quedar corrida contra su encabezado.
+ */
 function salesColumns(groupBy: SalesGrouping): readonly SalesColumn[] {
   const line = isLineGroupBy(groupBy)
   const method = groupBy === "method"
@@ -181,7 +206,6 @@ function salesColumns(groupBy: SalesGrouping): readonly SalesColumn[] {
         ),
       total: () => "Total",
     },
-    { key: "gross", header: "Cobrado", kind: "number", cell: (r) => formatCOP(r.gross), total: (t) => formatCOP(t.gross) },
     { key: "net", header: "Neto", kind: "number", cell: (r) => formatCOP(r.net), total: (t) => formatCOP(t.net) },
     {
       key: "share",
@@ -189,10 +213,6 @@ function salesColumns(groupBy: SalesGrouping): readonly SalesColumn[] {
       kind: "number",
       cell: (r) => formatPct(r.share_bp),
     },
-    { key: "tax", header: "Impuesto", kind: "number", cell: (r) => formatCOP(r.tax), total: (t) => formatCOP(t.tax) },
-    // La propina se deja sobre la cuenta, no sobre un plato: en las
-    // agrupaciones por línea la columna no existe (el total sí la trae).
-    !line && { key: "tips", header: "Propinas", kind: "number", cell: (r) => formatCOP(r.tips), total: (t) => formatCOP(t.tips) },
     line && { key: "units", header: "Unidades", kind: "number", cell: (r) => r.units ?? "—", total: (t) => t.units ?? "—" },
     method
       ? {
@@ -204,22 +224,41 @@ function salesColumns(groupBy: SalesGrouping): readonly SalesColumn[] {
           cell: (r) => r.payments ?? r.orders ?? "—",
           total: (t) => t.payments ?? "—",
         }
-      : { key: "orders", header: "Comandas", kind: "number", cell: (r) => r.orders ?? "—", total: (t) => t.orders ?? "—" },
-    !line && !method && { key: "covers", header: "Comensales", kind: "number", cell: (r) => r.covers ?? "—", total: (t) => t.covers ?? "—" },
+      : line
+        ? false
+        : { key: "orders", header: "Comandas", kind: "number", cell: (r) => r.orders ?? "—", total: (t) => t.orders ?? "—" },
     !line && { key: "avg", header: "Ticket prom.", kind: "number", cell: (r) => formatCOP(r.avg_ticket), total: (t) => formatCOP(t.avg_ticket) },
-    !method && { key: "cost", header: "Costo teórico", kind: "number", cell: (r) => formatCOP(r.theoretical_cost), total: (t) => formatCOP(t.theoretical_cost) },
-    !method && { key: "margin", header: "Margen bruto", kind: "number", cell: (r) => formatCOP(r.gross_margin), total: (t) => formatCOP(t.gross_margin) },
-    !method && { key: "coverage", header: "Cobertura", kind: "number", cell: (r) => formatPercentInt(r.costed_pct), total: (t) => formatPercentInt(t.costed_pct) },
+    // Por plato y categoría no hay ticket: la quinta que decide es el margen.
+    line && { key: "margin", header: "Margen bruto", kind: "number", cell: (r) => formatCOP(r.gross_margin), total: (t) => formatCOP(t.gross_margin) },
+    // --- Detrás de «Más columnas» ---
+    { key: "gross", header: "Cobrado", kind: "number", secondary: true, cell: (r) => formatCOP(r.gross), total: (t) => formatCOP(t.gross) },
+    { key: "tax", header: "Impuesto", kind: "number", secondary: true, cell: (r) => formatCOP(r.tax), total: (t) => formatCOP(t.tax) },
+    // La propina se deja sobre la cuenta, no sobre un plato: en las
+    // agrupaciones por línea la columna no existe (el total sí la trae).
+    !line && { key: "tips", header: "Propinas", kind: "number", secondary: true, cell: (r) => formatCOP(r.tips), total: (t) => formatCOP(t.tips) },
+    !line && !method && { key: "covers", header: "Comensales", kind: "number", secondary: true, cell: (r) => r.covers ?? "—", total: (t) => t.covers ?? "—" },
+    !method && { key: "cost", header: "Costo teórico", kind: "number", secondary: true, cell: (r) => formatCOP(r.theoretical_cost), total: (t) => formatCOP(t.theoretical_cost) },
+    !line && !method && { key: "margin", header: "Margen bruto", kind: "number", secondary: true, cell: (r) => formatCOP(r.gross_margin), total: (t) => formatCOP(t.gross_margin) },
+    !method && { key: "coverage", header: "Cobertura", kind: "number", secondary: true, cell: (r) => formatPercentInt(r.costed_pct), total: (t) => formatPercentInt(t.costed_pct) },
   ]
   return cols.filter((c): c is SalesColumn => c !== false)
 }
 
-/** La fila de cierre de la tabla, dentro del `<tfoot>` (§ 8), con las mismas columnas. */
+/**
+ * La fila de cierre de la tabla, dentro del `<tfoot>` (§ 8), con las mismas
+ * columnas que se ven: las secundarias entran sólo con «Más columnas»
+ * abierto, que es lo que `DenseTable` le pasa a `footer`.
+ */
 function totalsRow(columns: readonly SalesColumn[], total: SalesBucketOut): React.JSX.Element {
   return (
     <tr className="font-bold">
       {columns.map((c) => (
-        <td key={c.key} className={c.kind === "number" ? "px-2 py-1.5 text-right tabular-nums" : "px-2 py-1.5"}>
+        <td
+          key={c.key}
+          className={cn(
+            c.kind === "number" ? "px-2 py-1.5 text-right whitespace-nowrap tabular-nums" : "px-2 py-1.5",
+          )}
+        >
           {c.total ? c.total(total) : ""}
         </td>
       ))}
@@ -294,6 +333,15 @@ function nominalTitular(top: SalesBucketOut, groupBy: SalesGrouping): string {
     default:
       return `${name} hace el ${pct} de la venta neta`
   }
+}
+
+/**
+ * El método del gráfico —qué se grafica, en qué unidad, qué es el rayado—
+ * se lee una vez: va plegado, y a la vista queda el titular, que es la
+ * conclusión (mapa de pantallas, regla 2).
+ */
+function comoLeer(detalle: string): React.JSX.Element {
+  return <Plegable resumen="Cómo leer esto">{detalle}</Plegable>
 }
 
 function SalesChart({
@@ -380,7 +428,7 @@ function SalesChart({
       ". El detalle está en la tabla."
 
     return (
-      <ChartFrame titular={titular} detalle={detalle} muestra={muestra} tabla={tabla}>
+      <ChartFrame titular={titular} detalle={comoLeer(detalle)} muestra={muestra} tabla={tabla}>
         {rows.length > 45 ? (
           <TrendLine puntos={puntos} formato={formatCOP} resumen={`Línea de ${resumen}`} />
         ) : (
@@ -407,11 +455,11 @@ function SalesChart({
     return (
       <ChartFrame
         titular={titular}
-        detalle={
+        detalle={comoLeer(
           groupBy === "method"
             ? "Participación de cada medio en la venta neta del período, sin propina."
-            : "Participación de cada canal en la venta neta del período."
-        }
+            : "Participación de cada canal en la venta neta del período.",
+        )}
         muestra={muestra}
         tabla={tabla}
       >
@@ -431,7 +479,7 @@ function SalesChart({
   return (
     <ChartFrame
       titular={titular}
-      detalle={`Venta neta por ${GROUP_BY_LABEL[groupBy].toLowerCase()}, de mayor a menor.`}
+      detalle={comoLeer(`Venta neta por ${GROUP_BY_LABEL[groupBy].toLowerCase()}, de mayor a menor.`)}
       muestra={muestra}
       tabla={tabla}
     >
@@ -512,11 +560,7 @@ function SalesReport({
 
       <GroupLabel label="Del período" says="cerrado, ya no cambia">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatTile
-            label="Comandas pagadas"
-            value={total.orders !== undefined ? String(total.orders) : "—"}
-            hint="Cobradas y cerradas en el rango elegido."
-          />
+          <StatTile label="Comandas pagadas" value={total.orders !== undefined ? String(total.orders) : "—"} />
           {total.covers === null || total.covers === undefined ? (
             <StatTile
               label="Comensales"
@@ -524,17 +568,15 @@ function SalesReport({
               nullNote="No es cero: es que nadie los contó. Mostrador no registra comensales."
             />
           ) : (
-            <StatTile label="Comensales" value={String(total.covers)} hint="Contados al abrir la mesa." />
+            <StatTile label="Comensales" value={String(total.covers)} />
           )}
           <StatTile
             label="Ticket promedio"
             {...cifraOSinDato(total.avg_ticket, "no hay comandas pagadas en el período.")}
-            hint="Sobre venta neta, sin propina."
           />
           <StatTile
             label="Ticket por comensal"
             {...cifraOSinDato(total.avg_per_cover, "ninguna comanda del período contó comensales. No es cero.")}
-            hint="Sobre las comandas que sí contaron comensales."
           />
         </div>
       </GroupLabel>
@@ -549,9 +591,11 @@ function SalesReport({
           <StatTile
             label="Cobertura de receta"
             value={formatPercentInt(total.costed_pct)}
+            // Cobertura baja es un ESTADO —el margen de al lado no es
+            // definitivo—, no una explicación: ésa sí queda a la vista.
             hint={
               recipeCoverageTone(total.costed_pct) === "default"
-                ? "Porción de la venta neta con ficha técnica de verdad."
+                ? undefined
                 : "Bajo esto, el costo y el margen de al lado no representan toda la venta — la mayoría se vendió sin receta."
             }
             tone={recipeCoverageTone(total.costed_pct)}
@@ -563,14 +607,15 @@ function SalesReport({
           <StatTile
             label="Costo teórico"
             {...cifraOSinDato(total.theoretical_cost, "no hay ventas costeadas en el período: faltan fichas técnicas.")}
-            hint="Lo que las fichas dicen que costó."
           />
           <StatTile
             label="Margen bruto teórico"
             {...cifraOSinDato(total.gross_margin, "no hay ventas costeadas en el período: faltan fichas técnicas.")}
-            hint="Ventas netas − costo teórico"
           />
         </div>
+        <Plegable resumen="Cómo leer estos indicadores" className="mt-2 px-1">
+          <Definiciones items={INDICADORES_EXPLICADOS} className="sm:grid-cols-2" />
+        </Plegable>
       </GroupLabel>
 
       {rows.length === 0 ? null : (
@@ -588,7 +633,7 @@ function SalesReport({
               hidden={`del ${rangeLabel}`}
             />
           }
-          footer={totalsRow(columns, total)}
+          footer={(todas) => totalsRow(todas ? columns : columns.filter((c) => !c.secondary), total)}
           legend={[
             {
               term: "Cobrado ≠ neto",

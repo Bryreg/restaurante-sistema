@@ -43,10 +43,13 @@ export {
   type FeatureOffEmptyStateProps,
   type FilterEmptyStateProps,
 } from "./EmptyStates"
+export { Explicacion } from "./Explicacion"
 export { FilterLink, type FilterLinkProps } from "./FilterLink"
 export { FormField, FormSection, type FormFieldProps, type FormSectionProps } from "./FormSection"
 export { GroupLabel, type GroupLabelProps } from "./GroupLabel"
 export { HeadlineFigure, type HeadlineFigureProps, type LedgerRow } from "./HeadlineFigure"
+export { MasPestanas, type PestanaDeMas } from "./MasPestanas"
+export { MenuDeFila } from "./MenuDeFila"
 export { NoticeRail, type Notice, type NoticeRailProps, type NoticeSeverity } from "./NoticeRail"
 export { OriginBar, type OriginBarProps } from "./OriginBar"
 export { PageHeader, type PageContextItem, type PageHeaderProps } from "./PageHeader"

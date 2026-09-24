@@ -17,6 +17,7 @@ import {
   DenseTable,
   DenseTableBar,
   FeatureOffEmptyState,
+  MenuDeFila,
   PageHeader,
   type DenseColumn,
   type LegendEntry,
@@ -24,6 +25,7 @@ import {
 import { EmptyState } from "@/components/EmptyState"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { errorMessage } from "@/lib/errors"
@@ -41,11 +43,6 @@ import { PrepModeSwitchDialog } from "./PrepModeSwitchDialog"
 
 const MODE_LABEL: Record<string, string> = { batch: "Por lote", exploded: "Explotada" }
 
-/**
- * Las acciones de la fila, en su propio componente: cada una tiene su
- * mutación y su diálogo, y la columna de acciones del patrón 8 es de ancho
- * fijo para que el borde derecho no baile de fila a fila.
- */
 /** La leyenda del pie: los dos modos, que NO son dos grados de lo mismo. */
 const PREPS_LEGEND: readonly LegendEntry[] = [
   {
@@ -72,6 +69,11 @@ const PREPS_LEGEND: readonly LegendEntry[] = [
   },
 ]
 
+/**
+ * Las acciones de la fila —Editar, Cambiar modo y, en modo lote, Ver lotes—
+ * en el menú «⋯» (mapa de pantallas, regla 3: eran hasta tres botones por
+ * fila). Los tres diálogos son **controlados**: los abre el ítem del menú.
+ */
 function PreparationActions({
   preparation,
   ingredientOptions,
@@ -96,9 +98,18 @@ function PreparationActions({
   })
 
   return (
-    <div className="flex flex-nowrap justify-end gap-1">
+    <>
+      <MenuDeFila nombre={preparation.name}>
+        <DropdownMenuItem onClick={() => setEditing(true)}>Editar</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setSwitching(true)}>Cambiar modo</DropdownMenuItem>
+        {/* «Ver lotes» SÓLO existe en modo «por lote»: un control que aparece y
+            desaparece con el estado de la fila (`docs/INVENTARIO-CONTROLES.md`
+            § 23). */}
+        {preparation.mode === "batch" && (
+          <DropdownMenuItem onClick={() => setBatches(true)}>Ver lotes</DropdownMenuItem>
+        )}
+      </MenuDeFila>
       <Dialog open={editing} onOpenChange={setEditing}>
-        <DialogTrigger render={<Button variant="outline" size="sm" />}>Editar</DialogTrigger>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Editar {preparation.name}</DialogTitle>
@@ -118,22 +129,28 @@ function PreparationActions({
           )}
         </DialogContent>
       </Dialog>
-      <Button variant="outline" size="sm" onClick={() => setSwitching(true)}>
-        Cambiar modo
-      </Button>
-      {/* «Ver lotes» SÓLO existe en modo «por lote»: un control que aparece y
-          desaparece con el estado de la fila (`docs/INVENTARIO-CONTROLES.md`
-          § 23). */}
-      {preparation.mode === "batch" && (
-        <Button variant="outline" size="sm" onClick={() => setBatches(true)}>
-          Ver lotes
-        </Button>
-      )}
       {switching && (
         <PrepModeSwitchDialog preparation={preparation} open={switching} onOpenChange={setSwitching} />
       )}
       {batches && <PrepBatchesPanel preparation={preparation} open={batches} onOpenChange={setBatches} />}
-    </div>
+    </>
+  )
+}
+
+/** Rojo cuando hay alguna (faltante que alguien tiene que producir); neutro en cero. */
+function CifraDeLotes({ label, value }: { label: string; value: number }): React.JSX.Element {
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+      <span
+        className={cn(
+          "text-4xl leading-none font-bold tracking-tight tabular-nums",
+          value > 0 ? "text-destructive" : "text-foreground",
+        )}
+      >
+        {value}
+      </span>
+      <span className="text-base font-medium">{label.toLowerCase()}</span>
+    </p>
   )
 }
 
@@ -199,6 +216,9 @@ export function PreparationsAdminPage(): React.JSX.Element {
   const ingredientOptions = ingredientOptionsQuery.data ?? []
   const preparationOptions = preparations
 
+  // Cinco a la vista (mapa de pantallas, regla 3): nombre, modo,
+  // rendimiento, stock y costo. La merma esperada y la vida útil son de la
+  // ficha, no de la decisión del día: quedan detrás de «Más columnas».
   const columns: readonly DenseColumn<PreparationAdminOut>[] = [
     { key: "name", header: "Nombre", kind: "name", cell: (p) => p.name },
     {
@@ -213,11 +233,12 @@ export function PreparationsAdminPage(): React.JSX.Element {
       kind: "number",
       cell: (p) => `${p.standard_yield_qty} ${p.standard_yield_unit}`,
     },
-    { key: "loss", header: "Merma esperada", kind: "number", cell: (p) => `${p.process_loss_pct} %` },
+    { key: "loss", header: "Merma esperada", kind: "number", secondary: true, cell: (p) => `${p.process_loss_pct} %` },
     {
       key: "shelf",
       header: "Vida útil",
       kind: "number",
+      secondary: true,
       cell: (p) => (p.shelf_life_days !== null ? `${p.shelf_life_days} días` : "No vence"),
     },
     {
@@ -265,20 +286,30 @@ export function PreparationsAdminPage(): React.JSX.Element {
         name="Preparaciones"
         question="Qué se produce en cocina antes de vender, en qué modo descuenta sus insumos, y cuánto cuesta cada unidad."
         context={
-          preparationsQuery.isSuccess
-            ? [
-                { label: "Preparaciones", value: preparations.length },
-                { label: "Por lote en cero o negativo", value: negativeBatch },
-              ]
-            : undefined
+          preparationsQuery.isSuccess ? [{ label: "Preparaciones", value: preparations.length }] : undefined
         }
       />
 
-      <p className="max-w-[80ch] text-sm text-muted-foreground">
-        «Explotada» es el modo por defecto: sin registro de producción, una preparación en modo lote queda
-        negativa y sus insumos se ven sobrevalorados. Usá «por lote» sólo para lo caro, perecedero o vendido
-        por porción, y produciendo de verdad.
-      </p>
+      {/* La cifra protagonista (regla 1): las preparaciones por lote en cero
+          o negativo, que son las que alguien tiene que producir ya. Antes
+          era el segundo dato de la franja de contexto. Es un recuento de
+          filas, no una cifra nueva. */}
+      {preparationsQuery.isSuccess ? (
+        <CifraDeLotes label="Por lote en cero o negativo" value={negativeBatch} />
+      ) : null}
+
+      {/* Por qué «explotada» es el default, plegado (regla 2): se lee una
+          vez, no cada vez que se abre la pantalla. */}
+      <details className="text-sm text-muted-foreground">
+        <summary className="w-fit cursor-pointer font-medium select-none hover:text-foreground">
+          ¿Explotada o por lote?
+        </summary>
+        <p className="mt-1 max-w-[80ch]">
+          «Explotada» es el modo por defecto: sin registro de producción, una preparación en modo lote queda
+          negativa y sus insumos se ven sobrevalorados. Usá «por lote» sólo para lo caro, perecedero o vendido
+          por porción, y produciendo de verdad.
+        </p>
+      </details>
 
       {preparationsQuery.isError ? (
         <p role="alert" className="text-sm text-destructive">

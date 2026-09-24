@@ -1666,6 +1666,40 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       aplicar si pasa los topes, abre otro local o se inscribe en el Simple:
       el 3.500 UVT de 2026 son $ 183.309.000 (UVT $ 52.374).
 
+37. **«Orden y aire»: el admin en ocho secciones y siete reglas de
+    presentación** (2026-09-24). El dueño comparó el admin con el de
+    café-sistema y lo encontró agobiante (Hoy: 485 palabras en la primera
+    pantalla contra 165 del café). Aprobó un mapa de pantallas y eligió
+    empezar por acá. Sólo presentación: ningún cálculo, endpoint ni flag
+    cambió.
+    - **Rail**: de 25 entradas en seis grupos a ocho secciones — Hoy ·
+      Informes · Caja · Inventario · Carta · Plata · Equipo · Ajustes — con
+      las pantallas como pestañas de sección (`app/AdminLayout.tsx`, `RAIL`).
+      Ninguna ruta cambió. Documentos y Notas van en Informes (con
+      comprobante interno siguen existiendo), Devoluciones en Caja, Rangos en
+      Ajustes. Celular: Hoy · Informes · Caja · Avisos · Más.
+    - **Piezas compartidas**: cuerpo de 16 px en la oficina; la pregunta de
+      `PageHeader` plegada en «¿Qué es esto?»; `DenseTable` pliega leyenda y
+      nota en «Cómo leer esta tabla» y esconde las columnas `secondary` tras
+      «Más columnas»; `MenuDeFila` (⋯), `MasPestanas` («Más ▾», mismo
+      `?tab=`), `Explicacion`; `NoticeRail` con `limit`.
+    - **Pantallas**: todas quedan con 3 pestañas a la vista como máximo y
+      tablas de 5 columnas a la vista. Hoy: la venta neta primero, 5 avisos y
+      el resto en «Ver n más» (367 → ~260 palabras en la primera pantalla).
+      Gastos abre en Utilidad; Carta en Productos y ahora lleva `?tab=`.
+    - **Censo de controles**: la regex no veía `<DropdownMenuItem onClick={()
+      => …}>Editar<` (la flecha cortaba la etiqueta); ahora sí. Bajas
+      declaradas a mano en `censo-controles.test.ts`: frases de franjas de
+      contexto, y «Propinas», que pasó a ser pestaña de sección.
+    - **Siguiente, según el mapa**: la rutina del turno (abrir con días por
+      consignar, no vender sin apertura, consignar desde el POS con
+      confirmación del admin, bandeja en Hoy) y después Informes en un solo
+      scroll con el consolidado de sedes.
+    - Pendiente chico: el cuerpo de cada aviso de Hoy no se puede plegar
+      (`NoticeRail` lo pone en un `<p>`); `FormSection` no pliega
+      `governs`/`reading`/`doesNotDo`, que es lo que más texto deja en
+      Tarifas y en el método de reparto de propinas.
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

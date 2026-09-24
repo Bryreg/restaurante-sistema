@@ -1,4 +1,5 @@
 import { screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "@/test/utils"
@@ -84,6 +85,27 @@ describe("CatalogAdminPage", () => {
     })
 
     expect(screen.queryByRole("tab", { name: "Recetas" })).not.toBeInTheDocument()
+  })
+
+  it("con todo encendido: tres pestañas a la vista, el resto en «Más», y abre en Productos", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<CatalogAdminPage />, {
+      me: {
+        kind: "admin",
+        organization: { id: 1, name: "Org" },
+        features: { "pos.modifiers": true, "pos.combos": true, "pos.daily_menu": true, "catalog.recipes": true },
+      },
+    })
+
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Productos", "Menú del día", "Recetas"])
+    expect(screen.getByRole("tab", { name: "Productos" })).toHaveAttribute("aria-selected", "true")
+
+    // Combos, Categorías y Modificadores no se perdieron: están en «Más».
+    await user.click(screen.getByRole("button", { name: "Más" }))
+    expect((await screen.findAllByRole("menuitem")).map((i) => i.textContent)).toEqual(["Combos", "Categorías", "Modificadores"])
+    await user.click(screen.getByRole("menuitem", { name: "Categorías" }))
+    expect(await screen.findByRole("button", { name: "Más: Categorías" })).toBeInTheDocument()
+    expect(await screen.findByLabelText("Nueva categoría")).toBeInTheDocument()
   })
 
   it("con catalog.recipes ofrece la pestaña Recetas (fichas técnicas, cobertura, unidades sospechosas)", async () => {

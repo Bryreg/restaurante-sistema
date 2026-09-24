@@ -97,10 +97,16 @@ function VarianceConcentration({ data }: { data: VarianceOut }): React.JSX.Eleme
           <>
             {detalle ? <span className="block">{detalle}</span> : null}
             <span className="block">
-              Varianza en pesos por insumo, de mayor a menor (sin signo: ▼ faltante, ▲ sobrante), con el acumulado en
-              gris. Conteo #{data.opening_count_id ?? "—"} contra #{data.count_id ?? "—"}
+              Conteo #{data.opening_count_id ?? "—"} contra #{data.count_id ?? "—"}
               {ventana ? `, ${ventana}` : ""}.
             </span>
+            {/* Cómo se lee el gráfico, plegado (mapa de pantallas, regla 2):
+                se lee una vez, no cada vez que se abre la pestaña. */}
+            <details className="text-xs">
+              <summary className="cursor-pointer select-none hover:text-foreground">Cómo leer esto</summary>
+              Varianza en pesos por insumo, de mayor a menor (sin signo: ▼ faltante, ▲ sobrante), con el acumulado
+              en gris.
+            </details>
           </>
         }
         tabla={{
@@ -233,30 +239,38 @@ export function VarianceTab({ storeId }: { storeId: number }): React.JSX.Element
       key: "opening",
       header: "Inicial",
       kind: "number",
+      // Las cinco cantidades de las que sale la varianza, detrás de «Más
+      // columnas» (regla 3): la primera lectura es cuánto se fue, en pesos,
+      // y de qué color lo pinta el servidor. El detalle sigue a un toque.
+      secondary: true,
       cell: (r) => cantidad(r.opening_qty, r.base_unit),
     },
     {
       key: "inflow",
       header: "Entradas",
       kind: "number",
+      secondary: true,
       cell: (r) => cantidad(r.inflow_qty, r.base_unit),
     },
     {
       key: "closing",
       header: "Final",
       kind: "number",
+      secondary: true,
       cell: (r) => cantidad(r.closing_qty, r.base_unit),
     },
     {
       key: "real",
       header: "Uso real",
       kind: "number",
+      secondary: true,
       cell: (r) => cantidad(r.real_usage_qty, r.base_unit),
     },
     {
       key: "theoretical",
       header: "Uso teórico",
       kind: "number",
+      secondary: true,
       cell: (r) => cantidad(r.theoretical_usage_qty, r.base_unit),
     },
     {

@@ -1,4 +1,5 @@
 import { screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import type { ProductAdminOut } from "@/api/catalog"
@@ -48,13 +49,32 @@ describe("ProductsTab", () => {
     const row = screen.getByText("Bandeja paisa").closest("tr")
     expect(row).not.toBeNull()
     const cells = row!.querySelectorAll("td")
-    // Nombre, Mesa, Para llevar, Domicilio, Plataforma, Disponible, acciones.
+    // Cinco a la vista (regla 3): Nombre, Mesa, Domicilio, Plataforma,
+    // Disponible, y la columna de acciones.
+    expect(cells).toHaveLength(6)
     expect(cells[1].textContent).toContain("38.000")
-    expect(cells[2].textContent).toContain("35.000")
     // No un "—" ambiguo (SPEC-NEGOCIO §4.3): un precio opcional vacío CAE al
     // de mesa, nunca a 0 ni a "sin dato" a secas.
+    expect(cells[2].textContent).toBe("Igual que mesa")
     expect(cells[3].textContent).toBe("Igual que mesa")
-    expect(cells[4].textContent).toBe("Igual que mesa")
+    expect(row!.textContent).not.toContain("35.000")
+
+    // Para llevar vive detrás de «Más columnas», con su precio tal cual.
+    await userEvent.setup().click(screen.getByRole("button", { name: "Más columnas (1)" }))
+    const todas = screen.getByText("Bandeja paisa").closest("tr")!.querySelectorAll("td")
+    // Nombre, Mesa, Para llevar, Domicilio, Plataforma, Disponible, acciones.
+    expect(todas[2].textContent).toContain("35.000")
+    expect(todas[3].textContent).toBe("Igual que mesa")
+    expect(todas[4].textContent).toBe("Igual que mesa")
+  })
+
+  it("«Editar» abre el formulario del producto de esa fila", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ProductsTab storeId={1} />, { me: { kind: "admin", features: {} } })
+
+    await waitFor(() => expect(screen.getByText("Bandeja paisa")).toBeInTheDocument())
+    await user.click(screen.getByRole("button", { name: "Editar" }))
+    expect(await screen.findByRole("dialog", { name: "Editar Bandeja paisa" })).toBeInTheDocument()
   })
 
   it("marca el producto que es el cargo de domicilio de la sede", async () => {

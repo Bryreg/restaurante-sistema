@@ -449,11 +449,15 @@ export function NotesPage(): React.JSX.Element {
   const rows: AdminNoteListItem[] = query.data ?? [];
   const conRango = range.from !== "" || range.to !== "";
 
+  // A la vista, cinco (mapa de pantallas, regla 3): la nota, qué corrige, por
+  // qué, el total y cuándo. El tipo va detrás de «Más columnas»: el prefijo
+  // del número ya lo dice, y la leyenda explica cuál corrige qué.
   const columns: readonly DenseColumn<AdminNoteListItem>[] = [
     { key: "number", header: "Nota", kind: "id", cell: (note) => note.full_number ?? `#${note.id}` },
     {
       key: "type",
       header: "Tipo",
+      secondary: true,
       cell: (note) => (
         <Badge variant="outline">{note.document_type ? DOCUMENT_TYPE_LABEL[note.document_type] : "—"}</Badge>
       ),

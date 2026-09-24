@@ -70,7 +70,7 @@ function TipsSettingsSection({ storeId }: { storeId: number }): React.JSX.Elemen
           adelante; los repartos ya confirmados quedan como están y <b>no se recalculan</b>.
         </>
       }
-      doesNotDo="Elegir un método no reparte nada ni le avisa a nadie: sólo decide cómo se calcula la propuesta de abajo."
+      doesNotDo="Elegir un método no reparte nada ni le avisa a nadie: sólo decide cómo se calcula la propuesta de arriba."
     >
       <div className="min-w-0 space-y-2">
       {query.isLoading ? (
@@ -242,9 +242,10 @@ export function TipsTab({ storeId }: { storeId: number }): React.JSX.Element {
   const shiftIds = proposal?.shift_ids ?? []
 
   return (
-    <div className="space-y-4">
-      <TipsSettingsSection storeId={storeId} />
-
+    <div className="space-y-6">
+      {/* Primero la propuesta —lo que se viene a mirar—, y el método de
+          reparto, que se elige una vez, al final (mapa de pantallas, regla
+          1: la cifra protagonista arriba). */}
       <div className="space-y-3">
         <DateRangeFilter idPrefix="tips-proposal" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to); setConfirmed(false) }} />
 
@@ -267,9 +268,20 @@ export function TipsTab({ storeId }: { storeId: number }): React.JSX.Element {
           />
         ) : (
           <div className="space-y-3">
-            <p className="text-sm">
-              Método: <Badge variant="secondary">{tipMethodLabel(proposal.method)}</Badge>
-            </p>
+            {/* Regla 1 · La cifra protagonista: el total a repartir, tal como
+                lo manda el servidor (el mismo del pie de la tabla). Neutro y
+                no verde: la propina no es venta del restaurante. */}
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
+              <div>
+                <p className="text-[0.7rem] tracking-wider text-muted-foreground uppercase">Propina a repartir</p>
+                <p data-testid="tips-total" className="text-4xl leading-none font-bold tracking-tight tabular-nums">
+                  {formatCOP(proposal.total)}
+                </p>
+              </div>
+              <p className="text-sm">
+                Método: <Badge variant="secondary">{tipMethodLabel(proposal.method)}</Badge>
+              </p>
+            </div>
             <DenseTable
               caption="Propuesta de reparto de propinas por persona en el período."
               columns={TIP_COLUMNS}
@@ -324,6 +336,8 @@ export function TipsTab({ storeId }: { storeId: number }): React.JSX.Element {
           </div>
         )}
       </div>
+
+      <TipsSettingsSection storeId={storeId} />
     </div>
   )
 }

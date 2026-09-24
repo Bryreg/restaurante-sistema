@@ -21,19 +21,19 @@
  */
 import { describe, expect, it } from "vitest"
 
-import { GRUPOS, RAIL, buildNav } from "../AdminLayout"
+import { RAIL, SECCIONES, buildNav, pantallaActiva } from "../AdminLayout"
 
-/** Las veinticinco: toda función encendida, que es el peor caso del rail. */
+/** Todas: toda función encendida, que es el peor caso del rail. */
 const TODAS = buildNav(() => true)
 
-describe("el rail del admin: la tabla de grupos", () => {
-  it("hay entradas suficientes como para que este test proteja algo", () => {
+describe("el rail del admin: la tabla de secciones", () => {
+  it("hay pantallas suficientes como para que este test proteja algo", () => {
     expect(TODAS.length).toBeGreaterThanOrEqual(25)
   })
 
-  it("toda entrada de navegación está archivada en un grupo", () => {
+  it("toda pantalla está archivada en una sección", () => {
     const huerfanas = TODAS.filter((item) => !RAIL[item.to]).map(
-      (item) => `«${item.label}» (${item.to}) no está en RAIL: caería al fondo de Sistema`,
+      (item) => `«${item.label}» (${item.to}) no está en RAIL: caería como pestaña suelta de Ajustes`,
     )
     expect(huerfanas).toEqual([])
   })
@@ -43,7 +43,7 @@ describe("el rail del admin: la tabla de grupos", () => {
     expect(Object.keys(RAIL).filter((to) => !rutas.has(to))).toEqual([])
   })
 
-  it("el nombre completo del rail es el `label` del dominio, sin deriva", () => {
+  it("el nombre completo es el `label` del dominio, sin deriva", () => {
     const deriva = TODAS.filter((item) => RAIL[item.to] && RAIL[item.to].title !== item.label).map(
       (item) => `${item.to}: el rail dice «${RAIL[item.to].title}» y el dominio «${item.label}»`,
     )
@@ -57,7 +57,7 @@ describe("el rail del admin: la tabla de grupos", () => {
     expect(malos).toEqual([])
   })
 
-  it("los cuatro nombres que el patrón 1 acorta están acortados, y ningún otro", () => {
+  it("los cuatro nombres acortados están acortados, y ningún otro", () => {
     const acortados = Object.entries(RAIL)
       .filter(([, fila]) => fila.label !== fila.title)
       .map(([, fila]) => fila.label)
@@ -65,70 +65,56 @@ describe("el rail del admin: la tabla de grupos", () => {
     expect(acortados).toEqual(["Devoluciones", "Documentos", "Rangos", "Turnos"])
   })
 
-  it("ninguna entrada repite el ícono de otra", () => {
-    const porIcono = new Map<unknown, string[]>()
-    for (const [to, fila] of Object.entries(RAIL)) {
-      porIcono.set(fila.icon, [...(porIcono.get(fila.icon) ?? []), to])
-    }
-    const repetidos = [...porIcono.values()].filter((rutas) => rutas.length > 1)
-    expect(repetidos).toEqual([])
-  })
-
   /**
-   * Los nombres son los de la maqueta `a2`, que es la que el dueño eligió
-   * mirándola contra la app. Eran `Operación · Costos · Plata · Ley · Gente ·
-   * Sistema`; este `toEqual` es el que hace que cambiarlos sea una decisión
+   * Son las ocho del mapa de pantallas que el dueño aprobó («De 25 entradas a
+   * 8»); este `toEqual` es el que hace que agregar una novena sea una decisión
    * y no un descuido.
    */
-  it("los seis grupos existen, con los nombres de a2, y ninguno queda vacío", () => {
-    expect(GRUPOS).toEqual([
-      "EL DÍA",
-      "LA CARTA Y EL COSTO",
-      "LA PLATA",
-      "LO FISCAL",
-      "LA GENTE",
-      "EL SISTEMA",
-    ])
-    const vacios = GRUPOS.filter(
-      (grupo) => !TODAS.some((item) => RAIL[item.to]?.grupo === grupo),
-    )
-    expect(vacios).toEqual([])
+  it("las ocho secciones existen, en el orden del mapa, y ninguna queda vacía", () => {
+    expect(SECCIONES).toEqual(["Hoy", "Informes", "Caja", "Inventario", "Carta", "Plata", "Equipo", "Ajustes"])
+    const vacias = SECCIONES.filter((seccion) => !TODAS.some((item) => RAIL[item.to]?.seccion === seccion))
+    expect(vacias).toEqual([])
   })
 
-  it("las cuatro entradas con recuento son las cuatro que el pedido nombra", () => {
+  it("las cuatro pantallas con recuento son las cuatro que el pedido nombra", () => {
     const conCuenta = Object.values(RAIL)
       .filter((fila) => fila.cuenta)
       .map((fila) => fila.title)
       .sort()
     expect(conCuenta).toEqual(["Compras", "Devoluciones pendientes", "Inventario", "Pedidos"])
   })
-})
 
-describe("el rail del admin: el orden dentro del grupo", () => {
-  /**
-   * `buildNav` concatena los dominios por fase, así que «Dinero»
-   * (`shiftsFeature`, fase 3) caía después de Banco, Nómina y Propinas: la
-   * pantalla principal de plata, última de su propio grupo. El orden de
-   * lectura lo manda `RAIL`.
-   */
-  it("«LA PLATA» abre con Dinero, no lo deja al final", () => {
-    const plata = Object.entries(RAIL)
-      .filter(([, fila]) => fila.grupo === "LA PLATA")
-      .map(([, fila]) => fila.label)
-    expect(plata[0]).toBe("Dinero")
-  })
-
-  it("cada grupo se lee en el orden en que está escrito en RAIL", () => {
+  it("las filas de una sección van juntas y seguidas: el orden escrito es el orden de las pestañas", () => {
     const rutas = Object.keys(RAIL)
-    for (const grupo of GRUPOS) {
+    for (const seccion of SECCIONES) {
       const indices = rutas
         .map((to, i) => ({ to, i }))
-        .filter(({ to }) => RAIL[to].grupo === grupo)
+        .filter(({ to }) => RAIL[to].seccion === seccion)
         .map(({ i }) => i)
-      // Las filas de un grupo van juntas y seguidas: si se intercalaran, el
-      // orden escrito dejaría de ser el orden que se ve.
       expect(indices).toEqual([...indices].sort((a, b) => a - b))
       expect(indices[indices.length - 1] - indices[0]).toBe(indices.length - 1)
     }
+  })
+
+  it("cada sección abre en su pantalla principal", () => {
+    const primera = (seccion: string) => Object.entries(RAIL).find(([, fila]) => fila.seccion === seccion)?.[0]
+    expect(primera("Caja")).toBe("/admin/dinero")
+    expect(primera("Informes")).toBe("/admin/ventas")
+    expect(primera("Ajustes")).toBe("/admin/settings")
+  })
+})
+
+describe("el rail del admin: qué pantalla se está mirando", () => {
+  it("una ruta hija cuenta como su pantalla (el detalle de un documento es Documentos)", () => {
+    expect(pantallaActiva(TODAS, "/admin/fiscal/documentos/12", "")?.to).toBe("/admin/fiscal/documentos")
+  })
+
+  it("con `?tab=` manda la pestaña: Propinas y no Nómina", () => {
+    expect(pantallaActiva(TODAS, "/admin/nomina", "?tab=propinas")?.to).toBe("/admin/nomina?tab=propinas")
+    expect(pantallaActiva(TODAS, "/admin/nomina", "?tab=horas")?.to).toBe("/admin/nomina")
+  })
+
+  it("una ruta que no es de ninguna pantalla no enciende nada", () => {
+    expect(pantallaActiva(TODAS, "/admin", "")).toBeUndefined()
   })
 })

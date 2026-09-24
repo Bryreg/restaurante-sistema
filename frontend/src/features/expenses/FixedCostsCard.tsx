@@ -15,6 +15,8 @@ import type { FixedCostLine } from "@/api/expenses"
 import { FilterLink, type FilterLinkProps } from "@/components/admin"
 import { BarList, ChartFrame } from "@/components/charts"
 import { SinDato } from "@/components/SinDato"
+
+import { Explicacion } from "@/components/admin"
 import { formatCOP } from "@/lib/money"
 
 /** Dónde se carga (y se corrige) cada origen. */
@@ -25,7 +27,7 @@ const FIXED_COST_ORIGIN: Record<FixedCostLine["source"], { nombre: string; link:
   },
   payroll: {
     nombre: "Nómina",
-    link: { to: "/admin/nomina?tab=liquidaciones", screen: "Nómina y propinas", tab: "Liquidaciones" },
+    link: { to: "/admin/nomina?tab=liquidaciones", screen: "Nómina", tab: "Liquidaciones" },
   },
   expenses: {
     nombre: "Gastos",
@@ -66,11 +68,15 @@ export function FixedCostsCard({
       <ChartFrame
         titular={titular}
         detalle={
-          <>
-            Se calculan solos con lo que ya está registrado en el período: obligaciones que vencen, la nómina de
-            las horas trabajadas y los gastos no anulados. <b>No se escriben a mano</b>: si un renglón está mal, se
-            corrige donde se cargó.
-          </>
+          /* Regla 2 · Cómo se calculan, plegado: el rótulo de grupo ya dice
+             «automáticos»; el cómo lo lee quien lo pide. */
+          <Explicacion>
+            <p>
+              Se calculan solos con lo que ya está registrado en el período: obligaciones que vencen, la nómina de
+              las horas trabajadas y los gastos no anulados. <b>No se escriben a mano</b>: si un renglón está mal, se
+              corrige donde se cargó.
+            </p>
+          </Explicacion>
         }
         tabla={{
           columnas: [

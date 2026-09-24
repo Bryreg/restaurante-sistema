@@ -10,7 +10,7 @@ import AdminLayout from "../AdminLayout";
 
 /**
  * El celular del dueño (`docs/diseno/propuesta.html`, «Celular del dueño»):
- * barra inferior con Hoy · Ventas · Plata · Avisos y «Más».
+ * barra inferior con Hoy · Informes · Caja · Avisos y «Más».
  *
  * jsdom no trae `matchMedia`, y sin él el armazón se comporta como
  * escritorio —que es lo que asumen las demás pruebas de `AdminLayout`—.
@@ -38,8 +38,8 @@ vi.mock("@/features/notifications/NotificationBell", () => ({
   ),
 }));
 
-// Sin Dinero (el dominio de turnos, apagado por su flag en el doble): así se
-// ve que «Plata» sale del grupo y no de una ruta escrita a mano.
+// Dinero (el dominio de turnos) lleva su flag en el doble: así se ve que
+// «Caja» sale de la sección y no de una ruta escrita a mano.
 vi.mock("@/features/shifts", () => ({
   shiftsFeature: {
     posRoutes: [],
@@ -95,10 +95,10 @@ describe("AdminLayout en el celular: barra inferior", () => {
 
     const barra = await screen.findByRole("navigation", { name: "Accesos del celular" });
     const controles = within(barra).getAllByRole("listitem").map((li) => li.textContent);
-    expect(controles).toEqual(["Hoy", "Ventas", "Plata", "Avisos", "Más"]);
+    expect(controles).toEqual(["Hoy", "Informes", "Caja", "Avisos", "Más"]);
     expect(within(barra).getByRole("link", { name: "Hoy" })).toHaveAttribute("href", "/admin/hoy");
-    expect(within(barra).getByRole("link", { name: "Ventas" })).toHaveAttribute("href", "/admin/ventas");
-    expect(within(barra).getByRole("link", { name: "Plata" })).toHaveAttribute("href", "/admin/dinero");
+    expect(within(barra).getByRole("link", { name: "Informes" })).toHaveAttribute("href", "/admin/ventas");
+    expect(within(barra).getByRole("link", { name: "Caja" })).toHaveAttribute("href", "/admin/dinero");
   });
 
   it("«Avisos» lleva a Hoy › Requiere tu atención, que es donde cada aviso enlaza a lo que lo resuelve", async () => {
@@ -121,28 +121,24 @@ describe("AdminLayout en el celular: barra inferior", () => {
     expect(within(barra).getByRole("link", { name: "Hoy" })).not.toHaveAttribute("aria-current");
   });
 
-  it("«Plata» respeta los flags: sin Dinero va a la primera entrada encendida del grupo (Banco)", async () => {
+  it("«Caja» respeta los flags: sin Dinero va a la primera pantalla encendida de la sección (Banco)", async () => {
     stubMatchMedia(true);
     renderAdmin(buildMe({ features: { "cash.handovers": false, "money.deposits": true } }));
 
     const barra = await screen.findByRole("navigation", { name: "Accesos del celular" });
-    expect(within(barra).getByRole("link", { name: "Plata" })).toHaveAttribute("href", "/admin/banco");
+    expect(within(barra).getByRole("link", { name: "Caja" })).toHaveAttribute("href", "/admin/banco");
   });
 
-  it("con todo el grupo de la plata apagado, «Plata» no aparece (no queda un hueco)", async () => {
+  it("parado en una pantalla de Informes, se marca Informes", async () => {
     stubMatchMedia(true);
-    renderAdmin(
-      buildMe({
-        features: { "cash.handovers": false, "money.deposits": false, "money.obligations": false },
-      }),
-    );
+    renderAdmin(buildMe({ features: { customers: true } }), "/admin/clientes");
 
     const barra = await screen.findByRole("navigation", { name: "Accesos del celular" });
-    expect(within(barra).queryByRole("link", { name: "Plata" })).not.toBeInTheDocument();
-    expect(within(barra).getAllByRole("listitem")).toHaveLength(4);
+    expect(within(barra).getByRole("link", { name: "Informes" })).toHaveAttribute("aria-current", "page");
+    expect(within(barra).getByRole("link", { name: "Hoy" })).not.toHaveAttribute("aria-current");
   });
 
-  it("«Más» abre el cajón con el rail entero agrupado por preguntas", async () => {
+  it("«Más» abre el cajón con las ocho secciones", async () => {
     stubMatchMedia(true);
     const user = userEvent.setup();
     renderAdmin(buildMe({ features: { "cash.handovers": true } }));
@@ -153,8 +149,8 @@ describe("AdminLayout en el celular: barra inferior", () => {
     await user.click(mas);
 
     const cajon = await screen.findByRole("dialog");
-    expect(within(cajon).getByRole("group", { name: "LA PLATA" })).toBeInTheDocument();
-    expect(within(cajon).getByRole("link", { name: "Configuración" })).toBeInTheDocument();
+    expect(within(cajon).getByRole("link", { name: "Caja" })).toBeInTheDocument();
+    expect(within(cajon).getByRole("link", { name: "Ajustes" })).toBeInTheDocument();
     expect(mas).toHaveAttribute("aria-expanded", "true");
   });
 

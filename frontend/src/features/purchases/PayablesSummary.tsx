@@ -1,7 +1,7 @@
 /**
  * La cabecera de Compras › Cuentas por pagar (informe de visualización #8):
- * «Debés $X · $Y vencido · $Z vence en 7 días», la antigüedad por tramo y a
- * quién se le debe. Todo sale de `GET /admin/payables/summary`: los totales,
+ * «Debés $X» como cifra protagonista, con lo vencido y lo que vence en 7 días
+ * al lado, la antigüedad por tramo y a quién se le debe. Todo sale de `GET /admin/payables/summary`: los totales,
  * los tramos y el corte por proveedor los suma el servidor, acá sólo se
  * dibujan. Es la foto de HOY, no depende del rango de la tabla de abajo.
  */
@@ -13,8 +13,9 @@ import { StatTile } from "@/components/StatTile"
 import { errorMessage } from "@/lib/errors"
 import { formatFechaCorta } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
+import { cn } from "@/lib/utils"
 
-import { AGING_EJE, AGING_LABEL, cuentas, payablesHeadline } from "./lib"
+import { AGING_EJE, AGING_LABEL, cuentas } from "./lib"
 
 export function PayablesSummary({ storeId }: { storeId: number }): React.JSX.Element | null {
   const query = useQuery({
@@ -48,18 +49,29 @@ export function PayablesSummary({ storeId }: { storeId: number }): React.JSX.Ele
 
   return (
     <section aria-label="Resumen de lo que se debe" className="space-y-4">
-      <div className="space-y-1">
-        <h3 data-testid="payables-headline" className="text-lg leading-snug font-semibold">
-          {payablesHeadline(s)}
-        </h3>
-        <p className="text-xs text-muted-foreground">
-          Saldos vivos al {formatFechaCorta(s.as_of)}, de todas las cuentas sin cancelar (también las pendientes de
-          revisión): no depende del rango de la tabla de abajo.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatTile label="Debés en total" value={formatCOP(s.total_open)} hint={`${cuentas(s.open_count)} con saldo.`} />
+      {/* **Una cifra protagonista** (mapa de pantallas, regla 1): lo que se
+          debe, grande y en ámbar —es plata pendiente—; lo vencido y lo que
+          vence en la semana, al lado y más chico. Las tres cifras son las del
+          servidor, tal cual. La frase que las repetía de corrido arriba de
+          las tarjetas (`payablesHeadline`) sobraba: decía tres veces lo mismo. */}
+      <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,max-content)_minmax(0,1fr)_minmax(0,1fr)]">
+        <div data-testid="payables-headline" className="min-w-0 py-1 sm:col-span-2 lg:col-span-1 lg:pr-4">
+          <p className="text-[0.7rem] tracking-wider text-muted-foreground uppercase">Debés en total</p>
+          <p
+            className={cn(
+              "mt-0.5 text-4xl leading-none font-bold tracking-tight whitespace-nowrap tabular-nums",
+              s.open_count > 0 ? "text-warning" : "text-foreground",
+            )}
+          >
+            {formatCOP(s.total_open)}
+          </p>
+          <p
+            className="mt-1.5 text-xs text-muted-foreground"
+            title="De todas las cuentas sin cancelar, también las pendientes de revisión. Es la foto de hoy: no depende del rango de la tabla de abajo."
+          >
+            {cuentas(s.open_count)} con saldo · al {formatFechaCorta(s.as_of)}
+          </p>
+        </div>
         <StatTile
           label="Vencido"
           value={formatCOP(s.total_overdue)}
@@ -75,7 +87,7 @@ export function PayablesSummary({ storeId }: { storeId: number }): React.JSX.Ele
           label="Vence en 7 días"
           value={formatCOP(s.due_next_7_days)}
           tone={s.due_next_7_days > 0 ? "warning" : "default"}
-          hint="Lo que vence entre hoy y dentro de una semana."
+          hint="Entre hoy y dentro de una semana."
         />
       </div>
 

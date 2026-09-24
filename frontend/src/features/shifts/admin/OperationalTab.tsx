@@ -8,7 +8,6 @@ import {
   GroupLabel,
   type DenseColumn,
   type LegendEntry,
-  type RowStatus,
 } from "@/components/admin";
 import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
@@ -18,6 +17,7 @@ import { Diferencia } from "@/components/Diferencia";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
 
+import { shiftRowStatus } from "./lib";
 import { ShiftDetailDialog } from "./ShiftDetailDialog";
 
 /**
@@ -34,17 +34,6 @@ function todayInBogota(): string {
 }
 
 const STATUS_LABEL: Record<string, string> = { open: "Abierto", closed: "Cerrado" };
-
-/**
- * § 8b · La franja de estado de la primera celda: la forma del problema sin
- * leer. Clasifica banderas que el servidor YA mandó (`is_stale`,
- * `reviewed_at`) — acá no se deriva ninguna diferencia.
- */
-function shiftRowStatus(shift: AdminShiftListItem): RowStatus {
-  if (shift.is_stale) return "critical";
-  if (shift.status === "closed" && !shift.reviewed_at) return "warning";
-  return "none";
-}
 
 function StatusCell({ shift }: { shift: AdminShiftListItem }): React.JSX.Element {
   return (
@@ -73,11 +62,18 @@ export const SHIFT_LEGEND: readonly LegendEntry[] = [
   },
 ];
 
+/**
+ * Las columnas de una tabla de turnos. `secundarias` nombra las que quedan
+ * detrás de «Más columnas» (mapa de pantallas, regla 3: cinco a la vista):
+ * Historial suma el día operativo y manda «Estado» atrás, porque ahí casi
+ * todo está cerrado y el abandonado ya lo dice la franja de la fila.
+ */
 export function shiftColumns(
   onOpenDetail: (shift: AdminShiftListItem) => void,
   extra: readonly DenseColumn<AdminShiftListItem>[] = [],
+  secundarias: readonly string[] = [],
 ): readonly DenseColumn<AdminShiftListItem>[] {
-  return [
+  const columns: DenseColumn<AdminShiftListItem>[] = [
     ...extra,
     { key: "status", header: "Estado", cell: (s) => <StatusCell shift={s} /> },
     { key: "who", header: "Responsable", cell: (s) => s.cash_responsible?.name ?? "—" },
@@ -93,6 +89,7 @@ export function shiftColumns(
       key: "reviewed",
       header: "Revisión",
       kind: "secondary",
+      secondary: true,
       cell: (s) => (s.reviewed_at ? "Revisado" : "Sin revisar"),
     },
     {
@@ -109,6 +106,7 @@ export function shiftColumns(
       ),
     },
   ];
+  return columns.map((column) => (secundarias.includes(column.key) ? { ...column, secondary: true } : column));
 }
 
 /**

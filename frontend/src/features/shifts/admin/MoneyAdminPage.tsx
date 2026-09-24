@@ -29,18 +29,15 @@ export function MoneyAdminPage(): React.JSX.Element {
   return (
     <div className="space-y-4">
       {/* § 2 · «Dinero» no se explica solo: la cabecera lleva la pregunta que
-          la pantalla contesta. El período de cada pestaña vive en la pestaña;
-          la sede, en la lateral (§ 1). */}
+          la pantalla contesta, plegada en «¿Qué es esto?». Lo que antes iba
+          en la franja de contexto eran dos frases que explicaban la pantalla
+          —qué muestra cada pestaña, dónde viven los rescates— y no datos que
+          caducan: pasaron a la pregunta (mapa de pantallas, regla 2). El
+          período de cada pestaña vive en la pestaña; la sede, en la lateral
+          (§ 1). */}
       <PageHeader
         name="Dinero"
-        question="Cuánto debería haber en cada cajón, cuánto había de verdad y quién respondió por la diferencia."
-        context={[
-          { label: "Operacional muestra los turnos de hoy; Historial, cualquier rango." },
-          {
-            label: "Los rescates de administrador viven en el detalle de cada turno",
-            title: "Cierre administrativo, Reabrir, Cancelar y Ajustar apertura se abren desde «Ver detalle» de una fila.",
-          },
-        ]}
+        question="Cuánto debería haber en cada cajón, cuánto había de verdad y quién respondió por la diferencia. Operacional muestra los turnos de hoy; Historial, cualquier rango. Los rescates de administrador —cierre administrativo, reabrir, cancelar y ajustar apertura— se abren desde «Ver detalle» de cada turno."
       >
         <Tabs
           value={tab}

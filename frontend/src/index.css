@@ -248,7 +248,7 @@ html.salon.cocina {
 /* ─────────────────────────────────────────────────────────────────────────
    DENSIDADES — un solo sistema de color, dos escalas.
    `.salon`   tablet de pie: cuerpo 17 px, objetivo táctil 52 px, radio 12 px.
-   `.oficina` escritorio sentado: cuerpo 14,5 px, fila 34 px, radio 8 px.
+   `.oficina` escritorio sentado: cuerpo 16 px, fila 34 px, radio 8 px.
 
    La escala se mueve desde el tamaño de letra de la RAÍZ, no con una escala
    tipográfica paralela: todas las utilidades de Tailwind (texto, `--spacing`,
@@ -270,8 +270,10 @@ html.salon {
     font-size: 17px;
 }
 
+/* 16 px y no 14,5: el dueño comparó con café-sistema y el admin del
+   restaurante le pareció agobiante (mapa de pantallas, regla 6). */
 html.oficina {
-    font-size: 14.5px;
+    font-size: 16px;
 }
 
 .salon {

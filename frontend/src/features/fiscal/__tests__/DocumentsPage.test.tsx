@@ -54,7 +54,9 @@ describe("DocumentsPage", () => {
     await waitFor(() => expect(screen.getByText("POS-000900")).toBeInTheDocument());
     expect(screen.getByText("Rechazado")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Reintentar" }));
+    // Las acciones de la fila viven en «⋯» (mapa de pantallas, regla 3).
+    await user.click(screen.getByRole("button", { name: "Acciones de POS-000900" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Reintentar" }));
     await waitFor(() => expect(retryFiscalDocumentMock).toHaveBeenCalledWith(900, expect.any(String)));
   });
 
@@ -78,7 +80,11 @@ describe("DocumentsPage", () => {
     renderWithProviders(<DocumentsPage />);
 
     await waitFor(() => expect(screen.getByText("POS-000900")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "Evidencia" }));
+    await user.click(screen.getByRole("button", { name: "Acciones de POS-000900" }));
+    // Un documento validado no ofrece reintentar: la acción sigue condicionada.
+    expect(await screen.findByRole("menuitem", { name: "Evidencia" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Reintentar" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: "Evidencia" }));
 
     expect(await screen.findByText("CUDE-XYZ")).toBeInTheDocument();
     expect(screen.getByText("abc123")).toBeInTheDocument();

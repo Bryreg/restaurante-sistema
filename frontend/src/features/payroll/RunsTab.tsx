@@ -40,16 +40,20 @@ import { formatDelta, formatRangoCorto } from "@/features/reports/lib"
 
 import { formatBasisPoints } from "@/features/inventory/lib"
 
+import { Explicacion } from "@/components/admin"
 import { daysAgoLocal, runsHeadline, todayLocal } from "./lib"
 
 const RUN_LINE_COLUMNS: readonly DenseColumn<PayrollRunLineOut>[] = [
   { key: "person", header: "Persona", kind: "name", cell: (l) => l.employee_name ?? `#${l.employee_id}` },
   { key: "base", header: "Base", kind: "number", cell: (l) => formatCOP(l.base_pay) },
-  { key: "night", header: "Recargo nocturno", kind: "number", cell: (l) => formatCOP(l.night_surcharge) },
+  // Los dos recargos, detrás de «Más columnas» (regla 3): a la vista quedan
+  // la base, la hora extra y el total de cada persona.
+  { key: "night", header: "Recargo nocturno", kind: "number", secondary: true, cell: (l) => formatCOP(l.night_surcharge) },
   {
     key: "sunday",
     header: "Recargo dominical/festivo",
     kind: "number",
+    secondary: true,
     cell: (l) => formatCOP(l.sunday_holiday_surcharge),
   },
   { key: "overtime", header: "Hora extra", kind: "number", cell: (l) => formatCOP(l.overtime_pay) },
@@ -208,12 +212,20 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
           intento lo puso adentro, y el recorrido en navegador mostró que con
           cero liquidaciones no se veía nunca — justo cuando más importa, que
           es antes de apretar «Liquidar» por primera vez. */}
-      <p className="rounded-md border border-l-[3px] border-l-warning bg-muted px-3 py-2 text-xs text-muted-foreground">
-        <strong>Esta cifra es para control interno, no es la liquidación legal.</strong> Paga la base más cada recargo
-        (nocturno, dominical y festivo, hora extra) por separado, que es lo que la hace auditable renglón por renglón.
-        La fórmula del Código Sustantivo del Trabajo los combina en ocho categorías, y esa todavía no está
-        implementada: antes de pagarle a alguien con este número, revisalo con tu contador.
-      </p>
+      {/* Regla 2 · El aviso queda a la vista en una línea; el porqué, plegado. */}
+      <div className="rounded-md border border-l-[3px] border-l-warning bg-muted px-3 py-2 text-xs text-muted-foreground">
+        <p>
+          <strong>Esta cifra es para control interno, no es la liquidación legal.</strong> Antes de pagarle a alguien
+          con este número, revisalo con tu contador.
+        </p>
+        <Explicacion resumen="¿Por qué?">
+          <p>
+            Paga la base más cada recargo (nocturno, dominical y festivo, hora extra) por separado, que es lo que la
+            hace auditable renglón por renglón. La fórmula del Código Sustantivo del Trabajo los combina en ocho
+            categorías, y esa todavía no está implementada.
+          </p>
+        </Explicacion>
+      </div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <DateRangeFilter idPrefix="payroll-runs" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
         <Button type="button" className="h-11" disabled={mutation.isPending} onClick={() => mutation.mutate()}>

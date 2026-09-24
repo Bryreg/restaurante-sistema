@@ -1,4 +1,5 @@
-import type { LucideIcon } from "lucide-react"
+import { CircleHelp, type LucideIcon } from "lucide-react"
+import { useId, useState } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -57,9 +58,13 @@ export interface PageHeaderProps {
 /**
  * **Cabecera de pantalla** (`docs/PATRONES-ADMIN.md` § 2). Aplica a las 24.
  *
- * No hay barra superior de producto: una barra superior le cobra 56 px de
- * alto a un portátil, donde el eje escaso es el vertical. Todo lo que una
- * barra superior haría vive acá o en la lateral.
+ * **La pregunta va plegada en «¿Qué es esto?»** (mapa de pantallas, regla 2:
+ * «la explicación va en ¿Qué es esto?, no en la pantalla»). El dueño comparó
+ * el admin con el de café-sistema y el del restaurante le pareció agobiante:
+ * la primera pantalla de Hoy decía 485 palabras contra 165. La pregunta sigue
+ * siendo obligatoria —quien entra por primera vez a «Rangos» la necesita—,
+ * pero la lee quien la pide, no todos todas las veces. Sigue en el árbol
+ * (`hidden`), así que la pantalla no cambia de qué dice, sólo de qué muestra.
  */
 export function PageHeader({
   name,
@@ -69,14 +74,30 @@ export function PageHeader({
   children,
   className,
 }: PageHeaderProps): React.JSX.Element {
+  const [explicar, setExplicar] = useState(false)
+  const idPregunta = useId()
   return (
     <header className={cn("flex flex-col gap-2", className)}>
       {/* En el celular las acciones van debajo del título: al lado, lo
           apretaban a una columna de dos palabras por renglón. */}
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl leading-tight font-bold">{name}</h1>
-          <p className="mt-0.5 max-w-[68ch] text-sm text-muted-foreground">{question}</p>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h1 className="text-2xl leading-tight font-bold">{name}</h1>
+            <button
+              type="button"
+              aria-expanded={explicar}
+              aria-controls={idPregunta}
+              onClick={() => setExplicar((v) => !v)}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              <CircleHelp className="size-3.5 shrink-0" aria-hidden="true" />
+              ¿Qué es esto?
+            </button>
+          </div>
+          <p id={idPregunta} hidden={!explicar} className="mt-1 max-w-[68ch] text-sm text-muted-foreground">
+            {question}
+          </p>
         </div>
         {actions ? (
           <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">{actions}</div>

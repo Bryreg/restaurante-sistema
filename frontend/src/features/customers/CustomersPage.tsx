@@ -467,7 +467,9 @@ export function CustomersPage(): React.JSX.Element {
       ),
     },
     { key: "email", header: "Correo", cell: (c) => c.email ?? "—" },
-    { key: "municipality", header: "Municipio", cell: (c) => c.municipality_dane ?? "—" },
+    // Municipio va detrás de «Más columnas» (mapa de pantallas, regla 3): no
+    // decide nada en la lista; se corrige en el detalle.
+    { key: "municipality", header: "Municipio", secondary: true, cell: (c) => c.municipality_dane ?? "—" },
     {
       key: "state",
       header: "Estado",
@@ -514,10 +516,17 @@ export function CustomersPage(): React.JSX.Element {
         }
       />
 
-      <p className="max-w-[80ch] text-sm text-muted-foreground">
-        El dispositivo sólo los crea al cobrar; acá se administran, se corrigen y se ejercen los derechos de
-        habeas data.
-      </p>
+      {/* Plegado (mapa de pantallas, regla 2): de dónde salen los clientes se
+          lee una vez, no cada vez que se abre la lista. */}
+      <details className="max-w-[80ch] text-sm text-muted-foreground">
+        <summary className="cursor-pointer rounded-md py-0.5 text-xs font-medium select-none hover:text-foreground">
+          ¿De dónde salen?
+        </summary>
+        <p className="pt-1">
+          El dispositivo sólo los crea al cobrar; acá se administran, se corrigen y se ejercen los derechos de
+          habeas data.
+        </p>
+      </details>
 
       {query.isError ? (
         <EmptyState

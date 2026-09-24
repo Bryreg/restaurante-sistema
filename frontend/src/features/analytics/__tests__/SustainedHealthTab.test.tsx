@@ -64,9 +64,12 @@ describe("SustainedHealthTab — D-1: sustained_red es null con motivo, NUNCA ve
     expect(container.querySelectorAll("[data-punto]")).toHaveLength(3)
     expect(container.querySelectorAll("[data-sobre]")).toHaveLength(1)
     expect(container.querySelector("[data-umbral]")).toHaveTextContent("Umbral rojo: 4,0 pts")
-    // `windows_skipped` explicado con las reglas del servidor.
-    expect(screen.getByTestId("ventanas-saltadas")).toHaveTextContent(
-      /2 ventanas entre conteos no cuentan: una ventana entra sólo si dura 1 día completo o más, tiene ventas, tiene ficha con costo en 80,0\s% o más/,
+    // `windows_skipped` explicado con las reglas del servidor: el recuento a
+    // la vista, las reglas en el plegable (siguen en la pantalla).
+    const saltadas = screen.getByTestId("ventanas-saltadas")
+    expect(saltadas.querySelector("summary")).toHaveTextContent("2 ventanas entre conteos no cuentan")
+    expect(saltadas).toHaveTextContent(
+      /Una ventana entra sólo si dura 1 día completo o más, tiene ventas, tiene ficha con costo en 80,0\s% o más/,
     )
     expect(screen.getByText("No")).toBeInTheDocument()
   })

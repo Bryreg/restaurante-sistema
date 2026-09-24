@@ -138,8 +138,11 @@ describe("VarianceTab — el semáforo lo calcula el servidor, nunca un umbral d
     listCountsMock.mockResolvedValue([APPLIED])
     getVarianceMock.mockResolvedValue(variance({ rows: [row({ theoretical_usage_qty: "1894.12" })] }))
 
+    const user = userEvent.setup()
     renderWithProviders(<VarianceTab storeId={1} />)
 
+    // Inicial/entradas/final/uso van detrás de «Más columnas» (regla 3).
+    await user.click(await screen.findByRole("button", { name: /Más columnas/ }))
     await waitFor(() => expect(screen.getByText("12.500 g")).toBeInTheDocument())
     expect(screen.getByText("1.894,12 g")).toBeInTheDocument()
     expect(screen.queryByText("12500 g")).not.toBeInTheDocument()
