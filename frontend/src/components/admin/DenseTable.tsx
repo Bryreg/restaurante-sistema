@@ -111,8 +111,13 @@ export interface DenseTableProps<R> {
   bar?: React.ReactNode
   /** **Al pie y una sola vez**: el dueño quiere las filas primero. */
   legend?: readonly LegendEntry[]
-  /** Totales u otra fila de cierre, dentro del `<tfoot>`. */
-  footer?: React.ReactNode
+  /**
+   * Totales u otra fila de cierre, dentro del `<tfoot>`. Si la tabla tiene
+   * columnas secundarias, puede ser una función que recibe si están abiertas
+   * («Más columnas»): la fila de total tiene que tener las mismas celdas que
+   * el encabezado, o sus cifras quedan corridas bajo otra columna.
+   */
+  footer?: React.ReactNode | ((todasLasColumnas: boolean) => React.ReactNode)
   /** La nota del pie: lo que hace una acción, qué PIN pide, qué no borra. */
   note?: React.ReactNode
   /** Qué se dibuja sin filas. Siempre un `EmptyState` **con motivo**. */
@@ -258,7 +263,9 @@ export function DenseTable<R>({
                 (`docs/diseno/propuesta.html` § Tablas): la raya dice «esto
                 ya no es un renglón más, es la suma que da el servidor». */}
             {footer ? (
-              <tfoot className="border-t-[3px] border-double border-foreground/60 bg-muted font-bold">{footer}</tfoot>
+              <tfoot className="border-t-[3px] border-double border-foreground/60 bg-muted font-bold">
+                {typeof footer === "function" ? footer(todas) : footer}
+              </tfoot>
             ) : null}
           </table>
         </div>

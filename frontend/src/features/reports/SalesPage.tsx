@@ -37,11 +37,6 @@ export function SalesPage(): React.JSX.Element {
       <PageHeader
         name="Ventas"
         question="Qué se vendió en el período, cómo te lo pagaron y qué parte de eso tuvo ficha técnica de verdad."
-        context={[
-          {
-            label: "El período y la agrupación se eligen en cada pestaña; la sede, en la lateral.",
-          },
-        ]}
         actions={
           <>
             <Link
@@ -62,9 +57,15 @@ export function SalesPage(): React.JSX.Element {
         }
       >
         {/* La pestaña por defecto no cambia: esta ronda es apariencia y
-            composición, no comportamiento. */}
+            composición, no comportamiento. Dónde se elige cada cosa era una
+            franja de contexto que explicaba en vez de dar un dato (mapa de
+            pantallas, regla 2): pasó al `title` de las pestañas, que es de
+            lo que habla. */}
         <Tabs defaultValue="sales">
-          <TabsList className="mt-1 h-auto flex-wrap">
+          <TabsList
+            className="mt-1 h-auto flex-wrap"
+            title="El período y la agrupación se eligen en cada pestaña; la sede, en la lateral."
+          >
             <TabsTrigger value="sales">Ventas</TabsTrigger>
             <TabsTrigger value="accountant">Informe del contador</TabsTrigger>
             <TabsTrigger value="unavailable">Agotados</TabsTrigger>

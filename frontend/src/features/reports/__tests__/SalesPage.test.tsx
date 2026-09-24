@@ -268,4 +268,25 @@ describe("SalesPage", () => {
     await screen.findByRole("heading", { name: `Platos Fuertes hace el ${formatPct(6229)} de la venta neta` })
     expect(getSalesMock).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: "category" }))
   })
+
+  it("la tabla muestra cinco columnas y el resto detrás de «Más columnas»; los totales de las ocultas no quedan corridos", async () => {
+    const fila = { key: "2026-09-15", label: "2026-09-15", gross: 100000, net: 92593, tax: 7407, tips: 9000, orders: 5, covers: 12, avg_ticket: 18519, avg_per_cover: 7716, share_bp: 10000 }
+    getSalesMock.mockResolvedValue({
+      store_id: 1, date_from: "2026-09-09", date_to: "2026-09-15", group_by: "business_date",
+      rows: [fila], total: { ...fila, key: "total", label: "total" },
+    })
+    const user = userEvent.setup()
+    renderWithProviders(<SalesPage />, { me: buildMe() })
+
+    await screen.findByText("Ventas netas del período")
+    const encabezados = () => screen.getAllByRole("columnheader").map((th) => th.textContent)
+    await waitFor(() => expect(encabezados()).toEqual(["Día operativo", "Neto", "Participación", "Comandas", "Ticket prom."]))
+
+    await user.click(screen.getByRole("button", { name: /Más columnas \(\d+\)/ }))
+    expect(encabezados()).toContain("Cobrado")
+    expect(encabezados()).toContain("Propinas")
+    // La fila de total tiene una celda por columna, en el mismo orden.
+    const total = screen.getByText("Total").closest("tr") as HTMLElement
+    expect(within(total).getAllByRole("cell")).toHaveLength(encabezados().length)
+  })
 })

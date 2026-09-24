@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { formatPct } from "@/lib/format"
@@ -294,7 +295,7 @@ describe("TodayPage", () => {
     await screen.findByText("Ventas netas de hoy")
     // Se busca el motivo y se mira que viva dentro del «sin dato» rayado
     // (`SinDato`): el rótulo de adelante es cosa de ese componente.
-    const sinComandas = screen.getAllByText(/todavía no hay comandas pagadas hoy/)
+    const sinComandas = screen.getAllByText(/todavía sin comandas pagadas/)
     expect(sinComandas).toHaveLength(3)
     for (const motivo of sinComandas) expect(motivo.closest(".sin-dato")).not.toBeNull()
     expect(screen.getByText(/no hay un turno de caja abierto/).closest(".sin-dato")).not.toBeNull()
@@ -620,5 +621,71 @@ describe("TodayPage", () => {
     expect(screen.getAllByText("Viene de ayer")).toHaveLength(1)
     const fila458 = screen.getByText("#458").closest("tr") as HTMLElement
     expect(within(fila458).getByText("Viene de ayer")).toBeInTheDocument()
+  })
+
+  // ---------------------------------------------------------------------
+  // «Orden y aire»: cinco avisos a la vista y la explicación plegada.
+  // ---------------------------------------------------------------------
+  it("«Requiere tu atención» deja cinco avisos a la vista y el resto detrás de «Ver más (n)», sin mentir en los recuentos", async () => {
+    const alerta = (i: number) => ({
+      type: "waste_spike",
+      level: "warning",
+      title: `Aviso ${i}`,
+      body: "Cuerpo.",
+      created_at: `2026-09-15T1${i}:00:00Z`,
+      payload: null,
+      amount: null,
+    })
+    getTodayMock.mockResolvedValue(baseToday({ alerts: [1, 2, 3, 4, 5, 6, 7].map(alerta) }))
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const riel = await screen.findByRole("complementary", { name: "Requiere tu atención" })
+    // Los recuentos —el del encabezado y el del grupo «Aviso»— son los de
+    // todos, no los de los que se ven.
+    expect(within(riel).getAllByText("7")).toHaveLength(2)
+    const plegados = () =>
+      within(riel)
+        .getAllByRole("listitem")
+        .filter((li) => li.querySelector("[data-aviso-plegado]") !== null)
+        .map((li) => li.querySelector("p")?.textContent)
+    expect(plegados()).toEqual(["Aviso 6", "Aviso 7"])
+
+    await userEvent.click(screen.getByRole("button", { name: "Ver más (2)" }))
+    expect(plegados()).toEqual([])
+    expect(screen.getByRole("button", { name: "Ver menos" })).toHaveAttribute("aria-expanded", "true")
+  })
+
+  it("con cinco avisos o menos no hay «Ver más»", async () => {
+    getTodayMock.mockResolvedValue(baseToday({ unsent_count: 1, unreviewed_closes_count: 2 }))
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("Comandas atascadas")
+    expect(screen.queryByRole("button", { name: /Ver más \(/ })).not.toBeInTheDocument()
+  })
+
+  it("lo que explica va plegado (pie de tarjetas, método del gráfico, porqué de un aviso); el motivo de un «sin dato» no", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        avg_per_cover: null,
+        covers: 0,
+        ingredients_negative: [
+          { ingredient_id: 2, name: "Leche entera", qty_base: -400, min_stock: 2000, base_unit: "ml", negative_since: null, probable_cause: null, amount: 1600 },
+        ],
+        ingredients_negative_amount: 1600,
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("1 insumo en negativo")
+    expect(screen.getByText(/cobradas y cerradas: ya no cambian/).closest("details")).not.toBeNull()
+    expect(screen.getByText(/Venta neta por hora de reloj/).closest("details")).not.toBeNull()
+    expect(screen.getByText(/Es deuda de registro/).closest("details")).not.toBeNull()
+    // La propina: que no es venta se ve; la ley, plegada.
+    expect(screen.getByText("No son venta.").closest("details")).toBeNull()
+    expect(screen.getByText(/Ley 1935 de 2018/).closest("details")).not.toBeNull()
+    // null ≠ 0: el motivo queda a la vista, dentro del rayado.
+    const motivo = screen.getByText(/ninguna comanda pagada hoy registró comensales/)
+    expect(motivo.closest("details")).toBeNull()
+    expect(motivo.closest(".sin-dato")).not.toBeNull()
   })
 })

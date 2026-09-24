@@ -12,6 +12,7 @@ import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { daysAgoInBogota, todayInBogota } from "./lib"
+import { Plegable } from "./Plegable"
 
 /**
  * "Agotados del día" (SPEC-NEGOCIO §10): sólo puede listar lo que SIGUE
@@ -49,10 +50,13 @@ export function UnavailableLogTab({ storeId }: { storeId: number }): React.JSX.E
         <DateRangeFilter idPrefix="unavailable" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
         <CsvExportButton href={unavailableLogCsvUrl({ storeId, from, to })} label="Exportar CSV" />
       </div>
-      <p className="text-xs text-muted-foreground">
+      {/* Lo que explica la pestaña, plegado (mapa de pantallas, regla 2).
+          La leyenda de la tabla lo repite, también plegada; acá sigue para
+          quien no llega a la tabla porque no hay agotados. */}
+      <Plegable resumen="¿Qué es esto?">
         Sólo productos que SIGUEN agotados ahora. Las ventas perdidas son una estimación sobre el promedio de los 7
         días de negocio anteriores — "—" cuando no hubo ventas previas para estimar.
-      </p>
+      </Plegable>
 
       {query.isLoading ? (
         <Cargando texto="Cargando agotados…" />
