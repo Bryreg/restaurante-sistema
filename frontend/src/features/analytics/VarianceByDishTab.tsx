@@ -1,7 +1,8 @@
 /**
  * Admin → Analítica → Varianza por plato (T4, `GET /admin/variance/by-dish`):
  * §5.4 la define explícitamente como "sólo estimación prorrateada" — esta
- * pantalla lo dice arriba de la tabla, con `method` tal cual llega, nunca
+ * pantalla lo dice arriba de todo (plegado en «¿Qué es esto?»), con
+ * `method` tal cual llega, nunca
  * asumido como "prorated" por default si el backend mandara otra cosa.
  *
  * La ventana real de esta ruta es la del último conteo aplicado (`count_id`,
@@ -30,6 +31,7 @@ import { formatCOP } from "@/lib/money"
 
 import { textoVentana } from "@/features/inventory/lib"
 
+import { ComoLeer, CifraProtagonista } from "./Aire"
 import { varianceByDishTitular } from "./titulares"
 
 /**
@@ -48,6 +50,26 @@ function Direccion({ row }: { row: VarianceByDishRowOut }): React.JSX.Element {
     <span className={falta ? "font-medium text-destructive" : "font-medium text-warning"}>
       {falta ? "Faltante" : "Sobrante"}
     </span>
+  )
+}
+
+/**
+ * La cifra protagonista (regla 1): el neto de la ventana,
+ * `total_variance_value` tal cual. Rojo si falta; ámbar si sobra —un
+ * sobrante también pide mirar el conteo, pero no es plata que se fue—;
+ * verde si cuadra. Va sin signo porque la palabra ya dice la dirección
+ * (misma decisión que las barras, analista #11): quitar el «-» del texto no
+ * es una cuenta, y el signo del servidor sigue en la tabla.
+ */
+function NetoProtagonista({ total }: { total: number }): React.JSX.Element {
+  if (total === 0) return <CifraProtagonista valor={formatCOP(total)} rotulo="la ventana cuadra en neto" tono="success" />
+  const falta = total > 0
+  return (
+    <CifraProtagonista
+      valor={formatCOP(total).replace(/^[-−]/, "")}
+      rotulo={falta ? "de faltante neto en la ventana" : "de sobrante neto en la ventana"}
+      tono={falta ? "critical" : "warning"}
+    />
   )
 }
 
@@ -97,12 +119,16 @@ export function VarianceByDishTab({ storeId }: { storeId: number }): React.JSX.E
 
   return (
     <div className="space-y-4">
+      {/* El método, plegado (mapa de pantallas, regla 2): sigue en la
+          pantalla tal como llega —nunca asumido—, pero se lee cuando se pide. */}
       {data ? (
-        <p className="text-xs text-muted-foreground">
-          Método: <strong>{data.method}</strong> — es una ESTIMACIÓN prorrateada sobre la ventana del último
-          conteo aplicado, no una medición directa por plato (SPEC-NEGOCIO §5.4).
-          {ventana ? ` Ventana: ${ventana}.` : ""}
-        </p>
+        <ComoLeer resumen="Cómo se estima">
+          <p>
+            Método: <strong>{data.method}</strong> — es una ESTIMACIÓN prorrateada sobre la ventana del último
+            conteo aplicado, no una medición directa por plato (SPEC-NEGOCIO §5.4).
+            {ventana ? ` Ventana: ${ventana}.` : ""}
+          </p>
+        </ComoLeer>
       ) : null}
 
       {query.isLoading ? (
@@ -119,6 +145,9 @@ export function VarianceByDishTab({ storeId }: { storeId: number }): React.JSX.E
         />
       ) : (
         <>
+          {data.total_variance_value === null || data.total_variance_value === undefined ? null : (
+            <NetoProtagonista total={data.total_variance_value} />
+          )}
           {data.insufficient_sample ? (
             <p className="sin-dato px-2 py-1.5 text-sm not-italic" data-muestra="chica" role="note">
               {/* El motivo del servidor ya empieza por «Muestra insuficiente: …»: se muestra tal cual. */}
@@ -135,7 +164,14 @@ export function VarianceByDishTab({ storeId }: { storeId: number }): React.JSX.E
             <div className="rounded-lg border bg-card p-4">
               <ChartFrame
                 titular={varianceByDishTitular(data)}
-                detalle="Varianza estimada por plato con el cero al centro, en pesos. A la derecha, faltante (se usó más insumo del que explican las ventas); a la izquierda, sobrante. Faltantes primero."
+                detalle={
+                  <ComoLeer resumen="Cómo leer el gráfico">
+                    <p>
+                      Varianza estimada por plato con el cero al centro, en pesos. A la derecha, faltante (se usó más
+                      insumo del que explican las ventas); a la izquierda, sobrante. Faltantes primero.
+                    </p>
+                  </ComoLeer>
+                }
                 muestra={
                   data.sales_in_window === null || data.sales_in_window === undefined
                     ? undefined

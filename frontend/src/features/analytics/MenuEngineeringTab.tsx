@@ -27,6 +27,7 @@ import { formatFechaCorta, formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
+import { ComoLeer, CifraProtagonista } from "./Aire"
 import { daysAgoLocal, menuEngineeringLabel, menuEngineeringTone, ordenPorAccion, todayLocal } from "./lib"
 import { menuResumen } from "./titulares"
 
@@ -65,30 +66,18 @@ function QueHacer({ row }: { row: MenuEngineeringRowOut }): React.JSX.Element {
   return <span className="text-muted-foreground italic">Cargar su costo para clasificarlo</span>
 }
 
+/**
+ * Cinco a la vista (mapa de pantallas, regla 3): qué plato, qué hacer con
+ * él, en qué clase cae, cuánto se vendió y cuánto dejó en el período. Las
+ * dos coordenadas de la matriz (popularidad y margen por unidad) ya se leen
+ * en el gráfico y en su «Ver tabla»; con el margen %, la categoría y el
+ * porqué, quedan detrás de «Más columnas».
+ */
 const MENU_COLUMNS: readonly DenseColumn<MenuEngineeringRowOut>[] = [
   { key: "product", header: "Plato", kind: "name", cell: (r) => r.product_name ?? `#${r.product_id}` },
   { key: "todo", header: "Qué hacer", cell: (r) => <QueHacer row={r} /> },
   { key: "class", header: "Clasificación", cell: (r) => <ClaseBadge row={r} /> },
-  { key: "category", header: "Categoría", kind: "secondary", cell: (r) => r.category_name ?? "—" },
   { key: "qty", header: "Unidades vendidas", kind: "number", cell: (r) => r.qty_sold ?? "—" },
-  {
-    key: "popularity",
-    header: "Popularidad",
-    kind: "number",
-    cell: (r) => formatPct(r.popularity_share_bp ?? null),
-  },
-  {
-    key: "unit-margin",
-    header: "Margen por unidad",
-    kind: "number",
-    cell: (r) => formatCOP(r.contribution_margin_per_unit ?? null),
-  },
-  {
-    key: "margin-pct",
-    header: "Margen %",
-    kind: "number",
-    cell: (r) => formatPct(r.margin_pct_bp ?? null),
-  },
   {
     key: "margin",
     header: "Margen del período",
@@ -96,10 +85,33 @@ const MENU_COLUMNS: readonly DenseColumn<MenuEngineeringRowOut>[] = [
     cell: (r) => formatCOP(r.contribution_margin ?? null),
   },
   {
+    key: "popularity",
+    header: "Popularidad",
+    kind: "number",
+    secondary: true,
+    cell: (r) => formatPct(r.popularity_share_bp ?? null),
+  },
+  {
+    key: "unit-margin",
+    header: "Margen por unidad",
+    kind: "number",
+    secondary: true,
+    cell: (r) => formatCOP(r.contribution_margin_per_unit ?? null),
+  },
+  {
+    key: "margin-pct",
+    header: "Margen %",
+    kind: "number",
+    secondary: true,
+    cell: (r) => formatPct(r.margin_pct_bp ?? null),
+  },
+  { key: "category", header: "Categoría", kind: "secondary", secondary: true, cell: (r) => r.category_name ?? "—" },
+  {
     // Lo largo va al `title` y lo corto a la celda: la fila NO crece (§ 8).
     key: "why",
     header: "Por qué",
     kind: "secondary",
+    secondary: true,
     cell: (r) => r.classification_reason ?? "—",
     cellTitle: (r) => r.classification_reason ?? undefined,
   },
@@ -143,11 +155,13 @@ function MatrizMenu({ data, rows }: { data: MenuEngineeringOut; rows: readonly M
       <ChartFrame
         titular={titular}
         detalle={
-          <>
-            Cada punto es un plato: a la derecha, más vendido; arriba, más margen por unidad. Las líneas son los umbrales
-            del servidor (popularidad mínima {formatPct(umbralX, 2)}; margen promedio {formatCOP(umbralY)}). Los
-            «perro» van resaltados.
-          </>
+          <ComoLeer resumen="Cómo leer el gráfico">
+            <p>
+              Cada punto es un plato: a la derecha, más vendido; arriba, más margen por unidad. Las líneas son los
+              umbrales del servidor (popularidad mínima {formatPct(umbralX, 2)}; margen promedio {formatCOP(umbralY)}).
+              Los «perro» van resaltados.
+            </p>
+          </ComoLeer>
         }
         muestra={{ n: unidades, unidad: "unidades vendidas", ventana, minimo: data.min_units ?? 20 }}
         tabla={{
@@ -248,17 +262,29 @@ export function MenuEngineeringTab({ storeId }: { storeId: number }): React.JSX.
         />
       ) : (
         <>
-          {resumen ? (
-            <div className="space-y-1" data-testid="menu-resumen">
-              <p className="text-lg leading-snug font-semibold">{resumen.titular}</p>
-              <p className="text-sm text-muted-foreground">
-                {resumen.aparte ? `${resumen.aparte} ` : ""}
-                {data.min_units !== undefined ? `Se clasifica con ${data.min_units} unidades vendidas o más. ` : ""}
-                {data.costed_pct_bp !== null && data.costed_pct_bp !== undefined
-                  ? `${formatPct(data.costed_pct_bp)} del ingreso analizado tiene costo congelado. `
-                  : ""}
-                {data.excluded_products ? `${data.excluded_products} ${data.excluded_products === 1 ? "producto queda" : "productos quedan"} fuera (cargos como el domicilio, comida del personal).` : ""}
-              </p>
+          {resumen && data.counts_by_class ? (
+            <div className="space-y-2" data-testid="menu-resumen">
+              {/* La cifra protagonista (regla 1): los platos que piden una
+                  decisión ya —los «perro»—, en ámbar como en la tabla (el
+                  rojo es faltante). Es `counts_by_class.dog` tal cual llega. */}
+              <CifraProtagonista
+                valor={String(data.counts_by_class.dog)}
+                rotulo={data.counts_by_class.dog === 1 ? "plato para sacar o rediseñar" : "platos para sacar o rediseñar"}
+                tono={data.counts_by_class.dog > 0 ? "warning" : "neutral"}
+              />
+              <p className="text-base leading-snug font-medium">{resumen.titular}</p>
+              {/* Cómo se clasificó y qué quedó afuera: se lee una vez, no
+                  cada vez que se abre la pestaña (regla 2). */}
+              <ComoLeer resumen="Cómo se clasificó">
+                <p>
+                  {resumen.aparte ? `${resumen.aparte} ` : ""}
+                  {data.min_units !== undefined ? `Se clasifica con ${data.min_units} unidades vendidas o más. ` : ""}
+                  {data.costed_pct_bp !== null && data.costed_pct_bp !== undefined
+                    ? `${formatPct(data.costed_pct_bp)} del ingreso analizado tiene costo congelado. `
+                    : ""}
+                  {data.excluded_products ? `${data.excluded_products} ${data.excluded_products === 1 ? "producto queda" : "productos quedan"} fuera (cargos como el domicilio, comida del personal).` : ""}
+                </p>
+              </ComoLeer>
             </div>
           ) : null}
 

@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import type { ReplenishmentOut } from "@/api/analytics"
@@ -60,6 +61,13 @@ describe("ReplenishmentTab — el consumo diario con su historial real y su medi
     expect(await screen.findByTestId("historial-comun")).toHaveTextContent(
       /Consumo diario calculado con 14 días de historial \(de los últimos 30\)/,
     )
+    // `null` no es 0: el mínimo sin lead time dice «Sin datos», a la vista
+    // (no detrás de «Más columnas»).
+    const aguacateVisible = within(screen.getAllByRole("row").find((f) => f.textContent?.includes("Aguacate hass"))!)
+    expect(aguacateVisible.getByText("Sin datos")).toBeInTheDocument()
+
+    // Consumo diario e historial son el cómo del cálculo: detrás de «Más columnas» (regla 3).
+    await userEvent.setup().click(screen.getByRole("button", { name: "Más columnas (3)" }))
     const filas = screen.getAllByRole("row")
     const aceite = within(filas.find((f) => f.textContent?.includes("Aceite vegetal"))!)
     expect(aceite.getByText("6.126 ml")).toBeInTheDocument()
@@ -71,7 +79,16 @@ describe("ReplenishmentTab — el consumo diario con su historial real y su medi
     const aguacate = within(filas.find((f) => f.textContent?.includes("Aguacate hass"))!)
     expect(aguacate.getByText(/0,02 unidad/)).toBeInTheDocument()
     expect(aguacate.getByText(/0,024 unidad/)).toBeInTheDocument()
-    // `null` no es 0: el mínimo sin lead time dice «Sin datos».
     expect(aguacate.getByText("Sin datos")).toBeInTheDocument()
+  })
+
+  it("la cifra protagonista cuenta los insumos con sugerencia mayor que cero, en ámbar", async () => {
+    getReplenishmentMock.mockResolvedValue(DATA)
+    renderWithProviders(<ReplenishmentTab storeId={1} />)
+
+    // El aguacate trae `suggested_qty: "0"`: no se pide. Queda uno.
+    const cifra = await screen.findByTestId("por-pedir")
+    expect(cifra).toHaveTextContent(/^1\s*insumo para pedir$/)
+    expect(within(cifra).getByText("1").className).toMatch(/text-warning/)
   })
 })

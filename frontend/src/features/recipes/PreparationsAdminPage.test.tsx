@@ -139,6 +139,38 @@ describe("PreparationsAdminPage", () => {
     expect(screen.getByText("oficial")).toBeInTheDocument()
   })
 
+  it("las acciones de la fila van en «⋯»: Editar, Cambiar modo y, sólo por lote, Ver lotes", async () => {
+    listPreparationsMock.mockResolvedValue([CALDO, HOGAO])
+    const user = userEvent.setup()
+    renderPage({ "catalog.preps": true })
+
+    await screen.findByText("Caldo base")
+    // Explotada: no hay lotes que ver.
+    await user.click(screen.getByRole("button", { name: "Acciones de Hogao" }))
+    expect((await screen.findAllByRole("menuitem")).map((i) => i.textContent)).toEqual(["Editar", "Cambiar modo"])
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("menuitem")).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole("button", { name: "Acciones de Caldo base" }))
+    expect((await screen.findAllByRole("menuitem")).map((i) => i.textContent)).toEqual([
+      "Editar",
+      "Cambiar modo",
+      "Ver lotes",
+    ])
+    await user.click(screen.getByRole("menuitem", { name: "Editar" }))
+    expect(await screen.findByRole("dialog", { name: "Editar Caldo base" })).toBeInTheDocument()
+  })
+
+  it("la cifra protagonista son las preparaciones por lote en cero o negativo, en rojo", async () => {
+    listPreparationsMock.mockResolvedValue([{ ...CALDO, current_stock: "0" }, HOGAO])
+    renderPage({ "catalog.preps": true })
+
+    const rotulo = await screen.findByText("por lote en cero o negativo")
+    const cifra = rotulo.previousElementSibling!
+    expect(cifra.textContent).toBe("1")
+    expect(cifra.className).toMatch(/text-destructive/)
+  })
+
   it("explica por qué explotada es el default antes de que alguien cree nada", async () => {
     listPreparationsMock.mockResolvedValue([])
     renderPage({ "catalog.preps": true })

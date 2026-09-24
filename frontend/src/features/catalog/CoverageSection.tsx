@@ -32,10 +32,14 @@ export function CoverageSection({ storeId }: { storeId: number }): React.JSX.Ele
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Platos vendidos en el período que no tienen ficha técnica ni insumo directo: la venta siguió, pero no
-        descontaron nada del inventario. Sin filtro de fecha, muestra los últimos 30 días.
-      </p>
+      {/* La explicación, plegada (mapa de pantallas, regla 2). */}
+      <details className="text-sm text-muted-foreground">
+        <summary className="w-fit cursor-pointer font-medium select-none hover:text-foreground">¿Qué es esto?</summary>
+        <p className="mt-1 max-w-[80ch]">
+          Platos vendidos en el período que no tienen ficha técnica ni insumo directo: la venta siguió, pero no
+          descontaron nada del inventario. Sin filtro de fecha, muestra los últimos 30 días.
+        </p>
+      </details>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <DateRangeFilter from={range.from} to={range.to} onChange={setRange} idPrefix="coverage" />
         <CsvExportButton href={recipeCoverageCsvUrl({ storeId, dateFrom: range.from || undefined, dateTo: range.to || undefined })} />

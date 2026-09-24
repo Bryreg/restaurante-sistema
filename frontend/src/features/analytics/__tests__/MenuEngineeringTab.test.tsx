@@ -107,6 +107,7 @@ describe("MenuEngineeringTab — resumen por acción, matriz con umbrales del se
 
   it("la tabla va ordenada por acción, con «Qué hacer», «Perro» en ámbar (nunca rojo) y «muestra chica» sin clasificar", async () => {
     getMenuEngineeringMock.mockResolvedValue(DATA)
+    const user = userEvent.setup()
     renderWithProviders(<MenuEngineeringTab storeId={1} />)
 
     const tabla = await screen.findByRole("table", { name: /ordenados por lo que conviene hacer/ })
@@ -124,9 +125,24 @@ describe("MenuEngineeringTab — resumen por acción, matriz con umbrales del se
     const chica = filas[5]!
     expect(within(chica).getByText("Muestra chica")).toBeInTheDocument()
     expect(within(chica).getByText(/Esperar más ventas/)).toBeInTheDocument()
-    // Margen por unidad y % tal como llegan.
-    expect(within(filas[4]!).getByText("$ 21.536")).toBeInTheDocument()
-    expect(within(filas[4]!).getByText(/^60,0\s%$/)).toBeInTheDocument()
+    // Cinco columnas a la vista (regla 3): el margen por unidad y el % viven
+    // detrás de «Más columnas», y ahí se ven tal como llegan.
+    expect(within(filas[4]!).queryByText("$ 21.536")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Más columnas (5)" }))
+    const bandeja = within(tabla).getAllByRole("row").find((f) => f.textContent?.includes("Bandeja paisa"))!
+    expect(within(bandeja).getByText("$ 21.536")).toBeInTheDocument()
+    expect(within(bandeja).getByText(/^60,0\s%$/)).toBeInTheDocument()
+  })
+
+  it("la cifra protagonista es la de los platos para sacar o rediseñar, en ámbar, tal como llega en `counts_by_class`", async () => {
+    getMenuEngineeringMock.mockResolvedValue(DATA)
+    renderWithProviders(<MenuEngineeringTab storeId={1} />)
+
+    const resumen = await screen.findByTestId("menu-resumen")
+    const cifra = within(resumen).getByText("2")
+    expect(cifra.className).toMatch(/text-warning/)
+    expect(cifra.className).toMatch(/tabular-nums/)
+    expect(within(resumen).getByText("platos para sacar o rediseñar")).toBeInTheDocument()
   })
 
   it("filtrar por categoría pide al servidor con `categoryId` (los umbrales pasan a ser los de la categoría)", async () => {

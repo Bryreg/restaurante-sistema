@@ -34,6 +34,40 @@ function isTabValue(value: string | null): value is TabValue {
   return (ALL_TABS as readonly string[]).includes(value ?? "")
 }
 
+/** Las tres secciones del armazón por las que se entra a esta pantalla. */
+type Seccion = "ingenieria" | "varianza" | "reposicion"
+
+const SECCION_DE: Record<TabValue, Seccion> = {
+  "ingenieria-menu": "ingenieria",
+  varianza: "varianza",
+  "salud-sostenida": "varianza",
+  reposicion: "reposicion",
+}
+
+/**
+ * El nombre y la pregunta de cada sección. «Sólo lectura» y «el costo viaja
+ * congelado en el ítem vendido» eran dos frases en la franja de contexto;
+ * explican, no dan un dato, así que pasaron a la pregunta plegada
+ * (mapa de pantallas, regla 2).
+ */
+const SECCION: Record<Seccion, { label: string; question: string }> = {
+  ingenieria: {
+    label: "Ingeniería de menú",
+    question:
+      "Qué plato conviene sacar, cuál subir de precio, cuál promocionar y cuál dejar como está. Es sólo lectura: acá no se cambia nada, se mira. El costo viaja congelado en el ítem vendido: ninguna de estas tablas revalora una venta pasada con la carta de hoy.",
+  },
+  varianza: {
+    label: "Varianza y salud",
+    question:
+      "Qué se está yendo sin que lo veas: cuánto insumo salió de más o de menos por plato entre dos conteos, y si la brecha del food cost se sostiene en rojo. Es sólo lectura: acá no se cambia nada, se mira.",
+  },
+  reposicion: {
+    label: "Reposición sugerida",
+    question:
+      "Qué hay que pedir antes de que falte, con el consumo de cada insumo y los días que tarda su proveedor. Es sólo lectura: acá no se cambia nada, se mira.",
+  },
+}
+
 export function AnalyticsAdminPage(): React.JSX.Element {
   const { hasFeature } = useSession()
   const { activeStoreId, loading: storeLoading } = useStoreSelection()
@@ -77,35 +111,35 @@ export function AnalyticsAdminPage(): React.JSX.Element {
     return <p className="p-4 text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>
   }
 
+  // La fila de pestañas de esta pantalla sólo muestra las de la sección del
+  // armazón por la que se entró (`app/AdminLayout.tsx`, `RAIL`): «Ingeniería
+  // de menú» vive en Informes, «Varianza y salud» y «Reposición» en
+  // Inventario, y las secciones ya llevan sus propias pestañas arriba. Repetir
+  // acá las cuatro era una segunda fila de navegación que contradecía a la
+  // primera. Los `?tab=` no cambian.
+  const seccion = SECCION_DE[tab]
+  const { label: nombre, question } = SECCION[seccion]
+
+  function cambiarPestana(value: string) {
+    const next = new URLSearchParams(searchParams)
+    next.set("tab", value)
+    setSearchParams(next, { replace: true })
+  }
+
   return (
     <div className="space-y-4">
-      <PageHeader
-        name="Analítica"
-        question="Qué conviene vender, qué se está yendo sin que lo veas y qué hay que reponer antes de que falte."
-        context={[
-          { label: "Sólo lectura: acá no se cambia nada, se mira." },
-          {
-            label: "Sobre el costo congelado en la venta",
-            title: "El costo viaja congelado en el ítem vendido: ninguna de estas tablas revalora una venta pasada con la carta de hoy.",
-          },
-        ]}
-      >
-      <Tabs
-        value={tab}
-        onValueChange={(value) => {
-          const next = new URLSearchParams(searchParams)
-          next.set("tab", value)
-          setSearchParams(next, { replace: true })
-        }}
-      >
-        <TabsList className="h-auto flex-wrap">
-          {menuEngineeringEnabled ? <TabsTrigger value="ingenieria-menu">Ingeniería de menú</TabsTrigger> : null}
-          {varianceEnabled ? <TabsTrigger value="varianza">Varianza por plato</TabsTrigger> : null}
-          {varianceEnabled ? <TabsTrigger value="salud-sostenida">Salud sostenida</TabsTrigger> : null}
-          {replenishmentEnabled ? <TabsTrigger value="reposicion">Reposición sugerida</TabsTrigger> : null}
-        </TabsList>
+      <PageHeader name={nombre} question={question}>
+      <Tabs value={tab} onValueChange={cambiarPestana}>
+        {/* Sólo «Varianza y salud» tiene dos pestañas propias; Ingeniería de
+            menú y Reposición son una pantalla cada una, sin fila. */}
+        {seccion === "varianza" ? (
+          <TabsList className="h-auto flex-wrap">
+            <TabsTrigger value="varianza">Varianza por plato</TabsTrigger>
+            <TabsTrigger value="salud-sostenida">Salud sostenida</TabsTrigger>
+          </TabsList>
+        ) : null}
         {menuEngineeringEnabled ? (
-          <TabsContent value="ingenieria-menu" className="pt-4">
+          <TabsContent value="ingenieria-menu" className="pt-2">
             <MenuEngineeringTab storeId={activeStoreId} />
           </TabsContent>
         ) : null}
@@ -120,7 +154,7 @@ export function AnalyticsAdminPage(): React.JSX.Element {
           </TabsContent>
         ) : null}
         {replenishmentEnabled ? (
-          <TabsContent value="reposicion" className="pt-4">
+          <TabsContent value="reposicion" className="pt-2">
             <ReplenishmentTab storeId={activeStoreId} />
           </TabsContent>
         ) : null}
