@@ -1648,6 +1648,24 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       después de presentar la cuenta y respeta el contador de porciones del
       día. Subir la cantidad era la puerta de atrás de `add_items`.
 
+36. **El restaurante es persona natural no responsable del impuesto al
+    consumo** (2026-09-24). El dueño confirmó: persona natural, no inscrita en
+    el Régimen Simple, un solo local e ingresos de 2025 por debajo de 3.500 UVT
+    ($ 174.296.500). Por el art. 512-13 E.T. no es responsable del impuesto al
+    consumo de restaurantes y, al no ser responsable de IVA ni de INC, no está
+    obligada a facturar electrónicamente.
+    - **Arreglo**: con la fiscal de la sede en `inc_responsible=false` e
+      `iva_responsible=false`, la venta ya no lleva impuesto aunque el plato
+      esté cargado `inc_8` (`orders.service._sale_tax`, única regla para
+      plato, combo y cargo de domicilio). Antes la cuenta seguía
+      discriminando el 8 %.
+    - **Configuración en producción**: `fiscal.invoice` y `fiscal.dee_pos`
+      apagadas (cada venta sale con comprobante interno) y una versión nueva
+      de la fiscal de la sede como persona natural no responsable.
+    - `docs/PLAN-DIAN.md` queda en pausa para este restaurante. Vuelve a
+      aplicar si pasa los topes, abre otro local o se inscribe en el Simple:
+      el 3.500 UVT de 2026 son $ 183.309.000 (UVT $ 52.374).
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

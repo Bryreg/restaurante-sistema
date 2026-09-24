@@ -336,3 +336,47 @@ def test_patch_after_bill_presented_needs_auth(device_client: TestClient, identi
     authorized = device_client.patch(url, json={"expected_version": current["version"], "qty": 2, "authorizer_pin": "9999"})
     assert authorized.status_code == 200, authorized.text
     assert authorized.json()["items"][0]["qty"] == 2
+
+
+def test_seller_not_responsible_for_consumption_tax_charges_no_tax(
+    device_client: TestClient, identify: Any, employees: Any, open_shift: Any, new_order: Any, add_items: Any,
+    main_product: Any, store: Any, db: Any,
+) -> None:
+    """Persona natural no responsable del impuesto al consumo ni del IVA
+    (art. 512-13 E.T.): aunque el plato esté cargado `inc_8`, la venta no
+    lleva impuesto. El precio de carta es todo venta — nada se discrimina —
+    y el total es el mismo que paga el cliente."""
+    from datetime import date
+
+    from app.core import clock
+    from app.stores.models import StoreFiscalConfig
+
+    assert main_product.tax_code == "inc_8"
+    db.add(
+        StoreFiscalConfig(
+            store_id=store.id,
+            valid_from=date(2021, 1, 1),
+            person_type="natural",
+            regime="ordinary",
+            franchise=False,
+            inc_responsible=False,
+            iva_responsible=False,
+            rut_codes=[],
+            price_includes_tax=True,
+            default_tax="inc_8",
+            created_at=clock.now_utc(),
+        )
+    )
+    db.commit()
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    resp = add_items(order, [{"product_id": main_product.id, "qty": 2}])
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    item = body["items"][0]
+    assert (item["tax_code"], item["tax_rate"]) == ("excluded", 0)
+    totals = body["totals"]
+    assert totals["tax_total"] == 0
+    assert totals["total"] == 2 * main_product.price_dine_in
+    assert all(line["tax"] == 0 for line in totals["tax_lines"])
