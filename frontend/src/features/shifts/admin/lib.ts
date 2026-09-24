@@ -1,9 +1,11 @@
 /**
- * Lo que no es componente en Admin → Dinero: la pestaña que pide la URL y
- * el titular del resumen de caja (informe de visualización #10). Nada de
- * acá suma plata: lee lo que manda `GET /admin/shifts/summary`.
+ * Lo que no es componente en Admin → Dinero: la pestaña que pide la URL, el
+ * titular del resumen de caja (informe de visualización #10) y la franja de
+ * estado de las filas de turnos. Nada de acá suma plata: lee lo que manda
+ * `GET /admin/shifts/summary` y las banderas de cada turno.
  */
-import type { ShiftCashSummary } from "@/api/shifts";
+import type { AdminShiftListItem, ShiftCashSummary } from "@/api/shifts";
+import type { RowStatus } from "@/components/admin";
 import { formatCOP } from "@/lib/money";
 
 /**
@@ -46,3 +48,13 @@ export function cashSummaryHeadline(s: ShiftCashSummary): string {
   return `${s.shortage_count} de ${cierres(s.counted_count)} con faltante, ${conSigno(s.shortage_total)}`;
 }
 
+/**
+ * § 8b · La franja de estado de la primera celda: la forma del problema sin
+ * leer. Clasifica banderas que el servidor YA mandó (`is_stale`,
+ * `reviewed_at`) — acá no se deriva ninguna diferencia.
+ */
+export function shiftRowStatus(shift: AdminShiftListItem): RowStatus {
+  if (shift.is_stale) return "critical";
+  if (shift.status === "closed" && !shift.reviewed_at) return "warning";
+  return "none";
+}

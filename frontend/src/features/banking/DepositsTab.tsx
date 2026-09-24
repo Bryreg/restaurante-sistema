@@ -17,6 +17,11 @@ import { formatBusinessDate, formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
+/**
+ * Cinco a la vista (mapa de pantallas, regla 3): cuándo, cuánto, contra qué
+ * turnos, si tiene comprobante y si se reversó. Banco, referencia, quién la
+ * registró y hace cuánto quedan detrás de «Más columnas».
+ */
 const DEPOSIT_COLUMNS: readonly DenseColumn<DepositOut>[] = [
   { key: "date", header: "Fecha", kind: "name", cell: (d) => formatBusinessDate(d.business_date) },
   { key: "amount", header: "Monto", kind: "number", cell: (d) => formatCOP(d.amount ?? null) },
@@ -34,18 +39,19 @@ const DEPOSIT_COLUMNS: readonly DenseColumn<DepositOut>[] = [
         ? undefined
         : "Sin imputar a ningún turno: esta consignación entra como «la mano del dueño».",
   },
-  { key: "bank", header: "Banco", cell: (d) => d.bank_name ?? "—" },
-  { key: "reference", header: "Referencia", kind: "secondary", cell: (d) => d.bank_reference ?? "—" },
+  { key: "bank", header: "Banco", secondary: true, cell: (d) => d.bank_name ?? "—" },
+  { key: "reference", header: "Referencia", kind: "secondary", secondary: true, cell: (d) => d.bank_reference ?? "—" },
   {
     key: "receipt",
     header: "Comprobante",
     cell: (d) => (d.receipt_photo ? <Badge variant="secondary">Con foto</Badge> : <Badge variant="outline">Sin foto</Badge>),
   },
-  { key: "who", header: "Registrada por", cell: (d) => d.employee_name ?? "—" },
+  { key: "who", header: "Registrada por", secondary: true, cell: (d) => d.employee_name ?? "—" },
   {
     key: "when",
     header: "Hace",
     kind: "secondary",
+    secondary: true,
     cell: (d) => <TimeAgo iso={d.deposited_at} />,
     cellTitle: (d) => (d.deposited_at ? formatInstant(d.deposited_at) : undefined),
   },

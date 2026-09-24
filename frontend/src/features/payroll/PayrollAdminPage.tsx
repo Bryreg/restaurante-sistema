@@ -3,16 +3,22 @@
  * recargos, liquidaciones y — D-3 — propinas repartidas. Detrás de
  * `payroll` en la navegación (`payrollFeature.adminNav`); "Propinas" vive en
  * esta misma página porque D-3 gatea bajo `pos.tips` (ya existía), no bajo
- * `payroll` — esta pestaña se muestra si CUALQUIERA de las dos está
- * encendida, para que una sede con propinas pero sin nómina siga llegando
- * al reparto.
+ * `payroll` — la página se muestra si CUALQUIERA de las dos está encendida,
+ * para que una sede con propinas pero sin nómina siga llegando al reparto.
+ *
+ * **Propinas no es una pestaña de acá** (mapa de pantallas, regla 4): el
+ * armazón ya la dibuja como pestaña de sección (`?tab=propinas`, al lado de
+ * «Nómina»). Entrando por ahí no se dibuja la fila de pestañas de nómina;
+ * entrando por «Nómina», la fila muestra lo que el restaurante usa —las
+ * horas, que se le pasan al contador que lleva la nómina— y manda el resto a
+ * «Más». Ningún `?tab=` cambió.
  */
 import { useSearchParams } from "react-router-dom"
 
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { Cargando } from "@/components/Cargando"
-import { PageHeader } from "@/components/admin"
+import { MasPestanas, PageHeader } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -66,38 +72,52 @@ export function PayrollAdminPage(): React.JSX.Element {
     return <p className="p-4 text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>
   }
 
+  function cambiarPestana(value: string) {
+    const next = new URLSearchParams(searchParams)
+    next.set("tab", value)
+    setSearchParams(next, { replace: true })
+  }
+
+  const enPropinas = tab === "propinas"
+
   return (
     <div className="space-y-4">
+      {/* El nombre sigue a la pestaña de sección por la que se entró. La
+          franja de contexto sólo dice qué función está apagada, cuando una lo
+          está: el aviso de «control interno, no liquidación legal» vive
+          arriba de la pestaña Liquidaciones, que es donde se lee la cifra. */}
       <PageHeader
-        name="Nómina y propinas"
-        question="Cuántas horas puso cada persona, cuánto suma eso con los recargos vigentes y cuánta propina le toca."
-        context={[
-          {
-            label: "La liquidación es para control interno, no es la liquidación legal",
-            title: "La fórmula del Código Sustantivo del Trabajo combina los recargos en ocho categorías y todavía no está implementada.",
-          },
+        name={enPropinas ? "Propinas" : "Nómina"}
+        question={
+          enPropinas
+            ? "Cuánta propina le toca a cada persona del período, con el método de reparto de la sede, y a quién se le entregó."
+            : "Cuántas horas puso cada persona —lo que se le pasa al contador que lleva la nómina— y cuánto suma eso con las tarifas y los recargos vigentes."
+        }
+        context={
           payrollEnabled && tipsEnabled
-            ? { label: "Nómina y propinas están las dos encendidas." }
+            ? []
             : payrollEnabled
-              ? { label: "Sólo «Nómina»", title: "«Propinas» (pos.tips) está apagada: la pestaña de reparto no se dibuja." }
-              : { label: "Sólo «Propinas»", title: "«Nómina» (payroll) está apagada: horas, tarifas, recargos y liquidaciones no se dibujan." },
-        ]}
+              ? [{ label: "Sólo «Nómina»", title: "«Propinas» (pos.tips) está apagada: la pestaña de reparto no se dibuja." }]
+              : [{ label: "Sólo «Propinas»", title: "«Nómina» (payroll) está apagada: horas, tarifas, recargos y liquidaciones no se dibujan." }]
+        }
       >
-      <Tabs
-        value={tab}
-        onValueChange={(value) => {
-          const next = new URLSearchParams(searchParams)
-          next.set("tab", value)
-          setSearchParams(next, { replace: true })
-        }}
-      >
-        <TabsList className="h-auto flex-wrap">
-          {payrollEnabled ? <TabsTrigger value="horas">Horas</TabsTrigger> : null}
-          {payrollEnabled ? <TabsTrigger value="tarifas">Tarifas y calendario</TabsTrigger> : null}
-          {payrollEnabled ? <TabsTrigger value="recargos">Tablas de recargos</TabsTrigger> : null}
-          {payrollEnabled ? <TabsTrigger value="liquidaciones">Liquidaciones</TabsTrigger> : null}
-          {tipsEnabled ? <TabsTrigger value="propinas">Propinas</TabsTrigger> : null}
-        </TabsList>
+      <Tabs value={tab} onValueChange={cambiarPestana}>
+        {/* Tres a la vista y el resto en «Más» (regla 4). Sin «Propinas»:
+            ya es pestaña de sección, arriba. */}
+        {payrollEnabled && !enPropinas ? (
+          // `h-auto` solo no alcanza: la lista trae `h-8` con la variante
+          // horizontal, que le gana (ver `BankingAdminPage.tsx`).
+          <TabsList className="h-auto flex-wrap group-data-horizontal/tabs:h-auto">
+            <TabsTrigger value="horas">Horas</TabsTrigger>
+            <TabsTrigger value="liquidaciones">Liquidaciones</TabsTrigger>
+            <TabsTrigger value="tarifas">Tarifas y calendario</TabsTrigger>
+            <MasPestanas
+              value={tab}
+              onValueChange={cambiarPestana}
+              items={[{ value: "recargos", label: "Tablas de recargos" }]}
+            />
+          </TabsList>
+        ) : null}
         {payrollEnabled ? (
           <TabsContent value="horas" className="pt-4">
             <HoursTab storeId={activeStoreId} />

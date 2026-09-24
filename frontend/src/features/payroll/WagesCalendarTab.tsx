@@ -440,7 +440,7 @@ export function WagesCalendarTab({ storeId }: { storeId: number }): React.JSX.El
           {
             screen: "Gastos › Utilidad",
             what: "Con «Nómina» encendida, la utilidad del período no se calcula si a alguien le falta tarifa.",
-            to: "/admin/gastos",
+            to: "/admin/gastos?tab=utilidad",
           },
         ]}
       />

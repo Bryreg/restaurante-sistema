@@ -14,6 +14,7 @@ import { errorMessage } from "@/lib/errors";
 
 import { SHIFT_LEGEND, shiftColumns } from "./OperationalTab";
 import { CashSummary } from "./CashSummary";
+import { shiftRowStatus } from "./lib";
 import { ShiftDetailDialog } from "./ShiftDetailDialog";
 
 /**
@@ -83,16 +84,23 @@ export function HistoryTab({ storeId }: { storeId: number }): React.JSX.Element 
       ) : (
         <DenseTable
           caption="Turnos del período, con esperado, contado y diferencia."
-          columns={shiftColumns(setDetailShift, [
-            {
-              key: "date",
-              header: "Día operativo",
-              kind: "name",
-              cell: (s) => formatBusinessDate(s.business_date),
-            },
-          ])}
+          columns={shiftColumns(
+            setDetailShift,
+            [
+              {
+                key: "date",
+                header: "Día operativo",
+                kind: "name",
+                cell: (s) => formatBusinessDate(s.business_date),
+              },
+            ],
+            ["status"],
+          )}
           rows={rows}
           rowKey={(s) => String(s.id)}
+          // Con «Estado» detrás de «Más columnas», la franja de la fila es la
+          // que dice abandonado (rojo) y sin revisar (ámbar).
+          rowStatus={shiftRowStatus}
           maxBodyHeightPx={460}
           bar={
             <DenseTableBar shown={rows.length} total={rows.length} noun="turnos" hidden={`del período: ${rangeLabel}`}>

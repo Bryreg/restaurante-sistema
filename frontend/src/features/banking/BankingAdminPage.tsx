@@ -93,7 +93,10 @@ export function BankingAdminPage(): React.JSX.Element {
         value={tab}
         onValueChange={cambiarPestana}
       >
-        <TabsList className="h-auto flex-wrap">
+        {/* `h-auto` solo no alcanzaba: la lista trae `h-8` con la variante
+            horizontal, que le gana, y a 390 px «Más» quedaba en una segunda
+            línea recortada. Con la misma variante, la fila de verdad se parte. */}
+        <TabsList className="h-auto flex-wrap group-data-horizontal/tabs:h-auto">
           <TabsTrigger value="consignaciones">Consignaciones</TabsTrigger>
           <TabsTrigger value="por-consignar">Por consignar</TabsTrigger>
           {bankEnabled ? <TabsTrigger value="libro">Libro del banco</TabsTrigger> : null}
