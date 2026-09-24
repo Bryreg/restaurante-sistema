@@ -951,17 +951,20 @@ def _resolve_modifiers(db: Session, product: Product, modifiers_in: list[Any]) -
 # cobra impuesto: la línea sale `excluded` con tarifa 0, sin importar el
 # código que tenga el plato en la carta. Antes cada plato seguía llevando su
 # `inc_8` y la cuenta discriminaba un 8 % que ese restaurante no puede
-# cobrar. Es la única regla: plato, combo y cargo de domicilio pasan por acá.
+# cobrar. Es la única regla: plato, combo y cargo de domicilio pasan por
+# `_sale_tax_code`.
 _NO_TAX_CODE = "excluded"
 
 
-def _sale_tax(db: Session, store_id: int, product_tax_code: str | None) -> tuple[str, int, bool]:
+def _sale_tax_code(db: Session, store_id: int, product_tax_code: str | None) -> tuple[str, bool]:
+    """`(tax_code, price_includes_tax)` de la línea. La tasa la saca cada
+    constructor con `rate_for_code(tax_code)`: nunca un número a mano
+    (invariante de `tests/audit/test_channels_money_invariants.py`)."""
     fiscal = stores_service.current_fiscal(db, store_id)
     price_includes_tax = fiscal.price_includes_tax if fiscal is not None else True
     if fiscal is not None and not fiscal.inc_responsible and not fiscal.iva_responsible:
-        return _NO_TAX_CODE, rate_for_code(_NO_TAX_CODE), price_includes_tax
-    tax_code = catalog_service.resolve_tax_code(db, store_id, product_tax_code)
-    return tax_code, rate_for_code(tax_code), price_includes_tax
+        return _NO_TAX_CODE, price_includes_tax
+    return catalog_service.resolve_tax_code(db, store_id, product_tax_code), price_includes_tax
 
 
 def _build_product_item(db: Session, order: Order, item_in: OrderItemIn, actor: Actor, now: datetime, *, modifiers_enabled: bool) -> OrderItem:
@@ -994,7 +997,8 @@ def _build_product_item(db: Session, order: Order, item_in: OrderItemIn, actor: 
     modifiers_json, delta_sum = _resolve_modifiers(db, product, item_in.modifiers) if modifiers_enabled else ([], 0)
 
     list_price = _channel_list_price(product, order.channel)
-    tax_code, tax_rate, price_includes_tax = _sale_tax(db, order.store_id, product.tax_code)
+    tax_code, price_includes_tax = _sale_tax_code(db, order.store_id, product.tax_code)
+    tax_rate = rate_for_code(tax_code)
 
     is_staff_meal = order.channel == OrderChannel.STAFF_MEAL
     unit_price = 0 if is_staff_meal else (list_price + delta_sum)
@@ -1069,7 +1073,8 @@ def _build_combo_item(db: Session, order: Order, item_in: OrderItemIn, actor: Ac
             if normalized is not None:
                 station = normalized
 
-    tax_code, tax_rate, price_includes_tax = _sale_tax(db, order.store_id, None)
+    tax_code, price_includes_tax = _sale_tax_code(db, order.store_id, None)
+    tax_rate = rate_for_code(tax_code)
 
     is_staff_meal = order.channel == OrderChannel.STAFF_MEAL
     list_price = combo.price
@@ -1132,7 +1137,8 @@ def _build_delivery_fee_item(db: Session, order: Order, fee_product: Product, ac
     devolviendo `unit_cost_micros=None` — verificado con test, nunca un cero
     mudo) hace que no descuente inventario y quede sin costo con origen
     `None`, nunca `0`."""
-    tax_code, tax_rate, price_includes_tax = _sale_tax(db, order.store_id, fee_product.tax_code)
+    tax_code, price_includes_tax = _sale_tax_code(db, order.store_id, fee_product.tax_code)
+    tax_rate = rate_for_code(tax_code)
     amount = _channel_list_price(fee_product, order.channel)
 
     return OrderItem(
