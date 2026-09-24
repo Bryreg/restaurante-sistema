@@ -37,6 +37,16 @@
  * «Día operativo» **no** se dio de baja aunque salió de la franja de
  * contexto: viaja como `title` de la pastilla de fecha de la cabecera, que
  * es el control que lo reemplazó.
+ *
+ * **Bajas declaradas · «Orden y aire».** El dueño comparó el admin con el de
+ * café-sistema y lo encontró agobiante; el mapa de pantallas que aprobó pide
+ * sacar de la vista el texto que explica en vez de dar un dato. Salen de la
+ * base, a mano y una por una, sólo frases que el censo levantaba porque
+ * viajaban en un `label:`/`title=` pero que **no eran controles**:
+ *
+ * - «Seis pestañas: dos de consignaciones y cuatro del libro del banco.»
+ *   (`features/banking/BankingAdminPage.tsx`) — describía la fila de
+ *   pestañas, que ahora son tres y «Más».
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
