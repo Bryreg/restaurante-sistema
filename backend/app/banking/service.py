@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
 from app.auth.deps import Actor
+from app.banking import hooks as banking_hooks
 from app.banking.models import (
     BankDeposit,
     BankDepositAllocation,
@@ -45,6 +46,7 @@ from app.banking.schemas import (
     DepositAllocationIn,
     DepositIn,
     PlatformSettlementIn,
+    PosDepositIn,
 )
 from app.channels.models import DeliveryPlatform, PlatformReceivable, PlatformReceivableStatus
 from app.core import clock, tz
@@ -53,6 +55,7 @@ from app.core.money import format_cop
 from app.payments.models import Payment
 from app.photos import hooks as photos_hooks
 from app.refunds.models import PendingRefund, PendingRefundStatus, SettleFrom
+from app.shifts import hooks as shifts_hooks
 from app.shifts.hooks import methods_in_bucket
 from app.shifts.models import BusinessDay, CashPickup, Shift, ShiftStatus, TipPayout, TipPayoutSource
 from app.stores.models import Store
@@ -200,7 +203,43 @@ def _validate_allocations(
             )
 
 
+def store_of_device(db: Session, actor: Actor) -> Store:
+    """La sede de la tablet que pide."""
+    store = db.get(Store, actor.store_id) if actor.store_id is not None else None
+    if store is None or store.organization_id != actor.organization_id:
+        raise NotFoundError("La sede de este dispositivo no existe")
+    return store
+
+
+def _open_shift_of(db: Session, store: Store) -> Shift | None:
+    return db.execute(
+        select(Shift).where(Shift.store_id == store.id, Shift.status == ShiftStatus.OPEN)
+    ).scalar_one_or_none()
+
+
+def _reject_days_in_drawer(db: Session, *, store: Store, allocations: list[DepositAllocationIn]) -> None:
+    """El administrador no imputa un día cuya plata está en el cajón del turno
+    abierto: esa plata la tiene quien tiene la caja, y el cajón la cuenta en
+    su esperado (`ShiftCarryIn`). Consignarla desde acá la restaría del saldo
+    del día sin sacarla del cajón, y al cerrar el turno faltaría."""
+    open_shift = _open_shift_of(db, store)
+    if open_shift is None or not allocations:
+        return
+    in_drawer = shifts_hooks.carried_into(db, open_shift.id)
+    for line in allocations:
+        if line.shift_id in in_drawer:
+            raise AppError(
+                code="DAY_IN_DRAWER",
+                message=(
+                    f"La plata del turno #{line.shift_id} está en el cajón del turno abierto: consignala "
+                    "desde el POS (Turno › Consignar), o esperá a que se cierre el turno"
+                ),
+                status=400,
+            )
+
+
 def create_deposit(db: Session, *, actor: Actor, store: Store, payload: DepositIn) -> BankDeposit:
+    _reject_days_in_drawer(db, store=store, allocations=payload.allocations)
     _validate_allocations(
         db,
         organization_id=store.organization_id,
@@ -235,6 +274,11 @@ def create_deposit(db: Session, *, actor: Actor, store: Store, payload: DepositI
         employee_id=actor.employee_id,
         employee_name=actor.employee_name,
         status=BankDepositStatus.LIVE,
+        # La registra el administrador: nace confirmada.
+        source="admin",
+        confirmed_at=now,
+        confirmed_by_employee_id=actor.employee_id,
+        confirmed_by_employee_name=actor.employee_name,
     )
     db.add(deposit)
     db.flush()
@@ -260,6 +304,156 @@ def create_deposit(db: Session, *, actor: Actor, store: Store, payload: DepositI
         reason=None,
     )
     return deposit
+
+
+# ---------------------------------------------------------------------------
+# Consignar desde el POS (2026-09-24).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DrawerDay:
+    source_shift_id: int
+    business_date: date
+    carried: int
+    deposited_from_drawer: int
+    remaining: int
+
+
+def drawer_days(db: Session, *, store: Store) -> tuple[Shift | None, list[DrawerDay]]:
+    """Los días anteriores cuya plata está en el cajón del turno abierto, con
+    lo que queda de cada uno para consignar."""
+    open_shift = _open_shift_of(db, store)
+    if open_shift is None:
+        return None, []
+    carried = shifts_hooks.carried_into(db, open_shift.id)
+    if not carried:
+        return open_shift, []
+    dates: dict[int, date] = {
+        shift_id: business_date
+        for shift_id, business_date in db.execute(
+            select(Shift.id, BusinessDay.business_date)
+            .join(BusinessDay, BusinessDay.id == Shift.business_day_id)
+            .where(Shift.id.in_(carried))
+        ).all()
+    }
+    days: list[DrawerDay] = []
+    for source_id, amount in sorted(carried.items(), key=lambda kv: (dates[kv[0]], kv[0])):
+        deposited = banking_hooks.drawer_deposits_to(db, shift_id=open_shift.id, source_shift_id=source_id)
+        days.append(
+            DrawerDay(
+                source_shift_id=source_id,
+                business_date=dates[source_id],
+                carried=amount,
+                deposited_from_drawer=deposited,
+                remaining=max(0, amount - deposited),
+            )
+        )
+    return open_shift, days
+
+
+def create_pos_deposit(db: Session, *, actor: Actor, store: Store, payload: PosDepositIn) -> BankDeposit:
+    """Quien tiene la caja consigna la plata de un día anterior que está en el
+    cajón. Descuenta del saldo del día desde ya y sale del esperado del cajón
+    (`app.shifts.service.compute_breakdown`); queda **por confirmar** hasta
+    que el administrador la confirma o la rechaza. Todo se valida antes de
+    escribir."""
+    open_shift, days = drawer_days(db, store=store)
+    if open_shift is None:
+        raise AppError("NO_OPEN_SHIFT", "No hay turno abierto: la plata por consignar está en el cajón de un turno", status=409)
+    day = next((d for d in days if d.source_shift_id == payload.source_shift_id), None)
+    if day is None:
+        raise AppError(
+            "DEPOSIT_NOT_IN_DRAWER",
+            "Ese día no se marcó como presente en el cajón al abrir el turno: no se puede consignar desde acá",
+            status=400,
+        )
+    if payload.amount > day.remaining:
+        raise AppError(
+            "DEPOSIT_EXCEEDS_DRAWER",
+            f"De ese día quedan {format_cop(day.remaining)} en el cajón; no se pueden consignar {format_cop(payload.amount)}",
+            status=400,
+        )
+    allocation = DepositAllocationIn(shift_id=day.source_shift_id, amount=payload.amount)
+    _validate_allocations(
+        db, organization_id=store.organization_id, store_id=store.id, amount=payload.amount, allocations=[allocation]
+    )
+
+    now = clock.now_utc()
+    deposit = BankDeposit(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        business_date=tz.today_business_date(store.cutoff_hour),
+        deposited_at=now,
+        amount=payload.amount,
+        bank_name=payload.bank_name,
+        bank_reference=payload.bank_reference,
+        receipt_photo=photos_hooks.store_photo(
+            db, payload.receipt_photo, organization_id=store.organization_id, store_id=store.id
+        )
+        or "",
+        note=payload.note,
+        employee_id=actor.employee_id,
+        employee_name=actor.employee_name,
+        status=BankDepositStatus.LIVE,
+        source="pos",
+        from_shift_id=open_shift.id,
+    )
+    db.add(deposit)
+    db.flush()
+    db.add(BankDepositAllocation(deposit_id=deposit.id, shift_id=day.source_shift_id, amount=payload.amount))
+    db.flush()
+
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="bank_deposit",
+        entity_id=deposit.id,
+        action="create",
+        before=None,
+        after={
+            "amount": deposit.amount,
+            "source": "pos",
+            "from_shift_id": open_shift.id,
+            "allocations": [{"shift_id": day.source_shift_id, "amount": payload.amount}],
+        },
+        reason=None,
+    )
+    return deposit
+
+
+def confirm_deposit(db: Session, *, actor: Actor, deposit: BankDeposit) -> BankDeposit:
+    """El administrador confirma una consignación hecha desde el POS (vio el
+    comprobante). Rechazarla es reversarla (`reverse_deposit`)."""
+    if deposit.status == BankDepositStatus.REVERSED:
+        raise AppError("DEPOSIT_ALREADY_REVERSED", "Esta consignación fue rechazada o reversada: no se puede confirmar", status=400)
+    if deposit.confirmed_at is not None:
+        raise AppError("DEPOSIT_ALREADY_CONFIRMED", "Esta consignación ya está confirmada", status=400)
+    deposit.confirmed_at = clock.now_utc()
+    deposit.confirmed_by_employee_id = actor.employee_id
+    deposit.confirmed_by_employee_name = actor.employee_name
+    db.flush()
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=deposit.organization_id,
+        store_id=deposit.store_id,
+        entity="bank_deposit",
+        entity_id=deposit.id,
+        action="confirm",
+        before={"confirmed_at": None},
+        after={"confirmed_at": deposit.confirmed_at.isoformat()},
+        reason=None,
+    )
+    return deposit
+
+
+def list_drawer_deposits(db: Session, *, shift_id: int) -> list[BankDeposit]:
+    return list(
+        db.execute(select(BankDeposit).where(BankDeposit.from_shift_id == shift_id).order_by(BankDeposit.id)).scalars()
+    )
 
 
 def list_deposits(db: Session, *, store: Store, date_from: date, date_to: date) -> list[BankDeposit]:

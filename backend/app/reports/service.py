@@ -77,6 +77,7 @@ from app.reports.schemas import (
     UnavailableLogRowOut,
     UnavailableProductOut,
 )
+from app.banking import hooks as banking_hooks
 from app.shifts import hooks as shifts_hooks
 from app.shifts import service as shifts_service
 from app.shifts.models import BusinessDay, Shift, ShiftStatus
@@ -862,6 +863,19 @@ def _unavailable_products(db: Session, store: Store) -> list[UnavailableProductO
     return out
 
 
+def _deposits_tray(db: Session, store: Store) -> dict[str, Any]:
+    """Consignaciones por confirmar y plata sin consignar, para la bandeja de
+    Hoy. Se leen de `app.banking.hooks`, con su misma regla de saldo."""
+    if not features.is_enabled(db, store.organization_id, store.id, "money.deposits"):
+        return {"deposits_to_confirm_count": 0, "undeposited_total": None, "undeposited_oldest_date": None}
+    pending = banking_hooks.pending_shifts(db, organization_id=store.organization_id, store_id=store.id)
+    return {
+        "deposits_to_confirm_count": banking_hooks.unconfirmed_count(db, store_id=store.id),
+        "undeposited_total": sum(p.outstanding for p in pending),
+        "undeposited_oldest_date": pending[0].business_date if pending else None,
+    }
+
+
 def _pending_refunds_count(db: Session, store: Store) -> int:
     """`app.refunds` se construyó en paralelo durante este mismo pedido
     (1b-2): se lee con `find_spec_safe` y degrada a `0` si el módulo
@@ -1410,6 +1424,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         unavailable_products=_unavailable_products(db, store),
         pending_refunds_count=_pending_refunds_count(db, store),
         unreviewed_closes_count=_unreviewed_closes_count(db, store),
+        **_deposits_tray(db, store),
         alerts=_recent_alerts(db, store),
         ingredients_below_min=_low_stock_alerts(db, store),
         ingredients_negative=negatives,

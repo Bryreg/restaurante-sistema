@@ -65,7 +65,15 @@ from sqlalchemy.orm import Session
 from app.core import clock
 from app.core.errors import AppError
 from app.core.modules import find_spec_safe
-from app.shifts.models import CashMovement, CashMovementCause, CashMovementKind, Shift, ShiftRoster, ShiftStatus
+from app.shifts.models import (
+    CashMovement,
+    CashMovementCause,
+    CashMovementKind,
+    Shift,
+    ShiftCarryIn,
+    ShiftRoster,
+    ShiftStatus,
+)
 
 _OTHER_METHODS = {"platform", "voucher", "other"}
 
@@ -619,3 +627,13 @@ def difference_streak(db: Session, *, store_id: int, employee_id: int) -> int:
     from app.shifts import service
 
     return service.current_difference_streak(db, store_id=store_id, employee_id=employee_id)
+
+
+def carried_into(db: Session, shift_id: int) -> dict[int, int]:
+    """`{turno de origen: saldo que tenía al abrir}` de la plata de días
+    anteriores que el turno `shift_id` encontró en el cajón
+    (`ShiftCarryIn`). Lo lee `app.banking.service` para consignar desde el POS."""
+    rows = db.execute(
+        select(ShiftCarryIn.source_shift_id, ShiftCarryIn.amount).where(ShiftCarryIn.shift_id == shift_id)
+    ).all()
+    return {source: amount for source, amount in rows}

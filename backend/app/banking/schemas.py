@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.photos.hooks import PhotoIn
 
 BankDepositStatusLiteral = Literal["live", "reversed"]
+DepositSourceLiteral = Literal["admin", "pos"]
 SettlementStatusLiteral = Literal["recorded", "matched", "reversed"]
 
 
@@ -73,6 +74,47 @@ class DepositOut(OutModel):
     reversed_at: datetime | None = None
     reversed_reason: str | None = None
     reversed_by_employee_name: str | None = None
+    # Consignar desde el POS (2026-09-24): de dónde salió y si ya la confirmó
+    # el administrador. `needs_confirmation`: viva y sin confirmar.
+    source: DepositSourceLiteral = "admin"
+    from_shift_id: int | None = None
+    confirmed_at: datetime | None = None
+    confirmed_by_employee_name: str | None = None
+    needs_confirmation: bool = False
+
+
+class PosDepositIn(BaseModel):
+    """Una consignación que registra quien tiene la caja, con la plata de un
+    día anterior que está en el cajón del turno abierto. El servidor la imputa
+    entera a ese día: `source_shift_id` es el turno de origen."""
+
+    source_shift_id: int
+    amount: int = Field(gt=0)
+    bank_name: str | None = Field(default=None, max_length=120)
+    bank_reference: str | None = Field(default=None, max_length=120)
+    receipt_photo: PhotoIn = Field(min_length=1, description="Comprobante: obligatorio")
+    note: str | None = None
+
+
+class DrawerDayOut(BaseModel):
+    """Un día anterior cuya plata está en el cajón del turno abierto."""
+
+    source_shift_id: int
+    business_date: date
+    #: El saldo que tenía al abrir, cuando se marcó.
+    carried: int
+    #: Lo que ya se consignó de ese día desde este cajón (vivo).
+    deposited_from_drawer: int
+    #: Lo que queda de ese día en el cajón y todavía se puede consignar.
+    remaining: int
+
+
+class DrawerOut(BaseModel):
+    """`GET /deposits/drawer`: lo que el POS puede consignar ahora."""
+
+    shift_id: int | None
+    days: list[DrawerDayOut]
+    deposits: list[DepositOut]
 
 
 class DepositReverseIn(BaseModel):
