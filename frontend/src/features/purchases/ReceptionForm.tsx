@@ -33,6 +33,15 @@
  * monta mientras se edita: recién aparece después de un toque explícito en
  * "Continuar", que además bloquea el resto de los campos — a esa altura no
  * queda ningún campo de texto activo que pueda robarle dígitos.
+ *
+ * **Completar una recepción del POS** (`draft`, 2026-09-25): el mismo
+ * formulario, precargado con lo que registró el cajero (proveedor, factura,
+ * foto y líneas con la cantidad ya convertida por el servidor a la unidad
+ * base); el administrador pone los precios. No pide PIN de quien recibe —
+ * quien recibió es quien la registró, identificado con su PIN en la tablet—
+ * y la foto no se cambia: es la del papel que llegó. Confirmar llama a
+ * `POST /admin/reception-drafts/{id}/complete`, que pasa por el mismo
+ * `create_reception` del backend.
  */
 
 import { useMutation } from "@tanstack/react-query"
@@ -41,7 +50,14 @@ import { useRef, useState } from "react"
 import { useSession } from "@/app/session"
 import { ApiError, newIdempotencyKey } from "@/api/client"
 import type { IngredientOut } from "@/api/inventory"
-import { createReception, type ReceptionIn, type ReceptionOut, type SupplierOut } from "@/api/purchases"
+import {
+  completeReceptionDraft,
+  createReception,
+  type ReceptionDraftAdminOut,
+  type ReceptionIn,
+  type ReceptionOut,
+  type SupplierOut,
+} from "@/api/purchases"
 import { FormField, FormSection } from "@/components/admin"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -50,6 +66,7 @@ import { PhotoCaptureField } from "@/components/PhotoCaptureField"
 import { PinPad } from "@/components/PinPad"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errorMessage } from "@/lib/errors"
+import { formatCOP } from "@/lib/money"
 
 import {
   draftsToReceptionLines,
@@ -72,24 +89,45 @@ function parseLineIndex(message: string): number | null {
   return match ? Number(match[1]) : null
 }
 
+/** Las líneas del POS como borradores del formulario: la cantidad recibida y
+ * la facturada arrancan en lo que contó el cajero (ya en unidad base, la
+ * convirtió el servidor); el precio y el impuesto, vacíos — los pone el
+ * administrador. */
+function linesFromDraft(draft: ReceptionDraftAdminOut): ReceptionLineDraft[] {
+  if (draft.lines.length === 0) return [emptyReceptionLine()]
+  return draft.lines.map((line) => ({
+    ...emptyReceptionLine(),
+    ingredientId: line.ingredient_id,
+    qtyReceived: line.qty_base,
+    qtyInvoiced: line.qty_base,
+    lotCode: line.lot_code ?? "",
+    expiresAt: line.expires_at ?? "",
+  }))
+}
+
 export function ReceptionForm({
   storeId,
   suppliers,
   ingredients,
   onSuccess,
+  draft = null,
 }: {
   storeId: number
   suppliers: SupplierOut[]
   ingredients: IngredientOut[]
   onSuccess: (reception: ReceptionOut) => void
+  /** Una recepción registrada en el POS para completar con precios. */
+  draft?: ReceptionDraftAdminOut | null
 }): React.JSX.Element {
   const { me } = useSession()
-  const [supplierId, setSupplierId] = useState<number | null>(null)
-  const [invoiceNumber, setInvoiceNumber] = useState("")
-  const [invoiceDate, setInvoiceDate] = useState("")
-  const [noInvoice, setNoInvoice] = useState(false)
-  const [photo, setPhoto] = useState<string | null>(null)
-  const [lines, setLines] = useState<ReceptionLineDraft[]>([emptyReceptionLine()])
+  const [supplierId, setSupplierId] = useState<number | null>(() =>
+    draft && suppliers.some((s) => s.id === draft.supplier_id) ? draft.supplier_id : null,
+  )
+  const [invoiceNumber, setInvoiceNumber] = useState(draft?.invoice_number ?? "")
+  const [invoiceDate, setInvoiceDate] = useState(draft?.business_date ?? "")
+  const [noInvoice, setNoInvoice] = useState(draft?.no_invoice ?? false)
+  const [photo, setPhoto] = useState<string | null>(draft?.photo ?? null)
+  const [lines, setLines] = useState<ReceptionLineDraft[]>(() => (draft ? linesFromDraft(draft) : [emptyReceptionLine()]))
   const [guard, setGuard] = useState<GuardState | null>(null)
   // Ver el docstring del módulo: el PinPad sólo se monta después de este paso.
   const [reviewing, setReviewing] = useState(false)
@@ -108,7 +146,14 @@ export function ReceptionForm({
   }
 
   const mutation = useMutation({
-    mutationFn: (payload: ReceptionIn) => createReception(storeId, payload, keyFor(payload)),
+    mutationFn: (payload: ReceptionIn) => {
+      if (draft) {
+        // Sin foto (ya es la del POS) y sin PIN (quien recibió es quien la registró).
+        const { photo: _photo, received_by_pin: _pin, ...rest } = payload
+        return completeReceptionDraft(draft.id, rest, keyFor(payload))
+      }
+      return createReception(storeId, payload, keyFor(payload))
+    },
     onSuccess: (reception) => {
       setGuard(null)
       onSuccess(reception)
@@ -150,6 +195,21 @@ export function ReceptionForm({
 
   return (
     <div className="space-y-4">
+      {draft ? (
+        <div role="note" className="space-y-1 rounded-md border border-warning/50 bg-warning/5 p-3 text-sm">
+          <p>
+            <b>Desde el POS · por completar.</b> La registró {draft.created_by_employee_name}; queda como quien
+            recibió. Poné los precios tal como los trae el papel y confirmá: recién ahí entra el stock, con su costo.
+          </p>
+          {draft.cash_paid_amount !== null ? (
+            <p>
+              Se pagaron <b className="tabular-nums">{formatCOP(draft.cash_paid_amount)}</b> de contado desde el cajón
+              al recibir. La cuenta por pagar nace con ese pago ya hecho;{" "}
+              <b>no vuelve a salir plata del cajón</b>.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <FormSection
         title="De quién viene y con qué papel"
         governs="La factura física que tenés en la mano. De acá sale la cuenta por pagar y el día operativo al que entra la mercancía."
@@ -252,12 +312,16 @@ export function ReceptionForm({
         </FormField>
 
         <div className="sm:col-span-2">
-          <PhotoCaptureField
-            value={photo}
-            onChange={setPhoto}
-            label="Foto de la factura (opcional)"
-            disabled={formsDisabled}
-          />
+          {draft ? (
+            <DraftPhoto draft={draft} />
+          ) : (
+            <PhotoCaptureField
+              value={photo}
+              onChange={setPhoto}
+              label="Foto de la factura (opcional)"
+              disabled={formsDisabled}
+            />
+          )}
         </div>
       </FormSection>
 
@@ -333,7 +397,11 @@ export function ReceptionForm({
       {!guard && !reviewing ? (
         <div className="flex flex-col items-center gap-2 rounded-md border p-4">
           <p className="text-sm text-muted-foreground">
-            {canSubmit ? "Revisá los datos y continuá para ingresar el PIN." : "Completá proveedor, fecha y las líneas para poder confirmar."}
+            {!canSubmit
+              ? "Completá proveedor, fecha y las líneas para poder confirmar."
+              : draft
+                ? "Revisá los datos y continuá para confirmar."
+                : "Revisá los datos y continuá para ingresar el PIN."}
           </p>
           <Button type="button" disabled={!canSubmit} onClick={() => setReviewing(true)}>
             Continuar
@@ -341,7 +409,33 @@ export function ReceptionForm({
         </div>
       ) : null}
 
-      {!guard && reviewing ? (
+      {!guard && reviewing && draft ? (
+        <div className="flex flex-col items-center gap-3 rounded-md border p-4">
+          <p className="text-sm text-muted-foreground">
+            Al confirmar se crea la recepción con sus lotes, el costo y la cuenta por pagar.
+          </p>
+          {nonGuardError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {nonGuardError}
+            </p>
+          ) : null}
+          <Button
+            type="button"
+            disabled={mutation.isPending}
+            onClick={() => {
+              pinRef.current = ""
+              mutation.mutate(buildPayload(false, ""))
+            }}
+          >
+            {mutation.isPending ? "Confirmando…" : "Confirmar recepción"}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" disabled={mutation.isPending} onClick={() => setReviewing(false)}>
+            Volver a editar
+          </Button>
+        </div>
+      ) : null}
+
+      {!guard && reviewing && !draft ? (
         <div className="flex flex-col items-center gap-3 rounded-md border p-4">
           <p className="text-sm text-muted-foreground">PIN de quien recibió físicamente la mercancía</p>
           <PinPad
@@ -360,6 +454,22 @@ export function ReceptionForm({
         </div>
       ) : null}
     </div>
+  )
+}
+
+/** La foto que tomó el POS: se ve y se abre en grande, no se cambia. */
+function DraftPhoto({ draft }: { draft: ReceptionDraftAdminOut }): React.JSX.Element {
+  return (
+    <figure className="space-y-1">
+      <figcaption className="text-sm font-medium">Foto de la factura o remisión (tomada en el POS)</figcaption>
+      <a href={draft.photo} target="_blank" rel="noreferrer" className="inline-block rounded-md border focus-visible:ring-2">
+        <img
+          src={draft.photo}
+          alt={`Factura o remisión de ${draft.supplier_name}`}
+          className="max-h-64 rounded-md object-contain"
+        />
+      </a>
+    </figure>
   )
 }
 

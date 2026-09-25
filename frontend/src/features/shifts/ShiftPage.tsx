@@ -2,10 +2,13 @@ import {
   ArrowLeft,
   ArrowRightLeft,
   Bike,
+  ClipboardList,
   Coins,
   Landmark,
   LockKeyhole,
   type LucideIcon,
+  MessageSquareWarning,
+  PackagePlus,
   PiggyBank,
   UserCheck,
   Users,
@@ -18,6 +21,9 @@ import { useSession } from "@/app/session";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { NoveltiesPanel } from "@/features/novelties";
+import { ReceiveGoodsPanel } from "@/features/purchases";
+import { RequestsPanel } from "@/features/requests";
 import { errorMessage } from "@/lib/errors";
 
 import { CashSwapPanel } from "./CashSwapPanel";
@@ -50,6 +56,9 @@ type ClaveAccion =
   | "domicilios"
   | "consignar"
   | "relevo"
+  | "recibir"
+  | "solicitudes"
+  | "novedades"
   | "cierre";
 
 interface Accion {
@@ -104,6 +113,29 @@ const ACCIONES: Accion[] = [
     descripcion: "Entregar la caja o hacer un arqueo sorpresa",
     icono: Users,
     flag: "cash.handovers",
+  },
+  // La rutina del turno (2026-09-25): lo que en café-sistema hace el barista
+  // desde su dock — recibir, pedir y dejar novedades.
+  {
+    clave: "recibir",
+    label: "Recibir mercancía",
+    descripcion: "Registrar lo que trajo un proveedor, con foto",
+    icono: PackagePlus,
+    flag: "purchases",
+  },
+  {
+    clave: "solicitudes",
+    label: "Solicitudes",
+    descripcion: "Pedir insumos o sencilla al administrador",
+    icono: ClipboardList,
+    flag: "pos.requests",
+  },
+  {
+    clave: "novedades",
+    label: "Novedades",
+    descripcion: "Dejar dicho lo que pasó para el que sigue",
+    icono: MessageSquareWarning,
+    flag: "pos.novelties",
   },
 ];
 
@@ -378,6 +410,12 @@ function PanelDeAccion({
       return <DepositDrawerPanel shiftId={shift.id} />;
     case "relevo":
       return <HandoverPanel shiftId={shift.id} />;
+    case "recibir":
+      return <ReceiveGoodsPanel />;
+    case "solicitudes":
+      return <RequestsPanel shiftId={shift.id} />;
+    case "novedades":
+      return <NoveltiesPanel />;
     case "cierre":
       return showBlindClose ? (
         <CloseWizard shiftId={shift.id} onClosed={onClosed} />

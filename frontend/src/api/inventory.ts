@@ -52,7 +52,10 @@ export type MovementCause =
   | "transfer_out"
 
 /** `app.inventory.models.WasteType`. No existe `staff_meal` acá — eso es un
- * canal de comanda, nunca un tipo de merma (SPEC-NEGOCIO §5.5). */
+ * canal de comanda, nunca un tipo de merma (SPEC-NEGOCIO §5.5).
+ * `internal_use` (consumo interno: pide quién) y `transfer_out` (traslado a
+ * otra sede: pide la sede destino) son salidas EXPLICADAS, no pérdida: el
+ * backend no las suma en ningún indicador de merma. */
 export type WasteType =
   | "expired"
   | "overproduction"
@@ -62,6 +65,8 @@ export type WasteType =
   | "tasting"
   | "courtesy_no_dish"
   | "unidentified"
+  | "internal_use"
+  | "transfer_out"
 
 // ---------------------------------------------------------------------------
 // Insumos (admin).
@@ -300,6 +305,11 @@ export interface WasteIn {
   note?: string | null
   employee_pin: string
   photo?: string | null
+  /** Consumo interno: quién — un empleado o un texto («dueño»). */
+  consumer_employee_id?: number | null
+  consumer_name?: string | null
+  /** Traslado: la sede destino, de la misma organización. */
+  destination_store_id?: number | null
 }
 
 /** Salida de `POST /waste` (dispositivo): SIN `cost` ni `cost_source` a
@@ -314,6 +324,9 @@ export interface WasteOut {
   employee_id: number
   employee_name: string
   at: string
+  consumer_employee_id: number | null
+  consumer_name: string | null
+  destination_store_id: number | null
 }
 
 export interface WasteAdminOut extends WasteOut {
@@ -321,6 +334,9 @@ export interface WasteAdminOut extends WasteOut {
   cost_source: CostSource
   note: string | null
   photo: string | null
+  /** Traslado: `null` = todavía en camino (o no es un traslado). */
+  received_at: string | null
+  received_by_employee_name: string | null
 }
 
 /** Mermas ÷ compras semanal. `ratio` es el único número no entero de toda la
@@ -378,6 +394,62 @@ export function wasteCsvUrl(params: WasteQuery): string {
     query.set("employee_id", String(params.employeeId))
   }
   return `/api/v1/admin/waste?${query.toString()}`
+}
+
+// ---------------------------------------------------------------------------
+// Traslados entre sedes (merma `transfer_out` y su recepción).
+// ---------------------------------------------------------------------------
+
+export interface TransferStoreOut {
+  id: number
+  name: string
+}
+
+/** Las otras sedes de la organización (dispositivo). Vacía = una sola sede:
+ * el formulario de merma no ofrece «Traslado a otra sede». */
+export function listTransferStores(): Promise<TransferStoreOut[]> {
+  return api<TransferStoreOut[]>("/device/waste/transfer-stores")
+}
+
+/** Un traslado que llega a esta sede (admin). `cost` es el costo por unidad
+ * base con que salió y con el que entra (texto; `null` = sin costo, nunca
+ * `0`). `suggested_ingredient_id` lo propone el servidor. */
+export interface IncomingTransferOut {
+  id: number
+  source_store_id: number
+  source_store_name: string
+  ingredient_id: number
+  ingredient_name: string
+  base_unit: BaseUnit
+  qty: string
+  cost: string | null
+  cost_source: CostSource
+  sent_at: string
+  sent_by_employee_name: string
+  note: string | null
+  photo: string | null
+  suggested_ingredient_id: number | null
+  received_at: string | null
+  received_ingredient_id: number | null
+  received_by_employee_name: string | null
+}
+
+export function getIncomingTransfers(storeId: number, status: "pending" | "all" = "pending"): Promise<IncomingTransferOut[]> {
+  return api<IncomingTransferOut[]>("/admin/transfers/incoming", { query: { store_id: storeId, status } })
+}
+
+export function receiveTransfer(
+  storeId: number,
+  transferId: number,
+  ingredientId: number,
+  idempotencyKey: string,
+): Promise<IncomingTransferOut> {
+  return api<IncomingTransferOut>(`/admin/transfers/${transferId}/receive`, {
+    method: "POST",
+    query: { store_id: storeId },
+    body: { ingredient_id: ingredientId },
+    idempotencyKey,
+  })
 }
 
 // ---------------------------------------------------------------------------

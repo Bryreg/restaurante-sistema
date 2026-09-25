@@ -62,6 +62,9 @@ MODEL_MODULES: list[str] = [
     "analytics",
     # Ver el mismo comentario en `app.main.DOMAINS`.
     "photos",
+    # La rutina del turno en el POS (2026-09-25): solicitudes y novedades.
+    "requests",
+    "novelties",
 ]
 
 

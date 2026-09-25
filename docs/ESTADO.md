@@ -1742,6 +1742,38 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       `undeposited_oldest_date` en `/admin/today`.
     - `docs/SPEC-NEGOCIO.md` §3.2 registra el cambio a la base fija.
 
+40. **La rutina del turno en el POS: recibir, pedir, merma ampliada y
+    novedades** (2026-09-25). Lo que en café-sistema hace el barista desde su
+    dock, como acciones del panel del turno (`?accion=recibir|solicitudes|
+    novedades`); lo que queda para el dueño va a la bandeja de Hoy.
+    - **Recibir mercancía** (`app.purchases`, `reception_drafts`): el cajero
+      registra proveedor, factura, líneas y foto obligatoria, **sin precios**.
+      Si pagó de contado, sale como egreso del turno. El admin la completa en
+      Compras › Recepciones con el formulario de siempre precargado: ahí
+      nacen lotes, costo y cuenta por pagar (el stock entra recién ahí), y el
+      pago de contado se aplica sin un segundo egreso.
+    - **Solicitudes** (`app.requests`, `staff_requests`, flag `pos.requests`):
+      insumos (sugeridos los bajo mínimo; aprobados quedan «por comprar» en
+      Compras) y sencilla (aprobada, llega y se registra con el Cambio de
+      siempre precargado).
+    - **Merma**: `internal_use` (consumo interno, pide quién) y
+      `transfer_out` (a otra sede, que lo recibe con el mismo costo). Ninguno
+      cuenta como pérdida en la merma semanal, la alerta ni la varianza.
+    - **Novedades** (`app.novelties`, flag `pos.novelties`): categoría, nivel
+      y seguimiento; las abiertas pasan de turno hasta que se resuelven.
+    - `/admin/today` suma `reception_drafts_pending_count`,
+      `requests_pending_count`, `novelties_open_count`,
+      `novelties_urgent_count`, `transfers_incoming_count`. Migración `0025`.
+    - **Decidido por el dueño (2026-09-25)**:
+      - El pago de contado a proveedor al recibir **no pide PIN** aunque pase
+        el límite de caja menor.
+      - Rechazar una recepción es excepcional: el admin hace los pedidos, y
+        si algo llega mal el operador lo llama **antes de pagar**. Si igual se
+        rechaza una con pago de contado, el egreso queda.
+      - Un traslado sólo mueve inventario: sale de la sede origen y entra a
+        la destino al recibirlo. **No toca el food cost** de ninguna (lo que
+        entró con factura ya se costeó en la sede que compró).
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

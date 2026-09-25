@@ -438,3 +438,143 @@ export function createPayment(payableId: number, data: PaymentIn, idempotencyKey
 export function voidPayment(payableId: number, paymentId: number, data: PaymentVoidIn): Promise<PaymentOut> {
   return api<PaymentOut>(`/admin/payables/${payableId}/payments/${paymentId}/void`, { method: "POST", body: data })
 }
+
+// ---------------------------------------------------------------------------
+// Recepciones por completar: recibir mercancía desde el POS (2026-09-25).
+//
+// Decisión del dueño: el cajero captura a mano proveedor, factura o «sin
+// factura», foto obligatoria y líneas (insumo + cantidad en su unidad de
+// compra) — SIN NINGÚN PRECIO. El administrador la completa con precios y
+// eso pasa por el camino de siempre (`POST /receptions` por dentro), que es
+// el que crea lotes, costo y cuenta por pagar. Las rutas de dispositivo no
+// traen ningún costo. `cash_paid_amount` es la plata que el cajero entregó
+// del cajón (pesos enteros; `null` = no pagó del cajón, nunca 0).
+// ---------------------------------------------------------------------------
+
+export type ReceptionDraftStatus = "pending" | "completed" | "rejected"
+
+export interface DeviceSupplierOut {
+  id: number
+  name: string
+  invoices_required: boolean
+}
+
+export interface DeviceReceptionIngredientOut {
+  id: number
+  name: string
+  purchase_unit: string
+  base_unit: string
+}
+
+export interface ReceptionDraftLineIn {
+  ingredient_id: number
+  /** Cantidad en la UNIDAD DE COMPRA, texto decimal tal como se tecleó. */
+  quantity: string
+  lot_code?: string | null
+  expires_at?: string | null
+}
+
+export interface ReceptionDraftIn {
+  supplier_id: number
+  invoice_number: string | null
+  no_invoice: boolean
+  photo: string
+  cash_paid_amount: number | null
+  lines: ReceptionDraftLineIn[]
+}
+
+export interface ReceptionDraftLineOut {
+  id: number
+  ingredient_id: number
+  ingredient_name: string
+  quantity: string
+  purchase_unit: string
+  lot_code: string | null
+  expires_at: string | null
+}
+
+/** Lo que ve la tablet («Recibido hoy»). */
+export interface ReceptionDraftOut {
+  id: number
+  supplier_id: number
+  supplier_name: string
+  invoice_number: string | null
+  no_invoice: boolean
+  photo: string
+  status: ReceptionDraftStatus
+  cash_paid_amount: number | null
+  created_by_employee_name: string
+  created_at: string
+  business_date: string
+  rejected_reason: string | null
+  lines: ReceptionDraftLineOut[]
+}
+
+export interface ReceptionDraftAdminLineOut extends ReceptionDraftLineOut {
+  /** La misma cantidad ya convertida por el servidor a la unidad base. */
+  qty_base: string
+  base_unit: string
+}
+
+export interface ReceptionDraftAdminOut {
+  id: number
+  store_id: number
+  supplier_id: number
+  supplier_name: string
+  invoice_number: string | null
+  no_invoice: boolean
+  photo: string
+  status: ReceptionDraftStatus
+  cash_paid_amount: number | null
+  cash_movement_id: number | null
+  created_by_employee_id: number
+  created_by_employee_name: string
+  created_at: string
+  business_date: string
+  /** Minutos desde que se registró, sólo mientras está pendiente. */
+  waiting_minutes: number | null
+  reception_id: number | null
+  completed_at: string | null
+  completed_by_employee_name: string | null
+  rejected_at: string | null
+  rejected_reason: string | null
+  rejected_by_employee_name: string | null
+  lines: ReceptionDraftAdminLineOut[]
+}
+
+/** Lo que el administrador confirma al completar: `ReceptionIn` sin foto
+ * (ya la tomó el POS) y sin PIN de quien recibe (es quien la registró). */
+export type ReceptionDraftCompleteIn = Omit<ReceptionIn, "photo" | "received_by_pin">
+
+export function listDeviceSuppliers(): Promise<DeviceSupplierOut[]> {
+  return api<DeviceSupplierOut[]>("/device/suppliers")
+}
+
+export function listDeviceReceptionIngredients(): Promise<DeviceReceptionIngredientOut[]> {
+  return api<DeviceReceptionIngredientOut[]>("/device/reception-ingredients")
+}
+
+export function createReceptionDraft(data: ReceptionDraftIn, idempotencyKey: string): Promise<ReceptionDraftOut> {
+  return api<ReceptionDraftOut>("/reception-drafts", { method: "POST", body: data, idempotencyKey })
+}
+
+/** «Recibido hoy»: lo registrado en la sede en el día operativo en curso. */
+export function listTodayReceptionDrafts(): Promise<ReceptionDraftOut[]> {
+  return api<ReceptionDraftOut[]>("/reception-drafts")
+}
+
+export function listReceptionDrafts(storeId: number, status?: ReceptionDraftStatus): Promise<ReceptionDraftAdminOut[]> {
+  return api<ReceptionDraftAdminOut[]>("/admin/reception-drafts", { query: { store_id: storeId, status } })
+}
+
+export function completeReceptionDraft(
+  draftId: number,
+  data: ReceptionDraftCompleteIn,
+  idempotencyKey: string,
+): Promise<ReceptionOut> {
+  return api<ReceptionOut>(`/admin/reception-drafts/${draftId}/complete`, { method: "POST", body: data, idempotencyKey })
+}
+
+export function rejectReceptionDraft(draftId: number, reason: string): Promise<ReceptionDraftAdminOut> {
+  return api<ReceptionDraftAdminOut>(`/admin/reception-drafts/${draftId}/reject`, { method: "POST", body: { reason } })
+}

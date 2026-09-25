@@ -23,6 +23,12 @@ const adminRoutes: RouteObject[] = [{ path: "compras", element: createElement(Pu
 
 const adminNav: NavItem[] = [{ to: "/admin/compras", label: "Compras", feature: "purchases" }]
 
+// Recibir mercancía desde el POS (2026-09-25): no es una ruta bajo `/pos`
+// sino un panel que se monta en «Acciones del turno» de `ShiftPage`
+// (`?accion=recibir`, flag `purchases`), más la tarjeta de la bandeja de Hoy.
+export { ReceiveGoodsPanel } from "./pos/ReceiveGoodsPanel"
+export { receptionDraftsTrayItem, type ReceptionDraftsTrayItem } from "./receptionDraftsTray"
+
 export const purchasesFeature = {
   adminRoutes,
   posRoutes: [] as RouteObject[],

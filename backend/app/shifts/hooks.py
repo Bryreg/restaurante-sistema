@@ -637,3 +637,11 @@ def carried_into(db: Session, shift_id: int) -> dict[int, int]:
         select(ShiftCarryIn.source_shift_id, ShiftCarryIn.amount).where(ShiftCarryIn.shift_id == shift_id)
     ).all()
     return {source: amount for source, amount in rows}
+
+
+def cash_swap_store_id(db: Session, cash_swap_id: int) -> int | None:
+    """La sede de un Cambio (`CashSwap`), o `None` si no existe. Lo lee
+    `app.requests` para atar una sencilla recibida al Cambio que la registró."""
+    from app.shifts.models import CashSwap
+
+    return db.execute(select(CashSwap.store_id).where(CashSwap.id == cash_swap_id)).scalar_one_or_none()

@@ -27,7 +27,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
@@ -35,7 +35,7 @@ from app.auth import service as auth_service
 from app.auth.deps import Actor
 from app.auth.models import Employee
 from app.core import clock, tz
-from app.core.errors import AppError, NotFoundError
+from app.core.errors import AppError, ConflictError, NotFoundError
 from app.core.money import format_cop
 from app.core.percent import format_pct_bp
 from app.core.quantity import (
@@ -57,11 +57,14 @@ from app.purchases.models import (
     Payment,
     PaymentMethod,
     Reception,
+    ReceptionDraft,
+    ReceptionDraftLine,
+    ReceptionDraftStatus,
     ReceptionLine,
     ReceptionStatus,
     Supplier,
 )
-from app.purchases.schemas import ReceptionIn, ReceptionLineIn
+from app.purchases.schemas import ReceptionDraftCompleteIn, ReceptionDraftIn, ReceptionIn, ReceptionLineIn
 from app.stores import service as stores_service
 from app.stores.models import Store
 
@@ -299,6 +302,20 @@ def _prepare_line(
 
 
 def create_reception(db: Session, *, actor: Actor, store: Store, payload: ReceptionIn) -> Reception:
+    validated = _validate_reception(db, store=store, payload=payload, received_by=None)
+    reception, _payable = _write_reception(db, actor=actor, store=store, payload=payload, validated=validated)
+    return reception
+
+
+def _validate_reception(
+    db: Session, *, store: Store, payload: ReceptionIn, received_by: Employee | None
+) -> dict[str, Any]:
+    """Fase 1 de `create_reception`: valida TODO sin escribir nada y deja
+    listo lo que la fase 2 necesita, incluido el monto de la cuenta por
+    pagar (para que completar una recepción del POS pueda compararlo con lo
+    que ya salió del cajón ANTES de escribir). `received_by` viene dado
+    cuando quien recibió ya está atribuido (el cajero que registró la
+    recepción en el POS); si es `None`, sale del PIN de `payload`."""
     supplier = get_supplier_or_404(db, organization_id=store.organization_id, supplier_id=payload.supplier_id)
     if supplier.store_id != store.id:
         raise NotFoundError("El proveedor no existe en esta sede")
@@ -312,7 +329,8 @@ def create_reception(db: Session, *, actor: Actor, store: Store, payload: Recept
             status=400,
         )
 
-    received_by = _verify_received_by(db, organization_id=store.organization_id, store_id=store.id, pin=payload.received_by_pin)
+    if received_by is None:
+        received_by = _verify_received_by(db, organization_id=store.organization_id, store_id=store.id, pin=payload.received_by_pin)
 
     now = clock.now_utc()
     business_date = tz.business_date_for(now, store.cutoff_hour)
@@ -344,7 +362,35 @@ def create_reception(db: Session, *, actor: Actor, store: Store, payload: Recept
             guard_triggered = True
         prepared.append(prepared_line)
 
-    # -- Fase 2: escribir. Ya no debería saltar ningún AppError de negocio. --
+    payable_amount = 0
+    for prepared_line in prepared:
+        pretax_invoiced_micros = line_cost_micros(prepared_line["qty_invoiced_base"], prepared_line["unit_cost_micros"])
+        payable_amount += micros_to_pesos(pretax_invoiced_micros) + prepared_line["tax_amount"]
+
+    return {
+        "supplier": supplier,
+        "received_by": received_by,
+        "now": now,
+        "business_date": business_date,
+        "prepared": prepared,
+        "guard_triggered": guard_triggered,
+        "payable_amount": payable_amount,
+    }
+
+
+def _write_reception(
+    db: Session, *, actor: Actor, store: Store, payload: ReceptionIn, validated: dict[str, Any]
+) -> tuple[Reception, Payable]:
+    """Fase 2 de `create_reception`: escribir. Ya no debería saltar ningún
+    AppError de negocio (todo lo decidió `_validate_reception`)."""
+    supplier: Supplier = validated["supplier"]
+    received_by: Employee = validated["received_by"]
+    now: datetime = validated["now"]
+    business_date: date = validated["business_date"]
+    prepared: list[dict[str, Any]] = validated["prepared"]
+    guard_triggered: bool = validated["guard_triggered"]
+    payable_amount: int = validated["payable_amount"]
+
     reception = Reception(
         organization_id=store.organization_id,
         store_id=store.id,
@@ -368,7 +414,6 @@ def create_reception(db: Session, *, actor: Actor, store: Store, payload: Recept
     db.add(reception)
     db.flush()
 
-    payable_amount = 0
     for prepared_line in prepared:
         ingredient = prepared_line["ingredient"]
         line_row = ReceptionLine(
@@ -422,9 +467,6 @@ def create_reception(db: Session, *, actor: Actor, store: Store, payload: Recept
         line_row.stock_batch_id = getattr(batch, "id", None)
         db.flush()
 
-        pretax_invoiced_micros = line_cost_micros(prepared_line["qty_invoiced_base"], prepared_line["unit_cost_micros"])
-        payable_amount += micros_to_pesos(pretax_invoiced_micros) + prepared_line["tax_amount"]
-
     due_date = payload.invoice_date + timedelta(days=supplier.payment_term_days)
     payable = Payable(
         organization_id=store.organization_id,
@@ -451,7 +493,7 @@ def create_reception(db: Session, *, actor: Actor, store: Store, payload: Recept
         before=None,
         after={"supplier_id": supplier.id, "lines": len(prepared), "payable_id": payable.id, "amount": payable_amount},
     )
-    return reception
+    return reception, payable
 
 
 def reverse_reception(db: Session, *, actor: Actor, reception: Reception, authorizer_pin: str) -> Reception:
@@ -1073,3 +1115,363 @@ def void_payment(db: Session, *, actor: Actor, payment: Payment, reason: str, au
         reason=reason,
     )
     return payment
+
+
+# ---------------------------------------------------------------------------
+# Recepciones por completar (recibir mercancía desde el POS, 2026-09-25).
+#
+# Decisión del dueño: captura manual + foto, sin OCR y SIN PRECIOS para el
+# cajero; el administrador completa los costos. El stock entra recién cuando
+# el administrador completa (por `create_reception`, el camino de siempre):
+# así el lote nace con su costo real y la cuenta por pagar con su monto, en
+# vez de un stock que sube a costo desconocido y se corrige después.
+# ---------------------------------------------------------------------------
+
+
+def list_device_suppliers(db: Session, *, store_id: int) -> list[Supplier]:
+    return list_suppliers(db, store_id=store_id, active=True)
+
+
+def list_device_reception_ingredients(db: Session, *, store_id: int) -> list[Ingredient]:
+    stmt = select(Ingredient).where(Ingredient.store_id == store_id, Ingredient.active.is_(True)).order_by(Ingredient.name)
+    return list(db.execute(stmt).scalars())
+
+
+def get_reception_draft_or_404(db: Session, *, organization_id: int, draft_id: int) -> ReceptionDraft:
+    row = db.get(ReceptionDraft, draft_id)
+    if row is None or row.organization_id != organization_id:
+        raise NotFoundError("La recepción por completar no existe en esta organización")
+    return row
+
+
+def get_reception_draft_lines(db: Session, *, draft_id: int) -> list[ReceptionDraftLine]:
+    stmt = select(ReceptionDraftLine).where(ReceptionDraftLine.draft_id == draft_id).order_by(ReceptionDraftLine.id)
+    return list(db.execute(stmt).scalars())
+
+
+def list_reception_drafts(
+    db: Session,
+    *,
+    store_id: int,
+    status: str | None = None,
+    business_date: date | None = None,
+) -> list[ReceptionDraft]:
+    """Las pendientes primero (las más viejas arriba: son las que más
+    esperan), después las resueltas, de la más nueva a la más vieja."""
+    stmt = select(ReceptionDraft).where(ReceptionDraft.store_id == store_id)
+    if status is not None:
+        stmt = stmt.where(ReceptionDraft.status == status)
+    if business_date is not None:
+        stmt = stmt.where(ReceptionDraft.business_date == business_date)
+    rows = list(db.execute(stmt).scalars())
+    pending = sorted((r for r in rows if r.status == ReceptionDraftStatus.PENDING), key=lambda r: r.created_at)
+    resolved = sorted((r for r in rows if r.status != ReceptionDraftStatus.PENDING), key=lambda r: r.created_at, reverse=True)
+    return pending + resolved
+
+
+def today_business_date(store: Store) -> date:
+    return tz.business_date_for(clock.now_utc(), store.cutoff_hour)
+
+
+def draft_waiting_minutes(draft: ReceptionDraft) -> int | None:
+    """Cuánto hace que espera, en minutos enteros; `None` si ya se resolvió."""
+    if draft.status != ReceptionDraftStatus.PENDING:
+        return None
+    elapsed = clock.now_utc() - draft.created_at
+    return max(0, int(elapsed.total_seconds()) // 60)
+
+
+def create_reception_draft(db: Session, *, actor: Actor, store: Store, payload: ReceptionDraftIn) -> ReceptionDraft:
+    """El cajero registra lo que llegó. Valida TODO antes de escribir; la
+    primera escritura posible es el egreso del cajón (si pagó de contado),
+    y ese hook rechaza sin escribir si no hay turno abierto."""
+    if actor.employee_id is None or actor.employee_name is None:
+        raise AppError(code="IDENTIFY_REQUIRED", message="Identificate con tu PIN para registrar lo que llegó", status=401)
+
+    supplier = get_supplier_or_404(db, organization_id=store.organization_id, supplier_id=payload.supplier_id)
+    if supplier.store_id != store.id:
+        raise NotFoundError("El proveedor no existe en esta sede")
+    if not supplier.active:
+        raise AppError(
+            code="SUPPLIER_INACTIVE",
+            message="Ese proveedor está inactivo; pedile al administrador que lo reactive, o elegí otro",
+            status=400,
+        )
+
+    invoice_number = (payload.invoice_number or "").strip() or None
+    if payload.no_invoice:
+        invoice_number = None
+    elif invoice_number is None:
+        raise AppError(
+            code="INVOICE_NUMBER_REQUIRED",
+            message="Escribí el número de la factura o remisión, o marcá «Sin factura»",
+            status=400,
+        )
+
+    if payload.photo is None or payload.photo.strip() == "":
+        raise AppError(
+            code="PHOTO_REQUIRED",
+            message="Tomale una foto a la factura o remisión: es obligatoria para que el administrador la complete",
+            status=400,
+        )
+
+    prepared: list[dict[str, Any]] = []
+    for idx, line in enumerate(payload.lines):
+        ingredient = inventory_hooks.get_ingredient(db, store_id=store.id, ingredient_id=line.ingredient_id)
+        if ingredient is None:
+            raise NotFoundError(f"lines[{idx}]: el insumo {line.ingredient_id} no existe en esta sede")
+        if not ingredient.active:
+            raise AppError(
+                code="INGREDIENT_INACTIVE",
+                message=f'lines[{idx}]: el insumo "{ingredient.name}" está inactivo',
+                status=400,
+            )
+        qty_purchase_milli = parse_qty_base(line.quantity, field=f"lines[{idx}].quantity")
+        if qty_purchase_milli <= 0:
+            raise AppError(
+                code="VALIDATION_ERROR",
+                message=f'lines[{idx}]: la cantidad de "{ingredient.name}" tiene que ser mayor a cero',
+                status=400,
+            )
+        prepared.append(
+            {
+                "ingredient": ingredient,
+                "qty_purchase_milli": qty_purchase_milli,
+                # Una sola conversión, acá: milésimas de unidad de compra ×
+                # unidades base por unidad de compra = milésimas de base.
+                "qty_base": qty_purchase_milli * ingredient.purchase_factor,
+                "lot_code": (line.lot_code or "").strip() or None,
+                "expires_at": line.expires_at,
+            }
+        )
+
+    # -- Escribir. Lo único que todavía puede decir que no es el hook del
+    # cajón (sin turno abierto → 409 NO_OPEN_SHIFT), y lo dice sin escribir.
+    cash_movement_id: int | None = None
+    if payload.cash_paid_amount is not None:
+        from app.shifts import hooks as shifts_hooks
+
+        movement = shifts_hooks.register_supplier_payment_expense(
+            db,
+            organization_id=store.organization_id,
+            store_id=store.id,
+            amount=payload.cash_paid_amount,
+            actor=actor,
+            note=f"Pago de contado a {supplier.name} al recibir mercancía (POS)",
+            reference=invoice_number,
+        )
+        cash_movement_id = movement.id
+
+    now = clock.now_utc()
+    draft = ReceptionDraft(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        supplier_id=supplier.id,
+        invoice_number=invoice_number,
+        no_invoice=payload.no_invoice,
+        photo=photos_hooks.store_photo(db, payload.photo, organization_id=store.organization_id, store_id=store.id),
+        status=ReceptionDraftStatus.PENDING,
+        cash_paid_amount=payload.cash_paid_amount,
+        cash_movement_id=cash_movement_id,
+        created_by_employee_id=actor.employee_id,
+        created_by_employee_name=actor.employee_name,
+        created_at=now,
+        business_date=tz.business_date_for(now, store.cutoff_hour),
+    )
+    db.add(draft)
+    db.flush()
+    for item in prepared:
+        ingredient = item["ingredient"]
+        db.add(
+            ReceptionDraftLine(
+                draft_id=draft.id,
+                ingredient_id=ingredient.id,
+                qty_purchase_milli=item["qty_purchase_milli"],
+                purchase_unit=ingredient.purchase_unit,
+                purchase_factor=ingredient.purchase_factor,
+                qty_base=item["qty_base"],
+                lot_code=item["lot_code"],
+                expires_at=item["expires_at"],
+            )
+        )
+    db.flush()
+
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="reception_draft",
+        entity_id=draft.id,
+        action="create",
+        before=None,
+        after={
+            "supplier_id": supplier.id,
+            "lines": len(prepared),
+            "no_invoice": draft.no_invoice,
+            "cash_paid_amount": draft.cash_paid_amount,
+            "cash_movement_id": cash_movement_id,
+        },
+    )
+    return draft
+
+
+def complete_reception_draft(
+    db: Session, *, actor: Actor, store: Store, draft: ReceptionDraft, payload: ReceptionDraftCompleteIn
+) -> Reception:
+    """El administrador pone los precios y confirma. Pasa por el camino de
+    siempre (`_validate_reception` + `_write_reception`, lo mismo que
+    `create_reception`): lotes, costo y cuenta por pagar. Quien recibió es
+    quien registró el borrador en el POS; la foto es la que se tomó allá.
+
+    Si el cajero pagó de contado desde el cajón, esa plata YA salió (hay un
+    egreso en el turno, `draft.cash_movement_id`): la cuenta por pagar la
+    refleja con un `Payment` que apunta a ESE movimiento — nunca uno nuevo,
+    que sería sacar la plata del cajón dos veces."""
+    if draft.status != ReceptionDraftStatus.PENDING:
+        raise AppError(
+            code="DRAFT_NOT_PENDING",
+            message="Esta recepción ya no está por completar (alguien la completó o la rechazó); recargá la lista",
+            status=409,
+        )
+
+    received_by = db.get(Employee, draft.created_by_employee_id)
+    if received_by is None:
+        raise NotFoundError("No se encontró a quien registró esta recepción")
+
+    # `model_construct`: los campos ya los validó `ReceptionDraftCompleteIn`;
+    # el PIN no se lee porque `received_by` viene dado.
+    reception_in = ReceptionIn.model_construct(
+        supplier_id=payload.supplier_id,
+        invoice_number=payload.invoice_number,
+        invoice_date=payload.invoice_date,
+        no_invoice=payload.no_invoice,
+        photo=draft.photo,
+        invoice_total=payload.invoice_total,
+        received_by_pin="",
+        confirm_price=payload.confirm_price,
+        lines=payload.lines,
+    )
+    validated = _validate_reception(db, store=store, payload=reception_in, received_by=received_by)
+
+    if draft.cash_paid_amount is not None and draft.cash_paid_amount > validated["payable_amount"]:
+        raise AppError(
+            code="DRAFT_CASH_EXCEEDS_TOTAL",
+            message=(
+                f"En el POS se pagaron {format_cop(draft.cash_paid_amount)} de contado, más que el total de esta "
+                f"recepción ({format_cop(validated['payable_amount'])}); revisá los precios y cantidades antes de confirmar"
+            ),
+            status=400,
+        )
+
+    now = clock.now_utc()
+    # Reclamo atómico: si otro administrador la completó o la rechazó entre
+    # la lectura y acá, no se escribe NADA (el UPDATE no tocó ninguna fila).
+    claimed = db.execute(
+        update(ReceptionDraft)
+        .where(ReceptionDraft.id == draft.id, ReceptionDraft.status == ReceptionDraftStatus.PENDING)
+        .values(
+            status=ReceptionDraftStatus.COMPLETED,
+            completed_at=now,
+            completed_by_employee_id=actor.employee_id,
+            completed_by_employee_name=actor.employee_name,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if getattr(claimed, "rowcount", 0) != 1:
+        raise ConflictError(
+            "Esta recepción ya no está por completar (alguien la completó o la rechazó); recargá la lista",
+            code="DRAFT_NOT_PENDING",
+        )
+    db.refresh(draft)
+
+    reception, payable = _write_reception(db, actor=actor, store=store, payload=reception_in, validated=validated)
+
+    payment_id: int | None = None
+    if draft.cash_paid_amount is not None:
+        payment = Payment(
+            organization_id=store.organization_id,
+            store_id=store.id,
+            payable_id=payable.id,
+            amount=draft.cash_paid_amount,
+            method=PaymentMethod.CASH,
+            paid_at=draft.created_at,
+            reference=f"Pago de contado en el POS (recepción por completar #{draft.id})",
+            from_cash_drawer=True,
+            # El egreso que ya se registró al recibir: no se crea otro.
+            cash_movement_id=draft.cash_movement_id,
+            employee_id=draft.created_by_employee_id,
+            employee_name=draft.created_by_employee_name,
+            authorized_by_employee_id=actor.employee_id or draft.created_by_employee_id,
+            authorized_by_employee_name=actor.employee_name or draft.created_by_employee_name,
+            created_at=now,
+        )
+        db.add(payment)
+        db.flush()
+        payment_id = payment.id
+
+    draft.reception_id = reception.id
+    db.flush()
+
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="reception_draft",
+        entity_id=draft.id,
+        action="complete",
+        before={"status": "pending"},
+        after={"status": "completed", "reception_id": reception.id, "payable_id": payable.id, "payment_id": payment_id},
+    )
+    return reception
+
+
+def reject_reception_draft(db: Session, *, actor: Actor, draft: ReceptionDraft, reason: str) -> ReceptionDraft:
+    """Rechazar no borra nada: queda con motivo y quién. Si el cajero pagó
+    de contado, ese egreso del turno NO se toca — la plata salió del cajón
+    de verdad; qué pasa con ella (el proveedor la devuelve, se carga como
+    gasto) es una decisión del administrador fuera de esta acción."""
+    if draft.status != ReceptionDraftStatus.PENDING:
+        raise AppError(
+            code="DRAFT_NOT_PENDING",
+            message="Esta recepción ya no está por completar (alguien la completó o la rechazó); recargá la lista",
+            status=409,
+        )
+    clean_reason = reason.strip()
+    if clean_reason == "":
+        raise AppError(code="REASON_REQUIRED", message="Escribí por qué se rechaza esta recepción", status=400)
+
+    now = clock.now_utc()
+    claimed = db.execute(
+        update(ReceptionDraft)
+        .where(ReceptionDraft.id == draft.id, ReceptionDraft.status == ReceptionDraftStatus.PENDING)
+        .values(
+            status=ReceptionDraftStatus.REJECTED,
+            rejected_at=now,
+            rejected_reason=clean_reason,
+            rejected_by_employee_id=actor.employee_id,
+            rejected_by_employee_name=actor.employee_name,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if getattr(claimed, "rowcount", 0) != 1:
+        raise ConflictError(
+            "Esta recepción ya no está por completar (alguien la completó o la rechazó); recargá la lista",
+            code="DRAFT_NOT_PENDING",
+        )
+    db.refresh(draft)
+
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=draft.organization_id,
+        store_id=draft.store_id,
+        entity="reception_draft",
+        entity_id=draft.id,
+        action="reject",
+        before={"status": "pending"},
+        after={"status": "rejected", "cash_paid_amount": draft.cash_paid_amount},
+        reason=clean_reason,
+    )
+    return draft

@@ -456,6 +456,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     **95** (`shift_carry_ins`). El dueño decidió que la venta sin consignar se
     queda en el cajón y que quien tiene la caja consigna desde el POS con
     confirmación del administrador; `bank_deposits` suma columnas, no tabla.
+
+    **Re-apuntado con la rutina del turno en el POS**: la cadena llega a
+    **`0025_pos_routine`** y el conteo a **100**: `reception_drafts` y
+    `reception_draft_lines` (recibir sin precios), `staff_requests` y
+    `staff_request_lines` (pedidos de insumos y de sencilla) y `novelties`.
+    `wastes` suma columnas (consumo interno y traslado), no tabla.
     """
     from sqlalchemy import text
 
@@ -467,11 +473,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0024", (
-        f"la cadena quedó en {version!r}; el punto de llegada después de dejar la plata "
-        "de días anteriores en el cajón es 0024 (`0024_cash_carry_and_pos_deposits`). "
+    assert version == "0025", (
+        f"la cadena quedó en {version!r}; el punto de llegada después de la rutina del "
+        "turno en el POS es 0025 (`0025_pos_routine`). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023 y 0024"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024 y 0025"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -508,6 +514,13 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     de_las_obligaciones = {"expenses", "obligations", "store_expenses_settings"}
     de_las_fotos = {"photos"}
     del_cajon = {"shift_carry_ins"}
+    de_la_rutina = {
+        "reception_drafts",
+        "reception_draft_lines",
+        "staff_requests",
+        "staff_request_lines",
+        "novelties",
+    }
     de_la_nomina = {
         "payroll_surcharge_tables",
         "payroll_holidays",
@@ -530,6 +543,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
             | de_la_nomina
             | de_las_fotos
             | del_cajon
+            | de_la_rutina
         )
         - tablas
     )
@@ -548,10 +562,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # a propósito: es todo derivado. Ojo al comparar con `docs/ESTADO.md`, que
     # para 1b anotó "53 tablas" contando la de control de Alembic: es el mismo
     # esquema contado de dos maneras. `0023_photos` suma una (94) y `0024`
-    # otra (`shift_carry_ins`): **95**.
-    assert len(tablas) == 95, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; `0024` lo deja en 95 "
-        f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón). "
+    # otra (`shift_carry_ins`): 95; `0025` cinco de la rutina del turno: **100**.
+    assert len(tablas) == 100, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; `0025` lo deja en 100 "
+        f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón "
+        f"+ 5 de la rutina del turno). "
         f"Actualizá este número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 

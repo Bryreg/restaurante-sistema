@@ -46,6 +46,7 @@ from app.inventory.models import (
     StoreInventorySettings,
     Waste,
     WasteType,
+    LOSS_WASTE_TYPES,
 )
 from app.inventory.schemas import (
     AdjustmentIn,
@@ -59,6 +60,7 @@ from app.inventory.schemas import (
     CountLinesSaveOut,
     CountOut,
     FoodCostOut,
+    IncomingTransferOut,
     IngredientIn,
     IngredientOut,
     IngredientUpdateIn,
@@ -67,6 +69,8 @@ from app.inventory.schemas import (
     LotOut,
     StockMovementOut,
     StockRowOut,
+    TransferReceiveIn,
+    TransferStoreOut,
     VarianceOut,
     VarianceParetoRowOut,
     VarianceRowOut,
@@ -446,11 +450,13 @@ def _verify_self_authorizer(db: Session, *, actor: Actor, pin: str) -> Employee:
 
 
 def _sum_waste_qty(db: Session, *, store_id: int, ingredient_id: int, date_from: date, date_to: date) -> int:
+    # Sólo pérdidas: un consumo interno o un traslado no es «merma alta».
     stmt = select(func.coalesce(func.sum(Waste.qty_base), 0)).where(
         Waste.store_id == store_id,
         Waste.ingredient_id == ingredient_id,
         Waste.business_date >= date_from,
         Waste.business_date <= date_to,
+        Waste.type.in_(LOSS_WASTE_TYPES),
     )
     return int(db.execute(stmt).scalar_one())
 
@@ -482,6 +488,45 @@ def _check_waste_spike(db: Session, *, store: Store, ingredient: Ingredient, bus
         )
 
 
+def _resolve_consumer(db: Session, *, store: Store, data: WasteIn) -> tuple[int | None, str]:
+    """Quién se llevó un consumo interno: un empleado de la sede (o de la
+    organización, los admin sin sede) con su nombre congelado, o un texto
+    («dueño»). Sólo lee: se llama antes de escribir nada."""
+    if data.consumer_employee_id is not None:
+        employee = db.get(Employee, data.consumer_employee_id)
+        if (
+            employee is None
+            or employee.organization_id != store.organization_id
+            or (employee.store_id is not None and employee.store_id != store.id)
+        ):
+            raise NotFoundError("La persona que hizo el consumo interno no existe")
+        return employee.id, employee.name
+    name = (data.consumer_name or "").strip()
+    if not name:
+        raise AppError(
+            code="CONSUMER_REQUIRED",
+            message="Decí quién hizo el consumo interno: elegí a la persona o escribí «dueño», «reunión»…",
+        )
+    return None, name
+
+
+def _resolve_destination(db: Session, *, store: Store, destination_store_id: int | None) -> Store:
+    """La sede destino de un traslado: otra sede ACTIVA de la misma
+    organización. Una sede ajena es `404`, como todo id de otra organización."""
+    if destination_store_id is None:
+        raise AppError(
+            code="DESTINATION_REQUIRED", message="Elegí a qué sede va el traslado"
+        )
+    if destination_store_id == store.id:
+        raise AppError(
+            code="VALIDATION_ERROR", message="Un traslado va a OTRA sede: elegí una sede distinta de ésta"
+        )
+    destination = db.get(Store, destination_store_id)
+    if destination is None or destination.organization_id != store.organization_id or not destination.active:
+        raise NotFoundError("La sede destino no existe")
+    return destination
+
+
 def register_waste(db: Session, *, store: Store, data: WasteIn) -> Waste:
     if (data.ingredient_id is None) == (data.preparation_id is None):
         raise AppError(
@@ -491,6 +536,25 @@ def register_waste(db: Session, *, store: Store, data: WasteIn) -> Waste:
     qty_base = parse_qty_base(data.qty, field="qty")
     if qty_base <= 0:
         raise AppError(code="VALIDATION_ERROR", message="qty: la cantidad de la merma tiene que ser mayor a cero")
+
+    waste_type = WasteType(data.type)
+
+    # Los campos propios de cada salida explicada, validados ANTES de escribir
+    # nada (`get_db` comitea también ante un `AppError`).
+    consumer_employee_id: int | None = None
+    consumer_name: str | None = None
+    destination_store_id: int | None = None
+    if waste_type is WasteType.INTERNAL_USE:
+        consumer_employee_id, consumer_name = _resolve_consumer(db, store=store, data=data)
+    elif waste_type is WasteType.TRANSFER_OUT:
+        if data.ingredient_id is None:
+            raise AppError(
+                code="VALIDATION_ERROR",
+                message="Un traslado a otra sede es de insumos: las preparaciones son de cada sede",
+            )
+        destination_store_id = _resolve_destination(
+            db, store=store, destination_store_id=data.destination_store_id
+        ).id
 
     responsible = _verify_responsible(
         db, organization_id=store.organization_id, store_id=store.id, pin=data.employee_pin
@@ -514,7 +578,7 @@ def register_waste(db: Session, *, store: Store, data: WasteIn) -> Waste:
     waste = Waste(
         organization_id=store.organization_id,
         store_id=store.id,
-        type=WasteType(data.type),
+        type=waste_type,
         ingredient_id=data.ingredient_id,
         preparation_id=data.preparation_id,
         qty_base=qty_base,
@@ -526,6 +590,9 @@ def register_waste(db: Session, *, store: Store, data: WasteIn) -> Waste:
         photo_url=photos_hooks.store_photo(db, data.photo, organization_id=store.organization_id, store_id=store.id),
         at=now,
         business_date=business_date,
+        consumer_employee_id=consumer_employee_id,
+        consumer_name=consumer_name,
+        destination_store_id=destination_store_id,
     )
     db.add(waste)
     db.flush()
@@ -538,6 +605,10 @@ def register_waste(db: Session, *, store: Store, data: WasteIn) -> Waste:
         employee_name=responsible.name,
         role=responsible.role,
     )
+    # Causa tipada del libro: el traslado sale como `TRANSFER_OUT` (la causa
+    # que §5.1 ya declaraba para esto); el resto, incluido el consumo interno,
+    # como `WASTE` — el enum de causas es cerrado y el tipo fino vive en
+    # `Waste.type`, al que el movimiento apunta por `ref_type="waste"`.
     movement = hooks.record_movement(
         db,
         organization_id=store.organization_id,
@@ -545,7 +616,7 @@ def register_waste(db: Session, *, store: Store, data: WasteIn) -> Waste:
         ingredient_id=data.ingredient_id,
         preparation_id=data.preparation_id,
         qty_base=-qty_base,
-        cause=MovementCause.WASTE,
+        cause=MovementCause.TRANSFER_OUT if waste_type is WasteType.TRANSFER_OUT else MovementCause.WASTE,
         cost_micros=cost_micros,
         cost_source=cost_source,
         actor=responsible_actor,
@@ -557,7 +628,7 @@ def register_waste(db: Session, *, store: Store, data: WasteIn) -> Waste:
     waste.stock_movement_id = movement.id
     db.flush()
 
-    if ingredient is not None:
+    if ingredient is not None and waste_type in LOSS_WASTE_TYPES:
         _check_waste_spike(db, store=store, ingredient=ingredient, business_date=business_date)
 
     return waste
@@ -594,6 +665,9 @@ def waste_out(waste: Waste) -> WasteOut:
         employee_id=waste.employee_id,
         employee_name=waste.employee_name,
         at=waste.at,
+        consumer_employee_id=waste.consumer_employee_id,
+        consumer_name=waste.consumer_name,
+        destination_store_id=waste.destination_store_id,
     )
 
 
@@ -604,6 +678,8 @@ def waste_admin_out(waste: Waste) -> WasteAdminOut:
         cost_source=waste.cost_source.value,  # type: ignore[arg-type]
         note=waste.note,
         photo=waste.photo_url,
+        received_at=waste.received_at,
+        received_by_employee_name=waste.received_by_employee_name,
     )
 
 
@@ -617,10 +693,15 @@ def weekly_waste_kpi(db: Session, *, store: Store, business_date: date) -> Waste
     (× 10.000), **el único número no entero de la fase — ya no lo es**."""
     week_start = business_date - timedelta(days=6)
 
+    # Sólo pérdidas (`LOSS_WASTE_TYPES`): el consumo interno y el traslado
+    # son salidas explicadas y no inflan «mermas ÷ compras».
     waste_micros = 0
     for waste in db.execute(
         select(Waste).where(
-            Waste.store_id == store.id, Waste.business_date >= week_start, Waste.business_date <= business_date
+            Waste.store_id == store.id,
+            Waste.business_date >= week_start,
+            Waste.business_date <= business_date,
+            Waste.type.in_(LOSS_WASTE_TYPES),
         )
     ).scalars():
         if waste.cost_micros is not None:
@@ -656,6 +737,145 @@ def weekly_waste_kpi(db: Session, *, store: Store, business_date: date) -> Waste
     # formateador que espeja `formatPct` del frontend.
     label = f"{format_pct_bp(ratio_bp)} de las compras de la semana"
     return WasteKpiOut(ratio=ratio_bp, label=label)
+
+
+# ---------------------------------------------------------------------------
+# Traslados entre sedes: la salida es una merma `transfer_out` de la sede
+# origen; la entrada la escribe la sede destino al recibir, al mismo costo.
+# ---------------------------------------------------------------------------
+
+
+def transfer_destinations(db: Session, *, store: Store) -> list[Store]:
+    """Las otras sedes activas de la organización. Vacía = la organización
+    tiene una sola sede y la pantalla no ofrece «Traslado a otra sede»."""
+    stmt = (
+        select(Store)
+        .where(Store.organization_id == store.organization_id, Store.active.is_(True), Store.id != store.id)
+        .order_by(Store.name)
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+def transfer_store_out(row: Store) -> TransferStoreOut:
+    return TransferStoreOut(id=row.id, name=row.name)
+
+
+def list_incoming_transfers(db: Session, *, store: Store, pending_only: bool) -> list[Waste]:
+    stmt = select(Waste).where(
+        Waste.organization_id == store.organization_id,
+        Waste.destination_store_id == store.id,
+        Waste.type == WasteType.TRANSFER_OUT,
+    )
+    if pending_only:
+        stmt = stmt.where(Waste.received_at.is_(None))
+    return list(db.execute(stmt.order_by(Waste.at.desc(), Waste.id.desc())).scalars().all())
+
+
+def _suggested_destination_ingredient(db: Session, *, store: Store, source: Ingredient) -> int | None:
+    """El insumo activo de la sede destino con el mismo nombre (sin
+    distinguir mayúsculas) y la misma unidad base. Sólo una sugerencia."""
+    target = source.name.strip().lower()
+    for candidate in list_ingredients(db, store=store, active_only=True):
+        if candidate.name.strip().lower() == target and candidate.base_unit == source.base_unit:
+            return candidate.id
+    return None
+
+
+def incoming_transfer_out(db: Session, *, store: Store, waste: Waste) -> IncomingTransferOut:
+    source_store = db.get(Store, waste.store_id)
+    source = db.get(Ingredient, waste.ingredient_id) if waste.ingredient_id is not None else None
+    if source_store is None or source is None:
+        # No debería pasar: un traslado siempre es de un insumo de otra sede
+        # que existe (nada se borra). Si pasa, es un dato roto, no un 500 mudo.
+        raise NotFoundError("El traslado no existe")
+    return IncomingTransferOut(
+        id=waste.id,
+        source_store_id=source_store.id,
+        source_store_name=source_store.name,
+        ingredient_id=source.id,
+        ingredient_name=source.name,
+        base_unit=source.base_unit.value,  # type: ignore[arg-type]
+        qty=format_qty_base(waste.qty_base),
+        cost=format_cost_micros(waste.cost_micros) if waste.cost_micros is not None else None,
+        cost_source=waste.cost_source.value,  # type: ignore[arg-type]
+        sent_at=waste.at,
+        sent_by_employee_name=waste.employee_name,
+        note=waste.note,
+        photo=waste.photo_url,
+        suggested_ingredient_id=(
+            _suggested_destination_ingredient(db, store=store, source=source) if waste.received_at is None else None
+        ),
+        received_at=waste.received_at,
+        received_ingredient_id=waste.received_ingredient_id,
+        received_by_employee_name=waste.received_by_employee_name,
+    )
+
+
+def receive_transfer(
+    db: Session, *, store: Store, actor: Actor, waste_id: int, data: TransferReceiveIn
+) -> Waste:
+    """La sede destino recibe un traslado: un movimiento `TRANSFER_IN` sobre
+    el insumo que elige quien recibe, por la misma cantidad y **al mismo
+    costo** con que salió (la plata no cambia por cruzar la calle). Se
+    recibe una sola vez; todo se valida antes de escribir."""
+    waste = db.execute(select(Waste).where(Waste.id == waste_id).with_for_update()).scalar_one_or_none()
+    if (
+        waste is None
+        or waste.organization_id != store.organization_id
+        or waste.destination_store_id != store.id
+        or waste.type is not WasteType.TRANSFER_OUT
+    ):
+        raise NotFoundError("El traslado no existe")
+    if waste.received_at is not None:
+        raise AppError(
+            code="TRANSFER_ALREADY_RECEIVED",
+            message=f"Este traslado ya lo recibió {waste.received_by_employee_name or 'otra persona'}",
+            status=409,
+        )
+    source = db.get(Ingredient, waste.ingredient_id) if waste.ingredient_id is not None else None
+    if source is None:
+        raise NotFoundError("El traslado no existe")
+    target = hooks.get_ingredient(db, store_id=store.id, ingredient_id=data.ingredient_id)
+    if target is None or not target.active:
+        raise NotFoundError("El insumo no existe en esta sede")
+    if target.base_unit != source.base_unit:
+        raise AppError(
+            code="TRANSFER_UNIT_MISMATCH",
+            message=(
+                f"«{source.name}» sale en {source.base_unit.value} y «{target.name}» se cuenta en "
+                f"{target.base_unit.value}: elegí un insumo con la misma unidad o crealo en Inventario → Insumos"
+            ),
+        )
+    if actor.employee_id is None or not actor.employee_name:
+        raise AppError(code="VALIDATION_ERROR", message="No hay una persona identificada para recibir el traslado")
+    source_store = db.get(Store, waste.store_id)
+
+    now = clock.now_utc()
+    business_date = tz.business_date_for(now, store.cutoff_hour)
+    movement = hooks.record_movement(
+        db,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        ingredient_id=target.id,
+        qty_base=waste.qty_base,
+        cause=MovementCause.TRANSFER_IN,
+        cost_micros=waste.cost_micros,
+        cost_source=waste.cost_source,
+        actor=actor,
+        business_date=business_date,
+        at=now,
+        ref_type="waste_transfer",
+        ref_id=waste.id,
+        note=f"Traslado desde {source_store.name}" if source_store is not None else "Traslado desde otra sede",
+    )
+    waste.received_at = now
+    waste.received_business_date = business_date
+    waste.received_ingredient_id = target.id
+    waste.received_movement_id = movement.id
+    waste.received_by_employee_id = actor.employee_id
+    waste.received_by_employee_name = actor.employee_name
+    db.flush()
+    return waste
 
 
 # ---------------------------------------------------------------------------
@@ -1316,7 +1536,8 @@ def _variance_pareto(rows: list[VarianceRowOut]) -> dict[str, Any]:
 
 def variance_report(db: Session, *, store: Store, count_id: int | None) -> VarianceOut:
     """`GET /admin/variance?count_id`. Identidad `inicial + entradas - final
-    = uso real`, contra el uso teórico que ya está en el libro
+    - salidas explicadas = uso real` (salidas explicadas = consumo interno y
+    traslados a otra sede, que no son pérdida), contra el uso teórico que ya está en el libro
     (`cause=SALE` + `cause=PRODUCTION_OUT`, SPEC-NEGOCIO §5.3). `entradas`
     EXCLUYE `count_adjustment` a propósito: el ajuste del conteo ANTERIOR ya
     quedó absorbido en `inicial` (que es el valor CONTADO, no el del libro),
@@ -1383,7 +1604,13 @@ def variance_report(db: Session, *, store: Store, count_id: int | None) -> Varia
             db, store_id=store.id, ingredient_id=ing_id, window_from=previous.opened_at, window_to=count.opened_at,
             positive=True, exclude_causes=(MovementCause.COUNT_ADJUSTMENT,),
         )
-        real_usage = opening + inflow - closing
+        # Lo que salió EXPLICADO (consumo interno, traslado a otra sede) no es
+        # uso de la cocina ni pérdida: se descuenta del uso real para que no
+        # aparezca como faltante (`hooks.explained_outflow_qty`).
+        explained_out = hooks.explained_outflow_qty(
+            db, store_id=store.id, ingredient_id=ing_id, window_from=previous.opened_at, window_to=count.opened_at
+        )
+        real_usage = opening + inflow - closing - explained_out
         theoretical = -_movement_sum(
             db, store_id=store.id, ingredient_id=ing_id, window_from=previous.opened_at, window_to=count.opened_at,
             positive=False, causes=(MovementCause.SALE, MovementCause.PRODUCTION_OUT),
@@ -1714,9 +1941,14 @@ def control_health(db: Session, *, store: Store) -> ControlHealthOut:
     invoice_ratio, invoice_reason = _reception_invoice_ratio(db, store=store, date_from=week_start, date_to=today)
     batch_ratio, batch_reason = _batch_preps_produced_ratio(db, store=store, week_start=week_start, week_end=today)
 
+    # Mermas de verdad: un consumo interno o un traslado registrado no dice
+    # que la sede esté anotando lo que pierde.
     waste_count = db.execute(
         select(func.count(Waste.id)).where(
-            Waste.store_id == store.id, Waste.business_date >= week_start, Waste.business_date <= today
+            Waste.store_id == store.id,
+            Waste.business_date >= week_start,
+            Waste.business_date <= today,
+            Waste.type.in_(LOSS_WASTE_TYPES),
         )
     ).scalar_one()
 

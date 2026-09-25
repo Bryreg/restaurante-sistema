@@ -262,6 +262,12 @@ export interface TodayOut {
   undeposited_total?: number | null
   /** Fecha de negocio (ISO) del día más viejo con plata sin consignar. */
   undeposited_oldest_date?: string | null
+  /** La rutina del turno en el POS (2026-09-25). `0` con la función apagada. */
+  reception_drafts_pending_count?: number
+  requests_pending_count?: number
+  novelties_open_count?: number
+  novelties_urgent_count?: number
+  transfers_incoming_count?: number
   alerts?: AlertOut[]
   // Pedido 2a: `[]` cuando `catalog.recipes`/`inventory.perpetual` están
   // apagadas o el dominio todavía no está montado — el backend nunca omite

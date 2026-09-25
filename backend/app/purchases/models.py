@@ -320,3 +320,106 @@ class Payment(Base):
         Index("ix_purchase_payments_payable", "payable_id"),
         Index("ix_purchase_payments_store_created", "store_id", "created_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Recepciones por completar (recibir mercancía desde el POS, 2026-09-25).
+# ---------------------------------------------------------------------------
+
+
+class ReceptionDraftStatus(str, enum.Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    REJECTED = "rejected"
+
+
+class ReceptionDraft(Base):
+    """Lo que registra en el POS quien está en el turno cuando llega un
+    proveedor: proveedor, factura o «sin factura», foto obligatoria del papel
+    y las líneas (insumo y cantidad en su unidad de compra). **Sin ningún
+    precio**: la tablet no ve costos (`AGENTS.md`), y el costo lo pone el
+    administrador al completarla, por el camino de siempre
+    (`service.create_reception`), que es el que crea lotes, costo y la
+    cuenta por pagar. Hasta entonces el stock NO sube: entra con un costo
+    real o no entra.
+
+    `cash_paid_amount` es la plata que el cajero entregó de contado desde el
+    cajón, en pesos (`None` = no pagó del cajón, nunca 0). Esa salida se
+    registra al crear el borrador como egreso del turno abierto
+    (`cash_movement_id`, causa `SUPPLIER_PAYMENT`); al completar, la cuenta
+    por pagar la refleja como un pago que apunta a ESE movimiento, sin sacar
+    plata del cajón otra vez.
+
+    Nunca se borra: `pending` → `completed` (con `reception_id`) o
+    `rejected` (con motivo y quién)."""
+
+    __tablename__ = "reception_drafts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), index=True)
+
+    invoice_number: Mapped[str | None] = mapped_column(sa.String(80), nullable=True)
+    no_invoice: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    photo: Mapped[str] = mapped_column(sa.String(500))
+
+    status: Mapped[ReceptionDraftStatus] = mapped_column(
+        _enum(ReceptionDraftStatus, length=16), default=ReceptionDraftStatus.PENDING
+    )
+
+    cash_paid_amount: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    # FK real: `cash_movements` (app.shifts) existe desde 1a.
+    cash_movement_id: Mapped[int | None] = mapped_column(ForeignKey("cash_movements.id"), nullable=True)
+
+    created_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    created_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    business_date: Mapped[date] = mapped_column(sa.Date)
+
+    reception_id: Mapped[int | None] = mapped_column(ForeignKey("receptions.id"), nullable=True, unique=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    completed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    completed_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    rejected_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    rejected_reason: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+    rejected_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    rejected_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "cash_paid_amount IS NULL OR cash_paid_amount > 0", name="ck_reception_drafts_cash_paid_positive"
+        ),
+        Index("ix_reception_drafts_store_status", "store_id", "status"),
+        Index("ix_reception_drafts_store_date", "store_id", "business_date"),
+    )
+
+
+class ReceptionDraftLine(Base):
+    """Una línea de la recepción por completar. La cantidad se captura en la
+    unidad de COMPRA (lo que dice el papel: «2 bultos»), en milésimas
+    (`qty_purchase_milli`); `purchase_unit` y `purchase_factor` se congelan
+    al capturar, y `qty_base` (milésimas de la unidad base) es la conversión
+    hecha una sola vez acá, en el backend — la que precarga el formulario del
+    administrador."""
+
+    __tablename__ = "reception_draft_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draft_id: Mapped[int] = mapped_column(ForeignKey("reception_drafts.id"), index=True)
+    ingredient_id: Mapped[int] = mapped_column(ForeignKey("ingredients.id"), index=True)
+
+    qty_purchase_milli: Mapped[int] = mapped_column(sa.Integer)
+    purchase_unit: Mapped[str] = mapped_column(sa.String(50))
+    purchase_factor: Mapped[int] = mapped_column(sa.Integer)
+    qty_base: Mapped[int] = mapped_column(sa.Integer)
+
+    lot_code: Mapped[str | None] = mapped_column(sa.String(80), nullable=True)
+    expires_at: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("qty_purchase_milli > 0", name="ck_reception_draft_lines_qty_positive"),
+        CheckConstraint("purchase_factor > 0", name="ck_reception_draft_lines_factor_positive"),
+        CheckConstraint("qty_base > 0", name="ck_reception_draft_lines_qty_base_positive"),
+    )

@@ -27,6 +27,9 @@ nunca se llama desde afuera de otra forma):
     pending_review_payables_count(db, *, store_id) -> int
     reception_invoice_ratio(db, *, store_id, date_from, date_to) -> tuple[int, int]
         # (con factura, total)
+    pending_drafts_count(db, store_id) -> int
+        # recepciones registradas en el POS que esperan al administrador
+        # (bandeja de Hoy)
 """
 
 from __future__ import annotations
@@ -37,7 +40,16 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.purchases.models import Payable, PayableStatus, Payment, Reception, ReceptionStatus, Supplier
+from app.purchases.models import (
+    Payable,
+    PayableStatus,
+    Payment,
+    Reception,
+    ReceptionDraft,
+    ReceptionDraftStatus,
+    ReceptionStatus,
+    Supplier,
+)
 
 
 def create_stock_batch(
@@ -150,3 +162,16 @@ def reception_invoice_ratio(db: Session, *, store_id: int, date_from: date, date
     total = len(rows)
     with_invoice = sum(1 for (no_invoice,) in rows if not no_invoice)
     return with_invoice, total
+
+
+def pending_drafts_count(db: Session, store_id: int) -> int:
+    """Cuántas recepciones registradas desde el POS esperan que el
+    administrador les ponga precios (`pending`), para la bandeja de Hoy.
+    Nunca `None`: sin ninguna, es 0 de verdad (no «no sé»)."""
+    return int(
+        db.execute(
+            select(func.count()).select_from(ReceptionDraft).where(
+                ReceptionDraft.store_id == store_id, ReceptionDraft.status == ReceptionDraftStatus.PENDING
+            )
+        ).scalar_one()
+    )

@@ -1,10 +1,16 @@
-import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useRef, useState } from "react"
+import { toast } from "sonner"
 
+import { useStoreSelection } from "@/app/storeContext"
+import { ApiError, newIdempotencyKey } from "@/api/client"
 import { listEmployees } from "@/api/employees"
 import {
+  getIncomingTransfers,
   getWasteList,
+  receiveTransfer,
   wasteCsvUrl,
+  type IncomingTransferOut,
   type IngredientOut,
   type WasteAdminOut,
   type WasteType,
@@ -16,12 +22,14 @@ import { CsvExportButton } from "@/components/CsvExportButton"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { StatTile } from "@/components/StatTile"
+import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errorMessage } from "@/lib/errors"
+import { formatInstant } from "@/lib/businessDate"
 import { formatPct } from "@/lib/format"
 
-import { daysAgoLocal, todayLocal, WASTE_TYPE_LABEL } from "./lib"
+import { cantidad, daysAgoLocal, EXPLAINED_WASTE_TYPES, todayLocal, WASTE_TYPE_LABEL } from "./lib"
 
 const LEGEND: readonly LegendEntry[] = [
   {
@@ -41,7 +49,133 @@ const LEGEND: readonly LegendEntry[] = [
     term: "Foto",
     meaning: "queda como estaba el día que se registró. Apagar la foto obligatoria no borra las ya tomadas.",
   },
+  {
+    term: "No es pérdida",
+    meaning:
+      "el consumo interno y el traslado a otra sede se registran acá pero no cuentan en mermas ÷ compras ni en la varianza: son salidas explicadas.",
+  },
 ]
+
+/**
+ * Traslados que llegan a ESTA sede desde otra de la organización y nadie
+ * recibió todavía. Recibir escribe la entrada en el inventario de acá al
+ * mismo costo con que salió (lo hace el servidor); quien recibe elige en qué
+ * insumo de esta sede entra — el servidor sugiere el de mismo nombre y unidad.
+ * Sin traslados pendientes no dibuja nada.
+ */
+function IncomingTransfers({
+  storeId,
+  ingredients,
+}: {
+  storeId: number
+  ingredients: IngredientOut[]
+}): React.JSX.Element | null {
+  const query = useQuery({
+    queryKey: ["inventory", "incoming-transfers", storeId],
+    queryFn: () => getIncomingTransfers(storeId),
+  })
+  if (query.isError) {
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        No se pudieron cargar los traslados por recibir: {errorMessage(query.error)}
+      </p>
+    )
+  }
+  const rows = query.data ?? []
+  if (rows.length === 0) return null
+  return (
+    <section aria-labelledby="incoming-transfers" className="space-y-2 rounded-lg border p-3">
+      <h3 id="incoming-transfers" className="font-semibold">
+        Traslados por recibir ({rows.length})
+      </h3>
+      <ul className="space-y-3">
+        {rows.map((row) => (
+          <IncomingTransferRow key={row.id} storeId={storeId} row={row} ingredients={ingredients} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function IncomingTransferRow({
+  storeId,
+  row,
+  ingredients,
+}: {
+  storeId: number
+  row: IncomingTransferOut
+  ingredients: IngredientOut[]
+}): React.JSX.Element {
+  const queryClient = useQueryClient()
+  const candidates = ingredients.filter((i) => i.active && i.base_unit === row.base_unit)
+  const [ingredientId, setIngredientId] = useState<number | null>(row.suggested_ingredient_id)
+  const [error, setError] = useState<string | null>(null)
+  const keyRef = useRef(newIdempotencyKey())
+  const mutation = useMutation({
+    mutationFn: () => receiveTransfer(storeId, row.id, ingredientId as number, keyRef.current),
+    onSuccess: () => {
+      toast.success("Traslado recibido: ya está en el inventario de esta sede.")
+      keyRef.current = newIdempotencyKey()
+      void queryClient.invalidateQueries({ queryKey: ["inventory"] })
+    },
+    onError: (err) => {
+      if (!(err instanceof ApiError) || err.status !== 409) keyRef.current = newIdempotencyKey()
+      setError(errorMessage(err))
+    },
+  })
+  const selectId = `transfer-ingredient-${row.id}`
+  return (
+    <li className="space-y-2">
+      <p className="text-sm">
+        <span className="font-medium">{cantidad(row.qty, row.base_unit)}</span> de {row.ingredient_name}, desde{" "}
+        {row.source_store_name}
+        <span className="text-muted-foreground">
+          {" "}
+          · lo mandó {row.sent_by_employee_name} · {formatInstant(row.sent_at)}
+        </span>
+      </p>
+      {row.note ? <p className="text-xs text-muted-foreground">Nota: {row.note}</p> : null}
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <Label htmlFor={selectId}>Entra como</Label>
+          <Select
+            value={ingredientId === null ? undefined : String(ingredientId)}
+            onValueChange={(v) => setIngredientId(Number(v))}
+          >
+            <SelectTrigger id={selectId} className="h-8 w-56">
+              <SelectValue placeholder="Elegí el insumo de esta sede" />
+            </SelectTrigger>
+            <SelectContent>
+              {candidates.map((i) => (
+                <SelectItem key={i.id} value={String(i.id)}>
+                  {i.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          disabled={ingredientId === null || mutation.isPending}
+          onClick={() => mutation.mutate()}
+        >
+          Recibir traslado
+        </Button>
+      </div>
+      {candidates.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Esta sede no tiene un insumo activo en la misma unidad: crealo en Insumos y volvé acá.
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </li>
+  )
+}
 
 /**
  * Admin → Inventario → Movimientos y mermas → Mermas (SPEC-NEGOCIO §5.5):
@@ -77,6 +211,8 @@ export function WasteAdminTab({
   const [to, setTo] = useState(todayLocal())
   const [type, setType] = useState<WasteType | "all">("all")
   const [employeeId, setEmployeeId] = useState<number | "all">("all")
+  const { stores } = useStoreSelection()
+  const storeName = new Map(stores.map((st) => [st.id, st.name]))
 
   const employeesQuery = useQuery({
     queryKey: ["inventory", "waste-employees", storeId],
@@ -117,7 +253,14 @@ export function WasteAdminTab({
     {
       key: "type",
       header: "Tipo",
-      cell: (w) => WASTE_TYPE_LABEL[w.type] ?? w.type,
+      cell: (w) =>
+        EXPLAINED_WASTE_TYPES.includes(w.type) ? (
+          <span>
+            {WASTE_TYPE_LABEL[w.type]} <span className="text-xs text-muted-foreground">(no es pérdida)</span>
+          </span>
+        ) : (
+          (WASTE_TYPE_LABEL[w.type] ?? w.type)
+        ),
     },
     {
       key: "what",
@@ -138,6 +281,20 @@ export function WasteAdminTab({
       cell: (w) => <CostValue cost={w.cost} costSource={w.cost_source} />,
     },
     { key: "who", header: "Responsable", cell: (w) => w.employee_name },
+    {
+      // Consumo interno: quién se lo llevó. Traslado: a qué sede y si ya llegó.
+      key: "detail",
+      header: "Quién / destino",
+      kind: "secondary",
+      cell: (w) =>
+        w.type === "internal_use"
+          ? (w.consumer_name ?? "—")
+          : w.type === "transfer_out" && w.destination_store_id !== null
+            ? `${storeName.get(w.destination_store_id) ?? `Sede #${w.destination_store_id}`} · ${
+                w.received_at ? `recibido por ${w.received_by_employee_name ?? "—"}` : "por recibir"
+              }`
+            : "—",
+    },
     {
       key: "note",
       header: "Nota",
@@ -242,6 +399,7 @@ export function WasteAdminTab({
 
   return (
     <div className="space-y-3">
+      <IncomingTransfers storeId={storeId} ingredients={ingredients} />
       <div className="max-w-sm">
         {/* `null` NO es `0` (patrón 5): sin compras con qué comparar, la
             tarjeta se dibuja apagada y dice POR QUÉ no se sabe — nunca «0 %»,

@@ -7,14 +7,15 @@ import { renderWithProviders } from "@/test/utils"
 
 import { ReceptionsTab } from "../ReceptionsTab"
 
-const { listReceptionsMock, listIngredientsMock } = vi.hoisted(() => ({
+const { listReceptionsMock, listIngredientsMock, listReceptionDraftsMock } = vi.hoisted(() => ({
   listReceptionsMock: vi.fn(),
+  listReceptionDraftsMock: vi.fn().mockResolvedValue([]),
   listIngredientsMock: vi.fn().mockResolvedValue([] as IngredientOut[]),
 }))
 
 vi.mock("@/api/purchases", async () => {
   const actual = await vi.importActual<typeof import("@/api/purchases")>("@/api/purchases")
-  return { ...actual, listReceptions: listReceptionsMock }
+  return { ...actual, listReceptions: listReceptionsMock, listReceptionDrafts: listReceptionDraftsMock }
 })
 
 vi.mock("@/api/inventory", async () => {

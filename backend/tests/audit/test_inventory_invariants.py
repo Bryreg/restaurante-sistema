@@ -248,6 +248,14 @@ def test_there_is_no_staff_meal_waste_type(db: Any, store: Any, device_client: A
     modo de falla de §4.1 (dos caminos dejaron la leche entera en −4 y la
     deslactosada en +19)— y el costo del personal se contaría dos veces o
     ninguna.
+
+    **Movido (no aflojado) en la rutina del turno, 2026-09-25**: el pedido
+    agrega dos salidas EXPLICADAS que pasan por la pantalla de merma sin ser
+    pérdida — `internal_use` (consumo interno: el dueño se lleva algo, una
+    reunión; pide quién) y `transfer_out` (traslado a otra sede). Ninguna es
+    comida del personal: el plato de la carta que come el personal sigue
+    siendo una comanda `staff_meal`. El conjunto sigue fijado EXACTO, igual
+    que el de causas del libro más abajo.
     """
     from app.inventory.models import WasteType
 
@@ -261,6 +269,8 @@ def test_there_is_no_staff_meal_waste_type(db: Any, store: Any, device_client: A
         "tasting",
         "courtesy_no_dish",
         "unidentified",
+        "internal_use",
+        "transfer_out",
     }, f"el catálogo de tipos de merma cambió: {sorted(valores)}"
     assert not any("staff" in v or "personal" in v or "employee" in v for v in valores)
 

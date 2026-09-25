@@ -52,6 +52,18 @@ el cálculo, mismo patrón que `low_stock_alerts`/`negative_stock_alerts`):
 
     expiring_or_expired_lots(db, *, store_id, today) -> list[dict]
 
+Rutina del turno (2026-09-25), dos lecturas nuevas:
+
+    explained_outflow_qty(db, *, store_id, ingredient_id, window_from, window_to) -> int
+    pending_incoming_transfers(db, *, store_id) -> int
+
+La primera es lo que salió EXPLICADO de un insumo en la ventana `(from, to]`
+(consumo interno y traslados, `EXPLAINED_WASTE_TYPES`): la varianza lo
+descuenta del uso real para que no aparezca como faltante —
+`app.inventory.service.variance_report` y su espejo de `app.analytics` leen
+esta función, ninguno filtra tipos de merma por su cuenta. La segunda cuenta
+los traslados que llegan a la sede y nadie recibió (para la bandeja de Hoy).
+
 (La salud del control completa, para `GET /admin/control-health`, vive en
 `app.inventory.service.control_health` — no en `hooks`, porque cruza a
 `app.purchases`/`app.recipes` con `find_spec_safe` y eso es orquestación de
@@ -80,6 +92,9 @@ from app.inventory.models import (
     StockCountScope,
     StockCountStatus,
     StockMovement,
+    Waste,
+    WasteType,
+    EXPLAINED_WASTE_TYPES,
 )
 
 
@@ -877,3 +892,36 @@ def expiring_or_expired_lots(db: Session, *, store_id: int, today: date) -> list
             }
         )
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Salidas explicadas (consumo interno, traslados) — rutina del turno.
+# ---------------------------------------------------------------------------
+
+
+def explained_outflow_qty(
+    db: Session, *, store_id: int, ingredient_id: int, window_from: datetime, window_to: datetime
+) -> int:
+    """Cantidad (positiva, milésimas de la unidad base) de un insumo que salió
+    de la sede en `(window_from, window_to]` como consumo interno o traslado.
+    Mismo instante que su movimiento (`Waste.at` y `StockMovement.at` se
+    escriben con el mismo `now`), así que la ventana coincide con la de
+    `_movement_sum`."""
+    stmt = select(func.coalesce(func.sum(Waste.qty_base), 0)).where(
+        Waste.store_id == store_id,
+        Waste.ingredient_id == ingredient_id,
+        Waste.type.in_(EXPLAINED_WASTE_TYPES),
+        Waste.at > window_from,
+        Waste.at <= window_to,
+    )
+    return int(db.execute(stmt).scalar_one())
+
+
+def pending_incoming_transfers(db: Session, *, store_id: int) -> int:
+    """Traslados que llegan a esta sede y todavía nadie recibió."""
+    stmt = select(func.count(Waste.id)).where(
+        Waste.destination_store_id == store_id,
+        Waste.type == WasteType.TRANSFER_OUT,
+        Waste.received_at.is_(None),
+    )
+    return int(db.execute(stmt).scalar_one())
