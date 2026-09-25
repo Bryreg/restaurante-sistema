@@ -56,29 +56,29 @@ function deviceMe(features: Record<string, boolean>): Me {
   };
 }
 
-describe("ShiftPage — pestañas opcionales por flag", () => {
+describe("ShiftPage — acciones opcionales por flag", () => {
   it('no muestra "Relevo" con cash.handovers apagado', async () => {
     renderWithProviders(<ShiftPage />, { me: deviceMe({ "cash.handovers": false }) });
 
-    await waitFor(() => expect(screen.getByText("Resumen")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Movimientos" })).toBeInTheDocument());
     expect(screen.queryByText("Relevo")).not.toBeInTheDocument();
   });
 
   it('muestra "Consignar" sólo con money.deposits encendida (2026-09-24)', async () => {
     renderWithProviders(<ShiftPage />, { me: deviceMe({ "money.deposits": true }) });
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Consignar" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Consignar" })).toBeInTheDocument());
   });
 
   it('no muestra "Consignar" con money.deposits apagada', async () => {
     renderWithProviders(<ShiftPage />, { me: deviceMe({ "money.deposits": false }) });
-    await waitFor(() => expect(screen.getByText("Resumen")).toBeInTheDocument());
-    expect(screen.queryByRole("tab", { name: "Consignar" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Movimientos" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Consignar" })).not.toBeInTheDocument();
   });
 
   it('muestra "Relevo" con cash.handovers encendido', async () => {
     renderWithProviders(<ShiftPage />, { me: deviceMe({ "cash.handovers": true }) });
 
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Relevo" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Relevo" })).toBeInTheDocument());
   });
 
   it('la reserva se muestra aparte de la base fija, y el esperado ausente se muestra "—"', async () => {
@@ -110,7 +110,7 @@ describe("ShiftPage — pestañas opcionales por flag", () => {
   it("sin pos.delivery no muestra el renglón de efectivo de domicilios pendiente", async () => {
     renderWithProviders(<ShiftPage />, { me: deviceMe({}) });
 
-    await waitFor(() => expect(screen.getByText("Resumen")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Movimientos" })).toBeInTheDocument());
     expect(screen.queryByText(/efectivo de domicilios pendiente/i)).not.toBeInTheDocument();
   });
 
