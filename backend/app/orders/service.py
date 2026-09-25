@@ -567,6 +567,11 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
                 continue
             status: Any = "to_pay" if order.status == OrderStatus.TO_PAY else "occupied"
             total = compute_order_totals(db, order).total
+            ready_count = db.execute(
+                select(func.count())
+                .select_from(OrderItem)
+                .where(OrderItem.order_id == order.id, OrderItem.status == OrderItemStatus.READY)
+            ).scalar_one()
             tables_out.append(
                 TableStatusOut(
                     id=table.id,
@@ -577,6 +582,7 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
                     opened_at=order.opened_at,
                     covers=order.covers,
                     total=total,
+                    ready_count=int(ready_count),
                 )
             )
         zones_out.append(ZoneStatusOut(id=zone.id, name=zone.name, tables=tables_out))

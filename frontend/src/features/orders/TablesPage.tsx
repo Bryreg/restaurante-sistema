@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { Link2, Move, Plus, Users } from "lucide-react"
+import { BellRing, Link2, Move, Plus, Users } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -288,11 +288,17 @@ export function TablesPage(): React.JSX.Element {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
               {(zone.tables ?? []).map((table) => {
                 const isSelected = selected.includes(table.id)
+                // Conteo del servidor: platos que cocina marcó listos y nadie
+                // llevó todavía. Sin el campo (backend viejo) no se pinta nada.
+                const readyCount = table.ready_count ?? 0
+                const readyText = `${readyCount} ${readyCount === 1 ? "listo" : "listos"}`
                 return (
                   <button
                     key={table.id}
                     type="button"
-                    aria-label={`Mesa ${table.number}, ${STATUS_LABEL[table.status ?? "free"]}`}
+                    aria-label={`Mesa ${table.number}, ${STATUS_LABEL[table.status ?? "free"]}${
+                      readyCount > 0 ? `, ${readyText} para servir` : ""
+                    }`}
                     aria-pressed={mode !== "idle" ? isSelected : undefined}
                     className={`flex min-h-[88px] flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring ${
                       isSelected ? "border-primary ring-2 ring-primary" : "border-border"
@@ -322,6 +328,12 @@ export function TablesPage(): React.JSX.Element {
                     {table.status !== "free" ? (
                       <span className="text-xs text-muted-foreground">
                         {elapsedLabel(table.opened_at)} · {formatCOP(table.total)}
+                      </span>
+                    ) : null}
+                    {readyCount > 0 ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-success px-2 py-0.5 text-xs font-semibold text-success-foreground">
+                        <BellRing className="size-3.5" aria-hidden="true" />
+                        {readyText}
                       </span>
                     ) : null}
                   </button>

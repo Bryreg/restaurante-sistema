@@ -17,7 +17,15 @@ describe("ordersFeature", () => {
     expect(ordersFeature.posNav.map(({ icon: _icon, ...item }) => item)).toEqual([
       { to: "/pos/mesas", label: "Mesas", feature: "pos.tables" },
       { to: "/pos/comanda/nueva", label: "Mostrador" },
-      { to: "/pos/cocina", label: "Cocina", feature: "kitchen.view", posGroup: "cocina" },
+      // Con `kitchen.kds` encendida la vista mínima se va de la barra: la
+      // cocina tiene UNA pantalla (el KDS), no dos.
+      {
+        to: "/pos/cocina",
+        label: "Cocina",
+        feature: "kitchen.view",
+        hiddenWithFeature: "kitchen.kds",
+        posGroup: "cocina",
+      },
     ])
   })
 })

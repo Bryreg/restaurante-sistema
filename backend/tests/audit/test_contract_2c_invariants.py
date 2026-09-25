@@ -44,6 +44,11 @@ C1_SIGNATURES = {
     "bump_item": "(db, *, item_id, store_id, actor, now)",
     "unbump_item": "(db, *, item_id, store_id, actor, now)",
     "expedite_order": "(db, *, order_id, store_id, actor, now)",
+    # Se SUMA (no se mueve ninguna firma de arriba): el KDS filtrado por
+    # estación expide sólo esa estación (comanda 464: «Expedir» desde
+    # «Cocina caliente» despachó las cervezas del bar). La firma de
+    # `expedite_order` queda intacta para quien la siga llamando.
+    "expedite_station": "(db, *, order_id, store_id, station, actor, now)",
     "fired_at_by_course": "(db, *, order_id)",
 }
 

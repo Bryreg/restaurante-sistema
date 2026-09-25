@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2 } from "lucide-react"
 import { useEffect, useState } from "react"
+import { Navigate } from "react-router-dom"
 
 import { useCocinaPantalla } from "@/app/theme"
 import { useSession } from "@/app/session"
@@ -12,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/EmptyState"
 import { errorMessage } from "@/lib/errors"
+import { stationLabel } from "@/lib/stations"
 
 import { kitchenRoundsQueryKey, useKitchenRounds } from "./hooks"
 import { CHANNEL_LABEL, courseLabel, elapsedFromSeconds } from "./lib"
@@ -109,11 +111,15 @@ export function KitchenPage(): React.JSX.Element {
   useCocinaPantalla()
   const { hasFeature } = useSession()
   const enabled = hasFeature("kitchen.view")
+  // Con el KDS encendido la cocina tiene UNA pantalla: esta vista mínima
+  // cede su lugar (la barra ya no la ofrece, `index.ts`) y un enlace viejo
+  // a `/pos/cocina` termina en el KDS.
+  const kdsEnabled = hasFeature("kitchen.kds")
   const queryClient = useQueryClient()
 
   const [station, setStation] = useState<string | undefined>(undefined)
   const [knownStations, setKnownStations] = useState<string[]>([])
-  const rounds = useKitchenRounds(station, enabled)
+  const rounds = useKitchenRounds(station, enabled && !kdsEnabled)
 
   useEffect(() => {
     if (station !== undefined || !rounds.data) return
@@ -125,6 +131,10 @@ export function KitchenPage(): React.JSX.Element {
     }
     setKnownStations(Array.from(set).sort())
   }, [rounds.data, station])
+
+  if (enabled && kdsEnabled) {
+    return <Navigate to="/pos/kds" replace />
+  }
 
   if (!enabled) {
     return (
@@ -164,7 +174,7 @@ export function KitchenPage(): React.JSX.Element {
               aria-pressed={station === value}
               onClick={() => setStation(value)}
             >
-              {value}
+              {stationLabel(value)}
             </Button>
           ))}
         </div>

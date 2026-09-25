@@ -352,6 +352,41 @@ html.oficina {
 .tiquete-plato { font-size: 1.2rem; font-weight: 700; font-stretch: 72%; line-height: 1.15; }
 .tiquete-detalle { color: #5C574C; font-size: 0.9rem; }
 
+/* Cabecera del tiquete, pintada con el semáforo del plato más urgente:
+   dónde va (mesa, canal) y cuánto lleva, en letra que se lee a dos metros. */
+.tiquete-destino { font-size: 1.6rem; font-weight: 800; font-stretch: 72%; line-height: 1.05; }
+.tiquete-minutos { font-size: 1.6rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.05; }
+
+/* Modificadores: el recuadro amarillo del papel de comandas. Colores fijos
+   (el papel es papel): #1A1A17 sobre #FFE27A da 14:1. */
+.tiquete-modificadores {
+    background: #FFE27A;
+    color: #1A1A17;
+    border-left: 4px solid #C99A00;
+    border-radius: 3px;
+    padding: 0.2rem 0.5rem;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+/* Una alergia en la nota o en los modificadores: rojo, con ícono, y nunca
+   sólo por color (el ícono y el texto «Alerta de alergia» para lectores de
+   pantalla). #7A0F0B sobre #FDE3E1 da 9,6:1. */
+.tiquete-alergia {
+    background: #FDE3E1;
+    color: #7A0F0B;
+    border: 2px solid #C4302B;
+    border-radius: 3px;
+    padding: 0.25rem 0.5rem;
+    font-size: 1rem;
+    font-weight: 800;
+}
+
+/* Pantalla completa de la estación: el plato un punto más grande. */
+.kds-completa .tiquete-plato { font-size: 1.4rem; }
+.kds-completa .tiquete-destino,
+.kds-completa .tiquete-minutos { font-size: 1.9rem; }
+
 /* El semáforo por forma: ● a tiempo, ▲ por vencer, ■ demorado. */
 .semaforo { display: inline-block; width: 0.7em; height: 0.7em; background: currentColor; flex: none; }
 .semaforo-green { border-radius: 50%; }

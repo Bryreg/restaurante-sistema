@@ -19,6 +19,7 @@ const {
   listFavoritesMock,
   getCatalogMock,
   fireCourseMock,
+  markServedMock,
 } = vi.hoisted(() => ({
   getOrderMock: vi.fn(),
   voidItemMock: vi.fn(),
@@ -28,6 +29,7 @@ const {
   listFavoritesMock: vi.fn().mockResolvedValue([]),
   getCatalogMock: vi.fn(),
   fireCourseMock: vi.fn(),
+  markServedMock: vi.fn(),
 }))
 
 vi.mock("@/api/orders", async () => {
@@ -41,6 +43,7 @@ vi.mock("@/api/orders", async () => {
     sendOrder: sendOrderMock,
     listFavorites: listFavoritesMock,
     fireCourse: fireCourseMock,
+    markServed: markServedMock,
   }
 })
 
@@ -378,5 +381,33 @@ describe("OrderPage", () => {
       expect(await screen.findByText(/bebida marchado/i)).toBeInTheDocument()
       expect(screen.queryByRole("button", { name: /marchar bebida/i })).not.toBeInTheDocument()
     })
+  })
+
+  it("un plato listo se marca «Servido» desde la comanda, y «Marcar todo servido» sirve todos los listos", async () => {
+    const listo1 = buildOrderItem({ id: 11, name: "Bandeja Paisa", status: "ready", round_no: 1, station: "hot_kitchen" })
+    const listo2 = buildOrderItem({ id: 12, name: "Ajiaco", status: "ready", round_no: 1, station: "hot_kitchen" })
+    const enviado = buildOrderItem({ id: 13, name: "Sancocho", status: "sent", round_no: 1, station: "hot_kitchen" })
+    getOrderMock.mockResolvedValue(buildOrder({ items: [listo1, listo2, enviado] }))
+    markServedMock.mockReset()
+    markServedMock.mockImplementation(async (_orderId: number, itemId: number) =>
+      buildOrder({
+        items: [listo1, listo2, enviado].map((i) => (i.id === itemId ? { ...i, status: "served" as const } : i)),
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderOrderPage(501, { "kitchen.view": true })
+
+    await user.click(await screen.findByRole("button", { name: "Servido: Bandeja Paisa" }))
+    await waitFor(() => expect(markServedMock).toHaveBeenCalledWith(501, 11, expect.any(String)))
+    // Lo enviado y no listo no se ofrece para servir.
+    expect(screen.queryByRole("button", { name: "Servido: Sancocho" })).not.toBeInTheDocument()
+
+    markServedMock.mockClear()
+    getOrderMock.mockResolvedValue(buildOrder({ items: [listo1, listo2, enviado] }))
+    await user.click(await screen.findByRole("button", { name: /marcar todo servido/i }))
+    await waitFor(() => expect(markServedMock).toHaveBeenCalledTimes(1))
+    // En la comanda ya sólo quedaba un listo (Ajiaco): se sirve ése.
+    expect(markServedMock).toHaveBeenCalledWith(501, 12, expect.any(String))
   })
 })

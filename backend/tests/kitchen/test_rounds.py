@@ -90,3 +90,64 @@ def test_ready_is_idempotent_and_removes_from_kitchen_when_served(
 
     rounds_after_served = device_client.get("/api/v1/kitchen/rounds").json()
     assert rounds_after_served == []  # servido: nunca aparece en cocina
+
+
+def test_an_item_without_a_course_target_uses_its_station_target_and_goes_red(
+    device_client: TestClient, identify: Any, employees: Any, open_shift: Any, new_order: Any, add_items: Any,
+    main_product: Any, send_order: Any, clock: Any, store: Any, db: Any,
+) -> None:
+    """El semáforo mentía: sin objetivo de curso, un plato quedaba «A
+    tiempo» aunque llevara 66 h. Ahora cae al objetivo de su estación
+    (cocina caliente: 15 min)."""
+    from app.stores import service as stores_service
+
+    settings = stores_service.get_sales_settings(db, store.id)
+    settings.course_target_minutes = {}
+    db.commit()
+
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    send_order(order)
+
+    item = device_client.get("/api/v1/kitchen/rounds").json()[0]["items"][0]
+    assert item["target_minutes"] == 15
+    assert item["semaphore"] == "green"
+
+    clock.advance(hours=66)
+    item = device_client.get("/api/v1/kitchen/rounds").json()[0]["items"][0]
+    assert item["semaphore"] == "red", "66 h de espera no pueden verse «A tiempo»"
+
+
+def test_station_default_targets() -> None:
+    from app.kitchen.service import target_minutes_for
+
+    assert target_minutes_for({}, course="beverage", station="bar") == 5
+    assert target_minutes_for({}, course="main", station="hot_kitchen") == 15
+    assert target_minutes_for({}, course="starter", station="cold_kitchen") == 10
+    assert target_minutes_for({}, course="main", station="parrilla") == 12
+    # El objetivo del curso, si está configurado, sigue mandando.
+    assert target_minutes_for({"main": 18}, course="main", station="hot_kitchen") == 18
+
+
+def test_a_round_from_a_previous_business_day_is_marked_stale(
+    device_client: TestClient, identify: Any, employees: Any, open_shift: Any, new_order: Any, add_items: Any,
+    main_product: Any, send_order: Any, clock: Any,
+) -> None:
+    """Un turno abandonado deja comandas vivas de otro día: el KDS las marca
+    «de ayer» (`stale`) para apartarlas de la cola de hoy."""
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order().json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}]).json()
+    send_order(order)
+
+    fresh = device_client.get("/api/v1/kitchen/rounds").json()
+    assert fresh[0]["stale"] is False
+
+    clock.advance(days=2)
+    identify(device_client, employees["operator"])
+    old = device_client.get("/api/v1/kitchen/rounds").json()
+    assert [r["order_id"] for r in old] == [order["id"]], "la comanda viva de otro día sigue a la vista"
+    assert old[0]["stale"] is True
