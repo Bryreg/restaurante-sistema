@@ -71,7 +71,14 @@ import {
   methodLabel,
   weekdayName,
 } from "./lib"
+import { NoveltiesTray } from "@/features/novelties"
+import { receptionDraftsTrayItem } from "@/features/purchases"
+import { RequestsTray } from "@/features/requests"
+
 import { Definiciones, Plegable, type Definicion } from "./Plegable"
+
+/** El ancla de la bandeja: solicitudes y novedades que el salón le dejó al dueño. */
+const ANCLA_BANDEJA = "bandeja"
 
 const REFRESH_MS = 30_000
 
@@ -182,6 +189,11 @@ function directAttentionItems(today: {
   deposits_to_confirm_count?: number
   undeposited_total?: number | null
   undeposited_oldest_date?: string | null
+  reception_drafts_pending_count?: number
+  requests_pending_count?: number
+  novelties_open_count?: number
+  novelties_urgent_count?: number
+  transfers_incoming_count?: number
   payables_overdue_total?: number | null
   ingredients_negative_amount?: number | null
   ingredients_negative_unvalued?: number
@@ -320,6 +332,55 @@ function directAttentionItems(today: {
       tone: age !== null && age > UNDEPOSITED_CRITICAL_DAYS ? "critical" : "warning",
       screen: "Banco",
       tab: "Por consignar",
+    })
+  }
+
+  // La rutina del turno en el POS (2026-09-25): lo que el salón le dejó al
+  // dueño. Solicitudes y novedades se resuelven en la bandeja de abajo
+  // (`#bandeja`); recepciones y traslados, en su pantalla.
+  const reception = receptionDraftsTrayItem(today.reception_drafts_pending_count)
+  if (reception) items.push(reception)
+
+  const requestsPending = today.requests_pending_count ?? 0
+  if (requestsPending > 0) {
+    items.push({
+      key: "requests-pending",
+      title: `${requestsPending} solicitud${requestsPending === 1 ? "" : "es"} del salón por resolver`,
+      body: "Pedidos de insumos o de sencilla hechos desde el POS.",
+      to: `/admin/hoy#${ANCLA_BANDEJA}`,
+      ctaLabel: "Ver la bandeja",
+      tone: "warning",
+      screen: "Hoy",
+      tab: "Bandeja",
+    })
+  }
+
+  const noveltiesOpen = today.novelties_open_count ?? 0
+  if (noveltiesOpen > 0) {
+    const urgent = today.novelties_urgent_count ?? 0
+    items.push({
+      key: "novelties-open",
+      title: `${noveltiesOpen} novedad${noveltiesOpen === 1 ? "" : "es"} sin resolver`,
+      body: urgent > 0 ? `${urgent} urgente${urgent === 1 ? "" : "s"}.` : "Pasan de turno hasta que alguien las resuelve.",
+      to: `/admin/hoy#${ANCLA_BANDEJA}`,
+      ctaLabel: "Ver la bandeja",
+      tone: urgent > 0 ? "critical" : "warning",
+      screen: "Hoy",
+      tab: "Bandeja",
+    })
+  }
+
+  const transfersIn = today.transfers_incoming_count ?? 0
+  if (transfersIn > 0) {
+    items.push({
+      key: "transfers-incoming",
+      title: `${transfersIn} traslado${transfersIn === 1 ? "" : "s"} por recibir`,
+      body: "Otra sede mandó insumos; entran al inventario cuando se reciben.",
+      to: "/admin/inventario?tab=movimientos",
+      ctaLabel: "Ver Movimientos",
+      tone: "warning",
+      screen: "Inventario",
+      tab: "Movimientos y mermas",
     })
   }
 
@@ -1347,6 +1408,17 @@ export function TodayPage(): React.JSX.Element {
             cutoffHour={cutoffHour ?? today.sales_by_hour?.[0]?.hour}
           />
         </div>
+
+        {/* **La bandeja** (2026-09-25): lo que el salón le pide al dueño y se
+            resuelve acá mismo — solicitudes (aprobar, ajustar, rechazar) y
+            novedades (resolver). Sólo aparece si hay algo. */}
+        {(today.requests_pending_count ?? 0) > 0 || (today.novelties_open_count ?? 0) > 0 ? (
+          <section id={ANCLA_BANDEJA} className="min-w-0 scroll-mt-28 space-y-4 xl:col-start-1">
+            <h2 className="text-lg font-bold">Bandeja</h2>
+            {(today.requests_pending_count ?? 0) > 0 ? <RequestsTray storeId={activeStoreId} /> : null}
+            {(today.novelties_open_count ?? 0) > 0 ? <NoveltiesTray storeId={activeStoreId} /> : null}
+          </section>
+        ) : null}
 
         {/* De qué está hecha la propina. `a2` no la modela —su maqueta no
             tiene el dato— así que va al final, después de la tabla, para

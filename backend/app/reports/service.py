@@ -876,6 +876,30 @@ def _deposits_tray(db: Session, store: Store) -> dict[str, Any]:
     }
 
 
+def _pos_routine_tray(db: Session, store: Store) -> dict[str, Any]:
+    """Lo que la rutina del turno en el POS le deja al dueño: recepciones por
+    completar, solicitudes por resolver, novedades abiertas y traslados por
+    recibir. Cada número sale del `hooks` de su dominio y sólo con su función
+    encendida."""
+    from app.inventory import hooks as inventory_hooks
+    from app.novelties import hooks as novelties_hooks
+    from app.purchases import hooks as purchases_hooks
+    from app.requests import hooks as requests_hooks
+
+    def on(key: str) -> bool:
+        return features.is_enabled(db, store.organization_id, store.id, key)
+
+    return {
+        "reception_drafts_pending_count": purchases_hooks.pending_drafts_count(db, store.id) if on("purchases") else 0,
+        "requests_pending_count": requests_hooks.pending_count(db, store.id) if on("pos.requests") else 0,
+        "novelties_open_count": novelties_hooks.open_count(db, store.id) if on("pos.novelties") else 0,
+        "novelties_urgent_count": len(novelties_hooks.urgent_open(db, store.id)) if on("pos.novelties") else 0,
+        "transfers_incoming_count": (
+            inventory_hooks.pending_incoming_transfers(db, store_id=store.id) if on("inventory.waste") else 0
+        ),
+    }
+
+
 def _pending_refunds_count(db: Session, store: Store) -> int:
     """`app.refunds` se construyó en paralelo durante este mismo pedido
     (1b-2): se lee con `find_spec_safe` y degrada a `0` si el módulo
@@ -1425,6 +1449,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         pending_refunds_count=_pending_refunds_count(db, store),
         unreviewed_closes_count=_unreviewed_closes_count(db, store),
         **_deposits_tray(db, store),
+        **_pos_routine_tray(db, store),
         alerts=_recent_alerts(db, store),
         ingredients_below_min=_low_stock_alerts(db, store),
         ingredients_negative=negatives,

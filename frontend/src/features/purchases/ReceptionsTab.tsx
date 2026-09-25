@@ -16,6 +16,8 @@ import { EmptyState } from "@/components/EmptyState"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useSession } from "@/app/session"
+import { ApprovedSuppliesPanel } from "@/features/requests"
 import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 
@@ -53,6 +55,7 @@ import { defaultDateRange, RECEPTION_STATUS_LABEL, supplierName } from "./lib"
  * costo del restaurante es real.
  */
 export function ReceptionsTab({ storeId, suppliers }: { storeId: number; suppliers: SupplierOut[] }): React.JSX.Element {
+  const { hasFeature } = useSession()
   const [range, setRange] = useState(() => defaultDateRange(30))
   const [supplierId, setSupplierId] = useState<number | null>(null)
   const [status, setStatus] = useState<ReceptionStatus | "all">("all")
@@ -163,6 +166,10 @@ export function ReceptionsTab({ storeId, suppliers }: { storeId: number; supplie
         ingredients={ingredients}
         onCompleted={invalidate}
       />
+
+      {/* Lo que el administrador aprobó en las solicitudes del salón y queda
+          por comprar (`app.requests`): se marca comprado al recibirlo. */}
+      {hasFeature("pos.requests") ? <ApprovedSuppliesPanel storeId={storeId} /> : null}
 
       <DenseTable
         caption="Recepciones de compra"

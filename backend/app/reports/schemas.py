@@ -250,6 +250,13 @@ class TodayOut(BaseModel):
     deposits_to_confirm_count: int = 0
     undeposited_total: int | None = None
     undeposited_oldest_date: date | None = None
+    # La rutina del turno en el POS (2026-09-25): lo que el salón le dejó al
+    # dueño para resolver. `0` con la función apagada.
+    reception_drafts_pending_count: int = 0
+    requests_pending_count: int = 0
+    novelties_open_count: int = 0
+    novelties_urgent_count: int = 0
+    transfers_incoming_count: int = 0
     alerts: list[AlertOut]
     # Pedido 2a: `[]` cuando `catalog.recipes`/`inventory.perpetual` están
     # apagadas o el dominio todavía no está montado — nunca falta la llave.

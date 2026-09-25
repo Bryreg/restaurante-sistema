@@ -1742,6 +1742,33 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       `undeposited_oldest_date` en `/admin/today`.
     - `docs/SPEC-NEGOCIO.md` §3.2 registra el cambio a la base fija.
 
+40. **La rutina del turno en el POS: recibir, pedir, merma ampliada y
+    novedades** (2026-09-25). Lo que en café-sistema hace el barista desde su
+    dock, como acciones del panel del turno (`?accion=recibir|solicitudes|
+    novedades`); lo que queda para el dueño va a la bandeja de Hoy.
+    - **Recibir mercancía** (`app.purchases`, `reception_drafts`): el cajero
+      registra proveedor, factura, líneas y foto obligatoria, **sin precios**.
+      Si pagó de contado, sale como egreso del turno. El admin la completa en
+      Compras › Recepciones con el formulario de siempre precargado: ahí
+      nacen lotes, costo y cuenta por pagar (el stock entra recién ahí), y el
+      pago de contado se aplica sin un segundo egreso.
+    - **Solicitudes** (`app.requests`, `staff_requests`, flag `pos.requests`):
+      insumos (sugeridos los bajo mínimo; aprobados quedan «por comprar» en
+      Compras) y sencilla (aprobada, llega y se registra con el Cambio de
+      siempre precargado).
+    - **Merma**: `internal_use` (consumo interno, pide quién) y
+      `transfer_out` (a otra sede, que lo recibe con el mismo costo). Ninguno
+      cuenta como pérdida en la merma semanal, la alerta ni la varianza.
+    - **Novedades** (`app.novelties`, flag `pos.novelties`): categoría, nivel
+      y seguimiento; las abiertas pasan de turno hasta que se resuelven.
+    - `/admin/today` suma `reception_drafts_pending_count`,
+      `requests_pending_count`, `novelties_open_count`,
+      `novelties_urgent_count`, `transfers_incoming_count`. Migración `0025`.
+    - **Pendiente de decidir**: el pago de contado a proveedor al recibir no
+      pide PIN por encima del límite de caja menor (un egreso manual sí);
+      rechazar una recepción con pago de contado no devuelve la plata; el food
+      cost real todavía no descuenta los traslados.
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

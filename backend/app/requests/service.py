@@ -548,11 +548,8 @@ def mark_bought(db: Session, *, actor: Actor | None, request: StaffRequest, note
 
 
 def _cash_swap_store_id(db: Session, cash_swap_id: int) -> int | None:
-    """La sede de un Cambio, o `None` si no existe. Lectura de una sola
-    columna de `cash_swaps` (dominio `shifts`), sin escribir nada ahí."""
-    from app.shifts.models import CashSwap
-
-    return db.execute(select(CashSwap.store_id).where(CashSwap.id == cash_swap_id)).scalar_one_or_none()
+    """La sede de un Cambio, o `None` si no existe (por `app.shifts.hooks`)."""
+    return shifts_hooks.cash_swap_store_id(db, cash_swap_id)
 
 
 def mark_received(
