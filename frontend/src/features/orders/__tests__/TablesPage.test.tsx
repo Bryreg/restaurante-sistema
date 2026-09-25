@@ -65,4 +65,23 @@ describe("TablesPage", () => {
     await waitFor(() => expect(createOrderMock).toHaveBeenCalledWith(expect.objectContaining({ channel: "dine_in", table_ids: [1] })))
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/pos/comanda/999"))
   })
+
+  it("una mesa con platos listos lo dice en el mapa («N listos»), con el conteo del servidor", async () => {
+    const base = buildTablesStatus()
+    const zone = base.zones![0]!
+    listTablesStatusMock.mockResolvedValue({
+      zones: [
+        {
+          ...zone,
+          tables: (zone.tables ?? []).map((t) => (t.id === 2 ? { ...t, ready_count: 2 } : { ...t, ready_count: 0 })),
+        },
+      ],
+    })
+
+    renderWithProviders(<TablesPage />, { me: deviceMe({ "pos.tables": true }) })
+
+    const mesa = await screen.findByRole("button", { name: /mesa 2, ocupada, 2 listos para servir/i })
+    expect(within(mesa).getByText("2 listos")).toBeInTheDocument()
+    expect(screen.queryByText(/0 listos/)).not.toBeInTheDocument()
+  })
 })

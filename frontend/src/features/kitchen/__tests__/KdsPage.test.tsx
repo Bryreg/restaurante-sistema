@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "@/test/utils"
 
@@ -22,6 +22,22 @@ const {
   expediteOrderMock: vi.fn(),
   registerPrintJobMock: vi.fn(),
 }))
+
+const { deviceIdentifyMock } = vi.hoisted(() => ({ deviceIdentifyMock: vi.fn() }))
+
+vi.mock("@/api/auth", async () => {
+  const actual = await vi.importActual<typeof import("@/api/auth")>("@/api/auth")
+  return { ...actual, deviceIdentify: deviceIdentifyMock }
+})
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  try {
+    localStorage.clear()
+  } catch {
+    // sin almacenamiento en el entorno: los tests que lo usan lo dicen
+  }
+})
 
 vi.mock("@/api/kitchen", async () => {
   const actual = await vi.importActual<typeof import("@/api/kitchen")>("@/api/kitchen")
@@ -61,7 +77,9 @@ describe("KdsPage", () => {
     renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
 
     await waitFor(() => expect(screen.getByText(/bandeja paisa/i)).toBeInTheDocument())
-    expect(screen.getByText(/a tiempo/i)).toBeInTheDocument()
+    // El estado sale dos veces: en la cabecera del tiquete (el más urgente
+    // de la comanda) y en el ítem. Los dos tal cual los mandó el servidor.
+    expect(screen.getAllByText(/a tiempo/i).length).toBeGreaterThanOrEqual(2)
 
     await user.click(screen.getByRole("button", { name: /marcar listo: bandeja paisa/i }))
 
@@ -194,5 +212,167 @@ describe("KdsPage", () => {
 
     await waitFor(() => expect(screen.getByText(/bandeja paisa/i)).toBeInTheDocument())
     expect(screen.queryAllByRole("link")).toHaveLength(0)
+  })
+
+  it("sin persona vigente, «Listo» abre el PIN rápido con quien usó la estación por última vez, y después marca", async () => {
+    localStorage.setItem("cocina-pantalla", JSON.stringify({ lastPerson: { id: 9, name: "Rosa" } }))
+    listKitchenRoundsMock.mockResolvedValue([buildKdsRound()])
+    listPrintJobsMock.mockResolvedValue([])
+    deviceIdentifyMock.mockResolvedValue({ employee: { id: 9, name: "Rosa", role: "operator", can_charge: false } })
+    bumpItemMock.mockResolvedValue({
+      item_id: 101,
+      order_id: 501,
+      status: "ready",
+      ready_at: "2026-09-19T18:03:00Z",
+      changed: true,
+      bumped_by: { id: 9, name: "Rosa" },
+      bumped_at: "2026-09-19T18:03:00Z",
+    })
+    const refresh = vi.fn().mockResolvedValue(undefined)
+
+    const user = userEvent.setup()
+    renderWithProviders(<KdsPage />, {
+      me: { ...deviceMe({ "kitchen.kds": true }), employee: null },
+      session: { refresh },
+    })
+
+    // La pantalla se ve sin nadie identificado.
+    await waitFor(() => expect(screen.getByText(/bandeja paisa/i)).toBeInTheDocument())
+    expect(screen.getByText(/nadie identificado/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: /marcar listo: bandeja paisa/i }))
+    expect(bumpItemMock).not.toHaveBeenCalled()
+    expect(await screen.findByRole("group", { name: /pin de rosa/i })).toBeInTheDocument()
+
+    for (const digit of ["1", "2", "3", "4"]) {
+      await user.click(screen.getByRole("button", { name: `Dígito ${digit}` }))
+    }
+
+    await waitFor(() => expect(deviceIdentifyMock).toHaveBeenCalledWith({ employee_id: 9, pin: "1234" }))
+    await waitFor(() => expect(bumpItemMock).toHaveBeenCalledWith(101))
+    expect(refresh).toHaveBeenCalled()
+  })
+
+  it("un PIN equivocado no marca nada y deja el error del servidor a la vista", async () => {
+    localStorage.setItem("cocina-pantalla", JSON.stringify({ lastPerson: { id: 9, name: "Rosa" } }))
+    listKitchenRoundsMock.mockResolvedValue([buildKdsRound()])
+    listPrintJobsMock.mockResolvedValue([])
+    const { ApiError } = await import("@/api/client")
+    deviceIdentifyMock.mockRejectedValue(new ApiError(400, "PIN_INVALID", "PIN incorrecto; intentá de nuevo"))
+
+    const user = userEvent.setup()
+    renderWithProviders(<KdsPage />, { me: { ...deviceMe({ "kitchen.kds": true }), employee: null } })
+
+    await waitFor(() => expect(screen.getByText(/bandeja paisa/i)).toBeInTheDocument())
+    await user.click(screen.getByRole("button", { name: /marcar listo: bandeja paisa/i }))
+    await screen.findByRole("group", { name: /pin de rosa/i })
+    for (const digit of ["9", "9", "9", "9"]) {
+      await user.click(screen.getByRole("button", { name: `Dígito ${digit}` }))
+    }
+
+    expect(await screen.findByText(/pin incorrecto/i)).toBeInTheDocument()
+    expect(bumpItemMock).not.toHaveBeenCalled()
+  })
+
+  it("filtrada por estación, «Expedir» manda la estación y la pantalla la recuerda", async () => {
+    localStorage.setItem("cocina-pantalla", JSON.stringify({ station: "hot_kitchen" }))
+    listKitchenRoundsMock.mockResolvedValue([buildKdsRound()])
+    listPrintJobsMock.mockResolvedValue([])
+    expediteOrderMock.mockResolvedValue({
+      order_id: 501,
+      changed: true,
+      changed_item_ids: [101],
+      items: [],
+      expedited_by: { id: 7, name: "Ana" },
+      expedited_at: "2026-09-19T18:05:00Z",
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    await waitFor(() => expect(listKitchenRoundsMock).toHaveBeenCalledWith("hot_kitchen"))
+    expect(screen.getByRole("button", { name: "Cocina caliente" })).toHaveAttribute("aria-pressed", "true")
+    await user.click(await screen.findByRole("button", { name: /expedir cocina caliente de la comanda #501/i }))
+    await waitFor(() => expect(expediteOrderMock).toHaveBeenCalledWith(501, "hot_kitchen"))
+
+    await user.click(screen.getByRole("button", { name: "Todas" }))
+    expect(JSON.parse(localStorage.getItem("cocina-pantalla") ?? "{}").station).toBeUndefined()
+  })
+
+  it("una nota con alergia va en rojo con ícono; los modificadores, en el recuadro amarillo", async () => {
+    listKitchenRoundsMock.mockResolvedValue([
+      buildKdsRound({
+        items: [
+          {
+            item_id: 101,
+            name: "Bandeja Paisa",
+            qty: 1,
+            modifiers_text: "Sin cebolla",
+            note: "Cliente ALÉRGICO al maní",
+            course: "main",
+            station: "hot_kitchen",
+            status: "sent",
+            elapsed_seconds: 60,
+            target_minutes: 15,
+            semaphore: "green",
+          },
+        ],
+      }),
+    ])
+    listPrintJobsMock.mockResolvedValue([])
+
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    const alerta = await screen.findByText(/alerta de alergia/i)
+    expect(alerta.closest(".tiquete-alergia")).toHaveTextContent(/alérgico al maní/i)
+    expect(screen.getByText("Sin cebolla")).toHaveClass("tiquete-modificadores")
+  })
+
+  it("lo «de ayer» se aparta por defecto y se ve con el botón", async () => {
+    listKitchenRoundsMock.mockResolvedValue([
+      buildKdsRound(),
+      buildKdsRound({
+        order_id: 77,
+        stale: true,
+        tables: ["9"],
+        items: [
+          {
+            item_id: 900,
+            name: "Sancocho olvidado",
+            qty: 1,
+            course: "main",
+            station: "hot_kitchen",
+            status: "sent",
+            elapsed_seconds: 237_600,
+            target_minutes: 15,
+            semaphore: "red",
+          },
+        ],
+      }),
+    ])
+    listPrintJobsMock.mockResolvedValue([])
+
+    const user = userEvent.setup()
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    await waitFor(() => expect(screen.getByText(/bandeja paisa/i)).toBeInTheDocument())
+    expect(screen.queryByText(/sancocho olvidado/i)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: /ver lo de ayer \(1\)/i }))
+    expect(screen.getByText(/sancocho olvidado/i)).toBeInTheDocument()
+    expect(screen.getByText("De ayer")).toBeInTheDocument()
+  })
+
+  it("«Pantalla completa» pone la estación encima del marco del POS y lo recuerda", async () => {
+    listKitchenRoundsMock.mockResolvedValue([buildKdsRound()])
+    listPrintJobsMock.mockResolvedValue([])
+
+    const user = userEvent.setup()
+    const { container } = renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    await user.click(await screen.findByRole("button", { name: "Pantalla completa" }))
+    expect(container.querySelector(".kds-completa")).not.toBeNull()
+    expect(JSON.parse(localStorage.getItem("cocina-pantalla") ?? "{}").fullscreen).toBe(true)
+    expect(screen.getByRole("button", { name: "Salir de pantalla completa" })).toBeInTheDocument()
   })
 })

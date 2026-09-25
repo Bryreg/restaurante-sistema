@@ -32,6 +32,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CategoryBars } from "@/features/reports/charts"
 import { formatPercent } from "@/features/reports/lib"
 import { errorMessage } from "@/lib/errors"
+import { stationLabel } from "@/lib/stations"
 import { cn } from "@/lib/utils"
 import { formatCOP } from "@/lib/money"
 import { formatInstant } from "@/lib/businessDate"
@@ -238,7 +239,7 @@ function KitchenStationTimes({ stations }: { stations: AdminOrderKitchenStationT
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <CategoryBars
-        data={stations.map((s) => ({ key: s.station, label: s.station, value: s.p50_seconds }))}
+        data={stations.map((s) => ({ key: s.station, label: stationLabel(s.station), value: s.p50_seconds }))}
         formatValue={(v) => `${Math.round(v / 60)} min`}
         emptyLabel="Sin datos"
       />
@@ -255,7 +256,7 @@ function KitchenStationTimes({ stations }: { stations: AdminOrderKitchenStationT
           <TableBody>
             {stations.map((s) => (
               <TableRow key={s.station}>
-                <TableCell>{s.station}</TableCell>
+                <TableCell>{stationLabel(s.station)}</TableCell>
                 <TableCell className="tabular-nums">{Math.round(s.p50_seconds / 60)} min</TableCell>
                 <TableCell className="tabular-nums">{Math.round(s.p90_seconds / 60)} min</TableCell>
                 <TableCell className="tabular-nums">{s.samples}</TableCell>

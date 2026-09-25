@@ -277,15 +277,31 @@ def expedite_order(db: Session, *, order_id: int, store_id: int, actor: "Actor",
     ítem, pero atómico). Devuelve los ids que DE VERDAD cambiaron — una
     comanda sin ítems `sent` (ya expedida, o ninguno enviado todavía)
     devuelve `[]` sin error: no hay nada que expedir no es un fallo."""
-    items = list(
-        db.execute(
-            select(OrderItem).where(
-                OrderItem.order_id == order_id,
-                OrderItem.store_id == store_id,
-                OrderItem.status == OrderItemStatus.SENT,
-            )
-        ).scalars()
+    return _expedite_sent_items(db, order_id=order_id, store_id=store_id, station=None, now=now)
+
+
+def expedite_station(
+    db: Session, *, order_id: int, store_id: int, station: str, actor: "Actor", now: datetime
+) -> list[int]:
+    """Expedición de UNA estación de la comanda: como `expedite_order`, pero
+    sólo los ítems `sent` cuya `station` es la pedida. Es lo que usa el KDS
+    cuando la pantalla está filtrada por estación: «Expedir» desde «Cocina
+    caliente» marcaba listas también las cervezas del bar y las empanadas de
+    cocina fría de la misma comanda (caso real, comanda 464)."""
+    return _expedite_sent_items(db, order_id=order_id, store_id=store_id, station=station, now=now)
+
+
+def _expedite_sent_items(
+    db: Session, *, order_id: int, store_id: int, station: str | None, now: datetime
+) -> list[int]:
+    stmt = select(OrderItem).where(
+        OrderItem.order_id == order_id,
+        OrderItem.store_id == store_id,
+        OrderItem.status == OrderItemStatus.SENT,
     )
+    if station is not None:
+        stmt = stmt.where(OrderItem.station == station)
+    items = list(db.execute(stmt.order_by(OrderItem.id)).scalars())
     changed_ids: list[int] = []
     for item in items:
         item.status = OrderItemStatus.READY

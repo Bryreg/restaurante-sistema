@@ -269,6 +269,10 @@ class TableStatusOut(BaseModel):
     opened_at: datetime | None = None
     covers: int | None = None
     total: int | None = None
+    # Platos que cocina ya marcó listos y nadie sirvió todavía: el mesero
+    # lo ve en el mapa sin abrir la comanda. `0` es un conteo real (no hay
+    # nada esperando), no un «sin dato».
+    ready_count: int = 0
 
 
 class ZoneStatusOut(BaseModel):

@@ -59,6 +59,7 @@ function buildPosNav(hasFeature: (key: string) => boolean, employee: EmployeeBri
   ];
   return all
     .filter((item) => !item.feature || hasFeature(item.feature))
+    .filter((item) => !item.hiddenWithFeature || !hasFeature(item.hiddenWithFeature))
     .map((item, index) => ({ item, index }))
     .sort((a, b) => GROUP_RANK[a.item.posGroup ?? "venta"] - GROUP_RANK[b.item.posGroup ?? "venta"] || a.index - b.index)
     .map(({ item }) => item);
@@ -198,7 +199,11 @@ export default function PosLayout(): React.JSX.Element | null {
   const [pantalla, setPantalla] = useSalonTheme();
   // En la cocina la pizarra es fija (`useCocinaPantalla`): ahí el botón no
   // cambiaría nada visible, así que no se ofrece.
-  const enCocina = /^\/pos\/(kds|cocina)\b/.test(useLocation().pathname);
+  const { pathname } = useLocation();
+  const enCocina = /^\/pos\/(kds|cocina)\b/.test(pathname);
+  // El KDS es una pantalla de ESTACIÓN: mirarlo no exige persona (manos
+  // sucias, guantes). Se pide el PIN sólo al marcar algo (`KdsPage`).
+  const enKds = /^\/pos\/kds\b/.test(pathname);
   const { me, refresh, hasFeature } = useSession();
   const navigate = useNavigate();
   const [releasing, setReleasing] = useState(false);
@@ -216,7 +221,7 @@ export default function PosLayout(): React.JSX.Element | null {
     return null;
   }
 
-  if (!me.employee) {
+  if (!me.employee && !enKds) {
     return <Navigate to="/pos/identify" replace />;
   }
 
@@ -244,7 +249,9 @@ export default function PosLayout(): React.JSX.Element | null {
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{me.store?.name ?? "Sede"}</p>
             <p className="truncate text-xs text-muted-foreground">
-              {me.employee.name} · {ROLE_LABEL[me.employee.role] ?? me.employee.role}
+              {me.employee
+                ? `${me.employee.name} · ${ROLE_LABEL[me.employee.role] ?? me.employee.role}`
+                : "Pantalla de cocina · nadie identificado"}
             </p>
           </div>
           {expired ? (

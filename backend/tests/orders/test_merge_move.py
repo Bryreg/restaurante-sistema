@@ -7,6 +7,8 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from tests.orders.conftest import idem_headers
+
 
 def test_merge_same_order(device_client: TestClient, identify: Any, employees: Any, open_shift: Any, set_feature: Any, new_order: Any) -> None:
     set_feature("pos.tables", True)
@@ -80,3 +82,35 @@ def test_move_releases_previous_table(device_client: TestClient, identify: Any, 
     by_id = {t["id"]: t for zone in status["zones"] for t in zone["tables"]}
     assert by_id[tables[0].id]["status"] == "free"
     assert by_id[tables[2].id]["status"] == "occupied"
+
+
+def test_tables_status_counts_the_dishes_ready_to_serve(
+    device_client: TestClient, identify: Any, employees: Any, open_shift: Any, set_feature: Any,
+    new_order: Any, add_items: Any, main_product: Any, send_order: Any, tables: Any,
+) -> None:
+    """El mapa de mesas dice cuántos platos están listos para llevar: cocina
+    los marca, el mesero los ve sin abrir la comanda, y al servirlos el
+    conteo baja."""
+    set_feature("pos.tables", True)
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order(channel="dine_in", table_ids=[tables[0].id]).json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}, {"product_id": main_product.id, "qty": 2, "note": "sin sal"}]).json()
+    order = send_order(order).json()
+
+    def ready_count() -> int:
+        status = device_client.get("/api/v1/tables/status").json()
+        by_id = {t["id"]: t for z in status["zones"] for t in z["tables"]}
+        assert by_id[tables[1].id]["ready_count"] == 0  # mesa libre
+        return by_id[tables[0].id]["ready_count"]
+
+    assert ready_count() == 0
+    item_ids = [i["id"] for i in order["items"]]
+    for item_id in item_ids:
+        resp = device_client.post(f"/api/v1/orders/{order['id']}/items/{item_id}/ready", headers=idem_headers())
+        assert resp.status_code == 200, resp.text
+    assert ready_count() == 2
+
+    served = device_client.post(f"/api/v1/orders/{order['id']}/items/{item_ids[0]}/served", headers=idem_headers())
+    assert served.status_code == 200, served.text
+    assert ready_count() == 1

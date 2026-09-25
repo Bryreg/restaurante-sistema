@@ -9,6 +9,12 @@ export interface NavItem {
   to: string;
   label: string;
   feature?: string;
+  /**
+   * Si esta función está encendida, la entrada NO se muestra: otra pantalla
+   * la reemplaza (p. ej. la vista mínima de Cocina cuando el KDS está
+   * encendido — dos «Cocina» en la barra eran dos pantallas para lo mismo).
+   */
+  hiddenWithFeature?: string;
   icon?: LucideIcon;
   /**
    * Sólo barra del salón: en qué tramo va. La barra se ordena por tramo
