@@ -452,14 +452,17 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
     - Con **`0023_photos`** la cadena llega a `"0023"` y el conteo a **94**:
       las fotos de soporte se mudan a su tabla porque, guardadas como *data
       URL* en columnas `String(500)`, Postgres las rechazaba por largo.
+    - Con **`0024_cash_carry_and_pos_deposits`** la cadena llega a `"0024"` y
+      el conteo a **95**: `shift_carry_ins` guarda qué días por consignar
+      quedaron en el cajón al abrir.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0023"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0023, "
-        "que crea `photos` (las fotos de soporte, que no cabían en las columnas `String(500)`)"
+    assert 'version == "0024"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0024, "
+        "que crea `shift_carry_ins` (la plata de días anteriores que queda en el cajón)"
     )
-    assert "len(tablas) == 94" in fuente, (
-        "el conteo de tablas sigue en un número viejo: 0023 lo deja en 94 (79 + 4 + 3 + 7 + 1)"
+    assert "len(tablas) == 95" in fuente, (
+        "el conteo de tablas sigue en un número viejo: 0024 lo deja en 95 (79 + 4 + 3 + 7 + 1 + 1)"
     )
     assert ">=" not in fuente.split("def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory")[1].split("\ndef ")[0], (
         "el invariante de la cadena se aflojó a una desigualdad: un conjunto exacto se MUEVE, no se afloja"

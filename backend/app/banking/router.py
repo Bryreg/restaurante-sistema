@@ -46,9 +46,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from app.auth.deps import Actor, admin_store, current_actor, current_admin
+from app.auth.deps import Actor, admin_store, current_actor, current_admin, current_device, current_operator
 from app.banking import service
-from app.banking.models import BankDeposit, CardSettlement, PlatformSettlement
+from app.banking.models import BankDeposit, BankDepositStatus, CardSettlement, PlatformSettlement
 from app.banking.schemas import (
     BankLedgerOut,
     BankLedgerTotalsOut,
@@ -60,6 +60,8 @@ from app.banking.schemas import (
     DepositIn,
     DepositOut,
     DepositReverseIn,
+    DrawerDayOut,
+    DrawerOut,
     LedgerEntryOut,
     OwnerHandOut,
     PendingDepositRowOut,
@@ -67,6 +69,7 @@ from app.banking.schemas import (
     PlatformReconciliationRowOut,
     PlatformSettlementIn,
     PlatformSettlementOut,
+    PosDepositIn,
     SettleIn,
     SettlementReverseIn,
 )
@@ -122,6 +125,11 @@ def _deposit_out(db: Session, deposit: BankDeposit) -> DepositOut:
         reversed_at=deposit.reversed_at,
         reversed_reason=deposit.reversed_reason,
         reversed_by_employee_name=deposit.reversed_by_employee_name,
+        source=deposit.source,  # type: ignore[arg-type]
+        from_shift_id=deposit.from_shift_id,
+        confirmed_at=deposit.confirmed_at,
+        confirmed_by_employee_name=deposit.confirmed_by_employee_name,
+        needs_confirmation=deposit.status == BankDepositStatus.LIVE and deposit.confirmed_at is None,
     )
 
 
@@ -232,6 +240,57 @@ def reverse_deposit(
         request=request,
         payload=payload,
         fn=_do,
+    )
+    return DepositOut.model_validate(body)
+
+
+@router.post("/admin/deposits/{deposit_id}/confirm", dependencies=[Depends(require_feature("money.deposits"))])
+def confirm_deposit(
+    deposit_id: int,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> DepositOut:
+    """El administrador confirma una consignación hecha desde el POS.
+    Rechazarla es reversarla, con su motivo (`/reverse`)."""
+    deposit = service.get_deposit_or_404(db, organization_id=actor.organization_id, deposit_id=deposit_id)
+    admin_store(db, actor, deposit.store_id)
+    row = service.confirm_deposit(db, actor=actor, deposit=deposit)
+    return _deposit_out(db, row)
+
+
+# ---------------------------------------------------------------------------
+# Consignar desde el POS (2026-09-24): quien tiene la caja consigna la plata
+# de días anteriores que está en el cajón; queda por confirmar.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/deposits/drawer", dependencies=[Depends(require_feature("money.deposits"))])
+def drawer(actor: Actor = Depends(current_device), db: Session = Depends(get_db)) -> DrawerOut:
+    store = service.store_of_device(db, actor)
+    open_shift, days = service.drawer_days(db, store=store)
+    deposits = service.list_drawer_deposits(db, shift_id=open_shift.id) if open_shift is not None else []
+    return DrawerOut(
+        shift_id=open_shift.id if open_shift is not None else None,
+        days=[DrawerDayOut(**asdict(d)) for d in days],
+        deposits=[_deposit_out(db, d) for d in deposits],
+    )
+
+
+@router.post("/deposits", status_code=201, dependencies=[Depends(require_feature("money.deposits"))])
+def create_pos_deposit(
+    payload: PosDepositIn,
+    request: Request,
+    actor: Actor = Depends(current_operator),
+    db: Session = Depends(get_db),
+) -> DepositOut:
+    store = service.store_of_device(db, actor)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        deposit = service.create_pos_deposit(db, actor=actor, store=store, payload=payload)
+        return 201, _deposit_out(db, deposit).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="banking.deposits.pos", request=request, payload=payload, fn=_do
     )
     return DepositOut.model_validate(body)
 

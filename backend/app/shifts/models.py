@@ -532,3 +532,38 @@ class TipPayoutDistribution(Base):
     amount: Mapped[int] = mapped_column(sa.Integer)
 
     __table_args__ = (CheckConstraint("amount >= 0", name="ck_tip_payout_distributions_amount_nonneg"),)
+
+
+class ShiftCarryIn(Base):
+    """**La plata de días anteriores que el turno encontró en el cajón.**
+
+    El dueño decidió (2026-09-24) que la venta que todavía no se consignó se
+    queda en el mismo cajón, como en café-sistema, en vez de salir en sobre.
+    Al abrir, quien abre **marca** qué turnos cerrados con saldo por
+    consignar están físicamente en el cajón —ninguno viene marcado: marcarlos
+    todos por defecto es lo que en el café terminó cobrando plata dos veces—.
+    Una fila por turno marcado, con el saldo que tenía **en ese instante**,
+    calculado por el servidor.
+
+    Esa plata entra al esperado por el conteo de apertura (el conteo la
+    incluye) y sale del `to_deposit` del turno al cerrar: lo que un turno debe
+    consignar es sólo su propia venta (`app.shifts.service._finalize_close`).
+    El saldo sigue siendo del turno de origen; lo que se consigne desde este
+    cajón se le imputa a él.
+    """
+
+    __tablename__ = "shift_carry_ins"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    shift_id: Mapped[int] = mapped_column(ForeignKey("shifts.id"), index=True)
+    source_shift_id: Mapped[int] = mapped_column(ForeignKey("shifts.id"))
+    amount: Mapped[int] = mapped_column(sa.Integer)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (
+        UniqueConstraint("shift_id", "source_shift_id", name="uq_shift_carry_ins_shift_source"),
+        CheckConstraint("amount > 0", name="ck_shift_carry_ins_amount_positive"),
+        CheckConstraint("shift_id <> source_shift_id", name="ck_shift_carry_ins_not_self"),
+    )

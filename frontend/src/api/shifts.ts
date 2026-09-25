@@ -130,6 +130,25 @@ export interface OpenShiftIn {
   cash_responsible_id: number;
   opening_cause?: CashDifferenceCause;
   opening_note?: string;
+  /**
+   * Los días con saldo por consignar cuya plata está físicamente en el cajón
+   * (2026-09-24). Quien abre los marca uno por uno; ninguno viene marcado. El
+   * servidor recalcula el saldo de cada uno y compara el conteo contra base
+   * fija + lo marcado — esta pantalla no suma nada.
+   */
+  carried_shift_ids?: number[];
+}
+
+/** `GET /shifts/carry-candidates`: un día con plata por consignar. */
+export interface CarryCandidate {
+  shift_id: number;
+  business_date: string;
+  outstanding: number;
+}
+
+/** Del más viejo al más nuevo; `[]` con «Consignaciones» (`money.deposits`) apagada. */
+export function getCarryCandidates(): Promise<CarryCandidate[]> {
+  return api<CarryCandidate[]>("/shifts/carry-candidates");
 }
 
 export interface OpenShiftResult {
@@ -195,6 +214,12 @@ export interface Breakdown {
   /** Informativo, FUERA de `expected` (`app/shifts/service.py::compute_breakdown`,
    * pedido 2c): plata de domicilios que el domiciliario todavía no entregó. */
   delivery_cash_pending?: number;
+  /** Lo consignado al banco desde el cajón de este turno en el POS
+   * (2026-09-24): sale del esperado. Ausente en un backend anterior. */
+  deposits?: number;
+  /** Informativo: cuánto de `base` es plata de días anteriores que quedó en
+   * el cajón. No es un sumando aparte. */
+  carried_in?: number;
 }
 
 /** El desglose congelado que devuelve el servidor: nunca se recalcula acá. */

@@ -245,6 +245,11 @@ class TodayOut(BaseModel):
     unavailable_products: list[UnavailableProductOut]
     pending_refunds_count: int
     unreviewed_closes_count: int
+    # Consignar desde el POS (2026-09-24): lo que la bandeja de Hoy le pide al
+    # dueño. Con «Consignaciones» apagada, `0` y `None`: no hay saldo publicado.
+    deposits_to_confirm_count: int = 0
+    undeposited_total: int | None = None
+    undeposited_oldest_date: date | None = None
     alerts: list[AlertOut]
     # Pedido 2a: `[]` cuando `catalog.recipes`/`inventory.perpetual` están
     # apagadas o el dominio todavía no está montado — nunca falta la llave.

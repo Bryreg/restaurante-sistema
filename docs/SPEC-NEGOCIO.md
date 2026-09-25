@@ -234,6 +234,25 @@ colombiana habitual y elimina de un golpe tres mecanismos que la referencia
 necesitó (cuadre inicial por saldos de días anteriores, «sobrante consignable»,
 cascada entre días) y sus bugs (Palmetto, 18-jul: la misma plata pedida dos veces).
 
+> **Cambio decidido por el dueño (2026-09-24): la venta sin consignar se queda en
+> el cajón.** La base fija sigue siendo la base, pero la plata de días anteriores
+> que todavía no se consignó ya no sale en sobre: queda en el mismo cajón. Para no
+> repetir el bug de la referencia, tres reglas:
+>
+> 1. **Al abrir se marca, uno por uno, qué días están en el cajón** — ninguno viene
+>    marcado (marcarlos todos por defecto es lo que pidió la misma plata dos
+>    veces). El conteo de apertura se compara contra base fija + el saldo de lo
+>    marcado, que calcula el servidor (`shift_carry_ins`).
+> 2. **Lo que un turno debe consignar es sólo su venta**: `to_deposit = contado −
+>    base fija − propinas retiradas − lo de días anteriores que sigue en el cajón`.
+>    El saldo de esos días sigue siendo de su turno de origen.
+> 3. **Consignar desde el POS** saca la plata del cajón (resta del esperado),
+>    descuenta del saldo del día desde que se registra y queda por confirmar; el
+>    administrador la confirma o la rechaza (reversa: vuelve al saldo y al cajón).
+>
+> No hay cascada entre días ni «sobrante consignable»: cada peso tiene un solo
+> turno de origen. Ver `docs/ESTADO.md` §39.
+
 **Apertura** (un solo paso, rápido: el gate se paga una vez por turno, no por venta):
 
 - Quién abre (PIN) y quién es el **responsable de caja** (por defecto quien abre).

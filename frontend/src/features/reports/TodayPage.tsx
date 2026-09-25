@@ -157,7 +157,31 @@ interface AttentionItem {
   amountText?: string
 }
 
+/**
+ * Días de calendario entre dos fechas de negocio ISO («2026-09-18»). Es una
+ * cuenta de FECHAS, no de plata: sólo decide la gravedad del aviso de lo sin
+ * consignar. `null` si alguna no se puede leer — entonces no se escala.
+ */
+function daysBetween(fromIso: string | null | undefined, toIso: string | null | undefined): number | null {
+  const parse = (iso: string | null | undefined) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "")
+    return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null
+  }
+  const a = parse(fromIso)
+  const b = parse(toIso)
+  if (a === null || b === null) return null
+  // Dos medianoches UTC: la diferencia es un múltiplo exacto de un día.
+  return (b - a) / 86_400_000
+}
+
+/** Más de estos días sin consignar la plata más vieja y el aviso pasa a crítico. */
+const UNDEPOSITED_CRITICAL_DAYS = 3
+
 function directAttentionItems(today: {
+  business_date?: string
+  deposits_to_confirm_count?: number
+  undeposited_total?: number | null
+  undeposited_oldest_date?: string | null
   payables_overdue_total?: number | null
   ingredients_negative_amount?: number | null
   ingredients_negative_unvalued?: number
@@ -252,6 +276,50 @@ function directAttentionItems(today: {
       tone: "default",
       screen: "Dinero",
       tab: "Operacional",
+    })
+  }
+
+  // Consignar desde el POS (2026-09-24). Con «Consignaciones» apagada el
+  // servidor manda `0`/`null` y ninguno de los dos avisos entra.
+  const toConfirm = today.deposits_to_confirm_count ?? 0
+  if (toConfirm > 0) {
+    items.push({
+      key: "deposits-to-confirm",
+      title: `${toConfirm} consignaci${toConfirm === 1 ? "ón" : "ones"} por confirmar`,
+      body: "Las registró quien tenía la caja, desde el POS. Ya descuentan del saldo por consignar.",
+      why: {
+        term: "Consignaciones por confirmar",
+        text: "Mirá el comprobante y confirmala, o rechazala con su motivo: rechazada, la plata vuelve a figurar por consignar.",
+      },
+      to: "/admin/banco?tab=consignaciones",
+      ctaLabel: "Ver Banco",
+      tone: "warning",
+      screen: "Banco",
+      tab: "Consignaciones",
+    })
+  }
+
+  // El total lo suma el servidor (`undeposited_total`): acá sólo se escribe.
+  // `null` = sin saldo publicado, no «$ 0».
+  const undeposited = today.undeposited_total
+  if (undeposited !== null && undeposited !== undefined && undeposited > 0) {
+    const oldest = today.undeposited_oldest_date ?? null
+    const age = daysBetween(oldest, today.business_date)
+    items.push({
+      key: "undeposited",
+      title: oldest
+        ? `${formatCOP(undeposited)} sin consignar desde el ${formatFechaCorta(oldest)}`
+        : `${formatCOP(undeposited)} sin consignar`,
+      body: "Venta de días anteriores que todavía no llegó al banco.",
+      why: {
+        term: "Sin consignar",
+        text: `Plata de cierres que sigue en el cajón o en la mano. Con más de ${UNDEPOSITED_CRITICAL_DAYS} días, el aviso pasa a crítico.`,
+      },
+      to: "/admin/banco?tab=por-consignar",
+      ctaLabel: "Ver Por consignar",
+      tone: age !== null && age > UNDEPOSITED_CRITICAL_DAYS ? "critical" : "warning",
+      screen: "Banco",
+      tab: "Por consignar",
     })
   }
 

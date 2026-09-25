@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
+from app.banking import hooks as banking_hooks
 from app.auth.deps import Actor, admin_store, current_actor, current_admin, current_device, current_operator
 from app.core import clock, features
 from app.core.csv import csv_response, wants_csv
@@ -294,6 +295,27 @@ def get_current(actor: Actor = Depends(current_device), db: Session = Depends(ge
         is_stale=is_stale,
         cash_over_threshold=over,
     )
+
+
+class CarryCandidateOut(BaseModel):
+    shift_id: int
+    business_date: date
+    outstanding: int
+
+
+@router.get("/shifts/carry-candidates")
+def get_carry_candidates(actor: Actor = Depends(current_device), db: Session = Depends(get_db)) -> list[CarryCandidateOut]:
+    """Los días con plata por consignar, para que quien abre marque cuáles
+    están físicamente en el cajón (`OpenShiftIn.carried_shift_ids`). Con
+    «Consignaciones» apagada no hay saldo publicado: lista vacía, y la
+    apertura sigue siendo sólo la base."""
+    store = _store_of(db, actor)
+    if not features.is_enabled(db, store.organization_id, store.id, "money.deposits"):
+        return []
+    return [
+        CarryCandidateOut(shift_id=p.shift_id, business_date=p.business_date, outstanding=p.outstanding)
+        for p in banking_hooks.pending_shifts(db, organization_id=store.organization_id, store_id=store.id)
+    ]
 
 
 @router.post("/shifts/open", status_code=201)

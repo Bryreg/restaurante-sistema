@@ -29,6 +29,7 @@ from app.core import modules
 from app.core.errors import AppError
 from app.core.money import format_cop
 from app.notifications.service import notify
+from app.banking import hooks as banking_hooks
 from app.photos import hooks as photos_hooks
 from app.stores import service as stores_service
 from app.stores.models import Store
@@ -43,6 +44,7 @@ from app.shifts.models import (
     CashSwap,
     HandoverKind,
     Shift,
+    ShiftCarryIn,
     ShiftCloseCount,
     ShiftHandover,
     ShiftRoster,
@@ -226,7 +228,15 @@ def _sum_pickups(db: Session, shift_id: int) -> int:
 
 
 def compute_breakdown(db: Session, shift: Shift) -> dict[str, int]:
-    """`expected = base + cash_sales + incomes − expenses − pickups`.
+    """`expected = base + cash_sales + incomes − expenses − pickups − deposits`.
+
+    **`deposits` (2026-09-24)**: lo consignado **desde el cajón** de este
+    turno en el POS (`app.banking.hooks.drawer_deposits`). La plata de días
+    anteriores se queda en el cajón (decisión del dueño) y entra al esperado
+    por el conteo de apertura, que la incluye (`base`); cuando quien tiene la
+    caja la lleva al banco, sale. Una consignación rechazada deja de restar.
+    `carried_in` es informativo: cuánto de `base` es plata de días
+    anteriores (`ShiftCarryIn`), no un sumando aparte.
 
     La reserva de caja NO entra (`cash_reserve` no aparece acá). El
     `cash_swap` NO cambia nada (no se consulta). Los retiros reversados no
@@ -257,19 +267,35 @@ def compute_breakdown(db: Session, shift: Shift) -> dict[str, int]:
     incomes = _sum_movements(db, shift.id, CashMovementKind.INCOME)
     expenses = _sum_movements(db, shift.id, CashMovementKind.EXPENSE)
     pickups = _sum_pickups(db, shift.id)
+    deposits = banking_hooks.drawer_deposits(db, shift.id)
     base = shift.opening_cash_total
-    expected = base + sales.cash + incomes - expenses - pickups
+    expected = base + sales.cash + incomes - expenses - pickups - deposits
     return {
         "base": base,
         "cash_sales": sales.cash,
         "incomes": incomes,
         "expenses": expenses,
         "pickups": pickups,
+        "deposits": deposits,
         "expected": expected,
+        "carried_in": sum(hooks.carried_into(db, shift.id).values()),
         # Informativo, FUERA de `expected` (ver el docstring). Renglón
         # propio del desglose: "el efectivo de domicilios se arquea aparte".
         "delivery_cash_pending": sales.delivery_cash_pending + sales.tips_delivery_pending,
     }
+
+
+def carried_still_in_drawer(db: Session, shift: Shift) -> int:
+    """La plata de días anteriores que sigue en el cajón de este turno: lo que
+    se marcó al abrir (`ShiftCarryIn`) menos lo que se consignó desde el
+    cajón. **No es de este turno**: es saldo por consignar de sus turnos de
+    origen, así que sale de lo que este turno debe consignar al cerrar. Sin
+    eso, la venta de ayer se contaría dos veces: en el `to_deposit` de ayer y
+    en el de hoy."""
+    carried = sum(hooks.carried_into(db, shift.id).values())
+    if carried == 0:
+        return 0
+    return max(0, carried - banking_hooks.drawer_deposits(db, shift.id))
 
 
 # ---------------------------------------------------------------------------
@@ -411,11 +437,21 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
     denominations = _to_denominations(payload.opening_cash.denominations)
     total = money.validate_denominations(denominations, payload.opening_cash.total)
 
-    if total != cash_settings.opening_cash_fixed and not payload.opening_cause:
+    carried = _resolve_carried(db, store=store, shift_ids=payload.carried_shift_ids)
+    carried_total = sum(p.outstanding for p in carried)
+    expected_opening = cash_settings.opening_cash_fixed + carried_total
+
+    if total != expected_opening and not payload.opening_cause:
+        if carried_total:
+            detail = (
+                f"la base fija ({format_cop(cash_settings.opening_cash_fixed)}) más lo marcado de días anteriores "
+                f"({format_cop(carried_total)}) da {format_cop(expected_opening)}"
+            )
+        else:
+            detail = f"la base fija es {format_cop(cash_settings.opening_cash_fixed)}"
         raise AppError(
             "OPENING_DIFFERENCE_NEEDS_CAUSE",
-            f"La base contada ({format_cop(total)}) no coincide con la base fija ({format_cop(cash_settings.opening_cash_fixed)}): "
-            "elegí una causa para poder abrir el turno",
+            f"Lo contado ({format_cop(total)}) no coincide: {detail}. Elegí una causa para poder abrir el turno",
             status=400,
         )
 
@@ -468,6 +504,20 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
             status=409,
         ) from exc
 
+    for pending in carried:
+        db.add(
+            ShiftCarryIn(
+                organization_id=store.organization_id,
+                store_id=store.id,
+                shift_id=shift.id,
+                source_shift_id=pending.shift_id,
+                amount=pending.outstanding,
+                created_at=now,
+            )
+        )
+    if carried:
+        db.flush()
+
     hooks.on_employee_identified(db, store_id=store.id, employee=cash_responsible)
     if opener_id != cash_responsible.id:
         opener = db.get(Employee, opener_id)
@@ -493,9 +543,40 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
             "cash_reserve": cash_reserve,
             "cash_responsible_id": cash_responsible.id,
             "business_day_id": day.id,
+            "carried": {str(p.shift_id): p.outstanding for p in carried},
         },
     )
     return shift
+
+
+def _resolve_carried(db: Session, *, store: Store, shift_ids: list[int]) -> list[banking_hooks.PendingShift]:
+    """Los turnos que quien abre marcó como presentes en el cajón, con su
+    saldo **recalculado acá** —nunca el número que mande la pantalla—.
+
+    Sólo se puede marcar un turno de esta sede, cerrado con conteo y con
+    saldo por consignar; y sólo con «Consignaciones» encendida, que es lo
+    que publica ese saldo. Se valida todo antes de escribir nada.
+    """
+    if not shift_ids:
+        return []
+    if len(set(shift_ids)) != len(shift_ids):
+        raise AppError("CARRIED_SHIFT_REPEATED", "Marcaste el mismo día dos veces", status=400)
+    if not features.is_enabled(db, store.organization_id, store.id, "money.deposits"):
+        raise AppError(
+            "CARRIED_REQUIRES_DEPOSITS",
+            "Para marcar días por consignar en la caja, activá «Consignaciones» en Funciones",
+            status=400,
+        )
+    pending = {p.shift_id: p for p in banking_hooks.pending_shifts(db, organization_id=store.organization_id, store_id=store.id)}
+    missing = [sid for sid in shift_ids if sid not in pending]
+    if missing:
+        raise AppError(
+            "CARRIED_SHIFT_NOT_PENDING",
+            "Uno de los días marcados ya no tiene plata por consignar (o no es de esta sede): recargá la lista",
+            status=400,
+            extra={"shift_ids": missing},
+        )
+    return [pending[sid] for sid in shift_ids]
 
 
 # ---------------------------------------------------------------------------
@@ -1052,6 +1133,9 @@ def review_close(db: Session, *, shift: Shift, store: Store, count: ShiftCloseCo
         "incomes": ev.breakdown["incomes"],
         "expenses": ev.breakdown["expenses"],
         "pickups": ev.breakdown["pickups"],
+        # Lo consignado desde el cajón (2026-09-24) sí es un sumando del
+        # esperado: sin este renglón, los que se ven no llegaban al total.
+        "deposits": ev.breakdown["deposits"],
         "expected": ev.expected,
         # Pedido 2c: el paso 2 del cierre a ciegas es EL momento en que hay
         # que ver que el efectivo de domicilios no está en el cajón —
@@ -1189,7 +1273,14 @@ def _finalize_close(
     shift.closes_day = closes_day
     shift.closed_without_count = False
 
-    to_deposit = count.counted_cash_total - settings.opening_cash_fixed - (count.tips_cash_out or 0)
+    # Sólo la venta de este turno: la plata de días anteriores que sigue en el
+    # cajón es saldo de sus turnos de origen (`carried_still_in_drawer`).
+    to_deposit = (
+        count.counted_cash_total
+        - settings.opening_cash_fixed
+        - (count.tips_cash_out or 0)
+        - carried_still_in_drawer(db, shift)
+    )
     shift.to_deposit = to_deposit
 
     db.flush()
@@ -1415,7 +1506,7 @@ def close_administrative(db: Session, *, actor: Actor, shift: Shift, store: Stor
     shift.close_note = reason
     shift.closed_without_count = True
     shift.closes_day = True
-    shift.to_deposit = breakdown["expected"] - cash_settings.opening_cash_fixed
+    shift.to_deposit = breakdown["expected"] - cash_settings.opening_cash_fixed - carried_still_in_drawer(db, shift)
 
     db.flush()
     # Un turno abandonado se rescata a veces días después: la jornada de quien
@@ -1574,7 +1665,9 @@ def adjust_opening(
         settings = stores_service.get_cash_settings(db, shift.store_id)
         active_count = _get_active_close_count(db, shift.id)
         tips_cash_out = active_count.tips_cash_out if active_count is not None else 0
-        shift.to_deposit = shift.counted_cash - settings.opening_cash_fixed - tips_cash_out
+        shift.to_deposit = (
+            shift.counted_cash - settings.opening_cash_fixed - tips_cash_out - carried_still_in_drawer(db, shift)
+        )
 
     db.flush()
     record_audit(

@@ -382,6 +382,18 @@ export function CloseWizard({
                   valor={review.equation?.[clave]}
                 />
               ))}
+              {/* Lo consignado desde el cajón (2026-09-24) sale del esperado.
+                  Sólo se pinta si el servidor lo publica en `equation`: el
+                  renglón tapado del paso 1 no lo lista, así que no se revela
+                  nada que no se haya visto antes de sellar. */}
+              {review.equation?.deposits !== undefined ? (
+                <FilaCuadre
+                  rotulo="Consignado desde el cajón"
+                  detalle="Plata de días anteriores que se llevó al banco"
+                  signo="−"
+                  valor={review.equation.deposits}
+                />
+              ) : null}
               <FilaCuadre rotulo="Esperado" detalle="Lo que debería haber en el cajón" valor={review.expected} remate />
               <FilaCuadre
                 rotulo="Contado a mano"

@@ -1718,6 +1718,30 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     - Tests: `tests/photos/test_photos.py` mide el **largo** de lo guardado,
       que es lo que Postgres rechaza y SQLite no.
 
+39. **La plata de días anteriores se queda en el cajón, y se consigna desde el
+    POS** (2026-09-24). Decisiones del dueño: la venta sin consignar queda en
+    el mismo cajón (como café-sistema); una consignación desde el POS
+    descuenta del saldo desde que se registra y queda por confirmar; la foto
+    del comprobante es obligatoria.
+    - **Apertura**: `GET /shifts/carry-candidates` lista los turnos con saldo;
+      quien abre marca (`carried_shift_ids`, ninguno por defecto) cuáles
+      están en el cajón. El conteo se compara contra base fija + saldo de lo
+      marcado (recalculado en el servidor). Tabla `shift_carry_ins` (0024).
+    - **Cierre**: `to_deposit` resta `carried_still_in_drawer` (lo marcado
+      menos lo consignado desde el cajón): la venta de ayer no se cuenta dos
+      veces. Lo mismo en el cierre administrativo y al ajustar la apertura.
+    - **Esperado**: `compute_breakdown` resta `deposits` (consignado desde el
+      cajón, vivo). `carried_in` es informativo.
+    - **Consignar desde el POS**: `GET /deposits/drawer`, `POST /deposits`
+      (operador; imputa entero al día de origen; no más de lo que queda en el
+      cajón). `bank_deposits` suma `source`, `from_shift_id` y la
+      confirmación. `POST /admin/deposits/{id}/confirm`; rechazar es reversar.
+      El admin no puede imputar un día que está en el cajón del turno abierto
+      (`DAY_IN_DRAWER`).
+    - **Hoy**: `deposits_to_confirm_count`, `undeposited_total` y
+      `undeposited_oldest_date` en `/admin/today`.
+    - `docs/SPEC-NEGOCIO.md` §3.2 registra el cambio a la base fija.
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

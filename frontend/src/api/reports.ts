@@ -254,6 +254,14 @@ export interface TodayOut {
   unavailable_products?: UnavailableProductOut[]
   pending_refunds_count?: number
   unreviewed_closes_count?: number
+  // Consignar desde el POS (2026-09-24). Con «Consignaciones» apagada llegan
+  // `0` y `null`: sin saldo publicado no hay aviso, y `null` no es `$ 0`.
+  /** Consignaciones hechas desde el POS que esperan que el administrador las confirme. */
+  deposits_to_confirm_count?: number
+  /** Plata de cierres todavía sin consignar, sumada por el servidor. */
+  undeposited_total?: number | null
+  /** Fecha de negocio (ISO) del día más viejo con plata sin consignar. */
+  undeposited_oldest_date?: string | null
   alerts?: AlertOut[]
   // Pedido 2a: `[]` cuando `catalog.recipes`/`inventory.perpetual` están
   // apagadas o el dominio todavía no está montado — el backend nunca omite

@@ -123,6 +123,23 @@ class BankDeposit(Base):
 
     status: Mapped[BankDepositStatus] = mapped_column(_enum(BankDepositStatus), default=BankDepositStatus.LIVE)
 
+    # **Desde dónde salió la plata** (2026-09-24, consignar desde el POS).
+    # `admin`: la registró el administrador; nace confirmada. `pos`: la
+    # registró quien tiene la caja, con la plata de días anteriores que había
+    # en el cajón del turno `from_shift_id` (`ShiftCarryIn`). Descuenta del
+    # saldo por consignar desde que se registra —así otro cajero no consigna
+    # el mismo día dos veces— y queda **por confirmar** (`confirmed_at` nulo)
+    # hasta que el administrador la confirma o la rechaza (rechazar es
+    # reversarla: el monto vuelve a quedar pendiente y al cajón).
+    # Sin `CHECK` en la base a propósito: agregarlo obliga a recrear la tabla
+    # en SQLite, y `bank_deposit_allocations` apunta acá (el problema de
+    # `0011`). Los dos valores los escribe sólo `app.banking.service`.
+    source: Mapped[str] = mapped_column(sa.String(8), default="admin", server_default="admin")
+    from_shift_id: Mapped[int | None] = mapped_column(ForeignKey("shifts.id"), nullable=True, index=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    confirmed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    confirmed_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
     reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     reversed_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     reversed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)

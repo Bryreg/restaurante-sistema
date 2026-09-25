@@ -1,11 +1,12 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useSession } from "@/app/session";
 import { ApiError, newIdempotencyKey } from "@/api/client";
-import { openShift, type CashDifferenceCause, type OpenShiftIn } from "@/api/shifts";
+import { getCarryCandidates, openShift, type CashDifferenceCause, type OpenShiftIn } from "@/api/shifts";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DenominationsInput, type Denomination } from "@/components/DenominationsInput";
 import { EmployeePicker } from "@/components/EmployeePicker";
 import { Label } from "@/components/ui/label";
@@ -18,10 +19,11 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/errors";
-import { DENOMINATIONS } from "@/lib/money";
+import { formatFechaCorta } from "@/lib/format";
+import { DENOMINATIONS, formatCOP } from "@/lib/money";
 import { MoneyInput } from "@/components/MoneyInput";
 
-import { CURRENT_SHIFT_QUERY_KEY } from "./hooks";
+import { CARRY_CANDIDATES_QUERY_KEY, CURRENT_SHIFT_QUERY_KEY } from "./hooks";
 
 const CAUSE_LABEL: Record<CashDifferenceCause, string> = {
   change_error: "Error al dar cambio",
@@ -31,6 +33,9 @@ const CAUSE_LABEL: Record<CashDifferenceCause, string> = {
   counting_error: "Error de conteo",
   unknown: "Sin identificar",
 };
+
+/** Errores del servidor que dicen que la lista de días quedó vieja: se recarga. */
+const CARRIED_STALE_CODES = new Set(["CARRIED_SHIFT_NOT_PENDING", "CARRIED_SHIFT_REPEATED"]);
 
 function emptyDenominations(): Denomination[] {
   return DENOMINATIONS.map((value) => ({ value, count: 0 }));
@@ -43,6 +48,15 @@ function emptyDenominations(): Denomination[] {
  * de la diferencia **no se calcula acá**: se manda sin causa y, si el
  * servidor responde `400 OPENING_DIFFERENCE_NEEDS_CAUSE`, recién ahí se
  * pide — con una `Idempotency-Key` nueva, porque el cuerpo cambió.
+ *
+ * **La plata de días anteriores se queda en el cajón** (decisión del dueño,
+ * 2026-09-24). Con «Consignaciones» encendida, `GET /shifts/carry-candidates`
+ * trae los días con saldo por consignar y quien abre marca, uno por uno,
+ * cuáles están físicamente acá. **Ninguno viene marcado**: marcar es afirmar
+ * que la plata está, y eso lo hace una persona mirando el cajón. Esta
+ * pantalla no suma la base con lo marcado: manda `carried_shift_ids` y el
+ * servidor recalcula; si lo contado no cuadra, su `message` dice el total que
+ * esperaba.
  */
 export function OpenShiftForm(): React.JSX.Element {
   const { me, hasFeature } = useSession();
@@ -61,6 +75,24 @@ export function OpenShiftForm(): React.JSX.Element {
 
   const idempotencyKeyRef = useRef(newIdempotencyKey());
 
+  const depositsEnabled = hasFeature("money.deposits");
+  const candidatesQuery = useQuery({
+    queryKey: CARRY_CANDIDATES_QUERY_KEY,
+    queryFn: getCarryCandidates,
+    enabled: depositsEnabled,
+  });
+  const candidates = depositsEnabled ? candidatesQuery.data ?? [] : [];
+  const [carriedIds, setCarriedIds] = useState<number[]>([]);
+  // Sólo viaja lo marcado que sigue en la lista: si al recargar un día ya no
+  // está (lo consignaron desde Banco), no se manda a ciegas.
+  const carriedShiftIds = carriedIds.filter((id) => candidates.some((c) => c.shift_id === id));
+
+  function toggleCarried(shiftId: number, checked: boolean) {
+    setCarriedIds((prev) => (checked ? [...prev.filter((id) => id !== shiftId), shiftId] : prev.filter((id) => id !== shiftId)));
+    // Otro cuerpo, otro intento: clave nueva.
+    idempotencyKeyRef.current = newIdempotencyKey();
+  }
+
   const total = denominations.reduce((acc, d) => acc + d.value * d.count, 0);
   const responsibleValid = responsibleId !== null;
 
@@ -75,6 +107,11 @@ export function OpenShiftForm(): React.JSX.Element {
         setNeedsCause(true);
         // El cuerpo del próximo intento va a llevar causa: es un intento
         // distinto, no un reintento de red del mismo — clave nueva.
+        idempotencyKeyRef.current = newIdempotencyKey();
+      }
+      if (err instanceof ApiError && CARRIED_STALE_CODES.has(err.code)) {
+        // La lista de días quedó vieja: se recarga y el próximo intento es otro.
+        void queryClient.invalidateQueries({ queryKey: CARRY_CANDIDATES_QUERY_KEY });
         idempotencyKeyRef.current = newIdempotencyKey();
       }
       setError(errorMessage(err));
@@ -94,6 +131,7 @@ export function OpenShiftForm(): React.JSX.Element {
       cash_responsible_id: responsibleId as number,
       opening_cause: needsCause && cause !== "" ? cause : undefined,
       opening_note: needsCause && note.trim() !== "" ? note.trim() : undefined,
+      carried_shift_ids: carriedShiftIds,
     });
   }
 
@@ -105,6 +143,29 @@ export function OpenShiftForm(): React.JSX.Element {
           Contá la base fija por denominaciones antes de empezar a operar.
         </p>
       </div>
+
+      {candidates.length > 0 ? (
+        <fieldset className="space-y-2 rounded-md border p-3">
+          <legend className="px-1 text-sm font-medium">¿La plata de qué días está en la caja?</legend>
+          <p className="text-xs text-muted-foreground">Marcá solo los días cuya plata está físicamente acá.</p>
+          <ul className="space-y-1">
+            {candidates.map((c) => (
+              <li key={c.shift_id}>
+                {/* Etiqueta que envuelve: toda la fila es el blanco del dedo. */}
+                <label className="flex min-h-11 items-center gap-3 text-sm">
+                  <Checkbox
+                    checked={carriedIds.includes(c.shift_id)}
+                    onCheckedChange={(checked) => toggleCarried(c.shift_id, checked === true)}
+                    disabled={mutation.isPending}
+                  />
+                  <span className="flex-1">{formatFechaCorta(c.business_date)}</span>
+                  <span className="tabular-nums">{formatCOP(c.outstanding)}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </fieldset>
+      ) : null}
 
       <DenominationsInput value={denominations} onChange={setDenominations} legend="Base contada" />
 
@@ -134,7 +195,9 @@ export function OpenShiftForm(): React.JSX.Element {
       {needsCause ? (
         <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
           <p className="text-sm font-medium text-destructive">
-            La base contada no coincide con la base fija: elegí una causa para poder abrir.
+            {carriedShiftIds.length > 0
+              ? "Lo contado no coincide con la base fija más los días marcados: elegí una causa para poder abrir."
+              : "La base contada no coincide con la base fija: elegí una causa para poder abrir."}
           </p>
           <div className="space-y-1">
             <Label htmlFor="open-cause">Causa</Label>

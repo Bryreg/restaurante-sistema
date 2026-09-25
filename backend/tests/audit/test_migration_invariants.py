@@ -450,6 +450,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     en Postgres el `INSERT` fallaba por largo, y SQLite —que no hace cumplir
     el largo— lo escondía. `photos` guarda los bytes; las columnas de siempre
     guardan la dirección `/api/v1/photos/<id>`.
+
+    **Re-apuntado al dejar la plata de días anteriores en el cajón**: la
+    cadena llega a **`0024_cash_carry_and_pos_deposits`** y el conteo a
+    **95** (`shift_carry_ins`). El dueño decidió que la venta sin consignar se
+    queda en el cajón y que quien tiene la caja consigna desde el POS con
+    confirmación del administrador; `bank_deposits` suma columnas, no tabla.
     """
     from sqlalchemy import text
 
@@ -461,11 +467,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0023", (
-        f"la cadena quedó en {version!r}; el punto de llegada después de mudar las "
-        "fotos a su tabla es 0023 (`0023_photos`). "
+    assert version == "0024", (
+        f"la cadena quedó en {version!r}; el punto de llegada después de dejar la plata "
+        "de días anteriores en el cajón es 0024 (`0024_cash_carry_and_pos_deposits`). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022 y 0023"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023 y 0024"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -501,6 +507,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     }
     de_las_obligaciones = {"expenses", "obligations", "store_expenses_settings"}
     de_las_fotos = {"photos"}
+    del_cajon = {"shift_carry_ins"}
     de_la_nomina = {
         "payroll_surcharge_tables",
         "payroll_holidays",
@@ -522,6 +529,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
             | de_las_obligaciones
             | de_la_nomina
             | de_las_fotos
+            | del_cajon
         )
         - tablas
     )
@@ -539,10 +547,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # (agrega una columna, no una tabla), y `analytics` (T4) no tiene modelos
     # a propósito: es todo derivado. Ojo al comparar con `docs/ESTADO.md`, que
     # para 1b anotó "53 tablas" contando la de control de Alembic: es el mismo
-    # esquema contado de dos maneras. `0023_photos` suma una: **94**.
-    assert len(tablas) == 94, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; `0023_photos` lo deja en 94 "
-        f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos). "
+    # esquema contado de dos maneras. `0023_photos` suma una (94) y `0024`
+    # otra (`shift_carry_ins`): **95**.
+    assert len(tablas) == 95, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; `0024` lo deja en 95 "
+        f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón). "
         f"Actualizá este número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 
