@@ -1764,10 +1764,15 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     - `/admin/today` suma `reception_drafts_pending_count`,
       `requests_pending_count`, `novelties_open_count`,
       `novelties_urgent_count`, `transfers_incoming_count`. Migración `0025`.
-    - **Pendiente de decidir**: el pago de contado a proveedor al recibir no
-      pide PIN por encima del límite de caja menor (un egreso manual sí);
-      rechazar una recepción con pago de contado no devuelve la plata; el food
-      cost real todavía no descuenta los traslados.
+    - **Decidido por el dueño (2026-09-25)**:
+      - El pago de contado a proveedor al recibir **no pide PIN** aunque pase
+        el límite de caja menor.
+      - Rechazar una recepción es excepcional: el admin hace los pedidos, y
+        si algo llega mal el operador lo llama **antes de pagar**. Si igual se
+        rechaza una con pago de contado, el egreso queda.
+      - Un traslado sólo mueve inventario: sale de la sede origen y entra a
+        la destino al recibirlo. **No toca el food cost** de ninguna (lo que
+        entró con factura ya se costeó en la sede que compró).
 
 ---
 
