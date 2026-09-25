@@ -223,6 +223,45 @@ class DayCloseOut(BaseModel):
     operated: bool
 
 
+class AreaCountDoneTodayOut(BaseModel):
+    count_id: int
+    counted_at: datetime
+    employee_name: str
+
+
+class AreaCountAreaTodayOut(BaseModel):
+    """Una área de conteo y si contó hoy. `None` = todavía nadie contó ese
+    momento (no es un error: el conteo corto nunca bloquea el turno)."""
+
+    area_id: int
+    area_name: str
+    opening: AreaCountDoneTodayOut | None
+    closing: AreaCountDoneTodayOut | None
+
+
+class AreaCountFlagOut(BaseModel):
+    """Un artículo con diferencia, leído de `app.inventory.hooks.
+    area_counts_today` (la matemática es de `inventory`; acá no se recalcula).
+    `window`: `night` (del cierre anterior a la apertura de hoy), `shift` (de
+    la apertura al cierre) o `spot` (recuento sorpresa contra el sistema).
+    `shortage_qty` positivo = faltó; negativo = sobró. `shortage_value` en
+    pesos, `None` sin costo conocido. `flagged` = fuera del umbral de la sede
+    (un recuento respondido viaja aunque esté dentro, para que el dueño vea
+    la respuesta)."""
+
+    count_id: int
+    area_name: str
+    window: Literal["night", "shift", "spot"]
+    ingredient_id: int
+    ingredient_name: str
+    base_unit: str
+    shortage_qty: str
+    shortage_value: int | None
+    flagged: bool
+    counted_at: datetime
+    employee_name: str
+
+
 class TodayOut(BaseModel):
     store_id: int
     business_date: date
@@ -257,6 +296,12 @@ class TodayOut(BaseModel):
     novelties_open_count: int = 0
     novelties_urgent_count: int = 0
     transfers_incoming_count: int = 0
+    # Conteo corto por área (`inventory.shift_counts`). Con la función
+    # apagada: `area_counts_enabled=False`, listas vacías y `0`.
+    area_counts_enabled: bool = False
+    area_counts_areas: list[AreaCountAreaTodayOut] = []
+    area_counts_flags: list[AreaCountFlagOut] = []
+    area_recounts_pending_count: int = 0
     alerts: list[AlertOut]
     # Pedido 2a: `[]` cuando `catalog.recipes`/`inventory.perpetual` están
     # apagadas o el dominio todavía no está montado — nunca falta la llave.

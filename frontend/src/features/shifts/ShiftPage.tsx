@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   ArrowRightLeft,
   Bike,
+  ClipboardCheck,
   ClipboardList,
   Coins,
   Landmark,
@@ -21,6 +22,7 @@ import { useSession } from "@/app/session";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { AreaCountPanel } from "@/features/inventory/AreaCountPanel";
 import { NoveltiesPanel } from "@/features/novelties";
 import { ReceiveGoodsPanel } from "@/features/purchases";
 import { RequestsPanel } from "@/features/requests";
@@ -59,6 +61,7 @@ type ClaveAccion =
   | "recibir"
   | "solicitudes"
   | "novedades"
+  | "conteo"
   | "cierre";
 
 interface Accion {
@@ -136,6 +139,15 @@ const ACCIONES: Accion[] = [
     descripcion: "Dejar dicho lo que pasó para el que sigue",
     icono: MessageSquareWarning,
     flag: "pos.novelties",
+  },
+  // Conteo corto por área (2026-09-25): cada área cuenta sus artículos clave
+  // al abrir y al cerrar, a ciegas. No bloquea el cierre de caja.
+  {
+    clave: "conteo",
+    label: "Conteo de mi área",
+    descripcion: "Contar los artículos clave al abrir o al cerrar",
+    icono: ClipboardCheck,
+    flag: "inventory.shift_counts",
   },
 ];
 
@@ -416,6 +428,8 @@ function PanelDeAccion({
       return <RequestsPanel shiftId={shift.id} />;
     case "novedades":
       return <NoveltiesPanel />;
+    case "conteo":
+      return <AreaCountPanel />;
     case "cierre":
       return showBlindClose ? (
         <CloseWizard shiftId={shift.id} onClosed={onClosed} />

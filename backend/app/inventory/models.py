@@ -550,3 +550,196 @@ class StoreInventorySettings(Base):
             name="ck_store_inv_settings_red_gt_yellow",
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Conteo corto por área (`inventory.shift_counts`, 2026-09-25).
+#
+# Como en los restaurantes grandes: cada área responde por lo suyo. El del
+# bar cuenta licores, el de cocina carnes y vegetales; la caja ya tiene su
+# conteo (base al abrir y cierre a ciegas) y no pasa por acá. Se cuenta al
+# abrir (quien entra, a ciegas) y al cerrar (quien sale). Nada de esto toca
+# el libro de movimientos: un conteo corto NO ajusta el stock (eso lo hace
+# el conteo completo con `apply_count`); sólo mide contra lo que el libro
+# dice que debería haber, y avisa.
+#
+# Áreas, miembros y artículos se desactivan, nunca se borran; los conteos y
+# los pedidos de recuento son append-only.
+# ---------------------------------------------------------------------------
+
+
+class AreaCountMoment(str, enum.Enum):
+    OPENING = "opening"  # al abrir: cuenta quien entra
+    CLOSING = "closing"  # al cerrar: cuenta quien sale
+    SPOT = "spot"  # recuento sorpresa pedido por el administrador
+
+
+class AreaRecountStatus(str, enum.Enum):
+    PENDING = "pending"
+    ANSWERED = "answered"
+
+
+class CountArea(Base):
+    """Un área de conteo de una sede (Bar, Cocina). El administrador la crea,
+    la renombra o la desactiva; nunca se borra (sus conteos la nombran)."""
+
+    __tablename__ = "count_areas"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    name: Mapped[str] = mapped_column(sa.String(80))
+    active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (sa.UniqueConstraint("store_id", "name", name="uq_count_areas_store_name"),)
+
+
+class CountAreaMember(Base):
+    """De qué área es una persona en una sede. **Una sola** por persona y sede
+    (`uq_count_area_members_store_employee`): cambiarla de área pisa la fila
+    (con auditoría del antes y el después); sacarla la deja `active=False`."""
+
+    __tablename__ = "count_area_members"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    area_id: Mapped[int] = mapped_column(ForeignKey("count_areas.id"), index=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    employee_name: Mapped[str] = mapped_column(sa.String(200))
+    active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (
+        sa.UniqueConstraint("store_id", "employee_id", name="uq_count_area_members_store_employee"),
+    )
+
+
+class CountAreaItem(Base):
+    """Un artículo clave de un área: el insumo que esa área cuenta. **Un
+    insumo se cuenta en un solo área** por sede
+    (`uq_count_area_items_store_ingredient`): contado a medias en dos áreas,
+    ninguna de las dos cifras se podría comparar con el libro, que lleva un
+    solo saldo por insumo."""
+
+    __tablename__ = "count_area_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    area_id: Mapped[int] = mapped_column(ForeignKey("count_areas.id"), index=True)
+    ingredient_id: Mapped[int] = mapped_column(ForeignKey("ingredients.id"), index=True)
+    position: Mapped[int] = mapped_column(sa.Integer, default=0)
+    active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (
+        sa.UniqueConstraint("store_id", "ingredient_id", name="uq_count_area_items_store_ingredient"),
+    )
+
+
+class AreaRecountRequest(Base):
+    """«Recontá estos 1–5 artículos»: lo pide el administrador a un área; le
+    aparece como pendiente en el POS de esa área, y la respuesta (a ciegas)
+    es un `AreaCount` con `moment=spot` que apunta acá."""
+
+    __tablename__ = "area_recount_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    area_id: Mapped[int] = mapped_column(ForeignKey("count_areas.id"), index=True)
+    # Los insumos a recontar, en el orden en que se pidieron (1 a 5 ids).
+    ingredient_ids: Mapped[list[int]] = mapped_column(sa.JSON)
+    note: Mapped[str | None] = mapped_column(sa.String(300), nullable=True)
+    status: Mapped[AreaRecountStatus] = mapped_column(
+        _enum(AreaRecountStatus, length=16), default=AreaRecountStatus.PENDING
+    )
+    requested_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    business_date: Mapped[date] = mapped_column(sa.Date)
+    requested_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    requested_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
+    answered_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    __table_args__ = (Index("ix_area_recount_requests_store_status", "store_id", "status"),)
+
+
+class AreaCount(Base):
+    """Un conteo corto de un área: quién contó, cuándo y en qué momento
+    (`opening`, `closing` o `spot`). Append-only: si alguien se equivoca,
+    cuenta de nuevo y **manda el último** del mismo momento y día; el
+    anterior queda en el historial. El área se congela por nombre
+    (`area_name`) porque el administrador la puede renombrar después."""
+
+    __tablename__ = "area_counts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    area_id: Mapped[int] = mapped_column(ForeignKey("count_areas.id"), index=True)
+    area_name: Mapped[str] = mapped_column(sa.String(80))
+    moment: Mapped[AreaCountMoment] = mapped_column(_enum(AreaCountMoment, length=16))
+    recount_request_id: Mapped[int | None] = mapped_column(
+        ForeignKey("area_recount_requests.id"), nullable=True, unique=True
+    )
+    counted_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    business_date: Mapped[date] = mapped_column(sa.Date)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    employee_name: Mapped[str] = mapped_column(sa.String(200))
+
+    __table_args__ = (
+        Index("ix_area_counts_store_date", "store_id", "business_date"),
+        Index("ix_area_counts_area_counted", "area_id", "counted_at"),
+        CheckConstraint(
+            "(moment = 'SPOT' AND recount_request_id IS NOT NULL) "
+            "OR (moment != 'SPOT' AND recount_request_id IS NULL)",
+            name="ck_area_counts_spot_has_request",
+        ),
+    )
+
+
+class AreaCountLine(Base):
+    """Un renglón de un conteo corto. `qty_base` en milésimas de la unidad
+    base (`app.core.quantity`), convertido UNA vez en el servidor desde lo
+    que la persona tecleó en su unidad cómoda (`entered_qty` + `entered_unit`,
+    guardados tal cual: «2.3 botella»)."""
+
+    __tablename__ = "area_count_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    count_id: Mapped[int] = mapped_column(ForeignKey("area_counts.id"), index=True)
+    ingredient_id: Mapped[int] = mapped_column(ForeignKey("ingredients.id"), index=True)
+    qty_base: Mapped[int] = mapped_column(sa.Integer)
+    entered_qty: Mapped[str] = mapped_column(sa.String(20))
+    entered_unit: Mapped[str] = mapped_column(sa.String(50))
+
+    __table_args__ = (
+        sa.UniqueConstraint("count_id", "ingredient_id", name="uq_area_count_lines_count_ingredient"),
+        CheckConstraint("qty_base >= 0", name="ck_area_count_lines_qty_nonneg"),
+    )
+
+
+class AreaCountSettings(Base):
+    """El umbral de aviso del conteo corto, por sede. Un artículo se marca
+    cuando su diferencia supera **las dos** fronteras configuradas: el
+    porcentaje de lo esperado (puntos básicos) **y** el monto en pesos. Una
+    frontera en `NULL` no se exige. Sin costo conocido, manda sólo el
+    porcentaje. Defaults: 2 % y $ 20.000. Nunca bloquea nada: sólo avisa."""
+
+    __tablename__ = "area_count_settings"
+
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), primary_key=True)
+    threshold_pct_bp: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    threshold_amount: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (
+        CheckConstraint(
+            "threshold_pct_bp IS NULL OR threshold_pct_bp > 0", name="ck_area_count_settings_pct_positive"
+        ),
+        CheckConstraint(
+            "threshold_amount IS NULL OR threshold_amount > 0", name="ck_area_count_settings_amount_positive"
+        ),
+    )

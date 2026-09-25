@@ -231,6 +231,36 @@ export interface DayCloseOut {
   operated: boolean
 }
 
+export interface AreaCountDoneTodayOut {
+  count_id: number
+  counted_at: string
+  employee_name: string
+}
+
+/** Un área y si contó hoy; `null` = todavía nadie contó ese momento. */
+export interface AreaCountAreaTodayOut {
+  area_id: number
+  area_name: string
+  opening: AreaCountDoneTodayOut | null
+  closing: AreaCountDoneTodayOut | null
+}
+
+/** Un artículo con diferencia (la calcula el servidor). `shortage_qty`
+ * positivo = faltó; `window`: de noche, en el turno o recuento sorpresa. */
+export interface AreaCountFlagOut {
+  count_id: number
+  area_name: string
+  window: "night" | "shift" | "spot"
+  ingredient_id: number
+  ingredient_name: string
+  base_unit: string
+  shortage_qty: string
+  shortage_value: number | null
+  flagged: boolean
+  counted_at: string
+  employee_name: string
+}
+
 export interface TodayOut {
   store_id: number
   business_date: string
@@ -268,6 +298,11 @@ export interface TodayOut {
   novelties_open_count?: number
   novelties_urgent_count?: number
   transfers_incoming_count?: number
+  /** Conteo corto por área (`inventory.shift_counts`). Apagada: `false` y listas vacías. */
+  area_counts_enabled?: boolean
+  area_counts_areas?: AreaCountAreaTodayOut[]
+  area_counts_flags?: AreaCountFlagOut[]
+  area_recounts_pending_count?: number
   alerts?: AlertOut[]
   // Pedido 2a: `[]` cuando `catalog.recipes`/`inventory.perpetual` están
   // apagadas o el dominio todavía no está montado — el backend nunca omite

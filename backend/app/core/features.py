@@ -304,6 +304,13 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "2",
     ),
     FeatureDef(
+        "inventory.shift_counts",
+        "Conteo corto por área al abrir y al cerrar (bar, cocina), con recuento sorpresa",
+        ["inventory.perpetual"],
+        {"basic": False, "standard": True, "full": True},
+        "2",
+    ),
+    FeatureDef(
         "inventory.lots",
         "Lotes y vencimientos",
         ["inventory.perpetual"],

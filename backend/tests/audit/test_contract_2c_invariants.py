@@ -457,14 +457,20 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       quedaron en el cajón al abrir.
     - Con **`0025_pos_routine`** la cadena llega a `"0025"` y el conteo a
       **100**: recibir sin precios, solicitudes y novedades del turno.
+    - Con **`0026_area_counts`** la cadena llega a `"0026"` y el conteo a
+      **107**: el dueño pidió que cada área (bar, cocina) cuente sus
+      artículos clave al abrir y al cerrar, con recuento sorpresa; son siete
+      tablas nuevas de `app/inventory` (áreas, miembros, artículos, conteos,
+      sus renglones, recuentos y el umbral). Se mueve el poste, no se afloja:
+      las dos igualdades siguen exactas.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0025"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0025, "
-        "la rutina del turno en el POS (recibir, solicitudes, novedades)"
+    assert 'version == "0026"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0026, "
+        "el conteo corto por área"
     )
-    assert "len(tablas) == 100" in fuente, (
-        "el conteo de tablas sigue en un número viejo: 0025 lo deja en 100 (79 + 4 + 3 + 7 + 1 + 1 + 5)"
+    assert "len(tablas) == 107" in fuente, (
+        "el conteo de tablas sigue en un número viejo: 0026 lo deja en 107 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7)"
     )
     assert ">=" not in fuente.split("def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory")[1].split("\ndef ")[0], (
         "el invariante de la cadena se aflojó a una desigualdad: un conjunto exacto se MUEVE, no se afloja"
