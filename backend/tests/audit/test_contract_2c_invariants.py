@@ -449,15 +449,17 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       el conteo pasa a **93** tablas de dominio: 79 + 4 + 3 + 7. `0019` no
       suma porque agrega una columna, no una tabla, y `analytics` no suma
       porque no tiene modelos a propósito. Medido sobre Postgres 16 real.
+    - Con **`0023_photos`** la cadena llega a `"0023"` y el conteo a **94**:
+      las fotos de soporte se mudan a su tabla porque, guardadas como *data
+      URL* en columnas `String(500)`, Postgres las rechazaba por largo.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0022"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0022, "
-        "que borra `store_cash_settings.tolerance_identified_cause` (el ajuste que el dueño "
-        "editaba y que ninguna lógica leía)"
+    assert 'version == "0023"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0023, "
+        "que crea `photos` (las fotos de soporte, que no cabían en las columnas `String(500)`)"
     )
-    assert "len(tablas) == 93" in fuente, (
-        "el conteo de tablas sigue en un número viejo: la fase 3 lo deja en 93 (79 + 4 + 3 + 7)"
+    assert "len(tablas) == 94" in fuente, (
+        "el conteo de tablas sigue en un número viejo: 0023 lo deja en 94 (79 + 4 + 3 + 7 + 1)"
     )
     assert ">=" not in fuente.split("def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory")[1].split("\ndef ")[0], (
         "el invariante de la cadena se aflojó a una desigualdad: un conjunto exacto se MUEVE, no se afloja"

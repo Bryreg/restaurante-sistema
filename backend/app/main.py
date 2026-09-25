@@ -72,6 +72,8 @@ DOMAINS: list[str] = [
     "expenses",
     "payroll",
     "analytics",
+    # Las fotos de soporte, en su tabla (`app/photos/__init__.py`).
+    "photos",
 ]
 
 

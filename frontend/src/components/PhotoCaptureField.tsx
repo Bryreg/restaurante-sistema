@@ -4,6 +4,7 @@ import { useId, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { errorMessage } from "@/lib/errors"
+import { fotoParaEnviar } from "@/lib/foto"
 
 export interface PhotoCaptureFieldProps {
   value: string | null
@@ -14,18 +15,11 @@ export interface PhotoCaptureFieldProps {
   disabled?: boolean
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(reader.error ?? new Error("No se pudo leer la foto"))
-    reader.readAsDataURL(file)
-  })
-}
-
 /**
  * Captura una foto con `<input type="file" accept="image/*" capture>`
- * (cámara en tablet, selector de archivo en PC) y la manda como *data URL*.
+ * (cámara en tablet, selector de archivo en PC), la achica (`@/lib/foto`) y
+ * la manda como *data URL*; el servidor la guarda en su tabla y el registro
+ * se queda con la dirección (`/api/v1/photos/<id>`).
  * Componente compartido: `src/features/shifts/PhotoCaptureField.tsx` ya
  * tenía uno igual, local a ese dominio (territorio ajeno, no se toca) — este
  * es el que usa cualquier pantalla nueva que necesite foto (merma, en este
@@ -49,7 +43,7 @@ export function PhotoCaptureField({
   async function handleFile(file: File | undefined) {
     if (!file) return
     try {
-      const dataUrl = await fileToDataUrl(file)
+      const dataUrl = await fotoParaEnviar(file)
       onChange(dataUrl)
       setError(null)
     } catch (err) {

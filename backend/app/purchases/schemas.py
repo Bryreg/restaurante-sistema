@@ -14,6 +14,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.photos.hooks import PhotoIn
+
 SupplierPaymentMethodLiteral = Literal["cash", "card", "transfer", "other"]
 ReceptionStatusLiteral = Literal["confirmed", "reversed"]
 PayableStatusLiteral = Literal["pending_review", "approved", "cancelled"]
@@ -177,7 +179,7 @@ class ReceptionIn(BaseModel):
     invoice_number: str | None = Field(default=None, max_length=80)
     invoice_date: date
     no_invoice: bool = False
-    photo: str | None = Field(default=None, max_length=500)
+    photo: PhotoIn | None = None
     # D-2: lo que dice el PAPEL de la factura, en pesos — opcional (una
     # recepción `no_invoice=True` no tiene papel que copiar). Nunca
     # reemplaza el cálculo de `Payable.amount`.

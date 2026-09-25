@@ -14,6 +14,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.photos.hooks import PhotoIn
+
 BankDepositStatusLiteral = Literal["live", "reversed"]
 SettlementStatusLiteral = Literal["recorded", "matched", "reversed"]
 
@@ -48,7 +50,7 @@ class DepositIn(BaseModel):
     deposited_at: datetime | None = None
     bank_name: str | None = Field(default=None, max_length=120)
     bank_reference: str | None = Field(default=None, max_length=120)
-    receipt_photo: str = Field(min_length=1, max_length=500, description="Comprobante: obligatorio")
+    receipt_photo: PhotoIn = Field(min_length=1, description="Comprobante: obligatorio (foto o su dirección)")
     note: str | None = Field(default=None, max_length=500)
     allocations: list[DepositAllocationIn] = Field(default_factory=list)
 
