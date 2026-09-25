@@ -47,6 +47,10 @@ def test_the_breakdown_publishes_the_pending_delivery_cash_as_its_own_row(
         "incomes",
         "expenses",
         "pickups",
+        # 2026-09-24: lo consignado desde el cajón (resta del esperado) y,
+        # informativo, cuánto de la base es plata de días anteriores.
+        "deposits",
+        "carried_in",
         "expected",
         "delivery_cash_pending",
     }

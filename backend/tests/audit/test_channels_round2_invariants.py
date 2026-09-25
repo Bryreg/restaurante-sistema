@@ -54,9 +54,19 @@ PHOTO = "data:image/png;base64,AAAA"
 #: paráfrasis: es el texto exacto que tiene que seguir teniendo
 #: `app/shifts/service.py`. El pedido 2c existe para agregar plata por caminos
 #: nuevos SIN tocarla.
-EXPECTED_FORMULA = "expected = base + sales.cash + incomes - expenses - pickups"
+#:
+#: **Movida a propósito el 2026-09-24, por decisión del dueño**: la venta sin
+#: consignar se queda en el cajón (`docs/SPEC-NEGOCIO.md` §3.2, `docs/ESTADO.md`
+#: §39). Dos términos nuevos, y ninguno es de domicilios ni de propinas (eso
+#: lo sigue cobrando el test de abajo): `deposits` —lo consignado desde el
+#: cajón en el POS, que ya no está en el cajón— resta del esperado, y
+#: `carried_still_in_drawer` —la plata de días anteriores que sigue en el
+#: cajón, que es saldo de su turno de origen— resta de lo que este turno
+#: debe consignar. Sin el segundo, la venta de ayer se contaría dos veces.
+EXPECTED_FORMULA = "expected = base + sales.cash + incomes - expenses - pickups - deposits"
 TO_DEPOSIT_FORMULA = (
     "to_deposit = count.counted_cash_total - settings.opening_cash_fixed - (count.tips_cash_out or 0)"
+    " - carried_still_in_drawer(db, shift)"
 )
 
 
