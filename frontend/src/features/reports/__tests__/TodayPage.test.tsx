@@ -691,3 +691,54 @@ describe("TodayPage", () => {
     expect(motivo.closest(".sin-dato")).not.toBeNull()
   })
 })
+
+describe("TodayPage — consignar desde el POS (2026-09-24)", () => {
+  function noticeItem(title: RegExp | string): HTMLElement {
+    const item = screen.getByText(title).closest("li")
+    expect(item).not.toBeNull()
+    return item as HTMLElement
+  }
+
+  it("avisa de las consignaciones por confirmar (aviso) y lleva a Banco › Consignaciones", async () => {
+    getTodayMock.mockResolvedValue(baseToday({ deposits_to_confirm_count: 2 }))
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("2 consignaciones por confirmar")
+    expect(noticeLink("2 consignaciones por confirmar")).toHaveAttribute("href", "/admin/banco?tab=consignaciones")
+    expect(noticeItem("2 consignaciones por confirmar").className).toContain("border-l-warning")
+  })
+
+  it("avisa de la plata sin consignar con el total del SERVIDOR y la fecha más vieja; aviso si tiene ≤ 3 días", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({ business_date: "2026-09-15", undeposited_total: 350_000, undeposited_oldest_date: "2026-09-13" }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const title = /\$ 350\.000 sin consignar desde el dom 13 sep/
+    await screen.findByText(title)
+    expect(noticeLink(title)).toHaveAttribute("href", "/admin/banco?tab=por-consignar")
+    expect(noticeItem(title).className).toContain("border-l-warning")
+  })
+
+  it("con más de 3 días sin consignar, el aviso pasa a crítico", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({ business_date: "2026-09-15", undeposited_total: 350_000, undeposited_oldest_date: "2026-09-11" }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const title = /\$ 350\.000 sin consignar desde el/
+    await screen.findByText(title)
+    expect(noticeItem(title).className).toContain("border-l-destructive")
+  })
+
+  it("con Consignaciones apagada (0 y null) no hay ninguno de los dos avisos, ni un «$ 0»", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({ deposits_to_confirm_count: 0, undeposited_total: null, undeposited_oldest_date: null }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await waitFor(() => expect(screen.getByText("Todo al día")).toBeInTheDocument())
+    expect(screen.queryByText(/por confirmar/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/sin consignar/i)).not.toBeInTheDocument()
+  })
+})

@@ -36,6 +36,12 @@ export interface DepositAllocationOut {
   amount: number
 }
 
+/** Espejo de `app/banking/schemas.py::DepositSourceLiteral`: de dónde salió
+ * la consignación. `"pos"` = la registró quien tenía la caja, con plata de
+ * un día anterior que estaba en el cajón (2026-09-24); queda por confirmar
+ * hasta que el administrador la confirma o la rechaza (reversa con motivo). */
+export type DepositSource = "admin" | "pos"
+
 export interface DepositOut {
   id: number
   store_id?: number
@@ -54,6 +60,15 @@ export interface DepositOut {
   allocations?: DepositAllocationOut[]
   reversed_at?: string | null
   reversed_reason?: string | null
+  reversed_by_employee_name?: string | null
+  /** Ausente en un backend anterior al 2026-09-24: se lee como `"admin"`. */
+  source?: DepositSource
+  /** El turno abierto desde cuyo cajón se consignó (sólo `source === "pos"`). */
+  from_shift_id?: number | null
+  confirmed_at?: string | null
+  confirmed_by_employee_name?: string | null
+  /** Viva y sin confirmar: lo calcula el servidor, la pantalla no lo deduce. */
+  needs_confirmation?: boolean
 }
 
 export interface DepositIn {
@@ -89,6 +104,76 @@ export function createDeposit(storeId: number, data: DepositIn, idempotencyKey: 
     body: data,
     idempotencyKey,
   })
+}
+
+/** `POST /admin/deposits/{id}/confirm` — el administrador confirma una
+ * consignación hecha desde el POS. Errores: `DEPOSIT_ALREADY_CONFIRMED`,
+ * `DEPOSIT_ALREADY_REVERSED`. */
+export function confirmDeposit(depositId: number): Promise<DepositOut> {
+  return api<DepositOut>(`/admin/deposits/${depositId}/confirm`, { method: "POST" })
+}
+
+export interface DepositReverseIn {
+  /** Obligatorio (`min_length=1`): una reversa sin motivo no se acepta. */
+  reason: string
+}
+
+/** `POST /admin/deposits/{id}/reverse` — rechazar una consignación del POS es
+ * esto mismo: la reversa con su motivo. No se borra: queda apagada. */
+export function reverseDeposit(depositId: number, data: DepositReverseIn, idempotencyKey: string): Promise<DepositOut> {
+  return api<DepositOut>(`/admin/deposits/${depositId}/reverse`, {
+    method: "POST",
+    body: data,
+    idempotencyKey,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Consignar desde el POS (2026-09-24). La venta de días anteriores que
+// todavía no se consignó se queda en el cajón; quien abre marca qué días
+// están ahí (`OpenShiftIn.carried_shift_ids`) y quien tiene la caja puede
+// llevarla al banco durante el turno. `remaining` lo calcula el servidor:
+// esta pantalla nunca resta lo consignado de lo que se trajo.
+// ---------------------------------------------------------------------------
+
+export interface DrawerDayOut {
+  source_shift_id: number
+  business_date: string
+  /** El saldo que tenía el día cuando se marcó al abrir. */
+  carried: number
+  /** Lo que ya se consignó de ese día desde este cajón (vivo). */
+  deposited_from_drawer: number
+  /** Lo que queda de ese día en el cajón y todavía se puede consignar. */
+  remaining: number
+}
+
+export interface DrawerOut {
+  /** `null` si la sede no tiene turno abierto. */
+  shift_id: number | null
+  days: DrawerDayOut[]
+  deposits: DepositOut[]
+}
+
+/** `GET /deposits/drawer` (tablet, `money.deposits`). */
+export function getDepositDrawer(): Promise<DrawerOut> {
+  return api<DrawerOut>("/deposits/drawer")
+}
+
+export interface PosDepositIn {
+  source_shift_id: number
+  amount: number
+  bank_name?: string | null
+  bank_reference?: string | null
+  /** Comprobante, *data URL* de `PhotoCaptureField`: obligatorio. */
+  receipt_photo: string
+  note?: string | null
+}
+
+/** `POST /deposits` (tablet con persona identificada) — exige `Idempotency-Key`.
+ * Errores: `NO_OPEN_SHIFT`, `DEPOSIT_NOT_IN_DRAWER`, `DEPOSIT_EXCEEDS_DRAWER`,
+ * `DEPOSIT_EXCEEDS_PENDING`, `VALIDATION_ERROR` (foto vacía o ilegible). */
+export function createPosDeposit(data: PosDepositIn, idempotencyKey: string): Promise<DepositOut> {
+  return api<DepositOut>("/deposits", { method: "POST", body: data, idempotencyKey })
 }
 
 // ---------------------------------------------------------------------------

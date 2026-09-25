@@ -31,6 +31,10 @@ const BREAKDOWN_LABEL: Record<string, string> = {
   incomes: "Ingresos",
   expenses: "Egresos",
   pickups: "Retiros",
+  // 2026-09-24: lo consignado desde el cajón sale del esperado; lo traído de
+  // días anteriores es informativo (ya está dentro de la base).
+  deposits: "Consignado desde el cajón",
+  carried_in: "De días anteriores (en la base)",
   expected: "Esperado",
   counted: "Contado",
   difference: "Diferencia",

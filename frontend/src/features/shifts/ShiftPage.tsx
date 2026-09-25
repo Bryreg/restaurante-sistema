@@ -8,6 +8,7 @@ import { errorMessage } from "@/lib/errors";
 import { CashSwapPanel } from "./CashSwapPanel";
 import { CloseWizard } from "./CloseWizard";
 import { DeliverySettlementPanel } from "./DeliverySettlementPanel";
+import { DepositDrawerPanel } from "./DepositDrawerPanel";
 import { HandoverPanel } from "./HandoverPanel";
 import { MovementsPanel } from "./MovementsPanel";
 import { OpenShiftForm } from "./OpenShiftForm";
@@ -20,7 +21,7 @@ import { useCurrentShift } from "./hooks";
 /**
  * `/pos/turno` (spec § 9.1 "Turno"): sin turno abierto muestra `OpenShiftForm`;
  * con turno abierto, un tabbed panel con lo que la spec agrupa bajo "Turno" —
- * Resumen (con roster), Movimientos, Cambio, Retiros, Relevo y Cierre. Cada
+ * Resumen (con roster), Movimientos, Cambio, Retiros, Consignar, Relevo y Cierre. Cada
  * pestaña opcional se muestra sólo con su flag (AGENTS.md § funciones
  * opcionales): con `cash.handovers` apagado no existe "Relevo" (checklist del
  * pedido 1a).
@@ -89,6 +90,9 @@ export default function ShiftPage(): React.JSX.Element {
   const showPickups = hasFeature("cash.pickups");
   const showHandovers = hasFeature("cash.handovers");
   const showDelivery = hasFeature("pos.delivery");
+  // Consignar desde el POS (2026-09-24): la plata de días anteriores que
+  // está en el cajón. El turno está abierto si se llegó hasta acá.
+  const showDeposits = hasFeature("money.deposits");
 
   return (
     <div className="space-y-4">
@@ -105,6 +109,7 @@ export default function ShiftPage(): React.JSX.Element {
           {showSwaps ? <TabsTrigger value="cambio">Cambio</TabsTrigger> : null}
           {showPickups ? <TabsTrigger value="retiros">Retiros</TabsTrigger> : null}
           {showDelivery ? <TabsTrigger value="domicilios">Domicilios</TabsTrigger> : null}
+          {showDeposits ? <TabsTrigger value="consignar">Consignar</TabsTrigger> : null}
           {showHandovers ? <TabsTrigger value="relevo">Relevo</TabsTrigger> : null}
           <TabsTrigger value="cierre">Cierre</TabsTrigger>
         </TabsList>
@@ -128,6 +133,11 @@ export default function ShiftPage(): React.JSX.Element {
         {showPickups ? (
           <TabsContent value="retiros">
             <PickupsPanel shiftId={shift.id} />
+          </TabsContent>
+        ) : null}
+        {showDeposits ? (
+          <TabsContent value="consignar">
+            <DepositDrawerPanel shiftId={shift.id} />
           </TabsContent>
         ) : null}
         {showHandovers ? (

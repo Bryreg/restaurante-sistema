@@ -66,3 +66,9 @@ export function useShiftTips(shiftId: number | null | undefined) {
     enabled: shiftId !== null && shiftId !== undefined,
   });
 }
+
+/** `GET /shifts/carry-candidates` (2026-09-24): los días con plata por consignar que quien abre puede marcar. */
+export const CARRY_CANDIDATES_QUERY_KEY = ["shifts", "carry-candidates"] as const;
+
+/** `GET /deposits/drawer` (2026-09-24): los días anteriores que están en el cajón del turno abierto. */
+export const DEPOSIT_DRAWER_QUERY_KEY = ["deposits", "drawer"] as const;

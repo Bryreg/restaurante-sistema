@@ -179,6 +179,36 @@ def test_a_pos_deposit_leaves_the_drawer_discounts_the_day_and_waits_for_confirm
     assert closed["to_deposit"] == 0
 
 
+def test_the_blind_close_review_shows_the_deposit_as_a_line_of_the_equation(
+    device_client: TestClient,
+    open_shift: Any,
+    close_shift: Any,
+    identify: Any,
+    employees: dict,
+    set_feature: Any,
+    store: Any,
+) -> None:
+    """El paso 2 del cierre a ciegas muestra la ecuación del esperado: si hubo
+    una consignación desde el cajón, es un renglón de ella; si no, los
+    renglones que se ven no llegan al total."""
+    ayer = _yesterday_with_50k(open_shift, close_shift)
+    hoy = _open_with_carry(device_client, identify, employees["cashier"], counted=250_000, carried=[ayer]).json()
+    assert _pos_deposit(device_client, ayer, 50_000).status_code == 201
+
+    set_feature("cash.blind_close", True, store_id=store.id)
+    count = device_client.post(
+        f"{API}/shifts/{hoy['id']}/close/count",
+        json={"counted_cash": denoms(200_000), "tips_cash_out": 0, "photo": "c.jpg"},
+        headers=idem(),
+    )
+    assert count.status_code in (200, 201), count.text
+    review = device_client.get(f"{API}/shifts/{hoy['id']}/close/{count.json()['count_id']}/review")
+    assert review.status_code == 200, review.text
+    eq = review.json()["equation"]
+    assert eq["deposits"] == 50_000
+    assert eq["base"] + eq["cash_sales"] + eq["incomes"] - eq["expenses"] - eq["pickups"] - eq["deposits"] == eq["expected"]
+
+
 def test_rejecting_a_pos_deposit_puts_the_money_back_in_the_day_and_the_drawer(
     device_client: TestClient,
     admin_client: TestClient,

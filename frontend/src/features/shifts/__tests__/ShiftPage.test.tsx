@@ -64,6 +64,17 @@ describe("ShiftPage — pestañas opcionales por flag", () => {
     expect(screen.queryByText("Relevo")).not.toBeInTheDocument();
   });
 
+  it('muestra "Consignar" sólo con money.deposits encendida (2026-09-24)', async () => {
+    renderWithProviders(<ShiftPage />, { me: deviceMe({ "money.deposits": true }) });
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Consignar" })).toBeInTheDocument());
+  });
+
+  it('no muestra "Consignar" con money.deposits apagada', async () => {
+    renderWithProviders(<ShiftPage />, { me: deviceMe({ "money.deposits": false }) });
+    await waitFor(() => expect(screen.getByText("Resumen")).toBeInTheDocument());
+    expect(screen.queryByRole("tab", { name: "Consignar" })).not.toBeInTheDocument();
+  });
+
   it('muestra "Relevo" con cash.handovers encendido', async () => {
     renderWithProviders(<ShiftPage />, { me: deviceMe({ "cash.handovers": true }) });
 

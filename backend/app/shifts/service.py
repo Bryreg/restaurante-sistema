@@ -1133,6 +1133,9 @@ def review_close(db: Session, *, shift: Shift, store: Store, count: ShiftCloseCo
         "incomes": ev.breakdown["incomes"],
         "expenses": ev.breakdown["expenses"],
         "pickups": ev.breakdown["pickups"],
+        # Lo consignado desde el cajón (2026-09-24) sí es un sumando del
+        # esperado: sin este renglón, los que se ven no llegaban al total.
+        "deposits": ev.breakdown["deposits"],
         "expected": ev.expected,
         # Pedido 2c: el paso 2 del cierre a ciegas es EL momento en que hay
         # que ver que el efectivo de domicilios no está en el cajón —

@@ -184,6 +184,8 @@ class BreakdownOut(BaseModel):
     incomes: int
     expenses: int
     pickups: int
+    # Consignado desde el cajón en el POS (2026-09-24): resta del esperado.
+    deposits: int = 0
     expected: int
     # Pedido 2c (SPEC-NEGOCIO §3.3): el efectivo de domicilios que el
     # domiciliario todavía no entregó. Renglón PROPIO y separado: **no está
