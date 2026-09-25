@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -124,6 +124,16 @@ function deviceMe(features: Record<string, boolean>): Me {
   };
 }
 
+/**
+ * Abre el cierre desde el botón «Cerrar turno» del pie del panel (antes era
+ * la pestaña «Cierre»). Espera a que la hoja esté abierta —su título— antes
+ * de seguir, para que el próximo «cerrar turno» sea el del formulario.
+ */
+async function abrirCierre(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(await screen.findByRole("button", { name: "Cerrar turno" }));
+  await screen.findByRole("dialog", { name: "Cierre" });
+}
+
 /** El renglón entero de «A consignar», para leer rótulo y cifra juntos. */
 function renglonAConsignar(): HTMLElement {
   return screen.getByText("A consignar").closest("div") as HTMLElement;
@@ -150,11 +160,14 @@ describe("ShiftPage — la pantalla de «Turno cerrado» sobrevive a que el turn
     const user = userEvent.setup();
     renderWithProviders(<ShiftPage />, { me: deviceMe({ "cash.blind_close": true }) });
 
-    await user.click(await screen.findByRole("tab", { name: "Cierre" }));
+    await abrirCierre(user);
 
     // Paso 1 → 2 → 3 → confirmar.
     await user.click(await screen.findByRole("button", { name: /continuar/i }));
-    await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
+    // Dentro de la hoja del cierre: el «Esperado» del estado del turno queda
+    // detrás (y en «—», porque el servidor no lo manda a este operador).
+    const hoja = screen.getByRole("dialog", { name: "Cierre" });
+    await waitFor(() => expect(within(hoja).getByText(/^esperado$/i)).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: /continuar/i }));
     await user.click(await screen.findByRole("button", { name: /confirmar cierre/i }));
 
@@ -191,7 +204,7 @@ describe("ShiftPage — la pantalla de «Turno cerrado» sobrevive a que el turn
     const user = userEvent.setup();
     renderWithProviders(<ShiftPage />, { me: deviceMe({ "cash.blind_close": false }) });
 
-    await user.click(await screen.findByRole("tab", { name: "Cierre" }));
+    await abrirCierre(user);
     await user.click(await screen.findByRole("button", { name: /cerrar turno/i }));
 
     await waitFor(() => expect(closeSingleStepMock).toHaveBeenCalledTimes(1));
@@ -211,7 +224,7 @@ describe("ShiftPage — la pantalla de «Turno cerrado» sobrevive a que el turn
     const user = userEvent.setup();
     renderWithProviders(<ShiftPage />, { me: deviceMe({ "cash.blind_close": false }) });
 
-    await user.click(await screen.findByRole("tab", { name: "Cierre" }));
+    await abrirCierre(user);
     await user.click(await screen.findByRole("button", { name: /cerrar turno/i }));
 
     const continuar = await screen.findByRole("button", { name: "Abrir turno" });

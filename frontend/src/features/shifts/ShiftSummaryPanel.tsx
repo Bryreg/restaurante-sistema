@@ -3,14 +3,17 @@ import type { ShiftCurrent } from "@/api/shifts";
 import { formatBusinessDate, formatInstant } from "@/lib/businessDate";
 import { formatCOP } from "@/lib/money";
 
-import { RosterPanel } from "./RosterPanel";
 import { useShiftSummary } from "./hooks";
 
 /**
- * "Resumen" del turno abierto: día operativo, responsable, base fija y
- * reserva **mostradas aparte** (la reserva nunca se suma a la base — spec §
- * 3.2), esperado sólo si el servidor lo manda (`expected_cash` ausente ≠ 0),
- * y el roster completo con la mini-consola para entrar/salir/pausar.
+ * Estado del turno abierto, arriba del panel de `ShiftPage`: día operativo,
+ * responsable, base fija y reserva **mostradas aparte** (la reserva nunca se
+ * suma a la base — spec § 3.2), esperado sólo si el servidor lo manda
+ * (`expected_cash` ausente ≠ 0: se muestra «—», cierre a ciegas).
+ *
+ * Antes también dibujaba el roster con su consola de entrar/salir/pausar;
+ * desde el panel único (2026-09-25) el equipo va en `ShiftTeamCard` y la
+ * consola (`RosterPanel`) se abre desde el botón «Entrada / Salida».
  *
  * **Pedido 2c**: el efectivo de domicilios sin liquidar es un renglón
  * PROPIO, no una resta ni una suma sobre "Esperado" — nunca se combinan
@@ -31,23 +34,23 @@ export function ShiftSummaryPanel({ shift }: { shift: ShiftCurrent }): React.JSX
   const deliveryCashPending = summary.data?.delivery_cash_pending ?? shift.delivery_cash_pending;
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-3 rounded-md border p-4 sm:grid-cols-2 lg:grid-cols-4">
+    <section aria-labelledby="estado-turno" className="space-y-4 rounded-xl border bg-card p-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h2 id="estado-turno" className="text-lg font-semibold">
+          Turno abierto
+        </h2>
+        {/* El día operativo va en el título: no se repite abajo. */}
+        <span className="text-muted-foreground">{formatBusinessDate(shift.business_date)}</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
         <div>
-          <p className="text-sm text-muted-foreground">Día operativo</p>
-          <p className="font-medium">{formatBusinessDate(shift.business_date)}</p>
+          <p className="text-sm text-muted-foreground">Responsable de caja</p>
+          <p className="font-semibold">{shift.cash_responsible?.name ?? "—"}</p>
         </div>
         <div>
           <p className="text-sm text-muted-foreground">Abierto</p>
           <p className="font-medium">{formatInstant(shift.opened_at)}</p>
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Responsable de caja</p>
-          <p className="font-medium">{shift.cash_responsible?.name ?? "—"}</p>
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Esperado</p>
-          <p className="font-medium tabular-nums">{formatCOP(shift.expected_cash)}</p>
         </div>
         <div>
           <p className="text-sm text-muted-foreground">Base fija</p>
@@ -57,8 +60,12 @@ export function ShiftSummaryPanel({ shift }: { shift: ShiftCurrent }): React.JSX
           <p className="text-sm text-muted-foreground">Reserva (aparte, no entra al cuadre)</p>
           <p className="font-medium tabular-nums">{formatCOP(reserve)}</p>
         </div>
+        <div>
+          <p className="text-sm text-muted-foreground">Esperado</p>
+          <p className="font-medium tabular-nums">{formatCOP(shift.expected_cash)}</p>
+        </div>
         {hasFeature("pos.delivery") ? (
-          <div>
+          <div className="col-span-2 sm:col-span-3">
             <p className="text-sm text-muted-foreground">
               Efectivo de domicilios pendiente de liquidar (aparte del cajón)
             </p>
@@ -66,11 +73,6 @@ export function ShiftSummaryPanel({ shift }: { shift: ShiftCurrent }): React.JSX
           </div>
         ) : null}
       </div>
-
-      <div className="space-y-2">
-        <h2 className="text-sm font-semibold">Personal en turno</h2>
-        <RosterPanel shift={shift} />
-      </div>
-    </div>
+    </section>
   );
 }

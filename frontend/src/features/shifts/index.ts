@@ -17,7 +17,8 @@ import ShiftPage from "./ShiftPage";
 import { ShiftStatusStrip } from "./ShiftStatusStrip";
 
 // "turno" (no "cierre" ni ninguna otra pantalla): la spec agrupa todo el
-// turno de caja bajo una sola vista con pestañas (SPEC-NEGOCIO § 9.1
+// turno de caja bajo una sola vista —un panel con botones grandes desde
+// 2026-09-25, antes pestañas— (SPEC-NEGOCIO § 9.1
 // "Turno"). Ya NO lleva `index: true` (CONTRATO-INTERNO-1b-1.md §6.2): la
 // ruta índice de `/pos` es `PosHome` (frontend-cobro), que decide entre
 // Mesas y Comanda nueva según `pos.tables`.
