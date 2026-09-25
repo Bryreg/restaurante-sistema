@@ -39,6 +39,8 @@ WasteTypeLiteral = Literal[
     "tasting",
     "courtesy_no_dish",
     "unidentified",
+    "internal_use",
+    "transfer_out",
 ]
 
 
@@ -165,6 +167,13 @@ class WasteIn(BaseModel):
     note: str | None = None
     employee_pin: str = Field(min_length=1, max_length=20)
     photo: PhotoIn | None = None
+    # Consumo interno (`internal_use`): quién. Un empleado o un texto
+    # («dueño»); uno de los dos es obligatorio para ese tipo y se ignoran en
+    # los demás.
+    consumer_employee_id: int | None = None
+    consumer_name: str | None = Field(default=None, max_length=200)
+    # Traslado (`transfer_out`): la sede destino, de la misma organización.
+    destination_store_id: int | None = None
 
 
 class WasteOut(BaseModel):
@@ -180,6 +189,9 @@ class WasteOut(BaseModel):
     employee_id: int
     employee_name: str
     at: datetime
+    consumer_employee_id: int | None = None
+    consumer_name: str | None = None
+    destination_store_id: int | None = None
 
 
 class WasteAdminOut(WasteOut):
@@ -187,6 +199,10 @@ class WasteAdminOut(WasteOut):
     cost_source: CostSourceLiteral
     note: str | None
     photo: str | None
+    # Traslado: cuándo y quién lo recibió en la sede destino (`None` =
+    # todavía en camino, o no es un traslado).
+    received_at: datetime | None = None
+    received_by_employee_name: str | None = None
 
 
 class WasteKpiOut(BaseModel):
@@ -205,6 +221,50 @@ class WasteKpiOut(BaseModel):
 class WasteListOut(BaseModel):
     items: list[WasteAdminOut]
     weekly_kpi: WasteKpiOut
+
+
+# ---------------------------------------------------------------------------
+# Traslados entre sedes (merma `transfer_out` y su recepción).
+# ---------------------------------------------------------------------------
+
+
+class TransferStoreOut(BaseModel):
+    """Una sede a la que se puede trasladar (dispositivo): sólo id y nombre."""
+
+    id: int
+    name: str
+
+
+class IncomingTransferOut(BaseModel):
+    """Un traslado que llega a esta sede (admin). `cost` es el costo por
+    unidad base con el que salió de la sede origen — el mismo con el que
+    entra acá (`format_cost_micros`, texto; `None` = sin costo conocido,
+    nunca `0`). `suggested_ingredient_id` es el insumo de esta sede con el
+    mismo nombre y la misma unidad base, si hay uno; quien recibe decide."""
+
+    id: int
+    source_store_id: int
+    source_store_name: str
+    ingredient_id: int
+    ingredient_name: str
+    base_unit: BaseUnitLiteral
+    qty: str
+    cost: str | None
+    cost_source: CostSourceLiteral
+    sent_at: datetime
+    sent_by_employee_name: str
+    note: str | None
+    photo: str | None
+    suggested_ingredient_id: int | None
+    received_at: datetime | None
+    received_ingredient_id: int | None
+    received_by_employee_name: str | None
+
+
+class TransferReceiveIn(BaseModel):
+    """El insumo de ESTA sede donde entra el traslado."""
+
+    ingredient_id: int
 
 
 # ---------------------------------------------------------------------------

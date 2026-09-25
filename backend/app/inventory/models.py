@@ -102,7 +102,21 @@ class WasteType(str, enum.Enum):
     """SPEC-NEGOCIO §5.5. **No existe `staff_meal`** acá: el consumo de
     personal es un canal de comanda (`OrderChannel.STAFF_MEAL` en
     `app.orders.models`, territorio ajeno) y descuenta inventario igual que
-    una venta, nunca como merma."""
+    una venta, nunca como merma — la comida del personal que es un plato de
+    la carta sigue siendo una comanda `staff_meal`.
+
+    Los dos últimos (rutina del turno, 2026-09-25) NO son pérdidas: son
+    salidas explicadas que se registran por la misma pantalla porque es la
+    misma persona, con el mismo PIN, sacando insumo del mismo depósito.
+    `EXPLAINED_WASTE_TYPES` los nombra; todo reporte de pérdida (merma ÷
+    compras, alerta de merma alta, salud del control, varianza) los excluye.
+
+    - `INTERNAL_USE` («Consumo interno»): insumo que se usa sin venderse ni
+      perderse — el dueño se lleva algo, una reunión. Pide QUIÉN
+      (`consumer_employee_id` o `consumer_name`).
+    - `TRANSFER_OUT` («Traslado a otra sede»): pide la sede destino, de la
+      misma organización. Su movimiento es `MovementCause.TRANSFER_OUT`, y la
+      sede destino lo recibe como `TRANSFER_IN` al mismo costo."""
 
     EXPIRED = "expired"
     OVERPRODUCTION = "overproduction"
@@ -112,6 +126,14 @@ class WasteType(str, enum.Enum):
     TASTING = "tasting"
     COURTESY_NO_DISH = "courtesy_no_dish"
     UNIDENTIFIED = "unidentified"
+    INTERNAL_USE = "internal_use"
+    TRANSFER_OUT = "transfer_out"
+
+
+#: Salidas que no son pérdida. Ningún reporte de merma las suma.
+EXPLAINED_WASTE_TYPES: frozenset[WasteType] = frozenset({WasteType.INTERNAL_USE, WasteType.TRANSFER_OUT})
+#: El complemento: lo que sí se perdió.
+LOSS_WASTE_TYPES: frozenset[WasteType] = frozenset(set(WasteType) - EXPLAINED_WASTE_TYPES)
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +327,25 @@ class Waste(Base):
         ForeignKey("stock_movements.id"), nullable=True
     )
 
+    # Consumo interno (`type=internal_use`): QUIÉN se lo llevó. Un empleado
+    # (FK real + nombre congelado en `consumer_name`) o un texto libre
+    # («dueño», «reunión de socios») sólo en `consumer_name`. Obligatorio
+    # para ese tipo; `None` para los demás.
+    consumer_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    consumer_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    # Traslado (`type=transfer_out`): la sede destino, de la MISMA
+    # organización. La salida queda en ESTA sede; la entrada la escribe la
+    # sede destino al recibir (`receive_transfer`), al mismo costo, sobre el
+    # insumo equivalente que elige quien recibe (los insumos son por sede).
+    destination_store_id: Mapped[int | None] = mapped_column(ForeignKey("stores.id"), nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    received_business_date: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
+    received_ingredient_id: Mapped[int | None] = mapped_column(ForeignKey("ingredients.id"), nullable=True)
+    received_movement_id: Mapped[int | None] = mapped_column(ForeignKey("stock_movements.id"), nullable=True)
+    received_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    received_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
     __table_args__ = (
         CheckConstraint(
             "(ingredient_id IS NOT NULL AND preparation_id IS NULL) "
@@ -319,6 +360,7 @@ class Waste(Base):
         ),
         Index("ix_wastes_store_date_type", "store_id", "business_date", "type"),
         Index("ix_wastes_store_ingredient_date", "store_id", "ingredient_id", "business_date"),
+        Index("ix_wastes_destination_received", "destination_store_id", "received_at"),
     )
 
 

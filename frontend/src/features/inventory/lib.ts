@@ -29,12 +29,14 @@ export const CAUSE_LABEL: Record<MovementCause, string> = {
   purchase: "Compra",
   count_adjustment: "Ajuste por conteo",
   reception_reversal: "Reversa de recepción",
-  transfer_in: "Traslado — entrada (fase 3)",
-  transfer_out: "Traslado — salida (fase 3)",
+  transfer_in: "Traslado — entrada",
+  transfer_out: "Traslado — salida",
 }
 
 /** `app.inventory.models.WasteType`. No incluye "consumo de personal": eso
- * es un canal de comanda (`staff_meal`), nunca un tipo de merma. */
+ * es un canal de comanda (`staff_meal`), nunca un tipo de merma. «Consumo
+ * interno» es otra cosa: insumo que se lleva el dueño o se usa en una
+ * reunión, sin plato de la carta. */
 export const WASTE_TYPE_LABEL: Record<WasteType, string> = {
   expired: "Vencido",
   overproduction: "Sobreproducción",
@@ -44,7 +46,14 @@ export const WASTE_TYPE_LABEL: Record<WasteType, string> = {
   tasting: "Degustación",
   courtesy_no_dish: "Cortesía sin plato",
   unidentified: "Sin identificar",
+  internal_use: "Consumo interno",
+  transfer_out: "Traslado a otra sede",
 }
+
+/** Las salidas explicadas: se registran por la pantalla de merma pero NO son
+ * pérdida (el backend no las suma en «mermas ÷ compras» ni en la varianza).
+ * Es una lista de tipos, no una cuenta. */
+export const EXPLAINED_WASTE_TYPES: readonly WasteType[] = ["internal_use", "transfer_out"]
 
 /** `LotOut.status` (SPEC-NEGOCIO §5.7). Lista cerrada, los cuatro estados
  * que declara el backend — nunca se deriva `"expiring"`/`"expired"` a mano

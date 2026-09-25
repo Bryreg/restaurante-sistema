@@ -47,6 +47,8 @@ from app.inventory.schemas import (
     LotStatusLiteral,
     MovementCauseLiteral,
     StockRowOut,
+    TransferReceiveIn,
+    TransferStoreOut,
     WasteIn,
     WasteKpiOut,
     WasteListOut,
@@ -317,6 +319,77 @@ def get_waste_list(
     business_date = tz.today_business_date(store.cutoff_hour)
     kpi: WasteKpiOut = service.weekly_waste_kpi(db, store=store, business_date=business_date)
     return WasteListOut(items=out, weekly_kpi=kpi)
+
+
+@router.get("/device/waste/transfer-stores")
+def list_transfer_stores(
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_device),
+    _feature: None = Depends(features.require_feature("inventory.waste")),
+) -> list[TransferStoreOut]:
+    """Las otras sedes de la organización, para «Traslado a otra sede» en el
+    formulario de merma. Vacía = una sola sede: la pantalla no ofrece la
+    opción. Sólo id y nombre."""
+    store = _store_for_device(db, actor)
+    return [service.transfer_store_out(s) for s in service.transfer_destinations(db, store=store)]
+
+
+@router.get("/admin/transfers/incoming")
+def get_incoming_transfers(
+    request: Request,
+    store_id: int = Query(...),
+    status: str = Query("pending", pattern="^(pending|all)$"),
+    format: str | None = Query(None),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.waste")),
+) -> Any:
+    """Traslados que llegan a esta sede desde otra de la organización:
+    `pending` = por recibir; `all` = también los ya recibidos."""
+    store = admin_store(db, actor, store_id)
+    rows = service.list_incoming_transfers(db, store=store, pending_only=status == "pending")
+    out = [service.incoming_transfer_out(db, store=store, waste=w) for w in rows]
+    if wants_csv(request):
+        return csv_response([o.model_dump(mode="json") for o in out], "transfers.csv")
+    return out
+
+
+@router.post("/admin/transfers/{waste_id}/receive")
+def post_receive_transfer(
+    waste_id: int,
+    body: TransferReceiveIn,
+    request: Request,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.waste")),
+) -> JSONResponse:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        waste = service.receive_transfer(db, store=store, actor=actor, waste_id=waste_id, data=body)
+        out = service.incoming_transfer_out(db, store=store, waste=waste)
+        record_audit(
+            db,
+            actor=actor,
+            organization_id=store.organization_id,
+            store_id=store.id,
+            entity="waste_transfer",
+            entity_id=waste.id,
+            action="receive",
+            before=None,
+            after=out.model_dump(mode="json"),
+        )
+        return 200, out.model_dump(mode="json")
+
+    return _idempotent(
+        db,
+        organization_id=store.organization_id,
+        scope="inventory.transfer_receive",
+        request=request,
+        payload=body,
+        fn=_do,
+    )
 
 
 # ---------------------------------------------------------------------------

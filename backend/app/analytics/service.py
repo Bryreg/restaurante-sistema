@@ -702,7 +702,12 @@ def _ingredient_variance_rows(db: Session, *, store: Store, opening: StockCount,
             db, store_id=store.id, ingredient_id=ing_id, window_from=opening.opened_at, window_to=closing.opened_at,
             positive=True, exclude_causes=(MovementCause.COUNT_ADJUSTMENT,),
         )
-        real_usage = opening_qty + inflow - closing_qty
+        # Consumo interno y traslados son salidas explicadas, no pérdida: el
+        # mismo descuento que `app.inventory.service.variance_report`.
+        explained_out = inventory_hooks.explained_outflow_qty(
+            db, store_id=store.id, ingredient_id=ing_id, window_from=opening.opened_at, window_to=closing.opened_at
+        )
+        real_usage = opening_qty + inflow - closing_qty - explained_out
         theoretical = -_movement_sum(
             db, store_id=store.id, ingredient_id=ing_id, window_from=opening.opened_at, window_to=closing.opened_at,
             positive=False, causes=(MovementCause.SALE, MovementCause.PRODUCTION_OUT),

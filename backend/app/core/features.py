@@ -156,6 +156,28 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "1a",
     ),
     FeatureDef(
+        # La rutina del turno (2026-09-25): encendida en los tres perfiles
+        # porque no depende de la complejidad del restaurante — hasta el más
+        # chico tiene una nevera que se daña o un turno que avisa al siguiente.
+        "pos.novelties",
+        "Novedades del turno: lo que pasó, con seguimiento al turno siguiente hasta que alguien la resuelve",
+        [],
+        {"basic": True, "standard": True, "full": True},
+        "3",
+    ),
+    FeatureDef(
+        # La rutina del turno (2026-09-25): el salón le pide al administrador
+        # insumos y sencilla desde el POS. Sin `requires` a propósito: la
+        # sencilla no necesita inventario. El pedido de insumos exige además
+        # «Inventario perpetuo» y la sencilla «Cambio de denominaciones», y lo
+        # hace cumplir el servicio (`app/requests/service.py`) antes de escribir.
+        "pos.requests",
+        "Solicitudes del salón al administrador: pedido de insumos y de sencilla, con aprobación",
+        [],
+        {"basic": False, "standard": True, "full": True},
+        "3",
+    ),
+    FeatureDef(
         "kitchen.view",
         "Vista de cocina mínima por estación",
         [],
