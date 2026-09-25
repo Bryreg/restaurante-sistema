@@ -306,3 +306,140 @@ class PaymentOut(OutModel):
 class PaymentVoidIn(BaseModel):
     reason: str = Field(min_length=1)
     authorizer_pin: str = Field(min_length=1, max_length=20)
+
+
+# ---------------------------------------------------------------------------
+# Recepciones por completar (recibir mercancía desde el POS).
+#
+# Lo que viaja a la tablet NO tiene ningún campo de costo ni de precio
+# (regla dura: el operador no ve costos). `cash_paid_amount` es la plata que
+# el cajero entregó del cajón — plata del turno, no un costo.
+# ---------------------------------------------------------------------------
+
+ReceptionDraftStatusLiteral = Literal["pending", "completed", "rejected"]
+
+
+class DeviceSupplierOut(BaseModel):
+    """Proveedor activo para el selector del POS: sin NIT, sin plazo, sin
+    confiabilidad — sólo lo que hace falta para elegirlo."""
+
+    id: int
+    name: str
+    invoices_required: bool
+
+
+class DeviceReceptionIngredientOut(BaseModel):
+    """Insumo para una línea de recepción en el POS: nombre y unidad de
+    compra, nunca un costo."""
+
+    id: int
+    name: str
+    purchase_unit: str
+    base_unit: str
+
+
+class ReceptionDraftLineIn(BaseModel):
+    # Nada fuera de esto: un precio mandado desde la tablet es un 422, no
+    # algo que se ignora en silencio.
+    model_config = ConfigDict(extra="forbid")
+
+    ingredient_id: int
+    quantity: str = Field(description='Cantidad en la UNIDAD DE COMPRA del insumo, texto decimal ("2", "1.5")')
+    lot_code: str | None = Field(default=None, max_length=80)
+    expires_at: date | None = None
+
+
+class ReceptionDraftIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    supplier_id: int
+    invoice_number: str | None = Field(default=None, max_length=80)
+    no_invoice: bool = False
+    # Obligatoria: si falta, el servicio responde `400 PHOTO_REQUIRED`
+    # nombrando qué hacer (mejor que un 422 genérico en la tablet).
+    photo: PhotoIn | None = None
+    cash_paid_amount: int | None = Field(
+        default=None, gt=0, description="Pesos que se entregaron de contado desde el cajón; null si no se pagó del cajón"
+    )
+    lines: list[ReceptionDraftLineIn] = Field(min_length=1)
+
+
+class ReceptionDraftLineOut(BaseModel):
+    id: int
+    ingredient_id: int
+    ingredient_name: str
+    quantity: str
+    purchase_unit: str
+    lot_code: str | None
+    expires_at: date | None
+
+
+class ReceptionDraftOut(BaseModel):
+    """Lo que ve la tablet («Recibido hoy»)."""
+
+    id: int
+    supplier_id: int
+    supplier_name: str
+    invoice_number: str | None
+    no_invoice: bool
+    photo: str
+    status: ReceptionDraftStatusLiteral
+    cash_paid_amount: int | None
+    created_by_employee_name: str
+    created_at: datetime
+    business_date: date
+    rejected_reason: str | None
+    lines: list[ReceptionDraftLineOut]
+
+
+class ReceptionDraftAdminLineOut(ReceptionDraftLineOut):
+    # La misma cantidad convertida a la unidad base (texto decimal), que es
+    # como la pide `ReceptionLineIn`: el formulario la precarga tal cual.
+    qty_base: str
+    base_unit: str
+
+
+class ReceptionDraftAdminOut(BaseModel):
+    id: int
+    store_id: int
+    supplier_id: int
+    supplier_name: str
+    invoice_number: str | None
+    no_invoice: bool
+    photo: str
+    status: ReceptionDraftStatusLiteral
+    cash_paid_amount: int | None
+    cash_movement_id: int | None
+    created_by_employee_id: int
+    created_by_employee_name: str
+    created_at: datetime
+    business_date: date
+    # Minutos enteros desde que se registró, sólo mientras está `pending`
+    # (`None` una vez resuelta): cuánto hace que espera al administrador.
+    waiting_minutes: int | None
+    reception_id: int | None
+    completed_at: datetime | None
+    completed_by_employee_name: str | None
+    rejected_at: datetime | None
+    rejected_reason: str | None
+    rejected_by_employee_name: str | None
+    lines: list[ReceptionDraftAdminLineOut]
+
+
+class ReceptionDraftCompleteIn(BaseModel):
+    """Lo que el administrador confirma al completar: lo mismo que
+    `ReceptionIn` menos la foto (ya la tomó el POS) y el PIN de quien recibe
+    (quien recibió es quien registró el borrador, identificado con su PIN en
+    la tablet)."""
+
+    supplier_id: int
+    invoice_number: str | None = Field(default=None, max_length=80)
+    invoice_date: date
+    no_invoice: bool = False
+    invoice_total: int | None = Field(default=None, ge=0)
+    confirm_price: bool = False
+    lines: list[ReceptionLineIn] = Field(min_length=1)
+
+
+class ReceptionDraftRejectIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)

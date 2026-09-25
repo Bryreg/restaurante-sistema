@@ -16,7 +16,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from app.auth.deps import Actor, admin_store, current_admin
+from app.stores.models import Store
+
+from app.auth.deps import Actor, admin_store, current_admin, current_device, current_operator
 from app.core import clock
 from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
@@ -24,9 +26,19 @@ from app.core.errors import AppError
 from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.core.quantity import format_cost_micros, format_qty_base
+from app.inventory import hooks as inventory_hooks
 from app.purchases import service
-from app.purchases.models import Payable, Reception
+from app.purchases.models import Payable, Reception, ReceptionDraft, Supplier
 from app.purchases.schemas import (
+    DeviceReceptionIngredientOut,
+    DeviceSupplierOut,
+    ReceptionDraftAdminLineOut,
+    ReceptionDraftAdminOut,
+    ReceptionDraftCompleteIn,
+    ReceptionDraftIn,
+    ReceptionDraftLineOut,
+    ReceptionDraftOut,
+    ReceptionDraftRejectIn,
     PayableApproveIn,
     PayableOut,
     PaymentIn,
@@ -451,3 +463,229 @@ def void_payment(
     admin_store(db, actor, payment.store_id)
     row = service.void_payment(db, actor=actor, payment=payment, reason=payload.reason, authorizer_pin=payload.authorizer_pin)
     return PaymentOut.model_validate(row)
+
+
+# ---------------------------------------------------------------------------
+# Recepciones por completar (recibir mercancía desde el POS).
+#
+# Las rutas de dispositivo (`/device/...` y `/reception-drafts`) NUNCA
+# devuelven un costo ni un precio: proveedor, insumo, cantidad en unidad de
+# compra, foto, estado, y la plata que el cajero entregó del cajón (que es
+# plata del turno, no un costo). Todo detrás del mismo flag `purchases`.
+# ---------------------------------------------------------------------------
+
+
+def _device_store(db: Session, actor: Actor) -> Store:
+    store = db.get(Store, actor.store_id)
+    if store is None or store.organization_id != actor.organization_id:
+        raise AppError(code="DEVICE_NOT_ACTIVATED", message="Activá el dispositivo con el PIN de sede", status=401)
+    return store
+
+
+def _supplier_name(db: Session, supplier_id: int) -> str:
+    supplier = db.get(Supplier, supplier_id)
+    return supplier.name if supplier is not None else f"Proveedor #{supplier_id}"
+
+
+def _draft_line_outs(db: Session, draft: ReceptionDraft) -> list[ReceptionDraftAdminLineOut]:
+    outs: list[ReceptionDraftAdminLineOut] = []
+    for line in service.get_reception_draft_lines(db, draft_id=draft.id):
+        ingredient = inventory_hooks.get_ingredient(db, store_id=draft.store_id, ingredient_id=line.ingredient_id)
+        outs.append(
+            ReceptionDraftAdminLineOut(
+                id=line.id,
+                ingredient_id=line.ingredient_id,
+                ingredient_name=ingredient.name if ingredient is not None else f"Insumo #{line.ingredient_id}",
+                quantity=format_qty_base(line.qty_purchase_milli),
+                purchase_unit=line.purchase_unit,
+                lot_code=line.lot_code,
+                expires_at=line.expires_at,
+                qty_base=format_qty_base(line.qty_base),
+                base_unit=ingredient.base_unit.value if ingredient is not None else "",
+            )
+        )
+    return outs
+
+
+def _draft_device_out(db: Session, draft: ReceptionDraft) -> ReceptionDraftOut:
+    """Lo que ve la tablet: se arma campo por campo (nunca un `model_dump`
+    del modelo), para que un campo nuevo no llegue a la tablet sin querer."""
+    lines = [
+        ReceptionDraftLineOut(
+            id=line.id,
+            ingredient_id=line.ingredient_id,
+            ingredient_name=line.ingredient_name,
+            quantity=line.quantity,
+            purchase_unit=line.purchase_unit,
+            lot_code=line.lot_code,
+            expires_at=line.expires_at,
+        )
+        for line in _draft_line_outs(db, draft)
+    ]
+    return ReceptionDraftOut(
+        id=draft.id,
+        supplier_id=draft.supplier_id,
+        supplier_name=_supplier_name(db, draft.supplier_id),
+        invoice_number=draft.invoice_number,
+        no_invoice=draft.no_invoice,
+        photo=draft.photo,
+        status=draft.status.value,  # type: ignore[arg-type]
+        cash_paid_amount=draft.cash_paid_amount,
+        created_by_employee_name=draft.created_by_employee_name,
+        created_at=draft.created_at,
+        business_date=draft.business_date,
+        rejected_reason=draft.rejected_reason,
+        lines=lines,
+    )
+
+
+def _draft_admin_out(db: Session, draft: ReceptionDraft) -> ReceptionDraftAdminOut:
+    return ReceptionDraftAdminOut(
+        id=draft.id,
+        store_id=draft.store_id,
+        supplier_id=draft.supplier_id,
+        supplier_name=_supplier_name(db, draft.supplier_id),
+        invoice_number=draft.invoice_number,
+        no_invoice=draft.no_invoice,
+        photo=draft.photo,
+        status=draft.status.value,  # type: ignore[arg-type]
+        cash_paid_amount=draft.cash_paid_amount,
+        cash_movement_id=draft.cash_movement_id,
+        created_by_employee_id=draft.created_by_employee_id,
+        created_by_employee_name=draft.created_by_employee_name,
+        created_at=draft.created_at,
+        business_date=draft.business_date,
+        waiting_minutes=service.draft_waiting_minutes(draft),
+        reception_id=draft.reception_id,
+        completed_at=draft.completed_at,
+        completed_by_employee_name=draft.completed_by_employee_name,
+        rejected_at=draft.rejected_at,
+        rejected_reason=draft.rejected_reason,
+        rejected_by_employee_name=draft.rejected_by_employee_name,
+        lines=_draft_line_outs(db, draft),
+    )
+
+
+@router.get("/device/suppliers")
+def list_device_suppliers(
+    actor: Actor = Depends(current_device), db: Session = Depends(get_db)
+) -> list[DeviceSupplierOut]:
+    """Proveedores activos para el selector del POS: `{id, name,
+    invoices_required}` y nada más (ni NIT, ni plazo, ni confiabilidad)."""
+    store = _device_store(db, actor)
+    return [
+        DeviceSupplierOut(id=s.id, name=s.name, invoices_required=s.invoices_required)
+        for s in service.list_device_suppliers(db, store_id=store.id)
+    ]
+
+
+@router.get("/device/reception-ingredients")
+def list_device_reception_ingredients(
+    actor: Actor = Depends(current_device), db: Session = Depends(get_db)
+) -> list[DeviceReceptionIngredientOut]:
+    """Insumos activos para las líneas de una recepción en el POS: nombre y
+    unidad de compra. `GET /device/ingredients` (de `inventory`, para la
+    merma) no trae la unidad de compra, y la recepción se captura en ella."""
+    store = _device_store(db, actor)
+    return [
+        DeviceReceptionIngredientOut(id=i.id, name=i.name, purchase_unit=i.purchase_unit, base_unit=i.base_unit.value)
+        for i in service.list_device_reception_ingredients(db, store_id=store.id)
+    ]
+
+
+@router.post("/reception-drafts", status_code=201)
+def create_reception_draft(
+    payload: ReceptionDraftIn,
+    request: Request,
+    actor: Actor = Depends(current_operator),
+    db: Session = Depends(get_db),
+) -> ReceptionDraftOut:
+    """Quien está en el turno registra lo que llegó (sin precios). Si pagó
+    de contado desde el cajón, sale como egreso del turno abierto, en la
+    misma transacción. Idempotente (`Idempotency-Key`)."""
+    store = _device_store(db, actor)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        draft = service.create_reception_draft(db, actor=actor, store=store, payload=payload)
+        return 201, _draft_device_out(db, draft).model_dump(mode="json")
+
+    status_code, body = _idempotent(
+        db, organization_id=store.organization_id, scope="purchases.reception_drafts", request=request, payload=payload, fn=_do
+    )
+    return ReceptionDraftOut.model_validate(body)
+
+
+@router.get("/reception-drafts")
+def list_my_reception_drafts(
+    actor: Actor = Depends(current_device), db: Session = Depends(get_db)
+) -> list[ReceptionDraftOut]:
+    """«Recibido hoy» del POS: las recepciones registradas en la sede en el
+    día operativo en curso, con su estado. Sin montos de costo."""
+    store = _device_store(db, actor)
+    rows = service.list_reception_drafts(db, store_id=store.id, business_date=service.today_business_date(store))
+    return [_draft_device_out(db, r) for r in rows]
+
+
+@router.get("/admin/reception-drafts")
+def list_reception_drafts(
+    store_id: int,
+    status: str | None = Query(None, description='"pending", "completed" o "rejected"; sin filtro, todas'),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[ReceptionDraftAdminOut]:
+    store = admin_store(db, actor, store_id)
+    if status is not None and status not in ("pending", "completed", "rejected"):
+        raise AppError(code="VALIDATION_ERROR", message='status: usá "pending", "completed" o "rejected"', status=400)
+    rows = service.list_reception_drafts(db, store_id=store.id, status=status)
+    return [_draft_admin_out(db, r) for r in rows]
+
+
+@router.get("/admin/reception-drafts/{draft_id}")
+def get_reception_draft(
+    draft_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> ReceptionDraftAdminOut:
+    draft = service.get_reception_draft_or_404(db, organization_id=actor.organization_id, draft_id=draft_id)
+    admin_store(db, actor, draft.store_id)
+    return _draft_admin_out(db, draft)
+
+
+@router.post("/admin/reception-drafts/{draft_id}/complete", status_code=201)
+def complete_reception_draft(
+    draft_id: int,
+    payload: ReceptionDraftCompleteIn,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> ReceptionOut:
+    """Completa la recepción del POS con precios: crea la recepción por el
+    camino de siempre (lotes, costo, cuenta por pagar) y deja el borrador
+    `completed` con el id de la recepción. Responde la recepción creada."""
+    draft = service.get_reception_draft_or_404(db, organization_id=actor.organization_id, draft_id=draft_id)
+    store = admin_store(db, actor, draft.store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        reception = service.complete_reception_draft(db, actor=actor, store=store, draft=draft, payload=payload)
+        return 201, _reception_out(db, reception).model_dump(mode="json")
+
+    status_code, body = _idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope=f"purchases.reception_drafts.{draft.id}.complete",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+    return ReceptionOut.model_validate(body)
+
+
+@router.post("/admin/reception-drafts/{draft_id}/reject")
+def reject_reception_draft(
+    draft_id: int,
+    payload: ReceptionDraftRejectIn,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> ReceptionDraftAdminOut:
+    draft = service.get_reception_draft_or_404(db, organization_id=actor.organization_id, draft_id=draft_id)
+    admin_store(db, actor, draft.store_id)
+    row = service.reject_reception_draft(db, actor=actor, draft=draft, reason=payload.reason)
+    return _draft_admin_out(db, row)

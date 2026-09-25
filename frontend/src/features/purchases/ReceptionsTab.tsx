@@ -42,6 +42,7 @@ const RECEPTIONS_LEGEND: readonly LegendEntry[] = [
   },
 ]
 import { ReceptionDetailDialog } from "./ReceptionDetailDialog"
+import { ReceptionDraftsSection } from "./ReceptionDraftsSection"
 import { ReceptionForm } from "./ReceptionForm"
 import { defaultDateRange, RECEPTION_STATUS_LABEL, supplierName } from "./lib"
 
@@ -153,6 +154,15 @@ export function ReceptionsTab({ storeId, suppliers }: { storeId: number; supplie
           create={{ label: "Ir a Proveedores", to: "/admin/compras?tab=proveedores" }}
         />
       ) : null}
+
+      {/* Las que registró el POS sin precios van primero: esperan al
+          administrador, y hasta que se completan el stock no sube. */}
+      <ReceptionDraftsSection
+        storeId={storeId}
+        suppliers={activeSuppliers}
+        ingredients={ingredients}
+        onCompleted={invalidate}
+      />
 
       <DenseTable
         caption="Recepciones de compra"
