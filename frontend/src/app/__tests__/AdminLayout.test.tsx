@@ -211,6 +211,19 @@ describe("AdminLayout: las pestañas de la sección", () => {
     expect(within(tabs).getByRole("link", { name: "Notas" })).toBeInTheDocument();
   });
 
+  it("la entrada Informes del rail abre la pantalla Informes, y Ventas sigue como pestaña", async () => {
+    renderAdmin(buildMe({ features: { customers: true } }), undefined, "/admin/informes");
+
+    const rail = await screen.findByRole("navigation", { name: "Secciones de administración" });
+    expect(within(rail).getByRole("link", { name: "Informes" })).toHaveAttribute("href", "/admin/informes");
+    const tabs = await screen.findByRole("navigation", { name: "Pantallas de Informes" });
+    const nombres = within(tabs)
+      .getAllByRole("link")
+      .map((a) => a.getAttribute("aria-label") ?? a.textContent);
+    expect(nombres.slice(0, 2)).toEqual(["Informes", "Ventas"]);
+    expect(within(tabs).getByRole("link", { name: "Informes" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("los rangos de numeración son configuración: van en Ajustes", async () => {
     renderAdmin(buildMe(), undefined, "/admin/settings");
 

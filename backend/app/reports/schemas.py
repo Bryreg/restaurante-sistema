@@ -433,3 +433,132 @@ class UnavailableLogRowOut(BaseModel):
     by: EmployeeRefOut | None
     estimated_lost_units: int | None
     estimated_lost_sales: int | None
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/reports/overview — «Informes»: todas las secciones de una vez.
+#
+# No hay una matemática nueva acá: toda cifra de plata sale de
+# `service.aggregate_sales` (la misma de «Ventas» y de «Hoy»), llamada una
+# vez por agrupación; con «Todas las sedes» la MISMA función corre sobre los
+# documentos de todas las sedes de la organización. Lo único que este
+# esquema agrega es la forma: qué sección trae qué filas.
+# ---------------------------------------------------------------------------
+
+
+class MissingDataOut(BaseModel):
+    """Un dato que Informes pediría y el servidor no tiene. `null` con
+    motivo, nunca un `0` inventado."""
+
+    key: str
+    label: str
+    reason: str
+
+
+class PeakHourOut(BaseModel):
+    """La hora de más venta neta del período (la marca el servidor). Empate:
+    la primera en el orden del día operativo."""
+
+    hour: int
+    label: str
+    net: int
+    orders: int
+    share_bp: int | None
+
+
+class TopProductOut(BaseModel):
+    """Un plato vendido: la fila de `aggregate_sales(group_by="product")`
+    con la categoría a la que pertenece (la de la carta actual — ver
+    `service._product_categories`), para que la pantalla filtre sin pedir
+    otra vez."""
+
+    key: str
+    label: str
+    net: int
+    units: int | None
+    share_bp: int | None
+    category_key: str
+    category_label: str
+
+
+class CategoryRefOut(BaseModel):
+    key: str
+    label: str
+
+
+class DeliveryCustomersOut(BaseModel):
+    """Domicilios y clientes: sólo lo que el servidor ya sabe.
+
+    `delivery`/`platform` son las filas de esos canales en la agrupación por
+    canal (`None` si no hubo venta por ese canal en el período). Clientes
+    identificados = comprobantes con cliente registrado (quien pidió factura
+    con sus datos); cuenta personas y comandas, no plata. Lo que no existe
+    viaja en `missing` con su motivo."""
+
+    delivery: SalesBucketOut | None
+    platform: SalesBucketOut | None
+    identified_customers: int
+    identified_orders: int
+    missing: list[MissingDataOut]
+
+
+class MenuSummaryOut(BaseModel):
+    """Cuántos platos en cada cuadrante (`app.analytics.hooks.
+    menu_class_counts`). Todos los recuentos son `None` cuando
+    `available=False`, con el motivo en `reason`."""
+
+    available: bool
+    reason: str | None
+    star: int | None
+    plowhorse: int | None
+    puzzle: int | None
+    dog: int | None
+    unclassified: int | None
+    insufficient_sample: int | None
+
+
+class CostSectionOut(BaseModel):
+    """Costo teórico y margen del período (sólo admin): el total y el
+    desglose por categoría de `aggregate_sales`. `None` en cada campo cuando
+    ninguna venta tuvo costo congelado — nunca `0` mudo."""
+
+    theoretical_cost: int | None
+    gross_margin: int | None
+    costed_pct: int | None
+    by_category: list[SalesBucketOut]
+
+
+class StoreRowOut(BaseModel):
+    """Una sede en «Todas las sedes»: el total de `aggregate_sales` de ESA
+    sede sola. La suma de `net`/`orders` de las filas es exactamente el total
+    consolidado (mismos documentos, misma función)."""
+
+    store_id: int
+    store_name: str
+    net: int
+    orders: int
+    avg_ticket: int | None
+    share_bp: int | None
+
+
+class ReportsOverviewOut(BaseModel):
+    scope: Literal["store", "all"]
+    # `store_id` es la sede pedida; `None` con `scope="all"`.
+    store_id: int | None
+    store_ids: list[int]
+    date_from: date
+    date_to: date
+    total: SalesBucketOut
+    by_method: list[SalesBucketOut]
+    by_hour: list[SalesBucketOut]
+    peak_hour: PeakHourOut | None
+    products: list[TopProductOut]
+    categories: list[CategoryRefOut]
+    by_employee: list[SalesBucketOut]
+    by_channel: list[SalesBucketOut]
+    by_zone: list[SalesBucketOut]
+    delivery_customers: DeliveryCustomersOut
+    menu_engineering: MenuSummaryOut
+    cost: CostSectionOut
+    # Sólo con `scope="all"`; `None` por sede.
+    by_store: list[StoreRowOut] | None

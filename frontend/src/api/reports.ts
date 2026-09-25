@@ -524,3 +524,110 @@ export function unavailableLogCsvUrl(params: UnavailableLogQuery): string {
   query.set("to", params.to)
   return `/api/v1/admin/unavailable-log?${query.toString()}`
 }
+
+// ---------------------------------------------------------------------------
+// GET /admin/reports/overview — «Informes»: todas las secciones de una vez.
+// Toda cifra sale de la misma agregación de `GET /admin/sales`
+// (`backend/app/reports/overview.py`); la pantalla sólo la formatea.
+// ---------------------------------------------------------------------------
+
+/** Un dato que Informes pediría y el servidor no tiene: «sin dato» con motivo. */
+export interface MissingDataOut {
+  key: string
+  label: string
+  reason: string
+}
+
+/** La hora de más venta neta del período: la marca el servidor. */
+export interface PeakHourOut {
+  hour: number
+  label: string
+  net: number
+  orders: number
+  share_bp: number | null
+}
+
+export interface TopProductOut {
+  key: string
+  label: string
+  net: number
+  units: number | null
+  share_bp: number | null
+  category_key: string
+  category_label: string
+}
+
+export interface CategoryRefOut {
+  key: string
+  label: string
+}
+
+export interface DeliveryCustomersOut {
+  delivery: SalesBucketOut | null
+  platform: SalesBucketOut | null
+  identified_customers: number
+  identified_orders: number
+  missing: MissingDataOut[]
+}
+
+export interface MenuSummaryOut {
+  available: boolean
+  reason: string | null
+  star: number | null
+  plowhorse: number | null
+  puzzle: number | null
+  dog: number | null
+  unclassified: number | null
+  insufficient_sample: number | null
+}
+
+export interface CostSectionOut {
+  theoretical_cost: number | null
+  gross_margin: number | null
+  costed_pct: number | null
+  by_category: SalesBucketOut[]
+}
+
+export interface StoreRowOut {
+  store_id: number
+  store_name: string
+  net: number
+  orders: number
+  avg_ticket: number | null
+  share_bp: number | null
+}
+
+export interface ReportsOverviewOut {
+  scope: "store" | "all"
+  store_id: number | null
+  store_ids: number[]
+  date_from: string
+  date_to: string
+  total: SalesBucketOut
+  by_method: SalesBucketOut[]
+  by_hour: SalesBucketOut[]
+  peak_hour: PeakHourOut | null
+  products: TopProductOut[]
+  categories: CategoryRefOut[]
+  by_employee: SalesBucketOut[]
+  by_channel: SalesBucketOut[]
+  by_zone: SalesBucketOut[]
+  delivery_customers: DeliveryCustomersOut
+  menu_engineering: MenuSummaryOut
+  cost: CostSectionOut
+  /** Sólo con «Todas las sedes»; `null` por sede. */
+  by_store: StoreRowOut[] | null
+}
+
+export interface ReportsOverviewQuery {
+  /** El id de una sede, o `"all"` para todas las de la organización. */
+  storeId: number | "all"
+  from: string
+  to: string
+}
+
+export function getReportsOverview(params: ReportsOverviewQuery): Promise<ReportsOverviewOut> {
+  return api<ReportsOverviewOut>("/admin/reports/overview", {
+    query: { store_id: params.storeId, from: params.from, to: params.to },
+  })
+}

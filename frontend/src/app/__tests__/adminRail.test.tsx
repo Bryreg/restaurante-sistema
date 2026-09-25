@@ -99,7 +99,9 @@ describe("el rail del admin: la tabla de secciones", () => {
   it("cada sección abre en su pantalla principal", () => {
     const primera = (seccion: string) => Object.entries(RAIL).find(([, fila]) => fila.seccion === seccion)?.[0]
     expect(primera("Caja")).toBe("/admin/dinero")
-    expect(primera("Informes")).toBe("/admin/ventas")
+    // Informes abre en la pantalla Informes (todo el período en un scroll);
+    // Ventas pasó a ser su segunda pestaña.
+    expect(primera("Informes")).toBe("/admin/informes")
     expect(primera("Ajustes")).toBe("/admin/settings")
   })
 })

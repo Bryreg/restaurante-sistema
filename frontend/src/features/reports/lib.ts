@@ -229,3 +229,27 @@ export function formatRangoCorto(from: string, to: string): string {
   if (from === to) return `${d2} ${m2}`
   return m1 === m2 ? `${d1} al ${d2} ${m2}` : `${d1} ${m1} al ${d2} ${m2}`
 }
+
+/** El período de «Informes»: tres atajos y un rango a mano. */
+export type Periodo = "hoy" | "semana" | "mes" | "rango"
+
+/** Calendario puro sobre fechas ISO (`Date.UTC`), nunca plata. */
+function isoMenosDias(iso: string, dias: number): string {
+  const [y, m, d] = iso.split("-").map(Number)
+  const f = new Date(Date.UTC(y!, (m ?? 1) - 1, d ?? 1) - dias * 86_400_000)
+  const dos = (n: number): string => String(n).padStart(2, "0")
+  return `${f.getUTCFullYear()}-${dos(f.getUTCMonth() + 1)}-${dos(f.getUTCDate())}`
+}
+
+/** Lunes de la semana de `iso` (la semana arranca el lunes). */
+function lunesDe(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number)
+  const dow = new Date(Date.UTC(y!, (m ?? 1) - 1, d ?? 1)).getUTCDay()
+  return isoMenosDias(iso, (dow + 6) % 7)
+}
+
+export function rangoDePeriodo(periodo: Exclude<Periodo, "rango">, hoy: string): { from: string; to: string } {
+  if (periodo === "hoy") return { from: hoy, to: hoy }
+  if (periodo === "semana") return { from: lunesDe(hoy), to: hoy }
+  return { from: `${hoy.slice(0, 8)}01`, to: hoy }
+}
