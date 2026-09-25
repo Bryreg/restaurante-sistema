@@ -598,3 +598,211 @@ class InventorySettingsOut(BaseModel):
 # publicado con lo servido. Ver `outputs-2b/backend-inventario-espejo.md §
 # Ronda 2`.
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Conteo corto por área (`inventory.shift_counts`). Los esquemas de
+# DISPOSITIVO (`Device*`, `AreaCount*In`, `AreaCountReceiptOut`) no llevan
+# stock del sistema, ni conteo anterior, ni costo: el conteo es a ciegas y el
+# operador nunca ve plata de inventario. Los de administrador sí llevan la
+# diferencia valorizada.
+# ---------------------------------------------------------------------------
+
+AreaCountMomentLiteral = Literal["opening", "closing", "spot"]
+AreaCountRegularMomentLiteral = Literal["opening", "closing"]
+# Cómo se teclea cada artículo en el POS (lo decide el servidor, por insumo):
+# `weight` en kg (carnes, vegetales), `bottle` en botellas con décimas de la
+# abierta (licores: unidad de compra en ml), `volume` en litros, `unit` en
+# unidades.
+AreaCountEntryModeLiteral = Literal["weight", "bottle", "volume", "unit"]
+# `night` = del cierre anterior a esta apertura; `shift` = de la apertura a
+# este cierre; `spot` = recuento sorpresa contra el sistema en ese instante.
+AreaCountWindowLiteral = Literal["night", "shift", "spot"]
+AreaRecountStatusLiteral = Literal["pending", "answered"]
+
+
+class AreaCountItemOut(BaseModel):
+    ingredient_id: int
+    name: str
+    base_unit: BaseUnitLiteral
+    entry_mode: AreaCountEntryModeLiteral
+    # Rótulo de la unidad en que se teclea («kg», «botella», «unidad»).
+    entry_unit: str
+
+
+class AreaCountDoneOut(BaseModel):
+    count_id: int
+    counted_at: datetime
+    employee_name: str
+
+
+class DeviceAreaRecountOut(BaseModel):
+    id: int
+    requested_at: datetime
+    requested_by_employee_name: str
+    note: str | None
+    items: list[AreaCountItemOut]
+
+
+class DeviceAreaCountBoardOut(BaseModel):
+    """`GET /device/area-count`: la lista del área de la persona identificada,
+    sin stock ni conteo anterior. `area_id=None` con `reason` cuando no hay
+    lista que mostrar (nadie identificado, persona sin área, área sin
+    artículos)."""
+
+    area_id: int | None
+    area_name: str | None
+    reason: str | None
+    business_date: str
+    items: list[AreaCountItemOut]
+    suggested_moment: AreaCountRegularMomentLiteral
+    opening_done: AreaCountDoneOut | None
+    closing_done: AreaCountDoneOut | None
+    recounts: list[DeviceAreaRecountOut]
+
+
+class AreaCountLineIn(BaseModel):
+    ingredient_id: int
+    # Texto decimal en la unidad de `entry_unit` («2.3» = 2 botellas y 3/10).
+    qty: str = Field(min_length=1, max_length=20)
+
+
+class AreaCountIn(BaseModel):
+    moment: AreaCountRegularMomentLiteral
+    lines: list[AreaCountLineIn] = Field(min_length=1, max_length=50)
+
+
+class AreaRecountAnswerIn(BaseModel):
+    lines: list[AreaCountLineIn] = Field(min_length=1, max_length=5)
+
+
+class AreaCountReceiptOut(BaseModel):
+    """Lo que vuelve a la tablet: que quedó registrado, quién y cuándo.
+    Ninguna cifra del sistema ni diferencia: el resultado lo ve el dueño."""
+
+    id: int
+    area_name: str
+    moment: AreaCountMomentLiteral
+    counted_at: datetime
+    employee_name: str
+    lines_count: int
+
+
+class CountAreaIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class CountAreaUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    active: bool | None = None
+
+
+class CountAreaItemsIn(BaseModel):
+    ingredient_ids: list[int] = Field(max_length=15)
+
+
+class CountAreaMemberIn(BaseModel):
+    employee_id: int
+    # `None` saca a la persona de su área (queda sin lista en el POS).
+    area_id: int | None
+
+
+class CountAreaMemberOut(BaseModel):
+    employee_id: int
+    employee_name: str
+
+
+class CountAreaOut(BaseModel):
+    id: int
+    name: str
+    active: bool
+    members: list[CountAreaMemberOut]
+    items: list[AreaCountItemOut]
+
+
+class AreaCountSettingsIn(BaseModel):
+    # `None` = esa frontera no se exige.
+    threshold_pct_bp: int | None = Field(default=None, gt=0, le=10000)
+    threshold_amount: int | None = Field(default=None, gt=0)
+
+
+class AreaCountSettingsOut(BaseModel):
+    store_id: int
+    threshold_pct_bp: int | None
+    threshold_amount: int | None
+    # La regla en palabras, escrita por el servidor (patrón 9, «la lectura»).
+    reading: str
+
+
+class AreaCountLineOut(BaseModel):
+    """Un renglón con su derivación completa (patrón: cada cifra dice de
+    dónde sale): `expected = reference + inflow − outflow` y
+    `shortage = expected − counted` (positivo = faltó, negativo = sobró).
+    En un recuento sorpresa `reference` es el stock del sistema en ese
+    instante y `inflow`/`outflow` van en `None`. Todo `None` con
+    `null_reason` cuando no hay contra qué comparar (nunca un `0` mudo)."""
+
+    ingredient_id: int
+    ingredient_name: str
+    base_unit: BaseUnitLiteral
+    entered_qty: str
+    entered_unit: str
+    counted_qty: str
+    reference_qty: str | None
+    inflow_qty: str | None
+    outflow_qty: str | None
+    expected_qty: str | None
+    shortage_qty: str | None
+    shortage_value: int | None
+    shortage_pct_bp: int | None
+    flagged: bool
+    null_reason: str | None
+
+
+class AreaCountOut(BaseModel):
+    id: int
+    area_id: int
+    area_name: str
+    moment: AreaCountMomentLiteral
+    window: AreaCountWindowLiteral
+    counted_at: datetime
+    business_date: str
+    employee_name: str
+    # El conteo contra el que se compara (`None` en un recuento sorpresa o
+    # cuando no hay anterior; `reason` dice cuál de las dos).
+    reference_count_id: int | None
+    reference_counted_at: datetime | None
+    reference_employee_name: str | None
+    reason: str | None
+    # `True` cuando hay un conteo posterior del mismo área, momento y día:
+    # manda el último, éste queda en el historial.
+    superseded: bool
+    lines_count: int
+    flagged_count: int
+    # Σ de las diferencias valorizadas (faltante positivo). `None` si ningún
+    # renglón tiene valor; `unvalued_lines` dice cuántos quedaron afuera.
+    shortage_value_total: int | None
+    unvalued_lines: int
+
+
+class AreaCountDetailOut(AreaCountOut):
+    lines: list[AreaCountLineOut]
+
+
+class AreaRecountRequestIn(BaseModel):
+    area_id: int
+    ingredient_ids: list[int] = Field(min_length=1, max_length=5)
+    note: str | None = Field(default=None, max_length=300)
+
+
+class AreaRecountRequestOut(BaseModel):
+    id: int
+    area_id: int
+    area_name: str
+    items: list[AreaCountItemOut]
+    note: str | None
+    status: AreaRecountStatusLiteral
+    requested_at: datetime
+    requested_by_employee_name: str
+    answered_at: datetime | None
+    count_id: int | None

@@ -56,6 +56,9 @@ from app.orders.models import (
 )
 from app.reports.schemas import (
     AccountantRateBreakdownOut,
+    AreaCountAreaTodayOut,
+    AreaCountDoneTodayOut,
+    AreaCountFlagOut,
     AccountantReportOut,
     AccountantRowOut,
     AlertOut,
@@ -924,6 +927,58 @@ def _pos_routine_tray(db: Session, store: Store) -> dict[str, Any]:
     }
 
 
+def _area_counts_tray(db: Session, store: Store) -> dict[str, Any]:
+    """El conteo corto por área para Hoy: qué áreas contaron (apertura y
+    cierre), los artículos fuera del umbral —de noche o en el turno— y los
+    recuentos respondidos. Todo sale de `app.inventory.hooks.
+    area_counts_today`; acá sólo se le da forma."""
+    from app.inventory import hooks as inventory_hooks
+
+    def on(key: str) -> bool:
+        return features.is_enabled(db, store.organization_id, store.id, key)
+
+    if not (on("inventory.perpetual") and on("inventory.shift_counts")):
+        return {
+            "area_counts_enabled": False,
+            "area_counts_areas": [],
+            "area_counts_flags": [],
+            "area_recounts_pending_count": 0,
+        }
+    summary = inventory_hooks.area_counts_today(db, store=store)
+
+    def done(d: Any) -> AreaCountDoneTodayOut | None:
+        if d is None:
+            return None
+        return AreaCountDoneTodayOut(count_id=d.count_id, counted_at=d.counted_at, employee_name=d.employee_name)
+
+    return {
+        "area_counts_enabled": True,
+        "area_counts_areas": [
+            AreaCountAreaTodayOut(
+                area_id=a.area_id, area_name=a.area_name, opening=done(a.opening), closing=done(a.closing)
+            )
+            for a in summary.areas
+        ],
+        "area_counts_flags": [
+            AreaCountFlagOut(
+                count_id=f.count_id,
+                area_name=f.area_name,
+                window=f.window,  # type: ignore[arg-type]
+                ingredient_id=f.ingredient_id,
+                ingredient_name=f.ingredient_name,
+                base_unit=f.base_unit,
+                shortage_qty=f.shortage_qty,
+                shortage_value=f.shortage_value,
+                flagged=f.flagged,
+                counted_at=f.counted_at,
+                employee_name=f.employee_name,
+            )
+            for f in summary.flags
+        ],
+        "area_recounts_pending_count": summary.pending_recounts,
+    }
+
+
 def _pending_refunds_count(db: Session, store: Store) -> int:
     """`app.refunds` se construyó en paralelo durante este mismo pedido
     (1b-2): se lee con `find_spec_safe` y degrada a `0` si el módulo
@@ -1474,6 +1529,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         unreviewed_closes_count=_unreviewed_closes_count(db, store),
         **_deposits_tray(db, store),
         **_pos_routine_tray(db, store),
+        **_area_counts_tray(db, store),
         alerts=_recent_alerts(db, store),
         ingredients_below_min=_low_stock_alerts(db, store),
         ingredients_negative=negatives,

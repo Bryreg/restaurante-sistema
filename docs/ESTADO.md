@@ -1774,6 +1774,23 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
         la destino al recibirlo. **No toca el food cost** de ninguna (lo que
         entró con factura ya se costeó en la sede que compró).
 
+41. **Conteo corto por área, al abrir y al cerrar** (2026-09-25). Como los
+    restaurantes grandes: cada área cuenta lo suyo (bar los licores, cocina
+    carnes y vegetales; caja ya cuenta el dinero a ciegas). Flag
+    `inventory.shift_counts`, migración `0026` (7 tablas, `app/inventory/
+    area_counts.py`).
+    - El admin crea las áreas, asigna a cada persona la suya y marca 5–15
+      artículos clave por área. En el POS, «Conteo de mi área» muestra sólo
+      esa lista, a ciegas; carnes por peso, licores por botella con décimas.
+    - **Faltante de la noche** (último cierre → apertura) y **del turno**
+      (apertura → cierre): `esperado = contado antes + entradas − salidas`
+      del libro de stock en esa ventana (`service._movement_sum`, la misma de
+      la varianza), `faltante = esperado − contado`, valorizado sólo para el
+      admin. Se marca si pasa el 2 % **y** $ 20.000 (configurables).
+    - Recuento sorpresa pedido por el admin; Hoy muestra qué áreas contaron
+      (sin apertura en rojo, sin bloquear) y cada artículo fuera del umbral.
+    - Por confirmar con el dueño: el POS sugiere «Cierre» desde las 20:00.
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

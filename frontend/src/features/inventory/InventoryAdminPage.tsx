@@ -8,6 +8,7 @@ import { Cargando } from "@/components/Cargando"
 import { FeatureOffEmptyState, MasPestanas, PageHeader, type PestanaDeMas } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+import { AreaCountsTab } from "./AreaCountsTab"
 import { ControlHealthTab } from "./ControlHealthTab"
 import { CountsTab } from "./CountsTab"
 import { IngredientsTab } from "./IngredientsTab"
@@ -16,7 +17,7 @@ import { MovementsWasteTab } from "./MovementsWasteTab"
 import { StockTab } from "./StockTab"
 import { VarianceTab } from "./VarianceTab"
 
-const ALL_TABS = ["insumos", "stock", "movimientos", "conteos", "varianza", "lotes", "salud"] as const
+const ALL_TABS = ["insumos", "stock", "movimientos", "conteos", "por-area", "varianza", "lotes", "salud"] as const
 type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
@@ -75,6 +76,9 @@ export function InventoryAdminPage(): React.JSX.Element {
   const countsEnabled = hasFeature("inventory.counts")
   const varianceEnabled = hasFeature("inventory.variance")
   const lotsEnabled = hasFeature("inventory.lots")
+  // Conteo corto por área (2026-09-25): requiere `inventory.perpetual`, que
+  // ya es el gate de toda la página.
+  const areaCountsEnabled = hasFeature("inventory.shift_counts")
 
   const tabParam = searchParams.get("tab")
   const requestedTab: TabValue = isTabValue(tabParam) ? tabParam : "insumos"
@@ -83,6 +87,7 @@ export function InventoryAdminPage(): React.JSX.Element {
     stock: true,
     movimientos: true,
     conteos: countsEnabled,
+    "por-area": areaCountsEnabled,
     varianza: varianceEnabled,
     lotes: lotsEnabled,
     salud: varianceEnabled,
@@ -128,6 +133,7 @@ export function InventoryAdminPage(): React.JSX.Element {
   // varianza, lotes y salud del control, cada una detrás de su flag.
   const masPestanas: PestanaDeMas[] = [
     ...(countsEnabled ? [{ value: "movimientos", label: "Movimientos y mermas" }] : []),
+    ...(areaCountsEnabled ? [{ value: "por-area", label: "Conteo por área" }] : []),
     ...(varianceEnabled ? [{ value: "varianza", label: "Varianza" }] : []),
     ...(lotsEnabled ? [{ value: "lotes", label: "Lotes" }] : []),
     ...(varianceEnabled ? [{ value: "salud", label: "Salud del control" }] : []),
@@ -194,6 +200,16 @@ export function InventoryAdminPage(): React.JSX.Element {
         {countsEnabled ? (
           <TabsContent value="conteos" className="pt-4">
             <CountsTab storeId={activeStoreId} />
+          </TabsContent>
+        ) : null}
+        {areaCountsEnabled ? (
+          <TabsContent value="por-area" className="pt-4">
+            {/* `?conteo=ID`: el aviso de Hoy abre directo el detalle del conteo. */}
+            <AreaCountsTab
+              storeId={activeStoreId}
+              ingredients={ingredients}
+              initialCountId={Number(searchParams.get("conteo")) || null}
+            />
           </TabsContent>
         ) : null}
         {varianceEnabled ? (

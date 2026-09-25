@@ -73,6 +73,7 @@ service, no un contrato de lectura de bajo nivel.)
 from __future__ import annotations
 
 from collections import Counter
+from typing import TYPE_CHECKING
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -96,6 +97,10 @@ from app.inventory.models import (
     WasteType,
     EXPLAINED_WASTE_TYPES,
 )
+
+if TYPE_CHECKING:
+    from app.inventory.area_counts import AreaCountsToday
+    from app.stores.models import Store
 
 
 def record_movement(
@@ -925,3 +930,20 @@ def pending_incoming_transfers(db: Session, *, store_id: int) -> int:
         Waste.received_at.is_(None),
     )
     return int(db.execute(stmt).scalar_one())
+
+
+# ---------------------------------------------------------------------------
+# Conteo corto por área (`inventory.shift_counts`) — para Hoy.
+# ---------------------------------------------------------------------------
+
+
+def area_counts_today(db: Session, *, store: Store) -> AreaCountsToday:
+    """Qué áreas contaron hoy (apertura y cierre), los artículos fuera del
+    umbral —de noche o en el turno— y los recuentos respondidos hoy con su
+    diferencia, más cuántos recuentos siguen pendientes. Devuelve
+    `app.inventory.area_counts.AreaCountsToday` (dataclasses congeladas):
+    `app.reports` arma su esquema con eso, sin recalcular nada. Quien llama
+    decide si la función está encendida."""
+    from app.inventory import area_counts
+
+    return area_counts.today_summary(db, store=store)

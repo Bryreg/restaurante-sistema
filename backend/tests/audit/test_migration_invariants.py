@@ -462,6 +462,18 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     `reception_draft_lines` (recibir sin precios), `staff_requests` y
     `staff_request_lines` (pedidos de insumos y de sencilla) y `novelties`.
     `wastes` suma columnas (consumo interno y traslado), no tabla.
+
+    **Re-apuntado con el conteo corto por área**: la cadena llega a
+    **`0026_area_counts`** y el conteo a **107**. El dueño decidió que cada
+    área cuente lo suyo al abrir y al cerrar, como en los restaurantes
+    grandes, y eso son siete tablas nuevas, todas de `app/inventory`:
+    `count_areas`, `count_area_members` y `count_area_items` (la
+    configuración: qué áreas hay, quién es de cuál y qué artículos cuenta
+    cada una), `area_counts` y `area_count_lines` (los conteos, append-only),
+    `area_recount_requests` (el recuento sorpresa) y `area_count_settings`
+    (el umbral por sede). Ninguna tabla existente gana columnas. El poste se
+    mueve; la forma del invariante —igualdad exacta sobre un conjunto
+    enumerado— queda igual, y los siete nombres entran enumerados abajo.
     """
     from sqlalchemy import text
 
@@ -473,11 +485,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0025", (
-        f"la cadena quedó en {version!r}; el punto de llegada después de la rutina del "
-        "turno en el POS es 0025 (`0025_pos_routine`). "
+    assert version == "0026", (
+        f"la cadena quedó en {version!r}; el punto de llegada después del conteo corto "
+        "por área es 0026 (`0026_area_counts`). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024 y 0025"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025 y 0026"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -521,6 +533,15 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
         "staff_request_lines",
         "novelties",
     }
+    del_conteo_por_area = {
+        "count_areas",
+        "count_area_members",
+        "count_area_items",
+        "area_counts",
+        "area_count_lines",
+        "area_recount_requests",
+        "area_count_settings",
+    }
     de_la_nomina = {
         "payroll_surcharge_tables",
         "payroll_holidays",
@@ -544,6 +565,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
             | de_las_fotos
             | del_cajon
             | de_la_rutina
+            | del_conteo_por_area
         )
         - tablas
     )
@@ -562,11 +584,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # a propósito: es todo derivado. Ojo al comparar con `docs/ESTADO.md`, que
     # para 1b anotó "53 tablas" contando la de control de Alembic: es el mismo
     # esquema contado de dos maneras. `0023_photos` suma una (94) y `0024`
-    # otra (`shift_carry_ins`): 95; `0025` cinco de la rutina del turno: **100**.
-    assert len(tablas) == 100, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; `0025` lo deja en 100 "
+    # otra (`shift_carry_ins`): 95; `0025` cinco de la rutina del turno: 100;
+    # `0026` siete del conteo corto por área: **107**.
+    assert len(tablas) == 107, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; `0026` lo deja en 107 "
         f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón "
-        f"+ 5 de la rutina del turno). "
+        f"+ 5 de la rutina del turno + 7 del conteo por área). "
         f"Actualizá este número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 

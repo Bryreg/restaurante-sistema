@@ -17,6 +17,8 @@ import {
   CASH_DIFF_SUMMARY_ALERT_TYPE,
   getToday,
   type AlertOut,
+  type AreaCountAreaTodayOut,
+  type AreaCountFlagOut,
   type CashDiffSummaryPayload,
   type HourBucketOut,
   type IngredientAlertOut,
@@ -71,6 +73,8 @@ import {
   methodLabel,
   weekdayName,
 } from "./lib"
+import { AreaCountsTodayCard } from "@/features/inventory/AreaCountsTodayCard"
+import { areaCountHref, flagPhrase } from "@/features/inventory/areaCountLib"
 import { NoveltiesTray } from "@/features/novelties"
 import { receptionDraftsTrayItem } from "@/features/purchases"
 import { RequestsTray } from "@/features/requests"
@@ -194,6 +198,9 @@ function directAttentionItems(today: {
   novelties_open_count?: number
   novelties_urgent_count?: number
   transfers_incoming_count?: number
+  area_counts_enabled?: boolean
+  area_counts_areas?: AreaCountAreaTodayOut[]
+  area_counts_flags?: AreaCountFlagOut[]
   payables_overdue_total?: number | null
   ingredients_negative_amount?: number | null
   ingredients_negative_unvalued?: number
@@ -382,6 +389,47 @@ function directAttentionItems(today: {
       screen: "Inventario",
       tab: "Movimientos y mermas",
     })
+  }
+
+  // Conteo corto por área (2026-09-25). Un área sin conteo de apertura va en
+  // rojo, pero el aviso dice que no bloquea nada; cada artículo fuera del
+  // umbral es un aviso propio que dice si faltó de noche o en el turno, con
+  // la plata que manda el servidor. Los recuentos dentro del umbral no son
+  // aviso: los muestra la tarjeta.
+  if (today.area_counts_enabled) {
+    const sinApertura = (today.area_counts_areas ?? []).filter((a) => a.opening === null)
+    if (sinApertura.length > 0) {
+      const nombres = sinApertura.map((a) => a.area_name).join(", ")
+      items.push({
+        key: "area-counts-missing",
+        title: `${sinApertura.length} área${sinApertura.length === 1 ? "" : "s"} sin conteo de apertura`,
+        body: `${nombres}. No bloquea el turno, pero sin apertura no hay faltante de la noche ni del turno.`,
+        to: "/admin/inventario?tab=por-area",
+        ctaLabel: "Ver Conteo por área",
+        tone: "critical",
+        screen: "Inventario",
+        tab: "Conteo por área",
+      })
+    }
+    for (const f of (today.area_counts_flags ?? []).filter((x) => x.flagged)) {
+      const donde = f.window === "night" ? "de noche" : f.window === "shift" ? "en el turno" : "en un recuento sorpresa"
+      items.push({
+        key: `area-count-flag-${f.count_id}-${f.ingredient_id}`,
+        title: `${flagPhrase(f)} ${donde}`,
+        body: `${f.area_name} · contó ${f.employee_name}. Pasa el umbral de la sede.`,
+        why: {
+          term: "Conteo por área",
+          text: "De noche: la apertura contra el último cierre. En el turno: el cierre contra la apertura, con lo que entró y salió según el sistema.",
+        },
+        to: areaCountHref(f.count_id),
+        ctaLabel: "Ver el conteo",
+        tone: "warning",
+        screen: "Inventario",
+        tab: "Conteo por área",
+        filter: `conteo de ${f.area_name}`,
+        amount: f.shortage_value,
+      })
+    }
   }
 
   // Pedido 2a: las cuatro alertas nuevas de `GET /admin/today`. Cada una
@@ -1408,6 +1456,19 @@ export function TodayPage(): React.JSX.Element {
             cutoffHour={cutoffHour ?? today.sales_by_hour?.[0]?.hour}
           />
         </div>
+
+        {/* Conteo corto por área (2026-09-25): qué áreas contaron y las
+            diferencias, de noche o en el turno. Sólo con la función. */}
+        {today.area_counts_enabled ? (
+          <div className="min-w-0 xl:col-start-1">
+            <AreaCountsTodayCard
+              storeId={activeStoreId}
+              areas={today.area_counts_areas ?? []}
+              flags={today.area_counts_flags ?? []}
+              pendingRecounts={today.area_recounts_pending_count ?? 0}
+            />
+          </div>
+        ) : null}
 
         {/* **La bandeja** (2026-09-25): lo que el salón le pide al dueño y se
             resuelve acá mismo — solicitudes (aprobar, ajustar, rechazar) y

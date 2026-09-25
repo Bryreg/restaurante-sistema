@@ -22,16 +22,31 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
-from app.auth.deps import Actor, admin_store, current_admin, current_device
+from app.auth.deps import Actor, admin_store, current_admin, current_device, current_operator
 from app.core import features, tz
 from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.inventory import service
+from app.inventory import area_counts, service
 from app.inventory.models import Ingredient, MovementCause, StockCountScope, WasteType
 from app.inventory.schemas import (
     AdjustmentIn,
+    AreaCountDetailOut,
+    AreaCountIn,
+    AreaCountOut,
+    AreaCountSettingsIn,
+    AreaCountSettingsOut,
+    AreaRecountAnswerIn,
+    AreaRecountRequestIn,
+    AreaRecountRequestOut,
+    AreaRecountStatusLiteral,
+    CountAreaIn,
+    CountAreaItemsIn,
+    CountAreaMemberIn,
+    CountAreaOut,
+    CountAreaUpdateIn,
+    DeviceAreaCountBoardOut,
     CountApplyIn,
     CountDetailOut,
     CountLinesIn,
@@ -622,3 +637,312 @@ def get_control_health(
 ) -> Any:
     store = admin_store(db, actor, store_id)
     return service.control_health(db, store=store)
+
+
+# ---------------------------------------------------------------------------
+# Conteo corto por área (`inventory.shift_counts`, que requiere
+# `inventory.perpetual`: sin libro no hay esperado contra qué medir). La
+# dependencia se valida primero, para que el mensaje apunte a lo que falta de
+# verdad.
+#
+# Dispositivo (sin stock, sin conteo anterior, sin costo: a ciegas):
+# - `GET  /device/area-count` — la lista del área de la persona identificada,
+#   el momento sugerido, si ya contó hoy y los recuentos pedidos.
+# - `POST /device/area-counts` — registrar un conteo de apertura o cierre.
+# - `POST /device/area-recounts/{id}/answer` — responder un recuento.
+#
+# Administrador:
+# - `GET/POST /admin/count-areas`, `PATCH /admin/count-areas/{id}`,
+#   `PUT /admin/count-areas/{id}/items`, `PUT /admin/count-area-members`.
+# - `GET/PUT /admin/area-count-settings` — el umbral.
+# - `GET /admin/area-counts` (+ CSV), `GET /admin/area-counts/{id}`.
+# - `GET/POST /admin/area-recounts`.
+#
+# Toda escritura del dispositivo y el pedido de recuento aceptan
+# `Idempotency-Key`.
+# ---------------------------------------------------------------------------
+
+_require_shift_counts_base = features.require_feature("inventory.perpetual")
+_require_shift_counts = features.require_feature(area_counts.FEATURE)
+
+
+@router.get("/device/area-count")
+def get_device_area_count(
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_device),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> DeviceAreaCountBoardOut:
+    store = _store_for_device(db, actor)
+    return area_counts.device_board(db, store=store, actor=actor)
+
+
+def _count_audit(db: Session, *, actor: Actor, store: Store, count_id: int, out: dict[str, Any]) -> None:
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="area_count",
+        entity_id=count_id,
+        action="create",
+        before=None,
+        after=out,
+    )
+
+
+@router.post("/device/area-counts", status_code=201)
+def post_device_area_count(
+    body: AreaCountIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_operator),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> JSONResponse:
+    store = _store_for_device(db, actor)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        count = area_counts.register_count(db, store=store, actor=actor, data=body)
+        out = area_counts.receipt_out(db, count).model_dump(mode="json")
+        _count_audit(db, actor=actor, store=store, count_id=count.id, out=out)
+        return 201, out
+
+    return _idempotent(
+        db, organization_id=store.organization_id, scope="inventory.area_count", request=request, payload=body, fn=_do
+    )
+
+
+@router.post("/device/area-recounts/{request_id}/answer", status_code=201)
+def post_device_recount_answer(
+    request_id: int,
+    body: AreaRecountAnswerIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_operator),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> JSONResponse:
+    store = _store_for_device(db, actor)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        count = area_counts.answer_recount(db, store=store, actor=actor, request_id=request_id, data=body)
+        out = area_counts.receipt_out(db, count).model_dump(mode="json")
+        _count_audit(db, actor=actor, store=store, count_id=count.id, out=out)
+        return 201, out
+
+    return _idempotent(
+        db,
+        organization_id=store.organization_id,
+        scope=f"inventory.area_recount.{request_id}",
+        request=request,
+        payload=body,
+        fn=_do,
+    )
+
+
+@router.get("/admin/count-areas")
+def get_count_areas(
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> list[CountAreaOut]:
+    store = admin_store(db, actor, store_id)
+    return area_counts.areas_out(db, store=store)
+
+
+def _area_audit(
+    db: Session, *, actor: Actor, store: Store, area_id: int, action: str,
+    before: dict[str, Any] | None, after: dict[str, Any] | None,
+) -> None:
+    record_audit(
+        db, actor=actor, organization_id=store.organization_id, store_id=store.id,
+        entity="count_area", entity_id=area_id, action=action, before=before, after=after,
+    )
+
+
+def _one_area_out(db: Session, store: Store, area_id: int) -> CountAreaOut:
+    return next(a for a in area_counts.areas_out(db, store=store) if a.id == area_id)
+
+
+@router.post("/admin/count-areas", status_code=201)
+def post_count_area(
+    body: CountAreaIn,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> CountAreaOut:
+    store = admin_store(db, actor, store_id)
+    area = area_counts.create_area(db, store=store, data=body)
+    out = _one_area_out(db, store, area.id)
+    _area_audit(db, actor=actor, store=store, area_id=area.id, action="create", before=None, after=out.model_dump())
+    return out
+
+
+@router.patch("/admin/count-areas/{area_id}")
+def patch_count_area(
+    area_id: int,
+    body: CountAreaUpdateIn,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> CountAreaOut:
+    store = admin_store(db, actor, store_id)
+    area = area_counts.area_or_404(db, store=store, area_id=area_id)
+    before = _one_area_out(db, store, area.id).model_dump()
+    area_counts.update_area(db, store=store, area=area, data=body)
+    out = _one_area_out(db, store, area.id)
+    _area_audit(db, actor=actor, store=store, area_id=area.id, action="update", before=before, after=out.model_dump())
+    return out
+
+
+@router.put("/admin/count-areas/{area_id}/items")
+def put_count_area_items(
+    area_id: int,
+    body: CountAreaItemsIn,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> CountAreaOut:
+    store = admin_store(db, actor, store_id)
+    area = area_counts.area_or_404(db, store=store, area_id=area_id)
+    before = _one_area_out(db, store, area.id).model_dump()
+    area_counts.set_area_items(db, store=store, area=area, data=body)
+    out = _one_area_out(db, store, area.id)
+    _area_audit(db, actor=actor, store=store, area_id=area.id, action="set_items", before=before, after=out.model_dump())
+    return out
+
+
+@router.put("/admin/count-area-members")
+def put_count_area_member(
+    body: CountAreaMemberIn,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> list[CountAreaOut]:
+    store = admin_store(db, actor, store_id)
+    previous = area_counts.member_area(db, store=store, employee_id=body.employee_id)
+    area_counts.set_member(db, store=store, data=body)
+    record_audit(
+        db, actor=actor, organization_id=store.organization_id, store_id=store.id,
+        entity="count_area_member", entity_id=body.employee_id, action="assign",
+        before={"area_id": previous.id if previous is not None else None},
+        after={"area_id": body.area_id},
+    )
+    return area_counts.areas_out(db, store=store)
+
+
+@router.get("/admin/area-count-settings")
+def get_area_count_settings(
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> AreaCountSettingsOut:
+    store = admin_store(db, actor, store_id)
+    return area_counts.settings_out(db, store)
+
+
+@router.put("/admin/area-count-settings")
+def put_area_count_settings(
+    body: AreaCountSettingsIn,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> AreaCountSettingsOut:
+    store = admin_store(db, actor, store_id)
+    before = area_counts.settings_out(db, store).model_dump()
+    after = area_counts.update_settings(db, store, body)
+    record_audit(
+        db, actor=actor, organization_id=store.organization_id, store_id=store.id,
+        entity="area_count_settings", entity_id=store.id, action="update", before=before, after=after.model_dump(),
+    )
+    return after
+
+
+@router.get("/admin/area-counts")
+def get_area_counts(
+    request: Request,
+    store_id: int = Query(...),
+    date_from: date | None = Query(None, alias="from"),
+    date_to: date | None = Query(None, alias="to"),
+    area_id: int | None = Query(None),
+    format: str | None = Query(None),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> Any:
+    store = admin_store(db, actor, store_id)
+    rows = area_counts.list_counts(db, store=store, date_from=date_from, date_to=date_to, area_id=area_id)
+    out: list[AreaCountOut] = [area_counts.count_summary(db, store=store, count=c) for c in rows]
+    if wants_csv(request):
+        return csv_response([o.model_dump(mode="json") for o in out], "conteos-por-area.csv")
+    return out
+
+
+@router.get("/admin/area-counts/{count_id}")
+def get_area_count(
+    count_id: int,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> AreaCountDetailOut:
+    store = admin_store(db, actor, store_id)
+    count = area_counts.count_or_404(db, store=store, count_id=count_id)
+    return area_counts.count_detail(db, store=store, count=count)
+
+
+@router.get("/admin/area-recounts")
+def get_area_recounts(
+    store_id: int = Query(...),
+    status: AreaRecountStatusLiteral | None = Query(None),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> list[AreaRecountRequestOut]:
+    store = admin_store(db, actor, store_id)
+    return [area_counts.recount_out(db, r) for r in area_counts.list_recounts(db, store=store, status=status)]
+
+
+@router.post("/admin/area-recounts", status_code=201)
+def post_area_recount(
+    body: AreaRecountRequestIn,
+    request: Request,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> JSONResponse:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = area_counts.create_recount(db, store=store, actor=actor, data=body)
+        out = area_counts.recount_out(db, row).model_dump(mode="json")
+        record_audit(
+            db, actor=actor, organization_id=store.organization_id, store_id=store.id,
+            entity="area_recount", entity_id=row.id, action="create", before=None, after=out,
+        )
+        return 201, out
+
+    return _idempotent(
+        db, organization_id=store.organization_id, scope="inventory.area_recount_request", request=request,
+        payload=body, fn=_do,
+    )
