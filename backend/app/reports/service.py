@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -271,11 +272,22 @@ def _order_zone_map(db: Session, order_ids: set[int]) -> dict[int, tuple[str, st
     return result
 
 
-def _sale_documents(db: Session, *, store_id: int, date_from: date, date_to: date) -> list[FiscalDocument]:
+StoreScope = int | Sequence[int]
+"""Una sede (`int`) o varias de la MISMA organización (`Sequence[int]`,
+«Todas las sedes» de Informes). La agregación es la misma función en los dos
+casos: con varias sedes sólo se amplía el conjunto de documentos que entra,
+nunca se suman totales ya redondeados de cada una."""
+
+
+def _store_ids(scope: StoreScope) -> list[int]:
+    return [scope] if isinstance(scope, int) else list(scope)
+
+
+def _sale_documents(db: Session, *, store_id: StoreScope, date_from: date, date_to: date) -> list[FiscalDocument]:
     stmt = (
         select(FiscalDocument)
         .where(
-            FiscalDocument.store_id == store_id,
+            FiscalDocument.store_id.in_(_store_ids(store_id)),
             FiscalDocument.business_date >= date_from,
             FiscalDocument.business_date <= date_to,
             FiscalDocument.document_type.in_(SALE_DOCUMENT_TYPES),
@@ -311,29 +323,31 @@ def _hours_from_cutoff(cutoff_hour: int) -> list[int]:
     return [(cutoff_hour + i) % 24 for i in range(24)]
 
 
-def _first_activity_date(db: Session, store_id: int) -> date | None:
+def _first_activity_date(db: Session, store_id: StoreScope) -> date | None:
     """Primer día operativo con actividad real de la sede (un día abierto o
     un comprobante emitido), o `None` si nunca operó. Es el piso de los
     períodos rellenados: antes de esto la sede «no existía», y eso es
     `null`, no «vendió $0»."""
+    ids = _store_ids(store_id)
     first_day = db.execute(
-        select(func.min(BusinessDay.business_date)).where(BusinessDay.store_id == store_id)
+        select(func.min(BusinessDay.business_date)).where(BusinessDay.store_id.in_(ids))
     ).scalar_one()
     first_doc = db.execute(
         select(func.min(FiscalDocument.business_date)).where(
-            FiscalDocument.store_id == store_id, FiscalDocument.document_type.in_(SALE_DOCUMENT_TYPES)
+            FiscalDocument.store_id.in_(ids), FiscalDocument.document_type.in_(SALE_DOCUMENT_TYPES)
         )
     ).scalar_one()
     candidates = [d for d in (first_day, first_doc) if d is not None]
     return min(candidates) if candidates else None
 
 
-def _operated_dates(db: Session, store_id: int, date_from: date, date_to: date) -> set[date]:
-    """Días operativos que la sede ABRIÓ (hay `BusinessDay`) dentro del rango."""
+def _operated_dates(db: Session, store_id: StoreScope, date_from: date, date_to: date) -> set[date]:
+    """Días operativos que la sede ABRIÓ (hay `BusinessDay`) dentro del rango.
+    Con varias sedes, un día cuenta como abierto si abrió al menos una."""
     return set(
         db.execute(
             select(BusinessDay.business_date).where(
-                BusinessDay.store_id == store_id,
+                BusinessDay.store_id.in_(_store_ids(store_id)),
                 BusinessDay.business_date >= date_from,
                 BusinessDay.business_date <= date_to,
             )
@@ -400,8 +414,19 @@ def _product_categories(db: Session, product_ids: set[int]) -> dict[int, tuple[s
     return {pid: (str(cid), cname) for pid, cid, cname in rows}
 
 
+def _scope_cutoff_hour(db: Session, store_id: StoreScope) -> int:
+    """La hora de corte con la que se ordena el día operativo. Con varias
+    sedes se usa la de la primera (por id): las sedes de una organización
+    comparten el reloj de Bogotá, y el orden de las horas es presentación,
+    no plata."""
+    ids = sorted(_store_ids(store_id))
+    if not ids:
+        return 0
+    return db.execute(select(Store.cutoff_hour).where(Store.id == ids[0])).scalar_one_or_none() or 0
+
+
 def aggregate_sales(
-    db: Session, *, store_id: int, date_from: date, date_to: date, group_by: str | None
+    db: Session, *, store_id: StoreScope, date_from: date, date_to: date, group_by: str | None
 ) -> tuple[list[SalesBucketOut], SalesBucketOut]:
     """Agrega documentos de venta (SPEC-NEGOCIO §10) por `group_by` (`None` =
     un solo total). Devuelve `(filas, total)`; el total es la misma
@@ -611,7 +636,7 @@ def aggregate_sales(
     elif group_by == "business_date":
         order_key = _business_date_keys(db, store_id, date_from, date_to, buckets)
     elif group_by == "hour":
-        cutoff_hour = db.execute(select(Store.cutoff_hour).where(Store.id == store_id)).scalar_one_or_none() or 0
+        cutoff_hour = _scope_cutoff_hour(db, store_id)
         for hour in range(24):
             buckets.setdefault(str(hour), _Bucket(label=f"{hour:02d}:00"))
         order_key = [str(h) for h in _hours_from_cutoff(cutoff_hour)]
@@ -645,7 +670,7 @@ def aggregate_sales(
 
 
 def _business_date_keys(
-    db: Session, store_id: int, date_from: date, date_to: date, buckets: dict[str, _Bucket]
+    db: Session, store_id: StoreScope, date_from: date, date_to: date, buckets: dict[str, _Bucket]
 ) -> list[str]:
     """TODOS los días del rango (científico #2): un día sin ventas es una
     fila con `net=0`, no un hueco que el gráfico de línea se come. El rango
@@ -653,8 +678,7 @@ def _business_date_keys(
     actividad hasta hoy (o el último comprobante, si un reloj de prueba
     quedó atrás) —: antes de abrir no «vendió $0», no existía; y un rango
     `2020-01-01..2099-12-31` no puede devolver 29.000 filas."""
-    store = db.get(Store, store_id)
-    cutoff_hour = store.cutoff_hour if store is not None else 0
+    cutoff_hour = _scope_cutoff_hour(db, store_id)
     first = _first_activity_date(db, store_id)
     if first is None:
         return sorted(buckets.keys())
@@ -672,7 +696,7 @@ def _business_date_keys(
 
 
 def _previous_period(
-    db: Session, *, store_id: int, date_from: date, date_to: date, current: SalesBucketOut
+    db: Session, *, store_id: StoreScope, date_from: date, date_to: date, current: SalesBucketOut
 ) -> PreviousPeriodOut:
     """El período del mismo largo inmediatamente anterior (analista #7):
     `[from − n, from − 1]`, con `n = to − from + 1` días. Se calcula con la

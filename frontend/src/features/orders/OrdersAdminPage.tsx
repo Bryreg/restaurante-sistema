@@ -98,6 +98,96 @@ function minutesLabel(minutes: number | null | undefined): string {
   return minutes !== null && minutes !== undefined ? `${minutes} min` : "—"
 }
 
+/**
+ * El detalle de una comanda —canal, estado, horas, total, anulaciones con su
+ * pista y los ítems—. Exportado para que Informes › Historial de comandas lo
+ * despliegue en línea sin escribir un segundo detalle: es el mismo que abre
+ * el diálogo de esta pantalla.
+ */
+export function OrderDetailBody({
+  orderId,
+  listRow,
+}: {
+  orderId: number | null
+  /** La fila del listado, que es la que trae `void_details`. */
+  listRow?: AdminOrderListItem
+}): React.JSX.Element | null {
+  const query = useQuery<OrderOut>({
+    queryKey: ["admin-orders", "detail", orderId],
+    queryFn: () => adminGetOrder(orderId as number),
+    enabled: orderId !== null,
+  })
+  const order = query.data
+
+  return query.isLoading ? (
+    <Cargando texto="Cargando…" />
+  ) : query.isError ? (
+    <p role="alert" className="text-sm text-destructive">
+      {errorMessage(query.error)}
+    </p>
+  ) : order ? (
+    <div className="space-y-3 text-sm">
+      <dl className="grid grid-cols-2 gap-2">
+        <div>
+          <dt className="text-muted-foreground">Canal</dt>
+          <dd>{order.channel ? CHANNEL_LABEL[order.channel] : "—"}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Estado</dt>
+          <dd>{order.status ? ORDER_STATUS_LABEL[order.status] : "—"}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Abierta</dt>
+          <dd>{formatInstant(order.opened_at)}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Cuenta presentada</dt>
+          <dd>{formatInstant(order.bill_presented_at)}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Pagada</dt>
+          <dd>{formatInstant(order.paid_at)}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Total</dt>
+          <dd className="tabular-nums">{formatCOP(order.totals?.total)}</dd>
+        </div>
+      </dl>
+      {(listRow?.void_details ?? []).length > 0 ? (
+        <div>
+          <h3 className="mb-1 font-medium">Anulaciones</h3>
+          {/* La pista de auditoría vive acá entera —motivo, si fue
+              después de la cuenta, minutos tras enviar y quién
+              autorizó—. En la fila densa queda el recuento y el mismo
+              texto en el `title`: una sublista adentro de una celda
+              hacía crecer la fila muy por encima de los 34 px del
+              patrón 8. */}
+          <ul className="space-y-0.5 text-xs text-muted-foreground">
+            {(listRow?.void_details ?? []).map((v, i) => (
+              <li key={`${v.item_id ?? i}`}>{voidTrailLine(v)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div>
+        <h3 className="mb-1 font-medium">Ítems</h3>
+        <ul className="space-y-1">
+          {(order.items ?? []).map((item) => (
+            <li key={item.id} className="flex justify-between">
+              <span>
+                {item.qty}× {item.name}
+                {item.status === "voided" ? " (anulado)" : ""}
+                {item.courtesy ? " (cortesía)" : ""}
+              </span>
+              <span className="tabular-nums text-muted-foreground">{formatCOP(item.net)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  ) : null
+}
+
 function OrderDetailDialog({
   orderId,
   listRow,
@@ -108,86 +198,13 @@ function OrderDetailDialog({
   listRow?: AdminOrderListItem
   onOpenChange: (open: boolean) => void
 }) {
-  const query = useQuery<OrderOut>({
-    queryKey: ["admin-orders", "detail", orderId],
-    queryFn: () => adminGetOrder(orderId as number),
-    enabled: orderId !== null,
-  })
-  const order = query.data
-
   return (
     <Dialog open={orderId !== null} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Comanda #{orderId}</DialogTitle>
         </DialogHeader>
-        {query.isLoading ? (
-          <Cargando texto="Cargando…" />
-        ) : query.isError ? (
-          <p role="alert" className="text-sm text-destructive">
-            {errorMessage(query.error)}
-          </p>
-        ) : order ? (
-          <div className="space-y-3 text-sm">
-            <dl className="grid grid-cols-2 gap-2">
-              <div>
-                <dt className="text-muted-foreground">Canal</dt>
-                <dd>{order.channel ? CHANNEL_LABEL[order.channel] : "—"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Estado</dt>
-                <dd>{order.status ? ORDER_STATUS_LABEL[order.status] : "—"}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Abierta</dt>
-                <dd>{formatInstant(order.opened_at)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Cuenta presentada</dt>
-                <dd>{formatInstant(order.bill_presented_at)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Pagada</dt>
-                <dd>{formatInstant(order.paid_at)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Total</dt>
-                <dd className="tabular-nums">{formatCOP(order.totals?.total)}</dd>
-              </div>
-            </dl>
-            {(listRow?.void_details ?? []).length > 0 ? (
-              <div>
-                <h3 className="mb-1 font-medium">Anulaciones</h3>
-                {/* La pista de auditoría vive acá entera —motivo, si fue
-                    después de la cuenta, minutos tras enviar y quién
-                    autorizó—. En la fila densa queda el recuento y el mismo
-                    texto en el `title`: una sublista adentro de una celda
-                    hacía crecer la fila muy por encima de los 34 px del
-                    patrón 8. */}
-                <ul className="space-y-0.5 text-xs text-muted-foreground">
-                  {(listRow?.void_details ?? []).map((v, i) => (
-                    <li key={`${v.item_id ?? i}`}>{voidTrailLine(v)}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            <div>
-              <h3 className="mb-1 font-medium">Ítems</h3>
-              <ul className="space-y-1">
-                {(order.items ?? []).map((item) => (
-                  <li key={item.id} className="flex justify-between">
-                    <span>
-                      {item.qty}× {item.name}
-                      {item.status === "voided" ? " (anulado)" : ""}
-                      {item.courtesy ? " (cortesía)" : ""}
-                    </span>
-                    <span className="tabular-nums text-muted-foreground">{formatCOP(item.net)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        ) : null}
+        <OrderDetailBody orderId={orderId} listRow={listRow} />
       </DialogContent>
     </Dialog>
   )

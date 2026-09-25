@@ -97,7 +97,8 @@ describe("AdminLayout en el celular: barra inferior", () => {
     const controles = within(barra).getAllByRole("listitem").map((li) => li.textContent);
     expect(controles).toEqual(["Hoy", "Informes", "Caja", "Avisos", "Más"]);
     expect(within(barra).getByRole("link", { name: "Hoy" })).toHaveAttribute("href", "/admin/hoy");
-    expect(within(barra).getByRole("link", { name: "Informes" })).toHaveAttribute("href", "/admin/ventas");
+    // La primera pantalla de Informes es Informes (antes, Ventas).
+    expect(within(barra).getByRole("link", { name: "Informes" })).toHaveAttribute("href", "/admin/informes");
     expect(within(barra).getByRole("link", { name: "Caja" })).toHaveAttribute("href", "/admin/dinero");
   });
 

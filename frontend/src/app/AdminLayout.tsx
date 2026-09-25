@@ -178,7 +178,9 @@ export interface FilaDelRail {
  *
  * - **Hoy** junta el pulso del día con las comandas abiertas: las dos dicen
  *   qué está pasando ahora.
- * - **Informes** junta lo que mira el período cerrado. Documentos y notas van
+ * - **Informes** junta lo que mira el período cerrado, y abre en la pantalla
+ *   Informes (todo el período en un solo scroll); Ventas, Ingeniería de menú,
+ *   Clientes, Documentos y Notas siguen como pestañas. Documentos y notas van
  *   acá porque son el registro de lo vendido: con comprobante interno (persona
  *   natural, sin factura electrónica) siguen existiendo y siguen siendo ley.
  * - **Caja** junta la plata física: turnos, banco y lo que se devuelve.
@@ -189,6 +191,7 @@ export const RAIL: Record<string, FilaDelRail> = {
   "/admin/hoy": { seccion: "Hoy", label: "Hoy", title: "Hoy" },
   "/admin/pedidos": { seccion: "Hoy", label: "Pedidos", title: "Pedidos", cuenta: "pedidos" },
 
+  "/admin/informes": { seccion: "Informes", label: "Informes", title: "Informes" },
   "/admin/ventas": { seccion: "Informes", label: "Ventas", title: "Ventas" },
   "/admin/analitica": {
     seccion: "Informes",

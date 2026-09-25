@@ -16,8 +16,10 @@ from sqlalchemy.orm import Session
 from app.auth.deps import Actor, admin_store, current_admin
 from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
+from app.core.errors import AppError
+from app.reports import overview as overview_service
 from app.reports import service
-from app.reports.schemas import AccountantReportOut, GroupBy, TodayOut
+from app.reports.schemas import AccountantReportOut, GroupBy, ReportsOverviewOut, TodayOut
 
 router = APIRouter()
 
@@ -115,3 +117,28 @@ def get_unavailable_log(
     if wants_csv(request):
         return csv_response(payload, filename="agotados.csv")
     return payload
+
+
+@router.get("/admin/reports/overview")
+def get_reports_overview(
+    store_id: str = Query(..., description='Id de la sede, o "all" para todas las sedes de la organización'),
+    date_from: date = Query(..., alias="from"),
+    date_to: date = Query(..., alias="to"),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> ReportsOverviewOut:
+    """«Informes»: todas las secciones del período en una sola respuesta
+    (`app.reports.overview`). `store_id=all` consolida las sedes de la
+    organización del administrador con la misma agregación que por sede y
+    agrega `by_store`. Un id de otra organización es `404`."""
+    if store_id == "all":
+        stores = overview_service.organization_stores(db, actor.organization_id)
+        if not stores:
+            raise AppError("VALIDATION_ERROR", "Todavía no hay sedes creadas: creá una en Configuración", status=400)
+        return overview_service.reports_overview(
+            db, stores=stores, all_stores=True, date_from=date_from, date_to=date_to
+        )
+    if not store_id.isdigit():
+        raise AppError("VALIDATION_ERROR", 'store_id: tiene que ser el id de una sede o "all"', status=400)
+    store = admin_store(db, actor, int(store_id))
+    return overview_service.reports_overview(db, stores=[store], all_stores=False, date_from=date_from, date_to=date_to)
