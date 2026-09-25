@@ -127,6 +127,8 @@ export function ReceptionForm({
   const [invoiceDate, setInvoiceDate] = useState(draft?.business_date ?? "")
   const [noInvoice, setNoInvoice] = useState(draft?.no_invoice ?? false)
   const [photo, setPhoto] = useState<string | null>(draft?.photo ?? null)
+  // Mientras la foto se achica no se envía: saldría sin la foto que ya se ve elegida.
+  const [photoProcessing, setPhotoProcessing] = useState(false)
   const [lines, setLines] = useState<ReceptionLineDraft[]>(() => (draft ? linesFromDraft(draft) : [emptyReceptionLine()]))
   const [guard, setGuard] = useState<GuardState | null>(null)
   // Ver el docstring del módulo: el PinPad sólo se monta después de este paso.
@@ -169,7 +171,7 @@ export function ReceptionForm({
 
   const supplier = suppliers.find((s) => s.id === supplierId) ?? null
   const linesValid = lines.length > 0 && lines.every(isReceptionLineComplete)
-  const canSubmit = supplierId !== null && invoiceDate.trim() !== "" && linesValid
+  const canSubmit = supplierId !== null && invoiceDate.trim() !== "" && linesValid && !photoProcessing
 
   function buildPayload(confirmPrice: boolean, receivedByPin: string): ReceptionIn {
     return {
@@ -320,6 +322,7 @@ export function ReceptionForm({
               onChange={setPhoto}
               label="Foto de la factura (opcional)"
               disabled={formsDisabled}
+              onProcessingChange={setPhotoProcessing}
             />
           )}
         </div>

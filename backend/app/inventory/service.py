@@ -32,6 +32,7 @@ from app.core.quantity import (
 )
 from app.core.security import verify_secret
 from app.inventory import hooks
+from app.inventory.units import entry_qty_to_base, entry_spec
 from app.inventory.models import (
     BaseUnit,
     CostSource,
@@ -537,6 +538,28 @@ def register_waste(db: Session, *, store: Store, data: WasteIn) -> Waste:
     if qty_base <= 0:
         raise AppError(code="VALIDATION_ERROR", message="qty: la cantidad de la merma tiene que ser mayor a cero")
 
+    # El insumo se lee antes de escribir nada: con `entry_unit` la cantidad
+    # viene en su unidad cómoda y se convierte acá, una sola vez
+    # (`units.entry_qty_to_base`, la misma del conteo por área).
+    ingredient: Ingredient | None = None
+    if data.ingredient_id is not None:
+        ingredient = hooks.get_ingredient(db, store_id=store.id, ingredient_id=data.ingredient_id)
+        if ingredient is None:
+            raise NotFoundError("El insumo no existe")
+    if data.entry_unit is not None:
+        if ingredient is None:
+            raise AppError(
+                code="VALIDATION_ERROR",
+                message="entry_unit: la unidad cómoda es sólo para insumos; la preparación va en su unidad base",
+            )
+        spec = entry_spec(ingredient)
+        if data.entry_unit != spec.unit:
+            raise AppError(
+                code="VALIDATION_ERROR",
+                message=f"{ingredient.name} se registra en {spec.unit}: recargá la pantalla e intentá de nuevo",
+            )
+        qty_base = entry_qty_to_base(ingredient, data.qty, whole_units=False)
+
     waste_type = WasteType(data.type)
 
     # Los campos propios de cada salida explicada, validados ANTES de escribir
@@ -560,13 +583,9 @@ def register_waste(db: Session, *, store: Store, data: WasteIn) -> Waste:
         db, organization_id=store.organization_id, store_id=store.id, pin=data.employee_pin
     )
 
-    ingredient: Ingredient | None = None
     cost_micros: int | None = None
     cost_source = CostSource.NONE
-    if data.ingredient_id is not None:
-        ingredient = hooks.get_ingredient(db, store_id=store.id, ingredient_id=data.ingredient_id)
-        if ingredient is None:
-            raise NotFoundError("El insumo no existe")
+    if ingredient is not None:
         cost_micros, cost_source = hooks.resolve_ingredient_cost(db, ingredient)
     # `preparation_id`: el costeo de una preparación es de `app.recipes`
     # (territorio ajeno); acá queda `cost_source=none` a propósito — gap

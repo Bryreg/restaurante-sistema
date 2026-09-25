@@ -74,6 +74,8 @@ export function DepositDrawerPanel({ shiftId }: { shiftId: number }): React.JSX.
   const [bankReference, setBankReference] = useState("");
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<string | null>(null);
+  // Mientras la foto se achica no se envía: saldría sin el comprobante.
+  const [photoProcessing, setPhotoProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const idempotencyKeyRef = useRef(newIdempotencyKey());
@@ -133,7 +135,7 @@ export function DepositDrawerPanel({ shiftId }: { shiftId: number }): React.JSX.
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!selectedDay) return;
+    if (!selectedDay || photoProcessing) return;
     if (shownAmount === null || shownAmount <= 0) {
       setError("Ingresá el monto que vas a consignar.");
       return;
@@ -245,6 +247,7 @@ export function DepositDrawerPanel({ shiftId }: { shiftId: number }): React.JSX.
                 // Obligatoria por contrato (`POST /deposits`), no por config de sede.
                 required
                 disabled={mutation.isPending}
+                onProcessingChange={setPhotoProcessing}
               />
             </div>
           </div>
@@ -255,8 +258,8 @@ export function DepositDrawerPanel({ shiftId }: { shiftId: number }): React.JSX.
             </p>
           ) : null}
 
-          <Button type="submit" className="h-11 w-full" disabled={mutation.isPending}>
-            {mutation.isPending ? "Registrando…" : "Registrar consignación"}
+          <Button type="submit" className="h-11 w-full" disabled={mutation.isPending || photoProcessing}>
+            {mutation.isPending ? "Registrando…" : photoProcessing ? "Procesando foto…" : "Registrar consignación"}
           </Button>
           <p className="text-xs text-muted-foreground">
             Queda por confirmar hasta que el administrador la revise en Banco.

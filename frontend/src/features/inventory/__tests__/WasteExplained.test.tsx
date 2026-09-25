@@ -8,7 +8,7 @@
  *   y cuando aparece exige la sede destino y viaja con ella;
  * - «consumo de personal» sigue sin existir como tipo.
  */
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -45,11 +45,9 @@ vi.mock("@/api/employees", async () => {
 const me = buildMe({ kind: "device", features: { "inventory.waste": true } })
 
 async function fillBase(user: ReturnType<typeof userEvent.setup>, typeLabel: string) {
-  await user.click(await screen.findByRole("combobox", { name: "Insumo" }))
-  await user.click(await screen.findByRole("option", { name: "Queso" }))
+  await user.click(await screen.findByRole("button", { name: "Queso" }))
   await user.type(screen.getByLabelText("Cantidad"), "2")
-  await user.click(screen.getByRole("combobox", { name: "Tipo" }))
-  await user.click(await screen.findByRole("option", { name: typeLabel }))
+  await user.click(screen.getByRole("button", { name: typeLabel }))
 }
 
 async function typePin(user: ReturnType<typeof userEvent.setup>) {
@@ -59,7 +57,9 @@ async function typePin(user: ReturnType<typeof userEvent.setup>) {
 describe("WastePage — salidas explicadas", () => {
   beforeEach(() => {
     for (const m of Object.values(mocks)) m.mockReset()
-    mocks.listDeviceIngredients.mockResolvedValue([{ id: 1, name: "Queso", base_unit: "g" }])
+    mocks.listDeviceIngredients.mockResolvedValue([
+      { id: 1, name: "Queso", base_unit: "g", entry_mode: "weight", entry_unit: "kg" },
+    ])
     mocks.listDevicePreparations.mockResolvedValue([])
     mocks.listDeviceEmployees.mockResolvedValue([{ id: 9, name: "Luisa", role: "operator" }])
     mocks.postWaste.mockResolvedValue({ id: 1 })
@@ -67,12 +67,13 @@ describe("WastePage — salidas explicadas", () => {
 
   it("con una sola sede no ofrece «Traslado a otra sede», y sí «Consumo interno»", async () => {
     mocks.listTransferStores.mockResolvedValue([])
-    const user = userEvent.setup()
     renderWithProviders(<WastePage />, { me })
 
-    await user.click(await screen.findByRole("combobox", { name: "Tipo" }))
-    await screen.findByRole("option", { name: "Consumo interno" })
-    const options = screen.getAllByRole("option").map((o) => o.textContent)
+    const group = await screen.findByRole("group", { name: "Tipo" })
+    expect(within(group).getByRole("button", { name: "Consumo interno" })).toBeInTheDocument()
+    const options = within(group)
+      .getAllByRole("button")
+      .map((o) => o.textContent)
     expect(options).not.toContain("Traslado a otra sede")
     expect(options.some((label) => /personal/i.test(label ?? ""))).toBe(false)
   })
@@ -92,7 +93,13 @@ describe("WastePage — salidas explicadas", () => {
 
     await waitFor(() => expect(mocks.postWaste).toHaveBeenCalledTimes(1))
     const body = mocks.postWaste.mock.calls[0]![0]
-    expect(body).toMatchObject({ type: "internal_use", consumer_name: "Dueño", ingredient_id: 1, qty: "2" })
+    expect(body).toMatchObject({
+      type: "internal_use",
+      consumer_name: "Dueño",
+      ingredient_id: 1,
+      qty: "2",
+      entry_unit: "kg",
+    })
     expect(body.consumer_employee_id).toBeUndefined()
   })
 

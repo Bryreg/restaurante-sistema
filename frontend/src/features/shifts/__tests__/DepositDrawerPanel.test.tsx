@@ -33,10 +33,21 @@ vi.mock("@/api/banking", async () => {
 // La mecánica de la cámara no es lo que se prueba: un stub que entrega un
 // *data URL* fijo (mismo patrón que `banking/__tests__/CreateDepositDialog.test.tsx`).
 vi.mock("@/components/PhotoCaptureField", () => ({
-  PhotoCaptureField: ({ onChange }: { onChange: (dataUrl: string | null) => void }) => (
-    <button type="button" onClick={() => onChange("data:image/png;base64,xyz")}>
-      Adjuntar comprobante (stub)
-    </button>
+  PhotoCaptureField: ({
+    onChange,
+    onProcessingChange,
+  }: {
+    onChange: (dataUrl: string | null) => void;
+    onProcessingChange?: (processing: boolean) => void;
+  }) => (
+    <>
+      <button type="button" onClick={() => onChange("data:image/png;base64,xyz")}>
+        Adjuntar comprobante (stub)
+      </button>
+      <button type="button" onClick={() => onProcessingChange?.(true)}>
+        Empezar a procesar (stub)
+      </button>
+    </>
   ),
 }));
 
@@ -134,6 +145,18 @@ describe("DepositDrawerPanel — consignar desde el POS", () => {
     expect(key).not.toBe("");
     // Después de registrar se vuelve a pedir el cajón: lo que queda lo dice el servidor.
     await waitFor(() => expect(getDepositDrawerMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("mientras la foto se procesa no se puede registrar", async () => {
+    getDepositDrawerMock.mockResolvedValue(DRAWER);
+    const user = userEvent.setup();
+    renderWithProviders(<DepositDrawerPanel shiftId={42} />);
+
+    await screen.findByLabelText("Monto a consignar");
+    await user.click(screen.getByRole("button", { name: "Empezar a procesar (stub)" }));
+    const submit = screen.getByRole("button", { name: "Procesando foto…" });
+    expect(submit).toBeDisabled();
+    expect(createPosDepositMock).not.toHaveBeenCalled();
   });
 
   it("lista las consignaciones del turno con el estado que dice el servidor", async () => {

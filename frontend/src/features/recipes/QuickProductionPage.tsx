@@ -34,7 +34,6 @@ export function QuickProductionPage(): React.JSX.Element {
 
   const [selected, setSelected] = useState<PreparationDeviceOut | null>(null)
   const [qtyReal, setQtyReal] = useState("")
-  const [qtyFocused, setQtyFocused] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const idempotencyKeyRef = useRef(newIdempotencyKey())
 
@@ -179,19 +178,14 @@ export function QuickProductionPage(): React.JSX.Element {
           value={qtyReal}
           disabled={mutation.isPending}
           /*
-           * Único campo de texto libre que convive con el `PinPad` en esta
-           * pantalla: se precarga con el rendimiento estándar y sólo hace
-           * falta tocarlo si la producción real dio otra cosa. El `PinPad`
-           * (defecto conocido, ajeno: escucha `window` sin filtrar foco)
-           * queda `disabled` mientras este campo tiene el foco, para que un
-           * dígito tecleado acá no se cuele como dígito de PIN — la misma
-           * mitigación que usó `frontend-cobro` en 1b-1
-           * (`PaymentSplitsForm.tsx`), adaptada: acá el campo puede estar
-           * vacío (no hay un "completo" que lo cierre solo), así que se
-           * gobierna con el foco en vez de con un estado derivado.
+           * Único campo de texto libre que convive con el `PinPad`. Antes el
+           * `PinPad` quedaba `disabled` mientras este campo tenía el foco; en
+           * la tablet el primer toque al teclado sólo le sacaba el foco al
+           * campo y el dígito se perdía («El PIN no coincide»). Ya no hace
+           * falta: el `PinPad` ignora las teclas físicas cuando el foco está
+           * en otro campo, así que un dígito tecleado acá no se cuela en el
+           * PIN, y un toque en su botón registra el dígito y deja el campo.
            */
-          onFocus={() => setQtyFocused(true)}
-          onBlur={() => setQtyFocused(false)}
           onChange={(event) => setQtyReal(event.target.value)}
         />
         <p className="text-xs text-muted-foreground">
@@ -211,7 +205,7 @@ export function QuickProductionPage(): React.JSX.Element {
         <PinPad
           length={4}
           label="Tu PIN para confirmar la producción"
-          disabled={mutation.isPending || qtyFocused || qtyReal.trim() === ""}
+          disabled={mutation.isPending || qtyReal.trim() === ""}
           onSubmit={(pin) => mutation.mutate(pin)}
         />
       </div>

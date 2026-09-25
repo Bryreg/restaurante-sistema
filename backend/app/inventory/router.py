@@ -29,6 +29,7 @@ from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.inventory import area_counts, service
+from app.inventory.units import entry_spec
 from app.inventory.models import Ingredient, MovementCause, StockCountScope, WasteType
 from app.inventory.schemas import (
     AdjustmentIn,
@@ -417,12 +418,25 @@ def list_device_ingredients(
     db: Session = Depends(get_db), actor: Actor = Depends(current_device)
 ) -> list[DeviceIngredientOut]:
     """Sólo para el formulario de merma del POS/cocina: `{id, name,
-    base_unit}`, ni un campo de costo (regla dura, SPEC-NEGOCIO §2.2). Mismo
+    base_unit, entry_mode, entry_unit}` (la unidad cómoda en que se teclea),
+    ni un campo de costo (regla dura, SPEC-NEGOCIO §2.2). Mismo
     patrón que `GET /device/employees` y `GET /device/payment-methods`:
     dispositivo activado, persona identificada opcional."""
     store = _store_for_device(db, actor)
     rows: list[Ingredient] = service.list_ingredients(db, store=store, active_only=True)
-    return [DeviceIngredientOut(id=i.id, name=i.name, base_unit=i.base_unit.value) for i in rows]  # type: ignore[arg-type]
+    out: list[DeviceIngredientOut] = []
+    for i in rows:
+        spec = entry_spec(i)
+        out.append(
+            DeviceIngredientOut(
+                id=i.id,
+                name=i.name,
+                base_unit=i.base_unit.value,  # type: ignore[arg-type]
+                entry_mode=spec.mode,  # type: ignore[arg-type]
+                entry_unit=spec.unit,
+            )
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------

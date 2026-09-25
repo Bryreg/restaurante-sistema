@@ -471,8 +471,6 @@
   "Todos"
  ],
  "features/inventory/WastePage.tsx": [
-  "Elegí un tipo",
-  "Elegí una opción",
   "Foto (opcional)",
   "No se pudo cargar la lista de insumos",
   "Registro de mermas no está habilitado",

@@ -193,6 +193,19 @@ def test_bottles_with_tenths_convert_once_on_the_server(
     assert line["counted_qty"] == "1725"  # 2,3 × 750 ml
 
 
+def test_items_counted_by_unit_reject_decimals_before_writing(
+    db: Session, device_client: TestClient, identify: Callable[..., Any], employees: dict[str, Employee],
+    bar_and_kitchen: dict[str, Any],
+) -> None:
+    carne, huevos = bar_and_kitchen["carne"]["id"], bar_and_kitchen["huevos"]["id"]
+    identify(device_client, employees["operator2"])
+    bad = _count(device_client, "opening", [(carne, "1"), (huevos, "5,5")])
+    assert bad.status_code == 400
+    assert "unidades enteras" in bad.json()["error"]["message"]
+    assert db.query(AreaCount).count() == 0
+    assert _count(device_client, "opening", [(carne, "1"), (huevos, "5")]).status_code == 201
+
+
 def test_a_count_must_include_every_item_and_nothing_is_written_when_it_does_not(
     db: Session, device_client: TestClient, identify: Callable[..., Any], employees: dict[str, Employee],
     bar_and_kitchen: dict[str, Any],

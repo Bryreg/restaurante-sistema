@@ -56,8 +56,9 @@ from app.core import clock, tz
 from app.core.errors import AppError, NotFoundError
 from app.core.money import format_cop
 from app.core.percent import format_pct_bp
-from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos, parse_qty_base
+from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.inventory import hooks, service
+from app.inventory.units import entry_qty_to_base, entry_spec
 from app.inventory.models import (
     AreaCount,
     AreaCountLine,
@@ -65,7 +66,6 @@ from app.inventory.models import (
     AreaCountSettings,
     AreaRecountRequest,
     AreaRecountStatus,
-    BaseUnit,
     CountArea,
     CountAreaItem,
     CountAreaMember,
@@ -122,30 +122,11 @@ _NOT_A_FLOW = (MovementCause.COUNT_ADJUSTMENT,)
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class EntrySpec:
-    mode: str  # weight | bottle | volume | unit
-    unit: str  # rótulo de la unidad en que se teclea
-    factor: int  # unidades BASE enteras por unidad de entrada
-
-
-def entry_spec(ingredient: Ingredient) -> EntrySpec:
-    """Carnes y vegetales por **peso** (kg); licores por **botella con
-    décimas** de la abierta (la unidad de compra del insumo en ml, p. ej.
-    «botella» de 750 ml); otros líquidos en litros; lo demás por unidad."""
-    if ingredient.base_unit == BaseUnit.G:
-        return EntrySpec("weight", "kg", 1000)
-    if ingredient.base_unit == BaseUnit.ML:
-        if ingredient.purchase_factor > 1:
-            return EntrySpec("bottle", ingredient.purchase_unit, ingredient.purchase_factor)
-        return EntrySpec("volume", "L", 1000)
-    return EntrySpec("unit", "unidad", 1)
-
-
 def _to_base(ingredient: Ingredient, raw: str) -> int:
-    """Lo tecleado en la unidad cómoda → milésimas de la unidad base. Es la
-    única conversión del conteo corto: `parse_qty_base` da milésimas de la
-    unidad de entrada, y el factor es entero, así que no hay redondeo."""
+    """Lo tecleado en la unidad cómoda → milésimas de la unidad base. La
+    conversión vive en `units.entry_qty_to_base` (la misma de la merma);
+    acá sólo se suma la regla propia del conteo: la botella se cuenta en
+    enteras y décimas de la abierta, y la unidad, sin fracción."""
     spec = entry_spec(ingredient)
     text = raw.strip().replace(",", ".")
     if spec.mode == "bottle" and "." in text and len(text.split(".", 1)[1].rstrip("0")) > 1:
@@ -153,10 +134,7 @@ def _to_base(ingredient: Ingredient, raw: str) -> int:
             code="VALIDATION_ERROR",
             message=f"{ingredient.name}: contá las botellas enteras y la abierta en décimas (por ejemplo 2,3)",
         )
-    qty = parse_qty_base(text, field=ingredient.name)
-    if qty < 0:
-        raise AppError(code="VALIDATION_ERROR", message=f"{ingredient.name}: la cantidad no puede ser negativa")
-    return qty * spec.factor
+    return entry_qty_to_base(ingredient, text)
 
 
 def item_out(ingredient: Ingredient) -> AreaCountItemOut:

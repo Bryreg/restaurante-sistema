@@ -39,6 +39,39 @@ export function qtyText(qty: string | null | undefined, baseUnit: string): strin
   return formatCantidad(qty, UNIT_LABEL[baseUnit as BaseUnit] ?? baseUnit)
 }
 
+/** Abreviaturas que no se pluralizan: «2 kg», «3 L». */
+const ABREVIATURAS = new Set(["kg", "g", "l", "ml", "cc", "und", "lb", "oz"])
+
+/**
+ * El rótulo de una unidad de entrada (`entry_unit`, p. ej. la unidad de
+ * compra «garrafa») en plural para escribirlo junto al número: «garrafas»,
+ * «bolsas», «unidades»; las abreviaturas quedan igual. Sin unidad,
+ * «unidades». Sólo palabras: no convierte nada.
+ */
+export function unidadEnPlural(unidad: string | null | undefined): string {
+  const u = (unidad ?? "").trim()
+  if (u === "") return "unidades"
+  if (ABREVIATURAS.has(u.toLowerCase())) return u
+  if (/s$/i.test(u)) return u
+  if (/z$/i.test(u)) return `${u.slice(0, -1)}ces`
+  if (/[aeiouáéó]$/i.test(u)) return `${u}s`
+  return `${u}es`
+}
+
+/** «La garrafa» / «el tarro»: para concordar «enteras/enteros», «abierta/abierto». */
+export function unidadEsFemenina(unidad: string | null | undefined): boolean {
+  const u = (unidad ?? "").trim().toLowerCase()
+  if (u === "") return true // «unidad»
+  return /(a|dad|ión)$/.test(u)
+}
+
+/** «Garrafas enteras», «Tarros enteros»; sin unidad, «Unidades enteras». */
+export function rotuloEnteras(unidad: string | null | undefined): string {
+  const plural = unidadEnPlural(unidad)
+  const texto = `${plural} ${unidadEsFemenina(unidad) ? "enteras" : "enteros"}`
+  return texto.charAt(0).toUpperCase() + texto.slice(1)
+}
+
 /** Un faltante positivo se lee «faltan»; uno negativo, «sobran». El signo lo pone el servidor. */
 export function shortageWord(qty: string | null | undefined): "faltan" | "sobran" | null {
   if (qty === null || qty === undefined) return null
