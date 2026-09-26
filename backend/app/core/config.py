@@ -29,5 +29,17 @@ class Settings(BaseSettings):
     # o al salir, la tablet vuelve sola a «Quién opera».
     ADMIN_ON_DEVICE_SESSION_MINUTES: int = 15
 
+    # Avisos al celular (Web Push, `app.notifications.push`). Si las dos
+    # claves vienen, mandan para todas las organizaciones; si no, cada
+    # organización genera su par una vez y lo guarda en la base. La pública
+    # y la privada van en base64url (el formato de `web-push
+    # generate-vapid-keys`); la privada también se acepta en PEM.
+    # `VAPID_SUBJECT` es el contacto que exigen los servicios de push
+    # (`mailto:...` o `https://...`); sin él se usa el correo del
+    # administrador.
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_SUBJECT: str = ""
+
 
 settings = Settings()

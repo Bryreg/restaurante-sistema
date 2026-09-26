@@ -412,3 +412,52 @@ def test_the_new_routes_say_feature_disabled_with_the_feature_off(
     ):
         assert resp.status_code == 400, resp.text
         assert resp.json()["error"]["code"] == "FEATURE_DISABLED"
+
+
+# ---------------------------------------------------------------------------
+# Aviso grave al celular (0031): faltante grande del conteo por área.
+# ---------------------------------------------------------------------------
+
+
+def _shortage_notices(db: Session) -> list[Any]:
+    from app.notifications.models import Notification
+
+    db.expire_all()
+    return list(
+        db.execute(
+            select(Notification).where(Notification.type == "area_count_shortage").order_by(Notification.id)
+        ).scalars()
+    )
+
+
+def test_a_big_shortage_leaves_a_critical_notice_and_a_small_one_or_a_surplus_does_not(
+    db: Session, store: Store, device_client: TestClient, identify: Callable[..., Any],
+    employees: dict[str, Employee], setup: dict[str, Any], clock: Any,
+) -> None:
+    cocina, carne, huevos = setup["cocina"]["id"], setup["carne"]["id"], setup["huevos"]["id"]
+    cook = employees["operator2"]
+
+    clock.set(datetime(2026, 5, 3, 3, 0, tzinfo=timezone.utc))
+    identify(device_client, cook)
+    assert _item(device_client, cocina, carne, "10", moment="closing").status_code == 201
+    assert _item(device_client, cocina, huevos, "30", moment="closing").status_code == 201
+    assert _shortage_notices(db) == [], "sin conteo anterior no hay faltante"
+
+    clock.set(datetime(2026, 5, 3, 12, 0, tzinfo=timezone.utc))
+    identify(device_client, cook)
+    # Carne: esperado 10 kg, contó 4 kg -> faltan 6 kg (a $ 30/g, $ 180.000): fuera del umbral.
+    assert _item(device_client, cocina, carne, "4").status_code == 201
+    # Huevos: sobran 2 (contó 32): una diferencia, pero no es faltante.
+    assert _item(device_client, cocina, huevos, "32").status_code == 201
+
+    notices = _shortage_notices(db)
+    assert len(notices) == 1
+    notice = notices[0]
+    assert notice.level == "critical"
+    assert notice.payload["ingredient_ids"] == [carne]
+    assert "Carne" in notice.body and "Cocina" in notice.title
+
+    # Recontar la carne con el mismo faltante no repite el aviso el mismo día.
+    identify(device_client, cook)
+    assert _item(device_client, cocina, carne, "4").status_code == 201
+    assert len(_shortage_notices(db)) == 1

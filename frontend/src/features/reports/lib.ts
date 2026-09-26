@@ -198,6 +198,14 @@ const ALERT_ROUTES: Record<string, AlertRoute> = {
   // Revisión de datos (sep. 2026): todas las diferencias de caja al cierre
   // en un solo aviso. Se resuelven mirando los cierres uno por uno, que es
   // lo que lista el historial de turnos.
+  // 0031, avisos al celular.
+  reserve_loan_open: { to: "/admin/dinero", label: "Ver turno", screen: "Dinero", tab: "Operacional" },
+  area_count_shortage: {
+    to: "/admin/inventario?tab=por-area",
+    label: "Ver conteo por área",
+    screen: "Inventario",
+    tab: "Conteo por área",
+  },
   cash_diff_summary: { to: "/admin/dinero?tab=historial", label: "Ver cierres", screen: "Dinero", tab: "Historial" },
 }
 

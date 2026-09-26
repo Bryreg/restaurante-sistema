@@ -489,15 +489,21 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       respaldo vive aparte con su libro y sus verificaciones
       (`cash_reserve_movements`, `cash_reserve_checks`).
     - Al integrar, la cadena queda `0027 → 0028 → 0029 → 0030`: cabeza
-      **`0030`** y conteo **111**. Las dos igualdades siguen exactas.
+      `0030` y conteo 111. Las dos igualdades siguen exactas.
+    - Con **`0031_push_notifications`** la cadena llega a `"0031"` y el
+      conteo a **113**. Motivo declarado: los avisos al celular
+      (`notifications.push`) necesitaban dónde guardar los celulares
+      suscritos (`push_subscriptions`, que nunca se borran) y las claves
+      VAPID de cada organización (`push_vapid_keys`). Se mueven los dos
+      postes; las dos igualdades siguen exactas.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0030"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0030 "
-        "(asistencia 0028, apertura por sobres 0029 y conteo artículo por artículo 0030)"
+    assert 'version == "0031"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0031 "
+        "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030 y avisos al celular 0031)"
     )
-    assert "len(tablas) == 111" in fuente, (
-        "el conteo de tablas sigue en un número viejo: 0029 lo deja en 111 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3)"
+    assert "len(tablas) == 113" in fuente, (
+        "el conteo de tablas sigue en un número viejo: 0031 lo deja en 113 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2)"
     )
     assert ">=" not in fuente.split("def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory")[1].split("\ndef ")[0], (
         "el invariante de la cadena se aflojó a una desigualdad: un conjunto exacto se MUEVE, no se afloja"

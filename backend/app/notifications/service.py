@@ -4,6 +4,12 @@ Respeta la regla de la sede (si existe y está apagada, no crea nada) y
 deduplica por día (hora de Bogotá) cuando el llamador manda `dedupe_key` — un
 `shift_stale` no tiene que repetirse cada vez que alguien refresca la
 pantalla.
+
+Si la notificación es **crítica** y la sede tiene `notifications.push`, sale
+además al celular de los administradores (`app.notifications.push.enqueue`),
+después del commit y sin frenar la request. `supervisor_body` suma a los
+supervisores de la sede, con ese texto (sin montos); `push_url` dice a qué
+pantalla lleva tocar el aviso.
 """
 
 from __future__ import annotations
@@ -14,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import clock, tz
+from app.notifications import push
 from app.notifications.models import Notification, NotificationRule
 
 NOTIFICATION_TYPES: list[str] = [
@@ -53,7 +60,33 @@ NOTIFICATION_TYPES: list[str] = [
     "prep_no_production",
     "product_discounts_nothing",
     "waste_spike",
+    # Avisos al celular (0031): los dos hechos graves que el dueño pidió y
+    # que no se emitían. La plata de la base de respaldo sin devolver la
+    # emite `app.shifts.reserve` (al intentar cerrar con préstamo abierto, o
+    # pasada la hora de corte); el faltante grande del conteo por área,
+    # `app.inventory.area_counts` al guardar un artículo fuera del umbral.
+    "reserve_loan_open",
+    "area_count_shortage",
 ]
+
+
+#: El nivel con el que nace cada tipo cuando la sede no tiene regla propia.
+#: Los críticos son los que salen al celular (`notifications.push`). La
+#: pantalla de reglas los muestra con este nivel: antes mostraba «Alerta»
+#: para todos, y guardar la pantalla bajaba un turno abandonado a alerta.
+CRITICAL_BY_DEFAULT: frozenset[str] = frozenset(
+    {
+        "shift_stale",
+        "cash_difference_critical",
+        "void_rate_high",
+        "reserve_loan_open",
+        "area_count_shortage",
+    }
+)
+
+
+def default_level(type: str) -> Literal["info", "warning", "critical"]:
+    return "critical" if type in CRITICAL_BY_DEFAULT else "warning"
 
 
 def _rule(db: Session, store_id: int, type: str) -> NotificationRule | None:
@@ -74,6 +107,8 @@ def notify(
     body: str,
     payload: dict[str, Any] | None = None,
     dedupe_key: str | None = None,
+    supervisor_body: str | None = None,
+    push_url: str | None = None,
 ) -> Notification | None:
     rule = _rule(db, store_id, type)
     if rule is not None and not rule.enabled:
@@ -111,4 +146,5 @@ def notify(
     )
     db.add(row)
     db.flush()
+    push.enqueue(db, row, supervisor_body=supervisor_body, url=push_url)
     return row

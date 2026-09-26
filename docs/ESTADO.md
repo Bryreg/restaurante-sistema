@@ -1953,8 +1953,7 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     (`/admin/records/...`). Contradicciones arregladas en la fuente: turno
     abandonado visible en Operacional, esperado vivo igual en Hoy y
     Operacional, responsable inactivo marcado, ventas por persona con una
-    sola definición. El push al teléfono no tiene infraestructura todavía
-    (ver CONTEXTO-AGENTES §8).
+    sola definición. El push al teléfono llegó en §49.
 
     **Decisiones del dueño (2026-09-26)**, que rigen §45–§48:
     1. La base es plata aparte con monto fijo; la caja arranca sólo con la
@@ -1966,6 +1965,78 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
        propina.
     5. El conteo de apertura de la lista elegida es obligatorio, y una vez
        al mes el conteo completo.
+49. **Avisos al celular (Web Push, `notifications.push`)** (2026-09-26).
+    La función estaba en el catálogo y nada la entregaba. Migración `0031`
+    (`0030 → 0031`, 111 → **113** tablas): `push_subscriptions` (organización,
+    persona, endpoint, `p256dh`, `auth`, la clave VAPID con que se suscribió,
+    user agent, `created_at`, `revoked_at` + `revoked_reason`; nunca se
+    borra, índice único parcial «un endpoint activo»), `push_vapid_keys` (un
+    par por organización) y `notifications.pushed_at`.
+    - **Despachador** (`app/notifications/push.py`), colgado de
+      `service.notify`: si la notificación queda **crítica** (el nivel ya
+      pasado por la regla de la sede) y la sede tiene la función, encola un
+      envío por celular activo de los administradores de la organización —y
+      de los supervisores de la sede si el llamador manda `supervisor_body`,
+      sin montos—. Sale **después del commit** (evento `after_commit` de la
+      sesión) en un hilo, con timeout de 10 s por envío; un rollback no manda
+      nada. 404/410 da de baja la suscripción (`gone`); otra falla queda en
+      `last_error` y el log, nunca levanta. Anti-repetición: además del
+      dedupe diario de `notify`, un aviso igual no sale de nuevo antes de 30
+      minutos. Cifrado RFC 8291 (`aes128gcm`) y firma VAPID (ES256) con
+      `cryptography` + `PyJWT` (ya fijadas): **sin dependencias nuevas**.
+      `pywebpush` pide `cryptography>=47` (acá fijada en 46) y trae
+      `aiohttp`; `http-ece` no construye su rueda en este host sin
+      `--use-pep517`. El cifrado se verificó contra `http_ece` (descifra
+      igual).
+    - **Claves VAPID**: `VAPID_PUBLIC_KEY` + `VAPID_PRIVATE_KEY` (base64url;
+      la privada también en PEM) y `VAPID_SUBJECT` por entorno si se quiere;
+      si no, cada organización genera su par la primera vez y lo guarda
+      (anda en Render sin configurar nada). El `subject` por defecto es el
+      correo del administrador. La privada no sale por ninguna ruta. Si la
+      clave cambia, las suscripciones viejas se dan de baja (`key_changed`) y
+      la pantalla pide activar de nuevo.
+    - **Rutas** (todas `current_admin` + `require_feature`):
+      `GET /admin/push/public-key`, `GET /admin/push/devices`,
+      `POST /admin/push/subscribe` (valida servicio de push conocido —FCM,
+      Mozilla, Apple, Windows— y las claves del navegador antes de escribir;
+      el mismo celular no duplica), `POST /admin/push/unsubscribe` (baja, con
+      auditoría) y `POST /admin/push/test` («Enviar aviso de prueba», sale en
+      el momento y cuenta enviados / con falla / quitados).
+    - **Qué sale al celular**: `shift_stale` (ya crítico),
+      `cash_difference_critical` (ya crítico), `void_rate_high` (pasa de
+      alerta a **crítico**), y dos tipos nuevos: `reserve_loan_open`
+      (`app/shifts/reserve.py`: al intentar contar el cierre con préstamo
+      abierto —el aviso sobrevive al 400, como el contador de PIN— y, al leer
+      Hoy o el panel, un préstamo pasado la hora de corte o dentro de un
+      turno rescatado; al supervisor le llega sin monto) y
+      `area_count_shortage` (`app/inventory/area_counts.py`: al guardar un
+      artículo, un conteo entero o un recuento con FALTANTE fuera del
+      umbral; sólo al administrador, puede llevar el valor).
+    - **Reglas por sede**: la pantalla mostraba «Alerta» como nivel por
+      defecto de todo tipo sin regla, y guardarla bajaba el turno abandonado
+      y la diferencia crítica a alerta (y al celular sólo sale lo crítico).
+      Ahora `GET /admin/notification-rules` publica el nivel propio de cada
+      tipo (`service.default_level`), y `0031` devuelve a `critical` las
+      reglas de `shift_stale`, `cash_difference_critical` y `void_rate_high`
+      que habían quedado en `warning`.
+    - **Frontend**: `public/sw.js` (sólo `push` y `notificationclick`; no
+      cachea ni intercepta pedidos), `public/manifest.webmanifest` («Restaurante»,
+      `start_url /admin/hoy`, `standalone`) e íconos PNG en `public/icons/`
+      (Vite los copia a la raíz de `dist/`); `index.html` enlaza el
+      manifiesto y el ícono de Apple. `main.py` sirve `/sw.js` como
+      `text/javascript` sin caché con `Service-Worker-Allowed: /`, y el
+      manifiesto como `application/manifest+json`. Admin › Notificaciones
+      suma la tarjeta **«Avisos al celular»** (`PushCard.tsx`, sólo con la
+      función encendida): estado de este celular, «Activar en este
+      celular» (pide permiso, registra el service worker —sólo ahí— y se
+      suscribe), «Enviar aviso de prueba», «Mis celulares» con «Quitar», y
+      los pasos del iPhone (Compartir → Agregar a inicio, abrir desde el
+      ícono, activar; iOS 16.4+). Navegador sin soporte o iPhone sin
+      agregar a inicio: lo dice, sin botón de activar.
+    - Pendiente: los supervisores no tienen sesión en el admin, así que hoy
+      sólo se suscriben administradores; el despachador ya les manda lo que
+      trae texto para ellos cuando la tengan. Falta caminarlo en un iPhone y
+      un Android reales contra producción.
 
 ---
 

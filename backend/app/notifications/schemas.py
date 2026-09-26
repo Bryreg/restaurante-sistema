@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class NotificationOut(BaseModel):
@@ -29,3 +29,51 @@ class NotificationRuleIn(BaseModel):
     enabled: bool
     threshold: int | None = None
     level: str
+
+
+# ---------------------------------------------------------------------------
+# Avisos al celular (0031, `notifications.push`)
+# ---------------------------------------------------------------------------
+
+
+class PushPublicKeyOut(BaseModel):
+    """La clave pública VAPID con la que el navegador se suscribe. La
+    privada no viaja nunca."""
+
+    public_key: str
+
+
+class PushKeysIn(BaseModel):
+    p256dh: str = Field(min_length=1, max_length=200)
+    auth: str = Field(min_length=1, max_length=100)
+
+
+class PushSubscribeIn(BaseModel):
+    """La forma de `PushSubscription.toJSON()` del navegador."""
+
+    endpoint: str = Field(min_length=1, max_length=1000)
+    keys: PushKeysIn
+
+
+class PushUnsubscribeIn(BaseModel):
+    subscription_id: int | None = None
+    endpoint: str | None = Field(default=None, max_length=1000)
+
+
+class PushDeviceOut(BaseModel):
+    id: int
+    label: str
+    endpoint: str
+    created_at: datetime
+    last_success_at: datetime | None = None
+    last_error: str | None = None
+
+
+class PushUnsubscribeOut(BaseModel):
+    removed: bool
+
+
+class PushTestOut(BaseModel):
+    sent: int
+    failed: int
+    removed: int

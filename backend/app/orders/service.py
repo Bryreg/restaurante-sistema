@@ -2082,7 +2082,10 @@ def _check_void_rate_high(db: Session, *, order: Order, actor: Actor) -> None:
     pct = voided / sales * 100
     if pct > VOID_RATE_ALERT_PCT:
         notify(
-            db, organization_id=order.organization_id, store_id=order.store_id, type="void_rate_high", level="warning",
+            db, organization_id=order.organization_id, store_id=order.store_id, type="void_rate_high",
+            # Crítico (0031): el dueño pidió que las anulaciones fuera de lo
+            # habitual le lleguen al celular, y al celular sale sólo lo grave.
+            level="critical",
             title="Anulaciones por encima de lo habitual",
             body=f"{actor.employee_name} anuló {format_cop(voided)} (a precio de lista) sobre {format_cop(sales)} en ventas este turno ({pct:.1f}%).",
             payload={"employee_id": actor.employee_id, "shift_id": order.shift_id},

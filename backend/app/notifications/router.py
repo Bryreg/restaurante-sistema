@@ -14,9 +14,21 @@ from app.core import clock
 from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import NotFoundError
-from app.notifications.models import Notification, NotificationRule
-from app.notifications.schemas import NotificationOut, NotificationRuleIn, NotificationRuleOut
-from app.notifications.service import NOTIFICATION_TYPES
+from app.core.features import require_feature
+from app.notifications import push
+from app.notifications.models import Notification, NotificationRule, PushSubscription
+from app.notifications.schemas import (
+    NotificationOut,
+    NotificationRuleIn,
+    NotificationRuleOut,
+    PushDeviceOut,
+    PushPublicKeyOut,
+    PushSubscribeIn,
+    PushTestOut,
+    PushUnsubscribeIn,
+    PushUnsubscribeOut,
+)
+from app.notifications.service import NOTIFICATION_TYPES, default_level
 
 router = APIRouter()
 
@@ -88,7 +100,7 @@ def get_notification_rules(
         if row is not None:
             out.append(NotificationRuleOut(type=t, enabled=row.enabled, threshold=row.threshold, level=row.level))
         else:
-            out.append(NotificationRuleOut(type=t, enabled=True, threshold=None, level="warning"))
+            out.append(NotificationRuleOut(type=t, enabled=True, threshold=None, level=default_level(t)))
     return out
 
 
@@ -137,3 +149,88 @@ def put_notification_rules(
         after={e.type: e.model_dump() for e in body},
     )
     return get_notification_rules(store_id, db, actor)
+
+
+# ---------------------------------------------------------------------------
+# Avisos al celular (0031, `notifications.push`): la tarjeta «Avisos al
+# celular» de Notificaciones. Cada persona maneja SUS celulares.
+# ---------------------------------------------------------------------------
+
+_push_gate = Depends(require_feature(push.FEATURE))
+
+
+def _device_out(sub: PushSubscription) -> PushDeviceOut:
+    return PushDeviceOut(
+        id=sub.id,
+        label=push.device_label(sub.user_agent),
+        endpoint=sub.endpoint,
+        created_at=sub.created_at,
+        last_success_at=sub.last_success_at,
+        last_error=sub.last_error,
+    )
+
+
+@router.get("/admin/push/public-key", dependencies=[_push_gate])
+def get_push_public_key(db: Session = Depends(get_db), actor: Actor = Depends(current_admin)) -> PushPublicKeyOut:
+    return PushPublicKeyOut(public_key=push.vapid_keys(db, actor.organization_id).public_key)
+
+
+@router.get("/admin/push/devices", dependencies=[_push_gate])
+def list_push_devices(db: Session = Depends(get_db), actor: Actor = Depends(current_admin)) -> list[PushDeviceOut]:
+    return [_device_out(s) for s in push.list_devices(db, actor)]
+
+
+@router.post("/admin/push/subscribe", dependencies=[_push_gate])
+def subscribe_push(
+    body: PushSubscribeIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+) -> PushDeviceOut:
+    sub = push.subscribe(
+        db,
+        actor,
+        endpoint=body.endpoint,
+        p256dh=body.keys.p256dh,
+        auth=body.keys.auth,
+        user_agent=request.headers.get("user-agent"),
+    )
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=actor.organization_id,
+        store_id=None,
+        entity="push_subscription",
+        entity_id=sub.id,
+        action="subscribe",
+        before=None,
+        after={"device": push.device_label(sub.user_agent)},
+    )
+    return _device_out(sub)
+
+
+@router.post("/admin/push/unsubscribe", dependencies=[_push_gate])
+def unsubscribe_push(
+    body: PushUnsubscribeIn, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> PushUnsubscribeOut:
+    sub = push.unsubscribe(db, actor, subscription_id=body.subscription_id, endpoint=body.endpoint)
+    if sub is None:
+        return PushUnsubscribeOut(removed=False)
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=actor.organization_id,
+        store_id=None,
+        entity="push_subscription",
+        entity_id=sub.id,
+        action="revoke",
+        before={"revoked_at": None},
+        after={"revoked_reason": sub.revoked_reason},
+    )
+    return PushUnsubscribeOut(removed=True)
+
+
+@router.post("/admin/push/test", dependencies=[_push_gate])
+def send_push_test(db: Session = Depends(get_db), actor: Actor = Depends(current_admin)) -> PushTestOut:
+    outcome = push.send_test(db, actor)
+    return PushTestOut(sent=outcome.sent, failed=outcome.failed, removed=outcome.removed)

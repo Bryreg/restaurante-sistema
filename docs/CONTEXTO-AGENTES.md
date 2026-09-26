@@ -103,9 +103,9 @@ pantalla nueva no se cuelga a mano del router.
 `orders` 24/16 · `shifts` 24/17 · `inventory` 21/13 · `catalog` 17/7 ·
 `banking` 16/6 · `purchases` 16/8 · `payroll` 15/8 · `auth` 13/3 ·
 `channels` 13/7 · `recipes` 12/10 · `expenses` 11/7 · `fiscal` 8/6 ·
-`kitchen` 6/3 · `payments` 6/2 · `customers` 5/5 · `notifications` 4/2 ·
+`kitchen` 6/3 · `payments` 6/2 · `customers` 5/5 · `notifications` 9/4 ·
 `reports` 4/0 · `analytics` 4/0 · `refunds` 2/3 · `audit` 1/1.
-Alembic va por `0020`, **93 tablas de dominio**. Todo bajo `/api/v1`.
+Alembic va por `0031`, **113 tablas de dominio**. Todo bajo `/api/v1`.
 
 `analytics` y `reports` **no tienen modelos a propósito**: son derivados. Si tu
 dominio puede serlo, que lo sea («derivar en vez de almacenar», §6.1).
@@ -297,16 +297,37 @@ asistencia ni roster: en la tablet sólo autoriza.
 - `GET /admin/shifts?include_open=true` suma los turnos abiertos de
   cualquier fecha: Dinero › Operacional lo usa para que un turno abandonado
   de otro día no se esconda por su fecha.
-- **Push al teléfono (`notifications.push`)**: la función está en el
-  catálogo pero **no hay nada que la entregue**: ni tabla de suscripciones
-  (necesita migración), ni claves VAPID, ni service worker, ni despachador.
-  La costura natural es `app/notifications/service.notify` (la única puerta
-  de una notificación): un despachador colgado ahí, gateado por la función,
-  para los tipos graves. De los cuatro que pidió el dueño, hoy se emiten
-  `shift_stale` (crítico; también lo emite el panel, no sólo el POS) y
-  `void_rate_high`; **no se emiten** la plata sin devolver (dominio de la
-  base de respaldo) ni el faltante grande del conteo por área (el conteo
-  marca `flagged`, pero no llama a `notify`).
+- **Push al teléfono (`notifications.push`, 0031)** — `app/notifications/push.py`:
+  - **No se llama a mano.** `service.notify` encola solo el aviso al celular
+    cuando la notificación queda **crítica** (el nivel después de la regla
+    de la sede) y la sede tiene la función: a los administradores activos de
+    la organización, y a los supervisores de la sede sólo si le pasás
+    `supervisor_body=` (un texto **sin montos**). `push_url=` dice a qué
+    pantalla lleva tocar el aviso (por defecto `/admin/hoy`). Si tu hecho es
+    grave, emitilo `level="critical"` desde tu dominio y listo; sumalo a
+    `NOTIFICATION_TYPES`, a `CRITICAL_BY_DEFAULT` y a `TYPE_LABEL`/`TYPE_HELP`
+    del frontend.
+  - Sale **después del commit** (`after_commit` de la sesión) en un hilo con
+    timeout; un rollback no manda nada; `get_db` comitea ante un `AppError`,
+    así que un aviso emitido justo antes de rechazar SÍ sale (es lo que hace
+    `reserve_loan_open` al intentar cerrar con préstamo abierto). 404/410 da
+    de baja la suscripción; ninguna falla levanta. Un aviso igual no sale dos
+    veces en 30 minutos (además del dedupe diario de `notify`).
+  - Los tests **nunca** mandan un aviso real: reemplazan `push._post` y
+    `push._spawn` (ver `tests/notifications/test_push.py`). La sesión de
+    tests no comitea de verdad; `push.pending_jobs(db)` dice qué quedó
+    encolado y `db.commit()` en el test dispara el envío.
+  - Claves VAPID: por entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+    `VAPID_SUBJECT`) o, si no vienen, generadas una vez por organización en
+    `push_vapid_keys`. La privada no sale por ninguna ruta.
+  - Hoy salen al celular: `shift_stale`, `void_rate_high`,
+    `cash_difference_critical`, `reserve_loan_open` (`app/shifts/reserve.py`,
+    al intentar cerrar con préstamo y al leer Hoy/panel pasado el corte) y
+    `area_count_shortage` (`app/inventory/area_counts.py`, faltante fuera
+    del umbral al guardar).
+  - El service worker (`frontend/public/sw.js`) lo registra **sólo** la
+    tarjeta «Avisos al celular»; `main.py` lo sirve en `/sw.js` sin caché.
+    El iPhone necesita la app agregada a inicio (iOS 16.4+).
 
 ---
 

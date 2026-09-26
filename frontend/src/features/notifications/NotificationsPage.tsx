@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
+import { useSession } from "@/app/session";
 import { useStoreSelection } from "@/app/storeContext";
 import {
   getNotificationRules,
@@ -37,6 +38,7 @@ import { Switch } from "@/components/ui/switch";
 import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 
+import { PushCard } from "./PushCard";
 import { TYPE_HELP, TYPE_LABEL } from "./types";
 
 
@@ -377,6 +379,7 @@ function NotificationRules({ storeId }: { storeId: number }) {
 /** Admin → Notificaciones: campana + reglas por sede. */
 export default function NotificationsPage(): React.JSX.Element {
   const { stores, activeStoreId } = useStoreSelection();
+  const { hasFeature } = useSession();
 
   return (
     <div className="space-y-4">
@@ -388,6 +391,8 @@ export default function NotificationsPage(): React.JSX.Element {
           { label: "Las reglas", value: "por sede", title: "Cada sede decide qué le avisa y con qué gravedad." },
         ]}
       />
+
+      {hasFeature("notifications.push") ? <PushCard /> : null}
 
       <section className="space-y-2">
         <h2 className="text-xs font-bold tracking-wider uppercase">Recientes</h2>

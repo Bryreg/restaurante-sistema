@@ -222,3 +222,69 @@ def test_with_the_feature_off_there_is_no_reserve(
     assert device_client.get(f"{API}/shifts/current").json()["reserve_loan"] is None
     today = admin_client.get(f"{API}/admin/today", params={"store_id": store.id}).json()
     assert today["reserve_loans_open_total"] is None
+
+
+# ---------------------------------------------------------------------------
+# Aviso grave al celular (0031): plata de la base sin devolver.
+# ---------------------------------------------------------------------------
+
+
+def _reserve_notices(db: Session) -> list[Any]:
+    from sqlalchemy import select
+
+    from app.notifications.models import Notification
+
+    db.expire_all()
+    return list(
+        db.execute(select(Notification).where(Notification.type == "reserve_loan_open").order_by(Notification.id)).scalars()
+    )
+
+
+def test_trying_to_close_with_the_loan_open_leaves_a_critical_notice(
+    db: Session, device_client: TestClient, open_shift: Any, store: Any
+) -> None:
+    """El rechazo del cierre deja el aviso (sobrevive al 400, como el
+    contador de PIN): crítico, con el monto para el dueño y sin monto para el
+    supervisor custodio. Reintentar no lo repite."""
+    from app.notifications import push
+
+    _configure(db, store)
+    shift = open_shift()
+    assert _take(device_client, shift["id"], 50_000).status_code == 201
+    for _ in range(2):
+        count = device_client.post(
+            f"{API}/shifts/{shift['id']}/close/count",
+            json={"counted_cash": _denoms(250_000), "photo": "cierre.jpg"},
+            headers=idem(),
+        )
+        assert count.json()["error"]["code"] == "RESERVE_LOAN_OPEN"
+    notices = _reserve_notices(db)
+    assert len(notices) == 1
+    assert notices[0].level == "critical"
+    assert notices[0].payload == {"shift_id": shift["id"], "owed": 50_000, "when": "close"}
+    assert "$" in notices[0].body
+    assert push.pending_jobs(db) == [], "sin celulares suscritos no se encola nada"
+
+
+def test_a_loan_past_the_cutoff_is_noticed_when_today_is_read(
+    db: Session, device_client: TestClient, admin_client: TestClient, open_shift: Any, store: Any, clock: Any
+) -> None:
+    from datetime import datetime, timezone
+
+    # El reloj de mentira arranca en el presente: las sesiones ya firmadas
+    # siguen vigentes, y después se adelanta dos días.
+    clock.set(datetime.now(timezone.utc))
+    _configure(db, store)
+    shift = open_shift()
+    assert _take(device_client, shift["id"], 30_000).status_code == 201
+
+    admin_client.get(f"{API}/admin/today", params={"store_id": store.id})
+    assert _reserve_notices(db) == [], "el mismo día, antes del corte, todavía no es un aviso"
+
+    clock.advance(days=2)
+    today = admin_client.get(f"{API}/admin/today", params={"store_id": store.id})
+    assert today.status_code == 200, today.text
+    admin_client.get(f"{API}/admin/panel", params={"store_id": store.id})
+    notices = _reserve_notices(db)
+    assert len(notices) == 1, "Hoy y el panel leen lo mismo: un solo aviso"
+    assert notices[0].level == "critical" and notices[0].payload["when"] == "overdue"

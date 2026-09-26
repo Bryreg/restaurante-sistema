@@ -1772,9 +1772,15 @@ def _reject_open_reserve_loan(db: Session, shift: Shift) -> None:
     """Decisión del dueño (2026-09-26): lo tomado de la base de respaldo se
     devuelve el mismo día, **antes** del conteo de cierre. Con préstamo
     abierto el cierre no se cuenta: el mensaje dice cuánto y dónde
-    devolverlo. Se llama antes de escribir nada."""
+    devolverlo. Se llama antes de escribir nada.
+
+    La única escritura es el aviso (`reserve_loan_open`, crítico, al
+    celular del dueño y del supervisor): es a propósito que sobreviva al
+    rechazo —`get_db` comitea ante un `AppError`—, igual que el contador de
+    PIN fallidos. Deduplicado por turno y por día."""
     owed = reserve.loan_outstanding(db, shift.id)
     if owed > 0:
+        reserve.notify_loan_open(db, shift=shift, owed=owed, when="close")
         raise AppError(
             "RESERVE_LOAN_OPEN",
             f"El cajón le debe {format_cop(owed)} a la base de respaldo: devolvelos en Turno › Devolver a la base "

@@ -514,6 +514,16 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     `cash_reserve_checks`); `shifts` y `store_cash_settings` suman columnas.
     Se mueve el poste; las dos igualdades siguen exactas y los tres nombres
     entran enumerados abajo.
+
+    **Re-apuntado con los avisos al celular** (`0031_push_notifications`):
+    la cabeza pasa a **`0031`** y el conteo de 111 a **113**. Motivo
+    declarado: la función `notifications.push` estaba en el catálogo y nada
+    la entregaba; faltaban dónde guardar los celulares suscritos
+    (`push_subscriptions`, nunca se borran: se dan de baja) y el par de
+    claves VAPID de cada organización cuando no viene por entorno
+    (`push_vapid_keys`). `notifications` gana una columna (`pushed_at`). Se
+    mueven los dos postes; las dos igualdades siguen exactas y los dos
+    nombres entran enumerados abajo.
     """
     from sqlalchemy import text
 
@@ -525,11 +535,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0030", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0030: 0027 → 0028 (asistencia separada del turno de caja) "
-        "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo). "
+    assert version == "0031", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0031: 0027 → 0028 (asistencia separada del turno de caja) "
+        "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo) "
+        "→ 0031 (avisos al celular). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029 y 0030"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030 y 0031"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -585,6 +596,8 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     de_la_asistencia = {"attendance_entries"}
     # 2026-09-26: el conteo de apertura por sobres y la base de respaldo.
     de_la_base_de_respaldo = {"shift_opening_counts", "cash_reserve_movements", "cash_reserve_checks"}
+    # 0031: los celulares suscritos a los avisos y las claves VAPID.
+    de_los_avisos_al_celular = {"push_subscriptions", "push_vapid_keys"}
     de_la_nomina = {
         "payroll_surcharge_tables",
         "payroll_holidays",
@@ -611,6 +624,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
             | del_conteo_por_area
             | de_la_asistencia
             | de_la_base_de_respaldo
+            | de_los_avisos_al_celular
         )
         - tablas
     )
@@ -634,12 +648,13 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # cada persona y la última que usó la tablet) agrega columnas, no tablas:
     # sigue 107. `0028` suma la asistencia del día (`attendance_entries`),
     # separada del turno de caja: 108. `0029` (apertura por sobres y base de
-    # respaldo) suma tres: **111**. `0030` agrega columnas, no tablas.
-    assert len(tablas) == 111, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; `0029` lo deja en 111 "
+    # respaldo) suma tres: 111. `0030` agrega columnas, no tablas. `0031`
+    # (avisos al celular) suma dos: **113**.
+    assert len(tablas) == 113, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; `0031` lo deja en 113 "
         f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón "
         f"+ 5 de la rutina del turno + 7 del conteo por área + 1 de asistencia "
-        f"+ 3 de la apertura por sobres y la base de respaldo). "
+        f"+ 3 de la apertura por sobres y la base de respaldo + 2 de los avisos al celular). "
         f"Actualizá este número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 
