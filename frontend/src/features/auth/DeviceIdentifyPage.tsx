@@ -1,15 +1,19 @@
 import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 
 import { useDensity } from "@/app/density";
 import { destinoSeguro } from "@/app/puesto";
 import { useSalonTheme } from "@/app/theme";
 import { useSession } from "@/app/session";
+import { markAttendanceExit } from "@/api/attendance";
 import { deviceIdentify } from "@/api/auth";
 import type { DeviceEmployee } from "@/api/employees";
 import { EmployeePicker } from "@/components/EmployeePicker";
 import { PinPad } from "@/components/PinPad";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { useCurrentShift } from "@/features/shifts/hooks";
+import { formatClockTime } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 
 /**
@@ -27,6 +31,9 @@ import { errorMessage } from "@/lib/errors";
  *   «Otra persona».
  * - En horizontal el teclado va al lado de la grilla, para que nunca quede
  *   debajo del borde de la pantalla.
+ * - El primer PIN del día operativo marca la entrada (asistencia, con o sin
+ *   caja abierta): «Entrada 7:02 a. m.». «Marcar salida», abajo, es elegir
+ *   el nombre y teclear el PIN.
  * - Después del PIN se vuelve a la pantalla de la que se venía (`?next=`:
  *   la sesión venció o alguien tocó «Cambiar de persona»); si no se venía de
  *   ninguna, `/pos` decide por el puesto de la persona (`PosHome`).
@@ -44,6 +51,9 @@ export default function DeviceIdentifyPage(): React.JSX.Element {
   const [employee, setEmployee] = useState<DeviceEmployee | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // «Marcar salida» desde acá: la persona elige su nombre y teclea su PIN,
+  // sin identificarse antes (`POST /attendance/out` con PIN).
+  const [modoSalida, setModoSalida] = useState(false);
 
   const destacados: number[] = [];
   const ultima = me?.last_employee_id;
@@ -60,8 +70,25 @@ export default function DeviceIdentifyPage(): React.JSX.Element {
     }
     setSubmitting(true);
     setError(null);
+    if (modoSalida) {
+      try {
+        const entry = await markAttendanceExit({ employee_id: employee.id, pin });
+        toast.success(`Salida ${formatClockTime(entry.out_at)} · ${entry.employee_name}`);
+        setModoSalida(false);
+        setEmployee(null);
+      } catch (err) {
+        setError(errorMessage(err));
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
     try {
-      await deviceIdentify({ employee_id: employee.id, pin });
+      const out = await deviceIdentify({ employee_id: employee.id, pin });
+      // El primer PIN del día marca la entrada, haya o no caja abierta.
+      if (out.attendance?.created) {
+        toast.success(`Entrada ${formatClockTime(out.attendance.in_at)}`);
+      }
       await refresh();
       navigate(siguiente ?? "/pos", { replace: true });
     } catch (err) {
@@ -74,9 +101,15 @@ export default function DeviceIdentifyPage(): React.JSX.Element {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background p-4 text-foreground">
       <div className="space-y-1 text-center">
-        <h1 className="text-xl font-semibold">Quién opera</h1>
+        <h1 className="text-xl font-semibold">{modoSalida ? "Marcar salida" : "Quién opera"}</h1>
         <p className="text-sm text-muted-foreground">
-          {employee ? `Ingresá el PIN de ${employee.name}.` : "Elegí quién opera y después tecleá el PIN."}
+          {modoSalida
+            ? employee
+              ? `${employee.name}: tecleá tu PIN para marcar la salida.`
+              : "Elegí tu nombre y tecleá tu PIN para marcar la salida."
+            : employee
+              ? `Ingresá el PIN de ${employee.name}.`
+              : "Elegí quién opera y después tecleá el PIN."}
         </p>
       </div>
 
@@ -106,6 +139,29 @@ export default function DeviceIdentifyPage(): React.JSX.Element {
             errorMessage={error}
           />
         </div>
+      </div>
+
+      {/* Lo secundario, chico y abajo: la salida del día (un toque + PIN),
+          la puerta del administrador y la de inicio. */}
+      <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-11"
+          aria-pressed={modoSalida}
+          onClick={() => {
+            setModoSalida(!modoSalida);
+            setError(null);
+          }}
+        >
+          {modoSalida ? "Volver a «Quién opera»" : "Marcar salida"}
+        </Button>
+        <Link to="/login" className={buttonVariants({ variant: "ghost", className: "h-11 text-muted-foreground" })}>
+          Entrar como administrador
+        </Link>
+        <Link to="/" className={buttonVariants({ variant: "ghost", className: "h-11 text-muted-foreground" })}>
+          Inicio
+        </Link>
       </div>
     </div>
   );

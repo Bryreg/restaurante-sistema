@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -61,8 +62,25 @@ export function SessionProvider({ children }: { children: ReactNode }): React.JS
 
   const clear = useCallback(() => setMe(null), []);
 
+  const meRef = useRef<Me | null>(null);
   useEffect(() => {
-    const onExpired = () => setMe(null);
+    meRef.current = me;
+  }, [me]);
+
+  useEffect(() => {
+    // Venció la sesión corta de administrador abierta en una tablet: se relee
+    // la sesión (queda la del dispositivo) y la tablet vuelve al salón. Sólo
+    // en ese caso: con cualquier otra sesión, releer ante un `401` de
+    // `/auth/me` sería un bucle.
+    const onExpired = () => {
+      const actual = meRef.current;
+      if (actual?.kind === "admin" && actual.on_device) {
+        meRef.current = null;
+        void refresh();
+        return;
+      }
+      setMe(null);
+    };
     // Venció la PERSONA, no el dispositivo: se relee `me` (llega sin
     // `employee`) y `PosLayout` manda a «Quién opera» — salvo el KDS, que
     // es una pantalla de estación y pide el PIN sólo al marcar algo.

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { formatBusinessDate, formatInstant, parseBusinessDate } from "../businessDate";
+import { formatBusinessDate, formatClockTime, formatInstant, parseBusinessDate } from "../businessDate";
 
 const SOURCE_PATH = fileURLToPath(new URL("../businessDate.ts", import.meta.url));
 
@@ -41,6 +41,14 @@ describe("businessDate", () => {
   it("formatBusinessDate(null) es \"—\"", () => {
     expect(formatBusinessDate(null)).toBe("—");
     expect(formatBusinessDate(undefined)).toBe("—");
+  });
+
+  it("formatClockTime dice la hora de Bogotá como la dice la gente", () => {
+    expect(formatClockTime("2026-03-10T12:02:00Z")).toBe("7:02 a. m.");
+    expect(formatClockTime("2026-03-10T20:30:00Z")).toBe("3:30 p. m.");
+    expect(formatClockTime("2026-03-10T05:00:00Z")).toBe("12:00 a. m.");
+    expect(formatClockTime("2026-03-10T17:00:00Z")).toBe("12:00 p. m.");
+    expect(formatClockTime(null)).toBe("—");
   });
 
   it("formatInstant formatea un instante ISO en hora de Bogotá", () => {

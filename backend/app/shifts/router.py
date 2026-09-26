@@ -902,3 +902,10 @@ def admin_create_tip_payout(
     return _idempotent(
         db, organization_id=actor.organization_id, scope="tips.payouts", request=request, payload=payload, fn=_do
     )
+
+
+# Asistencia del día (0028): rutas propias en su módulo, montadas con las del
+# dominio para no tocar `app.main.DOMAINS`.
+from app.shifts import attendance_router as _attendance_router  # noqa: E402
+
+router.include_router(_attendance_router.router)

@@ -1,8 +1,10 @@
-import { LayoutGrid, LogOut, Moon, MoreHorizontal, Sun, Users } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DoorOpen, LayoutGrid, LogOut, Moon, MoreHorizontal, ShieldCheck, Sun, UserMinus, Users } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
+import { getAttendanceToday, markAttendanceExit } from "@/api/attendance";
 import { deviceDeactivate, deviceRelease } from "@/api/auth";
 import {
   AlertDialog,
@@ -21,13 +23,14 @@ import { kitchenFeature } from "@/features/kitchen";
 import { ordersFeature } from "@/features/orders";
 import { recipesFeature } from "@/features/recipes";
 import { shiftsFeature } from "@/features/shifts";
+import { formatClockTime } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 import type { NavItem } from "./nav";
 import { useDensity } from "./density";
-import { barraDelSalon, cuantasCaben, rutaIdentificarse } from "./puesto";
-import { useSalonTheme } from "./theme";
+import { barraDelSalon, cuantasCaben, RUTA_AUTORIZAR, rutaIdentificarse, soloAutoriza } from "./puesto";
+import { type SalonTheme, useSalonTheme } from "./theme";
 import { useSession } from "./session";
 
 /**
@@ -171,24 +174,46 @@ function PosNavBar({ items }: { items: NavItem[] }): React.JSX.Element | null {
 }
 
 /**
- * La otra salida del salón, la del dispositivo. «Cambiar de persona» libera
- * a la persona y el dispositivo sigue activado; esto desactiva el
- * dispositivo entero y exige el PIN de sede para volver — es lo que hay que
- * hacer para mover la tablet a otra sede, o cuando se activó la sede
- * equivocada, y hasta hoy no existía en ninguna pantalla.
+ * El menú «⋯» del salón: lo que no es de todos los días va acá y no en la
+ * barra, para que la barra quede para operar.
  *
- * Va detrás de una confirmación y no pegado a «Cambiar de persona»: en una
- * tablet compartida, tocarlo por error deja al salón sin poder vender hasta
- * que aparezca alguien con el PIN de sede. El backend no pide PIN para
- * desactivar (`POST /auth/device/deactivate` sólo exige la sesión del
- * dispositivo) y la interfaz **no inventa un gate que el servidor no hace
- * cumplir** (AGENTS.md): la confirmación explica la consecuencia, no
- * autoriza.
+ * - **Marcar salida** (si la persona tiene entrada abierta hoy): un toque.
+ *   Cierra la asistencia del día (y su lugar en el roster del turno), suelta
+ *   a la persona y vuelve a «Quién opera».
+ * - **Marcar salida de otra persona** (sólo supervisor): la de quien se fue
+ *   sin marcar. El backend lo hace cumplir (`EXIT_REQUIRES_SUPERVISOR`).
+ * - **Entrar como administrador**: abre el admin en esta tablet con una
+ *   sesión corta (15 min) que, al salir, vuelve a «Quién opera».
+ * - **Pantalla oscura / clara**: por tablet (no en la cocina, que es fija).
+ * - **Desactivar este dispositivo**: detrás de una confirmación. En una
+ *   tablet compartida, tocarlo por error deja al salón sin poder vender hasta
+ *   que aparezca alguien con el PIN de sede. El backend no pide PIN para
+ *   desactivar y la interfaz **no inventa un gate que el servidor no hace
+ *   cumplir** (AGENTS.md): la confirmación explica la consecuencia, no
+ *   autoriza.
  */
-function DeactivateDeviceButton({ storeName }: { storeName: string }): React.JSX.Element {
-  const { clear } = useSession();
-  const [open, setOpen] = useState(false);
+function PosMenu({
+  storeName,
+  enCocina,
+  identificarse,
+  pantalla,
+  setPantalla,
+}: {
+  storeName: string;
+  enCocina: boolean;
+  identificarse: string;
+  pantalla: SalonTheme;
+  setPantalla: (tema: SalonTheme) => void;
+}): React.JSX.Element {
+  const { me, clear, refresh } = useSession();
+  const navigate = useNavigate();
+  const [confirmar, setConfirmar] = useState(false);
+  const [otraSalida, setOtraSalida] = useState(false);
   const [saliendo, setSaliendo] = useState(false);
+
+  const persona = me?.employee ?? null;
+  const tieneEntrada = Boolean(persona && me?.employee_attendance);
+  const esSupervisor = persona?.role === "supervisor";
 
   async function handleDeactivate() {
     setSaliendo(true);
@@ -199,22 +224,68 @@ function DeactivateDeviceButton({ storeName }: { storeName: string }): React.JSX
     } catch (err) {
       toast.error(errorMessage(err));
       setSaliendo(false);
-      setOpen(false);
+      setConfirmar(false);
+    }
+  }
+
+  async function handleMarcarSalida() {
+    try {
+      const entry = await markAttendanceExit();
+      toast.success(`Salida ${formatClockTime(entry.out_at)}`);
+      await deviceRelease();
+      await refresh();
+      navigate(identificarse);
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   }
 
   return (
     <>
-      <Button
-        type="button"
-        variant="ghost"
-        className="ml-2 h-11 gap-2 text-muted-foreground"
-        onClick={() => setOpen(true)}
-      >
-        <LogOut className="size-4" aria-hidden="true" />
-        Desactivar este dispositivo
-      </Button>
-      <AlertDialog open={open} onOpenChange={setOpen}>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="Más opciones"
+          className="inline-flex h-11 min-w-11 items-center justify-center rounded-md px-3 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <MoreHorizontal className="size-5" aria-hidden="true" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-auto min-w-64">
+          {tieneEntrada ? (
+            <DropdownMenuItem className="min-h-12 gap-2 text-base" onClick={() => void handleMarcarSalida()}>
+              <DoorOpen className="size-5" aria-hidden="true" />
+              Marcar salida
+            </DropdownMenuItem>
+          ) : null}
+          {esSupervisor ? (
+            <DropdownMenuItem className="min-h-12 gap-2 text-base" onClick={() => setOtraSalida(true)}>
+              <UserMinus className="size-5" aria-hidden="true" />
+              Marcar salida de otra persona
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem className="min-h-12 gap-2 text-base" onClick={() => navigate("/login")}>
+            <ShieldCheck className="size-5" aria-hidden="true" />
+            Entrar como administrador
+          </DropdownMenuItem>
+          {enCocina ? null : (
+            <DropdownMenuItem
+              className="min-h-12 gap-2 text-base"
+              onClick={() => setPantalla(pantalla === "oscuro" ? "claro" : "oscuro")}
+            >
+              {pantalla === "oscuro" ? (
+                <Sun className="size-5" aria-hidden="true" />
+              ) : (
+                <Moon className="size-5" aria-hidden="true" />
+              )}
+              {pantalla === "oscuro" ? "Pantalla clara" : "Pantalla oscura"}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem className="min-h-12 gap-2 text-base" onClick={() => setConfirmar(true)}>
+            <LogOut className="size-5" aria-hidden="true" />
+            Desactivar este dispositivo
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <AlertDialog open={confirmar} onOpenChange={setConfirmar}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Desactivar este dispositivo?</AlertDialogTitle>
@@ -240,7 +311,73 @@ function DeactivateDeviceButton({ storeName }: { storeName: string }): React.JSX
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {esSupervisor ? <OtraSalidaDialog open={otraSalida} onOpenChange={setOtraSalida} /> : null}
     </>
+  );
+}
+
+/**
+ * El supervisor marca la salida de quien se fue sin marcarla: la lista es la
+ * asistencia abierta de hoy (`GET /attendance/today`), sin plata ni costos.
+ */
+function OtraSalidaDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}): React.JSX.Element {
+  const queryClient = useQueryClient();
+  const hoy = useQuery({ queryKey: ["attendance", "today"], queryFn: getAttendanceToday, enabled: open });
+  const salida = useMutation({
+    mutationFn: (employeeId: number) => markAttendanceExit({ employee_id: employeeId }),
+    onSuccess: (entry) => {
+      toast.success(`Salida de ${entry.employee_name}: ${formatClockTime(entry.out_at)}`);
+      void queryClient.invalidateQueries({ queryKey: ["attendance", "today"] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const abiertas = (hoy.data ?? []).filter((e) => e.status === "open");
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Marcar salida de otra persona</AlertDialogTitle>
+          <AlertDialogDescription>
+            Para quien se fue sin marcar. Queda a tu nombre, con la hora de ahora.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {hoy.isLoading ? (
+          <p className="text-sm text-muted-foreground">Cargando…</p>
+        ) : abiertas.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nadie tiene la entrada abierta hoy.</p>
+        ) : (
+          <ul className="space-y-2">
+            {abiertas.map((entry) => (
+              <li key={entry.id} className="flex items-center justify-between gap-3">
+                <span className="text-base">
+                  {entry.employee_name}{" "}
+                  <span className="text-sm text-muted-foreground">· entró {formatClockTime(entry.in_at)}</span>
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11"
+                  disabled={salida.isPending}
+                  onClick={() => salida.mutate(entry.employee_id)}
+                >
+                  Marcar salida
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel className="h-11">Cerrar</AlertDialogCancel>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -263,6 +400,7 @@ const ROLE_LABEL: Record<string, string> = {
 export default function PosLayout(): React.JSX.Element | null {
   // Tablet del salón: cuerpo 17 px y objetivo táctil de 52 px (m2b `.salon`).
   useDensity("salon");
+  // El tema de la tablet se aplica acá; el botón para cambiarlo vive en «⋯».
   const [pantalla, setPantalla] = useSalonTheme();
   // En la cocina la pizarra es fija (`useCocinaPantalla`): ahí el botón no
   // cambiaría nada visible, así que no se ofrece.
@@ -293,6 +431,12 @@ export default function PosLayout(): React.JSX.Element | null {
 
   if (!me.employee && !enKds) {
     return <Navigate to={identificarse} replace />;
+  }
+
+  // El administrador en la tablet sólo autoriza: no opera ninguna pantalla
+  // del salón, llega (y vuelve) a «Modo autorización».
+  if (soloAutoriza(me.employee) && pathname !== RUTA_AUTORIZAR) {
+    return <Navigate to={RUTA_AUTORIZAR} replace />;
   }
 
   const expired = me.employee_expires_at
@@ -334,23 +478,6 @@ export default function PosLayout(): React.JSX.Element | null {
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Por tablet: la de la terraza queda clara, la del bar oscura. */}
-          {enCocina ? null : (
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-11 gap-2"
-              aria-pressed={pantalla === "oscuro"}
-              onClick={() => setPantalla(pantalla === "oscuro" ? "claro" : "oscuro")}
-            >
-              {pantalla === "oscuro" ? (
-                <Sun className="size-4" aria-hidden="true" />
-              ) : (
-                <Moon className="size-4" aria-hidden="true" />
-              )}
-              {pantalla === "oscuro" ? "Pantalla clara" : "Pantalla oscura"}
-            </Button>
-          )}
           <Button
             type="button"
             variant="outline"
@@ -361,7 +488,11 @@ export default function PosLayout(): React.JSX.Element | null {
             <Users className="size-4" aria-hidden="true" />
             Cambiar de persona
           </Button>
-          <DeactivateDeviceButton storeName={me.store?.name ?? "Esta sede"} />
+          <PosMenu storeName={me.store?.name ?? "Esta sede"} enCocina={enCocina}
+            identificarse={identificarse}
+            pantalla={pantalla}
+            setPantalla={setPantalla}
+          />
         </div>
       </header>
       <div className="border-b bg-muted/30 px-3 py-2">

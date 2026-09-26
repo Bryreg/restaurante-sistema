@@ -33,7 +33,7 @@ from app.banking import hooks as banking_hooks
 from app.photos import hooks as photos_hooks
 from app.stores import service as stores_service
 from app.stores.models import Store
-from app.shifts import activity_metrics, hooks
+from app.shifts import activity_metrics, attendance, hooks
 from app.shifts.models import (
     BusinessDay,
     BusinessDayStatus,
@@ -566,6 +566,9 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
         opener = db.get(Employee, opener_id)
         if opener is not None:
             hooks.on_employee_identified(db, store_id=store.id, employee=opener)
+    # La asistencia del día manda (0028): quien marcó entrada antes de que
+    # se abriera la caja también está en este turno.
+    attendance.sync_roster_on_shift_open(db, shift=shift)
 
     # Comandas que quedaron trasladadas (`shift_id NULL`) por el cierre de un
     # turno anterior: este nuevo turno las adopta (CONTRATO-INTERNO-1b-1.md
@@ -713,6 +716,15 @@ def roster_action(db: Session, *, actor: Actor, shift: Shift, payload: RosterAct
     if not auth_service.verify_pin(db, employee, payload.pin):
         raise AppError("PIN_INVALID", "El PIN no es válido: volvé a intentarlo", status=400)
 
+    if employee.role == "admin":
+        # Decisión del dueño: en la tablet el administrador sólo autoriza.
+        # No entra al turno, no suma horas ni propina.
+        raise AppError(
+            "ADMIN_NOT_IN_ROSTER",
+            "El administrador autoriza, no entra al turno: no suma horas ni propina",
+            status=400,
+        )
+
     if payload.action == "out" and employee.id == shift.cash_responsible_id:
         raise AppError(
             "NOT_CASH_RESPONSIBLE",
@@ -748,6 +760,11 @@ def roster_action(db: Session, *, actor: Actor, shift: Shift, payload: RosterAct
         entry.pauses = pauses
 
     db.flush()
+    # La salida y las pausas del roster son las de la jornada del día (0028).
+    if payload.action != "in":
+        attendance.mirror_roster_action(
+            db, actor=actor, store_id=shift.store_id, employee=employee, action=payload.action, at=now
+        )
     record_audit(
         db,
         actor=actor,
