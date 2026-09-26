@@ -1,4 +1,4 @@
-import { Camera, X } from "lucide-react"
+import { Camera, Loader2, X } from "lucide-react"
 import { useId, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,12 @@ export interface PhotoCaptureFieldProps {
   /** Marca el campo como requerido visualmente; la obligatoriedad real la valida el backend. */
   required?: boolean
   disabled?: boolean
+  /**
+   * Avisa mientras la foto se achica (puede tardar un par de segundos en
+   * la tablet). Quien arma el formulario deshabilita el envío mientras
+   * tanto: si no, «Registrar» sale sin la foto que ya se ve elegida.
+   */
+  onProcessingChange?: (processing: boolean) => void
 }
 
 /**
@@ -35,19 +41,26 @@ export function PhotoCaptureField({
   label = "Foto",
   required = false,
   disabled = false,
+  onProcessingChange,
 }: PhotoCaptureFieldProps): React.JSX.Element {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
+  const [processing, setProcessing] = useState(false)
 
   async function handleFile(file: File | undefined) {
     if (!file) return
+    setProcessing(true)
+    onProcessingChange?.(true)
     try {
       const dataUrl = await fotoParaEnviar(file)
       onChange(dataUrl)
       setError(null)
     } catch (err) {
       setError(errorMessage(err))
+    } finally {
+      setProcessing(false)
+      onProcessingChange?.(false)
     }
   }
 
@@ -64,7 +77,7 @@ export function PhotoCaptureField({
         accept="image/*"
         capture="environment"
         className="sr-only"
-        disabled={disabled}
+        disabled={disabled || processing}
         onChange={(event) => void handleFile(event.target.files?.[0])}
       />
       <div className="flex flex-wrap items-center gap-3">
@@ -72,13 +85,18 @@ export function PhotoCaptureField({
           type="button"
           variant="outline"
           className="h-11 gap-2"
-          disabled={disabled}
+          disabled={disabled || processing}
           onClick={() => inputRef.current?.click()}
         >
           <Camera className="size-4" aria-hidden="true" />
           {value ? "Reemplazar foto" : "Tomar o elegir foto"}
         </Button>
-        {value ? (
+        {processing ? (
+          <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            Procesando foto…
+          </p>
+        ) : value ? (
           <>
             <img src={value} alt="Foto capturada" className="h-11 w-11 rounded-md border object-cover" />
             <Button

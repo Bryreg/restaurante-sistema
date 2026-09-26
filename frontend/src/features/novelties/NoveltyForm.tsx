@@ -28,6 +28,8 @@ export function NoveltyForm({ onCreated }: { onCreated: () => void }): React.JSX
   const [level, setLevel] = useState<NoveltyLevel>("info")
   const [followUp, setFollowUp] = useState(false)
   const [photo, setPhoto] = useState<string | null>(null)
+  // Mientras la foto se achica no se envía: saldría sin la foto que ya se ve elegida.
+  const [photoProcessing, setPhotoProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const keyRef = useRef(newIdempotencyKey())
 
@@ -65,7 +67,7 @@ export function NoveltyForm({ onCreated }: { onCreated: () => void }): React.JSX
     },
   })
 
-  const canSubmit = title.trim() !== "" && category !== "" && !mutation.isPending
+  const canSubmit = title.trim() !== "" && category !== "" && !mutation.isPending && !photoProcessing
 
   return (
     <form
@@ -136,7 +138,13 @@ export function NoveltyForm({ onCreated }: { onCreated: () => void }): React.JSX
           ) : null}
         </div>
       </div>
-      <PhotoCaptureField value={photo} onChange={setPhoto} label="Foto (opcional)" disabled={mutation.isPending} />
+      <PhotoCaptureField
+        value={photo}
+        onChange={setPhoto}
+        label="Foto (opcional)"
+        disabled={mutation.isPending}
+        onProcessingChange={setPhotoProcessing}
+      />
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}

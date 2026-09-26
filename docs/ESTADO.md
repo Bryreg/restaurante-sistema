@@ -1790,6 +1790,28 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     - Recuento sorpresa pedido por el admin; Hoy muestra qué áreas contaron
       (sin apertura en rojo, sin bloquear) y cada artículo fuera del umbral.
     - Por confirmar con el dueño: el POS sugiere «Cierre» desde las 20:00.
+42. **POS por puesto, cocina fija y arreglos de tablet** (2026-09-26). Sale de
+    un recorrido de UX por rol (mesero, cajero, cocina, bar) en tablet.
+    - **Puesto** por empleado (`employees.puesto`: caja, salón, cocina, bar;
+      vacío = ve todo), migración `0027` (también `device_sessions.
+      last_employee_id`). Tras el PIN cada uno aterriza en lo suyo (caja →
+      Turno, salón → Mesas, cocina/bar → KDS) o vuelve a donde estaba
+      (`?next=`); la barra muestra 3–5 destinos y el resto va a «Más».
+    - **Permiso de caja en el servidor** (`shifts.hooks.can_handle_cash`):
+      abrir, movimientos, cambio, retiros, relevo, cierre, consignar y
+      domicilios exigen responsable de caja, `can_charge`, supervisor o admin
+      → `403 CASH_PERMISSION_REQUIRED`. El relevo lo confirma quien recibe con
+      su PIN.
+    - **KDS como pantalla de estación**: mirar no exige persona; marcar listo
+      pide un PIN rápido con la última persona preelegida. Pantalla completa,
+      alergias en rojo, objetivo por estación cuando el curso no tiene
+      (bar 5, caliente 15, fría 10, resto 12 min), lo «de ayer» aparte,
+      expedir sólo la estación filtrada, «N listos» en Mesas y «Servido».
+    - **Arreglos**: merma en unidad cómoda (`entry_unit`, convierte el
+      servidor), conteo por área sin comas mudas y con revisión a ciegas,
+      primer dígito del PIN de producción, «Procesando foto…».
+    - Un 401 `IDENTIFY_REQUIRED` ahora lleva a «Quién opera» y no a activar
+      el dispositivo.
 
 ---
 

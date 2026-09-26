@@ -1,4 +1,4 @@
-import { Send } from "lucide-react"
+import { CheckCheck, Send } from "lucide-react"
 import { useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 
@@ -10,6 +10,7 @@ import {
   addItems,
   courtesyItem,
   fireCourse,
+  markServed,
   patchItem,
   presentBill,
   sendOrder,
@@ -91,6 +92,7 @@ export function OrderPage(): React.JSX.Element {
   const [preBillPending, setPreBillPending] = useState(false)
   const [busyItemId, setBusyItemId] = useState<number | null>(null)
   const [firingCourse, setFiringCourse] = useState<string | null>(null)
+  const [servingAll, setServingAll] = useState(false)
   // Los toques rápidos en la carta van en fila: cada uno manda la versión
   // que dejó el anterior. Sin la fila, dos toques seguidos salen con la
   // misma `expected_version` y el segundo rebota con `STALE_VERSION` — un
@@ -112,6 +114,7 @@ export function OrderPage(): React.JSX.Element {
   }
 
   const items = order.items ?? []
+  const readyItems = items.filter((item) => item.status === "ready")
   // Contar unidades (no plata) sí es del cliente: el número del botón de
   // enviar y el de la insignia de cada plato de la carta.
   const unsentUnits = unsentItemCount(items)
@@ -213,6 +216,41 @@ export function OrderPage(): React.JSX.Element {
       handleError(err, { pin, retry: (retryPin) => void handleQtyChange(item, nextQty, retryPin) })
     } finally {
       setBusyItemId(null)
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Servido: lo que cocina marcó listo ya llegó a la mesa. Cierra el ciclo
+  // enviado → listo → servido; sin esto el plato se quedaba «Listo» para
+  // siempre y el mapa de mesas no dejaba de avisar.
+  // ---------------------------------------------------------------------
+  async function handleServed(item: OrderItemOut) {
+    if (!order) return
+    setBusyItemId(item.id)
+    setError(null)
+    try {
+      saveOrder(await markServed(order.id, item.id, newIdempotencyKey()))
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusyItemId(null)
+    }
+  }
+
+  async function handleServeAll(ready: OrderItemOut[]) {
+    if (!order) return
+    setServingAll(true)
+    setError(null)
+    try {
+      // Uno por uno, cada uno con su `Idempotency-Key`: el servidor marca
+      // ítem por ítem y un reintento no sirve dos veces.
+      for (const item of ready) {
+        saveOrder(await markServed(order.id, item.id, newIdempotencyKey()))
+      }
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setServingAll(false)
     }
   }
 
@@ -412,7 +450,21 @@ export function OrderPage(): React.JSX.Element {
 
         <div className="space-y-6">
           <section className="space-y-3">
-            <h2 className="text-sm font-medium text-muted-foreground">Pedido</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-medium text-muted-foreground">Pedido</h2>
+              {readyItems.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11"
+                  disabled={servingAll}
+                  onClick={() => void handleServeAll(readyItems)}
+                >
+                  <CheckCheck className="size-4" aria-hidden="true" />
+                  {servingAll ? "Marcando…" : `Marcar todo servido · ${readyItems.length}`}
+                </Button>
+              ) : null}
+            </div>
             <OrderItemsList
               items={items}
               busyItemId={busyItemId}
@@ -425,6 +477,7 @@ export function OrderPage(): React.JSX.Element {
                 setCourtesyTarget(item)
               }}
               onDiscount={(item) => setDiscountTarget({ scope: "item", item })}
+              onServed={(item) => void handleServed(item)}
             />
             {/* La acción principal de la comanda: abajo del pedido, a lo ancho y
                 en añil. Dice cuántas unidades salen — con ruido, la confirmación

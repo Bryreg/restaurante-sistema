@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from app.photos.hooks import PhotoIn
 
 BaseUnitLiteral = Literal["g", "ml", "unit"]
+AreaCountEntryModeLiteral = Literal["weight", "bottle", "volume", "unit"]
 CostSourceLiteral = Literal["official", "weighted_average", "last_purchase", "estimated", "none"]
 MovementCauseLiteral = Literal[
     "sale",
@@ -163,6 +164,12 @@ class WasteIn(BaseModel):
     ingredient_id: int | None = None
     preparation_id: int | None = None
     qty: str
+    # La unidad en que viene `qty`. `None` = unidad base (g, ml, und), como
+    # siempre. El POS manda la unidad cómoda del insumo (`entry_unit` de
+    # `GET /device/ingredients`: «kg», «botella», «L», «unidad») y el
+    # servidor convierte; si no coincide con la del insumo, `400` (la
+    # pantalla quedó vieja). Sólo para insumos.
+    entry_unit: str | None = Field(default=None, max_length=50)
     type: WasteTypeLiteral
     note: str | None = None
     employee_pin: str = Field(min_length=1, max_length=20)
@@ -303,6 +310,11 @@ class DeviceIngredientOut(BaseModel):
     id: int
     name: str
     base_unit: BaseUnitLiteral
+    # La unidad cómoda en que se teclea (la misma del conteo corto por área,
+    # `units.entry_spec`): la merma del POS la muestra junto al campo y la
+    # devuelve en `WasteIn.entry_unit`.
+    entry_mode: AreaCountEntryModeLiteral
+    entry_unit: str
 
 
 # ---------------------------------------------------------------------------
@@ -611,10 +623,9 @@ class InventorySettingsOut(BaseModel):
 AreaCountMomentLiteral = Literal["opening", "closing", "spot"]
 AreaCountRegularMomentLiteral = Literal["opening", "closing"]
 # Cómo se teclea cada artículo en el POS (lo decide el servidor, por insumo):
-# `weight` en kg (carnes, vegetales), `bottle` en botellas con décimas de la
-# abierta (licores: unidad de compra en ml), `volume` en litros, `unit` en
-# unidades.
-AreaCountEntryModeLiteral = Literal["weight", "bottle", "volume", "unit"]
+# `AreaCountEntryModeLiteral` (arriba, junto a `BaseUnitLiteral`): `weight`
+# en kg (carnes, vegetales), `bottle` en botellas con décimas de la abierta
+# (licores: unidad de compra en ml), `volume` en litros, `unit` en unidades.
 # `night` = del cierre anterior a esta apertura; `shift` = de la apertura a
 # este cierre; `spot` = recuento sorpresa contra el sistema en ese instante.
 AreaCountWindowLiteral = Literal["night", "shift", "spot"]

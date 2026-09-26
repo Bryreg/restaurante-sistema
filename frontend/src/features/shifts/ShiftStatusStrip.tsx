@@ -1,6 +1,8 @@
 import { AlertTriangle, CircleDollarSign, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import { puedeManejarCaja } from "@/app/puesto";
+import { useSession } from "@/app/session";
 import { formatBusinessDate } from "@/lib/businessDate";
 import { formatCOP } from "@/lib/money";
 
@@ -14,9 +16,15 @@ import { useCurrentShift } from "./hooks";
  * /shifts/current` cada 5 s vía `useCurrentShift` — el mismo hook que usa
  * `ShiftPage`, así que ambos comparten la caché de `react-query` en vez de
  * duplicar el pedido.
+ *
+ * **Inicio por rol**: «Turno abandonado» y «Abrir turno →» son avisos de
+ * caja; los ve quien puede manejarla (`puedeManejarCaja`). Al mesero o al
+ * cocinero no le sirve una alarma roja que no puede resolver.
  */
 export function ShiftStatusStrip(): React.JSX.Element | null {
   const { data: shift, isLoading, isError } = useCurrentShift();
+  const { me } = useSession();
+  const conCaja = puedeManejarCaja(me?.kind === "device" ? me.employee : null, shift?.cash_responsible?.id);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Consultando el turno…</p>;
@@ -34,12 +42,16 @@ export function ShiftStatusStrip(): React.JSX.Element | null {
     return (
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm font-medium text-destructive">Sin turno abierto</span>
-        <Link
-          to="/pos/turno"
-          className="inline-flex h-11 items-center rounded-lg border border-input bg-background px-3 text-sm font-medium hover:bg-muted"
-        >
-          Abrir turno →
-        </Link>
+        {conCaja ? (
+          <Link
+            to="/pos/turno"
+            className="inline-flex h-11 items-center rounded-lg border border-input bg-background px-3 text-sm font-medium hover:bg-muted"
+          >
+            Abrir turno →
+          </Link>
+        ) : (
+          <span className="text-sm text-muted-foreground">Lo abre quien va a tener la caja.</span>
+        )}
       </div>
     );
   }
@@ -53,7 +65,7 @@ export function ShiftStatusStrip(): React.JSX.Element | null {
       <span className="inline-flex items-center gap-1.5 text-muted-foreground">
         Turno abierto · responsable {shift.cash_responsible?.name ?? "—"}
       </span>
-      {shift.is_stale ? (
+      {shift.is_stale && conCaja ? (
         <span
           role="alert"
           className="inline-flex items-center gap-1.5 rounded-md bg-destructive/10 px-2 py-1 font-medium text-destructive"
@@ -62,7 +74,7 @@ export function ShiftStatusStrip(): React.JSX.Element | null {
           Turno abandonado (pasó la hora de corte)
         </span>
       ) : null}
-      {shift.cash_over_threshold ? (
+      {shift.cash_over_threshold && conCaja ? (
         <span
           role="alert"
           className="inline-flex items-center gap-1.5 rounded-md bg-warning/10 px-2 py-1 font-medium text-warning"

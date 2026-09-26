@@ -117,7 +117,10 @@ function deviceMe(features: Record<string, boolean>): Me {
   return {
     kind: "device",
     store: { id: 1, name: "Sede Centro", cutoff_hour: 6, active_channels: [] },
-    employee: { id: 1, name: "Ana", role: "operator", can_charge: false },
+    // Inicio por rol: con el turno ya cerrado nadie es «responsable», y
+    // «Abrir turno» sólo lo ve quien puede cobrar. Ana cierra y abre la caja:
+    // tiene permiso de cobrar.
+    employee: { id: 1, name: "Ana", role: "operator", can_charge: true },
     employee_expires_at: null,
     organization: { id: 1, name: "Organización de prueba" },
     features,

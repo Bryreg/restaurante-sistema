@@ -199,6 +199,8 @@ export interface HandoverIn {
   counted_transfer?: number | null;
   /** Obligatorio cuando `kind === "handover"`. */
   new_responsible_id?: number | null;
+  /** Inicio por rol: el PIN de quien RECIBE el cajón, obligatorio en el relevo. */
+  new_responsible_pin?: string | null;
   /** Obligatorio cuando `kind === "spot_check"` (PIN de administrador). */
   authorizer_pin?: string | null;
   photo?: string | null;
@@ -236,6 +238,18 @@ export interface Handover {
   /** `null` cuando quien mira no es el responsable de caja ni admin. */
   breakdown?: FrozenBreakdown | null;
   at?: string;
+}
+
+/** `GET /shifts/{id}/handover-candidates`: a quién se le puede entregar el cajón. */
+export interface HandoverCandidate {
+  id: number;
+  name: string;
+  /** Tiene entrada abierta en el turno. */
+  on_shift: boolean;
+}
+
+export function getHandoverCandidates(shiftId: number): Promise<HandoverCandidate[]> {
+  return api<HandoverCandidate[]>(`/shifts/${shiftId}/handover-candidates`);
 }
 
 /** `POST /shifts/{id}/handovers` — exige `Idempotency-Key`. */

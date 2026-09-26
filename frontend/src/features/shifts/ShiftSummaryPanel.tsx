@@ -20,10 +20,20 @@ import { useShiftSummary } from "./hooks";
  * (`app/shifts/service.py::compute_breakdown`, la razón exacta está en su
  * docstring: sumarlo sería una segunda matemática del esperado y además
  * mentiría, el billete no está en el cajón todavía).
+ *
+ * **Inicio por rol**: con `conCaja` en `false` (mesero, cocinero: no cobra ni
+ * tiene la caja) no se muestran la base fija, la reserva, el esperado ni el
+ * efectivo de domicilios — la plata del cajón no es asunto de su pantalla.
  */
-export function ShiftSummaryPanel({ shift }: { shift: ShiftCurrent }): React.JSX.Element {
+export function ShiftSummaryPanel({
+  shift,
+  conCaja = true,
+}: {
+  shift: ShiftCurrent;
+  conCaja?: boolean;
+}): React.JSX.Element {
   const { hasFeature } = useSession();
-  const summary = useShiftSummary(shift.id);
+  const summary = useShiftSummary(conCaja ? shift.id : null);
   const openingTotal = summary.data?.opening_cash_total;
   const reserve = summary.data?.cash_reserve;
   // `shift.delivery_cash_pending` (sondeo cada 5 s) y `summary.data.
@@ -52,25 +62,29 @@ export function ShiftSummaryPanel({ shift }: { shift: ShiftCurrent }): React.JSX
           <p className="text-sm text-muted-foreground">Abierto</p>
           <p className="font-medium">{formatInstant(shift.opened_at)}</p>
         </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Base fija</p>
-          <p className="font-medium tabular-nums">{formatCOP(openingTotal)}</p>
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Reserva (aparte, no entra al cuadre)</p>
-          <p className="font-medium tabular-nums">{formatCOP(reserve)}</p>
-        </div>
-        <div>
-          <p className="text-sm text-muted-foreground">Esperado</p>
-          <p className="font-medium tabular-nums">{formatCOP(shift.expected_cash)}</p>
-        </div>
-        {hasFeature("pos.delivery") ? (
-          <div className="col-span-2 sm:col-span-3">
-            <p className="text-sm text-muted-foreground">
-              Efectivo de domicilios pendiente de liquidar (aparte del cajón)
-            </p>
-            <p className="font-medium tabular-nums">{formatCOP(deliveryCashPending)}</p>
-          </div>
+        {conCaja ? (
+          <>
+            <div>
+              <p className="text-sm text-muted-foreground">Base fija</p>
+              <p className="font-medium tabular-nums">{formatCOP(openingTotal)}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Reserva (aparte, no entra al cuadre)</p>
+              <p className="font-medium tabular-nums">{formatCOP(reserve)}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Esperado</p>
+              <p className="font-medium tabular-nums">{formatCOP(shift.expected_cash)}</p>
+            </div>
+            {hasFeature("pos.delivery") ? (
+              <div className="col-span-2 sm:col-span-3">
+                <p className="text-sm text-muted-foreground">
+                  Efectivo de domicilios pendiente de liquidar (aparte del cajón)
+                </p>
+                <p className="font-medium tabular-nums">{formatCOP(deliveryCashPending)}</p>
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
     </section>

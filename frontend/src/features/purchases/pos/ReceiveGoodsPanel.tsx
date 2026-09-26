@@ -96,6 +96,8 @@ export function ReceiveGoodsPanel(): React.JSX.Element {
   const [invoiceNumber, setInvoiceNumber] = useState("")
   const [noInvoice, setNoInvoice] = useState(false)
   const [photo, setPhoto] = useState<string | null>(null)
+  // Mientras la foto se achica no se envía: saldría sin la foto que ya se ve elegida.
+  const [photoProcessing, setPhotoProcessing] = useState(false)
   const [lines, setLines] = useState<LineDraft[]>(() => [emptyLine()])
   const [paidCash, setPaidCash] = useState<boolean | null>(null)
   const [cashAmount, setCashAmount] = useState<number | null>(null)
@@ -159,6 +161,7 @@ export function ReceiveGoodsPanel(): React.JSX.Element {
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
+    if (photoProcessing) return
     if (supplierId === null) return setError("Elegí el proveedor.")
     if (!noInvoice && invoiceNumber.trim() === "") return setError("Escribí el número de la factura o remisión, o marcá «Sin factura».")
     if (!photo) return setError("Tomale una foto a la factura o remisión: es obligatoria.")
@@ -257,6 +260,7 @@ export function ReceiveGoodsPanel(): React.JSX.Element {
                 label="Foto de la factura o remisión"
                 required
                 disabled={disabled}
+                onProcessingChange={setPhotoProcessing}
               />
             </div>
           </div>
@@ -328,8 +332,8 @@ export function ReceiveGoodsPanel(): React.JSX.Element {
             </p>
           ) : null}
 
-          <Button type="submit" className="h-11 w-full" disabled={disabled}>
-            {mutation.isPending ? "Registrando…" : "Registrar lo que llegó"}
+          <Button type="submit" className="h-11 w-full" disabled={disabled || photoProcessing}>
+            {mutation.isPending ? "Registrando…" : photoProcessing ? "Procesando foto…" : "Registrar lo que llegó"}
           </Button>
           <p className="text-xs text-muted-foreground">
             No lleva precios: el administrador la completa con los costos, y recién ahí sube el inventario.

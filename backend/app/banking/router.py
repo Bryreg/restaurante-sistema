@@ -76,6 +76,7 @@ from app.banking.schemas import (
 from app.core.db import get_db
 from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
+from app.shifts import hooks as shifts_hooks
 
 router = APIRouter()
 
@@ -284,6 +285,8 @@ def create_pos_deposit(
     db: Session = Depends(get_db),
 ) -> DepositOut:
     store = service.store_of_device(db, actor)
+    # Consignar saca plata del cajón: sólo quien puede tocar la caja.
+    shifts_hooks.require_cash_permission_for_store(db, actor=actor, store_id=store.id)
 
     def _do() -> tuple[int, dict[str, Any]]:
         deposit = service.create_pos_deposit(db, actor=actor, store=store, payload=payload)

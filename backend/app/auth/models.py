@@ -18,6 +18,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base, UTCDateTime
 
 ROLE_VALUES = ("operator", "supervisor", "admin")
+# Dónde trabaja la persona en el POS: decide a qué pantalla llega al
+# identificarse y qué destinos ve en la barra. `None` = ve todo (el
+# comportamiento de siempre); supervisores y admins lo ignoran.
+PUESTO_VALUES = ("caja", "salon", "cocina", "bar")
 
 
 class Employee(Base):
@@ -38,6 +42,9 @@ class Employee(Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     can_charge: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    puesto: Mapped[str | None] = mapped_column(
+        SAEnum(*PUESTO_VALUES, name="employee_puesto", native_enum=False, length=16), nullable=True
+    )
     discount_limit_pct: Mapped[Any] = mapped_column(Numeric(5, 2), nullable=True)
     document: Mapped[str | None] = mapped_column(String(30), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -63,6 +70,9 @@ class DeviceSession(Base):
     employee_id: Mapped[int | None] = mapped_column(
         ForeignKey("employees.id"), nullable=True, index=True
     )
+    # La última persona que se identificó acá (0027): no se borra al soltar
+    # ni al vencer, para ofrecerla primero en «¿Quién opera?».
+    last_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     employee_bound_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     employee_expires_at: Mapped[datetime | None] = mapped_column(
         UTCDateTime(), nullable=True

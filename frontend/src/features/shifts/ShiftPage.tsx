@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowRightLeft,
@@ -17,12 +18,15 @@ import {
 import { useEffect, useId, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { getDeviceAreaCount } from "@/api/areaCounts";
 import type { ShiftCurrent } from "@/api/shifts";
+import { puedeManejarCaja } from "@/app/puesto";
 import { useSession } from "@/app/session";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { AreaCountPanel } from "@/features/inventory/AreaCountPanel";
+import { AREA_COUNT_QUERY_KEY } from "@/features/inventory/areaCountLib";
 import { NoveltiesPanel } from "@/features/novelties";
 import { ReceiveGoodsPanel } from "@/features/purchases";
 import { RequestsPanel } from "@/features/requests";
@@ -71,6 +75,16 @@ interface Accion {
   icono: LucideIcon;
   flag?: string;
 }
+
+/**
+ * **Inicio por rol**: lo que toca la plata del cajón lo ve sólo quien puede
+ * manejar la caja (`puedeManejarCaja`: permiso de cobrar, responsable de la
+ * caja del turno, supervisor o admin). Entrada / Salida, Solicitudes,
+ * Novedades y el conteo del área son de todos. El backend rechaza igual
+ * (`403 CASH_PERMISSION_REQUIRED`): esconder el botón ordena la pantalla, no
+ * es el control.
+ */
+const ACCIONES_DE_TODOS: ReadonlySet<ClaveAccion> = new Set(["entrada", "solicitudes", "novedades", "conteo"]);
 
 const ACCIONES: Accion[] = [
   {
@@ -189,8 +203,16 @@ const VOLVER = { label: "Resumen" } as const;
  * lo mismo: el resultado reemplaza la página entera, hoja incluida.
  */
 export default function ShiftPage(): React.JSX.Element {
-  const { hasFeature } = useSession();
+  const { me, hasFeature } = useSession();
   const { data: shift, isLoading, isError, error, refetch } = useCurrentShift();
+  const persona = me?.kind === "device" ? me.employee : null;
+  const conCaja = puedeManejarCaja(persona, shift?.cash_responsible?.id);
+  // «Conteo de mi área» sólo si la persona es de un área. Comparte la caché
+  // con `AreaCountPanel`; mientras no se sabe (cargando o error) se muestra:
+  // sólo se esconde cuando el servidor dice que no tiene área.
+  const conteoEncendido = hasFeature("inventory.shift_counts");
+  const area = useQuery({ queryKey: AREA_COUNT_QUERY_KEY, queryFn: getDeviceAreaCount, enabled: conteoEncendido });
+  const sinArea = area.data !== undefined && area.data.area_id === null;
   const showBlindClose = hasFeature("cash.blind_close");
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -250,7 +272,7 @@ export default function ShiftPage(): React.JSX.Element {
         pastilla={
           <PasoPastilla tono="listo">{showBlindClose ? "Paso 3 de 3 · hecho" : "Hecho"}</PasoPastilla>
         }
-        etiquetaContinuar={shift ? "Listo" : "Abrir turno"}
+        etiquetaContinuar={shift || !conCaja ? "Listo" : "Abrir turno"}
         onContinuar={() => {
           setCloseResult(null);
           cerrarAccion();
@@ -275,17 +297,30 @@ export default function ShiftPage(): React.JSX.Element {
   }
 
   if (!shift) {
+    if (!conCaja) {
+      return (
+        <EmptyState
+          title="Todavía no hay turno abierto"
+          description="Lo abre quien va a tener la caja. Cuando esté abierto, acá marcás tu entrada y tu salida."
+        />
+      );
+    }
     return <OpenShiftForm />;
   }
 
-  const habilitadas = ACCIONES.filter((a) => !a.flag || hasFeature(a.flag));
-  const abierta = [...habilitadas, CIERRE].find((a) => a.clave === claveAbierta) ?? null;
+  const habilitadas = ACCIONES.filter(
+    (a) =>
+      (!a.flag || hasFeature(a.flag)) &&
+      (conCaja || ACCIONES_DE_TODOS.has(a.clave)) &&
+      !(a.clave === "conteo" && sinArea),
+  );
+  const abierta = [...habilitadas, ...(conCaja ? [CIERRE] : [])].find((a) => a.clave === claveAbierta) ?? null;
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
       {/* 1. El estado: cómo está la caja y quién está adentro. */}
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <ShiftSummaryPanel shift={shift} />
+        <ShiftSummaryPanel shift={shift} conCaja={conCaja} />
         <ShiftTeamCard shift={shift} />
       </div>
 
@@ -307,22 +342,24 @@ export default function ShiftPage(): React.JSX.Element {
           toque por error buscando otra acción. Azul como toda acción —el
           rojo es de estado (docs/DISENO.md)—, pero lleno: es la acción que
           termina el turno. */}
-      <section aria-label="Cerrar el turno" className="border-t pt-6">
-        <Button
-          type="button"
-          size="lg"
-          className="h-auto min-h-16 w-full gap-3 px-6 text-lg font-semibold sm:w-auto"
-          onClick={() => abrir("cierre")}
-        >
-          <LockKeyhole className="size-6" aria-hidden="true" />
-          Cerrar turno
-        </Button>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {showBlindClose
-            ? "Cierre a ciegas en 3 pasos: contás el cajón antes de ver lo esperado."
-            : "Contás el cajón y cerrás en un paso."}
-        </p>
-      </section>
+      {conCaja ? (
+        <section aria-label="Cerrar el turno" className="border-t pt-6">
+          <Button
+            type="button"
+            size="lg"
+            className="h-auto min-h-16 w-full gap-3 px-6 text-lg font-semibold sm:w-auto"
+            onClick={() => abrir("cierre")}
+          >
+            <LockKeyhole className="size-6" aria-hidden="true" />
+            Cerrar turno
+          </Button>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {showBlindClose
+              ? "Cierre a ciegas en 3 pasos: contás el cajón antes de ver lo esperado."
+              : "Contás el cajón y cerrás en un paso."}
+          </p>
+        </section>
+      ) : null}
 
       <Sheet
         open={abierta !== null}

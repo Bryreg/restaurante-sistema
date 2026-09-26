@@ -194,6 +194,7 @@ def test_handover_and_spot_check_return_the_string_kind_never_500(
             "kind": "handover",
             "counted_cash": {"denominations": [{"value": 50000, "count": 4}], "total": 200_000},
             "new_responsible_id": employees["operator"].id,
+            "new_responsible_pin": "2222",
         },
         headers=idem(),
     )

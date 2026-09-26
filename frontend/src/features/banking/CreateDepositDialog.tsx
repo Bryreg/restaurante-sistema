@@ -77,6 +77,8 @@ export function CreateDepositDialog({
     (initialShiftIds ?? []).length > 0 ? (initialShiftIds ?? []).map((id) => emptyAllocation(String(id))) : [emptyAllocation()],
   )
   const [photo, setPhoto] = useState<string | null>(null)
+  // Mientras la foto se achica no se envía: saldría sin la foto que ya se ve elegida.
+  const [photoProcessing, setPhotoProcessing] = useState(false)
   const idempotencyKeyRef = useRef(newIdempotencyKey())
   const queryClient = useQueryClient()
 
@@ -132,7 +134,8 @@ export function CreateDepositDialog({
   // obligatorios; si Σ imputaciones > monto, se bloquea el envío con
   // mensaje propio — el servidor sigue siendo la autoridad
   // (`ALLOCATION_EXCEEDS_DEPOSIT`/`DEPOSIT_EXCEEDS_PENDING` via `errorMessage`).
-  const canSubmit = amount !== null && amount > 0 && photo !== null && businessDate.trim() !== ""
+  const canSubmit =
+    amount !== null && amount > 0 && photo !== null && !photoProcessing && businessDate.trim() !== ""
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -217,7 +220,13 @@ export function CreateDepositDialog({
             </p>
           </div>
 
-          <PhotoCaptureField value={photo} onChange={setPhoto} label="Foto del comprobante (obligatoria)" required />
+          <PhotoCaptureField
+            value={photo}
+            onChange={setPhoto}
+            label="Foto del comprobante (obligatoria)"
+            required
+            onProcessingChange={setPhotoProcessing}
+          />
           {mutation.isError ? (
             <p role="alert" className="text-sm text-destructive">
               {errorMessage(mutation.error)}

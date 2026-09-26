@@ -12,6 +12,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Dónde trabaja la persona en el POS (ver `app.auth.models.PUESTO_VALUES`).
+# `None` = ve todo, el comportamiento de siempre.
+Puesto = Literal["caja", "salon", "cocina", "bar"]
+
 
 class AdminLoginIn(BaseModel):
     email: str
@@ -61,6 +65,7 @@ class EmployeeBriefOut(BaseModel):
     role: str
     can_charge: bool
     discount_limit_pct: float | None = None
+    puesto: Puesto | None = None
 
 
 class DeviceIdentifyOut(BaseModel):
@@ -73,6 +78,9 @@ class MeOut(BaseModel):
     store: StoreBriefOut | None = None
     employee: EmployeeBriefOut | None = None
     employee_expires_at: datetime | None = None
+    # Sólo en el dispositivo: quién se identificó por última vez en esta
+    # tablet (sobrevive a soltar la persona), para ofrecerla primero.
+    last_employee_id: int | None = None
     organization: OrganizationOut | None = None
     features: dict[str, bool] | None = None
 
@@ -98,6 +106,7 @@ class EmployeeCreateIn(BaseModel):
     pin: str = Field(min_length=4, max_length=4, pattern=r"^\d{4}$")
     store_id: int | None = None
     can_charge: bool = False
+    puesto: Puesto | None = None
     discount_limit_pct: float | None = None
     document: str | None = None
     email: str | None = None
@@ -110,6 +119,8 @@ class EmployeeUpdateIn(BaseModel):
     pin: str | None = Field(default=None, min_length=4, max_length=4, pattern=r"^\d{4}$")
     store_id: int | None = None
     can_charge: bool | None = None
+    # Enviado como `null` explícito = «ve todo»; omitido = no cambia.
+    puesto: Puesto | None = None
     discount_limit_pct: float | None = None
     document: str | None = None
     email: str | None = None
@@ -123,6 +134,7 @@ class EmployeeOut(BaseModel):
     role: str
     store_id: int | None
     can_charge: bool
+    puesto: Puesto | None = None
     discount_limit_pct: float | None
     document: str | None = None
     email: str | None = None

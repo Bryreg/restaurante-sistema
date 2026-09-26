@@ -31,7 +31,12 @@ export interface EmployeeBrief {
   role: string;
   can_charge: boolean;
   discount_limit_pct?: number | null;
+  /** Dónde trabaja en el POS (inicio por rol). `null`/ausente = ve todo. */
+  puesto?: Puesto | null;
 }
+
+/** `employees.puesto`: caja, salón, cocina o bar (0027). */
+export type Puesto = "caja" | "salon" | "cocina" | "bar";
 
 /** `GET /auth/me` — la sesión completa, con los flags vigentes de la sede. */
 export interface Me {
@@ -40,6 +45,8 @@ export interface Me {
   store?: StoreBrief | null;
   employee?: EmployeeBrief | null;
   employee_expires_at?: string | null;
+  /** Sólo dispositivo: la última persona que se identificó en esta tablet. */
+  last_employee_id?: number | null;
   organization?: OrganizationOut | null;
   features?: Record<string, boolean> | null;
 }

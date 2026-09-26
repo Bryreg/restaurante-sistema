@@ -25,7 +25,7 @@ from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.shifts import service, tips as tips_service
+from app.shifts import hooks as shifts_hooks, service, tips as tips_service
 from app.shifts.models import BusinessDay, CashMovement, CashPickup, CashSwap, HandoverKind, Shift, ShiftHandover, ShiftStatus
 from app.shifts.schemas import (
     ShiftCashSummaryOut,
@@ -323,6 +323,9 @@ def post_open_shift(
     payload: OpenShiftIn, request: Request, actor: Actor = Depends(current_operator), db: Session = Depends(get_db)
 ) -> JSONResponse:
     store = _store_of(db, actor)
+    # Abrir es contar la base: sólo quien puede tocar la caja (sin turno
+    # todavía, eso es `can_charge`, supervisor o admin).
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=None)
 
     def _do() -> tuple[int, dict[str, Any]]:
         shift = service.open_shift(db, actor=actor, store=store, payload=payload)
@@ -405,6 +408,27 @@ def post_roster(
 # ---------------------------------------------------------------------------
 
 
+class HandoverCandidateOut(BaseModel):
+    id: int
+    name: str
+    on_shift: bool
+
+
+@router.get("/shifts/{shift_id}/handover-candidates")
+def get_handover_candidates(
+    shift_id: int, actor: Actor = Depends(current_device), db: Session = Depends(get_db)
+) -> list[HandoverCandidateOut]:
+    """A quién se le puede entregar el cajón (`service.handover_candidates`):
+    sólo nombre e id —nunca `can_charge` ni otro dato del empleado—, y si
+    está en el turno. La pantalla del relevo ofrece primero a los del turno."""
+    store = _store_of(db, actor)
+    shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    return [
+        HandoverCandidateOut(id=e.id, name=e.name, on_shift=on_shift)
+        for e, on_shift in service.handover_candidates(db, shift=shift)
+    ]
+
+
 @router.post("/shifts/{shift_id}/handovers", status_code=201)
 def post_handover(
     shift_id: int,
@@ -416,6 +440,7 @@ def post_handover(
 ) -> JSONResponse:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
 
     def _do() -> tuple[int, dict[str, Any]]:
         handover = service.create_handover(db, actor=actor, shift=shift, store=store, payload=payload)
@@ -452,6 +477,7 @@ def post_cash_movement(
 ) -> JSONResponse:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
 
     def _do() -> tuple[int, dict[str, Any]]:
         movement = service.create_cash_movement(db, actor=actor, shift=shift, store=store, payload=payload)
@@ -478,6 +504,7 @@ def post_cash_swap(
 ) -> CashSwapOut:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
     swap = service.create_cash_swap(db, actor=actor, shift=shift, payload=payload)
     return CashSwapOut(id=swap.id, amount=swap.amount, at=swap.at)
 
@@ -498,6 +525,7 @@ def post_pickup(
 ) -> JSONResponse:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
 
     def _do() -> tuple[int, dict[str, Any]]:
         pickup = service.create_pickup(db, actor=actor, shift=shift, store=store, payload=payload)
@@ -520,6 +548,7 @@ def post_pickup_reverse(
 ) -> CashPickupOut:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
     pickup = service.get_pickup_or_404(db, shift=shift, pickup_id=pickup_id)
     pickup = service.reverse_pickup(
         db, actor=actor, shift=shift, pickup=pickup, reason=payload.reason, authorizer_pin=payload.authorizer_pin
@@ -543,6 +572,7 @@ def post_close_count(
 ) -> JSONResponse:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
 
     def _do() -> tuple[int, dict[str, Any]]:
         count = service.create_close_count(db, actor=actor, shift=shift, store=store, payload=payload)
@@ -563,6 +593,7 @@ def get_close_review(
 ) -> CloseReviewOut:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
     count = service.get_close_count_or_404(db, shift=shift, count_id=count_id)
     return CloseReviewOut(**service.review_close(db, shift=shift, store=store, count=count))
 
@@ -578,6 +609,7 @@ def post_close_confirm(
 ) -> CloseConfirmOut:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
     count = service.get_close_count_or_404(db, shift=shift, count_id=count_id)
     result = service.confirm_close(
         db,
@@ -609,6 +641,7 @@ def post_close_single(
 ) -> JSONResponse:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
 
     # `cash.blind_close` es mutuamente excluyente por flag, no dos rutas que
     # conviven (veredicto del Conciliador, iteración 2): con la flag encendida

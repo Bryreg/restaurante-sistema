@@ -35,7 +35,17 @@ const adminNav: NavItem[] = [{ to: "/admin/pedidos", label: "Pedidos" }]
 const posNav: NavItem[] = [
   { to: "/pos/mesas", label: "Mesas", icon: LayoutGrid, feature: "pos.tables" },
   { to: "/pos/comanda/nueva", label: "Mostrador", icon: ShoppingBag },
-  { to: "/pos/cocina", label: "Cocina", icon: ChefHat, feature: "kitchen.view", posGroup: "cocina" },
+  // Con el KDS encendido, la vista mínima se va de la barra (y su ruta
+  // redirige al KDS, `KitchenPage`): eran dos pantallas de cocina, una con
+  // los códigos de estación crudos.
+  {
+    to: "/pos/cocina",
+    label: "Cocina",
+    icon: ChefHat,
+    feature: "kitchen.view",
+    hiddenWithFeature: "kitchen.kds",
+    posGroup: "cocina",
+  },
 ]
 
 export const ordersFeature = { posRoutes, adminRoutes, adminNav, posNav }

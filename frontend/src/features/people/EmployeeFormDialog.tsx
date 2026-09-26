@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import type { Puesto } from "@/api/auth";
 import type { Employee, EmployeeCreateIn, EmployeeRole, EmployeeUpdateIn } from "@/api/employees";
 import { FormField, FormSection } from "@/components/admin";
 import { Button } from "@/components/ui/button";
@@ -27,11 +28,35 @@ const ROLE_LABEL: Record<EmployeeRole, string> = {
   admin: "Administrador",
 };
 
+/** «Todo» es `null` en el servidor: la persona ve la barra completa, como siempre. */
+const PUESTO_TODO = "todo";
+
+const PUESTO_OPCIONES: Array<{ value: Puesto | typeof PUESTO_TODO; label: string; lectura: string }> = [
+  {
+    value: PUESTO_TODO,
+    label: "Todo (sin puesto)",
+    lectura: "ve todas las pantallas del salón y entra por Mesas, como hasta ahora",
+  },
+  { value: "caja", label: "Caja", lectura: "entra directo al Turno y ve Mesas, Mostrador, Turno y Cocina" },
+  { value: "salon", label: "Salón (mesero)", lectura: "entra directo a Mesas y ve sólo Mesas, Mostrador y Turno" },
+  {
+    value: "cocina",
+    label: "Cocina",
+    lectura: "entra directo a los tiquetes de cocina y ve Tiquetes, Producción, Merma y Turno",
+  },
+  {
+    value: "bar",
+    label: "Bar",
+    lectura: "entra directo a los tiquetes (el KDS recuerda la estación del bar) y ve Tiquetes, Producción, Merma y Turno",
+  },
+];
+
 interface FormState {
   name: string;
   role: EmployeeRole;
   pin: string;
   can_charge: boolean;
+  puesto: Puesto | typeof PUESTO_TODO;
   discount_limit_pct: string;
   document: string;
   email: string;
@@ -44,6 +69,7 @@ function emptyState(): FormState {
     role: "operator",
     pin: "",
     can_charge: false,
+    puesto: PUESTO_TODO,
     discount_limit_pct: "",
     document: "",
     email: "",
@@ -57,6 +83,7 @@ function fromEmployee(employee: Employee): FormState {
     role: employee.role,
     pin: "",
     can_charge: employee.can_charge,
+    puesto: employee.puesto ?? PUESTO_TODO,
     discount_limit_pct: employee.discount_limit_pct !== null ? String(employee.discount_limit_pct) : "",
     document: employee.document ?? "",
     email: employee.email ?? "",
@@ -117,6 +144,7 @@ export function EmployeeFormDialog({
           role: values.role,
           store_id: values.role === "admin" ? null : storeId,
           can_charge: values.can_charge,
+          puesto: values.puesto === PUESTO_TODO ? null : values.puesto,
           discount_limit_pct: discountLimit,
           document: values.document || null,
           email: values.email || null,
@@ -131,6 +159,7 @@ export function EmployeeFormDialog({
           pin: values.pin,
           store_id: values.role === "admin" ? null : storeId,
           can_charge: values.can_charge,
+          puesto: values.puesto === PUESTO_TODO ? null : values.puesto,
           discount_limit_pct: discountLimit,
           document: values.document || null,
           email: values.email || null,
@@ -143,6 +172,9 @@ export function EmployeeFormDialog({
   }
 
   const isAdmin = values.role === "admin";
+  // Supervisores y administradores ven todo: el puesto no les cambia nada.
+  const puestoAplica = values.role === "operator";
+  const puestoElegido = PUESTO_OPCIONES.find((o) => o.value === values.puesto) ?? PUESTO_OPCIONES[0]!;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -324,6 +356,32 @@ export function EmployeeFormDialog({
                 />
               )}
             </FormField>
+
+            {puestoAplica ? (
+              <FormField
+                label="Puesto"
+                help={`Dónde trabaja en la tablet: decide a qué pantalla llega apenas teclea su PIN y qué botones ve en la barra. Con este puesto ${puestoElegido.lectura}. No le quita permisos: lo que puede cobrar lo decide «Puede cobrar».`}
+                scope={{ affects: [{ screen: "Salón › Barra y pantalla de inicio" }] }}
+              >
+                {({ fieldId, describedBy }) => (
+                  <Select
+                    value={values.puesto}
+                    onValueChange={(v) => setValues((prev) => ({ ...prev, puesto: v as FormState["puesto"] }))}
+                  >
+                    <SelectTrigger id={fieldId} aria-describedby={describedBy} className="w-full">
+                      <SelectValue>{puestoElegido.label}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PUESTO_OPCIONES.map((opcion) => (
+                        <SelectItem key={opcion.value} value={opcion.value}>
+                          {opcion.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </FormField>
+            ) : null}
 
             <FormField
               label="Límite de descuento (%, opcional)"

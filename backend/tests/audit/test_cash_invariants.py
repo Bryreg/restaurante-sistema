@@ -960,6 +960,10 @@ def test_a_handover_moves_the_responsibility_and_with_blind_close_off_the_expect
             "kind": "handover",
             "counted_cash": denoms(OPENING_FIXED),
             "new_responsible_id": employees["operator2"].id,
+            # Inicio por rol (0027): quien recibe el cajón confirma con su
+            # PIN. Se agrega el dato que el contrato ahora exige; no cambia
+            # ninguna aserción de este invariante.
+            "new_responsible_pin": "3333",
         },
         headers=idem_headers(),
     )
@@ -1017,6 +1021,10 @@ def test_with_blind_close_on_a_handover_hides_the_expected_from_both_responsible
             "kind": "handover",
             "counted_cash": denoms(OPENING_FIXED),
             "new_responsible_id": employees["operator2"].id,
+            # Inicio por rol (0027): quien recibe el cajón confirma con su
+            # PIN. Se agrega el dato que el contrato ahora exige; no cambia
+            # ninguna aserción de este invariante.
+            "new_responsible_pin": "3333",
         },
         headers=idem_headers(),
     )

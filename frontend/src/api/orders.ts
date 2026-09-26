@@ -281,6 +281,8 @@ export interface TableStatusOut {
   covers?: number | null
   /** Total tal como llega de `compute_order_totals` — el servidor lo calcula. */
   total?: number | null
+  /** Platos que cocina marcó listos y nadie sirvió todavía (conteo del servidor). */
+  ready_count?: number
 }
 
 export interface ZoneStatusOut {

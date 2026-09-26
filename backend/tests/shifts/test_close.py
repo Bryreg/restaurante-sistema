@@ -165,6 +165,7 @@ def test_handovers_disabled_returns_feature_disabled(device_client, employees, o
             "kind": "handover",
             "counted_cash": {"denominations": [{"value": 50000, "count": 4}], "total": 200_000},
             "new_responsible_id": employees["operator"].id,
+            "new_responsible_pin": "2222",
         },
         headers=idem(),
     )
