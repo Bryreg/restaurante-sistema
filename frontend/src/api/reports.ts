@@ -22,6 +22,7 @@
  */
 
 import { api } from "@/api/client"
+import type { PanelCashOut } from "@/api/panel"
 
 // ---------------------------------------------------------------------------
 // Piezas compartidas.
@@ -243,6 +244,13 @@ export interface AreaCountAreaTodayOut {
   area_name: string
   opening: AreaCountDoneTodayOut | null
   closing: AreaCountDoneTodayOut | null
+  /** Conteo compartido barra/cocina (en integración): `null`/ausente mientras `inventory` no los publique. */
+  opening_counted?: number | null
+  opening_total?: number | null
+  closing_counted?: number | null
+  closing_total?: number | null
+  full_count?: boolean | null
+  opening_missing?: boolean | null
 }
 
 /** Un artículo con diferencia (la calcula el servidor). `shortage_qty`
@@ -341,6 +349,11 @@ export interface TodayOut {
   /** Día operativo anterior, para mostrar antes de la primera venta.
    * `null` si la sede todavía no operaba. */
   yesterday_close?: DayCloseOut | null
+  /** El turno abierto de la sede, **de cualquier día** (`null` = no hay).
+   * La misma lectura que el panel y que Dinero › Operacional: un turno
+   * abandonado de otro día se ve como abandonado, y su responsable con la
+   * marca de inactivo si ya no trabaja. */
+  current_shift?: PanelCashOut | null
 }
 
 export function getToday(storeId: number): Promise<TodayOut> {

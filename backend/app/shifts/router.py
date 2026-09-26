@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.audit.service import record_audit
 from app.banking import hooks as banking_hooks
 from app.auth.deps import Actor, admin_store, current_actor, current_admin, current_device, current_operator
+from app.auth.models import Employee
 from app.core import clock, features
 from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
@@ -237,6 +238,15 @@ def _admin_shift_item(db: Session, shift: Shift) -> AdminShiftListItem:
     store = db.get(Store, shift.store_id)
     assert store is not None
     stale = service.is_shift_stale(db, shift, store) if shift.status == ShiftStatus.OPEN else False
+    # Esta lista es sólo de administrador (`current_admin`), igual que
+    # `_shift_summary` con actor admin: con el turno abierto publica el
+    # esperado vivo (`compute_breakdown`, la única fórmula) y no el `None`
+    # de la columna, que se llena al cerrar. Antes Dinero › Operacional decía
+    # «—» para el mismo turno que Hoy mostraba con su esperado.
+    expected = (
+        service.compute_breakdown(db, shift)["expected"] if shift.status == ShiftStatus.OPEN else shift.expected_cash
+    )
+    responsible = db.get(Employee, shift.cash_responsible_id)
     return AdminShiftListItem(
         id=shift.id,
         business_date=day.business_date,
@@ -245,7 +255,8 @@ def _admin_shift_item(db: Session, shift: Shift) -> AdminShiftListItem:
         opened_at=shift.opened_at,
         closed_at=shift.closed_at,
         cash_responsible=EmployeeRef(id=shift.cash_responsible_id, name=shift.cash_responsible_name),
-        expected_cash=shift.expected_cash,
+        cash_responsible_active=bool(responsible.active) if responsible is not None else None,
+        expected_cash=expected,
         counted_cash=shift.counted_cash,
         difference=shift.difference,
         is_stale=stale,
@@ -695,13 +706,19 @@ def admin_list_shifts(
     request: Request,
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
+    include_open: bool = Query(
+        False,
+        description="Suma los turnos abiertos de cualquier fecha: un turno abandonado de un día anterior no se esconde por su fecha",
+    ),
     format: str | None = Query(None, description='"csv" exporta el listado como CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> Any:
     del format  # declarado sólo para el OpenAPI (deuda de 1b-2, pedido 2b la cierra); el valor real lo lee `wants_csv(request)`.
     store = admin_store(db, actor, store_id)
-    shifts = service.list_admin_shifts(db, store_id=store.id, date_from=date_from, date_to=date_to)
+    shifts = service.list_admin_shifts(
+        db, store_id=store.id, date_from=date_from, date_to=date_to, include_open=include_open
+    )
     rows = [_admin_shift_item(db, s) for s in shifts]
     if wants_csv(request):
         return csv_response([r.model_dump(mode="json") for r in rows], filename="shifts.csv")

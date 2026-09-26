@@ -237,6 +237,16 @@ class AreaCountAreaTodayOut(BaseModel):
     area_name: str
     opening: AreaCountDoneTodayOut | None
     closing: AreaCountDoneTodayOut | None
+    # Conteo compartido barra/cocina (`app.inventory.AreaTodayStatus`, en
+    # integración): cuántos artículos van contados de cuántos, y si falta la
+    # apertura. Opcionales y `None` mientras `inventory` no los publique: el
+    # mapeo es tolerante (`getattr`) para que la integración no rompa nada.
+    opening_counted: int | None = None
+    opening_total: int | None = None
+    closing_counted: int | None = None
+    closing_total: int | None = None
+    full_count: bool | None = None
+    opening_missing: bool | None = None
 
 
 class AreaCountFlagOut(BaseModel):
@@ -337,6 +347,12 @@ class TodayOut(BaseModel):
     comparison: TodayComparisonOut | None = None
     sales_by_hour_reference: list[HourBucketOut] = []
     yesterday_close: DayCloseOut | None = None
+    # El turno abierto de la sede, **sea del día que sea** (`app.reports.
+    # panel.current_cash`, la misma lectura que el panel y que Dinero ›
+    # Operacional). Antes Hoy mostraba el esperado de un turno abandonado de
+    # otro día como si fuera el de hoy, sin decir que estaba abandonado ni
+    # que su responsable ya no estaba activo. `None` = no hay turno abierto.
+    current_shift: PanelCashOut | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -607,3 +623,17 @@ class ReportsOverviewOut(BaseModel):
     cost: CostSectionOut
     # Sólo con `scope="all"`; `None` por sede.
     by_store: list[StoreRowOut] | None
+
+
+# Los literales del panel viven acá (y no en `panel_schemas`) para que
+# `frontend/src/audit/api-literal-types.test.ts`, que lee los `schemas.py`,
+# los cruce contra `PanelLevel`/`PanelLight` de `src/api/panel.ts`.
+PanelLevelLiteral = Literal["critical", "warning", "info"]
+PanelLightLiteral = Literal["red", "amber", "green"]
+
+# El panel (`panel_schemas`) reusa `SalesBucketOut` de este módulo y `TodayOut`
+# reusa `PanelCashOut` de aquél: se importa al final, cuando todo lo de acá ya
+# existe, y se reconstruye el modelo que lo nombra.
+from app.reports.panel_schemas import PanelCashOut  # noqa: E402
+
+TodayOut.model_rebuild()

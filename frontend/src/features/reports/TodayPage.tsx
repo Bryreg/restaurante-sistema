@@ -13,6 +13,7 @@ import {
 import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 
+import type { PanelCashOut } from "@/api/panel"
 import {
   CASH_DIFF_SUMMARY_ALERT_TYPE,
   getToday,
@@ -80,6 +81,8 @@ import { receptionDraftsTrayItem } from "@/features/purchases"
 import { RequestsTray } from "@/features/requests"
 
 import { Definiciones, Plegable, type Definicion } from "./Plegable"
+import { fichaTurnoHref } from "./fichas/rutas"
+import { PanelAhora } from "./PanelAhora"
 
 /** El ancla de la bandeja: solicitudes y novedades que el salón le dejó al dueño. */
 const ANCLA_BANDEJA = "bandeja"
@@ -219,8 +222,49 @@ function directAttentionItems(today: {
   payables_pending_review_count?: number
   inventory_unreliable?: boolean | null
   days_since_last_full_count?: number | null
+  current_shift?: PanelCashOut | null
 }): AttentionItem[] {
   const items: AttentionItem[] = []
+
+  // El turno abierto de cualquier día (`current_shift`, la misma lectura que
+  // el panel y que Dinero › Operacional). Un turno abandonado de otro día
+  // tenía esperado en la tarjeta de abajo y ningún aviso propio: ahora es
+  // crítico y lleva a su ficha, donde están el cierre administrativo y los
+  // demás rescates.
+  const shift = today.current_shift ?? null
+  if (shift?.is_stale) {
+    items.push({
+      key: "shift-stale",
+      title: `Turno abandonado del ${formatFechaCorta(shift.business_date)}`,
+      body:
+        `Sigue abierto y nadie lo cerró. Responsable: ${shift.responsible.name}` +
+        (shift.responsible.active ? "." : " (ya no está activo)."),
+      why: {
+        term: "Turno abandonado",
+        text: "Pasó la hora de corte del día siguiente y el turno sigue abierto. No bloquea la venta, pero su plata no se cuadró: cerralo con el cierre administrativo.",
+      },
+      to: fichaTurnoHref(shift.shift_id),
+      ctaLabel: "Ver el turno",
+      tone: "critical",
+      screen: "Dinero",
+      tab: `Turno #${shift.shift_id}`,
+    })
+  } else if (shift && !shift.responsible.active) {
+    items.push({
+      key: "responsible-inactive",
+      title: "Caja a nombre de alguien inactivo",
+      body: `${shift.responsible.name} ya no está activo y el turno #${shift.shift_id} sigue a su nombre.`,
+      why: {
+        term: "Responsable inactivo",
+        text: "Hacé un relevo del turno a alguien activo, o cerralo: la diferencia del cierre se atribuye al responsable.",
+      },
+      to: fichaTurnoHref(shift.shift_id),
+      ctaLabel: "Ver el turno",
+      tone: "warning",
+      screen: "Dinero",
+      tab: `Turno #${shift.shift_id}`,
+    })
+  }
 
   if (today.expected_cash === null || today.expected_cash === undefined) {
     items.push({
@@ -290,11 +334,14 @@ function directAttentionItems(today: {
       key: "unreviewed-closes",
       title: `${unreviewed} cierre${unreviewed === 1 ? "" : "s"} sin revisar`,
       body: "Falta el paso 2 del cierre a ciegas.",
-      to: "/admin/dinero",
+      // El recuento es de TODOS los cierres sin revisar, de cualquier día:
+      // Operacional sólo muestra los de hoy, así que el enlace iba a una
+      // tabla donde no estaban. Historial los tiene todos, con su revisión.
+      to: "/admin/dinero?tab=historial",
       ctaLabel: "Ver Dinero",
       tone: "default",
       screen: "Dinero",
-      tab: "Operacional",
+      tab: "Historial",
     })
   }
 
@@ -607,7 +654,14 @@ function directAttentionItems(today: {
 }
 
 /** Tipos que ya tienen su propia tarjeta directa arriba — evita mostrar el mismo aviso dos veces. */
-const DEDUPED_ALERT_TYPES = new Set(["order_unsent_too_long", "order_unpaid_too_long", "product_unavailable", "pending_refund"])
+const DEDUPED_ALERT_TYPES = new Set([
+  "order_unsent_too_long",
+  "order_unpaid_too_long",
+  "product_unavailable",
+  "pending_refund",
+  // «Turno abandonado» ya es un aviso directo, con la fecha y el responsable.
+  "shift_stale",
+])
 
 /**
  * El aviso resumen de caja (`cash_diff_summary`): el texto lo escribe el
@@ -1278,6 +1332,11 @@ export function TodayPage(): React.JSX.Element {
         }
       />
 
+      {/* **La portada** (panel de control): con varias sedes, todas en un
+          semáforo; de la sede activa, qué pasa ahora —caja, quién trabaja,
+          conteos, salón, cocina—. Cada bloque lleva a su detalle. */}
+      <PanelAhora />
+
       {/* **Un solo nivel de grilla, en el orden en que se lee en el
           celular** (`docs/diseno/propuesta.html`, Momento 5): primero la
           respuesta —la cifra rectora—, después lo que exige actuar, y los
@@ -1423,6 +1482,21 @@ export function TodayPage(): React.JSX.Element {
                 tone="critical"
                 icon={Banknote}
                 link={{ to: "/admin/dinero", screen: "Dinero", tab: "Operacional" }}
+              />
+            ) : today.current_shift?.is_stale ? (
+              // El esperado de un turno abandonado de otro día no es «el de
+              // hoy»: la tarjeta lo dice y lleva a la ficha del turno.
+              <StatTile
+                label="Efectivo esperado"
+                value={formatCOP(today.expected_cash)}
+                hint={`Turno abandonado del ${formatFechaCorta(today.current_shift.business_date)}.`}
+                tone="critical"
+                icon={Banknote}
+                link={{
+                  to: fichaTurnoHref(today.current_shift.shift_id),
+                  screen: "Dinero",
+                  tab: `Turno #${today.current_shift.shift_id}`,
+                }}
               />
             ) : (
               <StatTile

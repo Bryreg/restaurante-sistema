@@ -263,6 +263,34 @@ residuo perdido. Usalo; no escribas otro.
 **Horas** — `app/core/hours.py` fija la escala entera de las horas, igual que
 `QTY_SCALE` hizo con las cantidades. Las horas no son pesos.
 
+**Panel de control y fichas** — `app/reports/panel.py` (`GET /admin/panel`,
+`GET /admin/records/{shift,employee,ingredient}/{id}`):
+- **No tiene matemática propia.** El turno abierto es `current_cash` (el de
+  cualquier día, con `compute_breakdown`), y `Hoy` lo publica como
+  `current_shift` desde esa misma llamada; el salón, el conteo por área y la
+  bandeja salen de las funciones de `today_report`; la cocina, de
+  `app/kitchen/hooks.kitchen_load` (el mismo `service.semaphore` del KDS);
+  las ventas de un turno o de una persona, de `aggregate_sales`. Si agregás
+  un número al panel, reusá la función de la pantalla que ya lo muestra.
+- **Quién trabaja**: el roster mezcla a quien marcó entrada con quien sólo
+  se identificó en la tablet (`on_employee_identified` también crea fila).
+  `present_staff` los separa por la auditoría `shift_roster` `in`/
+  `in_on_reopen`; es la única costura del panel que cambia cuando exista una
+  tabla propia de asistencia.
+- `GET /admin/shifts?include_open=true` suma los turnos abiertos de
+  cualquier fecha: Dinero › Operacional lo usa para que un turno abandonado
+  de otro día no se esconda por su fecha.
+- **Push al teléfono (`notifications.push`)**: la función está en el
+  catálogo pero **no hay nada que la entregue**: ni tabla de suscripciones
+  (necesita migración), ni claves VAPID, ni service worker, ni despachador.
+  La costura natural es `app/notifications/service.notify` (la única puerta
+  de una notificación): un despachador colgado ahí, gateado por la función,
+  para los tipos graves. De los cuatro que pidió el dueño, hoy se emiten
+  `shift_stale` (crítico; también lo emite el panel, no sólo el POS) y
+  `void_rate_high`; **no se emiten** la plata sin devolver (dominio de la
+  base de respaldo) ni el faltante grande del conteo por área (el conteo
+  marca `flagged`, pero no llama a `notify`).
+
 ---
 
 ## 9. Reglas de plata que se rompen sin que se vea en pantalla

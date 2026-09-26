@@ -641,6 +641,9 @@ export interface AdminShiftListItem {
   opened_at?: string;
   closed_at?: string | null;
   cash_responsible?: EmployeeRef;
+  /** Si el responsable sigue activo HOY (`null` si no se encontró). El nombre es el congelado del turno. */
+  cash_responsible_active?: boolean | null;
+  /** Con el turno abierto, el esperado vivo (lista de administrador); cerrado, el del cierre. */
   expected_cash?: number | null;
   counted_cash?: number | null;
   difference?: number | null;
@@ -654,12 +657,19 @@ export interface AdminShiftFilters {
   storeId: number;
   from?: string;
   to?: string;
+  /** Suma los turnos abiertos de cualquier fecha (Operacional: el abandonado de otro día no se esconde). */
+  includeOpen?: boolean;
 }
 
 /** `GET /admin/shifts?store_id&from&to` (Dinero → Operacional e Historial). */
 export function listAdminShifts(filters: AdminShiftFilters): Promise<AdminShiftListItem[]> {
   return api<AdminShiftListItem[]>("/admin/shifts", {
-    query: { store_id: filters.storeId, from: filters.from, to: filters.to },
+    query: {
+      store_id: filters.storeId,
+      from: filters.from,
+      to: filters.to,
+      include_open: filters.includeOpen ? "true" : undefined,
+    },
   });
 }
 

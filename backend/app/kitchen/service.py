@@ -365,6 +365,25 @@ DEFAULT_STATION_TARGET_MINUTES: dict[str, int] = {
 FALLBACK_TARGET_MINUTES = 12
 
 
+def semaphore(elapsed_seconds: int, target_minutes: int | None) -> str:
+    """El color del plato en el KDS: verde dentro del objetivo, ámbar hasta
+    1,5 veces el objetivo, rojo pasado eso. Una sola regla para el KDS
+    (`router._semaphore`) y para el panel del administrador
+    (`hooks.kitchen_load`)."""
+    # Desde que existe el objetivo por estación (`target_minutes_for`)
+    # `get_kitchen_rounds` nunca pasa `None`; la rama queda para quien llame
+    # sin objetivo, y sigue sin inventar un color.
+    if target_minutes is None:
+        return "green"
+    target_seconds = target_minutes * 60
+    if elapsed_seconds < target_seconds:
+        return "green"
+    # `elapsed < 1.5 * target` sin float: `elapsed * 2 < target * 3`.
+    if elapsed_seconds * 2 < target_seconds * 3:
+        return "amber"
+    return "red"
+
+
 def target_minutes_for(course_targets: dict[str, Any], *, course: str | None, station: str | None) -> int:
     configured = course_targets.get(course) if course is not None else None
     if configured is not None:

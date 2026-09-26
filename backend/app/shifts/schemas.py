@@ -461,6 +461,10 @@ class AdminShiftListItem(BaseModel):
     opened_at: datetime
     closed_at: datetime | None = None
     cash_responsible: EmployeeRef
+    # Si la persona responsable sigue activa HOY. El nombre es el congelado
+    # del turno; esto dice si todavía hay a quién preguntarle. `None` si la
+    # fila de la persona no se encontró.
+    cash_responsible_active: bool | None = None
     expected_cash: int | None = None
     counted_cash: int | None = None
     difference: int | None = None

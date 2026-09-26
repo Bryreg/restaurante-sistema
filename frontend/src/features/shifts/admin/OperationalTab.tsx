@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import { listAdminShifts, type AdminShiftListItem } from "@/api/shifts";
 import {
@@ -16,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Diferencia } from "@/components/Diferencia";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
+import { formatFechaCorta } from "@/lib/format";
+import { fichaPersonaHref, fichaTurnoHref } from "@/features/reports/fichas/rutas";
 
 import { shiftRowStatus } from "./lib";
 import { ShiftDetailDialog } from "./ShiftDetailDialog";
@@ -41,7 +44,29 @@ function StatusCell({ shift }: { shift: AdminShiftListItem }): React.JSX.Element
       <Badge variant={shift.status === "open" ? "default" : "secondary"}>
         {shift.status ? (STATUS_LABEL[shift.status] ?? shift.status) : "—"}
       </Badge>
-      {shift.is_stale ? <Badge variant="destructive">Abandonado</Badge> : null}
+      {shift.is_stale ? (
+        <Badge variant="destructive" title={`Abierto desde el día operativo ${shift.business_date ?? "—"}`}>
+          Abandonado{shift.business_date ? ` · ${formatFechaCorta(shift.business_date)}` : ""}
+        </Badge>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * El responsable, con enlace a su ficha. El nombre es el congelado del
+ * turno; si la persona ya no está activa, lo dice: una caja a nombre de
+ * alguien que ya no trabaja acá no puede verse igual que las demás.
+ */
+function ResponsibleCell({ shift }: { shift: AdminShiftListItem }): React.JSX.Element {
+  const who = shift.cash_responsible;
+  if (!who) return <span>—</span>;
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <Link to={fichaPersonaHref(who.id)} className="text-primary hover:underline">
+        {who.name}
+      </Link>
+      {shift.cash_responsible_active === false ? <Badge variant="destructive">inactivo</Badge> : null}
     </span>
   );
 }
@@ -50,7 +75,8 @@ function StatusCell({ shift }: { shift: AdminShiftListItem }): React.JSX.Element
 export const SHIFT_LEGEND: readonly LegendEntry[] = [
   {
     term: "Abandonado",
-    meaning: "pasó la hora de corte y el turno sigue abierto. No bloquea la venta, pero nadie lo cerró.",
+    meaning:
+      "pasó la hora de corte y el turno sigue abierto. No bloquea la venta, pero nadie lo cerró. Aparece en Operacional aunque sea de otro día.",
   },
   {
     term: "Sin revisar",
@@ -76,7 +102,7 @@ export function shiftColumns(
   const columns: DenseColumn<AdminShiftListItem>[] = [
     ...extra,
     { key: "status", header: "Estado", cell: (s) => <StatusCell shift={s} /> },
-    { key: "who", header: "Responsable", cell: (s) => s.cash_responsible?.name ?? "—" },
+    { key: "who", header: "Responsable", cell: (s) => <ResponsibleCell shift={s} /> },
     { key: "expected", header: "Esperado", kind: "number", cell: (s) => formatCOP(s.expected_cash) },
     { key: "counted", header: "Contado", kind: "number", cell: (s) => formatCOP(s.counted_cash) },
     {
@@ -107,9 +133,14 @@ export function shiftColumns(
       header: "Acciones",
       kind: "actions",
       cell: (s) => (
-        <Button type="button" variant="ghost" size="sm" onClick={() => onOpenDetail(s)}>
-          Ver detalle
-        </Button>
+        <span className="inline-flex items-center gap-1">
+          <Button type="button" variant="ghost" size="sm" onClick={() => onOpenDetail(s)}>
+            Ver detalle
+          </Button>
+          <Link to={fichaTurnoHref(s.id)} className="text-sm text-primary hover:underline" title="Ficha del turno">
+            Ficha
+          </Link>
+        </span>
       ),
     },
   ];
@@ -129,8 +160,11 @@ export function OperationalTab({ storeId }: { storeId: number }): React.JSX.Elem
   const today = todayInBogota();
 
   const query = useQuery({
+    // `includeOpen`: los turnos de hoy MÁS los abiertos de cualquier día. Un
+    // turno abandonado del 16 que Hoy mostraba no aparecía acá porque su
+    // fecha no es hoy; ahora va arriba, en «Ahora mismo», marcado.
     queryKey: ["admin-shifts", "operational", storeId, today],
-    queryFn: () => listAdminShifts({ storeId, from: today, to: today }),
+    queryFn: () => listAdminShifts({ storeId, from: today, to: today, includeOpen: true }),
   });
 
   if (query.isLoading) {

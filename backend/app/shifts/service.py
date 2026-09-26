@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -347,7 +347,10 @@ def notify_if_stale(db: Session, shift: Shift, store: Store) -> bool:
             organization_id=shift.organization_id,
             store_id=store.id,
             type="shift_stale",
-            level="warning",
+            # Crítico, como lo dicen Hoy y el semáforo del panel para el mismo
+            # hecho: una campana en «aviso» y una pantalla en «crítico» para el
+            # mismo turno abandonado eran dos gravedades para una sola cosa.
+            level="critical",
             title="Turno sin cerrar",
             body=f"El turno #{shift.id} sigue abierto después de la hora de corte del día siguiente.",
             payload={"shift_id": shift.id},
@@ -1935,13 +1938,22 @@ def adjust_opening(
 
 
 def list_admin_shifts(
-    db: Session, *, store_id: int, date_from: date | None, date_to: date | None
+    db: Session, *, store_id: int, date_from: date | None, date_to: date | None, include_open: bool = False
 ) -> list[Shift]:
+    """Los turnos de la sede en el rango. Con `include_open`, además los
+    abiertos de cualquier fecha: Dinero › Operacional mira «hoy», y el turno
+    abandonado de hace diez días —el que Hoy sí muestra— tiene que estar ahí
+    también, o las dos pantallas cuentan cosas distintas."""
     stmt = select(Shift).join(BusinessDay, Shift.business_day_id == BusinessDay.id).where(Shift.store_id == store_id)
+    in_range = []
     if date_from is not None:
-        stmt = stmt.where(BusinessDay.business_date >= date_from)
+        in_range.append(BusinessDay.business_date >= date_from)
     if date_to is not None:
-        stmt = stmt.where(BusinessDay.business_date <= date_to)
+        in_range.append(BusinessDay.business_date <= date_to)
+    if in_range and include_open:
+        stmt = stmt.where(or_(and_(*in_range), Shift.status == ShiftStatus.OPEN))
+    elif in_range:
+        stmt = stmt.where(*in_range)
     stmt = stmt.order_by(Shift.opened_at.desc())
     return list(db.execute(stmt).scalars())
 
