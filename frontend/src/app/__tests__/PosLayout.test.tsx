@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useSearchParams } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Me } from "@/api/auth";
@@ -219,5 +219,50 @@ describe("PosLayout — la salida del dispositivo", () => {
 
     await waitFor(() => expect(deviceDeactivate).toHaveBeenCalledTimes(1));
     expect(clear).not.toHaveBeenCalled();
+  });
+});
+
+describe("PosLayout — inicio por rol: la barra según el puesto", () => {
+  it("un mesero con puesto «salón» ve Mesas, Mostrador y Turno, aunque la cocina esté encendida", async () => {
+    renderLayout(TODO_ENCENDIDO, undefined, { ...MESERO, puesto: "salon" });
+
+    expect(await rotulosDeLaBarra()).toEqual(["Mesas", "Mostrador", "Turno"]);
+  });
+
+  it("la cocina ve sus pantallas y no Mesas ni Mostrador", async () => {
+    renderLayout(TODO_ENCENDIDO, undefined, { ...MESERO, puesto: "cocina" });
+
+    const rotulos = await rotulosDeLaBarra();
+    expect(rotulos).not.toContain("Mesas");
+    expect(rotulos).not.toContain("Mostrador");
+    expect(rotulos).toContain("Turno");
+    expect(rotulos.length).toBeLessThanOrEqual(5);
+  });
+
+  it("un supervisor con puesto ve la barra completa", async () => {
+    renderLayout(TODO_ENCENDIDO, undefined, { ...SUPERVISOR, puesto: "salon" });
+
+    expect(await rotulosDeLaBarra()).toHaveLength(7);
+  });
+});
+
+function NextParam(): React.JSX.Element {
+  const [params] = useSearchParams();
+  return <p data-testid="next">{params.get("next")}</p>;
+}
+
+describe("PosLayout — volver a la pantalla después del PIN", () => {
+  it("si la persona venció, «Quién opera» recibe la pantalla en ?next=", async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/pos" element={<PosLayout />}>
+          <Route path="turno" element={<div>contenido</div>} />
+        </Route>
+        <Route path="/pos/identify" element={<NextParam />} />
+      </Routes>,
+      { route: "/pos/turno?accion=relevo", me: { ...deviceMe(TODO_ENCENDIDO), employee: null } },
+    );
+
+    expect(await screen.findByTestId("next")).toHaveTextContent("/pos/turno?accion=relevo");
   });
 });

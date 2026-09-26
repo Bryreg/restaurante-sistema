@@ -1,9 +1,9 @@
-import { LayoutGrid, LogOut, Moon, Sun, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import { LayoutGrid, LogOut, Moon, MoreHorizontal, Sun, Users } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
-import { deviceDeactivate, deviceRelease, type EmployeeBrief } from "@/api/auth";
+import { deviceDeactivate, deviceRelease } from "@/api/auth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { inventoryFeature } from "@/features/inventory";
 import { kitchenFeature } from "@/features/kitchen";
 import { ordersFeature } from "@/features/orders";
@@ -25,58 +26,82 @@ import { cn } from "@/lib/utils";
 
 import type { NavItem } from "./nav";
 import { useDensity } from "./density";
+import { barraDelSalon, cuantasCaben, rutaIdentificarse } from "./puesto";
 import { useSalonTheme } from "./theme";
 import { useSession } from "./session";
 
 /**
  * La barra del salón la decide **quién se identificó**, no la tablet
  * (`docs/diseno/propuesta.html` § navegación: «cinco destinos como máximo,
- * según el rol»). Tres reglas:
+ * según el rol»). Las reglas viven en `barraDelSalon` (`./puesto`, funciones
+ * puras con sus tests):
  *
  * - Sin persona identificada no hay entradas de operación (`[]`).
  * - Una función apagada (`feature`) no deja hueco: la entrada no está.
- * - Turno lo ve todo el que se identifica. Se probó ocultárselo al mesero
- *   (la propuesta le deja sólo Mesas y Mostrador), pero ahí vive el panel
- *   donde cada persona marca su entrada, salida y pausa con su PIN: sin la
- *   entrada, el mesero perdía cómo marcar su salida.
+ * - **Inicio por rol**: con `puesto` (caja, salón, cocina, bar) la persona ve
+ *   sólo los destinos de su puesto; sin puesto, o supervisor / admin, todo.
+ *   Turno lo ve todo el que se identifica: ahí marca su entrada y salida.
  *
- * Orden: venta (Mesas, Mostrador) → caja (Turno) → cocina (Cocina,
- * Tiquetes de cocina, Producción, Merma), cada tramo en el orden de los
- * manifiestos. No hay entrada «Cobrar»: el cobro vive en
- * `/pos/cobro/:orderId` y se llega desde la comanda — no existe una
- * pantalla «cuentas por cobrar» a la que apuntar.
+ * Orden sin puesto: venta (Mesas, Mostrador) → caja (Turno) → cocina
+ * (Cocina, Tiquetes de cocina, Producción, Merma). No hay entrada «Cobrar»:
+ * el cobro vive en `/pos/cobro/:orderId` y se llega desde la comanda.
+ *
+ * **Lo que no cabe va a «Más»** (tablet vertical): antes la barra se
+ * desplazaba de costado sin ninguna pista y las últimas entradas quedaban
+ * escondidas. Se miden los botones en una fila invisible y se muestran los
+ * que caben; el resto, en el menú «Más», que nombra la pantalla activa si
+ * está adentro.
  */
-const GROUP_RANK: Record<NonNullable<NavItem["posGroup"]>, number> = { venta: 0, caja: 1, cocina: 2 };
+const NAV_ITEM_CLASS =
+  // `min-h-14`: objetivo táctil de 56 px o más en el salón
+  // (propuesta § Sistema de diseño), no los 44 px del libro.
+  "flex min-h-14 shrink-0 items-center gap-2 rounded-md px-4 text-base font-medium whitespace-nowrap transition-colors";
 
-function buildPosNav(hasFeature: (key: string) => boolean, employee: EmployeeBrief | null | undefined): NavItem[] {
-  if (!employee) return [];
-  const all: NavItem[] = [
-    ...ordersFeature.posNav,
-    ...shiftsFeature.posNav,
-    ...kitchenFeature.posNav,
-    ...recipesFeature.posNav,
-    ...inventoryFeature.posNav,
-  ];
-  return all
-    .filter((item) => !item.feature || hasFeature(item.feature))
-    .map((item, index) => ({ item, index }))
-    .sort((a, b) => GROUP_RANK[a.item.posGroup ?? "venta"] - GROUP_RANK[b.item.posGroup ?? "venta"] || a.index - b.index)
-    .map(({ item }) => item);
-}
+function PosNavBar({ items }: { items: NavItem[] }): React.JSX.Element | null {
+  const navRef = useRef<HTMLElement>(null);
+  const medidasRef = useRef<HTMLDivElement>(null);
+  const [caben, setCaben] = useState(items.length);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const firma = items.map((item) => `${item.to}|${item.label}`).join("\n");
 
-function PosNavBar({
-  hasFeature,
-  employee,
-}: {
-  hasFeature: (key: string) => boolean;
-  employee: EmployeeBrief | null | undefined;
-}): React.JSX.Element | null {
-  const items = buildPosNav(hasFeature, employee);
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const medidas = medidasRef.current;
+    if (!nav || !medidas) return;
+    const total = medidas.children.length - 1;
+    const medir = () => {
+      const hijos = Array.from(medidas.children) as HTMLElement[];
+      const anchos = hijos.slice(0, total).map((hijo) => hijo.offsetWidth);
+      const mas = hijos[total]?.offsetWidth ?? 0;
+      const estilo = window.getComputedStyle(nav);
+      const disponible =
+        nav.clientWidth - (parseFloat(estilo.paddingLeft) || 0) - (parseFloat(estilo.paddingRight) || 0);
+      setCaben(cuantasCaben(anchos, disponible, mas));
+    };
+    medir();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(medir);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [firma]);
+
   if (items.length === 0) return null;
 
+  const visibles = items.slice(0, caben);
+  const enMas = items.slice(caben);
+  const rutaActual = `${location.pathname}${location.search}`;
+  const activaEnMas = enMas.find(
+    (item) => rutaActual === item.to || location.pathname === item.to.split("?")[0],
+  );
+
   return (
-    <nav aria-label="Secciones del salón" className="flex gap-2 overflow-x-auto border-b bg-background px-3 py-2">
-      {items.map((item) => {
+    <nav
+      ref={navRef}
+      aria-label="Secciones del salón"
+      className="relative flex gap-2 overflow-x-auto border-b bg-background px-3 py-2"
+    >
+      {visibles.map((item) => {
         const Icon = item.icon ?? LayoutGrid;
         return (
           <NavLink
@@ -84,9 +109,7 @@ function PosNavBar({
             to={item.to}
             className={({ isActive }) =>
               cn(
-                // `min-h-14`: objetivo táctil de 56 px o más en el salón
-                // (propuesta § Sistema de diseño), no los 44 px del libro.
-                "flex min-h-14 shrink-0 items-center gap-2 rounded-md px-4 text-base font-medium transition-colors",
+                NAV_ITEM_CLASS,
                 isActive
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -98,6 +121,51 @@ function PosNavBar({
           </NavLink>
         );
       })}
+      {enMas.length > 0 ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            className={cn(
+              NAV_ITEM_CLASS,
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              activaEnMas
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            )}
+          >
+            <MoreHorizontal className="size-5" aria-hidden="true" />
+            {activaEnMas ? `Más: ${activaEnMas.label}` : "Más"}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-auto min-w-52">
+            {enMas.map((item) => {
+              const Icon = item.icon ?? LayoutGrid;
+              return (
+                <DropdownMenuItem key={item.to} className="min-h-12 gap-2 text-base" onClick={() => navigate(item.to)}>
+                  <Icon className="size-5" aria-hidden="true" />
+                  {item.label}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+      {/* La fila invisible con la que se mide cuánto cabe: no es navegable
+          ni la lee un lector de pantalla. */}
+      <div
+        ref={medidasRef}
+        aria-hidden="true"
+        className="pointer-events-none invisible absolute top-0 left-0 flex h-0 gap-2 overflow-hidden"
+      >
+        {items.map((item) => (
+          <span key={item.to} className={NAV_ITEM_CLASS}>
+            <span className="size-5" />
+            {item.label}
+          </span>
+        ))}
+        <span className={NAV_ITEM_CLASS}>
+          <span className="size-5" />
+          Más: Tiquetes de cocina
+        </span>
+      </div>
     </nav>
   );
 }
@@ -198,7 +266,10 @@ export default function PosLayout(): React.JSX.Element | null {
   const [pantalla, setPantalla] = useSalonTheme();
   // En la cocina la pizarra es fija (`useCocinaPantalla`): ahí el botón no
   // cambiaría nada visible, así que no se ofrece.
-  const enCocina = /^\/pos\/(kds|cocina)\b/.test(useLocation().pathname);
+  const location = useLocation();
+  const enCocina = /^\/pos\/(kds|cocina)\b/.test(location.pathname);
+  // Para volver acá después del PIN (sesión vencida o «Cambiar de persona»).
+  const identificarse = rutaIdentificarse(`${location.pathname}${location.search}`);
   const { me, refresh, hasFeature } = useSession();
   const navigate = useNavigate();
   const [releasing, setReleasing] = useState(false);
@@ -217,7 +288,7 @@ export default function PosLayout(): React.JSX.Element | null {
   }
 
   if (!me.employee) {
-    return <Navigate to="/pos/identify" replace />;
+    return <Navigate to={identificarse} replace />;
   }
 
   const expired = me.employee_expires_at
@@ -229,7 +300,7 @@ export default function PosLayout(): React.JSX.Element | null {
     try {
       await deviceRelease();
       await refresh();
-      navigate("/pos/identify");
+      navigate(identificarse);
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -290,7 +361,19 @@ export default function PosLayout(): React.JSX.Element | null {
       <div className="border-b bg-muted/30 px-3 py-2">
         <shiftsFeature.ShiftStatusStrip />
       </div>
-      <PosNavBar hasFeature={hasFeature} employee={me.employee} />
+      <PosNavBar
+        items={barraDelSalon(
+          [
+            ...ordersFeature.posNav,
+            ...shiftsFeature.posNav,
+            ...kitchenFeature.posNav,
+            ...recipesFeature.posNav,
+            ...inventoryFeature.posNav,
+          ],
+          hasFeature,
+          me.employee,
+        )}
+      />
       <main className="flex-1 p-3">
         <Outlet />
       </main>

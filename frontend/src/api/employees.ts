@@ -3,6 +3,7 @@
  * en una respuesta (AGENTS.md, checklist § pedido 1a); la baja es lógica
  * (`active=false`), nunca un `DELETE`.
  */
+import type { Puesto } from "./auth";
 import { api } from "./client";
 
 export type EmployeeRole = "operator" | "supervisor" | "admin";
@@ -13,6 +14,8 @@ export interface Employee {
   role: EmployeeRole;
   store_id: number | null;
   can_charge: boolean;
+  /** Inicio por rol: dónde trabaja en el POS; `null` = ve todo. */
+  puesto?: Puesto | null;
   discount_limit_pct: number | null;
   document?: string | null;
   email?: string | null;
@@ -25,6 +28,7 @@ export interface EmployeeCreateIn {
   pin: string;
   store_id?: number | null;
   can_charge?: boolean;
+  puesto?: Puesto | null;
   discount_limit_pct?: number | null;
   document?: string | null;
   email?: string | null;
@@ -37,6 +41,7 @@ export interface EmployeeUpdateIn {
   pin?: string;
   store_id?: number | null;
   can_charge?: boolean;
+  puesto?: Puesto | null;
   discount_limit_pct?: number | null;
   document?: string | null;
   email?: string | null;

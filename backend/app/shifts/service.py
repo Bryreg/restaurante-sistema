@@ -426,6 +426,34 @@ def list_roster(db: Session, shift_id: int) -> list[ShiftRoster]:
     )
 
 
+def handover_candidates(db: Session, *, shift: Shift) -> list[tuple[Employee, bool]]:
+    """A quién se le puede entregar el cajón en un relevo: personas activas
+    de la sede (o admins de la organización) que pueden tocar la caja
+    —`can_charge`, supervisor o admin, la misma regla de
+    `hooks.can_handle_cash` sin el «responsable actual»—, menos quien ya la
+    tiene. Cada una con `on_shift` (tiene entrada abierta en el roster), y
+    las del turno primero."""
+
+    on_shift_ids = {
+        r.employee_id for r in list_roster(db, shift.id) if r.out_at is None
+    }
+    rows = db.execute(
+        select(Employee)
+        .where(
+            Employee.organization_id == shift.organization_id,
+            Employee.active.is_(True),
+            (Employee.store_id == shift.store_id) | Employee.store_id.is_(None),
+            Employee.id != shift.cash_responsible_id,
+        )
+        .order_by(Employee.name)
+    ).scalars().all()
+    eligible = [e for e in rows if e.can_charge or e.role in ("supervisor", "admin")]
+    return sorted(
+        ((e, e.id in on_shift_ids) for e in eligible),
+        key=lambda pair: (not pair[1], pair[0].name),
+    )
+
+
 # ---------------------------------------------------------------------------
 # POST /shifts/open
 # ---------------------------------------------------------------------------
@@ -748,6 +776,32 @@ def create_handover(db: Session, *, actor: Actor, shift: Shift, store: Store, pa
         if not payload.new_responsible_id:
             raise AppError("VALIDATION_ERROR", "new_responsible_id: es obligatorio para registrar un relevo", status=400)
         new_responsible = _get_org_employee(db, shift.organization_id, payload.new_responsible_id)
+        if new_responsible.id == shift.cash_responsible_id:
+            raise AppError(
+                "HANDOVER_SAME_RESPONSIBLE",
+                f"{new_responsible.name} ya tiene la caja: elegí a otra persona para el relevo",
+                status=400,
+            )
+        # Quien recibe confirma con su PIN, antes de escribir nada.
+        if not payload.new_responsible_pin:
+            raise AppError(
+                "NEW_RESPONSIBLE_PIN_REQUIRED",
+                f"{new_responsible.name} tiene que confirmar el relevo con su PIN",
+                status=400,
+            )
+        if not auth_service.verify_pin(db, new_responsible, payload.new_responsible_pin):
+            now = clock.now_utc()
+            if new_responsible.pin_locked_until is not None and new_responsible.pin_locked_until > now:
+                raise AppError(
+                    "PIN_LOCKED",
+                    f"El PIN de {new_responsible.name} está bloqueado por varios intentos fallidos; esperá unos minutos",
+                    status=400,
+                )
+            raise AppError(
+                "NEW_RESPONSIBLE_PIN_INVALID",
+                f"El PIN de {new_responsible.name} no es correcto; que lo teclee de nuevo",
+                status=400,
+            )
         if payload.authorizer_pin:
             authorizer = auth_service.verify_authorizer(
                 db,

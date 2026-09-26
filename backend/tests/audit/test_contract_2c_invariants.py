@@ -463,11 +463,15 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       tablas nuevas de `app/inventory` (áreas, miembros, artículos, conteos,
       sus renglones, recuentos y el umbral). Se mueve el poste, no se afloja:
       las dos igualdades siguen exactas.
+    - Con **`0027_employee_puesto`** la cadena llega a `"0027"` y el conteo
+      **sigue en 107**: el puesto de cada persona (caja, salón, cocina, bar)
+      y la última persona que usó la tablet son columnas, no tablas. Se mueve sólo el poste de
+      la cabeza; las dos igualdades siguen exactas.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0026"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0026, "
-        "el conteo corto por área"
+    assert 'version == "0027"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0027, "
+        "el puesto de cada persona"
     )
     assert "len(tablas) == 107" in fuente, (
         "el conteo de tablas sigue en un número viejo: 0026 lo deja en 107 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7)"

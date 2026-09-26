@@ -330,6 +330,70 @@ def on_employee_identified(db: Session, *, store_id: int, employee: object) -> N
 
 
 # ---------------------------------------------------------------------------
+# Inicio por rol: quién puede tocar la plata del cajón.
+# ---------------------------------------------------------------------------
+
+CASH_PERMISSION_CODE = "CASH_PERMISSION_REQUIRED"
+
+
+def can_handle_cash(db: Session, *, actor: Any, shift: Shift | None) -> bool:
+    """**El único lugar que decide quién puede hacer una operación de caja**
+    (abrir el turno, entrada y salida de plata, cambio, retiros, relevo,
+    consignar desde el POS, liquidar domicilios, cierre).
+
+    Puede: el administrador (por tipo de actor o por rol), el supervisor, la
+    persona con permiso de cobrar (`Employee.can_charge`) y el responsable de
+    caja del turno abierto —que puede no tener `can_charge` si recibió el
+    cajón en un relevo—. Nadie más: antes bastaba con estar identificado, y
+    un cocinero podía sellar el cierre a ciegas o hacerse un relevo a sí mismo.
+
+    `actor` es un `app.auth.deps.Actor` (tipado como `Any` para que este
+    módulo no dependa de las dependencias HTTP).
+    """
+
+    if getattr(actor, "kind", None) == "admin" or getattr(actor, "role", None) in ("admin", "supervisor"):
+        return True
+    employee_id = getattr(actor, "employee_id", None)
+    if employee_id is None:
+        return False
+    if shift is not None and shift.cash_responsible_id == employee_id:
+        return True
+    from app.auth.models import Employee
+
+    employee = db.get(Employee, employee_id)
+    return bool(employee is not None and employee.active and employee.can_charge)
+
+
+def require_cash_permission(db: Session, *, actor: Any, shift: Shift | None) -> None:
+    """`403 CASH_PERMISSION_REQUIRED` si `actor` no puede tocar la caja
+    (`can_handle_cash`). Se llama ANTES de escribir nada y antes de reservar
+    la llave de idempotencia: el rechazo no queda grabado como respuesta."""
+
+    if can_handle_cash(db, actor=actor, shift=shift):
+        return
+    responsible = f" ({shift.cash_responsible_name})" if shift is not None else ""
+    raise AppError(
+        CASH_PERMISSION_CODE,
+        "Esta acción es de caja: la hace quien tiene la caja del turno"
+        f"{responsible}, alguien con permiso de cobrar o un supervisor. "
+        "Pedile a esa persona que se identifique en la tablet",
+        status=403,
+    )
+
+
+def require_cash_permission_for_store(db: Session, *, actor: Any, store_id: int) -> None:
+    """Igual que `require_cash_permission`, contra el turno abierto de la
+    sede (o sin turno, donde sólo cuentan `can_charge` y el rol). Para los
+    dominios que mueven el cajón sin recibir el turno (consignar desde el
+    POS, liquidar domicilios)."""
+
+    shift = db.execute(
+        select(Shift).where(Shift.store_id == store_id, Shift.status == ShiftStatus.OPEN)
+    ).scalar_one_or_none()
+    require_cash_permission(db, actor=actor, shift=shift)
+
+
+# ---------------------------------------------------------------------------
 # Pedido 2b: el egreso del cajón por un pago a proveedor.
 # ---------------------------------------------------------------------------
 

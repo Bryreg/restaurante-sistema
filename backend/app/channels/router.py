@@ -47,6 +47,7 @@ from app.core.db import get_db
 from app.core.errors import AppError, NotFoundError
 from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
+from app.shifts import hooks as shifts_hooks
 from app.stores.models import Store
 
 router = APIRouter()
@@ -414,6 +415,8 @@ def create_delivery_settlement(
     ingreso con causa tipada. Sin turno abierto, `409 NO_OPEN_SHIFT` y no
     queda nada a medias."""
     store = _store_of_device(db, actor)
+    # La liquidación mete plata al cajón: sólo quien puede tocar la caja.
+    shifts_hooks.require_cash_permission_for_store(db, actor=actor, store_id=store.id)
 
     def _do() -> tuple[int, dict[str, Any]]:
         now = clock.now_utc()
@@ -460,6 +463,7 @@ def void_delivery_settlement(
     )
     if settlement.store_id != store.id:
         raise NotFoundError("La liquidación no existe en esta sede")
+    shifts_hooks.require_cash_permission_for_store(db, actor=actor, store_id=store.id)
 
     def _do() -> tuple[int, dict[str, Any]]:
         now = clock.now_utc()

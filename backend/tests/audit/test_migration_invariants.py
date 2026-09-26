@@ -474,6 +474,15 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     (el umbral por sede). Ninguna tabla existente gana columnas. El poste se
     mueve; la forma del invariante —igualdad exacta sobre un conjunto
     enumerado— queda igual, y los siete nombres entran enumerados abajo.
+
+    **Re-apuntado con el inicio por rol**: la cadena llega a
+    **`0027_employee_puesto`** y el conteo **sigue en 107**. `0027` agrega la
+    columna `employees.puesto` (caja, salón, cocina, bar; vacía = ve todo),
+    que decide a qué pantalla llega cada persona al identificarse y qué
+    destinos ve en la barra del POS, y `device_sessions.last_employee_id` (la
+    última persona que usó la tablet, para ofrecerla primero). Son COLUMNAS,
+    no tablas: se mueve el poste de la cabeza y el del conteo no, igual que
+    `0019`, `0021` y `0022`.
     """
     from sqlalchemy import text
 
@@ -485,11 +494,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0026", (
-        f"la cadena quedó en {version!r}; el punto de llegada después del conteo corto "
-        "por área es 0026 (`0026_area_counts`). "
+    assert version == "0027", (
+        f"la cadena quedó en {version!r}; el punto de llegada después del inicio por rol "
+        "es 0027 (`0027_employee_puesto`). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025 y 0026"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026 y 0027"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -585,9 +594,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # para 1b anotó "53 tablas" contando la de control de Alembic: es el mismo
     # esquema contado de dos maneras. `0023_photos` suma una (94) y `0024`
     # otra (`shift_carry_ins`): 95; `0025` cinco de la rutina del turno: 100;
-    # `0026` siete del conteo corto por área: **107**.
+    # `0026` siete del conteo corto por área: **107**. `0027` (el puesto de
+    # cada persona y la última que usó la tablet) agrega columnas, no tablas:
+    # sigue 107.
     assert len(tablas) == 107, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; `0026` lo deja en 107 "
+        f"el esquema quedó con {len(tablas)} tablas de dominio; `0026` lo deja en 107 (y `0027` no lo mueve) "
         f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón "
         f"+ 5 de la rutina del turno + 7 del conteo por área). "
         f"Actualizá este número junto con la migración que lo cambie: {sorted(tablas)}"

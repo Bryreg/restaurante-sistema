@@ -75,6 +75,7 @@ def _employee_brief(employee: Employee) -> EmployeeBriefOut:
         discount_limit_pct=(
             float(employee.discount_limit_pct) if employee.discount_limit_pct is not None else None
         ),
+        puesto=employee.puesto,  # type: ignore[arg-type]
     )
 
 
@@ -85,6 +86,7 @@ def _employee_out(employee: Employee) -> EmployeeOut:
         role=employee.role,
         store_id=employee.store_id,
         can_charge=employee.can_charge,
+        puesto=employee.puesto,  # type: ignore[arg-type]
         discount_limit_pct=(
             float(employee.discount_limit_pct) if employee.discount_limit_pct is not None else None
         ),
@@ -219,6 +221,7 @@ def device_identify(
 
     now = clock.now_utc()
     session.employee_id = employee.id
+    session.last_employee_id = employee.id
     session.employee_bound_at = now
     session.employee_expires_at = now + timedelta(minutes=settings.EMPLOYEE_SESSION_MINUTES)
     db.flush()
@@ -343,6 +346,7 @@ def me(request: Request, db: Session = Depends(get_db)) -> MeOut:
         store=_store_brief(store),
         employee=employee_out,
         employee_expires_at=employee_expires_at,
+        last_employee_id=session.last_employee_id,
         organization=OrganizationOut(id=org.id, name=org.name),
         features=features,
     )
@@ -433,6 +437,7 @@ def create_employee(
         email=body.email,
         password_hash=hash_secret(body.password) if body.password else None,
         can_charge=body.can_charge,
+        puesto=body.puesto,
         discount_limit_pct=body.discount_limit_pct,
         document=body.document,
         active=True,
@@ -488,7 +493,7 @@ def update_employee(
         employee.pin_hash = hash_secret(data["pin"])
     if "password" in data and data["password"] is not None:
         employee.password_hash = hash_secret(data["password"])
-    for field in ("name", "role", "store_id", "can_charge", "discount_limit_pct", "document", "email", "active"):
+    for field in ("name", "role", "store_id", "can_charge", "puesto", "discount_limit_pct", "document", "email", "active"):
         if field in data:
             setattr(employee, field, data[field])
     employee.updated_at = clock.now_utc()

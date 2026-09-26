@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useDensity } from "@/app/density";
+import { destinoSeguro } from "@/app/puesto";
 import { useSalonTheme } from "@/app/theme";
 import { useSession } from "@/app/session";
 import { deviceIdentify } from "@/api/auth";
 import type { DeviceEmployee } from "@/api/employees";
 import { EmployeePicker } from "@/components/EmployeePicker";
 import { PinPad } from "@/components/PinPad";
+import { useCurrentShift } from "@/features/shifts/hooks";
 import { errorMessage } from "@/lib/errors";
 
 /**
@@ -16,17 +18,40 @@ import { errorMessage } from "@/lib/errors";
  * (`GET /device/employees`) y después el PIN personal de 4 dígitos →
  * `POST /auth/device/identify {employee_id, pin}`. `PIN_LOCKED` u otro
  * error del servidor se muestra tal cual llega.
+ *
+ * **Inicio por rol** (2026-09-25):
+ *
+ * - Primero, en grande, la última persona que usó esta tablet
+ *   (`me.last_employee_id`, lo guarda el servidor) y quienes están adentro
+ *   del turno (el roster de `GET /shifts/current`); el resto, detrás de
+ *   «Otra persona».
+ * - En horizontal el teclado va al lado de la grilla, para que nunca quede
+ *   debajo del borde de la pantalla.
+ * - Después del PIN se vuelve a la pantalla de la que se venía (`?next=`:
+ *   la sesión venció o alguien tocó «Cambiar de persona»); si no se venía de
+ *   ninguna, `/pos` decide por el puesto de la persona (`PosHome`).
  */
 export default function DeviceIdentifyPage(): React.JSX.Element {
   // Ídem `DeviceActivatePage`: vive fuera de `PosLayout` y es el otro
   // teclado de PIN de la tablet.
   useDensity("salon");
   useSalonTheme();
-  const { refresh } = useSession();
+  const { me, refresh } = useSession();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const siguiente = destinoSeguro(searchParams.get("next"));
+  const turno = useCurrentShift();
   const [employee, setEmployee] = useState<DeviceEmployee | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const destacados: number[] = [];
+  const ultima = me?.last_employee_id;
+  if (ultima != null) destacados.push(ultima);
+  for (const entry of turno.data?.roster ?? []) {
+    if (entry.out_at || entry.employee_id == null) continue;
+    if (!destacados.includes(entry.employee_id)) destacados.push(entry.employee_id);
+  }
 
   async function handlePin(pin: string) {
     if (!employee) {
@@ -38,7 +63,7 @@ export default function DeviceIdentifyPage(): React.JSX.Element {
     try {
       await deviceIdentify({ employee_id: employee.id, pin });
       await refresh();
-      navigate("/pos", { replace: true });
+      navigate(siguiente ?? "/pos", { replace: true });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -55,25 +80,33 @@ export default function DeviceIdentifyPage(): React.JSX.Element {
         </p>
       </div>
 
-      <div className="w-full max-w-md">
-        <EmployeePicker
-          value={employee?.id ?? null}
-          onChange={(_id, next) => {
-            setEmployee(next);
-            setError(null);
-          }}
-          label="Quién opera"
-          disabled={submitting}
-        />
-      </div>
+      {/* Vertical: grilla y debajo el teclado. Horizontal (tablet acostada,
+          1280×800): lado a lado, la grilla con su propio desplazamiento y el
+          teclado siempre a la vista. */}
+      <div className="flex w-full max-w-md flex-col items-center gap-6 md:landscape:max-w-5xl md:landscape:flex-row md:landscape:items-start md:landscape:justify-center">
+        <div className="w-full md:landscape:max-h-[calc(100vh-10rem)] md:landscape:flex-1 md:landscape:overflow-y-auto md:landscape:p-1">
+          <EmployeePicker
+            value={employee?.id ?? null}
+            onChange={(_id, next) => {
+              setEmployee(next);
+              setError(null);
+            }}
+            label="Quién opera"
+            destacados={destacados}
+            disabled={submitting}
+          />
+        </div>
 
-      <PinPad
-        length={4}
-        label="PIN personal"
-        onSubmit={handlePin}
-        disabled={submitting || !employee}
-        errorMessage={error}
-      />
+        <div className="md:landscape:sticky md:landscape:top-4 md:landscape:shrink-0">
+          <PinPad
+            length={4}
+            label="PIN personal"
+            onSubmit={handlePin}
+            disabled={submitting || !employee}
+            errorMessage={error}
+          />
+        </div>
+      </div>
     </div>
   );
 }

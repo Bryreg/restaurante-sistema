@@ -174,6 +174,10 @@ class HandoverIn(BaseModel):
     counted_card: int | None = None
     counted_transfer: int | None = None
     new_responsible_id: int | None = None
+    # Inicio por rol: quien RECIBE el cajón confirma con su PIN personal. Sin
+    # eso, cualquiera con la caja podía pasársela a otro sin que el otro se
+    # enterara. Obligatorio en `kind="handover"`; el arqueo sorpresa no lo usa.
+    new_responsible_pin: str | None = Field(default=None, pattern=r"^\d{4}$")
     authorizer_pin: str | None = None
     photo: PhotoIn | None = None
 

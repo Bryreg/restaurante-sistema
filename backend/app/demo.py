@@ -415,12 +415,15 @@ class Demo:
         a.put(f"/admin/stores/{sid}/sales-settings", body)
 
         existing = {e["name"]: e for e in a.get("/admin/employees")}
-        for name, role, pin, can_charge, _area, _wage in STAFF:
+        # Inicio por rol: el área de la demo es también su puesto en el POS
+        # (el domiciliario no tiene puesto: ve todo, como siempre).
+        puestos = {"caja": "caja", "salón": "salon", "cocina": "cocina"}
+        for name, role, pin, can_charge, area, _wage in STAFF:
             if name in existing:
                 emp = existing[name]
             else:
                 emp = a.post("/admin/employees", {"name": name, "role": role, "pin": pin, "store_id": sid,
-                                                  "can_charge": can_charge})
+                                                  "can_charge": can_charge, "puesto": puestos.get(area)})
             self.staff[name] = emp
             self.pins[int(emp["id"])] = pin
         for e in a.get("/admin/employees"):
