@@ -21,6 +21,10 @@ export interface DocumentStoreRef {
 
 export interface DocumentCustomerRef {
   doc_type?: string;
+  /** «C.C.», «NIT»… en vez del código DIAN. */
+  doc_type_label?: string | null;
+  /** Adquirente genérico («222222222222»): el papel no repite el número. */
+  final_consumer?: boolean;
   doc_number?: string;
   name?: string;
   email?: string | null;
@@ -31,6 +35,8 @@ export interface DocumentCustomerRef {
 export interface DocumentOrderRef {
   id?: number;
   channel?: string;
+  /** «Mesa», «Mostrador»… — lo que se imprime en vez del código. */
+  channel_label?: string | null;
   tables?: string[];
   covers?: number | null;
   served_by?: string | null;

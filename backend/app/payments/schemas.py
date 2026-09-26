@@ -161,6 +161,11 @@ class DocumentStoreOut(BaseModel):
 
 class DocumentCustomerOut(BaseModel):
     doc_type: str
+    # «C.C.», «NIT»… en vez del código DIAN («13», «31»).
+    doc_type_label: str | None = None
+    # Documento sin cliente identificado (el adquirente genérico de la DIAN,
+    # «222222222222»): el papel dice «Consumidor final» y no repite el número.
+    final_consumer: bool = False
     doc_number: str
     name: str
     email: str | None = None
@@ -171,6 +176,8 @@ class DocumentCustomerOut(BaseModel):
 class DocumentOrderRefOut(BaseModel):
     id: int
     channel: str
+    # «Mesa», «Mostrador»… — el papel no imprime el código interno del canal.
+    channel_label: str | None = None
     tables: list[str]
     covers: int | None
     served_by: str
@@ -317,3 +324,17 @@ class ChangePreviewSplitOut(BaseModel):
 class ChangePreviewOut(BaseModel):
     splits: list[ChangePreviewSplitOut]
     change_total: int
+
+
+# ---------------------------------------------------------------------------
+# Atajos de lo recibido (`GET /payments/tender-suggestions`): «Exacto» y los
+# billetes redondos siguientes, calculados acá y no en la pantalla.
+# ---------------------------------------------------------------------------
+
+
+class TenderSuggestionsOut(BaseModel):
+    amount: int
+    # Lo que cubre la cuenta exacta: es `amount`, repetido para que la
+    # pantalla nunca tenga que decidirlo.
+    exact: int
+    suggestions: list[int]

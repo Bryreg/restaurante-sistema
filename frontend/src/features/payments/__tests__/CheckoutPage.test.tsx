@@ -23,7 +23,12 @@ vi.mock("@/api/orders", async () => {
 
 vi.mock("@/api/payments", async () => {
   const actual = await vi.importActual<typeof import("@/api/payments")>("@/api/payments");
-  return { ...actual, payOrder: vi.fn(), listDevicePaymentMethods: vi.fn() };
+  return {
+    ...actual,
+    payOrder: vi.fn(),
+    listDevicePaymentMethods: vi.fn(),
+    getTenderSuggestions: vi.fn().mockResolvedValue({ amount: 0, exact: 0, suggestions: [] }),
+  };
 });
 
 vi.mock("@/api/documents", async () => {
@@ -196,7 +201,9 @@ describe("CheckoutPage", () => {
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": false });
 
     await screen.findByText("Pagos");
-    await screen.findByText(/ingresá tu pin para cobrar/i);
+    // Con persona activa el cierre dice quién cobra («Cobra Ana: tecleá tu
+    // PIN»): el texto cambió, la condición que se espera es la misma.
+    await screen.findByText(/tecleá tu pin/i);
 
     await user.keyboard("1234");
 
@@ -318,10 +325,10 @@ describe("CheckoutPage — partes iguales", () => {
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true });
 
     await user.click(await screen.findByRole("button", { name: "Partes iguales" }));
-    const partes = screen.getByLabelText("Partes");
-    await user.clear(partes);
-    await user.type(partes, "3");
-    await user.click(screen.getByRole("button", { name: "Calcular partes" }));
+    // El número de partes es una fila de botones: tocar «3» ya divide (sin
+    // un segundo botón «Calcular partes» compitiendo como principal).
+    await user.click(within(screen.getByRole("group", { name: "Partes" })).getByRole("button", { name: "3" }));
+    expect(splitBill).toHaveBeenCalledWith(42, { expected_version: 3, mode: "equal", parts: 3 });
 
     const lista = await screen.findByRole("list", { name: "Partes de la cuenta" });
     const rows = within(lista).getAllByRole("listitem");
@@ -329,5 +336,44 @@ describe("CheckoutPage — partes iguales", () => {
     expect(rows[0]).toHaveTextContent(/Parte 1.*Pendiente.*\$\s?16\.667/);
     expect(rows[2]).toHaveTextContent(/Parte 3.*Pendiente.*\$\s?16\.666/);
     expect(screen.getByText(/se cobran juntas, en un solo comprobante/i)).toBeInTheDocument();
+  });
+});
+
+describe("CheckoutPage — partes iguales con propina", () => {
+  it("pregunta la propina ANTES de dividir y cada parte trae su propina del servidor: nada queda en «faltan»", async () => {
+    vi.mocked(getOrder).mockReset().mockResolvedValue(buildOrder());
+    vi.mocked(listDevicePaymentMethods).mockReset().mockResolvedValue(DEVICE_PAYMENT_METHODS);
+    vi.mocked(splitBill)
+      .mockReset()
+      // Montos que la pantalla no podría sacar dividiendo: son del servidor.
+      .mockResolvedValue({
+        mode: "equal",
+        parts: 2,
+        per_part: [25000, 25000],
+        total: 50000,
+        tip_amount: 4630,
+        per_part_due: [27316, 27314],
+        amount_due: 54630,
+      });
+    const user = userEvent.setup();
+    renderCheckout({ "pos.pre_bill": false, "pos.tips": true, "pos.split_bill": true });
+
+    await user.click(await screen.findByRole("button", { name: "Partes iguales" }));
+    // Sin propina respondida no se ofrece dividir.
+    expect(screen.queryByRole("group", { name: "Partes" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /sí, \$\s?4\.630/i }));
+
+    await user.click(within(screen.getByRole("group", { name: "Partes" })).getByRole("button", { name: "2" }));
+    expect(splitBill).toHaveBeenCalledWith(42, { expected_version: 3, mode: "equal", parts: 2, tip_amount: 4630 });
+
+    const lista = await screen.findByRole("list", { name: "Partes de la cuenta" });
+    const rows = within(lista).getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent(/\$\s?27\.316/);
+    expect(rows[1]).toHaveTextContent(/\$\s?27\.314/);
+    // Las filas de pago llegan sembradas con lo de cada parte: completo.
+    expect(await screen.findByText("Completo")).toBeInTheDocument();
+    expect(screen.queryByText(/faltan/i)).not.toBeInTheDocument();
+    // Cada parte elige su medio con botones.
+    expect(screen.getAllByRole("radiogroup")).toHaveLength(2);
   });
 });

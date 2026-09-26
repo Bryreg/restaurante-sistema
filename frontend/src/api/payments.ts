@@ -172,3 +172,18 @@ export interface ChangePreviewOut {
 export function previewChange(splits: { amount: number; tendered: number }[]): Promise<ChangePreviewOut> {
   return api<ChangePreviewOut>("/payments/change-preview", { method: "POST", body: { splits } });
 }
+
+/**
+ * Atajos de lo recibido en efectivo (`GET /payments/tender-suggestions`):
+ * «Exacto» y los billetes redondos siguientes («$135.000», «$140.000»…). Los
+ * calcula el servidor; la caja sólo pinta un botón por cifra.
+ */
+export interface TenderSuggestionsOut {
+  amount: number;
+  exact: number;
+  suggestions: number[];
+}
+
+export function getTenderSuggestions(amount: number): Promise<TenderSuggestionsOut> {
+  return api<TenderSuggestionsOut>(`/payments/tender-suggestions?amount=${amount}`);
+}

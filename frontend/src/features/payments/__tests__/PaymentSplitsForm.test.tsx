@@ -1,18 +1,34 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { renderWithProviders } from "@/test/utils";
+import { buildMe, renderWithProviders } from "@/test/utils";
 
 import { PaymentSplitsForm } from "../PaymentSplitsForm";
 
 vi.mock("@/api/payments", async () => {
   const actual = await vi.importActual<typeof import("@/api/payments")>("@/api/payments");
-  return { ...actual, payOrder: vi.fn(), listDevicePaymentMethods: vi.fn(), previewChange: vi.fn() };
+  return {
+    ...actual,
+    payOrder: vi.fn(),
+    listDevicePaymentMethods: vi.fn(),
+    previewChange: vi.fn(),
+    getTenderSuggestions: vi.fn(),
+  };
 });
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const { listDevicePaymentMethods, previewChange } = await import("@/api/payments");
+const { listDevicePaymentMethods, previewChange, getTenderSuggestions } = await import("@/api/payments");
+
+beforeEach(() => {
+  // Cifras que la pantalla no podría inventar redondeando 50.000: si aparecen
+  // es porque se pintó lo que dijo el servidor.
+  vi.mocked(getTenderSuggestions).mockReset().mockResolvedValue({
+    amount: 50000,
+    exact: 50000,
+    suggestions: [51_111, 62_222],
+  });
+});
 
 function renderForm() {
   return renderWithProviders(
@@ -37,17 +53,34 @@ describe("PaymentSplitsForm — medios de pago de la sede", () => {
     renderForm();
 
     await screen.findByText("Pagos");
-    const user = userEvent.setup();
-    await user.click(screen.getByLabelText("Medio"));
 
-    // El popup se monta en un portal: con 48 entornos jsdom compitiendo no está
-    // montado todavía cuando `getByRole` síncrono pregunta. Esperar acá alcanza;
-    // las aserciones siguientes ya encuentran el popup montado.
-    expect(await screen.findByRole("option", { name: "Efectivo" })).toBeInTheDocument();
-    expect(await screen.findByRole("option", { name: "Transferencia" })).toBeInTheDocument();
+    // El medio pasó de lista desplegable a fila de botones (auditoría de UX en
+    // tablet: un toque en vez de dos). La regla que se prueba es la misma: se
+    // ofrecen los medios habilitados de la sede y ninguno más.
+    const medio = screen.getByRole("radiogroup", { name: "Medio" });
+    expect(within(medio).getByRole("radio", { name: "Efectivo" })).toBeInTheDocument();
+    expect(within(medio).getByRole("radio", { name: "Transferencia" })).toBeInTheDocument();
     // "Tarjeta"/"Bono"/"Plataforma"/"Otro" no están habilitados en la sede: no se ofrecen.
-    expect(screen.queryByRole("option", { name: "Tarjeta" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Bono" })).not.toBeInTheDocument();
+    expect(within(medio).queryByRole("radio", { name: "Tarjeta" })).not.toBeInTheDocument();
+    expect(within(medio).queryByRole("radio", { name: "Bono" })).not.toBeInTheDocument();
+    expect(within(medio).getAllByRole("radio")).toHaveLength(2);
+  });
+
+  it("tocar un medio lo elige: la referencia aparece sólo para el que la pide", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue([
+      { code: "cash", label: "Efectivo", dian_code: "10", requires_reference: false },
+      { code: "transfer", label: "Nequi", dian_code: "42", requires_reference: true },
+    ]);
+
+    renderForm();
+    await screen.findByText("Pagos");
+    const user = userEvent.setup();
+    expect(screen.getByRole("radio", { name: "Efectivo" })).toHaveAttribute("aria-checked", "true");
+    await user.click(screen.getByRole("radio", { name: "Nequi" }));
+    expect(screen.getByRole("radio", { name: "Nequi" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByLabelText(/referencia/i)).toBeInTheDocument();
+    // Sin efectivo no hay «Recibido».
+    expect(screen.queryByLabelText("Recibido")).not.toBeInTheDocument();
   });
 
   it("sólo pide «Referencia» para el medio que el servidor marca requires_reference", async () => {
@@ -182,5 +215,62 @@ describe("PaymentSplitsForm — el vuelto antes de cobrar", () => {
 
     expect(await screen.findByText(/lo recibido no alcanza: faltan \$ 30\.000/i)).toBeInTheDocument();
     expect(screen.queryByText("Vuelto a entregar")).not.toBeInTheDocument();
+  });
+
+  it("«Vuelto a entregar» espera a que el pago esté completo", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue([
+      { code: "cash", label: "Efectivo", dian_code: "10", requires_reference: false },
+    ]);
+    vi.mocked(previewChange).mockResolvedValue({ splits: [{ change: 1234, short_by: null }], change_total: 1234 });
+
+    renderForm();
+    const monto = await screen.findByLabelText<HTMLInputElement>("Monto");
+    const user = userEvent.setup();
+    // Monto a medias (faltan $30.000) y recibido de sobra para ese monto.
+    await user.clear(monto);
+    await user.type(monto, "20000");
+    await user.click(screen.getByRole("button", { name: "+$ 50.000" }));
+
+    await waitFor(() => expect(previewChange).toHaveBeenCalledWith([{ amount: 20000, tendered: 50000 }]));
+    expect(await screen.findByText(/faltan \$\s?30\.000/i)).toBeInTheDocument();
+    expect(screen.queryByText("Vuelto a entregar")).not.toBeInTheDocument();
+  });
+});
+
+describe("PaymentSplitsForm — lo recibido en un toque", () => {
+  it("«Exacto» pone el monto y las cifras redondas son las del servidor", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue([
+      { code: "cash", label: "Efectivo", dian_code: "10", requires_reference: false },
+    ]);
+    vi.mocked(previewChange).mockResolvedValue({ splits: [{ change: 0, short_by: null }], change_total: 0 });
+
+    renderForm();
+    await screen.findByText("Pagos");
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(getTenderSuggestions).toHaveBeenCalledWith(50000));
+    const atajos = await screen.findByRole("group", { name: "Recibido en un toque" });
+    expect(await within(atajos).findByRole("button", { name: "$ 51.111" })).toBeInTheDocument();
+    expect(within(atajos).getByRole("button", { name: "$ 62.222" })).toBeInTheDocument();
+
+    await user.click(within(atajos).getByRole("button", { name: "Exacto" }));
+    expect(screen.getByLabelText<HTMLInputElement>("Recibido").value).toBe("$ 50.000");
+
+    await user.click(within(atajos).getByRole("button", { name: "$ 62.222" }));
+    expect(screen.getByLabelText<HTMLInputElement>("Recibido").value).toBe("$ 62.222");
+    // Los billetes que se suman siguen ahí, como segunda opción.
+    expect(screen.getByRole("button", { name: "+$ 1.000" })).toBeInTheDocument();
+  });
+
+  it("el PIN está a la vista desde el principio y dice quién cobra", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue([
+      { code: "cash", label: "Efectivo", dian_code: "10", requires_reference: false },
+    ]);
+    renderWithProviders(
+      <PaymentSplitsForm orderId={42} totalDue={50000} onPaid={vi.fn()} onStale={vi.fn()} onAlreadyPaid={vi.fn()} />,
+      { me: buildMe({ kind: "device", employee: { id: 7, name: "Ana", role: "operator", can_charge: true } }) },
+    );
+    expect(await screen.findByRole("group", { name: "PIN propio para cobrar" })).toBeInTheDocument();
+    expect(await screen.findByText("Ana")).toBeInTheDocument();
   });
 });

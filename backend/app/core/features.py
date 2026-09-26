@@ -128,6 +128,19 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "1b",
     ),
     FeatureDef(
+        "pos.tips_counter",
+        "Preguntar la propina también en la venta de mostrador (en mesa se pregunta siempre)",
+        # Sin `requires`: sólo tiene efecto con `pos.tips` encendida
+        # (`app.orders.service.tip_applies`), y declararla como dependencia
+        # obligaría a apagar ésta antes de poder apagar la propina.
+        [],
+        # Apagada en los perfiles de uso real (en mostrador se cobra en el
+        # acto, sin servicio a la mesa); encendida en «full», que es el
+        # perfil de «todas las funciones», como el resto del catálogo.
+        {"basic": False, "standard": False, "full": True},
+        "1b",
+    ),
+    FeatureDef(
         "pos.discounts",
         "Descuentos por ítem o por comanda con motivo tipado",
         [],

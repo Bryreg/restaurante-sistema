@@ -27,6 +27,7 @@ from app.payments.schemas import (
     DevicePaymentMethodOut,
     DocumentPrintableOut,
     PaymentIn,
+    TenderSuggestionsOut,
 )
 from app.shifts import service as shifts_service
 from app.stores.models import Store
@@ -103,6 +104,17 @@ def post_change_preview(
     Es una resta sin datos: no hay nada que proteger detrás de un PIN."""
     del actor
     return ChangePreviewOut.model_validate(service.preview_change(payload.splits))
+
+
+@router.get("/payments/tender-suggestions")
+def get_tender_suggestions(
+    amount: int = Query(..., ge=0, le=100_000_000), actor: Actor = Depends(current_device)
+) -> TenderSuggestionsOut:
+    """Los atajos de lo recibido en efectivo para cobrar `amount`: «Exacto» y
+    los billetes redondos siguientes. Sólo lectura, con el dispositivo y no
+    con la persona, por las mismas razones que `change-preview`."""
+    del actor
+    return TenderSuggestionsOut(amount=amount, exact=amount, suggestions=service.tender_suggestions(amount))
 
 
 # ---------------------------------------------------------------------------

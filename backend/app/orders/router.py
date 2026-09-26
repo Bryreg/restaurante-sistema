@@ -284,8 +284,10 @@ def post_bill_split(order_id: int, payload: BillSplitIn, actor: Actor = Depends(
     if payload.mode == "equal":
         if not payload.parts:
             raise AppError("VALIDATION_ERROR", "parts: obligatorio para dividir en partes iguales")
-        per_part, total = service.split_bill_equal(db, order=order, actor=actor, expected_version=payload.expected_version, parts=payload.parts)
-        return BillSplitEqualOut(parts=payload.parts, per_part=per_part, total=total)
+        split = service.split_bill_equal(db, order=order, actor=actor, expected_version=payload.expected_version, parts=payload.parts, tip_amount=payload.tip_amount)
+        return BillSplitEqualOut(
+            parts=payload.parts, per_part=split.per_part, total=split.total, tip_amount=split.tip_amount, per_part_due=split.per_part_due, amount_due=split.amount_due
+        )
     groups = payload.groups or []
     accounts = service.split_bill_items(db, order=order, actor=actor, expected_version=payload.expected_version, groups=groups)
     return BillSplitItemsOut(sub_accounts=[service.sub_account_out(db, a) for a in accounts])

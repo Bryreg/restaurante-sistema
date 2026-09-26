@@ -331,8 +331,15 @@ export interface PreBillOut {
 export interface BillSplitEqualOut {
   mode?: "equal"
   parts?: number
+  /** Sólo la venta, repartida. */
   per_part?: number[]
   total?: number
+  /** La propina que se mandó al dividir (0 si ninguna). */
+  tip_amount?: number
+  /** Lo que paga cada parte: venta + propina repartidas juntas por el servidor. */
+  per_part_due?: number[]
+  /** `total + tip_amount`, sumado por el servidor. */
+  amount_due?: number
 }
 
 export interface BillSplitItemsOut {
@@ -554,7 +561,7 @@ export interface SplitGroupIn {
 }
 
 export type BillSplitIn =
-  | { expected_version: number; mode: "equal"; parts: number }
+  | { expected_version: number; mode: "equal"; parts: number; tip_amount?: number }
   | { expected_version: number; mode: "items"; groups: SplitGroupIn[] }
 
 // ---------------------------------------------------------------------------

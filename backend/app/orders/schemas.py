@@ -324,6 +324,12 @@ class BillSplitEqualOut(BaseModel):
     parts: int
     per_part: list[int]
     total: int
+    # Lo que cada parte paga de verdad: venta + propina repartidas juntas
+    # (`tip_amount` es la que se mandó al dividir; 0 si no hubo). Σ
+    # `per_part_due` == `amount_due` == `total` + `tip_amount`.
+    tip_amount: int = 0
+    per_part_due: list[int] = Field(default_factory=list)
+    amount_due: int = 0
 
 
 class BillSplitItemsOut(BaseModel):
@@ -563,3 +569,6 @@ class BillSplitIn(BaseModel):
     mode: Literal["equal", "items"]
     parts: int | None = Field(default=None, gt=0)
     groups: list[SplitGroupIn] | None = None
+    # Partes iguales: la propina que ya se respondió, para repartirla junto
+    # con la venta. Ausente = sin propina.
+    tip_amount: int | None = Field(default=None, ge=0)

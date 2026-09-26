@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import json
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -261,10 +263,30 @@ def _totals_out(totals: money.OrderTotals) -> TotalsOut:
     )
 
 
-def _tip_info(db: Session, order: Order, totals: money.OrderTotals) -> TipInfoOut | None:
+def tip_applies(db: Session, order: Order) -> bool:
+    """¿Se le pregunta la propina a esta comanda? Es LA regla, y la usan la
+    precuenta (`_tip_info`) y el cobro (`app.payments` al resolver la
+    propina), para que la pantalla nunca pregunte lo que el cobro no exige ni
+    al revés.
+
+    - Consumo de personal: nunca (precio 0, sin propina — SPEC §3.2).
+    - `pos.tips` apagada: nunca.
+    - Mostrador: sólo con `pos.tips_counter` encendida. Por defecto no: en
+      mostrador se cobra en el acto, sin servicio a la mesa, y la pregunta
+      era un toque de más en cada venta.
+    - El resto de canales (mesa, para llevar, domicilio, plataforma): sí.
+    """
     if order.channel == OrderChannel.STAFF_MEAL:
-        return None
+        return False
     if not features.is_enabled(db, order.organization_id, order.store_id, "pos.tips"):
+        return False
+    if order.channel == OrderChannel.COUNTER:
+        return features.is_enabled(db, order.organization_id, order.store_id, "pos.tips_counter")
+    return True
+
+
+def _tip_info(db: Session, order: Order, totals: money.OrderTotals) -> TipInfoOut | None:
+    if not tip_applies(db, order):
         return None
     settings = stores_service.get_sales_settings(db, order.store_id)
     pct = Decimal(str(settings.tip_suggested_pct))
@@ -2158,16 +2180,52 @@ def present_bill(db: Session, *, order: Order, actor: Actor, expected_version: i
     return order
 
 
+def _pre_bill_group_key(item: OrderItem) -> tuple[Any, ...]:
+    """Lo que tiene que coincidir para que dos ítems sean «la misma línea» de
+    la precuenta. Ante la duda, NO se agrupan: una línea de más se lee; dos
+    cosas distintas fundidas en una esconden una diferencia."""
+    return (
+        item.product_id,
+        item.combo_id,
+        item.name,
+        item.unit_price,
+        item.list_price,
+        item.tax_rate,
+        json.dumps(item.modifiers or [], sort_keys=True, default=str),
+        item.modifiers_text or "",
+        json.dumps(item.combo_selections, sort_keys=True, default=str),
+        (item.note or "").strip(),
+        item.courtesy_reason is not None,
+        item.discount_amount or 0,
+    )
+
+
 def build_pre_bill(db: Session, order: Order) -> PreBillOut:
     totals = compute_order_totals(db, order)
     line_by_item = {lt.item_id: lt for lt in totals.lines}
     items = _live_items(db, order.id)
-    lines = []
+    # Dos «1× Limonada» idénticas se leen en la cuenta como «2× Limonada»:
+    # se agrupan SÓLO si son la misma cosa al mismo precio (producto o combo,
+    # nombre, precio, impuesto, modificadores, selecciones del combo, nota,
+    # cortesía y descuento del ítem). Las cantidades y los montos del grupo
+    # se suman acá, una sola vez; la pantalla los pinta tal cual.
+    grouped: dict[tuple[Any, ...], PreBillLineOut] = {}
+    lines: list[PreBillLineOut] = []
     for item in items:
         lt = line_by_item.get(item.id)
         if lt is None:
             continue
-        lines.append(PreBillLineOut(description=item.name, qty=item.qty, unit_price=item.unit_price, gross=lt.gross, discount=lt.discount, net=lt.net))
+        key = _pre_bill_group_key(item)
+        existing = grouped.get(key)
+        if existing is None:
+            line = PreBillLineOut(description=item.name, qty=item.qty, unit_price=item.unit_price, gross=lt.gross, discount=lt.discount, net=lt.net)
+            grouped[key] = line
+            lines.append(line)
+            continue
+        existing.qty += item.qty
+        existing.gross += lt.gross
+        existing.discount += lt.discount
+        existing.net += lt.net
     tip = _tip_info(db, order, totals)
     assert order.bill_presented_at is not None
     return PreBillOut(
@@ -2177,19 +2235,44 @@ def build_pre_bill(db: Session, order: Order) -> PreBillOut:
     )
 
 
-def split_bill_equal(db: Session, *, order: Order, actor: Actor, expected_version: int, parts: int) -> tuple[list[int], int]:
+@dataclass(frozen=True)
+class EqualSplit:
+    """Partes iguales: `per_part` reparte sólo la venta (lo de siempre) y
+    `per_part_due` reparte venta + propina, que es lo que cada parte paga de
+    verdad. La pantalla pinta cada cifra tal cual; ninguna se suma allá."""
+
+    per_part: list[int]
+    total: int
+    tip_amount: int
+    per_part_due: list[int]
+    amount_due: int
+
+
+def split_bill_equal(
+    db: Session, *, order: Order, actor: Actor, expected_version: int, parts: int, tip_amount: int | None = None
+) -> EqualSplit:
     _check_version(db, order, expected_version, actor=actor)
     if order.status not in _OPEN_ORDER_STATUSES:
         raise AppError("ORDER_NOT_OPEN", "La comanda no está abierta")
     totals = compute_order_totals(db, order)
+    tip = tip_amount or 0
+    if tip < 0:
+        raise AppError("TIP_INVALID", "La propina no puede ser negativa")
+    if tip > 0 and _tip_info(db, order, totals) is None:
+        raise AppError("TIP_NOT_APPLICABLE", "Esta cuenta no lleva propina: dividila sin propina")
     per_part = money.prorate(totals.total, [1] * parts)
+    # La propina se reparte junto con la venta: si cada parte paga su pedazo
+    # de venta y después alguien suma la propina a mano, la última parte
+    # queda en «faltan $X». La cuenta se hace una sola vez, acá.
+    amount_due = totals.total + tip
+    per_part_due = money.prorate(amount_due, [1] * parts)
     now = clock.now_utc()
     order.split_parts = parts
     order.version += 1
     order.updated_at = now
-    db.add(OrderEvent(organization_id=order.organization_id, store_id=order.store_id, order_id=order.id, kind="split", payload={"mode": "equal", "parts": parts}, employee_id=actor.employee_id, employee_name=actor.employee_name, authorized_by_employee_id=None, authorized_by_employee_name=None, after_bill=order.bill_presented_at is not None, at=now))
+    db.add(OrderEvent(organization_id=order.organization_id, store_id=order.store_id, order_id=order.id, kind="split", payload={"mode": "equal", "parts": parts, "tip_amount": tip}, employee_id=actor.employee_id, employee_name=actor.employee_name, authorized_by_employee_id=None, authorized_by_employee_name=None, after_bill=order.bill_presented_at is not None, at=now))
     db.flush()
-    return per_part, totals.total
+    return EqualSplit(per_part=per_part, total=totals.total, tip_amount=tip, per_part_due=per_part_due, amount_due=amount_due)
 
 
 def split_bill_items(db: Session, *, order: Order, actor: Actor, expected_version: int, groups: list[SplitGroupIn]) -> list[OrderSubAccount]:

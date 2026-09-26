@@ -1,7 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
 import { Check } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { ApiError } from "@/api/client";
 import type { BillSplitEqualOut, BillSplitItemsOut, OrderItemOut, SplitGroupIn } from "@/api/orders";
 import { splitBill } from "@/api/orders";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,6 @@ export interface SplitBillPanelProps {
   items: OrderItemOut[];
   mode: SplitBillMode;
   onModeChange: (mode: SplitBillMode) => void;
-  onEqualResult: (result: BillSplitEqualOut) => void;
   onItemsResult: (result: BillSplitItemsOut) => void;
   /** Ya hay sub-cuentas de una división por ítems (la lista la pinta `CheckoutPage`). */
   hasParts?: boolean;
@@ -37,12 +37,29 @@ export interface SplitBillPanelProps {
 const NO_GROUP = "__none__";
 
 /**
+ * Clases de un botón de «elegir uno» (modo de cobro, número de partes): el
+ * elegido se marca con borde y fondo, no con el color de acción. En la
+ * pantalla hay UN botón principal a la vez (el que cobra o el que divide);
+ * un selector pintado como principal competía con él.
+ */
+function segmentClass(selected: boolean): string {
+  return cn(
+    "min-h-11 rounded-lg border px-3 text-sm font-medium transition-colors",
+    "focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50",
+    selected
+      ? "border-foreground bg-secondary text-secondary-foreground ring-2 ring-foreground"
+      : "bg-background hover:bg-muted",
+  );
+}
+
+/**
  * División de cuenta (CONTRATO-INTERNO-1b-1.md §2.4 `POST
- * /orders/{id}/bill/split`): partes iguales (un comprobante con N pagos —
- * acá sólo se pide `parts` y se pinta `per_part` tal cual llega, nunca
- * calculado acá) o por ítems (crea N sub-cuentas con comprobante propio).
- * Sin `pos.seats` esta pantalla arma los grupos a mano; asiento automático
- * queda declarado como gap (ver entregable).
+ * /orders/{id}/bill/split`): el modo (todo junto, partes iguales o por
+ * ítems) y, por ítems, el armado de las sub-cuentas (cada una con
+ * comprobante propio). Partes iguales vive en `EqualSplitPicker`, que
+ * `CheckoutPage` pone DESPUÉS de la propina. Sin `pos.seats` esta pantalla
+ * arma los grupos a mano; asiento automático queda declarado como gap (ver
+ * entregable).
  */
 export function SplitBillPanel({
   orderId,
@@ -50,28 +67,14 @@ export function SplitBillPanel({
   items,
   mode,
   onModeChange,
-  onEqualResult,
   onItemsResult,
   hasParts = false,
   locked = false,
 }: SplitBillPanelProps): React.JSX.Element {
-  const [parts, setParts] = useState(2);
-  const [equalResult, setEqualResult] = useState<BillSplitEqualOut | null>(null);
   const [groupLabels, setGroupLabels] = useState<string[]>(["Cuenta 1", "Cuenta 2"]);
   const [assignment, setAssignment] = useState<Record<number, number | null>>({});
   const [error, setError] = useState<string | null>(null);
   const [rearmando, setRearmando] = useState(false);
-
-  const equalMutation = useMutation({
-    mutationFn: () => splitBill(orderId, { expected_version: expectedVersion, mode: "equal", parts }),
-    onSuccess: (result) => {
-      setError(null);
-      const equal = result as BillSplitEqualOut;
-      setEqualResult(equal);
-      onEqualResult(equal);
-    },
-    onError: (err) => setError(errorMessage(err)),
-  });
 
   const itemsMutation = useMutation({
     mutationFn: () => {
@@ -101,63 +104,32 @@ export function SplitBillPanel({
     );
   }
 
+  const modes: { value: SplitBillMode; label: string }[] = [
+    { value: "none", label: "Cobrar todo junto" },
+    { value: "equal", label: "Partes iguales" },
+    { value: "items", label: "Por ítems" },
+  ];
+
   return (
-    <div className="space-y-4 rounded-md border p-4">
-      <div className="flex flex-wrap gap-2">
-        <Button type="button" variant={mode === "none" ? "default" : "outline"} className="h-11" onClick={() => onModeChange("none")}>
-          Cobrar todo junto
-        </Button>
-        <Button type="button" variant={mode === "equal" ? "default" : "outline"} className="h-11" onClick={() => onModeChange("equal")}>
-          Partes iguales
-        </Button>
-        <Button type="button" variant={mode === "items" ? "default" : "outline"} className="h-11" onClick={() => onModeChange("items")}>
-          Por ítems
-        </Button>
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Cómo se cobra la cuenta">
+        {modes.map((m) => (
+          <button
+            key={m.value}
+            type="button"
+            aria-pressed={mode === m.value}
+            className={segmentClass(mode === m.value)}
+            onClick={() => onModeChange(m.value)}
+          >
+            {m.label}
+          </button>
+        ))}
       </div>
 
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
-      ) : null}
-
-      {mode === "equal" ? (
-        <div className="space-y-3">
-          <div className="max-w-40 space-y-1">
-            <Label htmlFor="split-parts">Partes</Label>
-            <Input
-              id="split-parts"
-              type="number"
-              inputMode="numeric"
-              min={2}
-              className="h-11"
-              value={parts}
-              onChange={(event) => setParts(Math.max(2, Number(event.target.value) || 2))}
-            />
-          </div>
-          <Button type="button" className="h-11" disabled={equalMutation.isPending} onClick={() => equalMutation.mutate()}>
-            {equalMutation.isPending ? "Calculando…" : "Calcular partes"}
-          </Button>
-          {equalResult?.per_part ? (
-            <div className="space-y-2">
-              <SplitPartsList
-                parts={equalResult.per_part.map((amount, index) => ({
-                  key: index,
-                  number: index + 1,
-                  amount,
-                  state: "pending" as const,
-                }))}
-              />
-              {/* Partes iguales es UN cobro con N pagos (un comprobante): el
-                  servidor exige que los pagos sumen el total de una vez, así
-                  que acá no hay «cobrar parte 3» — cada parte es una fila de
-                  Pagos, abajo, con su medio. */}
-              <p className="text-sm text-muted-foreground">
-                Las partes se cobran juntas, en un solo comprobante: elegí abajo, en Pagos, el medio de cada una.
-              </p>
-            </div>
-          ) : null}
-        </div>
       ) : null}
 
       {mode === "items" && hasParts && !rearmando ? (
@@ -167,7 +139,7 @@ export function SplitBillPanel({
       ) : null}
 
       {mode === "items" && (!hasParts || rearmando) ? (
-        <div className="space-y-4">
+        <div className="space-y-4 rounded-md border p-3">
           <div className="flex flex-wrap items-end gap-2">
             {groupLabels.map((label, index) => (
               <div key={index} className="space-y-1">
@@ -238,6 +210,141 @@ export function SplitBillPanel({
   );
 }
 
+export interface EqualSplitPickerProps {
+  orderId: number;
+  expectedVersion: number;
+  /**
+   * La propina ya respondida (0 o ausente = sin propina). Se manda al
+   * dividir: el servidor reparte venta + propina y devuelve lo que paga cada
+   * parte (`per_part_due`), así la última no queda en «faltan $X».
+   */
+  tipAmount: number | undefined;
+  onResult: (result: BillSplitEqualOut) => void;
+  /** La comanda cambió de versión en el servidor (p. ej. otra tablet). */
+  onStale?: () => void;
+}
+
+const QUICK_PARTS = [2, 3, 4, 5];
+
+/**
+ * Partes iguales (un comprobante con N pagos): el número de partes es una
+ * fila de botones «2 · 3 · 4 · 5 · +», y tocar uno ya divide — no hay un
+ * segundo botón «Calcular». Cada monto llega del servidor y se pinta tal
+ * cual; acá no se calcula ninguno. Si la propina cambia después de dividir,
+ * se vuelve a pedir la división con la propina nueva.
+ */
+export function EqualSplitPicker({
+  orderId,
+  expectedVersion,
+  tipAmount,
+  onResult,
+  onStale,
+}: EqualSplitPickerProps): React.JSX.Element {
+  const [parts, setParts] = useState<number | null>(null);
+  const [result, setResult] = useState<BillSplitEqualOut | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: (n: number) =>
+      splitBill(orderId, {
+        expected_version: expectedVersion,
+        mode: "equal",
+        parts: n,
+        ...(tipAmount && tipAmount > 0 ? { tip_amount: tipAmount } : {}),
+      }),
+    onSuccess: (res) => {
+      setError(null);
+      const equal = res as BillSplitEqualOut;
+      setResult(equal);
+      onResult(equal);
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.code === "STALE_VERSION") onStale?.();
+      setError(errorMessage(err));
+    },
+  });
+
+  function pick(n: number) {
+    setParts(n);
+    mutation.mutate(n);
+  }
+
+  // Propina cambiada después de dividir: la división vieja ya no suma.
+  const lastTipRef = useRef(tipAmount);
+  useEffect(() => {
+    if (lastTipRef.current === tipAmount) return;
+    lastTipRef.current = tipAmount;
+    if (parts !== null) mutation.mutate(parts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipAmount]);
+
+  const extra = parts !== null && parts > QUICK_PARTS[QUICK_PARTS.length - 1]! ? parts : null;
+  const due = result?.per_part_due && result.per_part_due.length > 0 ? result.per_part_due : result?.per_part;
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Partes">
+        <span className="text-sm font-medium">Partes</span>
+        {QUICK_PARTS.map((n) => (
+          <button
+            key={n}
+            type="button"
+            aria-pressed={parts === n}
+            className={cn(segmentClass(parts === n), "min-w-11 flex-1 text-base")}
+            disabled={mutation.isPending}
+            onClick={() => pick(n)}
+          >
+            {n}
+          </button>
+        ))}
+        {extra !== null ? (
+          <button type="button" aria-pressed className={cn(segmentClass(true), "min-w-11 flex-1 text-base")} disabled>
+            {extra}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          aria-label="Una parte más"
+          className={cn(segmentClass(false), "min-w-11 flex-1 text-base")}
+          disabled={mutation.isPending}
+          onClick={() => pick(parts !== null && parts >= QUICK_PARTS[QUICK_PARTS.length - 1]! ? parts + 1 : 6)}
+        >
+          +
+        </button>
+      </div>
+
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {mutation.isPending ? <p className="text-sm text-muted-foreground">Dividiendo…</p> : null}
+
+      {due && due.length > 0 ? (
+        <>
+          <SplitPartsList
+            parts={due.map((amount, index) => ({
+              key: index,
+              number: index + 1,
+              amount,
+              state: "pending" as const,
+            }))}
+          />
+          {/* Partes iguales es UN cobro con N pagos (un comprobante): el
+              servidor exige que los pagos sumen el total de una vez, así
+              que acá no hay «cobrar parte 3» — cada parte es una fila de
+              Pagos, abajo, con su medio. */}
+          <p className="text-sm text-muted-foreground">
+            {result?.tip_amount
+              ? "Cada parte ya incluye su propina. Se cobran juntas, en un solo comprobante: elegí abajo el medio de cada una."
+              : "Las partes se cobran juntas, en un solo comprobante: elegí abajo, en Pagos, el medio de cada una."}
+          </p>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export type SplitPartState = "paid" | "active" | "pending";
 
 export interface SplitPart {
@@ -274,7 +381,7 @@ const STATE_TEXT: Record<SplitPartState, string> = {
  * marca de factura si el comprobante los trae; la que sigue, con el borde de
  * acción (añil, `primary`); el resto, pendiente. El estado va con palabra y
  * no sólo con color. Ningún monto se calcula acá: cada uno llega del
- * servidor (`per_part` o `totals.total` de la sub-cuenta).
+ * servidor (`per_part_due`/`per_part` o `totals.total` de la sub-cuenta).
  */
 export function SplitPartsList({ parts, onSelect }: SplitPartsListProps): React.JSX.Element {
   return (

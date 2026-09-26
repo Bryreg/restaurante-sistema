@@ -94,6 +94,7 @@ tiene cursos, división de cuenta y recetas con preparaciones. Por eso:
 | `pos.pre_bill` | precuenta y marca `after_bill` | no | sí | sí | |
 | `pos.split_bill` | división de cuenta | no | sí | sí | |
 | `pos.tips` | pregunta de propina y reporte | sí | sí | sí | |
+| `pos.tips_counter` | preguntar la propina también en mostrador (en mesa, para llevar y domicilio se pregunta siempre con `pos.tips`); sin efecto con `pos.tips` apagada | no | no | sí | |
 | `pos.discounts` | descuentos con motivos y límites | sí | sí | sí | |
 | `pos.courtesies` | cortesías | no | sí | sí | |
 | `pos.staff_meal` | comanda de consumo de personal | no | sí | sí | |
