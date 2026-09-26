@@ -13,6 +13,7 @@ import type { NavItem } from "@/app/nav";
 
 import { MoneyAdminPage } from "./admin/MoneyAdminPage";
 import { PeopleAdminPage } from "./admin/PeopleAdminPage";
+import { CashRibbon } from "./CashRibbon";
 import ShiftPage from "./ShiftPage";
 import { ShiftStatusStrip } from "./ShiftStatusStrip";
 
@@ -41,10 +42,19 @@ const adminNav: NavItem[] = [
 // donde cada persona marca su entrada, salida y pausa con su propio PIN.
 const posNav: NavItem[] = [{ to: "/pos/turno", label: "Turno", icon: Wallet, posGroup: "caja" }];
 
+/**
+ * La cinta de caja (2026-09-26): las acciones del turno a un toque desde
+ * Mesas, en hojas encima del mapa. La monta `TablesPage` (dominio de
+ * comandas); se exporta con nombre porque no es una ruta ni una entrada de
+ * la barra.
+ */
+export { CashRibbon };
+
 export const shiftsFeature = {
   posRoutes,
   adminRoutes,
   adminNav,
   posNav,
   ShiftStatusStrip,
+  CashRibbon,
 };
