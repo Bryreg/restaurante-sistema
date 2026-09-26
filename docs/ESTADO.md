@@ -1812,6 +1812,31 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       primer dígito del PIN de producción, «Procesando foto…».
     - Un 401 `IDENTIFY_REQUIRED` ahora lleva a «Quién opera» y no a activar
       el dispositivo.
+43. **Salón, cobro, inventario y cierre en tablet** (2026-09-26), segunda
+    tanda del mismo recorrido. Sin migración.
+    - **Comanda**: «Enviar a cocina · N» fijo en la barra, aviso y vuelta a
+      Mesas; «N sin enviar» e iniciales en el mapa (`unsent_count`,
+      `opened_by`); categorías de 56 px, notas rápidas (lista fija por curso
+      en `orders/lib.ts`), asiento y curso en botones, término obligatorio
+      agrega solo; línea compacta con panel; «Pedir cuenta» para quien no
+      cobra; `/pos/mostrador` directo; el cargo de domicilio no cuenta como
+      plato (`is_delivery_fee`); anular con motivos en botones.
+    - **Cobro**: `GET /payments/tender-suggestions` (Exacto y billetes
+      siguientes), dos columnas, PIN siempre a la vista (sigue siendo regla,
+      SPEC §2.1); partes iguales con la propina repartida por el servidor
+      (`per_part_due`); precuenta agrupa líneas idénticas en el servidor;
+      propina en mostrador sólo con `pos.tips_counter` (encendida sólo en el
+      perfil `full`).
+    - **Inventario y cierre**: solicitudes vacías con buscador, frecuentes y
+      sugeridos del área en unidad cómoda; `GET /shifts/{id}/close/precheck`
+      (paso 0, sin montos), el cierre retoma el conteo sellado y un recuento
+      tras ver el esperado queda en la auditoría (`recount_after_review`,
+      visible al admin); sobres de días anteriores confirmados aparte al abrir
+      (`carried_counted_apart`); teclado de plata `DenominationKeypad`;
+      recepción precargada (`/device/reception-suggestions`); bancos recientes
+      al consignar; novedad «Urgente» en botón.
+    - Pendiente: la recepción precargada no queda atada a la solicitud (haría
+      falta una columna); notas rápidas editables por el admin.
 
 ---
 
