@@ -1837,6 +1837,16 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       al consignar; novedad «Urgente» en botón.
     - Pendiente: la recepción precargada no queda atada a la solicitud (haría
       falta una columna); notas rápidas editables por el admin.
+44. **Producción con datos de demo listos para el piloto** (2026-09-26). Cargado
+    por la API (misma validación que el restaurante), con los datos de
+    `app/demo.py` sin simular días: personal con nombre y puesto (caja, salón,
+    cocina, bar; «Operador 1–4» desactivados, no borrados), 6 proveedores,
+    57 insumos (más 3 licores para el bar), 5 preparaciones, ficha técnica en
+    los 20 productos, stock inicial por compras con factura, y áreas de conteo
+    Bar (7) y Cocina (12). Encendidas `kitchen.kds`, `catalog.preps` y
+    `pos.delivery`. **Se rotaron** la clave del admin, el PIN de sede y todos
+    los PINs: `cambiar`/`123456`/`7001…` ya no sirven en producción (las
+    claves nuevas las tiene el dueño; nunca van al repo).
 
 ---
 
