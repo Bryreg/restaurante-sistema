@@ -47,7 +47,7 @@ const PUESTO_OPCIONES: Array<{ value: Puesto | typeof PUESTO_TODO; label: string
   {
     value: "bar",
     label: "Bar",
-    lectura: "entra directo a los tiquetes del bar y ve Tiquetes, Producción, Merma y Turno",
+    lectura: "entra directo a los tiquetes (el KDS recuerda la estación del bar) y ve Tiquetes, Producción, Merma y Turno",
   },
 ];
 

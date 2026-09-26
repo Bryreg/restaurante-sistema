@@ -92,6 +92,11 @@ function notifySessionExpired(): void {
   window.dispatchEvent(new CustomEvent("session:expired"));
 }
 
+/** `401 IDENTIFY_REQUIRED`: hace falta una persona, no volver a activar el dispositivo. */
+function notifyIdentifyRequired(): void {
+  window.dispatchEvent(new CustomEvent("session:identify-required"));
+}
+
 export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const { method = "GET", body, idempotencyKey, query, signal } = options;
 
@@ -113,7 +118,13 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
 
   if (!response.ok) {
     const { code, message, ...extra } = await parseErrorBody(response);
-    if (response.status === 401) {
+    if (response.status === 401 && code === "IDENTIFY_REQUIRED") {
+      // El DISPOSITIVO sigue activado: lo que venció es la persona. Tratarlo
+      // como sesión vencida borraba `me` y mandaba la tablet a «Activar
+      // dispositivo» (que pide el PIN de sede). `SessionProvider` vuelve a
+      // leer `GET /auth/me` y cada pantalla decide qué hacer sin persona.
+      notifyIdentifyRequired();
+    } else if (response.status === 401) {
       notifySessionExpired();
     }
     throw new ApiError(response.status, code, message, extra);

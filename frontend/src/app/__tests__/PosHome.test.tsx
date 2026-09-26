@@ -1,5 +1,5 @@
 import { screen } from "@testing-library/react";
-import { Route, Routes, useSearchParams } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import { buildMe, renderWithProviders } from "@/test/utils";
@@ -59,16 +59,15 @@ describe("PosHome — inicio por rol", () => {
     expect(await screen.findByText("Mapa de mesas")).toBeInTheDocument();
   });
 
-  it("cocina llega a los tiquetes; el bar, a los tiquetes de su estación", async () => {
+  it("cocina y bar llegan a los tiquetes (el KDS recuerda su estación)", async () => {
     const { unmount } = renderConPuesto("cocina", { "kitchen.kds": true });
-    expect(await screen.findByText("KDS:")).toBeInTheDocument();
+    expect(await screen.findByText("KDS")).toBeInTheDocument();
     unmount();
     renderConPuesto("bar", { "kitchen.kds": true });
-    expect(await screen.findByText("KDS:bar")).toBeInTheDocument();
+    expect(await screen.findByText("KDS")).toBeInTheDocument();
   });
 });
 
 function KdsDoble(): React.JSX.Element {
-  const [params] = useSearchParams();
-  return <div>{`KDS:${params.get("station") ?? ""}`}</div>;
+  return <div>KDS</div>;
 }

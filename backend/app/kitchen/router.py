@@ -45,13 +45,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, current_device, current_operator
-from app.core import clock, features
+from app.core import clock, features, tz
 from app.core.db import get_db
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.kitchen import service
 from app.kitchen.schemas import KitchenPrintJobOut, PrintJobIn
 from app.orders.models import OrderItem, OrderItemStatus
 from app.stores import service as stores_service
+from app.stores.models import Store
 
 router = APIRouter()
 
@@ -81,6 +82,9 @@ def _idempotent(
 
 
 def _semaphore(elapsed_seconds: int, target_minutes: int | None) -> str:
+    # Desde que existe el objetivo por estación (`service.target_minutes_for`)
+    # `get_kitchen_rounds` nunca pasa `None`; la rama queda para quien llame
+    # sin objetivo, y sigue sin inventar un color.
     if target_minutes is None:
         return "green"
     target_seconds = target_minutes * 60
@@ -111,6 +115,8 @@ def get_kitchen_rounds(
     # (checklist de la spec: "con kitchen.kds apagada, todo lo de 1b sigue
     # idéntico").
     kds_enabled = features.is_enabled(db, actor.organization_id, store_id, "kitchen.kds")  # type: ignore[arg-type]
+    store = db.get(Store, store_id)
+    today = tz.today_business_date(store.cutoff_hour) if store is not None else None
 
     out: list[dict[str, Any]] = []
     for round_row, order in service.live_rounds(db, store_id=store_id):  # type: ignore[arg-type]
@@ -126,7 +132,7 @@ def get_kitchen_rounds(
         items_out: list[dict[str, Any]] = []
         for item in items:
             elapsed_seconds = int((now - item.sent_at).total_seconds()) if item.sent_at is not None else 0
-            target_minutes = course_targets.get(item.course)
+            target_minutes = service.target_minutes_for(course_targets, course=item.course, station=item.station)
             items_out.append(
                 {
                     "item_id": item.id,
@@ -155,7 +161,9 @@ def get_kitchen_rounds(
             "items": items_out,
         }
         if kds_enabled:
-            service.enrich_round_for_kds(db, order=order, items=items, items_out=items_out, round_out=round_out)
+            service.enrich_round_for_kds(
+                db, order=order, items=items, items_out=items_out, round_out=round_out, today=today
+            )
         out.append(round_out)
 
     return out
@@ -198,16 +206,25 @@ def post_unbump_item(
 
 @router.post("/kitchen/orders/{order_id}/expedite", dependencies=[Depends(features.require_feature("kitchen.kds"))])
 def post_expedite_order(
-    order_id: int, request: Request, actor: Actor = Depends(current_operator), db: Session = Depends(get_db)
+    order_id: int,
+    request: Request,
+    station: str | None = Query(None),
+    actor: Actor = Depends(current_operator),
+    db: Session = Depends(get_db),
 ) -> JSONResponse:
+    """Sin `station`, la comanda completa (el KDS en «Todas»); con `station`,
+    sólo los ítems de esa estación (el KDS filtrado)."""
+
     def _do() -> tuple[int, dict[str, Any]]:
         now = clock.now_utc()
-        result = service.expedite_order(db, order_id=order_id, store_id=actor.store_id, actor=actor, now=now)  # type: ignore[arg-type]
+        result = service.expedite_order(
+            db, order_id=order_id, store_id=actor.store_id, actor=actor, now=now, station=station  # type: ignore[arg-type]
+        )
         return 200, result.model_dump(mode="json")
 
     return _idempotent(
         db, organization_id=actor.organization_id, scope="kitchen.expedite", request=request,
-        extra={"order_id": order_id}, payload=None, fn=_do,
+        extra={"order_id": order_id, "station": station}, payload=None, fn=_do,
     )
 
 

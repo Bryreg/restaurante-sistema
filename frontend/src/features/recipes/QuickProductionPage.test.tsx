@@ -113,10 +113,6 @@ describe("QuickProductionPage", () => {
     const qtyInput = screen.getByLabelText("Cantidad real obtenida")
     await user.clear(qtyInput)
     await user.type(qtyInput, "4")
-    // El `PinPad` queda `disabled` mientras el campo de cantidad tiene el
-    // foco (mitigación del defecto conocido de `PinPad`, ver el componente);
-    // hay que sacarle el foco antes de poder tocar sus dígitos.
-    await user.tab()
     await enterPin(user)
 
     await waitFor(() =>
@@ -126,6 +122,47 @@ describe("QuickProductionPage", () => {
         expect.any(String),
       ),
     )
+  })
+
+  it("tras editar la cantidad, el primer toque al PIN registra el dígito (no se pierde por el foco)", async () => {
+    listDevicePreparationsMock.mockResolvedValue(PREPS)
+    producePreparationMock.mockResolvedValue(produceOut({ qty_real: "4.5" }))
+
+    const user = userEvent.setup()
+    renderWithProviders(<QuickProductionPage />, { me: deviceMe({ "catalog.preps": true }) })
+
+    await user.click(await screen.findByText("Caldo base"))
+    const qtyInput = screen.getByLabelText("Cantidad real obtenida")
+    await user.clear(qtyInput)
+    await user.type(qtyInput, "4.5")
+    // Con el foco todavía en la cantidad, el teclado del PIN está disponible.
+    expect(qtyInput).toHaveFocus()
+    expect(screen.getByRole("button", { name: "Dígito 1" })).toBeEnabled()
+
+    await enterPin(user, "1234")
+
+    await waitFor(() =>
+      expect(producePreparationMock).toHaveBeenCalledWith(
+        1,
+        { qty_expected: "5", qty_real: "4.5", employee_pin: "1234" },
+        expect.any(String),
+      ),
+    )
+  })
+
+  it("un dígito tecleado en la cantidad nunca se cuela en el PIN", async () => {
+    listDevicePreparationsMock.mockResolvedValue(PREPS)
+    producePreparationMock.mockResolvedValue(produceOut())
+
+    const user = userEvent.setup()
+    renderWithProviders(<QuickProductionPage />, { me: deviceMe({ "catalog.preps": true }) })
+
+    await user.click(await screen.findByText("Caldo base"))
+    const qtyInput = screen.getByLabelText("Cantidad real obtenida")
+    await user.clear(qtyInput)
+    await user.type(qtyInput, "12345")
+    expect(qtyInput).toHaveValue("12345")
+    expect(producePreparationMock).not.toHaveBeenCalled()
   })
 
   it("una Idempotency-Key nueva por intento: dos producciones seguidas no repiten la clave", async () => {

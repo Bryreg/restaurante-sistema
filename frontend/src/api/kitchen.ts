@@ -68,6 +68,8 @@ export interface KitchenRoundOut {
   covers?: number | null
   /** NUEVO con `kitchen.kds`: `null` si el canal no es `platform`. Ausente con la flag apagada. */
   platform?: KitchenRoundPlatformOut | null
+  /** NUEVO con `kitchen.kds`: la comanda es de un día operativo anterior (turno abandonado, mesa sin cerrar). El KDS la aparta de la cola de hoy y la muestra «de ayer» sólo si se pide. Ausente con la flag apagada. */
+  stale?: boolean
   items?: KitchenRoundItemOut[]
 }
 
@@ -118,12 +120,22 @@ export interface KitchenExpediteOut {
 }
 
 /**
- * `POST /kitchen/orders/{order_id}/expedite` — bumpea de un golpe TODOS los
- * ítems `sent` de la comanda completa (todas sus rondas, no sólo la que se
- * ve en pantalla): es la "expedición de la comanda completa" de la misión.
+ * `POST /kitchen/orders/{order_id}/expedite` — sin `station`, bumpea de un
+ * golpe TODOS los ítems `sent` de la comanda completa (todas sus rondas y
+ * estaciones): es lo que hace el KDS en «Todas». Con `station`, sólo los de
+ * esa estación: el KDS filtrado por «Cocina caliente» no despacha las
+ * cervezas del bar (comanda 464).
  */
-export function expediteOrder(orderId: number, idempotencyKey: string = newIdempotencyKey()): Promise<KitchenExpediteOut> {
-  return api<KitchenExpediteOut>(`/kitchen/orders/${orderId}/expedite`, { method: "POST", idempotencyKey })
+export function expediteOrder(
+  orderId: number,
+  station?: string,
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<KitchenExpediteOut> {
+  return api<KitchenExpediteOut>(`/kitchen/orders/${orderId}/expedite`, {
+    method: "POST",
+    query: { station },
+    idempotencyKey,
+  })
 }
 
 // ---------------------------------------------------------------------------

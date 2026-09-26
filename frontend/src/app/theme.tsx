@@ -119,6 +119,34 @@ export function useSalonTheme(): [SalonTheme, (tema: SalonTheme) => void] {
   return [tema, cambiar];
 }
 
+/**
+ * Cómo se presenta la pantalla de cocina en ESTE dispositivo (qué estación
+ * muestra, si va a pantalla completa, si enseña lo «de ayer», y quién usó
+ * la estación por última vez, para traerlo elegido en el PIN rápido). Es de
+ * la misma familia que el claro/oscuro del salón: presentación del
+ * dispositivo, nunca sesión — la identidad la verifica el servidor con el
+ * PIN, y ni el PIN ni ningún token pasan por acá. Un valor JSON bajo una
+ * sola clave; si el almacenamiento no está (modo privado), `null`.
+ */
+const COCINA_KEY = "cocina-pantalla";
+
+export function leerPreferenciasCocina(): unknown {
+  try {
+    const raw = localStorage.getItem(COCINA_KEY);
+    return raw ? (JSON.parse(raw) as unknown) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function guardarPreferenciasCocina(valor: unknown): void {
+  try {
+    localStorage.setItem(COCINA_KEY, JSON.stringify(valor));
+  } catch {
+    // Sin almacenamiento: la pantalla funciona igual, sólo no recuerda.
+  }
+}
+
 /** Mientras la pantalla de cocina está abierta, la pizarra manda. */
 export function useCocinaPantalla(): void {
   useEffect(() => {

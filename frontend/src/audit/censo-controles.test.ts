@@ -69,6 +69,17 @@
  *   desde «Ver detalle» de una fila.» (`features/shifts/admin/MoneyAdminPage.tsx`)
  *   — explicaban dónde están los controles; los controles siguen donde
  *   estaban y la explicación pasó a la pregunta plegada.
+ *
+ * **Bajas declaradas · merma en la tablet.** Dos rótulos de
+ * `features/inventory/WastePage.tsx` salen de la base, a mano. Ninguno era
+ * un control: eran los `placeholder` de dos listas desplegables que se
+ * reemplazaron por controles más grandes para el dedo, y los controles
+ * siguen ahí.
+ *
+ * - «Elegí una opción» — la lista de 58 insumos pasó a ser un buscador
+ *   («Buscar insumo» / «Buscar preparación») con recientes y botones.
+ * - «Elegí un tipo» — el tipo de merma pasó a ser una fila de botones de
+ *   ≥ 56 px bajo el rótulo «Tipo»; cada tipo sigue siendo tocable.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

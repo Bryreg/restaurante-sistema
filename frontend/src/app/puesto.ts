@@ -30,8 +30,6 @@ export interface PersonaPuesto {
   can_charge?: boolean | null;
 }
 
-/** El KDS del bar: la pantalla de tiquetes filtrada a la estación `bar`. */
-export const KDS_BAR = "/pos/kds?station=bar";
 
 /**
  * Los destinos de cada puesto, en el orden en que se dibujan (cinco como
@@ -60,7 +58,8 @@ export function puestoEfectivo(persona: PersonaPuesto | null | undefined): Puest
 /**
  * La barra del salón para esta persona. `items` llega ya filtrado por flags
  * y ordenado; con un puesto se queda sólo con sus destinos, en el orden del
- * puesto, y en el bar el KDS apunta a la estación del bar.
+ * puesto. Cocina y bar llegan al mismo KDS: la estación la recuerda el
+ * KDS por su cuenta (cada tablet la suya).
  */
 export function navParaPuesto(items: readonly NavItem[], persona: PersonaPuesto | null | undefined): NavItem[] {
   const puesto = puestoEfectivo(persona);
@@ -68,8 +67,7 @@ export function navParaPuesto(items: readonly NavItem[], persona: PersonaPuesto 
   const destinos = DESTINOS[puesto];
   return items
     .filter((item) => destinos.includes(item.to))
-    .sort((a, b) => destinos.indexOf(a.to) - destinos.indexOf(b.to))
-    .map((item) => (puesto === "bar" && item.to === "/pos/kds" ? { ...item, to: KDS_BAR } : item));
+    .sort((a, b) => destinos.indexOf(a.to) - destinos.indexOf(b.to));
 }
 
 /**
@@ -90,7 +88,7 @@ export function inicioParaPuesto(
       return venta;
     case "cocina":
     case "bar":
-      if (hasFeature("kitchen.kds")) return puesto === "bar" ? KDS_BAR : "/pos/kds";
+      if (hasFeature("kitchen.kds")) return "/pos/kds";
       if (hasFeature("kitchen.view")) return "/pos/cocina";
       return "/pos/turno";
     default:
@@ -142,6 +140,7 @@ export function barraDelSalon(
   if (!persona) return [];
   const conFlags = all
     .filter((item) => !item.feature || hasFeature(item.feature))
+    .filter((item) => !item.hiddenWithFeature || !hasFeature(item.hiddenWithFeature))
     .map((item, index) => ({ item, index }))
     .sort((a, b) => GROUP_RANK[a.item.posGroup ?? "venta"] - GROUP_RANK[b.item.posGroup ?? "venta"] || a.index - b.index)
     .map(({ item }) => item);

@@ -301,6 +301,11 @@ export interface WasteIn {
   ingredient_id?: number | null
   preparation_id?: number | null
   qty: string
+  /**
+   * La unidad en que viene `qty` (`entry_unit` del insumo); el servidor
+   * convierte a la unidad base. Sin ella, `qty` va en unidad base.
+   */
+  entry_unit?: string
   type: WasteType
   note?: string | null
   employee_pin: string
@@ -460,6 +465,10 @@ export interface DeviceIngredientOut {
   id: number
   name: string
   base_unit: BaseUnit
+  /** La unidad cómoda en que se teclea (la misma del conteo corto por área). */
+  entry_mode: "weight" | "bottle" | "volume" | "unit"
+  /** «kg», «L», «unidad» o la unidad de compra («botella», «garrafa»). */
+  entry_unit: string
 }
 
 export function listDeviceIngredients(): Promise<DeviceIngredientOut[]> {

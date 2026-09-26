@@ -1,4 +1,4 @@
-import { Gift, Minus, Percent, Plus, XCircle } from "lucide-react"
+import { CheckCheck, Gift, Minus, Percent, Plus, XCircle } from "lucide-react"
 
 import { useSession } from "@/app/session"
 import type { OrderItemOut } from "@/api/orders"
@@ -23,6 +23,11 @@ export interface OrderItemsListProps {
   onVoid: (item: OrderItemOut) => void
   onCourtesy: (item: OrderItemOut) => void
   onDiscount: (item: OrderItemOut) => void
+  /**
+   * «Servido»: el plato que cocina marcó listo ya llegó a la mesa. Sin él
+   * (una pantalla que no sirve) el botón no aparece.
+   */
+  onServed?: (item: OrderItemOut) => void
   busyItemId?: number | null
   /**
    * Número de la ronda que se está armando (`nextRoundNo` de `./lib`), para
@@ -38,6 +43,7 @@ interface ActionHandlers {
   onVoid: (item: OrderItemOut) => void
   onCourtesy: (item: OrderItemOut) => void
   onDiscount: (item: OrderItemOut) => void
+  onServed?: (item: OrderItemOut) => void
   busyItemId: number | null
   courtesyEnabled: boolean
   discountsEnabled: boolean
@@ -93,6 +99,19 @@ function OrderLine({ item, showStatus, handlers }: { item: OrderItemOut; showSta
 
       {isVoided ? null : (
         <div className="mt-1 flex flex-wrap items-center gap-1 pl-[2.75rem]">
+          {item.status === "ready" && handlers.onServed ? (
+            <Button
+              type="button"
+              className="h-11"
+              disabled={busy}
+              onClick={() => handlers.onServed?.(item)}
+              aria-label={`Servido: ${item.name ?? "ítem"}`}
+            >
+              <CheckCheck className="size-4" aria-hidden="true" />
+              Servido
+            </Button>
+          ) : null}
+
           {isPending ? (
             <div className="flex items-center gap-1">
               <Button
@@ -221,6 +240,7 @@ export function OrderItemsList({
   onVoid,
   onCourtesy,
   onDiscount,
+  onServed,
   busyItemId = null,
   nextRoundNo,
 }: OrderItemsListProps): React.JSX.Element {
@@ -231,6 +251,7 @@ export function OrderItemsList({
     onVoid,
     onCourtesy,
     onDiscount,
+    onServed,
     busyItemId,
     courtesyEnabled: hasFeature("pos.courtesies"),
     discountsEnabled: hasFeature("pos.discounts"),

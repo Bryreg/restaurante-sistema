@@ -63,9 +63,17 @@ export function SessionProvider({ children }: { children: ReactNode }): React.JS
 
   useEffect(() => {
     const onExpired = () => setMe(null);
+    // Venció la PERSONA, no el dispositivo: se relee `me` (llega sin
+    // `employee`) y `PosLayout` manda a «Quién opera» — salvo el KDS, que
+    // es una pantalla de estación y pide el PIN sólo al marcar algo.
+    const onIdentifyRequired = () => void refresh();
     window.addEventListener("session:expired", onExpired);
-    return () => window.removeEventListener("session:expired", onExpired);
-  }, []);
+    window.addEventListener("session:identify-required", onIdentifyRequired);
+    return () => {
+      window.removeEventListener("session:expired", onExpired);
+      window.removeEventListener("session:identify-required", onIdentifyRequired);
+    };
+  }, [refresh]);
 
   const hasFeature = useCallback((key: string) => Boolean(me?.features?.[key]), [me]);
 

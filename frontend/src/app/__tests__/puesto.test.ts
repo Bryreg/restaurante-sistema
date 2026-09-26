@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import type { NavItem } from "../nav";
 import {
-  KDS_BAR,
   barraDelSalon,
   cuantasCaben,
   destinoSeguro,
@@ -89,9 +88,21 @@ describe("barraDelSalon — cinco destinos como máximo, según el puesto", () =
     expect(barra.length).toBeLessThanOrEqual(5);
   });
 
-  it("bar: el KDS apunta a la estación del bar", () => {
+  it("bar: los tiquetes primero (el KDS recuerda su estación por su cuenta)", () => {
     const barra = barraDelSalon(TODAS, todo, { role: "operator", puesto: "bar" });
-    expect(barra[0]).toMatchObject({ label: "Tiquetes de cocina", to: KDS_BAR });
+    expect(barra[0]).toMatchObject({ label: "Tiquetes de cocina", to: "/pos/kds" });
+  });
+
+  it("hiddenWithFeature: una entrada se va cuando otra función la reemplaza", () => {
+    const conReemplazo: NavItem[] = TODAS.map((i) =>
+      i.to === "/pos/cocina" ? { ...i, hiddenWithFeature: "kitchen.kds" } : i,
+    );
+    expect(rotulos(barraDelSalon(conReemplazo, todo, { role: "operator", puesto: "cocina" }))).toEqual([
+      "Tiquetes de cocina",
+      "Producción",
+      "Merma",
+      "Turno",
+    ]);
   });
 
   it("los flags siguen mandando: con todo apagado la cocina sólo ve Turno", () => {
@@ -114,9 +125,9 @@ describe("inicioParaPuesto — a dónde llega después del PIN", () => {
     expect(inicioParaPuesto({ role: "operator", puesto: "salon" }, nada)).toBe("/pos/comanda/nueva");
   });
 
-  it("cocina → KDS; bar → KDS filtrado; sin KDS, la vista de cocina; sin nada, Turno", () => {
+  it("cocina y bar → KDS; sin KDS, la vista de cocina; sin nada, Turno", () => {
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, todo)).toBe("/pos/kds");
-    expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, todo)).toBe(KDS_BAR);
+    expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, todo)).toBe("/pos/kds");
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, (k) => k === "kitchen.view")).toBe("/pos/cocina");
     expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, nada)).toBe("/pos/turno");
   });

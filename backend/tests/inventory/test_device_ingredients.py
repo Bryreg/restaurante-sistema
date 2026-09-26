@@ -1,4 +1,5 @@
-"""`GET /device/ingredients`: sólo `{id, name, base_unit}`, ni un campo de
+"""`GET /device/ingredients`: sólo `{id, name, base_unit, entry_mode,
+entry_unit}` (la unidad cómoda en que se teclea la merma), ni un campo de
 costo (regla dura, SPEC-NEGOCIO §2.2 -- el operador no recibe costos ni
 márgenes en ninguna respuesta de sesión de dispositivo)."""
 
@@ -13,7 +14,10 @@ from app.inventory.schemas import DeviceIngredientOut, WasteOut
 
 def test_device_ingredients_schema_has_no_cost_fields() -> None:
     fields = set(DeviceIngredientOut.model_fields.keys())
-    assert fields == {"id", "name", "base_unit"}
+    # Se amplió con la unidad cómoda (`entry_mode`, `entry_unit`) para que la
+    # merma del POS se teclee en kg/botellas/L y el servidor convierta; ninguno
+    # de los dos es costo.
+    assert fields == {"id", "name", "base_unit", "entry_mode", "entry_unit"}
     assert "cost" not in fields
     assert "margin" not in fields
 
@@ -25,7 +29,7 @@ def test_waste_device_schema_has_no_cost_fields() -> None:
     assert "margin" not in fields
 
 
-def test_device_ingredients_endpoint_returns_only_id_name_base_unit(
+def test_device_ingredients_endpoint_returns_only_id_name_units(
     device_client: TestClient, create_ingredient: Callable[..., dict[str, Any]]
 ) -> None:
     create_ingredient(name="Arroz", official_cost="123.45")
@@ -35,7 +39,7 @@ def test_device_ingredients_endpoint_returns_only_id_name_base_unit(
     rows = resp.json()
     assert len(rows) >= 1
     for row in rows:
-        assert set(row.keys()) == {"id", "name", "base_unit"}
+        assert set(row.keys()) == {"id", "name", "base_unit", "entry_mode", "entry_unit"}
 
 
 def test_device_ingredients_only_shows_active(

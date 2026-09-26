@@ -91,6 +91,23 @@ describe("api client", () => {
     window.removeEventListener("session:expired", handler);
   });
 
+  it("un 401 IDENTIFY_REQUIRED no da la sesión por vencida: sólo pide persona", async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      jsonResponse(401, { error: { code: "IDENTIFY_REQUIRED", message: "Identificate con tu PIN" } }),
+    );
+    const expired = vi.fn();
+    const identify = vi.fn();
+    window.addEventListener("session:expired", expired);
+    window.addEventListener("session:identify-required", identify);
+
+    await expect(api("/kitchen/items/1/bump", { method: "POST" })).rejects.toMatchObject({ code: "IDENTIFY_REQUIRED" });
+    expect(expired).not.toHaveBeenCalled();
+    expect(identify).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener("session:expired", expired);
+    window.removeEventListener("session:identify-required", identify);
+  });
+
   it("newIdempotencyKey devuelve un UUID distinto cada vez", () => {
     const a = newIdempotencyKey();
     const b = newIdempotencyKey();

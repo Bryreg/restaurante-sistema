@@ -267,7 +267,11 @@ export default function PosLayout(): React.JSX.Element | null {
   // En la cocina la pizarra es fija (`useCocinaPantalla`): ahí el botón no
   // cambiaría nada visible, así que no se ofrece.
   const location = useLocation();
-  const enCocina = /^\/pos\/(kds|cocina)\b/.test(location.pathname);
+  const { pathname } = location;
+  const enCocina = /^\/pos\/(kds|cocina)\b/.test(pathname);
+  // El KDS es una pantalla de ESTACIÓN: mirarlo no exige persona (manos
+  // sucias, guantes). Se pide el PIN sólo al marcar algo (`KdsPage`).
+  const enKds = /^\/pos\/kds\b/.test(pathname);
   // Para volver acá después del PIN (sesión vencida o «Cambiar de persona»).
   const identificarse = rutaIdentificarse(`${location.pathname}${location.search}`);
   const { me, refresh, hasFeature } = useSession();
@@ -287,7 +291,7 @@ export default function PosLayout(): React.JSX.Element | null {
     return null;
   }
 
-  if (!me.employee) {
+  if (!me.employee && !enKds) {
     return <Navigate to={identificarse} replace />;
   }
 
@@ -315,7 +319,9 @@ export default function PosLayout(): React.JSX.Element | null {
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{me.store?.name ?? "Sede"}</p>
             <p className="truncate text-xs text-muted-foreground">
-              {me.employee.name} · {ROLE_LABEL[me.employee.role] ?? me.employee.role}
+              {me.employee
+                ? `${me.employee.name} · ${ROLE_LABEL[me.employee.role] ?? me.employee.role}`
+                : "Pantalla de cocina · nadie identificado"}
             </p>
           </div>
           {expired ? (

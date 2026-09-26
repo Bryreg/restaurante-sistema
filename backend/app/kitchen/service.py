@@ -20,7 +20,7 @@ un driver (§13, fase 3 tiene la impresora térmica real).
 from __future__ import annotations
 
 import importlib
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from sqlalchemy import func, or_, select
@@ -66,6 +66,10 @@ class _OrdersHooksContract(Protocol):
 
     def expedite_order(
         self, db: Session, *, order_id: int, store_id: int, actor: "Actor", now: datetime
+    ) -> list[int]: ...
+
+    def expedite_station(
+        self, db: Session, *, order_id: int, store_id: int, station: str, actor: "Actor", now: datetime
     ) -> list[int]: ...
 
     def fired_at_by_course(self, db: Session, *, order_id: int) -> dict[str, datetime]: ...
@@ -208,12 +212,23 @@ def unbump_item(db: Session, *, item_id: int, store_id: int, actor: "Actor", now
     )
 
 
-def expedite_order(db: Session, *, order_id: int, store_id: int, actor: "Actor", now: datetime) -> KitchenExpediteOut:
+def expedite_order(
+    db: Session, *, order_id: int, store_id: int, actor: "Actor", now: datetime, station: str | None = None
+) -> KitchenExpediteOut:
+    """`station=None` expide la comanda completa (la pantalla en «Todas»);
+    con estación, sólo lo de esa estación — un KDS filtrado por «Cocina
+    caliente» no puede despachar las cervezas del bar."""
     order = db.get(Order, order_id)
     if order is None or order.store_id != store_id:
         raise NotFoundError("La comanda no existe en esta sede")
 
-    changed_ids = _orders_hooks().expedite_order(db, order_id=order_id, store_id=store_id, actor=actor, now=now)
+    hooks = _orders_hooks()
+    if station is None:
+        changed_ids = hooks.expedite_order(db, order_id=order_id, store_id=store_id, actor=actor, now=now)
+    else:
+        changed_ids = hooks.expedite_station(
+            db, order_id=order_id, store_id=store_id, station=station, actor=actor, now=now
+        )
 
     items_out: list[KitchenExpediteItemOut] = []
     if changed_ids:
@@ -280,6 +295,7 @@ def enrich_round_for_kds(
     items: list[OrderItem],
     items_out: list[dict[str, Any]],
     round_out: dict[str, Any],
+    today: date | None = None,
 ) -> None:
     """Muta `round_out`/`items_out` (las mismas listas que ya arma
     `get_kitchen_rounds`) IN PLACE: agrega canal (plataforma) y, por ítem,
@@ -300,6 +316,12 @@ def enrich_round_for_kds(
 
     paired = sorted(zip(items, items_out, strict=True), key=lambda pair: _course_sort_key(pair[0], fired))
     round_out["items"] = [item_out for _, item_out in paired]
+
+    # «De ayer»: una comanda de un día operativo anterior que sigue viva (un
+    # turno abandonado, una mesa que nadie cerró). Sigue siendo trabajo
+    # posible, pero no es la cola de hoy: el KDS la aparta por defecto y la
+    # muestra marcada si se pide. `None` (sin sede) no marca nada.
+    round_out["stale"] = bool(today is not None and order.business_date is not None and order.business_date < today)
 
     if order.channel.value == "platform":
         round_out["platform"] = {"source": order.platform_name, "external_id": order.platform_external_id}
@@ -325,6 +347,31 @@ def tables_for_order(db: Session, *, order_id: int) -> list[str]:
             .where(OrderTable.order_id == order_id, OrderTable.released_at.is_(None))
         ).scalars()
     ]
+
+
+# ---------------------------------------------------------------------------
+# Tiempo objetivo por estación: el semáforo no puede mentir.
+# ---------------------------------------------------------------------------
+
+# Un ítem sin tiempo objetivo de su curso (una cerveza: `beverage` no trae
+# objetivo de fábrica) quedaba «A tiempo» para siempre — se vio en verde un
+# plato con 66 h de espera. El objetivo del CURSO (Admin → Ventas) sigue
+# mandando; si el curso no tiene, se usa el de la estación.
+DEFAULT_STATION_TARGET_MINUTES: dict[str, int] = {
+    "bar": 5,
+    "hot_kitchen": 15,
+    "cold_kitchen": 10,
+}
+FALLBACK_TARGET_MINUTES = 12
+
+
+def target_minutes_for(course_targets: dict[str, Any], *, course: str | None, station: str | None) -> int:
+    configured = course_targets.get(course) if course is not None else None
+    if configured is not None:
+        return int(configured)
+    if station is not None and station in DEFAULT_STATION_TARGET_MINUTES:
+        return DEFAULT_STATION_TARGET_MINUTES[station]
+    return FALLBACK_TARGET_MINUTES
 
 
 # ---------------------------------------------------------------------------
