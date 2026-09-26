@@ -24,14 +24,16 @@
  * en curso.
  */
 
-import { Trash2 } from "lucide-react"
+import { ClipboardList, Trash2 } from "lucide-react"
 import { createElement } from "react"
 import type { RouteObject } from "react-router-dom"
 
 import type { NavItem } from "@/app/nav"
 
+import { AreaCountPage } from "./AreaCountPage"
 import { CountCapturePage } from "./CountCapturePage"
 import { InventoryAdminPage } from "./InventoryAdminPage"
+import { OpeningCountGate } from "./OpeningCountGate"
 import { WastePage } from "./WastePage"
 
 const adminRoutes: RouteObject[] = [
@@ -39,10 +41,32 @@ const adminRoutes: RouteObject[] = [
   { path: "inventario/conteos/:countId", element: createElement(CountCapturePage) },
 ]
 
-const posRoutes: RouteObject[] = [{ path: "merma", element: createElement(WastePage) }]
+// `conteo` (0030): la pantalla de conteo por área como ruta propia del POS,
+// sin caja abierta de por medio (antes vivía sólo dentro de Turno).
+const posRoutes: RouteObject[] = [
+  { path: "merma", element: createElement(WastePage) },
+  { path: "conteo", element: createElement(AreaCountPage) },
+]
 
 const adminNav: NavItem[] = [{ to: "/admin/inventario", label: "Inventario", feature: "inventory.perpetual" }]
 
-const posNav: NavItem[] = [{ to: "/pos/merma", label: "Merma", icon: Trash2, feature: "inventory.waste", posGroup: "cocina" }]
+const posNav: NavItem[] = [
+  { to: "/pos/merma", label: "Merma", icon: Trash2, feature: "inventory.waste", posGroup: "cocina" },
+  { to: "/pos/conteo", label: "Conteo", icon: ClipboardList, feature: "inventory.shift_counts", posGroup: "cocina" },
+]
 
-export const inventoryFeature = { adminRoutes, posRoutes, adminNav, posNav }
+/**
+ * `withOpeningGate`: la apertura del área es obligatoria (decisión 5).
+ * `router.tsx` envuelve con esto las pantallas del POS, sin cambiar sus
+ * rutas (los `path` quedan iguales); el KDS y la vista de cocina no se
+ * frenan, sólo avisan en rojo (`OpeningCountGate.tsx`).
+ */
+function withOpeningGate(routes: RouteObject[]): RouteObject[] {
+  return routes.map((route) =>
+    route.element === undefined || route.element === null
+      ? route
+      : { ...route, element: createElement(OpeningCountGate, null, route.element) },
+  )
+}
+
+export const inventoryFeature = { adminRoutes, posRoutes, adminNav, posNav, withOpeningGate }

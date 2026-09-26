@@ -33,6 +33,11 @@ from app.inventory.units import entry_spec
 from app.inventory.models import Ingredient, MovementCause, StockCountScope, WasteType
 from app.inventory.schemas import (
     AdjustmentIn,
+    AdminAreaCountStatusOut,
+    AreaCountItemIn,
+    CountAreaCategoriesIn,
+    DeviceAreaCountSheetOut,
+    DeviceOpeningGateOut,
     AreaCountDetailOut,
     AreaCountIn,
     AreaCountOut,
@@ -727,6 +732,71 @@ def post_device_area_count(
     )
 
 
+# Artículo por artículo (0030). La pantalla de conteo del POS: las listas de
+# todas las áreas, filtrables, a ciegas (quién contó y cuándo, nunca cuánto),
+# y cada artículo se guarda al contarlo. `gate` no exige persona: el KDS lo
+# lee para su aviso rojo y nunca se frena.
+
+
+@router.get("/device/area-count/sheet")
+def get_device_area_count_sheet(
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_operator),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> DeviceAreaCountSheetOut:
+    store = _store_for_device(db, actor)
+    return area_counts.sheet(db, store=store, actor=actor)
+
+
+@router.get("/device/area-count/gate")
+def get_device_area_count_gate(
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_device),
+) -> DeviceOpeningGateOut:
+    # `current_device` + `assert_feature` a mano (como el KDS): la
+    # dependencia `require_feature` exige persona, y el KDS mira sin persona.
+    features.assert_feature(db, actor.organization_id, actor.store_id, "inventory.perpetual")
+    features.assert_feature(db, actor.organization_id, actor.store_id, area_counts.FEATURE)
+    store = _store_for_device(db, actor)
+    return area_counts.opening_gate(db, store=store, actor=actor)
+
+
+@router.post("/device/area-count-items", status_code=201)
+def post_device_area_count_item(
+    body: AreaCountItemIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_operator),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> JSONResponse:
+    store = _store_for_device(db, actor)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        saved = area_counts.record_item(db, store=store, actor=actor, data=body)
+        out = area_counts.saved_item_out(db, store=store, saved=saved).model_dump(mode="json")
+        record_audit(
+            db,
+            actor=actor,
+            organization_id=store.organization_id,
+            store_id=store.id,
+            entity="area_count_item",
+            entity_id=saved.line.id,
+            action="create",
+            before=None,
+            # La cantidad queda en la auditoría (la ve el administrador); a la
+            # tablet vuelve `out`, sin cifras.
+            after={**out, "entered_qty": saved.line.entered_qty, "entered_unit": saved.line.entered_unit},
+        )
+        return 201, out
+
+    return _idempotent(
+        db, organization_id=store.organization_id, scope="inventory.area_count_item", request=request, payload=body,
+        fn=_do,
+    )
+
+
 @router.post("/device/area-recounts/{request_id}/answer", status_code=201)
 def post_device_recount_answer(
     request_id: int,
@@ -833,6 +903,39 @@ def put_count_area_items(
     out = _one_area_out(db, store, area.id)
     _area_audit(db, actor=actor, store=store, area_id=area.id, action="set_items", before=before, after=out.model_dump())
     return out
+
+
+@router.put("/admin/count-areas/{area_id}/categories")
+def put_count_area_categories(
+    area_id: int,
+    body: CountAreaCategoriesIn,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> CountAreaOut:
+    store = admin_store(db, actor, store_id)
+    area = area_counts.area_or_404(db, store=store, area_id=area_id)
+    before = _one_area_out(db, store, area.id).model_dump()
+    area_counts.set_area_categories(db, store=store, area=area, data=body)
+    out = _one_area_out(db, store, area.id)
+    _area_audit(
+        db, actor=actor, store=store, area_id=area.id, action="set_categories", before=before, after=out.model_dump()
+    )
+    return out
+
+
+@router.get("/admin/area-count-status")
+def get_area_count_status(
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _base: None = Depends(_require_shift_counts_base),
+    _feature: None = Depends(_require_shift_counts),
+) -> AdminAreaCountStatusOut:
+    store = admin_store(db, actor, store_id)
+    return area_counts.admin_status(db, store=store)
 
 
 @router.put("/admin/count-area-members")
