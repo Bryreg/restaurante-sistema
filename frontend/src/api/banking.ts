@@ -152,6 +152,8 @@ export interface DrawerOut {
   shift_id: number | null
   days: DrawerDayOut[]
   deposits: DepositOut[]
+  /** Los bancos a los que la sede consignó últimamente, el último usado primero. */
+  recent_banks?: string[]
 }
 
 /** `GET /deposits/drawer` (tablet, `money.deposits`). */

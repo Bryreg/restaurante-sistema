@@ -213,6 +213,11 @@ class SalesTotals:
     delivery_cash_pending: int = 0
     tips_delivery: int = 0
     tips_delivery_pending: int = 0
+    # Cuántos cobros de domicilio siguen sin liquidar, y de cuántos
+    # domiciliarios: conteos, no plata. Los lee el chequeo previo al cierre
+    # (`service.close_precheck`), que no puede publicar ningún monto.
+    delivery_pending_payments: int = 0
+    delivery_pending_couriers: int = 0
 
 
 def get_sales_totals(db: Session, shift_id: int) -> SalesTotals:
@@ -256,6 +261,9 @@ def get_sales_totals(db: Session, shift_id: int) -> SalesTotals:
         "tips_delivery_pending": 0,
     }
 
+    pending_couriers: set[int] = set()
+    pending_payments = 0
+
     columns = [payment_model.method, payment_model.amount, payment_model.tip_amount]
     if courier_col is not None and settlement_col is not None:
         columns += [courier_col, settlement_col]
@@ -278,12 +286,17 @@ def get_sales_totals(db: Session, shift_id: int) -> SalesTotals:
                 # Pendiente/liquidado se deriva del cobro, no del bolsillo.
                 totals["delivery_cash_pending"] += int(amount or 0)
                 totals["tips_delivery_pending"] += int(tip_amount or 0)
+                pending_payments += 1
+                if courier_id is not None:
+                    pending_couriers.add(int(courier_id))
             continue
 
         totals[bucket] += int(amount or 0)
         totals[f"tips_{bucket}"] += int(tip_amount or 0)
 
-    return SalesTotals(**totals)
+    return SalesTotals(
+        **totals, delivery_pending_payments=pending_payments, delivery_pending_couriers=len(pending_couriers)
+    )
 
 
 def on_employee_identified(db: Session, *, store_id: int, employee: object) -> None:

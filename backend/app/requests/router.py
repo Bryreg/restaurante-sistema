@@ -2,7 +2,8 @@
 `/api/v1/admin/requests/...`). Sólo borde HTTP: la lógica vive en `service`.
 
 Operador (tablet, persona identificada), detrás de `pos.requests`:
-- `GET  /requests/supply-suggestions` — insumos bajo mínimo o en negativo, sin costos.
+- `GET  /requests/supply-suggestions` — insumos bajo mínimo del área de quien pide,
+  en su unidad cómoda y redondeados, más los frecuentes de la sede; sin costos.
 - `POST /requests/supplies` — pedido de insumos (exige además «Inventario perpetuo»).
 - `POST /requests/change` — pedido de sencilla (exige además «Cambio de denominaciones»).
 - `GET  /requests/mine` — las del turno abierto y las aprobadas pendientes.
@@ -89,7 +90,7 @@ def _one(db: Session, request_row: Any) -> dict[str, Any]:
 def get_supply_suggestions(
     actor: Actor = Depends(current_operator), db: Session = Depends(get_db)
 ) -> SupplySuggestionsOut:
-    return service.supply_suggestions(db, store=_device_store(db, actor))
+    return service.supply_suggestions(db, store=_device_store(db, actor), employee_id=actor.employee_id)
 
 
 @router.post("/requests/supplies", status_code=201, dependencies=[Depends(_require)])

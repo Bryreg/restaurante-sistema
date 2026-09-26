@@ -133,6 +133,13 @@ class OpenShiftIn(BaseModel):
     # cajón (`ShiftCarryIn`). Quien abre los marca uno por uno; ninguno viene
     # marcado. El conteo de apertura los incluye.
     carried_shift_ids: list[int] = Field(default_factory=list)
+    # Los sobres de días anteriores se confirman ENTEROS, aparte de la base:
+    # con `True`, `opening_cash` es sólo la base contada y el servidor le
+    # suma el saldo de cada día marcado (el que él mismo publica en
+    # `carry-candidates`). La diferencia de apertura se mide entonces
+    # contra la base fija sola. Sin la marca, el comportamiento de siempre:
+    # lo contado incluye los días marcados.
+    carried_counted_apart: bool = False
 
 
 class OpenShiftOut(BaseModel):
@@ -329,6 +336,45 @@ class CloseReviewOut(BaseModel):
     is_critical: bool
     closes_day_suggested: bool
     open_orders: int = 0
+    # Lo contado tal como se selló en el paso 1 (efectivo y piezas): al
+    # retomar el cierre en el paso 2 la pantalla ya no tiene lo tecleado.
+    counted: int | None = None
+    counted_pieces: int | None = None
+
+
+class ClosePrecheckItemOut(BaseModel):
+    code: Literal[
+        "OPEN_ORDERS", "DELIVERY_UNSETTLED", "CARD_TOTAL_REQUIRED", "TRANSFER_TOTAL_REQUIRED", "PHOTO_REQUIRED"
+    ]
+    # `blocking`: el cierre no entra sin resolverlo (o sin trasladar);
+    # `warning`: entra, pero conviene resolverlo antes de contar; `info`: qué
+    # va a pedir el cierre.
+    level: Literal["blocking", "warning", "info"]
+    message: str
+
+
+class SealedCountOut(BaseModel):
+    count_id: int
+    counted_at: datetime
+    counted_by: str
+
+
+class ClosePrecheckOut(BaseModel):
+    """«Paso 0» del cierre (`GET /shifts/{id}/close/precheck`): lo que el
+    cierre va a exigir, antes de contar. **Ningún monto**: ni el esperado,
+    ni sus sumandos, ni la venta por medio — sólo conteos y sí/no, para que
+    el cierre siga siendo a ciegas."""
+
+    shift_id: int
+    open_orders: int
+    delivery_pending_payments: int
+    delivery_pending_couriers: int
+    card_total_required: bool
+    transfer_total_required: bool
+    photo_required: bool
+    # Un conteo ya sellado y activo: la pantalla retoma en el paso 2.
+    sealed_count: SealedCountOut | None
+    items: list[ClosePrecheckItemOut]
 
 
 class CloseConfirmIn(BaseModel):
@@ -420,6 +466,9 @@ class AdminShiftListItem(BaseModel):
     difference: int | None = None
     is_stale: bool
     reviewed_at: datetime | None = None
+    # Alguno de sus conteos de cierre se hizo después de ver el esperado de
+    # un conteo anterior (el paso 2 ya se había abierto).
+    recounted_after_review: bool = False
 
 
 class CashSummaryPersonOut(BaseModel):

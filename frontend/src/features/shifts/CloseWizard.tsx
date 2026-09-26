@@ -1,20 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Banknote, Check, CircleCheck, Lock, Receipt } from "lucide-react";
+import { Banknote, Check, CircleCheck, ClipboardCheck, Lock, Receipt, RotateCcw } from "lucide-react";
 import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { ApiError, newIdempotencyKey } from "@/api/client";
 import {
   closeCount,
   confirmClose,
+  getClosePrecheck,
   getCloseReview,
   type CardTransferReview,
   type CashDifferenceCause,
+  type ClosePrecheck,
+  type ClosePrecheckItem,
   type CloseReview,
 } from "@/api/shifts";
+import { useSession } from "@/app/session";
+import { Cargando } from "@/components/Cargando";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DenominationsInput, type Denomination } from "@/components/DenominationsInput";
+import { DenominationKeypad } from "@/components/DenominationKeypad";
+import { type Denomination } from "@/components/DenominationsInput";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/MoneyInput";
 import { Textarea } from "@/components/ui/textarea";
@@ -76,7 +83,99 @@ function emptyDenominations(): Denomination[] {
   return DENOMINATIONS.map((value) => ({ value, count: 0 }));
 }
 
-type Step = 1 | 2 | 3;
+type Step = 0 | 1 | 2 | 3;
+
+/**
+ * «Paso 0»: lo que el servidor dice que el cierre va a exigir, ANTES de
+ * contar. Sin ningún monto (el precheck no los publica): comandas abiertas
+ * (con el camino para cobrarlas, o el aviso de que se trasladan en el paso
+ * 3), domicilios sin liquidar y lo que se va a pedir.
+ */
+function PasoCero({
+  precheck,
+  onContar,
+  onRevisar,
+  revisando,
+}: {
+  precheck: ClosePrecheck;
+  onContar: () => void;
+  onRevisar: () => void;
+  revisando: boolean;
+}): React.JSX.Element {
+  const { hasFeature } = useSession();
+  return (
+    <div className="mx-auto w-full max-w-3xl space-y-4">
+      <TarjetaCierre
+        icono={<ClipboardCheck />}
+        titulo="Antes de contar"
+        pastilla={<PasoPastilla tono="activo">Paso 0</PasoPastilla>}
+      >
+        <ul className="space-y-3 px-4 py-3">
+          {precheck.items.map((item) => (
+            <ItemPrecheck
+              key={item.code}
+              item={item}
+              mesas={hasFeature("pos.tables")}
+              delivery={hasFeature("pos.delivery")}
+            />
+          ))}
+        </ul>
+      </TarjetaCierre>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button type="button" variant="outline" className="h-12 text-base" disabled={revisando} onClick={onRevisar}>
+          {revisando ? "Revisando…" : "Ya lo resolví, revisar de nuevo"}
+        </Button>
+        <Button type="button" className="h-12 text-base" onClick={onContar}>
+          Contar el cajón
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ItemPrecheck({
+  item,
+  mesas,
+  delivery,
+}: {
+  item: ClosePrecheckItem;
+  mesas: boolean;
+  delivery: boolean;
+}): React.JSX.Element {
+  const tono =
+    item.level === "blocking"
+      ? "border-destructive/60 bg-destructive/5"
+      : item.level === "warning"
+        ? "border-warning/60 bg-warning/5"
+        : "border-border";
+  return (
+    <li className={cn("space-y-2 rounded-lg border p-3 text-sm", tono)}>
+      <p className={item.level === "blocking" ? "font-medium text-destructive" : undefined}>{item.message}</p>
+      {item.code === "OPEN_ORDERS" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {mesas ? (
+            <Button variant="outline" className="h-11" nativeButton={false} render={<Link to="/pos/mesas" />}>
+              Cobrar en Mesas
+            </Button>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            Si quedan para el turno siguiente, las trasladás al confirmar el cierre (paso 3).
+          </p>
+        </div>
+      ) : null}
+      {item.code === "DELIVERY_UNSETTLED" && delivery ? (
+        <Button
+          variant="outline"
+          className="h-11"
+          nativeButton={false}
+          render={<Link to="/pos/turno?accion=domicilios" />}
+        >
+          Liquidar domicilios
+        </Button>
+      ) : null}
+    </li>
+  );
+}
 
 /**
  * Cierre a ciegas en tres pasos (`cash.blind_close`, spec § "Business day &
@@ -86,6 +185,16 @@ type Step = 1 | 2 | 3;
  * disparado por otra cosa). El paso 3 manda `difference_seen` exactamente
  * como lo mostró el paso 2; si el servidor responde `400 DIFFERENCE_CHANGED`
  * vuelve al paso 2 con la review nueva que trae el propio error.
+ *
+ * **Paso 0 y retomar (auditoría de tablet)**: antes de contar se pide `GET
+ * /shifts/{id}/close/precheck`, que dice —sin ningún monto— lo que el cierre
+ * va a exigir (comandas abiertas, domicilios sin liquidar, datáfono,
+ * transferencias, foto); antes las comandas abiertas aparecían recién en el
+ * paso 3, con el conteo ya sellado. Si el precheck trae un conteo sellado,
+ * el cierre se retoma en el paso 2 en vez de volver a contar desde cero; y
+ * «Volver a contar» desde el paso 2 avisa que el conteo nuevo le queda
+ * marcado al administrador como «recontado después de ver el esperado» (la
+ * marca la pone el servidor).
  *
  * **Iteración 3 (H-8)**: al lado del campo de propinas del paso 1 se
  * muestra, como REFERENCIA de sólo lectura, `cash_out` de `GET
@@ -115,8 +224,12 @@ export function CloseWizard({
 }): React.JSX.Element {
   const queryClient = useQueryClient();
 
-  const [step, setStep] = useState<Step>(1);
+  // `null` hasta que responde el paso 0: dónde arranca lo decide el servidor.
+  const [step, setStep] = useState<Step | null>(null);
   const [countId, setCountId] = useState<number | null>(null);
+  // Retomado: el conteo ya estaba sellado cuando se abrió esta pantalla.
+  const [retomado, setRetomado] = useState(false);
+  const [confirmarRecuento, setConfirmarRecuento] = useState(false);
 
   // Paso 1
   const [counted, setCounted] = useState<Denomination[]>(emptyDenominations());
@@ -137,6 +250,32 @@ export function CloseWizard({
   const [transferOpenOrders, setTransferOpenOrders] = useState(false);
 
   const step1KeyRef = useRef(newIdempotencyKey());
+
+  // Paso 0: el chequeo previo del servidor, sin montos. Decide dónde arranca
+  // el cierre: si ya hay un conteo sellado, se retoma en el paso 2 (no se
+  // vuelve a contar); si hay algo que resolver antes, el paso 0; si no, el 1.
+  const precheckQuery = useQuery({
+    queryKey: ["shifts", "close-precheck", shiftId],
+    queryFn: () => getClosePrecheck(shiftId),
+    staleTime: 0,
+  });
+  const precheck = precheckQuery.data ?? null;
+  const pendientesAntes = (precheck?.items ?? []).filter((i) => i.level !== "info");
+  const avisosDelCierre = (precheck?.items ?? []).filter((i) => i.level === "info");
+
+  // El paso inicial se fija una sola vez, durante el render, apenas llega el
+  // paso 0 (el patrón de React para ajustar estado a un dato nuevo).
+  if (step === null && precheckQuery.isError) {
+    setStep(1);
+  } else if (step === null && precheck) {
+    if (precheck.sealed_count) {
+      setCountId(precheck.sealed_count.count_id);
+      setRetomado(true);
+      setStep(2);
+    } else {
+      setStep(precheck.items.some((i) => i.level !== "info") ? 0 : 1);
+    }
+  }
 
   // Lo tecleado en la rejilla de denominaciones: la MISMA suma que ya viajaba
   // en el cuerpo de `closeCount` (el servidor la valida contra las
@@ -173,6 +312,7 @@ export function CloseWizard({
       }
       setCountId(out.count_id);
       setStep1Error(null);
+      setManualReview(null);
       setStep(2);
     },
     onError: (err) => {
@@ -239,11 +379,55 @@ export function CloseWizard({
           return;
         }
       }
+      if (err instanceof ApiError && err.code === "CLOSE_COUNT_SUPERSEDED") {
+        // Otro conteo lo reemplazó (desde otra tablet): se retoma el vigente.
+        void precheckQuery.refetch().then((r) => {
+          const vigente = r.data?.sealed_count;
+          if (!vigente) return;
+          setManualReview(null);
+          setCountId(vigente.count_id);
+          setRetomado(true);
+          setStep(2);
+        });
+      }
       setConfirmError(errorMessage(err));
     },
   });
 
-  if (step === 1) {
+  function volverAContar() {
+    setConfirmarRecuento(false);
+    setCounted(emptyDenominations());
+    setCountedCard(null);
+    setCountedTransfer(null);
+    setTipsCashOut(0);
+    setPhoto(null);
+    setStep1Error(null);
+    setManualReview(null);
+    setRetomado(false);
+    step1KeyRef.current = newIdempotencyKey();
+    setStep(1);
+  }
+
+  if (step === null) {
+    return <Cargando texto="Revisando qué pide el cierre…" />;
+  }
+
+  if (step === 0 && precheck) {
+    return (
+      <PasoCero
+        precheck={precheck}
+        revisando={precheckQuery.isFetching}
+        onRevisar={() => {
+          void precheckQuery.refetch().then((r) => {
+            if (r.data && !r.data.items.some((i) => i.level !== "info")) setStep(1);
+          });
+        }}
+        onContar={() => setStep(1)}
+      />
+    );
+  }
+
+  if (step === 0 || step === 1) {
     return (
       <div className="mx-auto grid w-full max-w-6xl items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-4">
@@ -253,16 +437,28 @@ export function CloseWizard({
             pastilla={<PasoPastilla tono="activo">Paso 1 de 3</PasoPastilla>}
           >
             <div className="px-4 py-3">
-              <DenominationsInput value={counted} onChange={setCounted} legend="Efectivo contado" />
+              {pendientesAntes.length > 0 ? (
+                <p className="mb-3 rounded-md border border-warning/60 bg-warning/5 px-3 py-2 text-sm">
+                  Quedó pendiente del paso 0: {pendientesAntes.map((i) => i.message).join(" · ")}
+                </p>
+              ) : null}
+              <DenominationKeypad value={counted} onChange={setCounted} legend="Efectivo contado" />
               <p className="pt-3 text-xs leading-relaxed text-muted-foreground">
-                Contá por denominación y poné cuántas hay: el sistema hace la multiplicación. Se puede
-                corregir hasta que confirmes.
+                Tocá la denominación, escribí cuántas hay en el teclado y seguí con «›»: el sistema hace la
+                multiplicación. Se puede corregir hasta que confirmes.
               </p>
             </div>
           </TarjetaCierre>
 
           <TarjetaCierre icono={<Receipt />} titulo="El resto del cierre">
             <div className="grid gap-4 px-4 py-3 sm:grid-cols-2">
+              {avisosDelCierre.length > 0 ? (
+                <ul className="space-y-1 text-sm text-muted-foreground sm:col-span-2">
+                  {avisosDelCierre.map((i) => (
+                    <li key={i.code}>• {i.message}</li>
+                  ))}
+                </ul>
+              ) : null}
               <div className="space-y-1">
                 <Label htmlFor="close-card">Datáfono contado</Label>
                 <MoneyInput id="close-card" value={countedCard} onChange={setCountedCard} />
@@ -353,8 +549,18 @@ export function CloseWizard({
       return <p className="text-sm text-muted-foreground">Sin datos de revisión todavía.</p>;
     }
     const diferencia = review.difference;
+    // Lo contado: lo que se tecleó en esta pantalla o —si se retomó un conteo
+    // ya sellado— lo que el servidor guardó al sellarlo.
+    const contadoMostrado = retomado ? (review.counted ?? null) : totalContado;
+    const piezasMostradas = retomado ? (review.counted_pieces ?? null) : piezasContadas;
     return (
       <div className="mx-auto w-full max-w-3xl space-y-4">
+        {retomado ? (
+          <p role="status" className="rounded-md border px-3 py-2 text-sm">
+            Retomaste un cierre que ya tenía el conteo sellado
+            {precheck?.sealed_count ? ` por ${precheck.sealed_count.counted_by}` : ""}: seguís desde el paso 2.
+          </p>
+        ) : null}
         <TarjetaCierre
           icono={<CircleCheck />}
           titulo="Lo que el sistema esperaba"
@@ -397,8 +603,10 @@ export function CloseWizard({
               <FilaCuadre rotulo="Esperado" detalle="Lo que debería haber en el cajón" valor={review.expected} remate />
               <FilaCuadre
                 rotulo="Contado a mano"
-                detalle={piezasContadas === 1 ? "1 pieza" : `${piezasContadas} piezas`}
-                valor={totalContado}
+                detalle={
+                  piezasMostradas === null ? undefined : piezasMostradas === 1 ? "1 pieza" : `${piezasMostradas} piezas`
+                }
+                valor={contadoMostrado}
                 className="border-t border-border"
               />
             </div>
@@ -418,9 +626,31 @@ export function CloseWizard({
           </p>
         ) : null}
 
-        <Button type="button" className="h-11" onClick={goToStep3}>
-          Continuar
-        </Button>
+        <div className="flex flex-wrap items-start gap-2">
+          <Button type="button" className="h-12 text-base" onClick={goToStep3}>
+            Continuar
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-12 gap-2 text-base"
+            aria-expanded={confirmarRecuento}
+            onClick={() => setConfirmarRecuento((v) => !v)}
+          >
+            <RotateCcw aria-hidden="true" className="size-4" /> Volver a contar
+          </Button>
+        </div>
+        {confirmarRecuento ? (
+          <div role="alert" className="space-y-2 rounded-md border border-warning/60 bg-warning/5 p-3 text-sm">
+            <p>
+              Ya viste lo que el sistema esperaba. Si volvés a contar, el conteo nuevo reemplaza al sellado y le
+              queda al administrador la marca <b>«recontado después de ver el esperado»</b>.
+            </p>
+            <Button type="button" variant="outline" className="h-11" onClick={volverAContar}>
+              Sí, volver a contar
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   }

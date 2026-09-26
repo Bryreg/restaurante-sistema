@@ -519,3 +519,62 @@ def test_a_draft_of_another_organization_is_404(
     db.commit()
     assert admin_client.get(f"{API}/admin/reception-drafts/{draft.id}").status_code == 404
     assert admin_client.post(f"{API}/admin/reception-drafts/{draft.id}/reject", json={"reason": "x"}).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Auditoría de tablet: la recepción arranca precargada.
+# ---------------------------------------------------------------------------
+
+
+def test_suggestions_preload_the_last_purchase_of_that_supplier_without_prices(
+    pos: TestClient, admin_client: TestClient, supplier: dict[str, Any], ingredient_seeded: Any
+) -> None:
+    empty = pos.get(f"{API}/device/reception-suggestions", params={"supplier_id": supplier["id"]})
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["source"] == "none"
+
+    draft = _create_draft(pos, supplier, ingredient_seeded.id)
+    done = admin_client.post(
+        f"{API}/admin/reception-drafts/{draft['id']}/complete",
+        json=_complete_payload(supplier["id"], ingredient_seeded.id),
+        headers=_idem(),
+    )
+    assert done.status_code == 201, done.text
+
+    body = pos.get(f"{API}/device/reception-suggestions", params={"supplier_id": supplier["id"]}).json()
+    assert body["source"] == "last_purchase"
+    [line] = body["last_purchase_lines"]
+    assert (line["ingredient_id"], line["quantity"], line["purchase_unit"]) == (ingredient_seeded.id, "2", "kg")
+    assert body["last_purchase_date"] is not None
+    _assert_no_cost(body)
+
+
+def test_suggestions_prefer_what_was_approved_in_requests(
+    device_client: TestClient,
+    open_shift: Any,
+    admin_client: TestClient,
+    supplier: dict[str, Any],
+    ingredient_seeded: Any,
+    set_feature: Any,
+) -> None:
+    set_feature("inventory.perpetual", True)
+    open_shift()
+    created = device_client.post(
+        f"{API}/requests/supplies",
+        json={"lines": [{"ingredient_id": ingredient_seeded.id, "qty": "3", "entry_unit": "kg"}]},
+        headers=_idem(),
+    )
+    assert created.status_code == 201, created.text
+    approved = admin_client.post(f"{API}/admin/requests/{created.json()['id']}/approve", json={}, headers=_idem())
+    assert approved.status_code == 200, approved.text
+
+    body = device_client.get(f"{API}/device/reception-suggestions", params={"supplier_id": supplier["id"]}).json()
+    assert body["source"] == "request"
+    assert body["request_ids"] == [created.json()["id"]]
+    assert [(line["ingredient_id"], line["quantity"]) for line in body["request_lines"]] == [(ingredient_seeded.id, "3")]
+    _assert_no_cost(body)
+
+
+def test_suggestions_of_a_supplier_of_another_store_are_404(pos: TestClient, supplier: dict[str, Any]) -> None:
+    resp = pos.get(f"{API}/device/reception-suggestions", params={"supplier_id": supplier["id"] + 999})
+    assert resp.status_code == 404

@@ -338,6 +338,32 @@ class DeviceReceptionIngredientOut(BaseModel):
     base_unit: str
 
 
+class ReceptionSuggestionLineOut(BaseModel):
+    """Una línea que la tablet precarga al recibir: insumo y cantidad en su
+    unidad de COMPRA (lo que dice el papel). Sin ningún precio."""
+
+    ingredient_id: int
+    name: str
+    purchase_unit: str
+    base_unit: str
+    quantity: str
+
+
+class ReceptionSuggestionsOut(BaseModel):
+    """`GET /device/reception-suggestions?supplier_id=`: qué se espera que
+    llegue de ese proveedor. `source` dice qué precargar: lo aprobado en
+    Solicitudes (`request`), si no, la última compra al proveedor
+    (`last_purchase`), si no, nada (`none`). Las dos listas vienen igual,
+    para poder cambiar de una a otra."""
+
+    supplier_id: int
+    source: Literal["request", "last_purchase", "none"]
+    request_ids: list[int]
+    request_lines: list[ReceptionSuggestionLineOut]
+    last_purchase_date: date | None
+    last_purchase_lines: list[ReceptionSuggestionLineOut]
+
+
 class ReceptionDraftLineIn(BaseModel):
     # Nada fuera de esto: un precio mandado desde la tablet es un 422, no
     # algo que se ignora en silencio.

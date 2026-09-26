@@ -281,3 +281,70 @@ def test_only_days_with_money_to_deposit_can_be_marked(
 
     unknown = _open_with_carry(device_client, identify, cashier, counted=250_000, carried=[ayer + 999])
     assert unknown.json()["error"]["code"] == "CARRIED_SHIFT_NOT_PENDING"
+
+
+# ---------------------------------------------------------------------------
+# Auditoría de tablet: base y sobres aparte; el banco que se recuerda.
+# ---------------------------------------------------------------------------
+
+
+def test_with_envelopes_apart_the_base_is_counted_alone_and_the_server_adds_each_day(
+    device_client: TestClient,
+    open_shift: Any,
+    close_shift: Any,
+    identify: Any,
+    employees: dict,
+    db: Session,
+) -> None:
+    ayer = _yesterday_with_50k(open_shift, close_shift)
+    identify(device_client, employees["cashier"])
+
+    def _open(counted: int) -> Any:
+        payload: dict[str, Any] = {
+            "opening_cash": denoms(counted),
+            "cash_responsible_id": employees["cashier"].id,
+            "carried_shift_ids": [ayer],
+            "carried_counted_apart": True,
+        }
+        return device_client.post(f"{API}/shifts/open", json=payload, headers=idem())
+
+    # La base contada no llega a la fija: el mensaje habla SÓLO de la base.
+    short = _open(190_000)
+    assert short.status_code == 400
+    error = short.json()["error"]
+    assert error["code"] == "OPENING_DIFFERENCE_NEEDS_CAUSE"
+    assert "$ 200.000" in error["message"] and "$ 190.000" in error["message"]
+    assert "$ 250.000" not in error["message"]
+
+    # La base cuadra: el sobre de ayer se suma en el servidor.
+    ok = _open(BASE)
+    assert ok.status_code in (200, 201), ok.text
+    shift = db.get(Shift, ok.json()["id"])
+    assert shift is not None
+    db.refresh(shift)
+    assert shift.opening_cash_total == 250_000
+    assert shifts_service.compute_breakdown(db, shift)["carried_in"] == 50_000
+
+
+def test_the_drawer_remembers_the_banks_the_store_used(
+    device_client: TestClient,
+    open_shift: Any,
+    close_shift: Any,
+    identify: Any,
+    employees: dict,
+) -> None:
+    ayer = _yesterday_with_50k(open_shift, close_shift)
+    assert device_client.get(f"{API}/deposits/drawer").json()["recent_banks"] == []
+    _open_with_carry(device_client, identify, employees["cashier"], counted=250_000, carried=[ayer])
+    first = _pos_deposit(device_client, ayer, 20_000)
+    assert first.status_code == 201, first.text
+    other = device_client.post(
+        f"{API}/deposits",
+        json={"source_shift_id": ayer, "amount": 10_000, "bank_name": "Davivienda", "receipt_photo": FOTO},
+        headers=idem(),
+    )
+    assert other.status_code == 201, other.text
+    again = _pos_deposit(device_client, ayer, 5_000)
+    assert again.status_code == 201, again.text
+    # El último usado primero, sin repetir.
+    assert device_client.get(f"{API}/deposits/drawer").json()["recent_banks"] == ["Bancolombia", "Davivienda"]

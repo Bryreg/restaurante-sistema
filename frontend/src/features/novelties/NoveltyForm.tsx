@@ -9,17 +9,55 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
+import { cn } from "@/lib/utils"
 
 import { CATEGORY_LABEL, LEVEL_LABEL } from "./lib"
+
+/** Un botón de opción grande, para elegir con un toque de pie en la tablet. */
+function Opcion({
+  elegida,
+  onClick,
+  children,
+  peligro = false,
+}: {
+  elegida: boolean
+  onClick: () => void
+  children: React.ReactNode
+  peligro?: boolean
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={elegida}
+      onClick={onClick}
+      className={cn(
+        "min-h-12 rounded-lg px-4 text-base font-semibold ring-1 transition-colors",
+        peligro
+          ? elegida
+            ? "bg-destructive text-white ring-destructive"
+            : "bg-destructive/10 text-destructive ring-destructive/60 hover:bg-destructive/20"
+          : elegida
+            ? "bg-foreground text-background ring-foreground"
+            : "bg-card text-foreground ring-border hover:bg-muted",
+      )}
+    >
+      {children}
+    </button>
+  )
+}
 
 /**
  * «Registrar novedad»: qué pasó, detalle opcional, categoría, nivel, si pasa
  * al siguiente turno y una foto opcional. La registra la persona
  * identificada en la tablet (el servidor la atribuye). Una urgente siempre
  * pasa al siguiente turno: lo fuerza el servidor, y la casilla lo refleja.
+ *
+ * Auditoría de tablet: la categoría y el nivel son **botones**, no listas
+ * desplegables; «Urgente» es un botón rojo aparte, a la vista, en vez de la
+ * tercera opción escondida de un desplegable.
  */
 export function NoveltyForm({ onCreated }: { onCreated: () => void }): React.JSX.Element {
   const [title, setTitle] = useState("")
@@ -92,36 +130,31 @@ export function NoveltyForm({ onCreated }: { onCreated: () => void }): React.JSX
         <Label htmlFor="novelty-detail">Detalle (opcional)</Label>
         <Textarea id="novelty-detail" value={detail} onChange={(event) => setDetail(event.target.value)} />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <Label htmlFor="novelty-category">Categoría</Label>
-          <Select value={category === "" ? undefined : category} onValueChange={(v) => setCategory(v as NoveltyCategory)}>
-            <SelectTrigger id="novelty-category" className="h-11 w-full">
-              <SelectValue placeholder="Elegí una categoría" />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.entries(CATEGORY_LABEL) as [NoveltyCategory, string][]).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <div className="space-y-2">
+        <p id="novelty-category-label" className="text-sm font-medium">
+          Categoría
+        </p>
+        <div role="radiogroup" aria-labelledby="novelty-category-label" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {(Object.entries(CATEGORY_LABEL) as [NoveltyCategory, string][]).map(([value, label]) => (
+            <Opcion key={value} elegida={category === value} onClick={() => setCategory(value)}>
+              {label}
+            </Opcion>
+          ))}
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="novelty-level">Nivel</Label>
-          <Select value={level} onValueChange={(v) => setLevel(v as NoveltyLevel)}>
-            <SelectTrigger id="novelty-level" className="h-11 w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.entries(LEVEL_LABEL) as [NoveltyLevel, string][]).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      </div>
+      <div className="space-y-2">
+        <p id="novelty-level-label" className="text-sm font-medium">
+          Nivel
+        </p>
+        <div role="radiogroup" aria-labelledby="novelty-level-label" className="grid grid-cols-3 gap-2">
+          {(["info", "important"] as const).map((value) => (
+            <Opcion key={value} elegida={level === value} onClick={() => setLevel(value)}>
+              {LEVEL_LABEL[value]}
+            </Opcion>
+          ))}
+          <Opcion peligro elegida={level === "urgent"} onClick={() => setLevel("urgent")}>
+            {LEVEL_LABEL.urgent}
+          </Opcion>
         </div>
       </div>
       <div className="flex items-start gap-2">

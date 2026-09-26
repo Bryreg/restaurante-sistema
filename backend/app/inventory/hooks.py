@@ -947,3 +947,93 @@ def area_counts_today(db: Session, *, store: Store) -> AreaCountsToday:
     from app.inventory import area_counts
 
     return area_counts.today_summary(db, store=store)
+
+
+# ---------------------------------------------------------------------------
+# El área de quien pide y la unidad cómoda — para las solicitudes del POS.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RequesterArea:
+    """El área de conteo que le corresponde a una persona y sus artículos
+    clave. `via` dice de dónde salió: `member` (el administrador la asignó
+    en Conteo por área), `puesto` (no tiene área asignada, pero su puesto
+    —cocina, bar…— se llama como un área activa) o `none` (ninguna)."""
+
+    area_id: int | None
+    area_name: str | None
+    ingredient_ids: tuple[int, ...]
+    via: str
+
+
+def _fold(text: str) -> str:
+    import unicodedata
+
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text.strip().lower()) if unicodedata.category(c) != "Mn"
+    )
+
+
+def requester_area(db: Session, *, store: Store, employee_id: int | None) -> RequesterArea:
+    """El área de quien pide: la asignada (`member_area`) y, si no tiene,
+    la que se llama como su puesto. Lectura pura."""
+    from app.auth.models import Employee
+    from app.inventory import area_counts
+    from app.inventory.models import CountArea
+
+    none = RequesterArea(area_id=None, area_name=None, ingredient_ids=(), via="none")
+    if employee_id is None:
+        return none
+    area = area_counts.member_area(db, store=store, employee_id=employee_id)
+    via = "member"
+    if area is None:
+        employee = db.get(Employee, employee_id)
+        puesto = getattr(employee, "puesto", None) if employee is not None else None
+        if not puesto:
+            return none
+        wanted = _fold(str(puesto))
+        for candidate in area_counts.list_areas(db, store=store, active_only=True):
+            if isinstance(candidate, CountArea) and _fold(candidate.name) == wanted:
+                area = candidate
+                via = "puesto"
+                break
+        if area is None:
+            return none
+    ids = tuple(i.id for i in area_counts.area_ingredients(db, area=area))
+    return RequesterArea(area_id=area.id, area_name=area.name, ingredient_ids=ids, via=via)
+
+
+def entry_unit_of(ingredient: Ingredient) -> tuple[str, str]:
+    """`(modo, rótulo)` de la unidad cómoda del insumo (`units.entry_spec`)."""
+    from app.inventory.units import entry_spec
+
+    spec = entry_spec(ingredient)
+    return spec.mode, spec.unit
+
+
+def entry_qty_to_base(ingredient: Ingredient, raw: str) -> int:
+    """Lo tecleado en la unidad cómoda → milésimas de la unidad base. La
+    misma conversión del conteo por área y de la merma."""
+    from app.inventory.units import entry_qty_to_base as _convert
+
+    return _convert(ingredient, raw)
+
+
+def base_to_entry_milli(ingredient: Ingredient, qty_base: int) -> int:
+    from app.inventory.units import base_to_entry_milli as _convert
+
+    return _convert(ingredient, qty_base)
+
+
+def rounded_entry_suggestion(ingredient: Ingredient, qty_base: int) -> tuple[int, int]:
+    from app.inventory.units import rounded_entry_suggestion as _round
+
+    return _round(ingredient, qty_base)
+
+
+def ingredients_by_id(db: Session, *, store_id: int, ids: list[int]) -> dict[int, Ingredient]:
+    if not ids:
+        return {}
+    stmt = select(Ingredient).where(Ingredient.store_id == store_id, Ingredient.id.in_(ids))
+    return {i.id: i for i in db.execute(stmt).scalars()}

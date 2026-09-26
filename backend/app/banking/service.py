@@ -456,6 +456,36 @@ def list_drawer_deposits(db: Session, *, shift_id: int) -> list[BankDeposit]:
     )
 
 
+#: Cuántos bancos recientes se ofrecen como botones al consignar.
+RECENT_BANKS_LIMIT = 4
+
+
+def recent_bank_names(db: Session, *, store: Store) -> list[str]:
+    """Los bancos a los que la sede consignó últimamente, el más reciente
+    primero y sin repetir (el primero es el último usado). No hay una tabla
+    de cuentas bancarias de la sede: el banco se recuerda de las
+    consignaciones mismas, que es donde ya está escrito."""
+    rows = db.execute(
+        select(BankDeposit.bank_name)
+        .where(
+            BankDeposit.organization_id == store.organization_id,
+            BankDeposit.store_id == store.id,
+            BankDeposit.bank_name.is_not(None),
+        )
+        .order_by(BankDeposit.id.desc())
+        .limit(50)
+    ).scalars()
+    seen: dict[str, str] = {}
+    for name in rows:
+        clean = (name or "").strip()
+        key = clean.casefold()
+        if clean and key not in seen:
+            seen[key] = clean
+        if len(seen) >= RECENT_BANKS_LIMIT:
+            break
+    return list(seen.values())
+
+
 def list_deposits(db: Session, *, store: Store, date_from: date, date_to: date) -> list[BankDeposit]:
     stmt = (
         select(BankDeposit)

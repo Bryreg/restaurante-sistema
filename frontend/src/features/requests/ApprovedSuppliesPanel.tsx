@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 import { formatCantidad } from "@/lib/format";
+import { unidadEnPlural } from "@/features/inventory/areaCountLib";
 
 import { REQUESTS_QUERY_KEYS } from "./lib";
 
@@ -33,7 +34,7 @@ function Pedido({ storeId, request }: { storeId: number; request: StaffRequest }
       <ul className="text-sm">
         {lineas.map((line) => (
           <li key={line.id}>
-            {line.ingredient_name}: <strong>{formatCantidad(line.qty_approved, line.base_unit)}</strong>
+            {line.ingredient_name}: <strong>{formatCantidad(line.qty_approved_entry, unidadEnPlural(line.entry_unit))}</strong>
           </li>
         ))}
       </ul>

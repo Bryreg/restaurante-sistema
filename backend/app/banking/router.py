@@ -274,6 +274,7 @@ def drawer(actor: Actor = Depends(current_device), db: Session = Depends(get_db)
         shift_id=open_shift.id if open_shift is not None else None,
         days=[DrawerDayOut(**asdict(d)) for d in days],
         deposits=[_deposit_out(db, d) for d in deposits],
+        recent_banks=service.recent_bank_names(db, store=store),
     )
 
 

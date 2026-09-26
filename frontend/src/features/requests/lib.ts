@@ -44,6 +44,14 @@ export function typedTotal(rows: Denomination[]): number {
   return rows.reduce((acc, d) => acc + d.value * d.count, 0);
 }
 
+/**
+ * La unidad base en palabras de la pantalla: «unit» es un nombre del código,
+ * nunca se muestra. `g` y `ml` quedan como abreviaturas.
+ */
+export function unidadBase(unidad: string): string {
+  return unidad === "unit" ? "unidades" : unidad
+}
+
 export const REQUESTS_QUERY_KEYS = {
   mine: ["requests", "mine"] as const,
   suggestions: ["requests", "supply-suggestions"] as const,

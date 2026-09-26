@@ -41,6 +41,7 @@ from app.core.percent import format_pct_bp
 from app.core.quantity import (
     COST_SCALE,
     QTY_SCALE,
+    format_qty_base,
     line_cost_micros,
     micros_to_pesos,
     parse_cost_micros,
@@ -64,7 +65,13 @@ from app.purchases.models import (
     ReceptionStatus,
     Supplier,
 )
-from app.purchases.schemas import ReceptionDraftCompleteIn, ReceptionDraftIn, ReceptionIn, ReceptionLineIn
+from app.purchases.schemas import (
+    ReceptionDraftCompleteIn,
+    ReceptionDraftIn,
+    ReceptionIn,
+    ReceptionLineIn,
+    ReceptionSuggestionLineOut,
+)
 from app.stores import service as stores_service
 from app.stores.models import Store
 
@@ -1135,6 +1142,93 @@ def list_device_suppliers(db: Session, *, store_id: int) -> list[Supplier]:
 def list_device_reception_ingredients(db: Session, *, store_id: int) -> list[Ingredient]:
     stmt = select(Ingredient).where(Ingredient.store_id == store_id, Ingredient.active.is_(True)).order_by(Ingredient.name)
     return list(db.execute(stmt).scalars())
+
+
+def _purchase_qty_text(ingredient: Ingredient, qty_base: int) -> str:
+    """Milésimas de la unidad base → texto en la unidad de compra, con
+    redondeo mitad hacia arriba en la milésima (lo inverso de la conversión
+    de `create_reception_draft`). Sólo para precargar: quien recibe lo
+    confirma o lo corrige."""
+    factor = max(1, int(ingredient.purchase_factor))
+    return format_qty_base(max(1, (qty_base * 2 + factor) // (2 * factor)))
+
+
+def reception_suggestions(db: Session, *, store: Store, supplier_id: int) -> dict[str, Any]:
+    """Qué se espera que llegue de un proveedor, para precargar la recepción
+    del POS. **Sin precios**: sólo insumo y cantidad.
+
+    - `request_lines`: lo aprobado y por comprar en Solicitudes
+      (`app.requests.hooks.approved_supply_lines`), de los insumos cuyo
+      proveedor es éste o que no tienen proveedor asignado; sumado por
+      insumo.
+    - `last_purchase_lines`: la última recepción confirmada a ese proveedor.
+    """
+    from app.requests import hooks as requests_hooks
+
+    supplier = get_supplier_or_404(db, organization_id=store.organization_id, supplier_id=supplier_id)
+    if supplier.store_id != store.id:
+        raise NotFoundError("El proveedor no existe en esta sede")
+
+    approved = requests_hooks.approved_supply_lines(db, store.id)
+    ingredient_ids = {line.ingredient_id for line in approved}
+    last = db.execute(
+        select(Reception)
+        .where(
+            Reception.store_id == store.id,
+            Reception.supplier_id == supplier.id,
+            Reception.status == ReceptionStatus.CONFIRMED,
+        )
+        .order_by(Reception.at.desc(), Reception.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    last_lines = get_reception_lines(db, reception_id=last.id) if last is not None else []
+    ingredient_ids |= {line.ingredient_id for line in last_lines}
+    ingredients = {
+        i.id: i
+        for i in db.execute(
+            select(Ingredient).where(Ingredient.store_id == store.id, Ingredient.id.in_(sorted(ingredient_ids)))
+        ).scalars()
+    } if ingredient_ids else {}
+
+    def line_out(ingredient: Ingredient, qty_base: int) -> ReceptionSuggestionLineOut:
+        return ReceptionSuggestionLineOut(
+            ingredient_id=ingredient.id,
+            name=ingredient.name,
+            purchase_unit=ingredient.purchase_unit,
+            base_unit=ingredient.base_unit.value,
+            quantity=_purchase_qty_text(ingredient, qty_base),
+        )
+
+    request_totals: dict[int, int] = {}
+    request_ids: list[int] = []
+    for line in approved:
+        ingredient = ingredients.get(line.ingredient_id)
+        if ingredient is None or not ingredient.active:
+            continue
+        if ingredient.supplier_id is not None and ingredient.supplier_id != supplier.id:
+            continue
+        request_totals[ingredient.id] = request_totals.get(ingredient.id, 0) + line.qty_approved
+        if line.request_id not in request_ids:
+            request_ids.append(line.request_id)
+    request_lines = [line_out(ingredients[i], q) for i, q in request_totals.items()]
+
+    last_totals: dict[int, int] = {}
+    for rline in last_lines:
+        ingredient = ingredients.get(rline.ingredient_id)
+        if ingredient is None or not ingredient.active:
+            continue
+        last_totals[ingredient.id] = last_totals.get(ingredient.id, 0) + rline.qty_received_base
+    last_purchase_lines = [line_out(ingredients[i], q) for i, q in last_totals.items()]
+
+    source = "request" if request_lines else "last_purchase" if last_purchase_lines else "none"
+    return {
+        "supplier_id": supplier.id,
+        "source": source,
+        "request_ids": request_ids,
+        "request_lines": request_lines,
+        "last_purchase_date": last.business_date if last is not None else None,
+        "last_purchase_lines": last_purchase_lines,
+    }
 
 
 def get_reception_draft_or_404(db: Session, *, organization_id: int, draft_id: int) -> ReceptionDraft:

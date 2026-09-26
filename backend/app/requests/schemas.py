@@ -28,8 +28,12 @@ StaffRequestStatusLiteral = Literal["pending", "approved", "rejected", "bought",
 
 class SupplyLineIn(BaseModel):
     ingredient_id: int
-    # Texto decimal en la unidad base del insumo ("2.5" kg no: "2500" g).
+    # Texto decimal. Sin `entry_unit`, en la unidad base del insumo ("2500"
+    # g). Con `entry_unit` (el rótulo que publica `supply-suggestions` o
+    # `GET /device/ingredients`), en esa unidad cómoda ("2.5" kg, "3"
+    # botellas): el servidor convierte una sola vez (`inventory.units`).
     qty: str
+    entry_unit: str | None = Field(default=None, max_length=50)
 
 
 class SupplyRequestIn(BaseModel):
@@ -93,6 +97,11 @@ class RequestLineOut(BaseModel):
     qty_requested: str
     qty_approved: str | None
     suggested_qty: str | None
+    # Lo mismo en la unidad cómoda del insumo (kg, botellas, L, unidades),
+    # para mostrar: la conversión la hace el servidor, nunca la pantalla.
+    entry_unit: str
+    qty_requested_entry: str
+    qty_approved_entry: str | None
 
 
 class StaffRequestOut(BaseModel):
@@ -118,6 +127,15 @@ class StaffRequestOut(BaseModel):
     cash_swap_id: int | None
 
 
+class SupplyItemOut(BaseModel):
+    """Un insumo que se puede pedir, con su unidad cómoda. Sin costo."""
+
+    ingredient_id: int
+    name: str
+    entry_mode: Literal["weight", "bottle", "volume", "unit"]
+    entry_unit: str
+
+
 class SupplySuggestionOut(BaseModel):
     """Un insumo bajo mínimo o en negativo. Sin costo: es de la tablet."""
 
@@ -127,9 +145,15 @@ class SupplySuggestionOut(BaseModel):
     current_stock: str
     min_stock: str
     negative: bool
-    # Lo que falta para volver al mínimo (`mínimo − stock`), la misma regla
-    # que la reposición sugerida del administrador. Siempre > 0 acá.
+    # Lo que falta para volver al mínimo (`mínimo − stock`), redondeado HACIA
+    # ARRIBA al paso cómodo (medio kilo, medio litro, botella o unidad
+    # entera), en la unidad base. Siempre > 0 acá.
     suggested_qty: str
+    # La misma sugerencia en la unidad cómoda («0.5» kg, «2» botellas): es
+    # la que se muestra y la que viaja con `entry_unit` al pedir.
+    entry_mode: Literal["weight", "bottle", "volume", "unit"]
+    entry_unit: str
+    suggested_entry_qty: str
 
 
 class SupplySuggestionsOut(BaseModel):
@@ -138,4 +162,16 @@ class SupplySuggestionsOut(BaseModel):
     # muda que diga «no falta nada».
     available: bool
     reason: str | None
+    # Bajo mínimo en el área de quien pide (o en toda la sede si no tiene
+    # área: `area_via = "none"`).
     rows: list[SupplySuggestionOut]
+    # El área con la que se filtró: la asignada en Conteo por área
+    # (`member`), la que se llama como su puesto (`puesto`), o ninguna.
+    area_name: str | None = None
+    area_via: Literal["member", "puesto", "none"] = "none"
+    # Cuántos insumos de OTRAS áreas también están bajo mínimo (no se
+    # listan: no son de quien pide). 0 cuando no se filtró.
+    other_areas_count: int = 0
+    # Lo que más se pidió en la sede en los últimos días: botones de un
+    # toque para arrancar el pedido.
+    frequent: list[SupplyItemOut] = Field(default_factory=list)

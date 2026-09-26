@@ -118,6 +118,13 @@ describe("AreaCountPanel", () => {
     })
     expect(typeof key).toBe("string")
     expect(await screen.findByText(/Cierre de Bar: contó Beto/)).toBeInTheDocument()
+    // Auditoría de tablet: el resultado va en una tarjeta ARRIBA del formulario
+    // (antes quedaba abajo, fuera de la vista), con lo que quedó guardado.
+    const tarjeta = screen.getByRole("status")
+    expect(tarjeta).toHaveTextContent("Conteo de cierre guardado")
+    expect(tarjeta).toHaveTextContent("2,3 botellas")
+    const titulo = screen.getByRole("heading", { name: "Conteo de Bar" })
+    expect(tarjeta.compareDocumentPosition(titulo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it("se puede cambiar el momento sugerido", async () => {

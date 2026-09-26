@@ -10,20 +10,26 @@
  * - «¿Pagaste de contado desde la caja?» manda el monto o `null`, nunca 0;
  * - «Recibido hoy» muestra el estado que dice el servidor.
  */
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { DeviceReceptionIngredientOut, DeviceSupplierOut, ReceptionDraftOut } from "@/api/purchases"
+import type {
+  DeviceReceptionIngredientOut,
+  DeviceSupplierOut,
+  ReceptionDraftOut,
+  ReceptionSuggestions,
+} from "@/api/purchases"
 import { renderWithProviders } from "@/test/utils"
 
 import { ReceiveGoodsPanel } from "../ReceiveGoodsPanel"
 
-const { suppliersMock, ingredientsMock, todayMock, createMock } = vi.hoisted(() => ({
+const { suppliersMock, ingredientsMock, todayMock, createMock, suggestionsMock } = vi.hoisted(() => ({
   suppliersMock: vi.fn(),
   ingredientsMock: vi.fn(),
   todayMock: vi.fn(),
   createMock: vi.fn(),
+  suggestionsMock: vi.fn(),
 }))
 
 vi.mock("@/api/purchases", async () => {
@@ -34,6 +40,7 @@ vi.mock("@/api/purchases", async () => {
     listDeviceReceptionIngredients: ingredientsMock,
     listTodayReceptionDrafts: todayMock,
     createReceptionDraft: createMock,
+    getReceptionSuggestions: suggestionsMock,
   }
 })
 
@@ -50,6 +57,15 @@ const INGREDIENTS: DeviceReceptionIngredientOut[] = [
   { id: 5, name: "Pechuga de pollo", purchase_unit: "kg", base_unit: "g" },
   { id: 6, name: "Papa criolla", purchase_unit: "bulto", base_unit: "g" },
 ]
+
+const NO_SUGGESTIONS: ReceptionSuggestions = {
+  supplier_id: 3,
+  source: "none",
+  request_ids: [],
+  request_lines: [],
+  last_purchase_date: null,
+  last_purchase_lines: [],
+}
 
 function draft(overrides: Partial<ReceptionDraftOut>): ReceptionDraftOut {
   return {
@@ -85,6 +101,7 @@ beforeEach(() => {
   ingredientsMock.mockReset().mockResolvedValue(INGREDIENTS)
   todayMock.mockReset().mockResolvedValue([])
   createMock.mockReset()
+  suggestionsMock.mockReset().mockResolvedValue(NO_SUGGESTIONS)
 })
 
 async function fillBasics(user: ReturnType<typeof userEvent.setup>) {
@@ -163,5 +180,67 @@ describe("ReceiveGoodsPanel — recibir mercancía desde el POS", () => {
     expect(screen.getByText("Rechazada: Factura de otra sede")).toBeInTheDocument()
     expect(screen.getByText(/pagado de la caja \$ 20\.000/)).toBeInTheDocument()
     expect(screen.getAllByText("2 kg de Pechuga de pollo").length).toBe(3)
+  })
+})
+
+describe("ReceiveGoodsPanel — arranca precargado (auditoría de tablet)", () => {
+  const APPROVED: ReceptionSuggestions = {
+    ...NO_SUGGESTIONS,
+    source: "request",
+    request_ids: [40],
+    request_lines: [
+      { ingredient_id: 5, name: "Pechuga de pollo", purchase_unit: "kg", base_unit: "g", quantity: "10" },
+      { ingredient_id: 6, name: "Papa criolla", purchase_unit: "bulto", base_unit: "g", quantity: "2" },
+    ],
+    last_purchase_date: "2026-09-20",
+    last_purchase_lines: [{ ingredient_id: 6, name: "Papa criolla", purchase_unit: "bulto", base_unit: "g", quantity: "3" }],
+  }
+
+  it("precarga lo aprobado; cada línea se marca «Llegó» o «Llegó distinto», y viaja sin precios", async () => {
+    suggestionsMock.mockResolvedValue(APPROVED)
+    createMock.mockResolvedValue(draft({}))
+    const user = userEvent.setup()
+    renderWithProviders(<ReceiveGoodsPanel />)
+
+    await user.click(await screen.findByRole("combobox", { name: "Proveedor" }))
+    await user.click(await screen.findByRole("option", { name: "Avícola del Valle" }))
+    expect(await screen.findByText(/Precargado con lo aprobado en Solicitudes/)).toBeInTheDocument()
+    expect(suggestionsMock).toHaveBeenCalledWith(3)
+
+    await user.type(screen.getByLabelText("Número de factura o remisión"), "FE-77")
+    await user.click(screen.getByRole("button", { name: /foto de la factura o remisión/i }))
+    await user.click(screen.getByRole("button", { name: "No" }))
+
+    // Sin marcar cómo llegó cada una, no se registra.
+    await user.click(screen.getByRole("button", { name: "Registrar lo que llegó" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(/llegó tal cual o distinto/)
+    expect(createMock).not.toHaveBeenCalled()
+
+    const pollo = screen.getByRole("group", { name: "¿Cómo llegó Pechuga de pollo?" })
+    await user.click(within(pollo).getByRole("button", { name: "Llegó" }))
+    const papa = screen.getByRole("group", { name: "¿Cómo llegó Papa criolla?" })
+    await user.click(within(papa).getByRole("button", { name: "Llegó distinto" }))
+    await user.type(screen.getByLabelText("Cantidad que llegó (bulto)"), "1,5")
+    await user.click(screen.getByRole("button", { name: "Registrar lo que llegó" }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1))
+    const [body] = createMock.mock.calls[0]!
+    expect(body.lines).toEqual([
+      { ingredient_id: 5, quantity: "10", lot_code: null, expires_at: null },
+      { ingredient_id: 6, quantity: "1,5", lot_code: null, expires_at: null },
+    ])
+    expect(JSON.stringify(body)).not.toMatch(/price|cost/)
+  })
+
+  it("se puede cambiar a la última compra del proveedor", async () => {
+    suggestionsMock.mockResolvedValue(APPROVED)
+    const user = userEvent.setup()
+    renderWithProviders(<ReceiveGoodsPanel />)
+    await user.click(await screen.findByRole("combobox", { name: "Proveedor" }))
+    await user.click(await screen.findByRole("option", { name: "Avícola del Valle" }))
+    await user.click(await screen.findByRole("button", { name: "Cargar la última compra (1)" }))
+    expect(screen.getByText(/Precargado con la última compra/)).toBeInTheDocument()
+    expect(screen.getByText(/se esperaba 3 bulto/)).toBeInTheDocument()
+    expect(screen.queryByRole("group", { name: "¿Cómo llegó Pechuga de pollo?" })).not.toBeInTheDocument()
   })
 })

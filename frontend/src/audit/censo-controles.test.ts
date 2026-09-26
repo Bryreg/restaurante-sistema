@@ -80,6 +80,16 @@
  *   («Buscar insumo» / «Buscar preparación») con recientes y botones.
  * - «Elegí un tipo» — el tipo de merma pasó a ser una fila de botones de
  *   ≥ 56 px bajo el rótulo «Tipo»; cada tipo sigue siendo tocable.
+ *
+ * **Bajas declaradas · abrir turno en la tablet.** Un rótulo de
+ * `features/shifts/OpenShiftForm.tsx` sale de la base, a mano. No era un
+ * control: era el `placeholder` de la lista desplegable de la causa de la
+ * diferencia de apertura, y la auditoría de tablet pidió la causa como
+ * botones.
+ *
+ * - «Elegí una causa» — la causa pasó a ser un grupo de botones grandes
+ *   (`role="radiogroup"`, rótulo «Causa»), igual que en el paso 3 del cierre;
+ *   cada causa sigue siendo tocable.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
