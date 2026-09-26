@@ -3,16 +3,17 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
-import type { CloseCountResult, CloseReview, ShiftTips } from "@/api/shifts";
+import type { ClosePrecheck, CloseCountResult, CloseReview, ShiftTips } from "@/api/shifts";
 import { renderWithProviders } from "@/test/utils";
 
 import { CloseWizard } from "../CloseWizard";
 
-const { closeCountMock, getCloseReviewMock, confirmCloseMock, getShiftTipsMock } = vi.hoisted(() => ({
+const { closeCountMock, getCloseReviewMock, confirmCloseMock, getShiftTipsMock, getClosePrecheckMock } = vi.hoisted(() => ({
   closeCountMock: vi.fn(),
   getCloseReviewMock: vi.fn(),
   confirmCloseMock: vi.fn(),
   getShiftTipsMock: vi.fn(),
+  getClosePrecheckMock: vi.fn(),
 }));
 
 vi.mock("@/api/shifts", async () => {
@@ -23,6 +24,7 @@ vi.mock("@/api/shifts", async () => {
     getCloseReview: getCloseReviewMock,
     confirmClose: confirmCloseMock,
     getShiftTips: getShiftTipsMock,
+    getClosePrecheck: getClosePrecheckMock,
   };
 });
 
@@ -42,12 +44,26 @@ const FIRST_REVIEW: CloseReview = {
 // Sin causa obligatoria: esta review sirve para probar el camino de
 // DIFFERENCE_CHANGED sin depender de abrir un `<Select>` de base-ui en
 // jsdom (una interacción aparte, ya cubierta por otros agentes/tests).
+/** El paso 0 sin nada pendiente ni conteo sellado: arranca en el paso 1. */
+const PRECHECK_CLEAR: ClosePrecheck = {
+  shift_id: 1,
+  open_orders: 0,
+  delivery_pending_payments: 0,
+  delivery_pending_couriers: 0,
+  card_total_required: false,
+  transfer_total_required: false,
+  photo_required: false,
+  sealed_count: null,
+  items: [],
+};
+
 const NO_CAUSE_REVIEW: CloseReview = { ...FIRST_REVIEW, difference: 0, requires_cause: false };
 const CHANGED_REVIEW: CloseReview = { ...NO_CAUSE_REVIEW, difference: -8_000 };
 
 describe("CloseWizard — cierre a ciegas en tres pasos", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getClosePrecheckMock.mockResolvedValue(PRECHECK_CLEAR);
     getShiftTipsMock.mockResolvedValue({ cash_out: 12_345 } satisfies ShiftTips);
   });
 
@@ -75,6 +91,7 @@ describe("CloseWizard — cierre a ciegas en tres pasos", () => {
     // 1 ("sin mirar lo esperado"); lo que nunca debe existir es la ETIQUETA
     // con la cifra, que en el paso 2 es un elemento cuyo texto es
     // exactamente "Esperado".
+    await screen.findByRole("button", { name: /confirmar el conteo y continuar/i });
     expect(screen.queryByText(/^esperado$/i)).not.toBeInTheDocument();
     expect(getCloseReviewMock).not.toHaveBeenCalled();
 
@@ -116,7 +133,7 @@ describe("CloseWizard — cierre a ciegas en tres pasos", () => {
       ).not.toContain(conSeparadores)
     }
 
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
 
     await waitFor(() => expect(closeCountMock).toHaveBeenCalledTimes(1));
     // Recién después de tener `count_id` puede dispararse la revisión.
@@ -134,11 +151,11 @@ describe("CloseWizard — cierre a ciegas en tres pasos", () => {
     const user = userEvent.setup();
     renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
 
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
 
     // Paso 2 → paso 3. Sin diferencia (0) no exige causa: se puede confirmar directo.
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
     await waitFor(() => expect(screen.getByRole("button", { name: /confirmar cierre/i })).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: /confirmar cierre/i }));
@@ -157,6 +174,7 @@ describe("CloseWizard — cierre a ciegas en tres pasos", () => {
 describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getClosePrecheckMock.mockResolvedValue(PRECHECK_CLEAR);
     getShiftTipsMock.mockResolvedValue({ cash_out: 0 } satisfies ShiftTips);
   });
 
@@ -175,7 +193,7 @@ describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => 
 
     const user = userEvent.setup();
     renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
 
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
     expect(screen.getByText(/Registrado = venta .*116\.000.* propina .*10\.741/)).toBeInTheDocument();
@@ -187,7 +205,7 @@ describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => 
 
     const user = userEvent.setup();
     renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
 
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
     expect(screen.queryByText(/Registrado = venta/)).not.toBeInTheDocument();
@@ -203,9 +221,9 @@ describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => 
 
     const user = userEvent.setup();
     renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
 
     const casilla = await screen.findByRole("checkbox", { name: /trasladar al turno siguiente las 3 comandas/i });
     await user.click(casilla);
@@ -221,9 +239,9 @@ describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => 
 
     const user = userEvent.setup();
     renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: /confirmar cierre/i })).toBeInTheDocument());
     expect(screen.queryByRole("checkbox", { name: /trasladar/i })).not.toBeInTheDocument();
@@ -237,6 +255,7 @@ describe("CloseWizard — el lote del datáfono y las comandas abiertas", () => 
 describe("CloseWizard — la diferencia se lee sin depender del color", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getClosePrecheckMock.mockResolvedValue(PRECHECK_CLEAR);
     getShiftTipsMock.mockResolvedValue({ cash_out: 0 } satisfies ShiftTips);
   });
 
@@ -248,12 +267,12 @@ describe("CloseWizard — la diferencia se lee sin depender del color", () => {
     const user = userEvent.setup();
     renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
 
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
     await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
     // −5.000 llega del servidor: se muestra como «▼ $ 5.000 Faltan en efectivo».
     expect(screen.getByText(/faltan en efectivo/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
+    await user.click(await screen.findByRole("button", { name: /continuar/i }));
     const confirmar = await screen.findByRole("button", { name: /confirmar cierre/i });
     // Sin causa no se puede confirmar una diferencia que la exige.
     expect(confirmar).toBeDisabled();
@@ -265,5 +284,104 @@ describe("CloseWizard — la diferencia se lee sin depender del color", () => {
     await waitFor(() => expect(confirmCloseMock).toHaveBeenCalledTimes(1));
     // Viaja la diferencia CON su signo, tal como la mandó el servidor.
     expect(confirmCloseMock.mock.calls[0][2]).toMatchObject({ difference_seen: -5_000, cause: "change_error" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auditoría de tablet: paso 0, retomar el conteo sellado, volver a contar.
+// ---------------------------------------------------------------------------
+
+describe("CloseWizard — paso 0, retomar y volver a contar", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getClosePrecheckMock.mockResolvedValue(PRECHECK_CLEAR);
+    getShiftTipsMock.mockResolvedValue({ cash_out: 0 } satisfies ShiftTips);
+  });
+
+  it("con comandas abiertas arranca en el paso 0, sin ninguna cifra, y deja pasar a contar", async () => {
+    getClosePrecheckMock.mockResolvedValue({
+      ...PRECHECK_CLEAR,
+      open_orders: 2,
+      items: [
+        {
+          code: "OPEN_ORDERS",
+          level: "blocking",
+          message: "Hay 2 comandas abiertas: cobralas o anulalas desde Mesas o Mostrador, o trasladalas al turno siguiente al confirmar el cierre",
+        },
+      ],
+    } satisfies ClosePrecheck);
+    const user = userEvent.setup();
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, {
+      me: { kind: "device", features: { "pos.tables": true } },
+    });
+
+    expect(await screen.findByText("Antes de contar")).toBeInTheDocument();
+    expect(screen.getByText(/Hay 2 comandas abiertas/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cobrar en Mesas" })).toHaveAttribute("href", "/pos/mesas");
+    expect(document.body.textContent ?? "").not.toMatch(/\$/);
+
+    await user.click(screen.getByRole("button", { name: "Contar el cajón" }));
+    expect(await screen.findByRole("button", { name: /confirmar el conteo y continuar/i })).toBeInTheDocument();
+    expect(screen.getByText(/Quedó pendiente del paso 0/)).toBeInTheDocument();
+  });
+
+  it("con un conteo ya sellado retoma en el paso 2 con lo contado del servidor, sin volver a contar", async () => {
+    getClosePrecheckMock.mockResolvedValue({
+      ...PRECHECK_CLEAR,
+      sealed_count: { count_id: 7, counted_at: "2026-09-25T23:00:00Z", counted_by: "Ana" },
+    } satisfies ClosePrecheck);
+    getCloseReviewMock.mockResolvedValue({ ...FIRST_REVIEW, counted: 245_000, counted_pieces: 31 });
+
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
+
+    await waitFor(() => expect(getCloseReviewMock).toHaveBeenCalledWith(1, 7));
+    expect(await screen.findByText(/Retomaste un cierre que ya tenía el conteo sellado por Ana/)).toBeInTheDocument();
+    expect(screen.getByText("31 piezas")).toBeInTheDocument();
+    expect(closeCountMock).not.toHaveBeenCalled();
+  });
+
+  it("volver a contar avisa la marca para el administrador y vuelve al paso 1 con una clave nueva", async () => {
+    closeCountMock.mockResolvedValue({ count_id: 7 } satisfies CloseCountResult);
+    getCloseReviewMock.mockResolvedValue(FIRST_REVIEW);
+    const user = userEvent.setup();
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
+
+    await user.click(await screen.findByRole("button", { name: /confirmar el conteo y continuar/i }));
+    await waitFor(() => expect(screen.getByText(/^esperado$/i)).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /volver a contar/i }));
+    expect(screen.getByText(/recontado después de ver el esperado/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Sí, volver a contar" }));
+
+    const confirmar = await screen.findByRole("button", { name: /confirmar el conteo y continuar/i });
+    await user.click(confirmar);
+    await waitFor(() => expect(closeCountMock).toHaveBeenCalledTimes(2));
+    expect(closeCountMock.mock.calls[0]![2]).not.toBe(closeCountMock.mock.calls[1]![2]);
+  });
+
+  it("el teclado en pantalla cuenta por denominación y avanza con «Siguiente»", async () => {
+    closeCountMock.mockResolvedValue({ count_id: 7 } satisfies CloseCountResult);
+    getCloseReviewMock.mockResolvedValue(FIRST_REVIEW);
+    const user = userEvent.setup();
+    renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, { me: { kind: "device", features: {} } });
+
+    await screen.findByRole("button", { name: /confirmar el conteo y continuar/i });
+    // Arranca en $100.000: 2 billetes; «›» pasa a $50.000: 1 billete.
+    await user.click(screen.getByRole("button", { name: "2" }));
+    await user.click(screen.getByRole("button", { name: "Siguiente denominación" }));
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "Sumar un billete de $ 20.000" }));
+    await user.click(screen.getByRole("button", { name: /confirmar el conteo y continuar/i }));
+
+    await waitFor(() => expect(closeCountMock).toHaveBeenCalledTimes(1));
+    const cuerpo = closeCountMock.mock.calls[0]![1] as { counted_cash: { denominations: { value: number; count: number }[]; total: number } };
+    const conPiezas = cuerpo.counted_cash.denominations.filter((d) => d.count > 0);
+    expect(new Map(conPiezas.map((d) => [d.value, d.count]))).toEqual(
+      new Map([
+        [100_000, 2],
+        [50_000, 1],
+        [20_000, 1],
+      ]),
+    );
+    expect(cuerpo.counted_cash.total).toBe(270_000);
   });
 });

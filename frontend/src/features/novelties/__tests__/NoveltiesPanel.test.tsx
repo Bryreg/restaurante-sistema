@@ -92,10 +92,11 @@ describe("NoveltiesPanel", () => {
     renderWithProviders(<NoveltiesPanel />, { me: me() })
 
     await user.type(await screen.findByLabelText("¿Qué pasó?"), "  Se fue la luz  ")
-    await user.click(screen.getByRole("combobox", { name: "Categoría" }))
-    await user.click(await screen.findByRole("option", { name: "Incidente" }))
-    await user.click(screen.getByRole("combobox", { name: "Nivel" }))
-    await user.click(await screen.findByRole("option", { name: "Urgente" }))
+    // Categoría y nivel son botones de un toque; «Urgente» es un botón aparte, en rojo.
+    await user.click(screen.getByRole("radio", { name: "Incidente" }))
+    expect(screen.getByRole("radio", { name: "Incidente" })).toHaveAttribute("aria-checked", "true")
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("radio", { name: "Urgente" }))
     await user.click(screen.getByRole("button", { name: "Registrar novedad" }))
 
     await waitFor(() => expect(mocks.createNovelty).toHaveBeenCalledTimes(1))

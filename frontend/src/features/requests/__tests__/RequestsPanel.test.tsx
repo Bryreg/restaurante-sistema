@@ -1,9 +1,10 @@
 /**
  * El panel de solicitudes del POS. Lo que se prueba es lo que no se negocia:
  *
- * - de entrada trae los insumos bajo mínimo o en negativo con la cantidad
- *   que sugiere el SERVIDOR, tal cual;
- * - el POST de insumos lleva las cantidades como texto, en la unidad base;
+ * - arranca vacío (buscador y frecuentes arriba); los sugeridos del área van
+ *   plegados y entran con la cantidad que redondea el SERVIDOR, tal cual;
+ * - el POST de insumos lleva las cantidades como texto en la unidad cómoda,
+ *   con su `entry_unit`: el servidor convierte;
  * - la sencilla exige motivo y viaja por denominaciones;
  * - el estado de cada solicitud lo dice el servidor, y una sencilla aprobada
  *   se registra con el Cambio que ya existe (precargado con lo aprobado) y
@@ -51,6 +52,10 @@ vi.mock("@/api/shifts", async () => {
 const SUGGESTIONS: SupplySuggestions = {
   available: true,
   reason: null,
+  area_name: "Bar",
+  area_via: "member",
+  other_areas_count: 40,
+  frequent: [{ ingredient_id: 9, name: "Azúcar", entry_mode: "weight", entry_unit: "kg" }],
   rows: [
     {
       ingredient_id: 7,
@@ -59,7 +64,10 @@ const SUGGESTIONS: SupplySuggestions = {
       current_stock: "-400",
       min_stock: "2000",
       negative: true,
-      suggested_qty: "2400",
+      suggested_qty: "3000",
+      entry_mode: "volume",
+      entry_unit: "L",
+      suggested_entry_qty: "3",
     },
   ],
 };
@@ -99,33 +107,61 @@ beforeEach(() => {
   for (const m of Object.values(mocks)) m.mockReset();
   mocks.getSupplySuggestions.mockResolvedValue(SUGGESTIONS);
   mocks.listDeviceIngredients.mockResolvedValue([
-    { id: 7, name: "Leche", base_unit: "ml" },
-    { id: 9, name: "Azúcar", base_unit: "g" },
+    { id: 7, name: "Leche", base_unit: "ml", entry_mode: "volume", entry_unit: "L" },
+    { id: 9, name: "Azúcar", base_unit: "g", entry_mode: "weight", entry_unit: "kg" },
+    { id: 11, name: "Huevo", base_unit: "unit", entry_mode: "unit", entry_unit: "unidad" },
   ]);
   mocks.listMyRequests.mockResolvedValue([]);
 });
 
 describe("RequestsPanel", () => {
-  it("precarga los insumos sugeridos con la cantidad del servidor y envía texto en unidad base", async () => {
+  it("arranca vacío: los sugeridos del área van plegados y no entran solos al pedido", async () => {
+    renderWithProviders(<RequestsPanel shiftId={42} />, { me: ME });
+
+    const sugeridos = await screen.findByRole("button", { name: /Sugeridos \(1\) de Bar/ });
+    expect(sugeridos).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("Cantidad de Leche")).not.toBeInTheDocument();
+    expect(screen.getByText(/Todavía no hay insumos/)).toBeInTheDocument();
+    // Otras áreas: se dice cuántos, no se listan.
+    expect(screen.getByText(/Otras áreas tienen 40 insumos bajo mínimo/)).toBeInTheDocument();
+  });
+
+  it("«Agregar todos» trae la cantidad sugerida del servidor en la unidad cómoda y la manda con su unidad", async () => {
     const user = userEvent.setup();
     mocks.createSupplyRequest.mockResolvedValue(request({ kind: "supply" }));
     renderWithProviders(<RequestsPanel shiftId={42} />, { me: ME });
 
-    const qty = await screen.findByLabelText("Cantidad de Leche");
-    expect(qty).toHaveValue("2400");
+    await user.click(await screen.findByRole("button", { name: "Agregar todos" }));
+    expect(screen.getByLabelText("Cantidad de Leche")).toHaveValue("3");
     expect(screen.getByText("En negativo")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Enviar pedido" }));
 
-    await user.type(screen.getByLabelText("Agregar otro insumo"), "azú");
-    await user.click(await screen.findByRole("button", { name: "+ Azúcar (g)" }));
-    await user.type(screen.getByLabelText("Cantidad de Azúcar"), "500");
+    await waitFor(() => expect(mocks.createSupplyRequest).toHaveBeenCalledTimes(1));
+    expect(mocks.createSupplyRequest).toHaveBeenCalledWith({
+      lines: [{ ingredient_id: 7, qty: "3", entry_unit: "L" }],
+      note: null,
+    });
+  });
+
+  it("pedir dos insumos: un frecuente y uno buscado, en su unidad cómoda («unidades», nunca «unit»)", async () => {
+    const user = userEvent.setup();
+    mocks.createSupplyRequest.mockResolvedValue(request({ kind: "supply" }));
+    renderWithProviders(<RequestsPanel shiftId={42} />, { me: ME });
+
+    await user.click(await screen.findByRole("button", { name: "Azúcar" }));
+    await user.type(screen.getByLabelText("Cantidad de Azúcar"), "2,5");
+    await user.type(screen.getByLabelText("Buscar insumo"), "hue");
+    await user.click(await screen.findByRole("button", { name: "+ Huevo (unidades)" }));
+    await user.type(screen.getByLabelText("Cantidad de Huevo"), "30");
+    expect(screen.queryByText(/\bunit\b/)).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("Nota (opcional)"), "Para el fin de semana");
     await user.click(screen.getByRole("button", { name: "Enviar pedido" }));
 
     await waitFor(() => expect(mocks.createSupplyRequest).toHaveBeenCalledTimes(1));
     expect(mocks.createSupplyRequest).toHaveBeenCalledWith({
       lines: [
-        { ingredient_id: 7, qty: "2400" },
-        { ingredient_id: 9, qty: "500" },
+        { ingredient_id: 9, qty: "2,5", entry_unit: "kg" },
+        { ingredient_id: 11, qty: "30", entry_unit: "unidad" },
       ],
       note: "Para el fin de semana",
     });

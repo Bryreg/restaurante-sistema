@@ -10,6 +10,8 @@ import { errorMessage } from "@/lib/errors";
 import { formatCantidad } from "@/lib/format";
 import { formatCOP } from "@/lib/money";
 
+import { unidadEnPlural } from "@/features/inventory/areaCountLib";
+
 import { KIND_LABEL, REQUESTS_QUERY_KEYS, statusLabel, statusVariant } from "./lib";
 import { ReceiveChangeForm } from "./ReceiveChangeForm";
 
@@ -28,9 +30,12 @@ function Detalle({ request }: { request: StaffRequest }): React.JSX.Element {
       <ul className="text-sm">
         {request.lines.map((line) => (
           <li key={line.id}>
-            {line.ingredient_name}: {formatCantidad(line.qty_requested, line.base_unit)}
+            {line.ingredient_name}: {formatCantidad(line.qty_requested_entry, unidadEnPlural(line.entry_unit))}
             {line.qty_approved !== null && line.qty_approved !== line.qty_requested ? (
-              <span className="text-muted-foreground"> · aprobado {formatCantidad(line.qty_approved, line.base_unit)}</span>
+              <span className="text-muted-foreground">
+                {" "}
+                · aprobado {formatCantidad(line.qty_approved_entry, unidadEnPlural(line.entry_unit))}
+              </span>
             ) : null}
           </li>
         ))}

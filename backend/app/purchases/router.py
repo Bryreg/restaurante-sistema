@@ -30,6 +30,7 @@ from app.inventory import hooks as inventory_hooks
 from app.purchases import service
 from app.purchases.models import Payable, Reception, ReceptionDraft, Supplier
 from app.purchases.schemas import (
+    ReceptionSuggestionsOut,
     DeviceReceptionIngredientOut,
     DeviceSupplierOut,
     ReceptionDraftAdminLineOut,
@@ -591,6 +592,18 @@ def list_device_reception_ingredients(
         DeviceReceptionIngredientOut(id=i.id, name=i.name, purchase_unit=i.purchase_unit, base_unit=i.base_unit.value)
         for i in service.list_device_reception_ingredients(db, store_id=store.id)
     ]
+
+
+@router.get("/device/reception-suggestions")
+def get_reception_suggestions(
+    supplier_id: int = Query(...),
+    actor: Actor = Depends(current_device),
+    db: Session = Depends(get_db),
+) -> ReceptionSuggestionsOut:
+    """Qué se espera que llegue de ese proveedor, para precargar «Recibir
+    mercancía»: lo aprobado en Solicitudes o la última compra. Sin precios."""
+    store = _device_store(db, actor)
+    return ReceptionSuggestionsOut(**service.reception_suggestions(db, store=store, supplier_id=supplier_id))
 
 
 @router.post("/reception-drafts", status_code=201)

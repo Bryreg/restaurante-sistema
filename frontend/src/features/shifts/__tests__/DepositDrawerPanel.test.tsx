@@ -190,4 +190,25 @@ describe("DepositDrawerPanel — consignar desde el POS", () => {
     expect(await screen.findByText("No hay plata de días anteriores para consignar")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Registrar consignación" })).not.toBeInTheDocument();
   });
+
+  it("con bancos usados antes, el último viene elegido y se cambia con un toque (o se escribe otro)", async () => {
+    getDepositDrawerMock.mockResolvedValue({ ...DRAWER, recent_banks: ["Davivienda", "Bancolombia"] });
+    createPosDepositMock.mockResolvedValue(deposit({ id: 8, amount: 120_000 }));
+    const user = userEvent.setup();
+    renderWithProviders(<DepositDrawerPanel shiftId={42} />);
+
+    const davivienda = await screen.findByRole("button", { name: "Davivienda" });
+    expect(davivienda).toHaveAttribute("aria-pressed", "true");
+    // No hay que teclear el banco: ya está elegido.
+    expect(screen.queryByRole("textbox", { name: /banco/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Bancolombia" }));
+    expect(screen.getByRole("button", { name: "Bancolombia" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Adjuntar comprobante (stub)" }));
+    await user.click(screen.getByRole("button", { name: "Registrar consignación" }));
+    await waitFor(() => expect(createPosDepositMock).toHaveBeenCalledTimes(1));
+    expect(createPosDepositMock.mock.calls[0]?.[0]).toMatchObject({ bank_name: "Bancolombia" });
+
+    await user.click(screen.getByRole("button", { name: "Otro banco" }));
+    expect(screen.getByLabelText("Nombre del otro banco")).toHaveValue("");
+  });
 });

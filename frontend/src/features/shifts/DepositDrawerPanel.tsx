@@ -64,13 +64,16 @@ export function DepositDrawerPanel({ shiftId }: { shiftId: number }): React.JSX.
 
   const days = drawer.data?.days ?? [];
   const deposits = drawer.data?.deposits ?? [];
+  const recientes = drawer.data?.recent_banks ?? [];
 
   // `null` = todavía nadie eligió: manda el día por defecto. Una vez que la
   // persona toca un día, esa elección queda aunque el cajón se recargue.
   const [chosenDayId, setChosenDayId] = useState<number | null>(null);
   const [amount, setAmount] = useState<number | null>(null);
   const [amountTouched, setAmountTouched] = useState(false);
-  const [bankName, setBankName] = useState("");
+  // `null`: todavía no se eligió → el último banco usado en la sede.
+  const [bankName, setBankName] = useState<string | null>(null);
+  const [otroBanco, setOtroBanco] = useState(false);
   const [bankReference, setBankReference] = useState("");
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<string | null>(null);
@@ -85,6 +88,10 @@ export function DepositDrawerPanel({ shiftId }: { shiftId: number }): React.JSX.
   // El monto se precarga con lo que queda del día elegido hasta que la
   // persona lo cambia: es la cifra del servidor, tal cual.
   const shownAmount = amountTouched ? amount : selectedDay?.remaining ?? null;
+  // El banco: el que se tocó, o el último que usó la sede (lo recuerda el
+  // servidor, de las consignaciones). Sin historial, se escribe.
+  const escribeBanco = otroBanco || recientes.length === 0;
+  const bancoElegido = bankName ?? (escribeBanco ? "" : recientes[0] ?? "");
 
   function chooseDay(day: DrawerDayOut) {
     setChosenDayId(day.source_shift_id);
@@ -104,7 +111,7 @@ export function DepositDrawerPanel({ shiftId }: { shiftId: number }): React.JSX.
         {
           source_shift_id: (selectedDay as DrawerDayOut).source_shift_id,
           amount: shownAmount as number,
-          bank_name: bankName.trim() === "" ? null : bankName.trim(),
+          bank_name: bancoElegido.trim() === "" ? null : bancoElegido.trim(),
           bank_reference: bankReference.trim() === "" ? null : bankReference.trim(),
           receipt_photo: photo as string,
           note: note.trim() === "" ? null : note.trim(),
@@ -211,14 +218,61 @@ export function DepositDrawerPanel({ shiftId }: { shiftId: number }): React.JSX.
               <p className="text-xs text-muted-foreground">Podés consignar una parte y el resto después.</p>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="pos-deposit-bank">Banco</Label>
-              <Input
-                id="pos-deposit-bank"
-                className="h-11"
-                value={bankName}
-                onChange={(event) => setBankName(event.target.value)}
-                disabled={mutation.isPending}
-              />
+              {recientes.length > 0 ? (
+                <>
+                  <p id="pos-deposit-bank-label" className="text-sm font-medium">
+                    Banco
+                  </p>
+                  <div role="group" aria-labelledby="pos-deposit-bank-label" className="flex flex-wrap gap-2">
+                    {recientes.map((banco) => {
+                      const elegido = !otroBanco && bancoElegido === banco;
+                      return (
+                        <Button
+                          key={banco}
+                          type="button"
+                          variant={elegido ? "default" : "outline"}
+                          className="h-11"
+                          aria-pressed={elegido}
+                          disabled={mutation.isPending}
+                          onClick={() => {
+                            setOtroBanco(false);
+                            setBankName(banco);
+                          }}
+                        >
+                          {banco}
+                        </Button>
+                      );
+                    })}
+                    <Button
+                      type="button"
+                      variant={otroBanco ? "default" : "outline"}
+                      className="h-11"
+                      aria-pressed={otroBanco}
+                      disabled={mutation.isPending}
+                      onClick={() => {
+                        setOtroBanco(true);
+                        setBankName("");
+                      }}
+                    >
+                      Otro banco
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+              {escribeBanco ? (
+                <>
+                  <Label htmlFor="pos-deposit-bank" className={recientes.length > 0 ? "sr-only" : undefined}>
+                    {recientes.length > 0 ? "Nombre del otro banco" : "Banco"}
+                  </Label>
+                  <Input
+                    id="pos-deposit-bank"
+                    className="h-11"
+                    value={bancoElegido}
+                    onChange={(event) => setBankName(event.target.value)}
+                    disabled={mutation.isPending}
+                  />
+                </>
+              ) : null}
             </div>
             <div className="space-y-1">
               <Label htmlFor="pos-deposit-reference">Referencia (opcional)</Label>

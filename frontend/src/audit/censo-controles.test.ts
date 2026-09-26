@@ -93,6 +93,16 @@
  * («Elegí un motivo» de `VoidDialog.tsx` **no** se dio de baja: la lista de
  * motivos pasó a ser una grilla de botones de 56 px, y el rótulo viaja como
  * `aria-label` del grupo que los reúne.)
+ *
+ * **Bajas declaradas · abrir turno en la tablet.** Un rótulo de
+ * `features/shifts/OpenShiftForm.tsx` sale de la base, a mano. No era un
+ * control: era el `placeholder` de la lista desplegable de la causa de la
+ * diferencia de apertura, y la auditoría de tablet pidió la causa como
+ * botones.
+ *
+ * - «Elegí una causa» — la causa pasó a ser un grupo de botones grandes
+ *   (`role="radiogroup"`, rótulo «Causa»), igual que en el paso 3 del cierre;
+ *   cada causa sigue siendo tocable.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

@@ -5,19 +5,15 @@ import { toast } from "sonner";
 import { useSession } from "@/app/session";
 import { ApiError, newIdempotencyKey } from "@/api/client";
 import { getCarryCandidates, openShift, type CashDifferenceCause, type OpenShiftIn } from "@/api/shifts";
+import { Check } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { DenominationsInput, type Denomination } from "@/components/DenominationsInput";
+import { DenominationKeypad } from "@/components/DenominationKeypad";
+import { type Denomination } from "@/components/DenominationsInput";
 import { EmployeePicker } from "@/components/EmployeePicker";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { errorMessage } from "@/lib/errors";
 import { formatFechaCorta } from "@/lib/format";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
@@ -50,13 +46,18 @@ function emptyDenominations(): Denomination[] {
  * pide — con una `Idempotency-Key` nueva, porque el cuerpo cambió.
  *
  * **La plata de días anteriores se queda en el cajón** (decisión del dueño,
- * 2026-09-24). Con «Consignaciones» encendida, `GET /shifts/carry-candidates`
- * trae los días con saldo por consignar y quien abre marca, uno por uno,
- * cuáles están físicamente acá. **Ninguno viene marcado**: marcar es afirmar
- * que la plata está, y eso lo hace una persona mirando el cajón. Esta
- * pantalla no suma la base con lo marcado: manda `carried_shift_ids` y el
- * servidor recalcula; si lo contado no cuadra, su `message` dice el total que
- * esperaba.
+ * 2026-09-24), en su sobre. Con «Consignaciones» encendida, `GET
+ * /shifts/carry-candidates` trae los días con saldo por consignar.
+ *
+ * **Base y sobres van aparte** (auditoría de tablet): la base se cuenta por
+ * denominaciones con el teclado en pantalla, y cada sobre se confirma
+ * ENTERO con un botón grande «Está · $74.000» (el monto lo publica el
+ * servidor). **Ninguno viene confirmado**: afirmar que la plata está lo hace
+ * una persona mirando el cajón. Esta pantalla no suma la base con los
+ * sobres: manda `carried_shift_ids` con `carried_counted_apart` y el
+ * servidor hace la cuenta; si la base no cuadra con la fija, su `message`
+ * lo dice, y el error se borra apenas se corrige el conteo. La causa se
+ * elige con un toque (botones, no un desplegable).
  */
 export function OpenShiftForm(): React.JSX.Element {
   const { me, hasFeature } = useSession();
@@ -87,10 +88,22 @@ export function OpenShiftForm(): React.JSX.Element {
   // está (lo consignaron desde Banco), no se manda a ciegas.
   const carriedShiftIds = carriedIds.filter((id) => candidates.some((c) => c.shift_id === id));
 
+  /** Se corrigió algo: el error viejo ya no dice la verdad, y el próximo intento es otro. */
+  function corrigio() {
+    setError(null);
+    setNeedsCause(false);
+    setCause("");
+    idempotencyKeyRef.current = newIdempotencyKey();
+  }
+
   function toggleCarried(shiftId: number, checked: boolean) {
     setCarriedIds((prev) => (checked ? [...prev.filter((id) => id !== shiftId), shiftId] : prev.filter((id) => id !== shiftId)));
-    // Otro cuerpo, otro intento: clave nueva.
-    idempotencyKeyRef.current = newIdempotencyKey();
+    corrigio();
+  }
+
+  function cambiarBase(next: Denomination[]) {
+    setDenominations(next);
+    if (error !== null || needsCause) corrigio();
   }
 
   const total = denominations.reduce((acc, d) => acc + d.value * d.count, 0);
@@ -132,42 +145,54 @@ export function OpenShiftForm(): React.JSX.Element {
       opening_cause: needsCause && cause !== "" ? cause : undefined,
       opening_note: needsCause && note.trim() !== "" ? note.trim() : undefined,
       carried_shift_ids: carriedShiftIds,
+      carried_counted_apart: true,
     });
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mx-auto max-w-xl space-y-6">
+    <form onSubmit={handleSubmit} className="mx-auto max-w-4xl space-y-6">
       <div className="space-y-1">
         <h1 className="text-lg font-semibold">Abrir turno</h1>
         <p className="text-sm text-muted-foreground">
-          Contá la base fija por denominaciones antes de empezar a operar.
+          Contá la base fija por denominaciones antes de empezar a operar. Los sobres de días anteriores van aparte.
         </p>
       </div>
 
+      <DenominationKeypad value={denominations} onChange={cambiarBase} legend="Base contada" disabled={mutation.isPending} />
+
       {candidates.length > 0 ? (
         <fieldset className="space-y-2 rounded-md border p-3">
-          <legend className="px-1 text-sm font-medium">¿La plata de qué días está en la caja?</legend>
-          <p className="text-xs text-muted-foreground">Marcá solo los días cuya plata está físicamente acá.</p>
-          <ul className="space-y-1">
-            {candidates.map((c) => (
-              <li key={c.shift_id}>
-                {/* Etiqueta que envuelve: toda la fila es el blanco del dedo. */}
-                <label className="flex min-h-11 items-center gap-3 text-sm">
-                  <Checkbox
-                    checked={carriedIds.includes(c.shift_id)}
-                    onCheckedChange={(checked) => toggleCarried(c.shift_id, checked === true)}
+          <legend className="px-1 text-sm font-medium">Sobres de días anteriores</legend>
+          <p className="text-xs text-muted-foreground">
+            No se cuentan con la base: tocá «Está» sólo si el sobre de ese día está físicamente en la caja.
+          </p>
+          <ul className="space-y-2">
+            {candidates.map((c) => {
+              const esta = carriedIds.includes(c.shift_id);
+              return (
+                <li key={c.shift_id} className="flex flex-wrap items-center gap-3">
+                  <span className="min-w-24 text-base font-medium">{formatFechaCorta(c.business_date)}</span>
+                  <button
+                    type="button"
+                    aria-pressed={esta}
                     disabled={mutation.isPending}
-                  />
-                  <span className="flex-1">{formatFechaCorta(c.business_date)}</span>
-                  <span className="tabular-nums">{formatCOP(c.outstanding)}</span>
-                </label>
-              </li>
-            ))}
+                    onClick={() => toggleCarried(c.shift_id, !esta)}
+                    className={cn(
+                      "flex min-h-14 flex-1 items-center justify-center gap-2 rounded-lg px-4 text-base font-semibold ring-1 transition-colors",
+                      esta ? "bg-foreground text-background ring-foreground" : "bg-card ring-border hover:bg-muted",
+                    )}
+                  >
+                    {esta ? <Check aria-hidden="true" className="size-5" /> : null}
+                    <span>
+                      Está · <span className="tabular-nums">{formatCOP(c.outstanding)}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </fieldset>
       ) : null}
-
-      <DenominationsInput value={denominations} onChange={setDenominations} legend="Base contada" />
 
       {showReserve ? (
         <div className="space-y-1">
@@ -195,24 +220,31 @@ export function OpenShiftForm(): React.JSX.Element {
       {needsCause ? (
         <div className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
           <p className="text-sm font-medium text-destructive">
-            {carriedShiftIds.length > 0
-              ? "Lo contado no coincide con la base fija más los días marcados: elegí una causa para poder abrir."
-              : "La base contada no coincide con la base fija: elegí una causa para poder abrir."}
+            La base contada no coincide con la base fija: volvé a contarla, o elegí una causa para poder abrir.
           </p>
-          <div className="space-y-1">
-            <Label htmlFor="open-cause">Causa</Label>
-            <Select value={cause || undefined} onValueChange={(v) => setCause(v as CashDifferenceCause)}>
-              <SelectTrigger id="open-cause" className="h-11 w-full">
-                <SelectValue placeholder="Elegí una causa" />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(CAUSE_LABEL).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="space-y-2">
+            <p id="open-cause-label" className="text-sm font-medium">
+              Causa
+            </p>
+            <div role="radiogroup" aria-labelledby="open-cause-label" className="grid gap-2 sm:grid-cols-2">
+              {(Object.entries(CAUSE_LABEL) as [CashDifferenceCause, string][]).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={cause === value}
+                  onClick={() => setCause(value)}
+                  className={cn(
+                    "min-h-14 rounded-lg px-4 text-left text-base font-semibold ring-1 transition-colors",
+                    cause === value
+                      ? "bg-foreground text-background ring-foreground"
+                      : "bg-card text-foreground ring-border hover:bg-muted",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="space-y-1">
             <Label htmlFor="open-note">Nota</Label>
@@ -227,7 +259,7 @@ export function OpenShiftForm(): React.JSX.Element {
         </p>
       ) : null}
 
-      <Button type="submit" className="h-11 w-full" disabled={mutation.isPending}>
+      <Button type="submit" className="h-12 w-full text-base" disabled={mutation.isPending || (needsCause && cause === "")}>
         {mutation.isPending ? "Abriendo…" : "Abrir turno"}
       </Button>
     </form>

@@ -55,3 +55,35 @@ def entry_qty_to_base(ingredient: Ingredient, raw: str, *, whole_units: bool = T
             message=f"{ingredient.name}: se cuenta en unidades enteras, sin decimales",
         )
     return qty * spec.factor
+
+
+#: Paso al que se redondea HACIA ARRIBA una cantidad sugerida en la unidad
+#: cómoda, en milésimas de esa unidad: medio kilo o medio litro para lo que
+#: se pesa o se mide; enteros para botellas y unidades (no se compra media
+#: botella). Nadie pide «503,177 g»: pide medio kilo. Redondear para arriba
+#: es el sesgo declarado: se sugiere un poco más, nunca de menos.
+_SUGGEST_STEP_MILLI = {"weight": 500, "volume": 500, "bottle": 1000, "unit": 1000}
+
+
+def base_to_entry_milli(ingredient: Ingredient, qty_base: int) -> int:
+    """Milésimas de la unidad base → milésimas de la unidad cómoda, con
+    redondeo mitad hacia arriba en la milésima. Sólo para MOSTRAR: lo que se
+    guarda sigue siendo la cantidad base."""
+    factor = entry_spec(ingredient).factor
+    sign = -1 if qty_base < 0 else 1
+    return sign * ((abs(qty_base) * 2 + factor) // (2 * factor))
+
+
+def rounded_entry_suggestion(ingredient: Ingredient, qty_base: int) -> tuple[int, int]:
+    """Una cantidad sugerida (milésimas de la unidad base) redondeada HACIA
+    ARRIBA al paso cómodo (`_SUGGEST_STEP_MILLI`). Devuelve `(milésimas de la
+    unidad cómoda, milésimas de la unidad base equivalentes)`; la segunda es
+    exacta porque el factor es entero. Sin nada que sugerir, `(0, 0)`."""
+    if qty_base <= 0:
+        return 0, 0
+    spec = entry_spec(ingredient)
+    step = _SUGGEST_STEP_MILLI[spec.mode]
+    per_step_base = spec.factor * step
+    steps = -(-qty_base // per_step_base)
+    entry_milli = steps * step
+    return entry_milli, entry_milli * spec.factor

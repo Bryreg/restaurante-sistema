@@ -72,62 +72,71 @@ describe("OpenShiftForm — la reserva se muestra aparte de la base", () => {
   });
 });
 
-describe("OpenShiftForm — la plata de días anteriores que está en la caja (2026-09-24)", () => {
+describe("OpenShiftForm — base y sobres de días anteriores, aparte (auditoría de tablet)", () => {
   const CANDIDATES = [
     { shift_id: 11, business_date: "2026-09-21", outstanding: 350_000 },
-    { shift_id: 12, business_date: "2026-09-22", outstanding: 410_000 },
+    { shift_id: 12, business_date: "2026-09-22", outstanding: 74_000 },
   ];
 
-  it("lista los días con su saldo del servidor, TODOS desmarcados, con la ayuda corta", async () => {
+  it("cada sobre se confirma con un botón grande «Está · monto del servidor», ninguno confirmado de entrada", async () => {
     getCarryCandidatesMock.mockResolvedValue(CANDIDATES);
     renderWithProviders(<OpenShiftForm />, { me: deviceMe({ "money.deposits": true }) });
 
-    expect(await screen.findByText("¿La plata de qué días está en la caja?")).toBeInTheDocument();
-    expect(screen.getByText("Marcá solo los días cuya plata está físicamente acá.")).toBeInTheDocument();
-    const boxes = screen.getAllByRole("checkbox");
-    expect(boxes).toHaveLength(2);
-    for (const box of boxes) expect(box).not.toBeChecked();
-    expect(screen.getByText("$ 350.000")).toBeInTheDocument();
-    expect(screen.getByText("$ 410.000")).toBeInTheDocument();
-    // Ningún total armado en el cliente: ni la suma de los dos días, ni base + días.
-    expect(screen.queryByText("$ 760.000")).not.toBeInTheDocument();
+    expect(await screen.findByText("Sobres de días anteriores")).toBeInTheDocument();
+    const esta = screen.getAllByRole("button", { name: /^Está · / });
+    expect(esta).toHaveLength(2);
+    for (const b of esta) expect(b).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Está · $ 350.000" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Está · $ 74.000" })).toBeInTheDocument();
+    // Ni casillas de 16 px ni un total armado en el cliente.
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.queryByText("$ 424.000")).not.toBeInTheDocument();
   });
 
-  it("sin marcar nada manda carried_shift_ids: []; marcando un día, manda sólo ese id", async () => {
+  it("manda la base sola con los días confirmados y `carried_counted_apart`", async () => {
     getCarryCandidatesMock.mockResolvedValue(CANDIDATES);
     openShiftMock.mockResolvedValue({ id: 99 });
     const user = userEvent.setup();
     renderWithProviders(<OpenShiftForm />, { me: deviceMe({ "money.deposits": true }) });
 
-    await screen.findByText("¿La plata de qué días está en la caja?");
+    await screen.findByText("Sobres de días anteriores");
     await screen.findByRole("radio", { name: /ana, operador/i });
+    // La base con el teclado en pantalla: 4 billetes de $50.000.
+    await user.click(screen.getByRole("button", { name: /^\$ 50\.000: sin contar/ }));
+    await user.click(screen.getByRole("button", { name: "4" }));
+    await user.click(screen.getByRole("button", { name: "Está · $ 74.000" }));
+    expect(screen.getByRole("button", { name: "Está · $ 74.000" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "Abrir turno" }));
-    await waitFor(() => expect(openShiftMock).toHaveBeenCalledTimes(1));
-    expect(openShiftMock.mock.calls[0]?.[0]).toMatchObject({ carried_shift_ids: [] });
 
-    await user.click(screen.getByRole("checkbox", { name: /\$ 410\.000/ }));
-    await user.click(screen.getByRole("button", { name: "Abrir turno" }));
-    await waitFor(() => expect(openShiftMock).toHaveBeenCalledTimes(2));
-    expect(openShiftMock.mock.calls[1]?.[0]).toMatchObject({ carried_shift_ids: [12] });
+    await waitFor(() => expect(openShiftMock).toHaveBeenCalledTimes(1));
+    expect(openShiftMock.mock.calls[0]?.[0]).toMatchObject({
+      opening_cash: { total: 200_000 },
+      carried_shift_ids: [12],
+      carried_counted_apart: true,
+    });
   });
 
-  it("si no cuadra, muestra el mensaje del servidor (que trae el total esperado), sin calcularlo acá", async () => {
+  it("si la base no cuadra: mensaje del servidor, causa con botones, y el error se borra al corregir", async () => {
     getCarryCandidatesMock.mockResolvedValue(CANDIDATES);
     const serverMessage =
-      "Lo contado ($ 0) no coincide: la base fija ($ 200.000) más lo marcado de días anteriores ($ 350.000) da $ 550.000. Elegí una causa para poder abrir el turno";
-    openShiftMock.mockRejectedValue(
-      new ApiError(400, "OPENING_DIFFERENCE_NEEDS_CAUSE", serverMessage),
-    );
+      "La base contada ($ 0) no coincide con la base fija ($ 200.000). Volvé a contarla o elegí una causa para poder abrir el turno";
+    openShiftMock.mockRejectedValue(new ApiError(400, "OPENING_DIFFERENCE_NEEDS_CAUSE", serverMessage));
     const user = userEvent.setup();
     renderWithProviders(<OpenShiftForm />, { me: deviceMe({ "money.deposits": true }) });
 
-    await screen.findByText("¿La plata de qué días está en la caja?");
+    await screen.findByText("Sobres de días anteriores");
     await screen.findByRole("radio", { name: /ana, operador/i });
-    await user.click(screen.getByRole("checkbox", { name: /\$ 350\.000/ }));
     await user.click(screen.getByRole("button", { name: "Abrir turno" }));
 
     expect(await screen.findByText(serverMessage)).toBeInTheDocument();
-    expect(screen.getByText(/base fija más los días marcados/)).toBeInTheDocument();
+    const causa = screen.getByRole("radio", { name: "Error de conteo" });
+    await user.click(causa);
+    expect(causa).toHaveAttribute("aria-checked", "true");
+
+    // Corrige el conteo: el error viejo desaparece.
+    await user.click(screen.getByRole("button", { name: "Sumar un billete de $ 50.000" }));
+    expect(screen.queryByText(serverMessage)).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Error de conteo" })).not.toBeInTheDocument();
   });
 
   it("con Consignaciones apagada no pide la lista ni muestra la sección", async () => {
@@ -135,15 +144,15 @@ describe("OpenShiftForm — la plata de días anteriores que está en la caja (2
 
     await screen.findByRole("radio", { name: /ana, operador/i });
     expect(getCarryCandidatesMock).not.toHaveBeenCalled();
-    expect(screen.queryByText("¿La plata de qué días está en la caja?")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sobres de días anteriores")).not.toBeInTheDocument();
   });
 
-  it("con Consignaciones encendida pero sin días por consignar, la pantalla queda como estaba", async () => {
+  it("con Consignaciones encendida pero sin días por consignar, no hay sobres", async () => {
     getCarryCandidatesMock.mockResolvedValue([]);
     renderWithProviders(<OpenShiftForm />, { me: deviceMe({ "money.deposits": true }) });
 
     await waitFor(() => expect(getCarryCandidatesMock).toHaveBeenCalled());
-    expect(screen.queryByText("¿La plata de qué días está en la caja?")).not.toBeInTheDocument();
-    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.queryByText("Sobres de días anteriores")).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { name: /^Está · / })).toHaveLength(0);
   });
 });

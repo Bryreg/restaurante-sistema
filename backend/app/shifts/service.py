@@ -463,13 +463,28 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
     cash_settings = stores_service.get_cash_settings(db, store.id)
 
     denominations = _to_denominations(payload.opening_cash.denominations)
-    total = money.validate_denominations(denominations, payload.opening_cash.total)
+    counted = money.validate_denominations(denominations, payload.opening_cash.total)
 
     carried = _resolve_carried(db, store=store, shift_ids=payload.carried_shift_ids)
     carried_total = sum(p.outstanding for p in carried)
+
+    if payload.carried_counted_apart:
+        # Base y sobres aparte: lo contado es sólo la base; cada sobre se
+        # confirmó entero y vale lo que el servidor publica de ese día. La
+        # apertura del cajón es la suma, hecha acá (una sola matemática).
+        total = counted + carried_total
+        if counted != cash_settings.opening_cash_fixed and not payload.opening_cause:
+            raise AppError(
+                "OPENING_DIFFERENCE_NEEDS_CAUSE",
+                f"La base contada ({format_cop(counted)}) no coincide con la base fija "
+                f"({format_cop(cash_settings.opening_cash_fixed)}). Volvé a contarla o elegí una causa para poder abrir el turno",
+                status=400,
+            )
+    else:
+        total = counted
     expected_opening = cash_settings.opening_cash_fixed + carried_total
 
-    if total != expected_opening and not payload.opening_cause:
+    if not payload.carried_counted_apart and total != expected_opening and not payload.opening_cause:
         if carried_total:
             detail = (
                 f"la base fija ({format_cop(cash_settings.opening_cash_fixed)}) más lo marcado de días anteriores "
@@ -572,6 +587,7 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
             "cash_responsible_id": cash_responsible.id,
             "business_day_id": day.id,
             "carried": {str(p.shift_id): p.outstanding for p in carried},
+            "carried_counted_apart": payload.carried_counted_apart,
         },
     )
     return shift
@@ -1202,6 +1218,10 @@ def review_close(db: Session, *, shift: Shift, store: Store, count: ShiftCloseCo
         "count_id": count.id,
         "expected": ev.expected,
         "difference": ev.difference,
+        # Lo contado, tal como se selló: al retomar el cierre en el paso 2
+        # la pantalla ya no tiene lo tecleado.
+        "counted": ev.counted,
+        "counted_pieces": sum(int(d.get("count", 0)) for d in (count.counted_cash_denominations or [])),
         "equation": equation,
         "card": {
             "registered": ev.card_registered,
@@ -1409,6 +1429,11 @@ def create_close_count(db: Session, *, actor: Actor, shift: Shift, store: Store,
             "TRANSFER_TOTAL_REQUIRED", "Ingresá el total de transferencias: hubo ventas registradas por transferencia", status=400
         )
 
+    # Un conteo sellado que sigue activo: este conteo lo reemplaza. Se lee
+    # acá (después de validar todo y antes de escribir nada).
+    previous = _get_active_close_count(db, shift.id)
+    previous_seen = previous is not None and _review_was_opened(db, previous.id)
+
     count = ShiftCloseCount(
         organization_id=shift.organization_id,
         store_id=shift.store_id,
@@ -1437,7 +1462,166 @@ def create_close_count(db: Session, *, actor: Actor, shift: Shift, store: Store,
         before=None,
         after={"counted_cash_total": total},
     )
+    if previous is not None:
+        # Volver a contar deja el conteo anterior superado (se conserva). Si
+        # la persona ya había abierto el paso 2 —vio el esperado—, el conteo
+        # nuevo queda marcado para el administrador: «recontado después de
+        # ver el esperado». La marca vive en la auditoría del conteo (sin
+        # columna nueva) y la leen la cronología y el listado del turno.
+        previous.superseded = True
+        db.flush()
+        if previous_seen:
+            record_audit(
+                db,
+                actor=actor,
+                organization_id=shift.organization_id,
+                store_id=shift.store_id,
+                entity="shift_close_count",
+                entity_id=count.id,
+                action=RECOUNT_AFTER_REVIEW_ACTION,
+                before={"count_id": previous.id, "counted_cash_total": previous.counted_cash_total},
+                after={"count_id": count.id, "counted_cash_total": total},
+            )
     return count
+
+
+#: Acciones de auditoría del cierre a ciegas que el resto del módulo lee.
+REVIEW_OPENED_ACTION = "review_opened"
+RECOUNT_AFTER_REVIEW_ACTION = "recount_after_review"
+
+
+def _audit_actions_of_counts(db: Session, count_ids: list[int], action: str) -> set[int]:
+    from app.audit.models import AuditLog
+
+    if not count_ids:
+        return set()
+    rows = db.execute(
+        select(AuditLog.entity_id).where(
+            AuditLog.entity == "shift_close_count",
+            AuditLog.action == action,
+            AuditLog.entity_id.in_([str(i) for i in count_ids]),
+        )
+    ).scalars()
+    return {int(r) for r in rows}
+
+
+def _review_was_opened(db: Session, count_id: int) -> bool:
+    return bool(_audit_actions_of_counts(db, [count_id], REVIEW_OPENED_ACTION))
+
+
+def mark_review_opened(db: Session, *, actor: Actor, shift: Shift, count: ShiftCloseCount) -> None:
+    """El paso 2 se abrió para este conteo: la persona vio el esperado. Se
+    anota una sola vez (auditoría), para poder decir después si un conteo
+    nuevo es un «recontado después de ver el esperado»."""
+    if _review_was_opened(db, count.id):
+        return
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=shift.organization_id,
+        store_id=shift.store_id,
+        entity="shift_close_count",
+        entity_id=count.id,
+        action=REVIEW_OPENED_ACTION,
+        before=None,
+        after=None,
+    )
+
+
+def recounted_count_ids(db: Session, shift_id: int) -> set[int]:
+    """Los conteos de cierre de un turno que se hicieron después de ver el
+    esperado de un conteo anterior."""
+    ids = list(db.execute(select(ShiftCloseCount.id).where(ShiftCloseCount.shift_id == shift_id)).scalars())
+    return _audit_actions_of_counts(db, ids, RECOUNT_AFTER_REVIEW_ACTION)
+
+
+def close_precheck(db: Session, *, shift: Shift, store: Store) -> dict[str, Any]:
+    """«Paso 0» del cierre: lo que el cierre va a exigir, ANTES de contar.
+
+    Lee las mismas reglas que después aplican `create_close_count` y
+    `confirm_close` (comandas abiertas, total del datáfono y de
+    transferencias, foto) más el efectivo de domicilios sin liquidar, y
+    **no publica ningún monto**: ni el esperado, ni sus sumandos, ni la
+    venta por medio. Sólo conteos y sí/no. Si ya hay un conteo sellado y
+    activo, lo dice, para que la pantalla retome en el paso 2 en vez de
+    volver a contar."""
+    _require_open(shift)
+    sales = hooks.get_sales_totals(db, shift.id)
+    open_orders = _count_open_orders(db, shift.id)
+    photo_required = False
+    if features.is_enabled(db, store.organization_id, store.id, "cash.photo_required"):
+        photo_required = bool(stores_service.get_cash_settings(db, store.id).photo_required_on_close)
+    card_required = sales.card + sales.tips_card > 0
+    transfer_required = sales.transfer + sales.tips_transfer > 0
+
+    items: list[dict[str, Any]] = []
+    if open_orders:
+        items.append(
+            {
+                "code": "OPEN_ORDERS",
+                "level": "blocking",
+                "message": (
+                    f"Hay {open_orders} comanda{'s' if open_orders != 1 else ''} abierta{'s' if open_orders != 1 else ''}: "
+                    "cobralas o anulalas desde Mesas o Mostrador, o trasladalas al turno siguiente al confirmar el cierre"
+                ),
+            }
+        )
+    if sales.delivery_pending_payments:
+        n = sales.delivery_pending_payments
+        couriers = sales.delivery_pending_couriers
+        items.append(
+            {
+                "code": "DELIVERY_UNSETTLED",
+                "level": "warning",
+                "message": (
+                    f"{n} cobro{'s' if n != 1 else ''} de domicilio sin liquidar "
+                    f"({couriers} domiciliario{'s' if couriers != 1 else ''}): recibí esa plata en Turno › Domicilios "
+                    "antes de contar, o queda fuera del cajón"
+                ),
+            }
+        )
+    if card_required:
+        items.append(
+            {
+                "code": "CARD_TOTAL_REQUIRED",
+                "level": "info",
+                "message": "Hubo ventas con tarjeta: tené a mano el cierre del datáfono para escribir su total",
+            }
+        )
+    if transfer_required:
+        items.append(
+            {
+                "code": "TRANSFER_TOTAL_REQUIRED",
+                "level": "info",
+                "message": "Hubo ventas por transferencia: revisá el total recibido para escribirlo",
+            }
+        )
+    if photo_required:
+        items.append(
+            {"code": "PHOTO_REQUIRED", "level": "info", "message": "Esta sede pide una foto del conteo de cierre"}
+        )
+
+    active = _get_active_close_count(db, shift.id)
+    sealed = (
+        {
+            "count_id": active.id,
+            "counted_at": active.created_at,
+            "counted_by": active.created_by_employee_name,
+        }
+        if active is not None
+        else None
+    )
+    return {
+        "shift_id": shift.id,
+        "open_orders": open_orders,
+        "delivery_pending_payments": sales.delivery_pending_payments,
+        "delivery_pending_couriers": sales.delivery_pending_couriers,
+        "card_total_required": card_required,
+        "transfer_total_required": transfer_required,
+        "photo_required": photo_required,
+        "sealed_count": sealed,
+        "items": items,
+    }
 
 
 def get_close_count_or_404(db: Session, *, shift: Shift, count_id: int) -> ShiftCloseCount:
@@ -1480,6 +1664,12 @@ def confirm_close(
     transfer_open_orders: bool = False,
 ) -> dict[str, Any]:
     _require_open(shift)
+    if count.superseded:
+        raise AppError(
+            "CLOSE_COUNT_SUPERSEDED",
+            "Ese conteo ya se reemplazó por uno nuevo: volvé a abrir el cierre en la pantalla Turno",
+            status=409,
+        )
     _apply_open_orders_gate(db, shift=shift, actor=actor, transfer_open_orders=transfer_open_orders)
     ev = _evaluate_close(db, shift, store, count)
 
@@ -1939,9 +2129,14 @@ def build_timeline(db: Session, shift: Shift) -> list[dict[str, Any]]:
             {"at": h.at, "kind": h.kind, "summary": f"{label} por {h.from_responsible_name} (diferencia {_cop_or_dash(h.breakdown.get('difference'))})", "employee_name": h.from_responsible_name, "data": {"id": h.id}}
         )
 
+    recounted = recounted_count_ids(db, shift.id)
     for c in db.execute(select(ShiftCloseCount).where(ShiftCloseCount.shift_id == shift.id)).scalars():
+        flagged = c.id in recounted
+        summary = f"Conteo de cierre por {c.created_by_employee_name}"
+        if flagged:
+            summary += " · recontado después de ver el esperado"
         events.append(
-            {"at": c.created_at, "kind": "close_count", "summary": f"Conteo de cierre por {c.created_by_employee_name}", "employee_name": c.created_by_employee_name, "data": {"id": c.id, "counted_cash_total": c.counted_cash_total, "superseded": c.superseded}}
+            {"at": c.created_at, "kind": "close_count", "summary": summary, "employee_name": c.created_by_employee_name, "data": {"id": c.id, "counted_cash_total": c.counted_cash_total, "superseded": c.superseded, "recounted_after_review": flagged}}
         )
 
     if shift.closed_at is not None:

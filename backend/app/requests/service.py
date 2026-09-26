@@ -21,7 +21,8 @@ Reglas que este archivo hace cumplir (y que el router no repite):
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -48,6 +49,7 @@ from app.requests.schemas import (
     RejectIn,
     RequestLineOut,
     StaffRequestOut,
+    SupplyItemOut,
     SupplyRequestIn,
     SupplySuggestionOut,
     SupplySuggestionsOut,
@@ -55,6 +57,9 @@ from app.requests.schemas import (
 from app.shifts import hooks as shifts_hooks
 from app.shifts.schemas import DenominationCountIn, DenominationIn
 from app.stores.models import Store
+
+if TYPE_CHECKING:
+    from app.inventory.models import Ingredient
 
 FEATURE = "pos.requests"
 SUPPLY_FEATURE = "inventory.perpetual"
@@ -133,7 +138,21 @@ def _lines_of(db: Session, request_ids: Sequence[int]) -> dict[int, list[StaffRe
     return out
 
 
-def _line_out(line: StaffRequestLine) -> RequestLineOut:
+def _line_out(line: StaffRequestLine, ingredient: Ingredient | None) -> RequestLineOut:
+    """El renglón en la unidad base (lo guardado) y en la unidad cómoda del
+    insumo (para mostrar). Sin el insumo —no debería pasar: los insumos no se
+    borran— la unidad cómoda es la base misma, nunca un número inventado."""
+    if ingredient is not None:
+        _mode, entry_unit = inventory_hooks.entry_unit_of(ingredient)
+
+        def to_entry(qty: int) -> str:
+            return format_qty_base(inventory_hooks.base_to_entry_milli(ingredient, qty))
+    else:
+        entry_unit = _BASE_UNIT_WORD.get(line.base_unit, line.base_unit)
+
+        def to_entry(qty: int) -> str:
+            return format_qty_base(qty)
+
     return RequestLineOut(
         id=line.id,
         ingredient_id=line.ingredient_id,
@@ -142,14 +161,24 @@ def _line_out(line: StaffRequestLine) -> RequestLineOut:
         qty_requested=format_qty_base(line.qty_requested),
         qty_approved=format_qty_base(line.qty_approved) if line.qty_approved is not None else None,
         suggested_qty=format_qty_base(line.suggested_qty) if line.suggested_qty is not None else None,
+        entry_unit=entry_unit,
+        qty_requested_entry=to_entry(line.qty_requested),
+        qty_approved_entry=to_entry(line.qty_approved) if line.qty_approved is not None else None,
     )
+
+
+#: La unidad base en palabras, para el caso sin insumo. «unit» no se muestra.
+_BASE_UNIT_WORD = {"g": "g", "ml": "ml", "unit": "unidad"}
 
 
 def _status_value(status: StaffRequestStatus | str) -> str:
     return status.value if isinstance(status, StaffRequestStatus) else str(status)
 
 
-def to_out(request: StaffRequest, lines: list[StaffRequestLine]) -> StaffRequestOut:
+def to_out(
+    request: StaffRequest, lines: list[StaffRequestLine], ingredients: dict[int, Ingredient] | None = None
+) -> StaffRequestOut:
+    found = ingredients or {}
     return StaffRequestOut(
         id=request.id,
         kind=request.kind,  # type: ignore[arg-type]
@@ -160,7 +189,7 @@ def to_out(request: StaffRequest, lines: list[StaffRequestLine]) -> StaffRequest
         requested_at=request.requested_at,
         note=request.note,
         reason=request.reason,
-        lines=[_line_out(line) for line in lines],
+        lines=[_line_out(line, found.get(line.ingredient_id)) for line in lines],
         requested_denominations=_denoms_out(request.requested_denominations),
         requested_total=request.requested_total,
         approved_denominations=_denoms_out(request.approved_denominations),
@@ -176,7 +205,13 @@ def to_out(request: StaffRequest, lines: list[StaffRequestLine]) -> StaffRequest
 
 def to_out_many(db: Session, requests: Sequence[StaffRequest]) -> list[StaffRequestOut]:
     lines = _lines_of(db, [r.id for r in requests])
-    return [to_out(r, lines.get(r.id, [])) for r in requests]
+    by_store: dict[int, set[int]] = {}
+    for r in requests:
+        by_store.setdefault(r.store_id, set()).update(line.ingredient_id for line in lines.get(r.id, []))
+    ingredients: dict[int, Ingredient] = {}
+    for store_id, ids in by_store.items():
+        ingredients.update(inventory_hooks.ingredients_by_id(db, store_id=store_id, ids=sorted(ids)))
+    return [to_out(r, lines.get(r.id, []), ingredients) for r in requests]
 
 
 def _snapshot(request: StaffRequest) -> dict[str, Any]:
@@ -201,27 +236,85 @@ def _suggested_by_ingredient(db: Session, store_id: int) -> dict[int, tuple[dict
     que cero, así que todo insumo en negativo ya está bajo mínimo, y esa
     función recorre el libro entero buscando rachas que acá no se muestran.
 
-    La cantidad sugerida es la misma regla de la reposición sugerida del
-    administrador (`suggested_qty` de «Reposición»): lo que falta para volver
-    al mínimo configurado, `mínimo − stock`.
+    La cantidad sugerida parte de la misma regla de la reposición sugerida
+    del administrador (`suggested_qty` de «Reposición»): lo que falta para
+    volver al mínimo configurado, `mínimo − stock`. Después se redondea HACIA
+    ARRIBA a la unidad cómoda (`inventory.units.rounded_entry_suggestion`):
+    nadie pide «503,177 g», pide medio kilo. El sesgo es declarado: se
+    sugiere un poco más, nunca de menos.
     """
+    alerts = {int(a["ingredient_id"]): a for a in inventory_hooks.low_stock_alerts(db, store_id=store_id)}
+    ingredients = inventory_hooks.ingredients_by_id(db, store_id=store_id, ids=sorted(alerts))
     out: dict[int, tuple[dict[str, Any], int]] = {}
-    for alert in inventory_hooks.low_stock_alerts(db, store_id=store_id):
-        suggested = int(alert["min_stock"]) - int(alert["qty_base"])
-        if suggested > 0:
-            out[int(alert["ingredient_id"])] = (alert, suggested)
+    for ingredient_id, alert in alerts.items():
+        missing = int(alert["min_stock"]) - int(alert["qty_base"])
+        ingredient = ingredients.get(ingredient_id)
+        if missing <= 0 or ingredient is None:
+            continue
+        _entry, rounded_base = inventory_hooks.rounded_entry_suggestion(ingredient, missing)
+        out[ingredient_id] = (alert, rounded_base)
     return out
 
 
-def supply_suggestions(db: Session, *, store: Store) -> SupplySuggestionsOut:
+#: Cuántos «frecuentes» se ofrecen y en qué ventana se miran.
+FREQUENT_LIMIT = 8
+FREQUENT_WINDOW_DAYS = 60
+
+
+def _frequent_items(db: Session, *, store: Store) -> list[SupplyItemOut]:
+    """Los insumos que más se pidieron en la sede en los últimos
+    `FREQUENT_WINDOW_DAYS` días (por cantidad de pedidos), activos."""
+    since = clock.now_utc() - timedelta(days=FREQUENT_WINDOW_DAYS)
+    rows = db.execute(
+        select(StaffRequestLine.ingredient_id, func.count(StaffRequestLine.id).label("n"))
+        .join(StaffRequest, StaffRequest.id == StaffRequestLine.request_id)
+        .where(
+            StaffRequest.store_id == store.id,
+            StaffRequest.kind == StaffRequestKind.SUPPLY.value,
+            StaffRequest.requested_at >= since,
+        )
+        .group_by(StaffRequestLine.ingredient_id)
+    ).all()
+    ranked = sorted(((int(r[0]), int(r[1])) for r in rows), key=lambda r: -r[1])
+    ingredients = inventory_hooks.ingredients_by_id(db, store_id=store.id, ids=[r[0] for r in ranked])
+    out: list[SupplyItemOut] = []
+    for ingredient_id, _n in ranked:
+        ingredient = ingredients.get(ingredient_id)
+        if ingredient is None or not ingredient.active:
+            continue
+        out.append(_item_out(ingredient))
+        if len(out) >= FREQUENT_LIMIT:
+            break
+    return out
+
+
+def _item_out(ingredient: Ingredient) -> SupplyItemOut:
+    mode, unit = inventory_hooks.entry_unit_of(ingredient)
+    return SupplyItemOut(ingredient_id=ingredient.id, name=ingredient.name, entry_mode=mode, entry_unit=unit)  # type: ignore[arg-type]
+
+
+def supply_suggestions(db: Session, *, store: Store, employee_id: int | None = None) -> SupplySuggestionsOut:
+    """Lo que falta, filtrado por el área de quien pide (`inventory.hooks.
+    requester_area`): el del bar ve licores, el de cocina carnes. Sin área
+    asignada ni puesto que coincida con un área, la sede entera."""
     if not features.is_enabled(db, store.organization_id, store.id, SUPPLY_FEATURE):
         return SupplySuggestionsOut(
             available=False,
             reason="El inventario no se lleva en esta sede, así que no hay stock para comparar con el mínimo",
             rows=[],
         )
+    area = inventory_hooks.requester_area(db, store=store, employee_id=employee_id)
+    suggested = _suggested_by_ingredient(db, store.id)
+    ingredients = inventory_hooks.ingredients_by_id(db, store_id=store.id, ids=sorted(suggested))
+    in_area = set(area.ingredient_ids)
     rows: list[SupplySuggestionOut] = []
-    for ingredient_id, (alert, suggested) in _suggested_by_ingredient(db, store.id).items():
+    other = 0
+    for ingredient_id, (alert, rounded_base) in suggested.items():
+        if area.via != "none" and ingredient_id not in in_area:
+            other += 1
+            continue
+        ingredient = ingredients[ingredient_id]
+        mode, unit = inventory_hooks.entry_unit_of(ingredient)
         qty = int(alert["qty_base"])
         rows.append(
             SupplySuggestionOut(
@@ -231,12 +324,23 @@ def supply_suggestions(db: Session, *, store: Store) -> SupplySuggestionsOut:
                 current_stock=format_qty_base(qty),
                 min_stock=format_qty_base(int(alert["min_stock"])),
                 negative=qty < 0,
-                suggested_qty=format_qty_base(suggested),
+                suggested_qty=format_qty_base(rounded_base),
+                entry_mode=mode,  # type: ignore[arg-type]
+                entry_unit=unit,
+                suggested_entry_qty=format_qty_base(inventory_hooks.base_to_entry_milli(ingredient, rounded_base)),
             )
         )
     # Primero los negativos, después por nombre.
     rows.sort(key=lambda r: (not r.negative, r.name.lower()))
-    return SupplySuggestionsOut(available=True, reason=None, rows=rows)
+    return SupplySuggestionsOut(
+        available=True,
+        reason=None,
+        rows=rows,
+        area_name=area.area_name,
+        area_via=area.via,  # type: ignore[arg-type]
+        other_areas_count=other,
+        frequent=_frequent_items(db, store=store),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +367,16 @@ def create_supply_request(db: Session, *, actor: Actor, store: Store, payload: S
         ingredient = inventory_hooks.get_ingredient(db, store_id=store.id, ingredient_id=line.ingredient_id)
         if ingredient is None or not ingredient.active:
             raise NotFoundError("El insumo no existe o está inactivo en esta sede")
-        qty = parse_qty_base(line.qty, field=ingredient.name)
+        if line.entry_unit is not None:
+            _mode, unit = inventory_hooks.entry_unit_of(ingredient)
+            if line.entry_unit != unit:
+                raise AppError(
+                    "VALIDATION_ERROR",
+                    f"{ingredient.name}: se pide en {unit}; recargá la pantalla de Solicitudes y volvé a pedir",
+                )
+            qty = inventory_hooks.entry_qty_to_base(ingredient, line.qty)
+        else:
+            qty = parse_qty_base(line.qty, field=ingredient.name)
         if qty <= 0:
             raise AppError(
                 "VALIDATION_ERROR",

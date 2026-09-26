@@ -46,6 +46,7 @@ from app.shifts.schemas import (
     CloseConfirmOut,
     CloseCountIn,
     CloseCountOut,
+    ClosePrecheckOut,
     CloseReviewOut,
     EmployeeActivityOut,
     EmployeeRef,
@@ -249,6 +250,7 @@ def _admin_shift_item(db: Session, shift: Shift) -> AdminShiftListItem:
         difference=shift.difference,
         is_stale=stale,
         reviewed_at=shift.reviewed_at,
+        recounted_after_review=bool(service.recounted_count_ids(db, shift.id)),
     )
 
 
@@ -561,6 +563,21 @@ def post_pickup_reverse(
 # ---------------------------------------------------------------------------
 
 
+@router.get("/shifts/{shift_id}/close/precheck")
+def get_close_precheck(
+    shift_id: int,
+    actor: Actor = Depends(current_operator),
+    db: Session = Depends(get_db),
+) -> ClosePrecheckOut:
+    """«Paso 0» del cierre: comandas abiertas, domicilios sin liquidar y lo
+    que el cierre va a pedir (datáfono, transferencias, foto), más el conteo
+    sellado si ya hay uno. Sin ningún monto: el cierre sigue a ciegas."""
+    store = _store_of(db, actor)
+    shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
+    return ClosePrecheckOut(**service.close_precheck(db, shift=shift, store=store))
+
+
 @router.post("/shifts/{shift_id}/close/count", status_code=201)
 def post_close_count(
     shift_id: int,
@@ -595,7 +612,12 @@ def get_close_review(
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
     shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
     count = service.get_close_count_or_404(db, shift=shift, count_id=count_id)
-    return CloseReviewOut(**service.review_close(db, shift=shift, store=store, count=count))
+    review = CloseReviewOut(**service.review_close(db, shift=shift, store=store, count=count))
+    # Abrir el paso 2 es ver el esperado: se anota (una vez) para marcar un
+    # recuento posterior como «recontado después de ver el esperado».
+    if not count.superseded and shift.status == ShiftStatus.OPEN:
+        service.mark_review_opened(db, actor=actor, shift=shift, count=count)
+    return review
 
 
 @router.post("/shifts/{shift_id}/close/{count_id}/confirm")
