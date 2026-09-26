@@ -8,7 +8,8 @@ import type { NavItem } from "./nav";
  * destinos ve en la barra del salón. Funciones puras, sin React, para que se
  * prueben solas (`__tests__/puesto.test.ts`).
  *
- * - `null` (o un supervisor / administrador) ve todo, como siempre.
+ * - `null` (o un supervisor) ve todo, como siempre. El supervisor llega a
+ *   Turno; el administrador sólo autoriza (`soloAutoriza`).
  * - Una función apagada sigue sacando su entrada (`feature`): el puesto
  *   filtra DESPUÉS de los flags, nunca los reemplaza.
  * - Nada de esto es un permiso: la barra ordena la pantalla. Lo que no se
@@ -40,12 +41,25 @@ export interface PersonaPuesto {
 const DESTINOS: Record<Puesto, readonly string[]> = {
   salon: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno"],
   caja: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno", "/pos/cocina"],
-  cocina: ["/pos/kds", "/pos/cocina", "/pos/produccion", "/pos/merma", "/pos/turno"],
-  bar: ["/pos/kds", "/pos/cocina", "/pos/produccion", "/pos/merma", "/pos/turno"],
+  cocina: ["/pos/kds", "/pos/conteo", "/pos/cocina", "/pos/produccion", "/pos/merma", "/pos/turno"],
+  bar: ["/pos/kds", "/pos/conteo", "/pos/cocina", "/pos/produccion", "/pos/merma", "/pos/turno"],
 };
 
 function esPuesto(value: string | null | undefined): value is Puesto {
   return value === "caja" || value === "salon" || value === "cocina" || value === "bar";
+}
+
+/**
+ * **El administrador en la tablet sólo autoriza** (decisión del dueño): no
+ * opera el salón, no suma horas ni propina. Si teclea su PIN en «Quién
+ * opera» llega a «Modo autorización» (`/pos/autorizar`) y la barra queda
+ * vacía; autoriza desde la pantalla de quien opera, cuando ésta le pide el
+ * PIN. El backend no lo mete al roster ni a la asistencia.
+ */
+export const RUTA_AUTORIZAR = "/pos/autorizar";
+
+export function soloAutoriza(persona: PersonaPuesto | null | undefined): boolean {
+  return persona?.role === "admin";
 }
 
 /** El puesto que manda, o `null` si la persona ve todo (sin puesto, supervisor o admin). */
@@ -75,20 +89,31 @@ export function navParaPuesto(items: readonly NavItem[], persona: PersonaPuesto 
  * pantalla. Sin puesto, lo de siempre: Mesas con `pos.tables`, si no una
  * comanda de mostrador.
  *
+ * Cocina y bar pasan primero por **Conteo** cuando el conteo por área está
+ * encendido (decisión 5: la apertura del área es obligatoria). La pantalla
+ * de conteo (`?inicio=1`) pregunta al servidor si a esta persona le falta la
+ * apertura y, si no, sigue sola al KDS: la función es sincrónica y no sabe
+ * si ya se contó. `sinConteo` es ese «siguiente» (lo usa la pantalla de
+ * conteo para saber a dónde seguir).
+ *
  * **Caja sin turno abierto** (decisión del dueño, 2026-09-26): quien puede
- * manejar la caja (`puedeManejarCaja`: permiso de cobrar, supervisor o
- * admin) y llega cuando NO hay turno abierto aterriza en Turno, que le
- * muestra el cuadre de apertura: lo primero es contar los sobres. Sólo con
- * `turnoAbierto === false` —lo que dice `GET /shifts/current`—; mientras no
- * se sabe (`undefined`/`null`) manda el puesto, como siempre.
+ * manejar la caja (`puedeManejarCaja`: permiso de cobrar o supervisor; el
+ * administrador sólo autoriza y va a su pantalla) y llega cuando NO hay
+ * turno abierto aterriza en Turno, que le muestra el cuadre de apertura: lo
+ * primero es contar los sobres. Sólo con `opciones.turnoAbierto === false`
+ * —lo que dice `GET /shifts/current`—; mientras no se sabe manda el puesto.
  */
 export function inicioParaPuesto(
   persona: PersonaPuesto | null | undefined,
   hasFeature: (key: string) => boolean,
-  turnoAbierto?: boolean | null,
+  opciones: { sinConteo?: boolean; turnoAbierto?: boolean | null } = {},
 ): string {
-  if (turnoAbierto === false && puedeManejarCaja(persona, null)) return "/pos/turno";
   const venta = hasFeature("pos.tables") ? "/pos/mesas" : "/pos/comanda/nueva";
+  if (soloAutoriza(persona)) return RUTA_AUTORIZAR;
+  if (opciones.turnoAbierto === false && puedeManejarCaja(persona, null)) return "/pos/turno";
+  // Modo supervisor: llega a Turno, donde están sus herramientas (abrir,
+  // base, retiros, salidas de otros). Mesas sigue en su barra.
+  if (persona?.role === "supervisor") return "/pos/turno";
   const puesto = puestoEfectivo(persona);
   switch (puesto) {
     case "caja":
@@ -97,6 +122,9 @@ export function inicioParaPuesto(
       return venta;
     case "cocina":
     case "bar":
+      if (!opciones.sinConteo && hasFeature("inventory.perpetual") && hasFeature("inventory.shift_counts")) {
+        return "/pos/conteo?inicio=1";
+      }
       if (hasFeature("kitchen.kds")) return "/pos/kds";
       if (hasFeature("kitchen.view")) return "/pos/cocina";
       return "/pos/turno";
@@ -147,6 +175,7 @@ export function barraDelSalon(
   persona: PersonaPuesto | null | undefined,
 ): NavItem[] {
   if (!persona) return [];
+  if (soloAutoriza(persona)) return [];
   const conFlags = all
     .filter((item) => !item.feature || hasFeature(item.feature))
     .filter((item) => !item.hiddenWithFeature || !hasFeature(item.hiddenWithFeature))

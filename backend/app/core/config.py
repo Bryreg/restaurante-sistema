@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # Sesiones largas.
     DEVICE_SESSION_DAYS: int = 180
     ADMIN_SESSION_HOURS: int = 12
+    # Sesión de administrador abierta DESDE una tablet del salón (el
+    # navegador ya tiene la cookie del dispositivo): corta y fija. Al vencer
+    # o al salir, la tablet vuelve sola a «Quién opera».
+    ADMIN_ON_DEVICE_SESSION_MINUTES: int = 15
 
 
 settings = Settings()

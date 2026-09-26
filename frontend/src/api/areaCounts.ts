@@ -91,6 +91,101 @@ export function answerAreaRecount(
 }
 
 // ---------------------------------------------------------------------------
+// Artículo por artículo (0030): la pantalla de conteo del POS.
+// ---------------------------------------------------------------------------
+
+export type AreaCountScope = "short" | "full"
+
+/** Quién contó un artículo y a qué hora — nunca cuánto (a ciegas también entre compañeros). */
+export interface AreaCountMarkOut {
+  employee_name: string
+  counted_at: string
+  /** > 1: se recontó; manda la última. */
+  entries: number
+}
+
+/** Cuánto va la lista del día de un área. `complete` lo decide el servidor. */
+export interface AreaCountProgressOut {
+  counted: number
+  total: number
+  complete: boolean
+  completed_at: string | null
+  people: string[]
+}
+
+export interface AreaCountSheetItemOut extends AreaCountItemOut {
+  opening: AreaCountMarkOut | null
+  closing: AreaCountMarkOut | null
+}
+
+export interface AreaCountSheetAreaOut {
+  area_id: number
+  area_name: string
+  scope: AreaCountScope
+  mine: boolean
+  items: AreaCountSheetItemOut[]
+  opening: AreaCountProgressOut
+  closing: AreaCountProgressOut
+}
+
+export interface DeviceAreaCountSheetOut {
+  business_date: string
+  my_area_id: number | null
+  reason: string | null
+  suggested_moment: AreaCountRegularMoment
+  full_count_today: boolean
+  opening_required: boolean
+  areas: AreaCountSheetAreaOut[]
+  recounts: DeviceAreaRecountOut[]
+}
+
+export interface AreaCountItemSavedOut {
+  area_id: number
+  area_name: string
+  moment: AreaCountRegularMoment
+  ingredient_id: number
+  ingredient_name: string
+  count_id: number
+  counted_at: string
+  employee_name: string
+  progress: AreaCountProgressOut
+}
+
+export interface AreaOpeningPendingOut {
+  area_id: number
+  area_name: string
+  counted: number
+  total: number
+  full_count: boolean
+}
+
+export interface DeviceOpeningGateOut {
+  business_date: string
+  /** La persona identificada tiene que hacer primero la apertura de su área. */
+  required: boolean
+  area_id: number | null
+  area_name: string | null
+  message: string | null
+  /** Áreas sin apertura completa hoy (el aviso rojo del KDS). */
+  pending: AreaOpeningPendingOut[]
+}
+
+export function getAreaCountSheet(): Promise<DeviceAreaCountSheetOut> {
+  return api<DeviceAreaCountSheetOut>("/device/area-count/sheet")
+}
+
+export function getAreaCountGate(): Promise<DeviceOpeningGateOut> {
+  return api<DeviceOpeningGateOut>("/device/area-count/gate")
+}
+
+export function postAreaCountItem(
+  body: { area_id: number; moment: AreaCountRegularMoment; ingredient_id: number; qty: string },
+  idempotencyKey: string,
+): Promise<AreaCountItemSavedOut> {
+  return api<AreaCountItemSavedOut>("/device/area-count-items", { method: "POST", body, idempotencyKey })
+}
+
+// ---------------------------------------------------------------------------
 // Administrador.
 // ---------------------------------------------------------------------------
 
@@ -105,6 +200,28 @@ export interface CountAreaOut {
   active: boolean
   members: CountAreaMemberOut[]
   items: AreaCountItemOut[]
+  /** Categorías de insumo que cuenta el día del conteo completo mensual. */
+  categories: string[]
+  /** Cuántos insumos tendría hoy la lista completa (lista corta incluida). */
+  full_count_items: number
+}
+
+export function setCountAreaCategories(storeId: number, areaId: number, categories: string[]): Promise<CountAreaOut> {
+  return api<CountAreaOut>(`/admin/count-areas/${areaId}/categories`, {
+    method: "PUT",
+    query: { store_id: storeId },
+    body: { categories },
+  })
+}
+
+export interface AdminAreaCountStatusOut {
+  business_date: string
+  full_count_today: boolean
+  areas: AreaCountSheetAreaOut[]
+}
+
+export function getAreaCountStatus(storeId: number): Promise<AdminAreaCountStatusOut> {
+  return api<AdminAreaCountStatusOut>("/admin/area-count-status", { query: { store_id: storeId } })
 }
 
 export function listCountAreas(storeId: number): Promise<CountAreaOut[]> {
@@ -142,12 +259,17 @@ export function setCountAreaMember(storeId: number, employeeId: number, areaId: 
 export interface AreaCountSettingsIn {
   threshold_pct_bp: number | null
   threshold_amount: number | null
+  /** Día del mes (1–28) del conteo completo; `null` = apagado. Si no se manda, queda como estaba. */
+  monthly_full_count_day?: number | null
 }
 
 export interface AreaCountSettingsOut extends AreaCountSettingsIn {
   store_id: number
   /** La regla en palabras, escrita por el servidor. */
   reading: string
+  monthly_full_count_day: number | null
+  monthly_reading: string
+  full_count_today: boolean
 }
 
 export function getAreaCountSettings(storeId: number): Promise<AreaCountSettingsOut> {
@@ -177,6 +299,19 @@ export interface AreaCountLineOut {
   shortage_pct_bp: number | null
   flagged: boolean
   null_reason: string | null
+  /** Quién contó este artículo y cuándo (la entrada que manda). */
+  employee_name: string | null
+  counted_at: string | null
+  /** Entradas anteriores del mismo artículo en este conteo (recuentos). */
+  history: AreaCountEntryOut[]
+}
+
+export interface AreaCountEntryOut {
+  employee_name: string | null
+  counted_at: string | null
+  entered_qty: string
+  entered_unit: string
+  counted_qty: string
 }
 
 export interface AreaCountOut {
@@ -197,6 +332,9 @@ export interface AreaCountOut {
   flagged_count: number
   shortage_value_total: number | null
   unvalued_lines: number
+  scope: AreaCountScope | null
+  people: string[]
+  last_counted_at: string
 }
 
 export interface AreaCountDetailOut extends AreaCountOut {

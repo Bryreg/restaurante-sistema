@@ -65,7 +65,7 @@ PHOTO = "data:image/png;base64,AAAA"
 #: debe consignar. Sin el segundo, la venta de ayer se contaría dos veces.
 #:
 #: **Movida otra vez a propósito el 2026-09-26, por decisión del dueño**
-#: (`docs/SPEC-NEGOCIO.md` §3.2, `docs/ESTADO.md` §45): el cajón abre SÓLO con
+#: (`docs/SPEC-NEGOCIO.md` §3.2, `docs/ESTADO.md` §46): el cajón abre SÓLO con
 #: los sobres por consignar que se eligen y se cuentan, y la «base» es una
 #: sola cosa —la base de respaldo, aparte del cajón—. Tres cambios, y ninguno
 #: es de domicilios ni de propinas (eso lo sigue cobrando el test de abajo):

@@ -12,6 +12,18 @@ import DeviceIdentifyPage from "../DeviceIdentifyPage";
 const listDeviceEmployeesMock = vi.fn();
 const deviceIdentifyMock = vi.fn();
 const getCurrentShiftMock = vi.fn();
+const markAttendanceExitMock = vi.fn();
+const toastSuccess = vi.hoisted(() => vi.fn());
+
+vi.mock("sonner", async () => {
+  const actual = await vi.importActual<typeof import("sonner")>("sonner");
+  return { ...actual, toast: { ...actual.toast, success: toastSuccess, error: vi.fn() } };
+});
+
+vi.mock("@/api/attendance", async () => {
+  const actual = await vi.importActual<typeof import("@/api/attendance")>("@/api/attendance");
+  return { ...actual, markAttendanceExit: (...args: unknown[]) => markAttendanceExitMock(...args) };
+});
 
 vi.mock("@/api/shifts", async () => {
   const actual = await vi.importActual<typeof import("@/api/shifts")>("@/api/shifts");
@@ -157,5 +169,59 @@ describe("DeviceIdentifyPage — inicio por rol", () => {
     await user.keyboard("1234");
 
     expect(await screen.findByText("inicio-por-puesto")).toBeInTheDocument();
+  });
+});
+
+describe("DeviceIdentifyPage — asistencia del día", () => {
+  beforeEach(() => {
+    listDeviceEmployeesMock.mockReset();
+    deviceIdentifyMock.mockReset();
+    markAttendanceExitMock.mockReset();
+    toastSuccess.mockReset();
+    getCurrentShiftMock.mockReset();
+    getCurrentShiftMock.mockResolvedValue(null);
+    listDeviceEmployeesMock.mockResolvedValue([{ id: 7, name: "Ana Pérez", role: "operator" }]);
+  });
+
+  it("el primer PIN del día avisa la hora de entrada («Entrada 7:02 a. m.»)", async () => {
+    deviceIdentifyMock.mockResolvedValue({
+      employee: { id: 7, name: "Ana Pérez", role: "operator", can_charge: false },
+      attendance: { id: 1, business_date: "2026-03-10", in_at: "2026-03-10T12:02:00Z", created: true },
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<DeviceIdentifyPage />);
+
+    await user.click(await screen.findByRole("radio", { name: "Ana Pérez, Operador" }));
+    await user.keyboard("1234");
+
+    await vi.waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Entrada 7:02 a. m."));
+  });
+
+  it("«Marcar salida» abajo: nombre + PIN marca la salida sin identificarse", async () => {
+    markAttendanceExitMock.mockResolvedValue({
+      id: 1,
+      employee_id: 7,
+      employee_name: "Ana Pérez",
+      business_date: "2026-03-10",
+      in_at: "2026-03-10T12:02:00Z",
+      out_at: "2026-03-10T20:30:00Z",
+      status: "closed",
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<DeviceIdentifyPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Marcar salida" }));
+    expect(await screen.findByRole("heading", { name: "Marcar salida" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("radio", { name: "Ana Pérez, Operador" }));
+    await user.keyboard("1234");
+
+    await vi.waitFor(() => expect(markAttendanceExitMock).toHaveBeenCalledWith({ employee_id: 7, pin: "1234" }));
+    expect(deviceIdentifyMock).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Salida 3:30 p. m. · Ana Pérez"));
+  });
+
+  it("tiene la puerta del administrador, chica y secundaria", async () => {
+    renderWithProviders(<DeviceIdentifyPage />);
+    expect(await screen.findByRole("link", { name: "Entrar como administrador" })).toHaveAttribute("href", "/login");
   });
 });

@@ -104,6 +104,25 @@
  *   (`role="radiogroup"`, rótulo «Causa»), igual que en el paso 3 del cierre;
  *   cada causa sigue siendo tocable.
  *
+ * **Bajas declaradas · la cinta de caja en Mesas.** Seis rótulos de
+ * `features/shifts/ShiftPage.tsx` salen de su entrada, a mano. **No se
+ * perdió ninguno: se mudaron.** La lista de acciones del turno pasó a
+ * `features/shifts/acciones.ts` para que la compartan el panel del turno y
+ * la cinta de caja de Mesas (`CashRibbon`) sin copiar rótulos ni flags, y
+ * la base ahora censa ese archivo con los seis adentro (más los que ya
+ * estaban en la lista sin censar: Consignar, Recibir mercancía,
+ * Solicitudes…).
+ *
+ * - «Cambio», «Cierre», «Domicilios», «Movimientos», «Relevo», «Retiros» —
+ *   siguen siendo botones de la grilla del turno y, además, de la cinta.
+ *
+ * Entran a la base, nuevos: `features/shifts/acciones.ts`,
+ * `features/shifts/cinta.ts` (los rótulos de la fila de la cinta, con
+ * «Gasto / Ingreso») y `features/shifts/CashRibbon.tsx`. Los rótulos de la
+ * base de respaldo («Tomar de la base», «Devolver a la base») quedan
+ * afuera a propósito: son un hueco que otro trabajo enchufa y puede
+ * renombrar.
+ *
  * **Bajas declaradas · la base de respaldo (decisión del dueño, 2026-09-26).**
  * Un rótulo de `features/settings/CashSection.tsx` sale de la base, a mano.
  * **Era un control y no se perdió: se renombró.** La palabra «base» tiene que

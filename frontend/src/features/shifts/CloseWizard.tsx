@@ -174,7 +174,7 @@ function ItemPrecheck({
         </Button>
       ) : null}
       {item.code === "RESERVE_LOAN_OPEN" ? (
-        <Button variant="outline" className="h-11" nativeButton={false} render={<Link to="/pos/turno?accion=base" />}>
+        <Button variant="outline" className="h-11" nativeButton={false} render={<Link to="/pos/turno?accion=base_devolver" />}>
           Devolver a la base
         </Button>
       ) : null}

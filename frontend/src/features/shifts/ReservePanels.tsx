@@ -22,7 +22,6 @@ import { PinPad } from "@/components/PinPad";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
 
@@ -315,95 +314,6 @@ export function VerifyReservePanel({ onDone }: { onDone?: () => void }): React.J
       <Button type="button" className="h-12 w-full text-base" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
         {mutation.isPending ? "Guardando…" : "Guardar la verificación"}
       </Button>
-    </div>
-  );
-}
-
-type Vista = "estado" | "tomar" | "devolver" | "verificar";
-
-/**
- * La acción «Base de respaldo» del panel del turno: el estado (monto fijo,
- * disponible, lo que debe el cajón, los movimientos) y los tres paneles.
- */
-export function ReservePanel({ shiftId }: { shiftId: number }): React.JSX.Element {
-  const query = useReserve(shiftId);
-  const [vista, setVista] = useState<Vista>("estado");
-
-  if (vista === "tomar") return <TakeFromReservePanel shiftId={shiftId} onDone={() => setVista("estado")} />;
-  if (vista === "devolver") return <ReturnToReservePanel shiftId={shiftId} onDone={() => setVista("estado")} />;
-  if (vista === "verificar") return <VerifyReservePanel onDone={() => setVista("estado")} />;
-
-  if (query.isLoading || query.isError || !query.data) return <EstadoReserva query={query} />;
-  const status = query.data;
-  const motivo = motivoSinBase(status);
-
-  return (
-    <div className="space-y-5">
-      <p className="text-sm text-muted-foreground">
-        Plata aparte del cajón, por si los sobres no alcanzan. No entra al cuadre: lo que se toma entra al cajón y
-        se devuelve hoy, antes de contar el cierre.
-      </p>
-      {motivo ? (
-        <p className="rounded-md border p-3 text-sm">{motivo}</p>
-      ) : (
-        <dl className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-md border p-3">
-            <dt className="text-xs text-muted-foreground">Monto fijo</dt>
-            <dd className="text-lg font-semibold tabular-nums">{formatCOP(status.amount ?? null)}</dd>
-          </div>
-          <div className="rounded-md border p-3">
-            <dt className="text-xs text-muted-foreground">Disponible</dt>
-            <dd className="text-lg font-semibold tabular-nums">{formatCOP(status.available ?? null)}</dd>
-          </div>
-          <div className="rounded-md border p-3">
-            <dt className="text-xs text-muted-foreground">El cajón debe</dt>
-            <dd className="text-lg font-semibold tabular-nums">{formatCOP(status.loan)}</dd>
-          </div>
-        </dl>
-      )}
-      {!motivo ? (
-        <div className="grid gap-2 sm:grid-cols-3">
-          <Button type="button" className="h-12 text-base" onClick={() => setVista("tomar")}>
-            Tomar de la base
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-12 text-base"
-            disabled={status.loan <= 0}
-            onClick={() => setVista("devolver")}
-          >
-            Devolver a la base
-          </Button>
-          {status.can_verify ? (
-            <Button type="button" variant="outline" className="h-12 text-base" onClick={() => setVista("verificar")}>
-              Verificar base
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-      {status.last_check_at ? (
-        <p className="text-xs text-muted-foreground">
-          Última verificación: {formatInstant(status.last_check_at)} por {status.last_check_by ?? "—"} ·{" "}
-          {status.last_check_matched ? "cuadró" : "con diferencia"}
-        </p>
-      ) : null}
-      {status.movements.length > 0 ? (
-        <ul className="divide-y rounded-md border text-sm">
-          {status.movements.map((m) => (
-            <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
-              <span>
-                {m.kind === "take" ? "Se tomó" : "Se devolvió"} {formatCOP(m.amount ?? null)} · {m.employee_name}
-                {m.authorized_by_employee_name ? ` · autorizó ${m.authorized_by_employee_name}` : ""}
-              </span>
-              <span className="text-muted-foreground">
-                {m.at ? formatInstant(m.at) : ""}
-                {m.reversed_at ? ` · reversado: ${m.reversed_reason ?? ""}` : ""}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </div>
   );
 }

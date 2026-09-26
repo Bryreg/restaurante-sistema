@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useSession } from "@/app/session"
+import { CashRibbon } from "@/features/shifts"
 import { formatCOP } from "@/lib/money"
 import { errorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
@@ -267,6 +268,10 @@ export function TablesPage(): React.JSX.Element {
           </Button>
         </div>
       </div>
+
+      {/* La cinta de caja: sólo la ve quien puede manejar la caja, con turno
+          abierto; cada acción abre su hoja encima de Mesas. */}
+      <CashRibbon />
 
       {mode !== "idle" ? (
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-dashed p-3 text-sm">

@@ -266,6 +266,17 @@ residuo perdido. Usalo; no escribas otro.
 **Horas** — `app/core/hours.py` fija la escala entera de las horas, igual que
 `QTY_SCALE` hizo con las cantidades. Las horas no son pesos.
 
+**Asistencia** (0028) — `app/shifts/attendance.py`: la jornada es
+`AttendanceEntry` (sede + día operativo + persona), separada del turno de caja.
+El primer PIN del día marca la entrada (haya o no caja abierta); «Marcar
+salida» cierra también el roster del turno abierto; una salida olvidada queda
+`review` y **no** se cuenta hasta que el admin la corrige con motivo. El
+`ShiftRoster` es la proyección de la asistencia sobre la ventana del turno
+(al abrir la caja entra quien ya marcó entrada) y sigue siendo la base del
+reparto de propinas. Nómina suma la **unión** de asistencia y roster por
+persona (nunca dos veces el mismo minuto). El administrador no tiene
+asistencia ni roster: en la tablet sólo autoriza.
+
 ---
 
 ## 9. Reglas de plata que se rompen sin que se vea en pantalla

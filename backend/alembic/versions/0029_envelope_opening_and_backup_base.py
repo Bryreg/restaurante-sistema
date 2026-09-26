@@ -34,12 +34,11 @@ Esquema:
 Columnas sueltas sin `batch_alter_table`; las tablas nuevas llevan sus llaves
 foráneas desde el `create_table` (tabla nueva, las dos bases lo aceptan).
 
-**Numeración**: `0029` encadenada sobre `0027` a propósito — otros pedidos en
-paralelo crean `0028`/`0030` sobre `0027` y la cadena se re-encadena al
-integrarlos.
+**Numeración**: `0029` nació en paralelo sobre `0027`; al integrar se
+re-encadenó: `0027 → 0028_attendance → 0029 → 0030_area_count_per_item`.
 
 Revision ID: 0029
-Revises: 0027
+Revises: 0028
 """
 
 from __future__ import annotations
@@ -48,7 +47,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0029"
-down_revision: str | None = "0027"
+down_revision: str | None = "0028"
 branch_labels: str | None = None
 depends_on: str | None = None
 

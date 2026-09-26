@@ -709,3 +709,71 @@ class CashReserveCheck(Base):
         Index("ix_cash_reserve_checks_store_at", "store_id", "at"),
         CheckConstraint("counted >= 0", name="ck_cash_reserve_checks_counted_nonneg"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Asistencia del día, separada del turno de caja (0028)
+# ---------------------------------------------------------------------------
+
+
+class AttendanceEntry(Base):
+    """Entrada y salida de una persona en el DÍA OPERATIVO, con o sin turno de
+    caja abierto.
+
+    Antes la jornada sólo existía como `ShiftRoster`, y el roster sólo existe
+    si hay un turno de caja abierto: el cocinero que llega a las 7 a. m.,
+    antes de que alguien abra la caja, no tenía hora de entrada. Esta tabla
+    es la jornada; el roster queda como su proyección sobre la ventana del
+    turno de caja (quién estuvo en ESE turno, para propinas y relevos).
+
+    - El primer PIN del día operativo marca la entrada sola
+      (`app.shifts.attendance.record_on_identify`); «Marcar salida» es un
+      toque.
+    - Una salida olvidada queda abierta con fecha de un día pasado: eso es
+      «a revisar» para el administrador, y **no** se cuenta hasta ahora
+      (contarla hasta el presente era el defecto que el roster ya tuvo).
+    - El administrador (`role="admin"`) nunca tiene fila: autoriza, no opera,
+      y no suma horas ni propina.
+    - Nada se borra: la corrección de una salida olvidada escribe `out_at`
+      con su motivo y deja auditoría.
+    """
+
+    __tablename__ = "attendance_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    employee_name: Mapped[str] = mapped_column(sa.String(200))
+    business_date: Mapped[date] = mapped_column(sa.Date)
+    # El puesto con el que entró (copia congelada; `None` = sin puesto).
+    puesto: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
+
+    in_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    # identify | manual | shift | roster
+    in_source: Mapped[str] = mapped_column(sa.String(16))
+    out_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # self | other | admin_fix | roster
+    out_source: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
+    out_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    out_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    out_reason: Mapped[str | None] = mapped_column(sa.String(300), nullable=True)
+
+    # [{"start": iso, "end": iso|None}, ...] — las pausas del roster se reflejan acá.
+    pauses: Mapped[list] = mapped_column(sa.JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (
+        Index("ix_attendance_entries_store_date", "store_id", "business_date"),
+        # Una sola entrada ABIERTA por persona, sede y día operativo: dos
+        # tablets que identifican a la misma persona a la vez no duplican.
+        Index(
+            "uq_attendance_entries_one_open",
+            "store_id",
+            "employee_id",
+            "business_date",
+            unique=True,
+            postgresql_where=sa.text("out_at IS NULL"),
+            sqlite_where=sa.text("out_at IS NULL"),
+        ),
+    )

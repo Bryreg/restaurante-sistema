@@ -1155,3 +1155,10 @@ def get_admin_reserve(
         open_loans=[ReserveOpenLoanOut(shift_id=loan.shift_id, amount=loan.amount, shift_open=loan.shift_open) for loan in loans],
         checks=[ReserveCheckOut.model_validate(c) for c in reserve_service.list_checks(db, store_id=store.id)],
     )
+
+
+# Asistencia del día (0028): rutas propias en su módulo, montadas con las del
+# dominio para no tocar `app.main.DOMAINS`.
+from app.shifts import attendance_router as _attendance_router  # noqa: E402
+
+router.include_router(_attendance_router.router)

@@ -1036,6 +1036,10 @@
   "Todavía no hay mesas",
   "Todavía no hay zonas"
  ],
+ "features/shifts/CashRibbon.tsx": [
+  "Acciones de caja",
+  "Mesas"
+ ],
  "features/shifts/CloseWizard.tsx": [
   "Continuar"
  ],
@@ -1074,21 +1078,29 @@
   "Todavía no entró nadie a este turno"
  ],
  "features/shifts/ShiftPage.tsx": [
-  "Cambio",
-  "Cierre",
-  "Domicilios",
-  "Movimientos",
   "No se pudo consultar el turno",
   "Reintentar",
-  "Relevo",
-  "Resumen",
-  "Retiros"
+  "Resumen"
  ],
  "features/shifts/ShiftStatusStrip.tsx": [
   "Abrir turno →"
  ],
  "features/shifts/SingleStepCloseForm.tsx": [
   "Sin diferencia / elegí una causa"
+ ],
+ "features/shifts/acciones.ts": [
+  "Cambio",
+  "Cierre",
+  "Consignar",
+  "Conteo de mi área",
+  "Domicilios",
+  "Entrada / Salida",
+  "Movimientos",
+  "Novedades",
+  "Recibir mercancía",
+  "Relevo",
+  "Retiros",
+  "Solicitudes"
  ],
  "features/shifts/admin/AuthorizationsTab.tsx": [
   "No se pudieron cargar las autorizaciones",
@@ -1140,6 +1152,11 @@
   "Reabrir este cierre",
   "Sin eventos todavía",
   "Volver"
+ ],
+ "features/shifts/cinta.ts": [
+  "Cambio",
+  "Domicilios",
+  "Gasto / Ingreso"
  ],
  "features/shifts/closeUi.tsx": [
   "Tapado"

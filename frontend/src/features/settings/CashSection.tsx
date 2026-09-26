@@ -192,7 +192,7 @@ const ERROR_ORDEN =
 function cambiosPendientes(guardado: CashSettings, actual: CashSettings): PendingChange[] {
   const plata: { key: keyof CashSettings; field: string; leaks?: string }[] = [
     { key: "opening_cash_fixed", field: "Base fija de apertura", leaks: "Cambia Dinero › Abrir turno" },
-    { key: "cash_reserve_default", field: "Base de respaldo", leaks: "Cambia Salón › Turno › Base de respaldo" },
+    { key: "cash_reserve_default", field: "Base de respaldo", leaks: "Cambia Salón › Turno › Tomar de la base" },
     {
       key: "tolerance_unknown_cause",
       field: "Tolerancia sin causa identificada",
@@ -363,7 +363,7 @@ export function CashSection({ storeId }: { storeId: number | null }): React.JSX.
           }
           scope={{
             flag: "cash.reserve",
-            affects: [{ screen: "Salón › Turno › Base de respaldo", verb: "Fija el monto de" }],
+            affects: [{ screen: "Salón › Turno › Tomar de la base", verb: "Fija el monto de" }],
           }}
         >
           {({ fieldId, describedBy }) => (

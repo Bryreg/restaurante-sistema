@@ -109,7 +109,7 @@ const GROUPS: readonly { group: string; tabs: readonly SettingsTab[] }[] = [
           "¿Con cuánto abre el cajón, cuánto puede desajustar un cierre y qué le exige el salón a quien cuenta?",
         leaks: true,
         destinations: [
-          { screen: "Salón › Turno › Base de respaldo", what: "El monto fijo de la base de respaldo (y la base fija, en sedes que abren con ella)." },
+          { screen: "Salón › Turno › Tomar de la base", what: "El monto fijo de la base de respaldo (y la base fija, en sedes que abren con ella)." },
           {
             screen: "Salón › Cierre de turno",
             what: "Los dos umbrales, la causa identificada obligatoria y el campo de foto del paso 3.",

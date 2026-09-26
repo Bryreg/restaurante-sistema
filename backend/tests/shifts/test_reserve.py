@@ -126,7 +126,7 @@ def test_the_closing_count_waits_until_the_loan_is_returned(
     )
     assert count.status_code == 400
     assert count.json()["error"]["code"] == "RESERVE_LOAN_OPEN"
-    assert "Base de respaldo" in count.json()["error"]["message"]
+    assert "Devolver a la base" in count.json()["error"]["message"]
 
     de_mas = _give_back(device_client, shift["id"], 60_000)
     assert de_mas.status_code == 400

@@ -484,19 +484,36 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     no tablas: se mueve el poste de la cabeza y el del conteo no, igual que
     `0019`, `0021` y `0022`.
 
-    **Re-apuntado con la apertura por sobres y la base de respaldo**
-    (decisión del dueño, 2026-09-26): la cadena llega a
-    **`0029_envelope_opening_and_backup_base`** y el conteo a **110**. El
-    cajón abre sólo con los sobres por consignar que se eligen y se cuentan a
-    ciegas (`shift_opening_counts`, el conteo sellado), y la «base» es una
-    sola cosa: la base de respaldo aparte del cajón, con su libro
-    (`cash_reserve_movements`) y sus verificaciones (`cash_reserve_checks`).
-    `shifts` y `store_cash_settings` suman columnas (la regla de cada turno y
-    de cada sede). **`0029` se encadena sobre `0027` a propósito**: otros
-    pedidos en paralelo crean `0028`/`0030` sobre `0027`, y la cadena se
-    re-encadena al integrarlos (ahí este poste vuelve a moverse). Se mueve el
-    poste; las dos igualdades siguen exactas y los tres nombres entran
-    enumerados abajo.
+    **Re-apuntado con la asistencia separada del turno de caja**: la cadena
+    llega a **`0028_attendance`** y el conteo a **108**. Motivo declarado: el
+    cocinero que llega a las 7 a. m., antes de que alguien abra la caja, no
+    tenía hora de entrada, porque la jornada sólo existía como roster del
+    turno de caja. `attendance_entries` es la jornada por sede, día operativo
+    y persona; el roster queda como su proyección sobre la ventana del turno.
+    Una tabla nueva, ninguna columna en tablas existentes. El poste se mueve;
+    la forma del invariante —igualdad exacta sobre un conjunto enumerado—
+    queda igual, y el nombre nuevo entra enumerado abajo.
+    **Re-apuntado con el conteo artículo por artículo**: la cadena llega a
+    **`0030_area_count_per_item`** y el conteo **sigue en 107**. El dueño
+    decidió que la apertura de cada área es obligatoria, que cada artículo se
+    guarda al contarlo con quién y cuándo (recontar agrega otra entrada, nada
+    se pisa) y que una vez al mes se cuenta todo lo del área por categoría.
+    Son COLUMNAS en `area_count_lines`, `area_counts`, `count_areas` y
+    `area_count_settings`, más un índice único (`session_key`); ninguna
+    tabla. Se llama `0030` y cuelga de `0027` porque en paralelo nacen
+    `0028`/`0029` sobre `0027` y la cadena se re-encadena al integrar: si al
+    integrar la cabeza es otra, el poste se mueve de nuevo, con su motivo.
+
+    **Re-apuntado al integrar la apertura por sobres y la base de respaldo**
+    (decisión del dueño, 2026-09-26): la cadena queda `0027 → 0028_attendance
+    → 0029_envelope_opening_and_backup_base → 0030_area_count_per_item`, la
+    cabeza sigue en **`0030`** y el conteo pasa de 108 a **111**. `0029` suma
+    tres tablas: el conteo de apertura por sobres sellado a ciegas
+    (`shift_opening_counts`) y el libro y las verificaciones de la base de
+    respaldo, la plata aparte del cajón (`cash_reserve_movements`,
+    `cash_reserve_checks`); `shifts` y `store_cash_settings` suman columnas.
+    Se mueve el poste; las dos igualdades siguen exactas y los tres nombres
+    entran enumerados abajo.
     """
     from sqlalchemy import text
 
@@ -508,11 +525,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0029", (
-        f"la cadena quedó en {version!r}; el punto de llegada después de la apertura por sobres "
-        "es 0029 (`0029_envelope_opening_and_backup_base`). "
+    assert version == "0030", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0030: 0027 → 0028 (asistencia separada del turno de caja) "
+        "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027 y 0029"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029 y 0030"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -565,6 +582,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
         "area_recount_requests",
         "area_count_settings",
     }
+    de_la_asistencia = {"attendance_entries"}
     # 2026-09-26: el conteo de apertura por sobres y la base de respaldo.
     de_la_base_de_respaldo = {"shift_opening_counts", "cash_reserve_movements", "cash_reserve_checks"}
     de_la_nomina = {
@@ -591,6 +609,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
             | del_cajon
             | de_la_rutina
             | del_conteo_por_area
+            | de_la_asistencia
             | de_la_base_de_respaldo
         )
         - tablas
@@ -613,12 +632,14 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # otra (`shift_carry_ins`): 95; `0025` cinco de la rutina del turno: 100;
     # `0026` siete del conteo corto por área: **107**. `0027` (el puesto de
     # cada persona y la última que usó la tablet) agrega columnas, no tablas:
-    # sigue 107. `0029` (apertura por sobres y base de respaldo) suma tres:
-    # **110**.
-    assert len(tablas) == 110, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; `0029` lo deja en 110 "
+    # sigue 107. `0028` suma la asistencia del día (`attendance_entries`),
+    # separada del turno de caja: 108. `0029` (apertura por sobres y base de
+    # respaldo) suma tres: **111**. `0030` agrega columnas, no tablas.
+    assert len(tablas) == 111, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; `0029` lo deja en 111 "
         f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón "
-        f"+ 5 de la rutina del turno + 7 del conteo por área + 3 de la apertura por sobres y la base de respaldo). "
+        f"+ 5 de la rutina del turno + 7 del conteo por área + 1 de asistencia "
+        f"+ 3 de la apertura por sobres y la base de respaldo). "
         f"Actualizá este número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 

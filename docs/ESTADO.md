@@ -1849,14 +1849,51 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     `pos.delivery`. **Se rotaron** la clave del admin, el PIN de sede y todos
     los PINs: `cambiar`/`123456`/`7001…` ya no sirven en producción (las
     claves nuevas las tiene el dueño; nunca van al repo).
-45. **El cajón abre con los sobres por consignar; la base de respaldo va
+45. **Conteo por área artículo por artículo, obligatorio al abrir** (2026-09-26,
+    decisión 5 del dueño). Migración `0030` (cuelga de `0027`; sólo columnas
+    e índices, el conteo de tablas sigue en 107).
+    - **Pantalla propia** `/pos/conteo`, sin caja abierta: las listas del día
+      de todas las áreas, filtrables (Mi área | Bar | Cocina | … | Todo) para
+      que quien termina primero ayude. Cada artículo se guarda al contarlo
+      (`POST /device/area-count-items`) con quién y a qué hora; a ciegas
+      también entre compañeros («Contado por Kevin · 7:10», nunca la
+      cantidad). Recontar agrega otra entrada: manda la última, el historial
+      lo ve el admin en el detalle. La sesión de apertura/cierre de un área es
+      un `AreaCount` con `session_key` único (área:momento:día) y está completa
+      cuando todos los artículos de la lista del día tienen conteo. «Conteo»
+      en Turno muestra la misma pantalla.
+    - **Faltante de la noche sin caja**: la ventana es el día operativo; el
+      esperado de cada artículo va de la hora en que se contó en el cierre
+      anterior a la hora en que se contó al abrir (misma fórmula).
+    - **Obligatorio**: cocina y bar llegan a Conteo tras el PIN
+      (`inicioParaPuesto`, `?inicio=1`; si ya está, siguen al KDS). Las demás
+      pantallas del POS muestran «Primero el conteo de apertura» mientras
+      `GET /device/area-count/gate` diga `required` (no al supervisor, no sin
+      área, no con el cierre empezado); el KDS y la vista de cocina no se
+      frenan: aviso rojo fijo. Es puerta de pantalla: el servidor no bloquea
+      caja ni venta. En Hoy, `opening` sólo llega cuando la apertura está
+      completa (`AreaTodayStatus` suma `opening_counted/total`,
+      `closing_counted/total`, `full_count`, `opening_missing`, todavía sin
+      mapear en `reports`).
+    - **Conteo completo mensual**: `monthly_full_count_day` (1–28 o apagado)
+      en los ajustes del conteo y categorías de insumo por área
+      (`PUT /admin/count-areas/{id}/categories`, una categoría en un solo
+      área). Ese día la lista de cada área es su lista corta más todos los
+      insumos activos de sus categorías; el tope de 15 es sólo de la corta.
+    - Admin › Conteo por área: «Conteo de hoy, artículo por artículo»
+      (`GET /admin/area-count-status`), categorías por área, día del mes y
+      quién/cuándo por renglón en el detalle.
+    - Pendiente: `/pos/conteo` no está en los destinos de cocina/bar de la
+      barra (`DESTINOS` en `app/puesto.ts`); se llega por el PIN, la puerta y
+      Turno.
+46. **El cajón abre con los sobres por consignar; la base de respaldo va
     aparte** (2026-09-26). Decisiones del dueño, a imagen de café-sistema:
     el cajón abre SÓLO con los sobres elegidos (sin base fija), una caja
     por sede, el supervisor autoriza en el piso y el dueño guarda la
     configuración. «Base» significa una sola cosa: la base de respaldo (el
     incidente del café: la base de emergencia mezclada con la plata
     consignable pidió consignar $697.900 en vez de $197.900). Migración
-    `0029` (sobre `0027`; se re-encadena al integrar), 3 tablas.
+    `0029` (encadenada `0028 → 0029 → 0030`), 3 tablas.
     - **Regla por turno, nunca reescrita**: `shifts.opening_mode` y
       `shifts.opening_fixed_base` (la base fija que congeló cada turno;
       backfill con la de su sede, 0 con sobres). `to_deposit` resta la del
@@ -1888,13 +1925,26 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       `GET /admin/stores/{id}/reserve` para el panel del admin.
     - **Frontend**: `OpeningScreen` → `EnvelopeOpeningForm` (elegir,
       contar cada sobre con `DenominationKeypad`, sellar, ver la diferencia
-      por sobre, causa, abrir); acción «Base de respaldo» en Turno;
+      por sobre, causa, abrir); «Tomar de la base», «Devolver a la base» y «Verificar base» enchufados en `baseSlot.ts` (grilla de Turno y cinta de Mesas, misma hoja);
       `TakeFromReservePanel` / `ReturnToReservePanel` / `VerifyReservePanel`
       exportados desde `features/shifts` para la cinta de Mesas. Ajustes ›
       Caja rotula «Base de respaldo» el monto fijo y esconde la base fija con
       la regla de sobres (baja declarada en el censo de controles).
     - Pendiente: el simulador `app/demo.py` y el seed siguen con base fija;
       el panel del admin (Hoy) todavía no pinta los préstamos sin devolver.
+47. **Puerta de entrada, modo supervisor y asistencia separada del turno
+    de caja** (2026-09-26). Migración `0028` (`attendance_entries`). Puerta
+    en «/» (Operar / Administrar); el administrador identificado en la tablet
+    sólo autoriza («Modo autorización», `/pos/autorizar`: sin barra, sin
+    roster, sin asistencia ni propina); el supervisor llega a Turno. El
+    primer PIN del día marca la entrada con o sin caja abierta; la salida
+    olvidada queda «a revisar» y el admin la corrige con motivo; el roster
+    del turno se alimenta de la asistencia al abrir la caja. Y la **cinta de
+    caja en Mesas** (`acciones.ts`, `ShiftActionSheet.tsx`, `cinta.ts`,
+    `baseSlot.ts`): las acciones del turno en hojas encima del mapa; «Tomar /
+    Devolver a la base» se enchufan en `baseSlot.ts` con los paneles de §46.
+    Al integrar, la cadena queda `0027 → 0028 → 0029 → 0030` y el esquema
+    en 111 tablas.
 
 ---
 

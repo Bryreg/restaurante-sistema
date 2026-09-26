@@ -22,9 +22,10 @@ import { useSession } from "./session";
 export default function PosHome(): React.JSX.Element | null {
   const { me, hasFeature } = useSession();
   const persona = me?.employee;
-  const conCaja = puedeManejarCaja(persona, null);
+  // El administrador sólo autoriza: no abre caja ni pregunta por el turno.
+  const conCaja = persona?.role !== "admin" && puedeManejarCaja(persona, null);
   const turno = useQuery({ queryKey: ["shifts", "current"], queryFn: getCurrentShift, enabled: conCaja });
   if (conCaja && turno.isLoading) return null;
   const turnoAbierto = conCaja && turno.isSuccess ? turno.data !== null : null;
-  return <Navigate to={inicioParaPuesto(persona, hasFeature, turnoAbierto)} replace />;
+  return <Navigate to={inicioParaPuesto(persona, hasFeature, { turnoAbierto })} replace />;
 }

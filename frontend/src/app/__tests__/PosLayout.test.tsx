@@ -76,6 +76,10 @@ function renderLayout(
   );
 }
 
+async function abrirMenu(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(await screen.findByRole("button", { name: "Más opciones" }));
+}
+
 /** Los rótulos de la barra del salón, en el orden en que se ven. */
 async function rotulosDeLaBarra(): Promise<string[]> {
   const barra = await screen.findByRole("navigation", { name: "Secciones del salón" });
@@ -175,13 +179,28 @@ describe("PosLayout — la salida del dispositivo", () => {
   // Para mover la tablet a otra sede, o cuando se activó la equivocada, hacía
   // falta desactivar el dispositivo y no existía en ninguna pantalla:
   // `deviceDeactivate()` estaba en `src/api/auth.ts` sin un solo llamador.
+  // Motivo del cambio: la entrada al admin, la pantalla oscura y desactivar
+  // pasaron de la barra al menú «⋯» (decisión del dueño: la barra es para
+  // operar). El control sigue existiendo, a un toque más.
   it("hay un control para desactivar el dispositivo, aparte de «Cambiar de persona»", async () => {
+    const user = userEvent.setup();
     renderLayout({});
 
+    await abrirMenu(user);
     expect(
-      await screen.findByRole("button", { name: /desactivar este dispositivo/i }),
+      await screen.findByRole("menuitem", { name: /desactivar este dispositivo/i }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /cambiar de persona/i })).toBeInTheDocument();
+  });
+
+  it("el menú «⋯» ofrece entrar como administrador y la pantalla oscura, fuera de la barra", async () => {
+    const user = userEvent.setup();
+    renderLayout({});
+
+    expect(screen.queryByRole("button", { name: /pantalla oscura/i })).not.toBeInTheDocument();
+    await abrirMenu(user);
+    expect(await screen.findByRole("menuitem", { name: /entrar como administrador/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /pantalla oscura/i })).toBeInTheDocument();
   });
 
   it("un solo toque NO desactiva: primero hay que confirmar", async () => {
@@ -190,7 +209,8 @@ describe("PosLayout — la salida del dispositivo", () => {
     const user = userEvent.setup();
     renderLayout({});
 
-    await user.click(await screen.findByRole("button", { name: /desactivar este dispositivo/i }));
+    await abrirMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: /desactivar este dispositivo/i }));
 
     expect(deviceDeactivate).not.toHaveBeenCalled();
     expect(await screen.findByText(/PIN de sede/i)).toBeInTheDocument();
@@ -201,7 +221,8 @@ describe("PosLayout — la salida del dispositivo", () => {
     const user = userEvent.setup();
     renderLayout({}, { clear });
 
-    await user.click(await screen.findByRole("button", { name: /desactivar este dispositivo/i }));
+    await abrirMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: /desactivar este dispositivo/i }));
     await user.click(await screen.findByRole("button", { name: /^desactivar$/i }));
 
     await waitFor(() => expect(deviceDeactivate).toHaveBeenCalledTimes(1));
@@ -214,11 +235,59 @@ describe("PosLayout — la salida del dispositivo", () => {
     const user = userEvent.setup();
     renderLayout({}, { clear });
 
-    await user.click(await screen.findByRole("button", { name: /desactivar este dispositivo/i }));
+    await abrirMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: /desactivar este dispositivo/i }));
     await user.click(await screen.findByRole("button", { name: /^desactivar$/i }));
 
     await waitFor(() => expect(deviceDeactivate).toHaveBeenCalledTimes(1));
     expect(clear).not.toHaveBeenCalled();
+  });
+});
+
+describe("PosLayout — el administrador en la tablet sólo autoriza", () => {
+  const ADMIN: Employee = { id: 1, name: "Dueño", role: "admin", can_charge: false };
+
+  it("cualquier pantalla del salón lo lleva a «Modo autorización» y no tiene barra", async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/pos" element={<PosLayout />}>
+          <Route index element={<div>contenido</div>} />
+          <Route path="autorizar" element={<div>Modo autorización</div>} />
+        </Route>
+      </Routes>,
+      { route: "/pos", me: deviceMe(TODO_ENCENDIDO, ADMIN) },
+    );
+
+    expect(await screen.findByText("Modo autorización")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Secciones del salón" })).not.toBeInTheDocument();
+  });
+});
+
+describe("PosLayout — marcar salida", () => {
+  it("con entrada abierta hoy, el menú ofrece «Marcar salida»; sin entrada, no", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(
+      <Routes>
+        <Route path="/pos" element={<PosLayout />}>
+          <Route index element={<div>contenido</div>} />
+        </Route>
+      </Routes>,
+      {
+        route: "/pos",
+        me: {
+          ...deviceMe({}),
+          employee_attendance: { id: 3, business_date: "2026-03-10", in_at: "2026-03-10T12:02:00Z" },
+        },
+      },
+    );
+    await abrirMenu(user);
+    expect(await screen.findByRole("menuitem", { name: /^marcar salida$/i })).toBeInTheDocument();
+    unmount();
+
+    renderLayout({});
+    await abrirMenu(user);
+    await screen.findByRole("menuitem", { name: /entrar como administrador/i });
+    expect(screen.queryByRole("menuitem", { name: /^marcar salida$/i })).not.toBeInTheDocument();
   });
 });
 

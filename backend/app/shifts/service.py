@@ -33,7 +33,7 @@ from app.banking import hooks as banking_hooks
 from app.photos import hooks as photos_hooks
 from app.stores import service as stores_service
 from app.stores.models import Store
-from app.shifts import activity_metrics, hooks, reserve
+from app.shifts import activity_metrics, attendance, hooks, reserve
 from app.shifts.models import (
     BusinessDay,
     BusinessDayStatus,
@@ -631,6 +631,9 @@ def _after_open(
         opener = db.get(Employee, opener_id)
         if opener is not None:
             hooks.on_employee_identified(db, store_id=store.id, employee=opener)
+    # La asistencia del día manda (0028): quien marcó entrada antes de que
+    # se abriera la caja también está en este turno.
+    attendance.sync_roster_on_shift_open(db, shift=shift)
 
     # Comandas que quedaron trasladadas (`shift_id NULL`) por el cierre de un
     # turno anterior: este nuevo turno las adopta (CONTRATO-INTERNO-1b-1.md
@@ -1040,6 +1043,15 @@ def roster_action(db: Session, *, actor: Actor, shift: Shift, payload: RosterAct
     if not auth_service.verify_pin(db, employee, payload.pin):
         raise AppError("PIN_INVALID", "El PIN no es válido: volvé a intentarlo", status=400)
 
+    if employee.role == "admin":
+        # Decisión del dueño: en la tablet el administrador sólo autoriza.
+        # No entra al turno, no suma horas ni propina.
+        raise AppError(
+            "ADMIN_NOT_IN_ROSTER",
+            "El administrador autoriza, no entra al turno: no suma horas ni propina",
+            status=400,
+        )
+
     if payload.action == "out" and employee.id == shift.cash_responsible_id:
         raise AppError(
             "NOT_CASH_RESPONSIBLE",
@@ -1075,6 +1087,11 @@ def roster_action(db: Session, *, actor: Actor, shift: Shift, payload: RosterAct
         entry.pauses = pauses
 
     db.flush()
+    # La salida y las pausas del roster son las de la jornada del día (0028).
+    if payload.action != "in":
+        attendance.mirror_roster_action(
+            db, actor=actor, store_id=shift.store_id, employee=employee, action=payload.action, at=now
+        )
     record_audit(
         db,
         actor=actor,
@@ -1757,7 +1774,7 @@ def _reject_open_reserve_loan(db: Session, shift: Shift) -> None:
     if owed > 0:
         raise AppError(
             "RESERVE_LOAN_OPEN",
-            f"El cajón le debe {format_cop(owed)} a la base de respaldo: devolvelos en Turno › Base de respaldo "
+            f"El cajón le debe {format_cop(owed)} a la base de respaldo: devolvelos en Turno › Devolver a la base "
             "antes de contar el cierre",
             status=400,
             extra={"owed": owed},
@@ -1917,7 +1934,7 @@ def close_precheck(db: Session, *, shift: Shift, store: Store) -> dict[str, Any]
                 "code": "RESERVE_LOAN_OPEN",
                 "level": "blocking",
                 "message": (
-                    "Hay plata tomada de la base de respaldo sin devolver: devolvela en Turno › Base de respaldo "
+                    "Hay plata tomada de la base de respaldo sin devolver: devolvela en Turno › Devolver a la base "
                     "antes de contar el cierre"
                 ),
             }

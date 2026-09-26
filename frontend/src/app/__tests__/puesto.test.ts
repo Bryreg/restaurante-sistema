@@ -10,7 +10,9 @@ import {
   navParaPuesto,
   puedeManejarCaja,
   puestoEfectivo,
+  RUTA_AUTORIZAR,
   rutaIdentificarse,
+  soloAutoriza,
 } from "../puesto";
 
 /** Los manifiestos reales, en el orden en que `PosLayout` los concatena. */
@@ -125,26 +127,55 @@ describe("inicioParaPuesto — a dónde llega después del PIN", () => {
     expect(inicioParaPuesto({ role: "operator", puesto: "salon" }, nada)).toBe("/pos/comanda/nueva");
   });
 
-  it("cocina y bar → KDS; sin KDS, la vista de cocina; sin nada, Turno", () => {
+  // **Movido a propósito (0030, decisión 5 del dueño)**: con el conteo por
+  // área encendido, cocina y bar pasan primero por Conteo (la apertura de su
+  // área es obligatoria); la pantalla de conteo sigue sola al KDS si ya está
+  // hecha. El destino de siempre (KDS → vista de cocina → Turno) no cambió:
+  // es el `sinConteo`, y sin la función es el mismo de antes.
+  it("cocina y bar → Conteo con el conteo por área; si no, KDS; sin KDS, la vista de cocina; sin nada, Turno", () => {
+    const conConteo = (k: string) => todo(k) || k === "inventory.perpetual" || k === "inventory.shift_counts";
+    expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, conConteo)).toBe("/pos/conteo?inicio=1");
+    expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, conConteo)).toBe("/pos/conteo?inicio=1");
+    expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, conConteo, { sinConteo: true })).toBe("/pos/kds");
+    expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, conConteo, { sinConteo: true })).toBe("/pos/kds");
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, todo)).toBe("/pos/kds");
-    expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, todo)).toBe("/pos/kds");
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, (k) => k === "kitchen.view")).toBe("/pos/cocina");
     expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, nada)).toBe("/pos/turno");
+    // Caja y salón no pasan por el conteo.
+    expect(inicioParaPuesto({ role: "operator", puesto: "caja" }, conConteo)).toBe("/pos/turno");
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon" }, conConteo)).toBe("/pos/mesas");
   });
 
-  it("sin puesto o supervisor: lo de siempre", () => {
+  it("sin puesto: lo de siempre", () => {
     expect(inicioParaPuesto({ role: "operator" }, todo)).toBe("/pos/mesas");
-    expect(inicioParaPuesto({ role: "supervisor", puesto: "caja" }, nada)).toBe("/pos/comanda/nueva");
+    expect(inicioParaPuesto({ role: "operator" }, nada)).toBe("/pos/comanda/nueva");
+  });
+
+  // Motivo del cambio: el dueño decidió un «modo supervisor» con llegada
+  // explícita a Turno (sus herramientas: abrir, base, retiros, salidas de
+  // otros). Antes caía en Mesas/Mostrador como cualquiera sin puesto.
+  it("supervisor: llega a Turno, tenga o no puesto", () => {
+    expect(inicioParaPuesto({ role: "supervisor", puesto: "caja" }, nada)).toBe("/pos/turno");
+    expect(inicioParaPuesto({ role: "supervisor" }, todo)).toBe("/pos/turno");
+  });
+
+  it("administrador: sólo autoriza, llega a «Modo autorización» y no tiene barra", () => {
+    expect(inicioParaPuesto({ role: "admin" }, todo)).toBe(RUTA_AUTORIZAR);
+    expect(soloAutoriza({ role: "admin" })).toBe(true);
+    expect(soloAutoriza({ role: "supervisor" })).toBe(false);
+    expect(barraDelSalon(TODAS, todo, { role: "admin" })).toEqual([]);
   });
 
   it("quien maneja la caja y llega sin turno abierto va primero al cuadre de apertura (Turno)", () => {
-    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, false)).toBe("/pos/turno");
-    expect(inicioParaPuesto({ role: "supervisor" }, todo, false)).toBe("/pos/turno");
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, { turnoAbierto: false })).toBe("/pos/turno");
+    expect(inicioParaPuesto({ role: "supervisor" }, todo, { turnoAbierto: false })).toBe("/pos/turno");
     // Con turno abierto, o mientras no se sabe, manda el puesto.
-    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, true)).toBe("/pos/mesas");
-    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, null)).toBe("/pos/mesas");
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, { turnoAbierto: true })).toBe("/pos/mesas");
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, { turnoAbierto: null })).toBe("/pos/mesas");
     // Quien no puede tocar la caja no tiene cuadre que hacer.
-    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: false }, todo, false)).toBe("/pos/mesas");
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: false }, todo, { turnoAbierto: false })).toBe("/pos/mesas");
+    // El administrador sólo autoriza: no abre la caja.
+    expect(inicioParaPuesto({ role: "admin" }, todo, { turnoAbierto: false })).not.toBe("/pos/turno");
   });
 });
 
