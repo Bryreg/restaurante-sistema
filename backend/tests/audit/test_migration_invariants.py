@@ -483,6 +483,16 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     última persona que usó la tablet, para ofrecerla primero). Son COLUMNAS,
     no tablas: se mueve el poste de la cabeza y el del conteo no, igual que
     `0019`, `0021` y `0022`.
+
+    **Re-apuntado con la asistencia separada del turno de caja**: la cadena
+    llega a **`0028_attendance`** y el conteo a **108**. Motivo declarado: el
+    cocinero que llega a las 7 a. m., antes de que alguien abra la caja, no
+    tenía hora de entrada, porque la jornada sólo existía como roster del
+    turno de caja. `attendance_entries` es la jornada por sede, día operativo
+    y persona; el roster queda como su proyección sobre la ventana del turno.
+    Una tabla nueva, ninguna columna en tablas existentes. El poste se mueve;
+    la forma del invariante —igualdad exacta sobre un conjunto enumerado—
+    queda igual, y el nombre nuevo entra enumerado abajo.
     """
     from sqlalchemy import text
 
@@ -494,11 +504,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0027", (
-        f"la cadena quedó en {version!r}; el punto de llegada después del inicio por rol "
-        "es 0027 (`0027_employee_puesto`). "
+    assert version == "0028", (
+        f"la cadena quedó en {version!r}; el punto de llegada después de la asistencia "
+        "separada del turno de caja es 0028 (`0028_attendance`). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026 y 0027"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027 y 0028"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -551,6 +561,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
         "area_recount_requests",
         "area_count_settings",
     }
+    de_la_asistencia = {"attendance_entries"}
     de_la_nomina = {
         "payroll_surcharge_tables",
         "payroll_holidays",
@@ -575,6 +586,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
             | del_cajon
             | de_la_rutina
             | del_conteo_por_area
+            | de_la_asistencia
         )
         - tablas
     )
@@ -596,11 +608,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # otra (`shift_carry_ins`): 95; `0025` cinco de la rutina del turno: 100;
     # `0026` siete del conteo corto por área: **107**. `0027` (el puesto de
     # cada persona y la última que usó la tablet) agrega columnas, no tablas:
-    # sigue 107.
-    assert len(tablas) == 107, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; `0026` lo deja en 107 (y `0027` no lo mueve) "
+    # sigue 107. `0028` suma la asistencia del día (`attendance_entries`),
+    # separada del turno de caja: **108**.
+    assert len(tablas) == 108, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; `0028` lo deja en 108 "
         f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón "
-        f"+ 5 de la rutina del turno + 7 del conteo por área). "
+        f"+ 5 de la rutina del turno + 7 del conteo por área + 1 de asistencia). "
         f"Actualizá este número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 

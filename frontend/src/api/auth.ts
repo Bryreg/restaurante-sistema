@@ -38,6 +38,15 @@ export interface EmployeeBrief {
 /** `employees.puesto`: caja, salón, cocina o bar (0027). */
 export type Puesto = "caja" | "salon" | "cocina" | "bar";
 
+/** La entrada del día de una persona (asistencia, separada del turno de caja). */
+export interface AttendanceBrief {
+  id: number;
+  business_date: string;
+  in_at: string;
+  /** Sólo en `identify`: `true` si este PIN acaba de marcar la entrada. */
+  created?: boolean;
+}
+
 /** `GET /auth/me` — la sesión completa, con los flags vigentes de la sede. */
 export interface Me {
   kind: "admin" | "device";
@@ -47,6 +56,12 @@ export interface Me {
   employee_expires_at?: string | null;
   /** Sólo dispositivo: la última persona que se identificó en esta tablet. */
   last_employee_id?: number | null;
+  /** Sólo dispositivo: la entrada abierta de hoy de la persona identificada (asistencia). */
+  employee_attendance?: AttendanceBrief | null;
+  /** Sólo admin: la sesión se abrió desde una tablet del salón (corta; al salir vuelve el POS). */
+  on_device?: boolean | null;
+  /** Sólo admin: cuándo vence la sesión. */
+  session_expires_at?: string | null;
   organization?: OrganizationOut | null;
   features?: Record<string, boolean> | null;
 }
@@ -94,6 +109,8 @@ export interface DeviceIdentifyIn {
 
 export interface DeviceIdentifyOut {
   employee: EmployeeBrief;
+  /** `null` para el administrador: en la tablet sólo autoriza, no lleva asistencia. */
+  attendance?: AttendanceBrief | null;
 }
 
 export function deviceIdentify(body: DeviceIdentifyIn): Promise<DeviceIdentifyOut> {

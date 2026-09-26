@@ -59,3 +59,20 @@ export function formatInstant(iso: string | null | undefined): string {
   if (Number.isNaN(instant.getTime())) return "—";
   return INSTANT_FORMATTER.format(instant).replace(/\./g, "");
 }
+
+/**
+ * Instante ISO-8601 → hora de pared de Bogotá como la dice la gente:
+ * «7:02 a. m.», «3:30 p. m.». Bogotá es UTC-5 todo el año (sin horario de
+ * verano), así que se calcula sin pasar por `Intl` ni por la zona del
+ * navegador, igual que `formatBusinessDate`.
+ */
+export function formatClockTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return "—";
+  const bogota = new Date(instant.getTime() - 5 * 60 * 60 * 1000);
+  const hours = bogota.getUTCHours();
+  const minutes = String(bogota.getUTCMinutes()).padStart(2, "0");
+  const h12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${h12}:${minutes} ${hours < 12 ? "a. m." : "p. m."}`;
+}

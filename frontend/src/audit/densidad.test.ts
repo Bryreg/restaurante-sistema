@@ -42,6 +42,10 @@ const RAIZ = [
   { ruta: "/pos/identify", archivo: "features/auth/DeviceIdentifyPage.tsx", superficie: "tablet" },
   { ruta: "/admin", archivo: "app/AdminLayout.tsx", superficie: "escritorio" },
   { ruta: "/pos", archivo: "app/PosLayout.tsx", superficie: "tablet" },
+  // La puerta (`HomePage`, «Operar (POS)» o «Administrar»): antes `/` sólo
+  // redirigía a `/login` y no dibujaba nada; ahora es una pantalla fuera de
+  // los layouts, así que entra a la tabla como las demás.
+  { ruta: "/", archivo: "app/HomePage.tsx", superficie: "escritorio" },
 ] as const
 
 describe("densidad", () => {
@@ -70,8 +74,7 @@ describe("densidad", () => {
     )
     const conocidas = new Set<string>([
       ...RAIZ.map((r) => r.ruta),
-      "/", // sólo redirige a /login
-      "*", // sólo redirige a /login
+      "*", // sólo redirige a la puerta (`/`)
     ])
 
     const declaradas = [...nivelSuperior.matchAll(/^ {2}\{ ?path: "([^"]+)"/gm)].map((m) => m[1])

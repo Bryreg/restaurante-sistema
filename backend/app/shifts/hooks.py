@@ -307,7 +307,19 @@ def on_employee_identified(db: Session, *, store_id: int, employee: object) -> N
     roster del turno con hora de entrada"). Si no hay turno abierto, no hace
     nada (identificarse no exige turno abierto). Es idempotente: si la persona
     ya tiene una entrada abierta en el roster, no duplica.
+
+    Desde 0028 la jornada es la asistencia del día (`app.shifts.attendance`):
+    entrar al roster también marca la entrada del día si todavía no la había
+    (abrir la caja, recibir un relevo, «Entrada» del roster). El
+    administrador no entra nunca, ni al roster ni a la asistencia: autoriza,
+    no opera, y no suma horas ni propina (decisión del dueño).
     """
+
+    if getattr(employee, "role", None) == "admin":
+        return
+    from app.shifts import attendance
+
+    attendance.record_entry(db, store_id=store_id, employee=employee, source="shift")
 
     shift = db.execute(
         select(Shift).where(Shift.store_id == store_id, Shift.status == ShiftStatus.OPEN)
@@ -340,6 +352,39 @@ def on_employee_identified(db: Session, *, store_id: int, employee: object) -> N
         )
     )
     db.flush()
+
+
+def record_attendance_on_identify(db: Session, *, store_id: int, employee: object) -> dict[str, Any] | None:
+    """El primer PIN del día operativo marca la entrada, haya o no turno de
+    caja abierto. Lo llama `POST /auth/device/identify` ANTES de
+    `on_employee_identified`, para poder decirle a la pantalla si la entrada
+    se acaba de marcar («Entrada 7:02 a. m.») o ya estaba. `None` para quien
+    no lleva asistencia (el administrador)."""
+
+    from app.shifts import attendance
+
+    mark = attendance.record_entry(db, store_id=store_id, employee=employee, source="identify")
+    if mark.entry is None:
+        return None
+    return {
+        "id": mark.entry.id,
+        "business_date": mark.entry.business_date,
+        "in_at": mark.entry.in_at,
+        "created": mark.created,
+    }
+
+
+def open_attendance_for(db: Session, *, store_id: int, employee_id: int) -> dict[str, Any] | None:
+    """La entrada abierta de hoy de una persona (para `GET /auth/me`: la
+    pantalla ofrece «Marcar salida» sólo si hay de qué salir)."""
+
+    from app.shifts import attendance
+
+    today = attendance.business_date_now(db, store_id)
+    entry = attendance.open_entry(db, store_id=store_id, employee_id=employee_id, business_date=today)
+    if entry is None:
+        return None
+    return {"id": entry.id, "business_date": entry.business_date, "in_at": entry.in_at}
 
 
 # ---------------------------------------------------------------------------

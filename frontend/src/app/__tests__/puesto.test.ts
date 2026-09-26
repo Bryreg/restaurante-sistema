@@ -10,7 +10,9 @@ import {
   navParaPuesto,
   puedeManejarCaja,
   puestoEfectivo,
+  RUTA_AUTORIZAR,
   rutaIdentificarse,
+  soloAutoriza,
 } from "../puesto";
 
 /** Los manifiestos reales, en el orden en que `PosLayout` los concatena. */
@@ -132,9 +134,24 @@ describe("inicioParaPuesto — a dónde llega después del PIN", () => {
     expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, nada)).toBe("/pos/turno");
   });
 
-  it("sin puesto o supervisor: lo de siempre", () => {
+  it("sin puesto: lo de siempre", () => {
     expect(inicioParaPuesto({ role: "operator" }, todo)).toBe("/pos/mesas");
-    expect(inicioParaPuesto({ role: "supervisor", puesto: "caja" }, nada)).toBe("/pos/comanda/nueva");
+    expect(inicioParaPuesto({ role: "operator" }, nada)).toBe("/pos/comanda/nueva");
+  });
+
+  // Motivo del cambio: el dueño decidió un «modo supervisor» con llegada
+  // explícita a Turno (sus herramientas: abrir, base, retiros, salidas de
+  // otros). Antes caía en Mesas/Mostrador como cualquiera sin puesto.
+  it("supervisor: llega a Turno, tenga o no puesto", () => {
+    expect(inicioParaPuesto({ role: "supervisor", puesto: "caja" }, nada)).toBe("/pos/turno");
+    expect(inicioParaPuesto({ role: "supervisor" }, todo)).toBe("/pos/turno");
+  });
+
+  it("administrador: sólo autoriza, llega a «Modo autorización» y no tiene barra", () => {
+    expect(inicioParaPuesto({ role: "admin" }, todo)).toBe(RUTA_AUTORIZAR);
+    expect(soloAutoriza({ role: "admin" })).toBe(true);
+    expect(soloAutoriza({ role: "supervisor" })).toBe(false);
+    expect(barraDelSalon(TODAS, todo, { role: "admin" })).toEqual([]);
   });
 });
 

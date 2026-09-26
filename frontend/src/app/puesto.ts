@@ -8,7 +8,8 @@ import type { NavItem } from "./nav";
  * destinos ve en la barra del salón. Funciones puras, sin React, para que se
  * prueben solas (`__tests__/puesto.test.ts`).
  *
- * - `null` (o un supervisor / administrador) ve todo, como siempre.
+ * - `null` (o un supervisor) ve todo, como siempre. El supervisor llega a
+ *   Turno; el administrador sólo autoriza (`soloAutoriza`).
  * - Una función apagada sigue sacando su entrada (`feature`): el puesto
  *   filtra DESPUÉS de los flags, nunca los reemplaza.
  * - Nada de esto es un permiso: la barra ordena la pantalla. Lo que no se
@@ -48,6 +49,19 @@ function esPuesto(value: string | null | undefined): value is Puesto {
   return value === "caja" || value === "salon" || value === "cocina" || value === "bar";
 }
 
+/**
+ * **El administrador en la tablet sólo autoriza** (decisión del dueño): no
+ * opera el salón, no suma horas ni propina. Si teclea su PIN en «Quién
+ * opera» llega a «Modo autorización» (`/pos/autorizar`) y la barra queda
+ * vacía; autoriza desde la pantalla de quien opera, cuando ésta le pide el
+ * PIN. El backend no lo mete al roster ni a la asistencia.
+ */
+export const RUTA_AUTORIZAR = "/pos/autorizar";
+
+export function soloAutoriza(persona: PersonaPuesto | null | undefined): boolean {
+  return persona?.role === "admin";
+}
+
 /** El puesto que manda, o `null` si la persona ve todo (sin puesto, supervisor o admin). */
 export function puestoEfectivo(persona: PersonaPuesto | null | undefined): Puesto | null {
   if (!persona) return null;
@@ -80,6 +94,10 @@ export function inicioParaPuesto(
   hasFeature: (key: string) => boolean,
 ): string {
   const venta = hasFeature("pos.tables") ? "/pos/mesas" : "/pos/comanda/nueva";
+  if (soloAutoriza(persona)) return RUTA_AUTORIZAR;
+  // Modo supervisor: llega a Turno, donde están sus herramientas (abrir,
+  // base, retiros, salidas de otros). Mesas sigue en su barra.
+  if (persona?.role === "supervisor") return "/pos/turno";
   const puesto = puestoEfectivo(persona);
   switch (puesto) {
     case "caja":
@@ -138,6 +156,7 @@ export function barraDelSalon(
   persona: PersonaPuesto | null | undefined,
 ): NavItem[] {
   if (!persona) return [];
+  if (soloAutoriza(persona)) return [];
   const conFlags = all
     .filter((item) => !item.feature || hasFeature(item.feature))
     .filter((item) => !item.hiddenWithFeature || !hasFeature(item.hiddenWithFeature))
