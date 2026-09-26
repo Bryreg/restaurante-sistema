@@ -26,6 +26,7 @@ from app.audit.service import record_audit
 from app.auth import service as auth_service
 from app.auth.deps import Actor
 from app.auth.models import Employee
+from app.catalog import hooks as catalog_hooks
 from app.catalog import service as catalog_service
 from app.catalog.models import Combo, ComboGroup, ComboOption, ModifierGroup, ModifierOption, Product
 from app.core import clock, features, tz
@@ -356,6 +357,9 @@ def order_out(db: Session, order: Order, *, for_device: bool) -> OrderOut:
     ]
 
     items_rows = list(db.execute(select(OrderItem).where(OrderItem.order_id == order.id).order_by(OrderItem.id)).scalars())
+    facts = catalog_hooks.product_facts(
+        db, store_id=order.store_id, product_ids=sorted({i.product_id for i in items_rows if i.product_id is not None})
+    )
     items_out: list[OrderItemOut] = []
     for item in items_rows:
         lt = line_by_item.get(item.id)
@@ -413,6 +417,7 @@ def order_out(db: Session, order: Order, *, for_device: bool) -> OrderOut:
                 tax=lt.tax if lt else 0,
                 courtesy=courtesy,
                 void=void,
+                is_delivery_fee=bool(item.product_id is not None and item.product_id in facts and facts[item.product_id].is_delivery_fee),
             )
         )
 
@@ -572,6 +577,21 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
                 .select_from(OrderItem)
                 .where(OrderItem.order_id == order.id, OrderItem.status == OrderItemStatus.READY)
             ).scalar_one()
+            # Unidades pendientes (no líneas): «2× Limonada» sin enviar son 2,
+            # igual que el número del botón «Enviar a cocina · N» del salón.
+            # El cargo de domicilio no cuenta (no es un plato); en una mesa
+            # nunca lo hay, pero el criterio es uno solo.
+            pending_rows = db.execute(
+                select(OrderItem.product_id, OrderItem.qty).where(
+                    OrderItem.order_id == order.id, OrderItem.status == OrderItemStatus.PENDING
+                )
+            ).all()
+            fee_facts = catalog_hooks.product_facts(
+                db, store_id=store_id, product_ids=sorted({pid for pid, _ in pending_rows if pid is not None})
+            )
+            unsent_count = sum(
+                qty for pid, qty in pending_rows if not (pid is not None and pid in fee_facts and fee_facts[pid].is_delivery_fee)
+            )
             tables_out.append(
                 TableStatusOut(
                     id=table.id,
@@ -583,6 +603,8 @@ def tables_status(db: Session, *, store_id: int) -> TablesStatusOut:
                     covers=order.covers,
                     total=total,
                     ready_count=int(ready_count),
+                    unsent_count=int(unsent_count),
+                    opened_by=EmployeeRef(id=order.opened_by_employee_id, name=order.opened_by_employee_name),
                 )
             )
         zones_out.append(ZoneStatusOut(id=zone.id, name=zone.name, tables=tables_out))

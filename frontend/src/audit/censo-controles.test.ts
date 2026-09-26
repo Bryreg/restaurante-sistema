@@ -80,6 +80,19 @@
  *   («Buscar insumo» / «Buscar preparación») con recientes y botones.
  * - «Elegí un tipo» — el tipo de merma pasó a ser una fila de botones de
  *   ≥ 56 px bajo el rótulo «Tipo»; cada tipo sigue siendo tocable.
+ *
+ * **Bajas declaradas · la comanda en la tablet.** Un rótulo de
+ * `features/orders/ItemDialog.tsx` sale de la base, a mano. No era un
+ * control: era el `placeholder` de la lista desplegable de curso (~34 px),
+ * que pasó a ser una fila de botones de 56 px bajo el rótulo «Curso», uno
+ * por curso, arrancando ya en el curso por defecto del plato.
+ *
+ * - «Por defecto del producto» — con el curso del plato preelegido no hay
+ *   estado «sin elegir» que nombrar; cada curso sigue siendo tocable.
+ *
+ * («Elegí un motivo» de `VoidDialog.tsx` **no** se dio de baja: la lista de
+ * motivos pasó a ser una grilla de botones de 56 px, y el rótulo viaja como
+ * `aria-label` del grupo que los reúne.)
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

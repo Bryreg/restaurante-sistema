@@ -10,6 +10,13 @@ export interface PreBillDialogProps {
   preBill: PreBillOut | null
   onOpenChange: (open: boolean) => void
   onReprint: () => void
+  /**
+   * La acción principal: la cuenta ya está en la mesa y la comanda quedó
+   * «Por cobrar» — lo que sigue es volver al mapa. Sin ella, el diálogo sólo
+   * se cierra.
+   */
+  onDone?: () => void
+  doneLabel?: string
   pending?: boolean
 }
 
@@ -19,10 +26,17 @@ export interface PreBillDialogProps {
  * número acá viene ya calculado en `PreBillOut`; el frontend sólo lo pinta
  * (AGENTS.md § "una sola matemática").
  */
-export function PreBillDialog({ preBill, onOpenChange, onReprint, pending = false }: PreBillDialogProps): React.JSX.Element {
+export function PreBillDialog({
+  preBill,
+  onOpenChange,
+  onReprint,
+  onDone,
+  doneLabel = "Listo · ir a Mesas",
+  pending = false,
+}: PreBillDialogProps): React.JSX.Element {
   return (
     <Dialog open={preBill !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Precuenta</DialogTitle>
         </DialogHeader>
@@ -78,10 +92,17 @@ export function PreBillDialog({ preBill, onOpenChange, onReprint, pending = fals
             <p className="text-xs text-muted-foreground">Impresiones: {preBill.bill_print_count ?? 1}</p>
           </div>
         ) : null}
-        <DialogFooter>
-          <Button type="button" variant="outline" className="h-11" disabled={pending} onClick={onReprint}>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" className="h-14 px-5 text-base" disabled={pending} onClick={onReprint}>
             <Printer className="size-4" aria-hidden="true" />
-            {pending ? "Imprimiendo…" : "Volver a imprimir"}
+            {pending ? "Imprimiendo…" : "Reimprimir"}
+          </Button>
+          <Button
+            type="button"
+            className="h-14 px-6 text-base font-semibold"
+            onClick={() => (onDone ? onDone() : onOpenChange(false))}
+          >
+            {onDone ? doneLabel : "Listo"}
           </Button>
         </DialogFooter>
       </DialogContent>

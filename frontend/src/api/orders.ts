@@ -165,6 +165,12 @@ export interface OrderItemOut {
   tax?: number
   courtesy?: CourtesyOut | null
   void?: VoidInfoOut | null
+  /**
+   * El cargo de domicilio: una línea de plata, no un plato. Nunca va a
+   * cocina (`station` nula), no cuenta en «Enviar a cocina · N» y no se
+   * «marcha». Ausente en un backend viejo = no es cargo.
+   */
+  is_delivery_fee?: boolean
 }
 
 export interface OrderRoundOut {
@@ -283,6 +289,10 @@ export interface TableStatusOut {
   total?: number | null
   /** Platos que cocina marcó listos y nadie sirvió todavía (conteo del servidor). */
   ready_count?: number
+  /** Unidades todavía sin enviar a cocina (conteo del servidor, sin el cargo de domicilio). */
+  unsent_count?: number
+  /** Quién abrió la mesa: iniciales en la tarjeta y el filtro «Mis mesas». */
+  opened_by?: EmployeeRefOut | null
 }
 
 export interface ZoneStatusOut {
