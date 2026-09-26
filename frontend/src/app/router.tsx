@@ -120,7 +120,10 @@ const routes: RouteObject[] = [
       </RequireDevice>
     ),
     errorElement: <RouteError home="/pos" />,
-    children: [
+    // La apertura del conteo por área es obligatoria para cocina y bar
+    // (`inventoryFeature.withOpeningGate`): cada pantalla queda detrás de la
+    // puerta, con su misma ruta; el KDS y la vista de cocina sólo avisan.
+    children: inventoryFeature.withOpeningGate([
       { index: true, element: <PosHome /> },
       ...shiftsFeature.posRoutes,
       ...ordersFeature.posRoutes,
@@ -128,7 +131,7 @@ const routes: RouteObject[] = [
       ...inventoryFeature.posRoutes,
       ...recipesFeature.posRoutes,
       ...kitchenFeature.posRoutes,
-    ],
+    ]),
   },
   { path: "*", element: <Navigate to="/login" replace /> },
 ];

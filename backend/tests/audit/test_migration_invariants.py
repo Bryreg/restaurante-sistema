@@ -483,6 +483,17 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     última persona que usó la tablet, para ofrecerla primero). Son COLUMNAS,
     no tablas: se mueve el poste de la cabeza y el del conteo no, igual que
     `0019`, `0021` y `0022`.
+
+    **Re-apuntado con el conteo artículo por artículo**: la cadena llega a
+    **`0030_area_count_per_item`** y el conteo **sigue en 107**. El dueño
+    decidió que la apertura de cada área es obligatoria, que cada artículo se
+    guarda al contarlo con quién y cuándo (recontar agrega otra entrada, nada
+    se pisa) y que una vez al mes se cuenta todo lo del área por categoría.
+    Son COLUMNAS en `area_count_lines`, `area_counts`, `count_areas` y
+    `area_count_settings`, más un índice único (`session_key`); ninguna
+    tabla. Se llama `0030` y cuelga de `0027` porque en paralelo nacen
+    `0028`/`0029` sobre `0027` y la cadena se re-encadena al integrar: si al
+    integrar la cabeza es otra, el poste se mueve de nuevo, con su motivo.
     """
     from sqlalchemy import text
 
@@ -494,11 +505,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0027", (
-        f"la cadena quedó en {version!r}; el punto de llegada después del inicio por rol "
-        "es 0027 (`0027_employee_puesto`). "
+    assert version == "0030", (
+        f"la cadena quedó en {version!r}; el punto de llegada después del conteo artículo por "
+        "artículo es 0030 (`0030_area_count_per_item`). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026 y 0027"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027 y 0030"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}

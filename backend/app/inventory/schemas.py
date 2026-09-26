@@ -687,6 +687,124 @@ class AreaRecountAnswerIn(BaseModel):
     lines: list[AreaCountLineIn] = Field(min_length=1, max_length=5)
 
 
+AreaCountScopeLiteral = Literal["short", "full"]
+
+
+class AreaCountItemIn(BaseModel):
+    """`POST /device/area-count-items`: UN artículo contado (se guarda al
+    contarlo). Cualquier persona identificada cuenta cualquier área: quien
+    termina primero ayuda al otro."""
+
+    area_id: int
+    moment: AreaCountRegularMomentLiteral
+    ingredient_id: int
+    qty: str = Field(min_length=1, max_length=20)
+
+
+class AreaCountMarkOut(BaseModel):
+    """Quién contó un artículo y a qué hora — **sin la cantidad**: el conteo
+    es a ciegas también entre compañeros. `entries` > 1 = se recontó (manda
+    la última)."""
+
+    employee_name: str
+    counted_at: datetime
+    entries: int
+
+
+class AreaCountProgressOut(BaseModel):
+    """Cuántos artículos de la lista del día tienen conteo. `complete` lo
+    decide el servidor (todos contados); `completed_at` es la hora del último
+    que faltaba, y `people` quién contó."""
+
+    counted: int
+    total: int
+    complete: bool
+    completed_at: datetime | None
+    people: list[str]
+
+
+class AreaCountSheetItemOut(AreaCountItemOut):
+    opening: AreaCountMarkOut | None
+    closing: AreaCountMarkOut | None
+
+
+class AreaCountSheetAreaOut(BaseModel):
+    area_id: int
+    area_name: str
+    # `full` el día del conteo completo mensual (todo lo del área por
+    # categoría); `short` los demás días (la lista corta, 5–15).
+    scope: AreaCountScopeLiteral
+    # Si es el área de la persona identificada (la pestaña «Mi área»).
+    mine: bool
+    items: list[AreaCountSheetItemOut]
+    opening: AreaCountProgressOut
+    closing: AreaCountProgressOut
+
+
+class DeviceAreaCountSheetOut(BaseModel):
+    """`GET /device/area-count/sheet`: las listas del día de TODAS las áreas
+    (la pantalla filtra por Mi área | Bar | Cocina | Todo), con quién contó
+    cada artículo y cuándo, sin cantidades, sin stock y sin costo."""
+
+    business_date: str
+    my_area_id: int | None
+    # Por qué no hay «Mi área» (persona sin área), o `None`.
+    reason: str | None
+    suggested_moment: AreaCountRegularMomentLiteral
+    full_count_today: bool
+    # La apertura del área de esta persona es obligatoria y todavía no está.
+    opening_required: bool
+    areas: list[AreaCountSheetAreaOut]
+    recounts: list[DeviceAreaRecountOut]
+
+
+class AreaCountItemSavedOut(BaseModel):
+    """Lo que vuelve al guardar un artículo: que quedó, quién y cuándo, y cómo
+    va el área. Ninguna cifra."""
+
+    area_id: int
+    area_name: str
+    moment: AreaCountRegularMomentLiteral
+    ingredient_id: int
+    ingredient_name: str
+    count_id: int
+    counted_at: datetime
+    employee_name: str
+    progress: AreaCountProgressOut
+
+
+class AreaOpeningPendingOut(BaseModel):
+    area_id: int
+    area_name: str
+    counted: int
+    total: int
+    full_count: bool
+
+
+class DeviceOpeningGateOut(BaseModel):
+    """`GET /device/area-count/gate`: si la persona identificada tiene que
+    hacer primero el conteo de apertura de su área (`required`), y qué áreas
+    no terminaron su apertura hoy (`pending`, para el aviso rojo del KDS,
+    que no se bloquea nunca). Sin persona, `required=False`."""
+
+    business_date: str
+    required: bool
+    area_id: int | None
+    area_name: str | None
+    message: str | None
+    pending: list[AreaOpeningPendingOut]
+
+
+class AdminAreaCountStatusOut(BaseModel):
+    """`GET /admin/area-count-status`: cómo va el conteo de hoy por área y
+    artículo (quién y cuándo). Las cantidades y diferencias están en el
+    detalle de cada conteo."""
+
+    business_date: str
+    full_count_today: bool
+    areas: list[AreaCountSheetAreaOut]
+
+
 class AreaCountReceiptOut(BaseModel):
     """Lo que vuelve a la tablet: que quedó registrado, quién y cuándo.
     Ninguna cifra del sistema ni diferencia: el resultado lo ve el dueño."""
@@ -723,18 +841,30 @@ class CountAreaMemberOut(BaseModel):
     employee_name: str
 
 
+class CountAreaCategoriesIn(BaseModel):
+    # Categorías de insumo (`ingredients.category`) del conteo completo mensual.
+    categories: list[str] = Field(max_length=40)
+
+
 class CountAreaOut(BaseModel):
     id: int
     name: str
     active: bool
     members: list[CountAreaMemberOut]
     items: list[AreaCountItemOut]
+    # Las categorías que cuenta el día del conteo completo, y cuántos insumos
+    # activos tendría esa lista hoy (lista corta incluida).
+    categories: list[str]
+    full_count_items: int
 
 
 class AreaCountSettingsIn(BaseModel):
     # `None` = esa frontera no se exige.
     threshold_pct_bp: int | None = Field(default=None, gt=0, le=10000)
     threshold_amount: int | None = Field(default=None, gt=0)
+    # Día del mes del conteo completo (1–28; `None` = apagado). Si no viene en
+    # el cuerpo, queda como estaba (guardar el umbral no lo apaga).
+    monthly_full_count_day: int | None = Field(default=None, ge=1, le=28)
 
 
 class AreaCountSettingsOut(BaseModel):
@@ -743,6 +873,9 @@ class AreaCountSettingsOut(BaseModel):
     threshold_amount: int | None
     # La regla en palabras, escrita por el servidor (patrón 9, «la lectura»).
     reading: str
+    monthly_full_count_day: int | None
+    monthly_reading: str
+    full_count_today: bool
 
 
 class AreaCountLineOut(BaseModel):
@@ -768,6 +901,22 @@ class AreaCountLineOut(BaseModel):
     shortage_pct_bp: int | None
     flagged: bool
     null_reason: str | None
+    # Quién contó este artículo y cuándo (la entrada que manda), y las
+    # entradas anteriores del mismo artículo en este conteo (recuentos).
+    employee_name: str | None
+    counted_at: datetime | None
+    history: list["AreaCountEntryOut"]
+
+
+class AreaCountEntryOut(BaseModel):
+    employee_name: str | None
+    counted_at: datetime | None
+    entered_qty: str
+    entered_unit: str
+    counted_qty: str
+
+
+AreaCountLineOut.model_rebuild()
 
 
 class AreaCountOut(BaseModel):
@@ -794,6 +943,11 @@ class AreaCountOut(BaseModel):
     # renglón tiene valor; `unvalued_lines` dice cuántos quedaron afuera.
     shortage_value_total: int | None
     unvalued_lines: int
+    # 0030: con qué lista (`short`/`full`, `None` en un recuento), quiénes
+    # contaron (en orden) y la hora del último artículo.
+    scope: AreaCountScopeLiteral | None
+    people: list[str]
+    last_counted_at: datetime
 
 
 class AreaCountDetailOut(AreaCountOut):

@@ -7,16 +7,20 @@ import {
   createCountArea,
   getAreaCount,
   getAreaCountSettings,
+  getAreaCountStatus,
   listAreaCounts,
   listAreaRecounts,
   listCountAreas,
   putAreaCountSettings,
+  setCountAreaCategories,
   setCountAreaItems,
   setCountAreaMember,
   updateCountArea,
   type AreaCountLineOut,
   type AreaCountOut,
   type AreaCountSettingsOut,
+  type AreaCountSheetAreaOut,
+  type AreaCountSheetItemOut,
   type CountAreaOut,
 } from "@/api/areaCounts"
 import { listEmployees } from "@/api/employees"
@@ -55,7 +59,16 @@ import { errorMessage } from "@/lib/errors"
 import { formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
-import { AREA_COUNTS_QUERY_KEYS, MOMENT_LABEL, WINDOW_LABEL, qtyText, shortageWord, withoutSign } from "./areaCountLib"
+import {
+  AREA_COUNTS_QUERY_KEYS,
+  MOMENT_LABEL,
+  WINDOW_LABEL,
+  contadoPor,
+  horaBogota,
+  qtyText,
+  shortageWord,
+  withoutSign,
+} from "./areaCountLib"
 import { daysAgoLocal, todayLocal } from "./lib"
 import { RecountDialog } from "./RecountDialog"
 
@@ -109,6 +122,26 @@ function DetailDialog({
   const columns: readonly DenseColumn<AreaCountLineOut>[] = [
     { key: "name", header: "Artículo", kind: "name", cell: (l) => l.ingredient_name },
     {
+      key: "who",
+      header: "Contó",
+      cell: (l) =>
+        l.employee_name ? (
+          <>
+            {l.employee_name} · {horaBogota(l.counted_at)}
+            {l.history.length > 0 ? <span className="text-muted-foreground"> · recontado</span> : null}
+          </>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+      cellTitle: (l) =>
+        l.history.length > 0
+          ? "Antes: " +
+            l.history
+              .map((h) => `${h.employee_name ?? "—"} ${horaBogota(h.counted_at)} → ${qtyText(h.counted_qty, l.base_unit)}`)
+              .join("; ")
+          : undefined,
+    },
+    {
       key: "counted",
       header: "Contado",
       kind: "number",
@@ -161,7 +194,8 @@ function DetailDialog({
           <DialogTitle>{detail ? `${detail.area_name} · ${windowText(detail)}` : "Conteo"}</DialogTitle>
           <DialogDescription>
             {detail
-              ? `Contó ${detail.employee_name} · ${formatInstant(detail.counted_at)}` +
+              ? `Contó ${detail.people.length > 0 ? detail.people.join(", ") : detail.employee_name} · ${formatInstant(detail.last_counted_at)}` +
+                (detail.scope === "full" ? " · conteo completo" : "") +
                 (detail.reference_employee_name
                   ? ` · contra lo que contó ${detail.reference_employee_name} · ${formatInstant(detail.reference_counted_at)}`
                   : "")
@@ -420,6 +454,239 @@ function RecountsSection({ storeId }: { storeId: number }): React.JSX.Element {
 // Configuración: áreas, artículos, quién es de qué área, umbral.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Hoy: cómo va el conteo de cada área, artículo por artículo (quién y cuándo).
+// ---------------------------------------------------------------------------
+
+function progresoTexto(p: { counted: number; total: number }): string {
+  return `${p.counted} de ${p.total}`
+}
+
+/** La apertura falta (y el cierre no empezó): es obligatoria, va en rojo. */
+function aperturaFalta(a: AreaCountSheetAreaOut): boolean {
+  return !a.opening.complete && a.closing.counted === 0
+}
+
+function TodayStatusSection({ storeId }: { storeId: number }): React.JSX.Element {
+  const query = useQuery({
+    queryKey: ["area-counts", "status", storeId],
+    queryFn: () => getAreaCountStatus(storeId),
+    refetchInterval: 60_000,
+  })
+  const data = query.data
+  const columns: readonly DenseColumn<AreaCountSheetItemOut>[] = [
+    { key: "name", header: "Artículo", kind: "name", cell: (i) => i.name },
+    {
+      key: "opening",
+      header: "Apertura",
+      cell: (i) => <span className={i.opening ? undefined : "text-muted-foreground"}>{contadoPor(i.opening)}</span>,
+    },
+    {
+      key: "closing",
+      header: "Cierre",
+      cell: (i) => <span className={i.closing ? undefined : "text-muted-foreground"}>{contadoPor(i.closing)}</span>,
+    },
+  ]
+  return (
+    <section aria-labelledby="area-counts-today" className="space-y-3">
+      <h3 id="area-counts-today" className="text-base font-bold">
+        Conteo de hoy, artículo por artículo
+      </h3>
+      {data?.full_count_today ? (
+        <p className="text-sm font-medium">Hoy es el conteo completo del mes: cada área cuenta todo lo suyo.</p>
+      ) : null}
+      {query.isError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {errorMessage(query.error)}
+        </p>
+      ) : null}
+      {data && data.areas.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Ninguna área tiene lista todavía: armala abajo.</p>
+      ) : null}
+      {data?.areas.map((a) => (
+        <DenseTable
+          key={a.area_id}
+          caption={`Conteo de hoy de ${a.area_name}`}
+          columns={columns}
+          rows={a.items}
+          rowKey={(i) => String(i.ingredient_id)}
+          rowStatus={(i) => (i.opening === null && aperturaFalta(a) ? "critical" : "none")}
+          bar={
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <b>{a.area_name}</b>
+              {a.scope === "full" ? <span className="text-muted-foreground">conteo completo</span> : null}
+              <span className={aperturaFalta(a) ? "font-semibold text-destructive" : undefined}>
+                Apertura {progresoTexto(a.opening)}
+                {a.opening.complete ? ` · completa ${horaBogota(a.opening.completed_at)} · ${a.opening.people.join(", ")}` : ""}
+                {aperturaFalta(a) ? " · falta (es obligatoria)" : ""}
+              </span>
+              <span>
+                Cierre {progresoTexto(a.closing)}
+                {a.closing.complete ? ` · completo ${horaBogota(a.closing.completed_at)} · ${a.closing.people.join(", ")}` : ""}
+              </span>
+            </div>
+          }
+          note={<>Sin cantidades: lo contado y la diferencia están en el detalle de cada conteo, abajo.</>}
+        />
+      ))}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Conteo completo mensual: categorías por área y el día del mes.
+// ---------------------------------------------------------------------------
+
+function CategoriesDialog({
+  storeId,
+  area,
+  areas,
+  ingredients,
+  onClose,
+}: {
+  storeId: number
+  area: CountAreaOut | null
+  areas: CountAreaOut[]
+  ingredients: IngredientOut[]
+  onClose: () => void
+}): React.JSX.Element {
+  // Se monta de nuevo por área (`key`): el estado arranca de lo guardado.
+  const [chosen, setChosen] = useState<string[]>(() => area?.categories ?? [])
+  const queryClient = useQueryClient()
+  const key = (c: string) => c.trim().toLocaleLowerCase("es")
+  const inOther = new Map<string, string>()
+  for (const a of areas) {
+    if (!a.active || a.id === area?.id) continue
+    for (const c of a.categories) inOther.set(key(c), a.name)
+  }
+  const all = new Map<string, string>()
+  for (const ing of ingredients) {
+    if (ing.category && ing.category.trim() !== "" && !all.has(key(ing.category))) all.set(key(ing.category), ing.category.trim())
+  }
+  for (const c of chosen) if (!all.has(key(c))) all.set(key(c), c)
+  const categories = [...all.values()].sort((a, b) => a.localeCompare(b, "es"))
+  const chosenKeys = new Set(chosen.map(key))
+  const mutation = useMutation({
+    mutationFn: () => setCountAreaCategories(storeId, area?.id as number, chosen),
+    onSuccess: () => {
+      toast.success("Categorías guardadas.")
+      void queryClient.invalidateQueries({ queryKey: ["area-counts"] })
+      onClose()
+    },
+  })
+  return (
+    <Dialog open={area !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Conteo completo de {area?.name}</DialogTitle>
+          <DialogDescription>
+            El día del conteo completo mensual, {area?.name} cuenta su lista corta y además todos los insumos activos de
+            estas categorías. Una categoría es de una sola área.
+          </DialogDescription>
+        </DialogHeader>
+        {categories.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Los insumos todavía no tienen categoría: ponela en la ficha de cada insumo.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {categories.map((c) => {
+              const other = inOther.get(key(c))
+              const checked = chosenKeys.has(key(c))
+              const id = `area-cat-${key(c).replace(/\s+/g, "-")}`
+              return (
+                <li key={c} className="flex items-center gap-2">
+                  <Checkbox
+                    id={id}
+                    checked={checked}
+                    disabled={other !== undefined}
+                    onCheckedChange={(v) =>
+                      setChosen((prev) => (v === true ? [...prev, c] : prev.filter((x) => key(x) !== key(c))))
+                    }
+                  />
+                  <Label htmlFor={id} className="font-normal">
+                    {c}
+                    {other ? <span className="text-xs text-muted-foreground"> · la cuenta {other}</span> : null}
+                  </Label>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        {mutation.isError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {errorMessage(mutation.error)}
+          </p>
+        ) : null}
+        <DialogFooter>
+          <Button type="button" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+            Guardar categorías
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const DIA_APAGADO = "off"
+const DIAS_DEL_MES = Array.from({ length: 28 }, (_, i) => String(i + 1))
+
+function MonthlySection({ storeId }: { storeId: number }): React.JSX.Element {
+  const query = useQuery({
+    queryKey: AREA_COUNTS_QUERY_KEYS.settings(storeId),
+    queryFn: () => getAreaCountSettings(storeId),
+  })
+  const settings = query.data
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (day: number | null) =>
+      putAreaCountSettings(storeId, {
+        threshold_pct_bp: settings?.threshold_pct_bp ?? null,
+        threshold_amount: settings?.threshold_amount ?? null,
+        monthly_full_count_day: day,
+      }),
+    onSuccess: (data) => {
+      toast.success("Conteo completo guardado.")
+      queryClient.setQueryData(AREA_COUNTS_QUERY_KEYS.settings(storeId), data)
+      void queryClient.invalidateQueries({ queryKey: ["area-counts"] })
+    },
+  })
+  const value = settings?.monthly_full_count_day == null ? DIA_APAGADO : String(settings.monthly_full_count_day)
+  return (
+    <FormSection
+      title="Conteo completo mensual"
+      governs="Un día al mes la apertura de cada área cuenta todo lo suyo (su lista corta más sus categorías), no sólo los 5–15 clave."
+      reading={settings ? settings.monthly_reading : "Leyendo…"}
+      doesNotDo="No ajusta el stock ni bloquea la caja: mide, como el conteo corto. El tope de 15 es sólo de la lista corta."
+    >
+      <FormField label="Día del mes" help="Del 1 al 28, para que exista en todos los meses.">
+        {({ fieldId, describedBy }) => (
+          <Select
+            value={value}
+            disabled={!settings || mutation.isPending}
+            onValueChange={(v) => mutation.mutate(v === DIA_APAGADO ? null : Number(v))}
+          >
+            <SelectTrigger id={fieldId} aria-describedby={describedBy} className="w-40" aria-label="Día del conteo completo">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={DIA_APAGADO}>Apagado</SelectItem>
+              {DIAS_DEL_MES.map((d) => (
+                <SelectItem key={d} value={d}>
+                  Día {d}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </FormField>
+      {mutation.isError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {errorMessage(mutation.error)}
+        </p>
+      ) : null}
+    </FormSection>
+  )
+}
+
 function ItemsDialog({
   storeId,
   area,
@@ -557,6 +824,7 @@ function AreasSection({
   const [newName, setNewName] = useState("")
   const [editingItems, setEditingItems] = useState<CountAreaOut | null>(null)
   const [renaming, setRenaming] = useState<CountAreaOut | null>(null)
+  const [editingCategories, setEditingCategories] = useState<CountAreaOut | null>(null)
   const queryClient = useQueryClient()
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["area-counts"] })
   const create = useMutation({
@@ -580,6 +848,16 @@ function AreasSection({
       cellTitle: (a) => a.items.map((i) => i.name).join(", ") || undefined,
     },
     {
+      key: "full",
+      header: "Conteo completo",
+      cell: (a) =>
+        a.categories.length === 0 ? (
+          <span className="text-muted-foreground">sólo la lista corta</span>
+        ) : (
+          `${a.categories.join(", ")} · ${a.full_count_items} insumos`
+        ),
+    },
+    {
       key: "people",
       header: "Personas",
       cell: (a) => (a.members.length === 0 ? <span className="text-muted-foreground">nadie</span> : a.members.map((m) => m.employee_name).join(", ")),
@@ -592,6 +870,7 @@ function AreasSection({
       cell: (a) => (
         <MenuDeFila nombre={a.name}>
           <DropdownMenuItem onClick={() => setEditingItems(a)}>Artículos</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setEditingCategories(a)}>Categorías del conteo completo</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setRenaming(a)}>Renombrar</DropdownMenuItem>
           <DropdownMenuItem onClick={() => toggle.mutate(a)}>{a.active ? "Desactivar" : "Activar"}</DropdownMenuItem>
         </MenuDeFila>
@@ -662,6 +941,14 @@ function AreasSection({
         areas={areas}
         ingredients={ingredients}
         onClose={() => setEditingItems(null)}
+      />
+      <CategoriesDialog
+        key={`categories-${editingCategories?.id ?? "none"}`}
+        storeId={storeId}
+        area={editingCategories}
+        areas={areas}
+        ingredients={ingredients}
+        onClose={() => setEditingCategories(null)}
       />
       <RenameDialog
         key={`rename-${renaming?.id ?? "none"}`}
@@ -856,7 +1143,10 @@ function ThresholdForm({
  * Admin → Inventario › Conteo por área (`inventory.shift_counts`). Arriba lo
  * que se mira todos los días —los conteos cortos con sus diferencias y los
  * recuentos sorpresa—; debajo, la configuración: áreas y sus artículos
- * clave, quién es de qué área y el umbral de aviso. Toda cifra viene del
+ * clave (y las categorías de su conteo completo), quién es de qué área, el
+ * umbral de aviso y el día del conteo completo mensual. Arriba de todo, el
+ * conteo de hoy artículo por artículo: quién contó y cuándo, la apertura que
+ * falta en rojo (es obligatoria). Toda cifra viene del
  * servidor (esperado, diferencia, valor): la pantalla no suma ni resta.
  *
  * `initialCountId` abre el detalle de un conteo al llegar desde un aviso de
@@ -889,11 +1179,13 @@ export function AreaCountsTab({
   }
   return (
     <div className="space-y-8">
+      <TodayStatusSection storeId={storeId} />
       <HistorySection storeId={storeId} areas={areas} initialCountId={initialCountId} />
       <RecountsSection storeId={storeId} />
       <AreasSection storeId={storeId} areas={areas} ingredients={ingredients} loading={areasQuery.isLoading} />
       <MembersSection storeId={storeId} areas={areas} />
       <ThresholdSection storeId={storeId} />
+      <MonthlySection storeId={storeId} />
     </div>
   )
 }

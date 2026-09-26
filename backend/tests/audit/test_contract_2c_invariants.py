@@ -472,11 +472,17 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       **sigue en 107**: el puesto de cada persona (caja, salón, cocina, bar)
       y la última persona que usó la tablet son columnas, no tablas. Se mueve sólo el poste de
       la cabeza; las dos igualdades siguen exactas.
+    - Con **`0030_area_count_per_item`** la cadena llega a `"0030"` y el
+      conteo **sigue en 107**: el conteo por área artículo por artículo (quién
+      y cuándo por artículo, recuentos sin pisar), la sesión única por área,
+      momento y día, y el conteo completo mensual por categoría son columnas
+      e índices, no tablas. Cuelga de `0027` porque `0028`/`0029` nacen en
+      paralelo; al integrar se re-encadena y el poste se mueve con su motivo.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0027"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0027, "
-        "el puesto de cada persona"
+    assert 'version == "0030"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0030, "
+        "el conteo por área artículo por artículo"
     )
     assert "len(tablas) == 107" in fuente, (
         "el conteo de tablas sigue en un número viejo: 0026 lo deja en 107 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7)"

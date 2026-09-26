@@ -74,10 +74,18 @@ export function navParaPuesto(items: readonly NavItem[], persona: PersonaPuesto 
  * A dónde llega la persona al identificarse, cuando no venía de ninguna
  * pantalla. Sin puesto, lo de siempre: Mesas con `pos.tables`, si no una
  * comanda de mostrador.
+ *
+ * Cocina y bar pasan primero por **Conteo** cuando el conteo por área está
+ * encendido (decisión 5: la apertura del área es obligatoria). La pantalla
+ * de conteo (`?inicio=1`) pregunta al servidor si a esta persona le falta la
+ * apertura y, si no, sigue sola al KDS: la función es sincrónica y no sabe
+ * si ya se contó. `sinConteo` es ese «siguiente» (lo usa la pantalla de
+ * conteo para saber a dónde seguir).
  */
 export function inicioParaPuesto(
   persona: PersonaPuesto | null | undefined,
   hasFeature: (key: string) => boolean,
+  opciones: { sinConteo?: boolean } = {},
 ): string {
   const venta = hasFeature("pos.tables") ? "/pos/mesas" : "/pos/comanda/nueva";
   const puesto = puestoEfectivo(persona);
@@ -88,6 +96,9 @@ export function inicioParaPuesto(
       return venta;
     case "cocina":
     case "bar":
+      if (!opciones.sinConteo && hasFeature("inventory.perpetual") && hasFeature("inventory.shift_counts")) {
+        return "/pos/conteo?inicio=1";
+      }
       if (hasFeature("kitchen.kds")) return "/pos/kds";
       if (hasFeature("kitchen.view")) return "/pos/cocina";
       return "/pos/turno";

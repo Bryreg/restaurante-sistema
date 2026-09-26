@@ -5,7 +5,8 @@ import { inventoryFeature } from "../index"
 describe("inventoryFeature", () => {
   it("expone Inventario (admin) detrás de inventory.perpetual y Merma (POS) detrás de inventory.waste", () => {
     expect(inventoryFeature.adminRoutes.map((r) => r.path)).toEqual(["inventario", "inventario/conteos/:countId"])
-    expect(inventoryFeature.posRoutes.map((r) => r.path)).toEqual(["merma"])
+    // `conteo` (0030): el conteo por área salió de Turno a su propia pantalla del POS.
+    expect(inventoryFeature.posRoutes.map((r) => r.path)).toEqual(["merma", "conteo"])
 
     expect(inventoryFeature.adminNav).toEqual([
       { to: "/admin/inventario", label: "Inventario", feature: "inventory.perpetual" },
@@ -14,6 +15,7 @@ describe("inventoryFeature", () => {
     for (const item of inventoryFeature.posNav) expect(item.icon).toBeDefined()
     expect(inventoryFeature.posNav.map(({ icon: _icon, ...item }) => item)).toEqual([
       { to: "/pos/merma", label: "Merma", feature: "inventory.waste", posGroup: "cocina" },
+      { to: "/pos/conteo", label: "Conteo", feature: "inventory.shift_counts", posGroup: "cocina" },
     ])
   })
 })
