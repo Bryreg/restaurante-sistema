@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "@/test/utils"
@@ -9,26 +10,72 @@ import { buildOrderItem, deviceMe } from "./fixtures"
 const noop = () => {}
 
 describe("OrderItemsList", () => {
-  it("sin pos.courtesies no muestra el botón Cortesía", () => {
+  it("sin pos.courtesies el panel de la línea no ofrece Cortesía, ni siquiera en «Más»", async () => {
+    const user = userEvent.setup()
     renderWithProviders(
       <OrderItemsList items={[buildOrderItem()]} onIncrement={noop} onDecrement={noop} onVoid={noop} onCourtesy={noop} onDiscount={noop} />,
       { me: deviceMe({ "pos.courtesies": false }) },
     )
 
+    await user.click(screen.getByRole("button", { name: /limonada de coco: acciones/i }))
+    await screen.findByRole("dialog")
+    expect(screen.queryByRole("button", { name: /^más$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /cortesía/i })).not.toBeInTheDocument()
   })
 
-  it("con pos.courtesies sí muestra el botón Cortesía en un ítem vivo", () => {
+  it("la línea es un solo renglón: sus acciones no están a la vista hasta tocarla", () => {
     renderWithProviders(
       <OrderItemsList items={[buildOrderItem()]} onIncrement={noop} onDecrement={noop} onVoid={noop} onCourtesy={noop} onDiscount={noop} />,
-      { me: deviceMe({ "pos.courtesies": true }) },
+      { me: deviceMe({ "pos.courtesies": true, "pos.discounts": true }) },
     )
 
-    expect(screen.getByRole("button", { name: /cortesía/i })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /limonada de coco: acciones/i })).toBeInTheDocument()
+    for (const name of [/^anular/i, /cortesía/i, /descuento/i, /sumar una unidad/i]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument()
+    }
   })
 
-  it("la cantidad sólo es editable en pending; un ítem enviado la muestra como texto", () => {
+  it("para un operador, Cortesía y Descuento quedan detrás de «Más» en el panel de la línea", async () => {
+    const onCourtesy = vi.fn()
+    const user = userEvent.setup()
+    renderWithProviders(
+      <OrderItemsList items={[buildOrderItem()]} onIncrement={noop} onDecrement={noop} onVoid={noop} onCourtesy={onCourtesy} onDiscount={noop} />,
+      { me: deviceMe({ "pos.courtesies": true, "pos.discounts": true }) },
+    )
+
+    await user.click(screen.getByRole("button", { name: /limonada de coco: acciones/i }))
+    const sheet = await screen.findByRole("dialog")
+    expect(within(sheet).getByRole("button", { name: /^anular limonada de coco$/i })).toBeInTheDocument()
+    expect(within(sheet).queryByRole("button", { name: /cortesía/i })).not.toBeInTheDocument()
+
+    await user.click(within(sheet).getByRole("button", { name: /^más$/i }))
+    expect(within(sheet).getByRole("button", { name: /descuento de limonada de coco/i })).toBeInTheDocument()
+    await user.click(within(sheet).getByRole("button", { name: /cortesía de limonada de coco/i }))
+    expect(onCourtesy).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
+  })
+
+  it("para un supervisor, Cortesía y Descuento están a la vista en el panel, sin «Más»", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <OrderItemsList items={[buildOrderItem()]} onIncrement={noop} onDecrement={noop} onVoid={noop} onCourtesy={noop} onDiscount={noop} />,
+      {
+        me: deviceMe(
+          { "pos.courtesies": true, "pos.discounts": true },
+          { employee: { id: 5, name: "Sara", role: "supervisor", can_charge: true } },
+        ),
+      },
+    )
+
+    await user.click(screen.getByRole("button", { name: /limonada de coco: acciones/i }))
+    const sheet = await screen.findByRole("dialog")
+    expect(within(sheet).getByRole("button", { name: /cortesía de limonada de coco/i })).toBeInTheDocument()
+    expect(within(sheet).getByRole("button", { name: /descuento de limonada de coco/i })).toBeInTheDocument()
+    expect(within(sheet).queryByRole("button", { name: /^más$/i })).not.toBeInTheDocument()
+  })
+
+  it("la cantidad sólo es editable en pending; un ítem enviado la muestra como texto", async () => {
     const onIncrement = vi.fn()
+    const user = userEvent.setup()
     renderWithProviders(
       <OrderItemsList
         items={[buildOrderItem({ id: 1, status: "pending" }), buildOrderItem({ id: 2, status: "sent", name: "Sopa" })]}
@@ -41,12 +88,20 @@ describe("OrderItemsList", () => {
       { me: deviceMe({}) },
     )
 
-    expect(screen.getByRole("button", { name: /sumar una unidad de limonada de coco/i })).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /restar una unidad de sopa/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /sumar una unidad de sopa/i })).not.toBeInTheDocument()
     // La cantidad del enviado queda como texto («1×») en su línea.
     const sentLine = screen.getByText("Sopa").closest("li") as HTMLElement
     expect(within(sentLine).getByText("1×")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: /limonada de coco: acciones/i }))
+    const pendingSheet = await screen.findByRole("dialog")
+    await user.click(within(pendingSheet).getByRole("button", { name: /sumar una unidad de limonada de coco/i }))
+    expect(onIncrement).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
+    await user.click(within(pendingSheet).getByRole("button", { name: /^cerrar$/i }))
+
+    await user.click(screen.getByRole("button", { name: /sopa: acciones/i }))
+    const sentSheet = await screen.findByRole("dialog", { name: /sopa/i })
+    expect(within(sentSheet).queryByRole("button", { name: /restar una unidad de sopa/i })).not.toBeInTheDocument()
+    expect(within(sentSheet).queryByRole("button", { name: /sumar una unidad de sopa/i })).not.toBeInTheDocument()
   })
 
   it("un ítem anulado no ofrece anular de nuevo", () => {
@@ -62,6 +117,8 @@ describe("OrderItemsList", () => {
       { me: deviceMe({ "pos.courtesies": true, "pos.discounts": true }) },
     )
 
+    // Ni siquiera se puede abrir su panel: no le queda ninguna acción.
+    expect(screen.queryByRole("button", { name: /acciones/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /^anular/i })).not.toBeInTheDocument()
     expect(screen.getByText(/se fue sin pagar/i)).toBeInTheDocument()
   })
@@ -136,5 +193,24 @@ describe("OrderItemsList", () => {
     expect(within(combo).getByText("Pollo")).toBeInTheDocument()
     // En línea: ningún diálogo aparte para leerlos.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+})
+
+describe("OrderItemsList · cargo de domicilio", () => {
+  it("rotula el cargo como «No va a cocina»", () => {
+    renderWithProviders(
+      <OrderItemsList
+        items={[buildOrderItem({ id: 9, name: "Domicilio", station: null, course: "main", is_delivery_fee: true })]}
+        onIncrement={noop}
+        onDecrement={noop}
+        onVoid={noop}
+        onCourtesy={noop}
+        onDiscount={noop}
+      />,
+      { me: deviceMe({}) },
+    )
+
+    const line = screen.getByText("Domicilio").closest("li") as HTMLElement
+    expect(within(line).getByText("No va a cocina")).toBeInTheDocument()
   })
 })

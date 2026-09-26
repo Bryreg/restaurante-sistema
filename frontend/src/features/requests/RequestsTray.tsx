@@ -12,8 +12,9 @@ import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 import { formatCantidad } from "@/lib/format";
 import { formatCOP } from "@/lib/money";
+import { unidadEnPlural } from "@/features/inventory/areaCountLib";
 
-import { fullDenominations, KIND_LABEL, REQUESTS_QUERY_KEYS, typedTotal } from "./lib";
+import { fullDenominations, KIND_LABEL, REQUESTS_QUERY_KEYS, typedTotal, unidadBase } from "./lib";
 
 function Rechazo({
   onConfirm,
@@ -114,8 +115,10 @@ function PendingCard({ storeId, request }: { storeId: number; request: StaffRequ
                 {line.ingredient_name}
                 <span className="text-muted-foreground">
                   {" "}
-                  · pidió {formatCantidad(line.qty_requested, line.base_unit)}
-                  {line.suggested_qty !== null ? ` · sugerido ${formatCantidad(line.suggested_qty, line.base_unit)}` : ""}
+                  · pidió {formatCantidad(line.qty_requested_entry, unidadEnPlural(line.entry_unit))}
+                  {line.suggested_qty !== null
+                    ? ` · sugerido ${formatCantidad(line.suggested_qty, unidadBase(line.base_unit))}`
+                    : ""}
                 </span>
               </span>
               <Label htmlFor={`aprobar-${line.id}`} className="sr-only">
@@ -128,7 +131,7 @@ function PendingCard({ storeId, request }: { storeId: number; request: StaffRequ
                 value={qtys[line.id] ?? ""}
                 onChange={(event) => setQtys((prev) => ({ ...prev, [line.id]: event.target.value }))}
               />
-              <span className="w-10 text-sm text-muted-foreground">{line.base_unit}</span>
+              <span className="w-20 text-sm text-muted-foreground">{unidadBase(line.base_unit)}</span>
             </li>
           ))}
         </ul>

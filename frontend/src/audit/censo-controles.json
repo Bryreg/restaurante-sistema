@@ -531,7 +531,6 @@
   "Porcentaje"
  ],
  "features/orders/ItemDialog.tsx": [
-  "Por defecto del producto",
   "Restar una unidad",
   "Sumar una unidad"
  ],
@@ -1061,7 +1060,6 @@
   "Todavía no hay movimientos en este turno"
  ],
  "features/shifts/OpenShiftForm.tsx": [
-  "Elegí una causa",
   "Responsable de caja"
  ],
  "features/shifts/PhotoCaptureField.tsx": [

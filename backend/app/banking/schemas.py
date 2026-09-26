@@ -115,6 +115,10 @@ class DrawerOut(BaseModel):
     shift_id: int | None
     days: list[DrawerDayOut]
     deposits: list[DepositOut]
+    # Los bancos a los que la sede consignó últimamente, el último usado
+    # primero: la tablet los ofrece como botones en vez de hacer teclear el
+    # banco cada vez.
+    recent_banks: list[str] = Field(default_factory=list)
 
 
 class DepositReverseIn(BaseModel):

@@ -147,10 +147,11 @@ export function buildDocument(overrides: Partial<DocumentPrintable> = {}): Docum
       address: "Cra 1 # 2-34",
       municipality_dane: "05001",
     },
-    customer: { doc_type: "13", doc_number: "222222222222", name: "Consumidor final" },
+    customer: { doc_type: "13", doc_type_label: "C.C.", final_consumer: true, doc_number: "222222222222", name: "Consumidor final" },
     order: {
       id: 42,
       channel: "dine_in",
+      channel_label: "Mesa",
       tables: ["5"],
       covers: 4,
       served_by: "Ana",

@@ -165,6 +165,12 @@ export interface OrderItemOut {
   tax?: number
   courtesy?: CourtesyOut | null
   void?: VoidInfoOut | null
+  /**
+   * El cargo de domicilio: una línea de plata, no un plato. Nunca va a
+   * cocina (`station` nula), no cuenta en «Enviar a cocina · N» y no se
+   * «marcha». Ausente en un backend viejo = no es cargo.
+   */
+  is_delivery_fee?: boolean
 }
 
 export interface OrderRoundOut {
@@ -283,6 +289,10 @@ export interface TableStatusOut {
   total?: number | null
   /** Platos que cocina marcó listos y nadie sirvió todavía (conteo del servidor). */
   ready_count?: number
+  /** Unidades todavía sin enviar a cocina (conteo del servidor, sin el cargo de domicilio). */
+  unsent_count?: number
+  /** Quién abrió la mesa: iniciales en la tarjeta y el filtro «Mis mesas». */
+  opened_by?: EmployeeRefOut | null
 }
 
 export interface ZoneStatusOut {
@@ -331,8 +341,15 @@ export interface PreBillOut {
 export interface BillSplitEqualOut {
   mode?: "equal"
   parts?: number
+  /** Sólo la venta, repartida. */
   per_part?: number[]
   total?: number
+  /** La propina que se mandó al dividir (0 si ninguna). */
+  tip_amount?: number
+  /** Lo que paga cada parte: venta + propina repartidas juntas por el servidor. */
+  per_part_due?: number[]
+  /** `total + tip_amount`, sumado por el servidor. */
+  amount_due?: number
 }
 
 export interface BillSplitItemsOut {
@@ -554,7 +571,7 @@ export interface SplitGroupIn {
 }
 
 export type BillSplitIn =
-  | { expected_version: number; mode: "equal"; parts: number }
+  | { expected_version: number; mode: "equal"; parts: number; tip_amount?: number }
   | { expected_version: number; mode: "items"; groups: SplitGroupIn[] }
 
 // ---------------------------------------------------------------------------

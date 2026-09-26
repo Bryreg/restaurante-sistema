@@ -84,4 +84,55 @@ describe("TablesPage", () => {
     expect(within(mesa).getByText("2 listos")).toBeInTheDocument()
     expect(screen.queryByText(/0 listos/)).not.toBeInTheDocument()
   })
+
+  it("una mesa con ítems sin enviar lo dice en el mapa, con iniciales de quien la atiende y fondo por estado", async () => {
+    const base = buildTablesStatus()
+    const zone = base.zones![0]!
+    listTablesStatusMock.mockResolvedValue({
+      zones: [
+        {
+          ...zone,
+          tables: (zone.tables ?? []).map((t) =>
+            t.id === 2 ? { ...t, unsent_count: 3, opened_by: { id: 2, name: "Ana María" } } : t,
+          ),
+        },
+      ],
+    })
+
+    renderWithProviders(<TablesPage />, { me: deviceMe({ "pos.tables": true }) })
+
+    const mesa = await screen.findByRole("button", { name: /mesa 2, ocupada, 3 sin enviar, atiende ana maría/i })
+    expect(within(mesa).getByText("3 sin enviar")).toBeInTheDocument()
+    expect(within(mesa).getByText("AM")).toBeInTheDocument()
+    expect(mesa.className).toMatch(/bg-primary\/10/)
+    expect(screen.getByRole("button", { name: /mesa 3, por cobrar/i }).className).toMatch(/bg-warning/)
+    expect(screen.getByRole("button", { name: /mesa 1, libre/i }).className).toMatch(/bg-card/)
+  })
+
+  it("«Mis mesas» deja las que abrió quien está identificado, más las libres", async () => {
+    const base = buildTablesStatus()
+    const zone = base.zones![0]!
+    listTablesStatusMock.mockResolvedValue({
+      zones: [
+        {
+          ...zone,
+          tables: (zone.tables ?? []).map((t) =>
+            t.id === 2 ? { ...t, opened_by: { id: 2, name: "Ana" } } : t.id === 3 ? { ...t, opened_by: { id: 8, name: "Beto" } } : t,
+          ),
+        },
+      ],
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders(<TablesPage />, { me: deviceMe({ "pos.tables": true }) })
+
+    await screen.findByRole("button", { name: /mesa 3, por cobrar/i })
+    const filtro = screen.getByRole("button", { name: "Mis mesas" })
+    await user.click(filtro)
+
+    expect(filtro).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: /mesa 1, libre/i })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /mesa 2, ocupada/i })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /mesa 3/i })).not.toBeInTheDocument()
+  })
 })

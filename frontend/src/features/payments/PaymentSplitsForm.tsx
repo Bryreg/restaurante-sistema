@@ -1,11 +1,14 @@
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { useSession } from "@/app/session";
 import { ApiError, newIdempotencyKey } from "@/api/client";
 import type { OrderOut } from "@/api/orders";
 import {
   PAYMENT_METHOD_LABEL,
+  getTenderSuggestions,
   listDevicePaymentMethods,
   payOrder,
   previewChange,
@@ -22,9 +25,9 @@ import { PinPad } from "@/components/PinPad";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { errorMessage } from "@/lib/errors";
 import { DENOMINATIONS, formatCOP } from "@/lib/money";
+import { cn } from "@/lib/utils";
 
 import { sumTyped } from "./lib";
 
@@ -61,6 +64,13 @@ export interface PaymentSplitsFormProps {
   onPaid: (result: PaymentOut) => void;
   onStale: (order: OrderOut) => void;
   onAlreadyPaid: () => void;
+  /**
+   * Dónde dibujar el cierre del cobro (estado, vuelto, quién cobra y el
+   * PIN). En la tablet horizontal `CheckoutPage` le da la columna derecha,
+   * para que el teclado quede siempre a la vista; sin él, va debajo de los
+   * pagos.
+   */
+  confirmSlot?: HTMLElement | null;
 }
 
 const CASH_SHORTCUTS = DENOMINATIONS.filter((value) => value >= 1000);
@@ -81,6 +91,13 @@ const CASH_SHORTCUTS = DENOMINATIONS.filter((value) => value >= 1000);
  * los que el servidor marca `requires_reference`. Si la lista todavía no
  * cargó, falló, o la sede no tiene ningún medio habilitado, la tabla de
  * pagos no se dibuja (no hay con qué cobrar sin inventar códigos).
+ *
+ * **Tablet** (auditoría de UX en 820×1180 y 1280×800): el medio es una fila
+ * de botones y no una lista desplegable; lo recibido tiene «Exacto» y los
+ * billetes redondos siguientes a un toque (cifras del servidor), con los
+ * «+billete» como segunda opción; y el cierre (estado, vuelto, quién cobra,
+ * PIN) puede ir en otra columna (`confirmSlot`) para que el teclado nunca
+ * quede debajo del pliegue.
  */
 export function PaymentSplitsForm({
   orderId,
@@ -92,12 +109,15 @@ export function PaymentSplitsForm({
   onPaid,
   onStale,
   onAlreadyPaid,
+  confirmSlot,
 }: PaymentSplitsFormProps): React.JSX.Element {
+  const { me } = useSession();
+  const chargerName = me?.employee?.name ?? null;
   const methodsQuery = useQuery({
     queryKey: ["device-payment-methods"],
     queryFn: listDevicePaymentMethods,
   });
-  const methods: DevicePaymentMethod[] = methodsQuery.data ?? [];
+  const methods: DevicePaymentMethod[] = useMemo(() => methodsQuery.data ?? [], [methodsQuery.data]);
 
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const seededRef = useRef(false);
@@ -137,6 +157,7 @@ export function PaymentSplitsForm({
 
   const typedTotal = sumTyped(splits.map((s) => ({ amount: s.amount })));
   const remaining = totalDue - typedTotal;
+  const complete = remaining === 0;
 
   // El vuelto lo calcula el SERVIDOR (`POST /payments/change-preview`, la
   // misma cuenta del cobro): así lo que la cajera le dice al cliente antes de
@@ -243,111 +264,8 @@ export function PaymentSplitsForm({
     );
   }
 
-  return (
-    <div className="space-y-4 rounded-md border p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">Pagos</h2>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-11"
-          onClick={() =>
-            // Lo que falta, que es lo que casi siempre va en la fila nueva.
-            setSplits((prev) => [...prev, newRow(methods[0].code, remaining > 0 ? remaining : null)])
-          }
-        >
-          Agregar pago
-        </Button>
-      </div>
-
-      <div className="space-y-3">
-        {splits.map((row) => (
-          <div key={row.key} className="grid gap-3 rounded-md border p-3 sm:grid-cols-[1fr_1fr_auto]">
-            <div className="space-y-1">
-              <Label htmlFor={`method-${row.key}`}>Medio</Label>
-              <Select value={row.method} onValueChange={(v) => updateRow(row.key, { method: v as PaymentMethod })}>
-                <SelectTrigger id={`method-${row.key}`} className="h-11 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {methods.map((method) => (
-                    <SelectItem key={method.code} value={method.code}>
-                      {method.label || PAYMENT_METHOD_LABEL[method.code] || method.code}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor={`amount-${row.key}`}>Monto</Label>
-              <MoneyInput
-                id={`amount-${row.key}`}
-                value={row.amount}
-                onChange={(value) => updateRow(row.key, { amount: value, amountTouched: true })}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-11"
-                aria-label="Quitar este pago"
-                onClick={() => removeRow(row.key)}
-              >
-                Quitar
-              </Button>
-            </div>
-
-            {row.method === "cash" ? (
-              <div className="space-y-1 sm:col-span-3">
-                <Label htmlFor={`tendered-${row.key}`}>Recibido</Label>
-                <MoneyInput
-                  id={`tendered-${row.key}`}
-                  value={row.tendered}
-                  onChange={(value) => updateRow(row.key, { tendered: value })}
-                />
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {CASH_SHORTCUTS.map((bill) => (
-                    <Button
-                      key={bill}
-                      type="button"
-                      variant="outline"
-                      className="h-11"
-                      onClick={() => updateRow(row.key, { tendered: (row.tendered ?? 0) + bill })}
-                    >
-                      +{formatCOP(bill)}
-                    </Button>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-11"
-                    onClick={() => updateRow(row.key, { tendered: null })}
-                  >
-                    Limpiar
-                  </Button>
-                </div>
-                {row.method === "cash" && row.tendered !== null && hayVuelto ? (
-                  <VueltoDeFila preview={vueltoDeFila.get(row.key)} viejo={vueltoViejo} />
-                ) : null}
-              </div>
-            ) : null}
-
-            {methods.find((m) => m.code === row.method)?.requires_reference ? (
-              <div className="space-y-1 sm:col-span-3">
-                <Label htmlFor={`reference-${row.key}`}>Referencia (si aplica)</Label>
-                <Input
-                  id={`reference-${row.key}`}
-                  className="h-11"
-                  value={row.reference}
-                  onChange={(event) => updateRow(row.key, { reference: event.target.value })}
-                />
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
-
+  const confirm = (
+    <div className="flex flex-col items-center gap-3 rounded-md border p-3">
       <p className="text-sm font-medium tabular-nums" role="status">
         {remaining > 0
           ? `Faltan ${formatCOP(remaining)}`
@@ -355,40 +273,266 @@ export function PaymentSplitsForm({
             ? `Sobran ${formatCOP(-remaining)}`
             : "Completo"}
       </p>
-
+      {/* El vuelto total se dice recién con el pago completo: con montos a
+          medio teclear es una cifra que todavía no es verdad. */}
+      {complete && hayVuelto && vueltoQuery.data && vueltoQuery.data.change_total > 0 ? (
+        <p className={vueltoViejo ? "text-center opacity-50" : "text-center"} role="status">
+          <span className="block text-sm text-muted-foreground">Vuelto a entregar</span>
+          <span className="text-3xl font-extrabold tabular-nums" style={{ fontStretch: "115%" }}>
+            {formatCOP(vueltoQuery.data.change_total)}
+          </span>
+        </p>
+      ) : null}
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-center text-sm text-destructive">
           {error}
         </p>
       ) : null}
+      {/* Cobrar pide el PIN aunque haya persona activa (SPEC-NEGOCIO §2.1:
+          una tablet abandonada no vende a nombre de quien la dejó). Lo que
+          sí se ahorra es adivinar de quién es el PIN que se pide. */}
+      <p className="text-center text-sm text-muted-foreground">
+        {!complete ? (
+          "Completá los pagos para poder cobrar."
+        ) : chargerName ? (
+          <>
+            Cobra <b className="text-foreground">{chargerName}</b>: tecleá tu PIN.
+          </>
+        ) : (
+          "Ingresá tu PIN para cobrar."
+        )}
+      </p>
+      {/*
+       * `PinPad` escucha el teclado a nivel de `window` (componente
+       * compartido de 1a, fuera de este territorio) sin importar qué
+       * campo tiene el foco: si quedara habilitado mientras se tipean los
+       * montos, cada dígito tecleado ahí se colaría como dígito de PIN.
+       * Mantenerlo `disabled` hasta que los pagos suman exacto evita ese
+       * cruce y de paso impide cobrar con montos incompletos. Se dibuja
+       * siempre (deshabilitado), para que no aparezca de golpe más abajo.
+       */}
+      <PinPad
+        length={4}
+        label="PIN propio para cobrar"
+        disabled={mutation.isPending || !complete}
+        onSubmit={(pin) => mutation.mutate(pin)}
+      />
+    </div>
+  );
 
-      <div className="flex flex-col items-center gap-3 border-t pt-4">
-        {hayVuelto && vueltoQuery.data && vueltoQuery.data.change_total > 0 ? (
-          <p className={vueltoViejo ? "text-center opacity-50" : "text-center"} role="status">
-            <span className="block text-sm text-muted-foreground">Vuelto a entregar</span>
-            <span className="text-3xl font-extrabold tabular-nums" style={{ fontStretch: "115%" }}>
-              {formatCOP(vueltoQuery.data.change_total)}
-            </span>
-          </p>
-        ) : null}
-        <p className="text-sm text-muted-foreground">
-          {remaining !== 0 ? "Completá los pagos para poder cobrar." : "Ingresá tu PIN para cobrar."}
-        </p>
-        {/*
-         * `PinPad` escucha el teclado a nivel de `window` (componente
-         * compartido de 1a, fuera de este territorio) sin importar qué
-         * campo tiene el foco: si quedara habilitado mientras se tipean los
-         * montos, cada dígito tecleado ahí se colaría como dígito de PIN.
-         * Mantenerlo `disabled` hasta que los pagos suman exacto evita ese
-         * cruce y de paso impide cobrar con montos incompletos.
-         */}
-        <PinPad
-          length={4}
-          label="PIN propio para cobrar"
-          disabled={mutation.isPending || remaining !== 0}
-          onSubmit={(pin) => mutation.mutate(pin)}
-        />
+  return (
+    <div className="space-y-3">
+      <div className="space-y-3 rounded-md border p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Pagos</h2>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11"
+            onClick={() =>
+              // Lo que falta, que es lo que casi siempre va en la fila nueva.
+              setSplits((prev) => [...prev, newRow(methods[0].code, remaining > 0 ? remaining : null)])
+            }
+          >
+            Agregar pago
+          </Button>
+        </div>
+
+        <div className="space-y-3">
+          {splits.map((row, index) => (
+            <PaymentRow
+              key={row.key}
+              row={row}
+              index={index}
+              single={splits.length === 1}
+              methods={methods}
+              onChange={(patch) => updateRow(row.key, patch)}
+              onRemove={() => removeRow(row.key)}
+              vuelto={
+                row.method === "cash" && row.tendered !== null && hayVuelto ? (
+                  <VueltoDeFila preview={vueltoDeFila.get(row.key)} viejo={vueltoViejo} />
+                ) : null
+              }
+            />
+          ))}
+        </div>
       </div>
+
+      {confirmSlot ? createPortal(confirm, confirmSlot) : confirm}
+    </div>
+  );
+}
+
+/**
+ * Una fila de pago: el medio como fila de botones (uno por medio habilitado
+ * de la sede, no una lista desplegable: en la tablet es un toque, no dos), el
+ * monto y, en efectivo, lo recibido con sus atajos.
+ */
+function PaymentRow({
+  row,
+  index,
+  single,
+  methods,
+  onChange,
+  onRemove,
+  vuelto,
+}: {
+  row: SplitRow;
+  index: number;
+  single: boolean;
+  methods: DevicePaymentMethod[];
+  onChange: (patch: Partial<SplitRow>) => void;
+  onRemove: () => void;
+  vuelto: React.ReactNode;
+}): React.JSX.Element {
+  const methodLabelId = useId();
+  return (
+    <div className="space-y-2 rounded-md border p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span id={methodLabelId} className="text-sm font-medium">
+          {single ? "Medio" : `Pago ${index + 1} · medio`}
+        </span>
+        <Button type="button" variant="ghost" className="h-11" aria-label="Quitar este pago" onClick={onRemove}>
+          Quitar
+        </Button>
+      </div>
+      <div role="radiogroup" aria-labelledby={methodLabelId} className="flex flex-wrap gap-2">
+        {methods.map((method) => {
+          const selected = row.method === method.code;
+          return (
+            <button
+              key={method.code}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              className={cn(
+                "min-h-11 flex-1 basis-24 rounded-lg border px-3 text-sm font-medium transition-colors",
+                "focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
+                selected
+                  ? "border-foreground bg-secondary text-secondary-foreground ring-2 ring-foreground"
+                  : "bg-background hover:bg-muted",
+              )}
+              onClick={() => onChange({ method: method.code })}
+            >
+              {method.label || PAYMENT_METHOD_LABEL[method.code] || method.code}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className={cn("grid gap-2", row.method === "cash" && "grid-cols-2")}>
+        <div className="space-y-1">
+          <Label htmlFor={`amount-${row.key}`}>Monto</Label>
+          <MoneyInput
+            id={`amount-${row.key}`}
+            value={row.amount}
+            onChange={(value) => onChange({ amount: value, amountTouched: true })}
+          />
+        </div>
+        {row.method === "cash" ? (
+          <div className="space-y-1">
+            <Label htmlFor={`tendered-${row.key}`}>Recibido</Label>
+            <MoneyInput
+              id={`tendered-${row.key}`}
+              value={row.tendered}
+              onChange={(value) => onChange({ tendered: value })}
+            />
+          </div>
+        ) : null}
+      </div>
+
+      {row.method === "cash" ? (
+        <>
+          <TenderShortcuts amount={row.amount} tendered={row.tendered} onPick={(value) => onChange({ tendered: value })} />
+          {/* Los billetes que se van sumando quedan como segunda opción:
+              sirven cuando el cliente entrega varios billetes distintos. */}
+          <div className="flex flex-wrap gap-1" role="group" aria-label="Sumar billetes a lo recibido">
+            {CASH_SHORTCUTS.map((bill) => (
+              <Button
+                key={bill}
+                type="button"
+                variant="ghost"
+                className="h-11 px-2 text-xs"
+                onClick={() => onChange({ tendered: (row.tendered ?? 0) + bill })}
+              >
+                +{formatCOP(bill)}
+              </Button>
+            ))}
+            <Button type="button" variant="ghost" className="h-11 px-2 text-xs" onClick={() => onChange({ tendered: null })}>
+              Limpiar
+            </Button>
+          </div>
+          {vuelto}
+        </>
+      ) : null}
+
+      {methods.find((m) => m.code === row.method)?.requires_reference ? (
+        <div className="space-y-1">
+          <Label htmlFor={`reference-${row.key}`}>Referencia (si aplica)</Label>
+          <Input
+            id={`reference-${row.key}`}
+            className="h-11"
+            value={row.reference}
+            onChange={(event) => onChange({ reference: event.target.value })}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * «Exacto · $135.000 · $140.000 · $150.000»: lo que el cliente entrega casi
+ * siempre, a un toque. Las cifras redondas las calcula el servidor
+ * (`GET /payments/tender-suggestions`); «Exacto» es el monto de la fila tal
+ * cual, sin cuenta. Se pregunta cuando se deja de teclear el monto.
+ */
+function TenderShortcuts({
+  amount,
+  tendered,
+  onPick,
+}: {
+  amount: number | null;
+  tendered: number | null;
+  onPick: (value: number) => void;
+}): React.JSX.Element | null {
+  const [deferred, setDeferred] = useState(amount);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDeferred(amount), 300);
+    return () => window.clearTimeout(id);
+  }, [amount]);
+  const query = useQuery({
+    queryKey: ["payments", "tender-suggestions", deferred],
+    queryFn: () => getTenderSuggestions(deferred ?? 0),
+    enabled: deferred !== null && deferred > 0,
+    staleTime: Infinity,
+  });
+  if (amount === null || amount <= 0) return null;
+  // Sugerencias de otro monto (todavía se está tecleando) no se ofrecen.
+  const suggestions = deferred === amount ? (query.data?.suggestions ?? []) : [];
+  return (
+    <div className="flex flex-wrap gap-2" role="group" aria-label="Recibido en un toque">
+      <Button
+        type="button"
+        variant="outline"
+        aria-pressed={tendered === amount}
+        className="h-11 flex-1 basis-20 font-semibold aria-pressed:ring-2 aria-pressed:ring-foreground"
+        onClick={() => onPick(amount)}
+      >
+        Exacto
+      </Button>
+      {suggestions.map((value) => (
+        <Button
+          key={value}
+          type="button"
+          variant="outline"
+          aria-pressed={tendered === value}
+          className="h-11 flex-1 basis-20 font-semibold tabular-nums aria-pressed:ring-2 aria-pressed:ring-foreground"
+          onClick={() => onPick(value)}
+        >
+          {formatCOP(value)}
+        </Button>
+      ))}
     </div>
   );
 }

@@ -148,6 +148,35 @@ def test_delivery_fee_line_enters_totals_and_tax_base_like_any_item(
     assert bucket["tax"] == fee_line["tax"] + main_line["tax"]
 
 
+def test_delivery_fee_line_is_flagged_so_the_salon_does_not_count_it_as_a_dish(
+    device_client: TestClient, identify: Any, employees: Any, open_shift: Any, courier: Any, delivery_fee_product: Any,
+    main_product: Any, send_order: Any,
+) -> None:
+    """El cargo es plata, no un plato: `is_delivery_fee` le dice al salón que
+    no lo cuente en «Enviar a cocina · N» ni lo ofrezca para «marchar». Al
+    enviar la ronda sale con los platos, pero sin estación pasa directo a
+    entregado: nunca llega a la cocina."""
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = device_client.post("/api/v1/orders", json=_delivery_payload(courier.id)).json()
+    order = device_client.post(
+        f"/api/v1/orders/{order['id']}/items",
+        json={"expected_version": order["version"], "items": [{"product_id": main_product.id, "qty": 1}]},
+        headers=idem_headers(),
+    ).json()
+
+    fee_line = next(i for i in order["items"] if i["product_id"] == delivery_fee_product.id)
+    main_line = next(i for i in order["items"] if i["product_id"] == main_product.id)
+    assert fee_line["is_delivery_fee"] is True
+    assert main_line["is_delivery_fee"] is False
+
+    sent = send_order(order)
+    assert sent.status_code == 200, sent.text
+    fee_after = next(i for i in sent.json()["items"] if i["product_id"] == delivery_fee_product.id)
+    assert fee_after["status"] == "served"
+    assert fee_after["station"] is None
+
+
 def test_delivery_fee_product_cannot_be_added_manually(
     device_client: TestClient, identify: Any, employees: Any, open_shift: Any, courier: Any, delivery_fee_product: Any,
 ) -> None:

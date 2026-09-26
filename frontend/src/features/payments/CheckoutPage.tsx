@@ -21,11 +21,12 @@ import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
+import { cn } from "@/lib/utils";
 
 import type { InitialSplit } from "./PaymentSplitsForm";
 import type { PaymentTarget } from "./PaymentTargetPanel";
 import { PaymentTargetPanel } from "./PaymentTargetPanel";
-import { SplitBillPanel, SplitPartsList, type SplitBillMode, type SplitPart } from "./SplitBillPanel";
+import { EqualSplitPicker, SplitBillPanel, SplitPartsList, type SplitBillMode, type SplitPart } from "./SplitBillPanel";
 
 function orderQueryKey(orderId: number) {
   return ["orders", orderId] as const;
@@ -99,6 +100,9 @@ export default function CheckoutPage(): React.JSX.Element {
   const [activeSubAccountId, setActiveSubAccountId] = useState<number | null>(null);
   const [chargingSubAccountId, setChargingSubAccountId] = useState<number | null>(null);
   const [alreadyPaidNotice, setAlreadyPaidNotice] = useState(false);
+  const [showLines, setShowLines] = useState(false);
+  // Donde `PaymentSplitsForm` dibuja el cierre del cobro (ver abajo).
+  const [confirmSlot, setConfirmSlot] = useState<HTMLDivElement | null>(null);
 
   const presentedForOrderRef = useRef<number | null>(null);
   const presentBillIdempotencyRef = useRef(newIdempotencyKey());
@@ -295,15 +299,17 @@ export default function CheckoutPage(): React.JSX.Element {
     };
   });
 
+  const lineCount = preBill?.lines?.length ?? 0;
+
   return (
-    <div className="mx-auto max-w-2xl space-y-6 pb-12">
-      <div className="space-y-1">
+    <div className="mx-auto max-w-6xl pb-6">
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
         <h1 className="text-lg font-semibold">Cuenta y cobro</h1>
         <p className="text-sm text-muted-foreground">Comanda #{order.id}</p>
       </div>
 
       {alreadyPaidNotice ? (
-        <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+        <div className="mb-3 space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
           <p role="alert" className="text-sm font-medium text-destructive">
             Esta comanda ya fue cobrada.
           </p>
@@ -317,145 +323,203 @@ export default function CheckoutPage(): React.JSX.Element {
         </div>
       ) : null}
 
-      {preBillFlag ? (
-        <div className="space-y-3 rounded-md border p-4">
-          {presentBillMutation.isPending && !preBill ? (
-            <p className="text-sm text-muted-foreground">Presentando la cuenta…</p>
-          ) : null}
-          {presentBillMutation.isError && !preBill ? (
-            <p role="alert" className="text-sm text-destructive">
-              {errorMessage(presentBillMutation.error)}
-            </p>
-          ) : null}
-          {preBill?.lines ? (
-            <div className="space-y-1 text-sm">
-              {preBill.lines.map((line, index) => (
-                <div key={index} className="flex justify-between gap-2">
-                  <span>
-                    {line.qty ?? 1}× {line.description ?? "Ítem"}
-                  </span>
-                  <span className="tabular-nums">{formatCOP(line.net)}</span>
-                </div>
-              ))}
+      {/* Tablet horizontal: la cuenta y lo recibido a la izquierda, el cierre
+          (estado, vuelto, quién cobra y el PIN) fijo a la derecha. Vertical:
+          una columna compacta, con el PIN al final pero sin pliegue. */}
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-6">
+        <div className="min-w-0 space-y-3">
+          {/* El total manda: grande y primero, porque es lo que se le dice a
+              la mesa. El desglose va chico al lado, para quien lo pregunte. */}
+          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 rounded-xl bg-card px-4 py-3 ring-1 ring-border">
+            <div>
+              <p className="text-sm text-muted-foreground">Total de la cuenta</p>
+              <p className="text-4xl leading-tight font-extrabold tabular-nums" style={{ fontStretch: "115%" }}>
+                {formatCOP(order.totals?.total)}
+              </p>
+            </div>
+            <dl className="grid grid-cols-3 gap-3 text-sm">
+              <div>
+                <dt className="text-muted-foreground">Subtotal</dt>
+                <dd className="tabular-nums">{formatCOP(order.totals?.subtotal)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Descuentos</dt>
+                <dd className="tabular-nums">{formatCOP(order.totals?.discount_total)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Impuesto</dt>
+                <dd className="tabular-nums">{formatCOP(order.totals?.tax_total)}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {preBillFlag ? (
+            <div className="space-y-2 rounded-md border px-3 py-2">
+              {presentBillMutation.isPending && !preBill ? (
+                <p className="text-sm text-muted-foreground">Presentando la cuenta…</p>
+              ) : null}
+              {presentBillMutation.isError && !preBill ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {errorMessage(presentBillMutation.error)}
+                </p>
+              ) : null}
+              {lineCount > 0 ? (
+                <>
+                  {/* En vertical el detalle se pliega: el espacio es para lo
+                      recibido y el PIN. En horizontal se ve siempre. */}
+                  <button
+                    type="button"
+                    className="flex min-h-11 w-full items-center justify-between text-left text-sm font-medium lg:hidden"
+                    aria-expanded={showLines}
+                    onClick={() => setShowLines((v) => !v)}
+                  >
+                    <span>Detalle de la cuenta · {lineCount} {lineCount === 1 ? "línea" : "líneas"}</span>
+                    <span aria-hidden="true">{showLines ? "▴" : "▾"}</span>
+                  </button>
+                  {/* Las líneas llegan ya agrupadas del servidor («2× Limonada»),
+                      con sus montos sumados allá: acá sólo se pintan. */}
+                  <div className={cn("max-h-48 space-y-1 overflow-y-auto text-sm", showLines ? "block" : "hidden lg:block")}>
+                    {preBill?.lines?.map((line, index) => (
+                      <div key={index} className="flex justify-between gap-2">
+                        <span>
+                          {line.qty ?? 1}× {line.description ?? "Ítem"}
+                        </span>
+                        <span className="tabular-nums">{formatCOP(line.net)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {legend ? (
+                <p className="text-center text-xs font-medium uppercase text-muted-foreground">{legend}</p>
+              ) : null}
             </div>
           ) : null}
-          {legend ? (
-            <p className="text-center text-xs font-medium uppercase text-muted-foreground">{legend}</p>
-          ) : null}
-        </div>
-      ) : null}
 
-      {/* El total manda: grande y primero, porque es lo que se le dice a la
-          mesa. El desglose va chico debajo, para quien lo pregunte. */}
-      <div className="rounded-xl bg-card p-4 ring-1 ring-border">
-        <p className="text-sm text-muted-foreground">Total de la cuenta</p>
-        <p
-          className="text-4xl leading-tight font-extrabold tabular-nums sm:text-5xl"
-          style={{ fontStretch: "115%" }}
-        >
-          {formatCOP(order.totals?.total)}
-        </p>
-        <dl className="mt-3 grid grid-cols-3 gap-2 border-t pt-3 text-sm">
-          <div>
-            <dt className="text-muted-foreground">Subtotal</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.subtotal)}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Descuentos</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.discount_total)}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Impuesto</dt>
-            <dd className="tabular-nums">{formatCOP(order.totals?.tax_total)}</dd>
-          </div>
-        </dl>
-      </div>
-
-      {splitBillFlag ? (
-        <SplitBillPanel
-          orderId={order.id}
-          expectedVersion={order.version ?? 1}
-          items={items}
-          mode={splitMode}
-          hasParts={splitMode === "items" && subAccounts.length > 0}
-          locked={splitMode === "items" && subAccounts.some((sa) => sa.status === "paid")}
-          onModeChange={(mode) => {
-            setSplitMode(mode);
-            if (mode !== "equal") setEqualInitialSplits(undefined);
-            if (mode !== "items") {
-              setActiveSubAccountId(null);
-              setChargingSubAccountId(null);
-            }
-          }}
-          onEqualResult={(result: BillSplitEqualOut) => {
-            setEqualInitialSplits((result.per_part ?? []).map((amount) => ({ method: "cash" as const, amount })));
-          }}
-          onItemsResult={(result: BillSplitItemsOut) => {
-            queryClient.setQueryData(subAccountsQueryKey(orderId), result.sub_accounts ?? []);
-            setActiveSubAccountId(null);
-            setChargingSubAccountId(null);
-          }}
-        />
-      ) : null}
-
-      {splitMode === "items" ? (
-        subAccounts.length > 0 ? (
-          <div className="space-y-3">
-            <SplitPartsList
-              parts={splitParts}
-              onSelect={(id) => {
-                setActiveSubAccountId(id);
+          {splitBillFlag ? (
+            <SplitBillPanel
+              orderId={order.id}
+              expectedVersion={order.version ?? 1}
+              items={items}
+              mode={splitMode}
+              hasParts={splitMode === "items" && subAccounts.length > 0}
+              locked={splitMode === "items" && subAccounts.some((sa) => sa.status === "paid")}
+              onModeChange={(mode) => {
+                setSplitMode(mode);
+                if (mode !== "equal") setEqualInitialSplits(undefined);
+                if (mode !== "items") {
+                  setActiveSubAccountId(null);
+                  setChargingSubAccountId(null);
+                }
+              }}
+              onItemsResult={(result: BillSplitItemsOut) => {
+                queryClient.setQueryData(subAccountsQueryKey(orderId), result.sub_accounts ?? []);
+                setActiveSubAccountId(null);
                 setChargingSubAccountId(null);
               }}
             />
-            {/* Una acción principal, abajo y a lo ancho, que repite la parte
-                y el monto (del servidor): «Cobrar parte 3 · $41.800». */}
-            {activeSubAccount && chargingSubAccountId !== activeSubAccount.id ? (
-              <Button
-                type="button"
-                className="min-h-14 w-full text-lg font-semibold"
-                onClick={() => setChargingSubAccountId(activeSubAccount.id)}
-              >
-                {`Cobrar parte ${activeNumber}${activeTotal != null ? ` · ${formatCOP(activeTotal)}` : ""}`}
-              </Button>
-            ) : null}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">Armá las cuentas arriba y tocá «Dividir cuenta».</p>
-        )
-      ) : null}
+          ) : null}
 
-      {splitMode === "items" ? (
-        subAccountTarget ? (
-          <div className="space-y-2">
-            <h2 className="text-base font-semibold">
-              Parte {activeNumber} · {formatCOP(activeTotal)}
-            </h2>
+          {splitMode === "items" ? (
+            subAccounts.length > 0 ? (
+              <div className="space-y-3">
+                <SplitPartsList
+                  parts={splitParts}
+                  onSelect={(id) => {
+                    setActiveSubAccountId(id);
+                    setChargingSubAccountId(null);
+                  }}
+                />
+                {/* Una acción principal, abajo y a lo ancho, que repite la parte
+                    y el monto (del servidor): «Cobrar parte 3 · $41.800». */}
+                {activeSubAccount && chargingSubAccountId !== activeSubAccount.id ? (
+                  <Button
+                    type="button"
+                    className="min-h-14 w-full text-lg font-semibold"
+                    onClick={() => setChargingSubAccountId(activeSubAccount.id)}
+                  >
+                    {`Cobrar parte ${activeNumber}${activeTotal != null ? ` · ${formatCOP(activeTotal)}` : ""}`}
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Armá las cuentas arriba y tocá «Dividir cuenta».</p>
+            )
+          ) : null}
+
+          {splitMode === "items" ? (
+            subAccountTarget ? (
+              <div className="space-y-2">
+                <h2 className="text-base font-semibold">
+                  Parte {activeNumber} · {formatCOP(activeTotal)}
+                </h2>
+                <PaymentTargetPanel
+                  key={subAccountTarget.subAccountId}
+                  orderId={order.id}
+                  expectedVersion={order.version}
+                  target={subAccountTarget}
+                  tipsEnabled={tipsFlag}
+                  onPaid={handlePaid}
+                  onStale={replaceWithFreshOrder}
+                  onAlreadyPaid={handleAlreadyPaid}
+                  confirmSlot={confirmSlot}
+                />
+              </div>
+            ) : null
+          ) : (
+            // Una sola instancia para «todo junto» y «partes iguales»: la
+            // propina se responde UNA vez y sobrevive al cambio de modo. Lo
+            // que se vuelve a sembrar al dividir es sólo la tabla de pagos.
             <PaymentTargetPanel
-              key={subAccountTarget.subAccountId}
+              key="whole"
               orderId={order.id}
               expectedVersion={order.version}
-              target={subAccountTarget}
+              target={wholeOrderTarget}
               tipsEnabled={tipsFlag}
+              initialSplits={splitMode === "equal" ? equalInitialSplits : undefined}
+              splitsKey={
+                splitMode === "equal" && equalInitialSplits
+                  ? `equal-${equalInitialSplits.map((s) => s.amount).join("-")}`
+                  : "whole"
+              }
+              beforePayments={
+                splitMode === "equal"
+                  ? (tip) => (
+                      <EqualSplitPicker
+                        orderId={order.id}
+                        expectedVersion={order.version ?? 1}
+                        tipAmount={tip?.amount}
+                        onResult={(result: BillSplitEqualOut) => {
+                          // Lo que paga cada parte, venta + propina, del
+                          // servidor (`per_part_due`); `per_part` sólo si el
+                          // servidor no lo mandó.
+                          const due =
+                            result.per_part_due && result.per_part_due.length > 0
+                              ? result.per_part_due
+                              : (result.per_part ?? []);
+                          setEqualInitialSplits(due.map((amount) => ({ method: "cash" as const, amount })));
+                          // Dividir sube la versión de la comanda: se relee
+                          // antes de cobrar para no chocar con un 409.
+                          void queryClient.invalidateQueries({ queryKey: orderQueryKey(orderId) });
+                        }}
+                        onStale={() => void queryClient.invalidateQueries({ queryKey: orderQueryKey(orderId) })}
+                      />
+                    )
+                  : undefined
+              }
               onPaid={handlePaid}
               onStale={replaceWithFreshOrder}
               onAlreadyPaid={handleAlreadyPaid}
+              confirmSlot={confirmSlot}
             />
-          </div>
-        ) : null
-      ) : (
-        <PaymentTargetPanel
-          key={splitMode === "equal" ? `equal-${equalInitialSplits?.length ?? 0}` : "whole"}
-          orderId={order.id}
-          expectedVersion={order.version}
-          target={wholeOrderTarget}
-          tipsEnabled={tipsFlag}
-          initialSplits={splitMode === "equal" ? equalInitialSplits : undefined}
-          onPaid={handlePaid}
-          onStale={replaceWithFreshOrder}
-          onAlreadyPaid={handleAlreadyPaid}
-        />
-      )}
+          )}
+        </div>
+
+        {/* El cierre del cobro lo dibuja `PaymentSplitsForm` acá adentro
+            (portal): en horizontal queda fijo a la derecha y siempre a la
+            vista; en vertical, al final de la columna. */}
+        <div ref={setConfirmSlot} className="min-w-0 lg:sticky lg:top-3" />
+      </div>
     </div>
   );
 }

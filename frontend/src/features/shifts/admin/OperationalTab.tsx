@@ -83,7 +83,14 @@ export function shiftColumns(
       key: "difference",
       header: "Diferencia",
       kind: "number",
-      cell: (s) => <Diferencia valor={s.difference} motivoSinDato="sin conteo de cierre" />,
+      cell: (s) => (
+        <span className="inline-flex flex-col items-end gap-0.5">
+          <Diferencia valor={s.difference} motivoSinDato="sin conteo de cierre" />
+          {s.recounted_after_review ? (
+            <span className="text-xs font-medium text-destructive">Recontado después de ver el esperado</span>
+          ) : null}
+        </span>
+      ),
     },
     {
       key: "reviewed",

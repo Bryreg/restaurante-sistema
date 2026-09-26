@@ -76,6 +76,35 @@ _TYPE_LABELS: dict[str, str] = {
     "internal_receipt": "Comprobante interno",
 }
 
+# El canal y el tipo de documento del adquirente, en palabras, para el papel:
+# «Canal dine_in» y «13 222222222222» no le dicen nada a quien lo lee.
+_CHANNEL_LABELS: dict[str, str] = {
+    "counter": "Mostrador",
+    "dine_in": "Mesa",
+    "takeout": "Para llevar",
+    "delivery": "Domicilio",
+    "platform": "Plataforma",
+    "staff_meal": "Consumo de personal",
+}
+
+# Tabla de tipos de documento de identificación de la DIAN (anexo técnico
+# de facturación electrónica, tabla 13.2.1). Un código que no está acá se
+# muestra tal cual.
+_CUSTOMER_DOC_TYPE_LABELS: dict[str, str] = {
+    "11": "Registro civil",
+    "12": "Tarjeta de identidad",
+    "13": "C.C.",
+    "21": "Tarjeta de extranjería",
+    "22": "C.E.",
+    "31": "NIT",
+    "41": "Pasaporte",
+    "42": "Doc. extranjero",
+    "47": "PEP",
+    "48": "PPT",
+    "50": "NIT de otro país",
+    "91": "NUIP",
+}
+
 
 def _full_number(prefix: str, number: int) -> str:
     return f"{prefix}-{number:06d}"
@@ -135,9 +164,9 @@ _NO_TIP = _TipResolution(asked=False, amount=0, accepted=None, modified=None, su
 
 
 def _resolve_tip(db: Session, order: Order, totals: money.OrderTotals, tip_in: TipIn | None) -> _TipResolution:
-    if order.channel == OrderChannel.STAFF_MEAL:
-        return _NO_TIP
-    if not features.is_enabled(db, order.organization_id, order.store_id, "pos.tips"):
+    # Misma regla que la precuenta: consumo de personal, `pos.tips` apagada y
+    # mostrador sin `pos.tips_counter` no llevan pregunta de propina.
+    if not orders_service.tip_applies(db, order):
         return _NO_TIP
 
     if tip_in is None or not tip_in.asked:
@@ -208,6 +237,34 @@ def preview_change(splits: list[Any]) -> dict[str, Any]:
         )
         total += change or 0
     return {"splits": rows, "change_total": total}
+
+
+# Billetes con los que se redondea lo recibido: los múltiplos siguientes de
+# cada uno son las cifras que un cliente de verdad entrega («$135.000»,
+# «$140.000», «$150.000» para una cuenta de $131.200).
+TENDER_ROUNDING_BILLS: tuple[int, ...] = (1_000, 5_000, 10_000, 20_000, 50_000, 100_000)
+MAX_TENDER_SUGGESTIONS = 4
+
+
+def tender_suggestions(amount: int) -> list[int]:
+    """Lo que probablemente entregue el cliente para pagar `amount` en
+    efectivo, SIN contar el exacto (que es `amount` mismo): el siguiente
+    múltiplo de cada billete de `TENDER_ROUNDING_BILLS`, sin repetir, de
+    menor a mayor, a lo sumo `MAX_TENDER_SUGGESTIONS`.
+
+    Es matemática de plata, por eso vive acá y no en la pantalla: la caja
+    sólo pinta los botones con lo que esto devuelve."""
+    if amount <= 0:
+        return []
+    found: list[int] = []
+    for bill in TENDER_ROUNDING_BILLS:
+        next_multiple = -(-amount // bill) * bill
+        if next_multiple == amount:
+            # Ya es un múltiplo de este billete: es el «Exacto», no una sugerencia.
+            continue
+        if next_multiple not in found:
+            found.append(next_multiple)
+    return sorted(found)[:MAX_TENDER_SUGGESTIONS]
 
 
 def _validate_and_allocate_splits(
@@ -899,6 +956,8 @@ def document_printable(db: Session, document: FiscalDocument) -> DocumentPrintab
         ),
         customer=DocumentCustomerOut(
             doc_type=document.customer_doc_type,
+            doc_type_label=_CUSTOMER_DOC_TYPE_LABELS.get(document.customer_doc_type, document.customer_doc_type),
+            final_consumer=document.customer_doc_number == fiscal_service.DEFAULT_CUSTOMER_DOC_NUMBER,
             doc_number=document.customer_doc_number,
             name=document.customer_name,
             email=document.customer_email,
@@ -908,6 +967,7 @@ def document_printable(db: Session, document: FiscalDocument) -> DocumentPrintab
         order=DocumentOrderRefOut(
             id=document.order_id,
             channel=document.channel,
+            channel_label=_CHANNEL_LABELS.get(document.channel, document.channel),
             tables=tables,
             covers=document.covers,
             served_by=document.served_by_name,

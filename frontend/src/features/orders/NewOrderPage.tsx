@@ -163,7 +163,7 @@ export function NewOrderPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
-      <h1 className="text-lg font-semibold">Nueva comanda</h1>
+      <h1 className="text-lg font-semibold">Nuevo pedido</h1>
 
       <div role="radiogroup" aria-label="Canal de venta" className="grid grid-cols-2 gap-3">
         {available.map((option) => {

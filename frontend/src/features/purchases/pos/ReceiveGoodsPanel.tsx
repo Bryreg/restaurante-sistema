@@ -1,17 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Trash2 } from "lucide-react"
+import { Check, Trash2 } from "lucide-react"
 import { useId, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { newIdempotencyKey } from "@/api/client"
 import {
   createReceptionDraft,
+  getReceptionSuggestions,
   listDeviceReceptionIngredients,
   listDeviceSuppliers,
   listTodayReceptionDrafts,
   type DeviceReceptionIngredientOut,
   type ReceptionDraftOut,
   type ReceptionDraftStatus,
+  type ReceptionSuggestionLine,
 } from "@/api/purchases"
 import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
@@ -23,7 +25,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errorMessage } from "@/lib/errors"
-import { formatCantidad } from "@/lib/format"
+import { formatCantidad, formatFechaCorta } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import { formatCOP } from "@/lib/money"
 
 const TODAY_RECEPTION_DRAFTS_QUERY_KEY = ["purchases", "reception-drafts", "today"] as const
@@ -38,12 +41,36 @@ interface LineDraft {
   quantity: string
   lotCode: string
   expiresAt: string
+  /** Lo que se esperaba (precargado del pedido aprobado o de la última compra). */
+  expected: string | null
+  /** Para una línea precargada: si llegó tal cual o distinto. `null` = sin marcar. */
+  arrival: "same" | "different" | null
 }
+
+type PreloadSource = "request" | "last_purchase"
 
 let nextKey = 0
 function emptyLine(): LineDraft {
   nextKey += 1
-  return { key: `rg-line-${nextKey}`, ingredientId: null, search: "", quantity: "", lotCode: "", expiresAt: "" }
+  return {
+    key: `rg-line-${nextKey}`,
+    ingredientId: null,
+    search: "",
+    quantity: "",
+    lotCode: "",
+    expiresAt: "",
+    expected: null,
+    arrival: null,
+  }
+}
+
+function expectedLine(s: ReceptionSuggestionLine): LineDraft {
+  return { ...emptyLine(), ingredientId: s.ingredient_id, expected: s.quantity }
+}
+
+/** Nada escrito todavía: se puede precargar sin pisar lo de nadie. */
+function pristine(lines: LineDraft[]): boolean {
+  return lines.every((l) => l.expected === null && l.ingredientId === null && l.quantity.trim() === "")
 }
 
 function normalize(text: string): string {
@@ -100,10 +127,41 @@ export function ReceiveGoodsPanel(): React.JSX.Element {
   const [photoProcessing, setPhotoProcessing] = useState(false)
   const [lines, setLines] = useState<LineDraft[]>(() => [emptyLine()])
   const [paidCash, setPaidCash] = useState<boolean | null>(null)
+  const [preloaded, setPreloaded] = useState<PreloadSource | null>(null)
   const [cashAmount, setCashAmount] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const idempotencyKeyRef = useRef(newIdempotencyKey())
+
+  // Al elegir el proveedor, lo que se espera que llegue: lo aprobado en
+  // Solicitudes o la última compra. Sin precios.
+  const suggestionsQuery = useQuery({
+    queryKey: ["purchases", "reception-suggestions", supplierId],
+    queryFn: () => getReceptionSuggestions(supplierId as number),
+    enabled: supplierId !== null,
+  })
+  const suggestions = suggestionsQuery.data ?? null
+
+  function preload(source: PreloadSource) {
+    if (!suggestions) return
+    const rows = source === "request" ? suggestions.request_lines : suggestions.last_purchase_lines
+    if (rows.length === 0) return
+    setLines(rows.map(expectedLine))
+    setPreloaded(source)
+    setError(null)
+  }
+
+  // Precarga automática UNA vez por proveedor, y sólo si no se escribió nada
+  // (ajuste de estado durante el render, apenas llegan las sugerencias).
+  const [autoLoadedFor, setAutoLoadedFor] = useState<number | null>(null)
+  if (suggestions && suggestions.supplier_id === supplierId && autoLoadedFor !== supplierId) {
+    setAutoLoadedFor(supplierId)
+    if (suggestions.source !== "none" && pristine(lines)) {
+      const rows = suggestions.source === "request" ? suggestions.request_lines : suggestions.last_purchase_lines
+      setLines(rows.map(expectedLine))
+      setPreloaded(suggestions.source)
+    }
+  }
 
   const suppliers = suppliersQuery.data ?? []
   const ingredients = ingredientsQuery.data ?? []
@@ -115,6 +173,8 @@ export function ReceiveGoodsPanel(): React.JSX.Element {
     setNoInvoice(false)
     setPhoto(null)
     setLines([emptyLine()])
+    setPreloaded(null)
+    setAutoLoadedFor(null)
     setPaidCash(null)
     setCashAmount(null)
     setError(null)
@@ -165,6 +225,9 @@ export function ReceiveGoodsPanel(): React.JSX.Element {
     if (supplierId === null) return setError("Elegí el proveedor.")
     if (!noInvoice && invoiceNumber.trim() === "") return setError("Escribí el número de la factura o remisión, o marcá «Sin factura».")
     if (!photo) return setError("Tomale una foto a la factura o remisión: es obligatoria.")
+    if (lines.some((l) => l.expected !== null && l.arrival === null)) {
+      return setError("Marcá en cada insumo si llegó tal cual o distinto (o quitalo si no llegó).")
+    }
     const complete = lines.filter((l) => l.ingredientId !== null && l.quantity.trim() !== "")
     if (complete.length === 0) return setError("Agregá al menos un insumo con su cantidad.")
     if (complete.length !== lines.length) return setError("Hay una línea sin insumo o sin cantidad: completala o quitala.")
@@ -267,6 +330,33 @@ export function ReceiveGoodsPanel(): React.JSX.Element {
 
           <fieldset className="space-y-3">
             <legend className="text-sm font-medium">¿Qué llegó?</legend>
+            {suggestions && (suggestions.request_lines.length > 0 || suggestions.last_purchase_lines.length > 0) ? (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-muted-foreground">
+                  {preloaded === "request"
+                    ? "Precargado con lo aprobado en Solicitudes."
+                    : preloaded === "last_purchase"
+                      ? `Precargado con la última compra${suggestions.last_purchase_date ? ` (${formatFechaCorta(suggestions.last_purchase_date)})` : ""}.`
+                      : "Podés precargar lo que se esperaba:"}
+                </span>
+                {suggestions.request_lines.length > 0 && preloaded !== "request" ? (
+                  <Button type="button" variant="outline" className="h-11" disabled={disabled} onClick={() => preload("request")}>
+                    Cargar lo aprobado ({suggestions.request_lines.length})
+                  </Button>
+                ) : null}
+                {suggestions.last_purchase_lines.length > 0 && preloaded !== "last_purchase" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11"
+                    disabled={disabled}
+                    onClick={() => preload("last_purchase")}
+                  >
+                    Cargar la última compra ({suggestions.last_purchase_lines.length})
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             {lines.map((line, index) => (
               <LineEditor
                 key={line.key}
@@ -274,9 +364,14 @@ export function ReceiveGoodsPanel(): React.JSX.Element {
                 line={line}
                 ingredients={ingredients}
                 disabled={disabled}
-                canRemove={lines.length > 1}
+                canRemove={lines.length > 1 || line.expected !== null}
                 onChange={(patch) => updateLine(line.key, patch)}
-                onRemove={() => setLines((current) => current.filter((l) => l.key !== line.key))}
+                onRemove={() =>
+                  setLines((current) => {
+                    const next = current.filter((l) => l.key !== line.key)
+                    return next.length > 0 ? next : [emptyLine()]
+                  })
+                }
               />
             ))}
             <Button
@@ -396,6 +491,7 @@ function LineEditor({
 }): React.JSX.Element {
   const rowId = useId()
   const chosen = ingredients.find((i) => i.id === line.ingredientId) ?? null
+  const esperada = line.expected !== null && chosen !== null
   const query = normalize(line.search)
   const matches =
     chosen || query === "" ? [] : ingredients.filter((i) => normalize(i.name).includes(query)).slice(0, MAX_MATCHES)
@@ -419,7 +515,43 @@ function LineEditor({
         ) : null}
       </div>
 
-      {chosen ? (
+      {esperada ? (
+        <div className="space-y-2">
+          <p className="text-sm">
+            <b>{chosen.name}</b>{" "}
+            <span className="text-muted-foreground">
+              · se esperaba {formatCantidad(line.expected, chosen.purchase_unit)}
+            </span>
+          </p>
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label={`¿Cómo llegó ${chosen.name}?`}>
+            <button
+              type="button"
+              aria-pressed={line.arrival === "same"}
+              disabled={disabled}
+              onClick={() => onChange({ arrival: "same", quantity: line.expected ?? "" })}
+              className={cn(
+                "flex min-h-12 items-center justify-center gap-2 rounded-lg px-3 text-base font-semibold ring-1 transition-colors",
+                line.arrival === "same" ? "bg-foreground text-background ring-foreground" : "bg-card ring-border hover:bg-muted",
+              )}
+            >
+              {line.arrival === "same" ? <Check aria-hidden="true" className="size-5" /> : null}
+              Llegó
+            </button>
+            <button
+              type="button"
+              aria-pressed={line.arrival === "different"}
+              disabled={disabled}
+              onClick={() => onChange({ arrival: "different", quantity: "" })}
+              className={cn(
+                "min-h-12 rounded-lg px-3 text-base font-semibold ring-1 transition-colors",
+                line.arrival === "different" ? "bg-foreground text-background ring-foreground" : "bg-card ring-border hover:bg-muted",
+              )}
+            >
+              Llegó distinto
+            </button>
+          </div>
+        </div>
+      ) : chosen ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm">
             <b>{chosen.name}</b> <span className="text-muted-foreground">· se compra por {chosen.purchase_unit}</span>
@@ -470,9 +602,12 @@ function LineEditor({
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="space-y-1">
-          <Label htmlFor={`${rowId}-qty`}>Cantidad{chosen ? ` (${chosen.purchase_unit})` : ""}</Label>
+      <div className={cn("grid gap-3 sm:grid-cols-3", esperada && line.arrival === null && "hidden")}>
+        <div className={cn("space-y-1", esperada && line.arrival === "same" && "hidden")}>
+          <Label htmlFor={`${rowId}-qty`}>
+            {esperada ? "Cantidad que llegó" : "Cantidad"}
+            {chosen ? ` (${chosen.purchase_unit})` : ""}
+          </Label>
           <Input
             id={`${rowId}-qty`}
             className="h-11"

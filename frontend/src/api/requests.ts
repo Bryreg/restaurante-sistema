@@ -27,6 +27,11 @@ export interface RequestLine {
   qty_requested: string
   qty_approved: string | null
   suggested_qty: string | null
+  /** La unidad cómoda del insumo (kg, L, «unidad», o la de compra: «botella»). */
+  entry_unit: string
+  /** Lo pedido y lo aprobado en esa unidad, convertido por el servidor. */
+  qty_requested_entry: string
+  qty_approved_entry: string | null
 }
 
 export interface StaffRequest {
@@ -59,18 +64,39 @@ export interface SupplySuggestion {
   current_stock: string
   min_stock: string
   negative: boolean
+  /** Redondeada hacia arriba al paso cómodo, en la unidad base. */
   suggested_qty: string
+  entry_mode: EntryMode
+  entry_unit: string
+  /** La misma sugerencia en la unidad cómoda: la que se muestra y se manda. */
+  suggested_entry_qty: string
+}
+
+export type EntryMode = "weight" | "bottle" | "volume" | "unit"
+
+export interface SupplyItem {
+  ingredient_id: number
+  name: string
+  entry_mode: EntryMode
+  entry_unit: string
 }
 
 export interface SupplySuggestions {
   available: boolean
   reason: string | null
+  /** Bajo mínimo en el área de quien pide (o en la sede, si no tiene área). */
   rows: SupplySuggestion[]
+  area_name?: string | null
+  area_via?: "member" | "puesto" | "none"
+  other_areas_count?: number
+  frequent?: SupplyItem[]
 }
 
 export interface SupplyLineIn {
   ingredient_id: number
   qty: string
+  /** La unidad en que viene `qty` (`entry_unit`); el servidor convierte. */
+  entry_unit?: string
 }
 
 // ---------------------------------------------------------------------------

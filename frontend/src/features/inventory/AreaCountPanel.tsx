@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useRef, useState } from "react"
+import { CircleCheck } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import {
@@ -48,6 +49,14 @@ interface Entrada {
 }
 
 type Entradas = Record<number, Entrada>
+
+/** Lo que quedó guardado: se muestra ARRIBA, a la vista, con lo que se contó. */
+interface ConteoGuardado {
+  texto: string
+  momento: AreaCountRegularMoment
+  items: AreaCountItemOut[]
+  entradas: Entradas
+}
 
 /** Se cuenta en enteros: botellas cerradas y artículos por unidad. */
 function esEntero(item: AreaCountItemOut): boolean {
@@ -319,8 +328,19 @@ export function AreaCountPanel(): React.JSX.Element {
   const query = useQuery({ queryKey: AREA_COUNT_QUERY_KEY, queryFn: getDeviceAreaCount, enabled })
   const [momento, setMomento] = useState<AreaCountRegularMoment | null>(null)
   const [entradas, setEntradas] = useState<Entradas>({})
-  const [hecho, setHecho] = useState<string | null>(null)
+  const [hecho, setHecho] = useState<ConteoGuardado | null>(null)
   const [revisando, setRevisando] = useState(false)
+  const tarjetaHecho = useRef<HTMLDivElement>(null)
+
+  // Auditoría de tablet: al guardar, el formulario se limpia y el momento
+  // pasa solo a «Cierre», y la confirmación quedaba abajo, fuera de la vista.
+  // La tarjeta del resultado va arriba y se lleva el foco (y la pantalla).
+  useEffect(() => {
+    if (hecho === null) return
+    const el = tarjetaHecho.current
+    el?.scrollIntoView?.({ block: "start", behavior: "smooth" })
+    el?.focus({ preventScroll: true })
+  }, [hecho])
 
   const board = query.data
   const momentoElegido: AreaCountRegularMoment = momento ?? board?.suggested_moment ?? "opening"
@@ -330,7 +350,12 @@ export function AreaCountPanel(): React.JSX.Element {
     (key) => postAreaCount({ moment: momentoElegido, lines: payload ?? [] }, key),
     (r) => {
       toast.success("Conteo registrado.")
-      setHecho(`${MOMENT_LABEL[momentoElegido]} de ${r.area_name}: contó ${r.employee_name} · ${formatInstant(r.counted_at)}`)
+      setHecho({
+        texto: `${MOMENT_LABEL[momentoElegido]} de ${r.area_name}: contó ${r.employee_name} · ${formatInstant(r.counted_at)}`,
+        momento: momentoElegido,
+        items: board?.items ?? [],
+        entradas,
+      })
       setEntradas({})
       setMomento(null)
       setRevisando(false)
@@ -365,6 +390,25 @@ export function AreaCountPanel(): React.JSX.Element {
 
   return (
     <div className="space-y-8">
+      {hecho ? (
+        <div
+          ref={tarjetaHecho}
+          tabIndex={-1}
+          role="status"
+          className="space-y-3 rounded-lg border-2 border-success/70 bg-success/5 p-4 outline-none"
+        >
+          <p className="flex items-center gap-2 text-lg font-semibold">
+            <CircleCheck aria-hidden="true" className="size-6 text-success" />
+            Conteo de {MOMENT_LABEL[hecho.momento].toLowerCase()} guardado
+          </p>
+          <p className="text-sm">{hecho.texto}</p>
+          {hecho.items.length > 0 ? <Resumen items={hecho.items} entradas={hecho.entradas} titulo="Lo que quedó guardado" /> : null}
+          <Button type="button" variant="outline" className="h-11" onClick={() => setHecho(null)}>
+            Listo
+          </Button>
+        </div>
+      ) : null}
+
       {board.recounts.length > 0 ? (
         <section aria-labelledby="recuentos-pedidos" className="space-y-3">
           <h3 id="recuentos-pedidos" className="text-lg font-semibold">
@@ -448,11 +492,6 @@ export function AreaCountPanel(): React.JSX.Element {
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
-            </p>
-          ) : null}
-          {hecho ? (
-            <p role="status" className="rounded-md border border-success/60 bg-success/5 px-3 py-2 text-sm">
-              {hecho}
             </p>
           ) : null}
           {revisando && payload !== null ? (

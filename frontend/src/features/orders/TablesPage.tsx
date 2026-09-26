@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { BellRing, Link2, Move, Plus, Users } from "lucide-react"
+import { BellRing, Link2, Move, Plus, Send, UserRound, Users } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -29,10 +29,11 @@ import {
 import { useSession } from "@/app/session"
 import { formatCOP } from "@/lib/money"
 import { errorMessage } from "@/lib/errors"
+import { cn } from "@/lib/utils"
 
 import { AuthorizerDialog } from "./AuthorizerDialog"
 import { TABLES_STATUS_QUERY_KEY, useAuthorizerFlow, useTablesStatus } from "./hooks"
-import { elapsedLabel } from "./lib"
+import { elapsedLabel, initials } from "./lib"
 
 type Mode = "idle" | "merge" | "move"
 
@@ -43,8 +44,20 @@ const STATUS_VARIANT: Record<string, "outline" | "secondary" | "default"> = {
   to_pay: "default",
 }
 
+/**
+ * El fondo de la tarjeta dice el estado de lejos, sin leer la insignia:
+ * libre en blanco, ocupada en añil suave, por cobrar en ámbar. Tokens del
+ * tema (nunca un color crudo), con el texto en `foreground` para que el
+ * contraste no dependa del fondo.
+ */
+const STATUS_CARD_CLASS: Record<string, string> = {
+  free: "border-border bg-card",
+  occupied: "border-primary/40 bg-primary/10",
+  to_pay: "border-warning bg-warning/20",
+}
+
 export function TablesPage(): React.JSX.Element {
-  const { hasFeature } = useSession()
+  const { hasFeature, me } = useSession()
   const enabled = hasFeature("pos.tables")
   const tablesStatus = useTablesStatus(enabled)
   const navigate = useNavigate()
@@ -61,6 +74,10 @@ export function TablesPage(): React.JSX.Element {
   const [mergeTarget, setMergeTarget] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionPending, setActionPending] = useState(false);
+  // «Mis mesas»: sólo las que abrió quien está identificado (y las libres,
+  // que son las que puede abrir). Vive en la pantalla, no en el navegador.
+  const [onlyMine, setOnlyMine] = useState(false)
+  const myId = me?.employee?.id ?? null
 
   const authorizerFlow = useAuthorizerFlow();
 
@@ -202,6 +219,18 @@ export function TablesPage(): React.JSX.Element {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold">Mesas</h1>
         <div className="flex flex-wrap gap-2">
+          {myId !== null ? (
+            <Button
+              type="button"
+              variant={onlyMine ? "default" : "outline"}
+              className="h-14"
+              aria-pressed={onlyMine}
+              onClick={() => setOnlyMine((on) => !on)}
+            >
+              <UserRound className="size-4" aria-hidden="true" />
+              Mis mesas
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant={mode === "merge" ? "default" : "outline"}
@@ -286,23 +315,31 @@ export function TablesPage(): React.JSX.Element {
           <section key={zone.id} className="space-y-3">
             <h2 className="text-sm font-medium text-muted-foreground">{zone.name}</h2>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {(zone.tables ?? []).map((table) => {
+              {(zone.tables ?? []).filter((table) => !onlyMine || table.status === "free" || table.opened_by?.id === myId).map((table) => {
                 const isSelected = selected.includes(table.id)
                 // Conteo del servidor: platos que cocina marcó listos y nadie
                 // llevó todavía. Sin el campo (backend viejo) no se pinta nada.
                 const readyCount = table.ready_count ?? 0
                 const readyText = `${readyCount} ${readyCount === 1 ? "listo" : "listos"}`
+                // Lo que el mesero cargó y todavía no salió a cocina: el
+                // olvido más caro del turno, visible desde el mapa.
+                const unsentCount = table.unsent_count ?? 0
+                const unsentText = `${unsentCount} sin enviar`
+                const waiter = table.opened_by?.name ?? null
+                const status = table.status ?? "free"
                 return (
                   <button
                     key={table.id}
                     type="button"
-                    aria-label={`Mesa ${table.number}, ${STATUS_LABEL[table.status ?? "free"]}${
+                    aria-label={`Mesa ${table.number}, ${STATUS_LABEL[status]}${
                       readyCount > 0 ? `, ${readyText} para servir` : ""
-                    }`}
+                    }${unsentCount > 0 ? `, ${unsentText}` : ""}${waiter ? `, atiende ${waiter}` : ""}`}
                     aria-pressed={mode !== "idle" ? isSelected : undefined}
-                    className={`flex min-h-[88px] flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring ${
-                      isSelected ? "border-primary ring-2 ring-primary" : "border-border"
-                    }`}
+                    className={cn(
+                      "flex min-h-[88px] flex-col items-start gap-1 rounded-lg border-2 p-3 text-left text-foreground transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring portrait:min-h-[132px]",
+                      STATUS_CARD_CLASS[status] ?? STATUS_CARD_CLASS.free,
+                      isSelected && "border-primary ring-2 ring-primary",
+                    )}
                     onClick={() => {
                       if (mode !== "idle") {
                         toggleSelected(table)
@@ -315,18 +352,27 @@ export function TablesPage(): React.JSX.Element {
                       }
                     }}
                   >
-                    <div className="flex w-full items-center justify-between">
-                      <span className="text-base font-semibold">Mesa {table.number}</span>
-                      <Badge variant={STATUS_VARIANT[table.status ?? "free"]}>
-                        {STATUS_LABEL[table.status ?? "free"]}
-                      </Badge>
+                    <div className="flex w-full items-center justify-between gap-2">
+                      <span className="text-lg font-bold">Mesa {table.number}</span>
+                      <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABEL[status]}</Badge>
                     </div>
-                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                      <Users className="size-3" aria-hidden="true" />
-                      {table.covers ?? table.seats ?? "—"}
+                    <span className="flex w-full items-center justify-between gap-2 text-sm">
+                      <span className="inline-flex items-center gap-1">
+                        <Users className="size-4" aria-hidden="true" />
+                        {table.covers ?? table.seats ?? "—"}
+                      </span>
+                      {waiter ? (
+                        <span
+                          aria-hidden="true"
+                          title={waiter}
+                          className="grid size-8 place-items-center rounded-full border border-foreground/30 bg-background text-xs font-bold"
+                        >
+                          {initials(waiter)}
+                        </span>
+                      ) : null}
                     </span>
                     {table.status !== "free" ? (
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-sm">
                         {elapsedLabel(table.opened_at)} · {formatCOP(table.total)}
                       </span>
                     ) : null}
@@ -334,6 +380,12 @@ export function TablesPage(): React.JSX.Element {
                       <span className="inline-flex items-center gap-1 rounded-full bg-success px-2 py-0.5 text-xs font-semibold text-success-foreground">
                         <BellRing className="size-3.5" aria-hidden="true" />
                         {readyText}
+                      </span>
+                    ) : null}
+                    {unsentCount > 0 ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-destructive px-2 py-0.5 text-xs font-semibold text-destructive-foreground">
+                        <Send className="size-3.5" aria-hidden="true" />
+                        {unsentText}
                       </span>
                     ) : null}
                   </button>

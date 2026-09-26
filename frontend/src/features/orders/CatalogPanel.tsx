@@ -1,5 +1,5 @@
 import { Search, SlidersHorizontal } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { useSession } from "@/app/session"
 import type { CatalogComboOut, CatalogProductOut } from "@/api/catalog"
@@ -68,7 +68,74 @@ const CARD_CLASS =
   "relative flex min-h-[74px] min-w-0 flex-col items-start justify-between gap-1 rounded-xl border bg-card p-3 pr-9 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:bg-muted disabled:cursor-not-allowed disabled:hover:bg-card"
 // El rayado es `background-image`: el `hover:bg-*` de la tarjeta sólo mueve
 // el color de fondo, así que no lo tapa.
-const SOLD_OUT_CLASS = "opacity-60 bg-[repeating-linear-gradient(135deg,transparent_0_8px,var(--muted)_8px_10px)]"
+/**
+ * La fila de categorías: 56 px de alto por pestaña. En angosto se desliza de
+ * costado (nunca se parte en dos renglones que empujan la carta hacia
+ * abajo); desde `lg` —la tablet apaisada— es una columna de 11rem.
+ */
+const TAB_LIST_CLASS =
+  "w-full max-w-full gap-2 bg-transparent p-0 group-data-horizontal/tabs:h-auto group-data-horizontal/tabs:overflow-x-auto lg:w-44 lg:shrink-0 lg:flex-col lg:items-stretch lg:overflow-visible"
+const TAB_TRIGGER_CLASS =
+  "h-14 min-h-14 flex-none rounded-lg border border-border bg-background px-4 text-base font-semibold text-foreground data-active:border-primary data-active:bg-primary data-active:text-primary-foreground dark:text-foreground dark:data-active:border-primary dark:data-active:bg-primary dark:data-active:text-primary-foreground lg:w-full lg:justify-start lg:whitespace-normal lg:text-left"
+const SOLD_OUT_CLASS ="opacity-60 bg-[repeating-linear-gradient(135deg,transparent_0_8px,var(--muted)_8px_10px)]"
+
+/** Cuánto hay que dejar el dedo sobre un plato para abrir sus opciones. */
+const LONG_PRESS_MS = 500
+
+/**
+ * Mantener apretado un plato abre sus opciones (nota, curso, asiento,
+ * adiciones) — el mismo atajo que «Elegir opciones», sin ir a buscar el
+ * interruptor. El toque corto sigue sumando directo. El `click` que el
+ * navegador dispara al soltar después de una pulsación larga se descarta:
+ * sin eso el plato entraba dos veces (una con opciones y otra directo).
+ */
+function useLongPress(onLongPress: (() => void) | undefined) {
+  const timer = useRef<number | null>(null)
+  const fired = useRef(false)
+
+  function clear() {
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current)
+      timer.current = null
+    }
+  }
+
+  useEffect(() => clear, [])
+
+  if (!onLongPress) return { handlers: {}, consumeClick: () => false }
+
+  function fire() {
+    clear()
+    if (fired.current) return
+    fired.current = true
+    onLongPress?.()
+  }
+
+  return {
+    handlers: {
+      onPointerDown: () => {
+        fired.current = false
+        clear()
+        timer.current = window.setTimeout(fire, LONG_PRESS_MS)
+      },
+      onPointerUp: clear,
+      onPointerLeave: clear,
+      onPointerCancel: clear,
+      // En Android la pulsación larga dispara el menú contextual: es la
+      // misma intención, y el menú del navegador no sirve de nada acá.
+      onContextMenu: (event: React.MouseEvent) => {
+        event.preventDefault()
+        fire()
+      },
+    },
+    /** `true` si este click es el de soltar una pulsación larga: se ignora. */
+    consumeClick: () => {
+      if (!fired.current) return false
+      fired.current = false
+      return true
+    },
+  }
+}
 
 function ProductButton({
   product,
@@ -76,20 +143,27 @@ function ProductButton({
   showDailyCount,
   unsentQty,
   onSelect,
+  onLongPress,
 }: {
   product: CatalogProductOut
   channel: OrderChannel
   showDailyCount: boolean
   unsentQty: number
   onSelect: () => void
+  onLongPress?: () => void
 }) {
   const priceKey = channelPriceKey(channel)
   const soldOut = !product.available
+  const longPress = useLongPress(soldOut ? undefined : onLongPress)
   return (
     <button
       type="button"
       disabled={soldOut}
-      onClick={onSelect}
+      {...longPress.handlers}
+      onClick={() => {
+        if (longPress.consumeClick()) return
+        onSelect()
+      }}
       aria-label={soldOut ? `${product.name}, agotado` : `Agregar ${product.name}${unsentSuffix(unsentQty)}`}
       className={cn(CARD_CLASS, soldOut && SOLD_OUT_CLASS)}
     >
@@ -172,8 +246,12 @@ export function CatalogPanel({
     return products.filter((p) => p.name.toLowerCase().includes(query))
   }, [search, products])
 
+  // La pestaña por defecto se DERIVA en cada render hasta que la persona
+  // elija una: antes se congelaba en el primer render, con la carta todavía
+  // cargando (sin combos), y «Menú del día» nunca quedaba elegida.
   const defaultTab = showDailyMenuTab ? "daily_menu" : "favorites"
-  const [tab, setTab] = useState(defaultTab)
+  const [chosenTab, setChosenTab] = useState<string | null>(null)
+  const tab = chosenTab ?? defaultTab
 
   function selectProduct(product: CatalogProductOut) {
     if (quickAdd) {
@@ -195,6 +273,14 @@ export function CatalogPanel({
             showDailyCount={showDailyCount}
             unsentQty={unsentQty?.products.get(product.id) ?? 0}
             onSelect={() => selectProduct(product)}
+            onLongPress={
+              quickAdd
+                ? () => {
+                    onSelectProduct(product, { withOptions: true })
+                    setWithOptions(false)
+                  }
+                : undefined
+            }
           />
         ))}
       </div>
@@ -244,19 +330,28 @@ export function CatalogPanel({
           <EmptyState title="Ningún producto coincide con la búsqueda" />
         ) : renderProducts(searchResults)
       ) : (
-        <Tabs value={tab} onValueChange={(value) => setTab(String(value))}>
-          <TabsList className="h-auto flex-wrap">
-            {showDailyMenuTab ? <TabsTrigger value="daily_menu">Menú del día</TabsTrigger> : null}
-            <TabsTrigger value="favorites">Favoritos</TabsTrigger>
+        <Tabs value={tab} onValueChange={(value) => setChosenTab(String(value))} className="gap-3 lg:flex-row! lg:items-start">
+          {/* Pestañas de 56 px (antes 27): en vertical, una fila que se
+              desliza de costado; en la tablet apaisada, una columna al lado
+              de los platos, que es donde el pulgar llega sin tapar la carta. */}
+          <TabsList className={TAB_LIST_CLASS}>
+            {showDailyMenuTab ? (
+              <TabsTrigger value="daily_menu" className={TAB_TRIGGER_CLASS}>
+                Menú del día
+              </TabsTrigger>
+            ) : null}
+            <TabsTrigger value="favorites" className={TAB_TRIGGER_CLASS}>
+              Favoritos
+            </TabsTrigger>
             {categories.map((category) => (
-              <TabsTrigger key={category.id} value={String(category.id)}>
+              <TabsTrigger key={category.id} value={String(category.id)} className={TAB_TRIGGER_CLASS}>
                 {category.name}
               </TabsTrigger>
             ))}
           </TabsList>
 
           {showDailyMenuTab ? (
-            <TabsContent value="daily_menu">
+            <TabsContent value="daily_menu" className="min-w-0">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {activeCombos.map((combo) => (
                   <ComboButton
@@ -270,7 +365,7 @@ export function CatalogPanel({
             </TabsContent>
           ) : null}
 
-          <TabsContent value="favorites">
+          <TabsContent value="favorites" className="min-w-0">
             {favorites.isLoading ? (
               <Cargando texto="Cargando favoritos…" />
             ) : favoriteProducts.length === 0 ? (
@@ -281,7 +376,7 @@ export function CatalogPanel({
           {categories.map((category) => {
             const categoryProducts = products.filter((p) => p.category_id === category.id)
             return (
-              <TabsContent key={category.id} value={String(category.id)}>
+              <TabsContent key={category.id} value={String(category.id)} className="min-w-0">
                 {categoryProducts.length === 0 ? (
                   <EmptyState title="Esta categoría todavía no tiene productos" />
                 ) : renderProducts(categoryProducts)}

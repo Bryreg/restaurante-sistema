@@ -137,6 +137,13 @@ export interface OpenShiftIn {
    * fija + lo marcado — esta pantalla no suma nada.
    */
   carried_shift_ids?: number[];
+  /**
+   * Base y sobres aparte (auditoría de tablet): `opening_cash` es sólo la
+   * base contada, y cada día marcado se confirmó entero («Está»). El servidor
+   * le suma a la base el saldo de cada día y mide la diferencia contra la
+   * base fija sola. Esta pantalla no suma nada.
+   */
+  carried_counted_apart?: boolean;
 }
 
 /** `GET /shifts/carry-candidates`: un día con plata por consignar. */
@@ -411,6 +418,44 @@ export interface CloseReview {
   closes_day_suggested?: boolean;
   /** Comandas que siguen abiertas: el paso 3 ofrece trasladarlas. */
   open_orders?: number;
+  /** Lo contado tal como se selló (para retomar el cierre en el paso 2). */
+  counted?: number | null;
+  counted_pieces?: number | null;
+}
+
+export type ClosePrecheckCode =
+  | "OPEN_ORDERS"
+  | "DELIVERY_UNSETTLED"
+  | "CARD_TOTAL_REQUIRED"
+  | "TRANSFER_TOTAL_REQUIRED"
+  | "PHOTO_REQUIRED";
+
+export interface ClosePrecheckItem {
+  code: ClosePrecheckCode;
+  /** `blocking`: no cierra sin resolverlo (o trasladarlo); `warning`: conviene antes de contar; `info`: lo que va a pedir. */
+  level: "blocking" | "warning" | "info";
+  message: string;
+}
+
+/**
+ * `GET /shifts/{id}/close/precheck` — «paso 0» del cierre. **Ningún monto**:
+ * ni el esperado ni sus sumandos; sólo conteos y sí/no. Si ya hay un conteo
+ * sellado, lo dice para retomar en el paso 2.
+ */
+export interface ClosePrecheck {
+  shift_id: number;
+  open_orders: number;
+  delivery_pending_payments: number;
+  delivery_pending_couriers: number;
+  card_total_required: boolean;
+  transfer_total_required: boolean;
+  photo_required: boolean;
+  sealed_count: { count_id: number; counted_at: string; counted_by: string } | null;
+  items: ClosePrecheckItem[];
+}
+
+export function getClosePrecheck(shiftId: number): Promise<ClosePrecheck> {
+  return api<ClosePrecheck>(`/shifts/${shiftId}/close/precheck`);
 }
 
 /** `GET /shifts/{id}/close/{count_id}/review` — recién acá aparece el esperado. */
@@ -601,6 +646,8 @@ export interface AdminShiftListItem {
   difference?: number | null;
   is_stale?: boolean;
   reviewed_at?: string | null;
+  /** Algún conteo de cierre se hizo después de ver el esperado de uno anterior. */
+  recounted_after_review?: boolean;
 }
 
 export interface AdminShiftFilters {

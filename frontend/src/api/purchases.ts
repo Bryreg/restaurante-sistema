@@ -554,6 +554,33 @@ export function listDeviceReceptionIngredients(): Promise<DeviceReceptionIngredi
   return api<DeviceReceptionIngredientOut[]>("/device/reception-ingredients")
 }
 
+/** Una línea que la tablet precarga al recibir: insumo y cantidad en la unidad de compra. Sin precios. */
+export interface ReceptionSuggestionLine {
+  ingredient_id: number
+  name: string
+  purchase_unit: string
+  base_unit: string
+  quantity: string
+}
+
+/**
+ * `GET /device/reception-suggestions?supplier_id=`: lo aprobado en
+ * Solicitudes (`request`) o, si no hay, la última compra a ese proveedor
+ * (`last_purchase`). `source` dice qué precargar.
+ */
+export interface ReceptionSuggestions {
+  supplier_id: number
+  source: "request" | "last_purchase" | "none"
+  request_ids: number[]
+  request_lines: ReceptionSuggestionLine[]
+  last_purchase_date: string | null
+  last_purchase_lines: ReceptionSuggestionLine[]
+}
+
+export function getReceptionSuggestions(supplierId: number): Promise<ReceptionSuggestions> {
+  return api<ReceptionSuggestions>("/device/reception-suggestions", { query: { supplier_id: supplierId } })
+}
+
 export function createReceptionDraft(data: ReceptionDraftIn, idempotencyKey: string): Promise<ReceptionDraftOut> {
   return api<ReceptionDraftOut>("/reception-drafts", { method: "POST", body: data, idempotencyKey })
 }

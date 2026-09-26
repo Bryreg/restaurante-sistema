@@ -38,8 +38,8 @@ export interface PersonaPuesto {
  * pantalla de la cocina.
  */
 const DESTINOS: Record<Puesto, readonly string[]> = {
-  salon: ["/pos/mesas", "/pos/comanda/nueva", "/pos/turno"],
-  caja: ["/pos/mesas", "/pos/comanda/nueva", "/pos/turno", "/pos/cocina"],
+  salon: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno"],
+  caja: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno", "/pos/cocina"],
   cocina: ["/pos/kds", "/pos/cocina", "/pos/produccion", "/pos/merma", "/pos/turno"],
   bar: ["/pos/kds", "/pos/cocina", "/pos/produccion", "/pos/merma", "/pos/turno"],
 };

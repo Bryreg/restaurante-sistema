@@ -154,6 +154,11 @@ class OrderItemOut(BaseModel):
     tax: int
     courtesy: CourtesyOut | None
     void: VoidInfoOut | None
+    # El cargo de domicilio (`Product.is_delivery_fee`) es una línea de
+    # plata, no un plato: el salón no lo cuenta en «Enviar a cocina · N» ni
+    # lo ofrece para «marchar» un curso. Ya viaja con `station=None`, así que
+    # nunca pasa por cocina; esto sólo le dice al cliente qué línea es.
+    is_delivery_fee: bool = False
 
 
 class OrderRoundOut(BaseModel):
@@ -273,6 +278,11 @@ class TableStatusOut(BaseModel):
     # lo ve en el mapa sin abrir la comanda. `0` es un conteo real (no hay
     # nada esperando), no un «sin dato».
     ready_count: int = 0
+    # Unidades (`qty`) todavía sin enviar a cocina: «3 sin enviar» en el
+    # mapa. Mismo criterio que `ready_count`: `0` es un conteo real.
+    unsent_count: int = 0
+    # Quién abrió la mesa: iniciales en la tarjeta y el filtro «Mis mesas».
+    opened_by: EmployeeRef | None = None
 
 
 class ZoneStatusOut(BaseModel):
@@ -324,6 +334,12 @@ class BillSplitEqualOut(BaseModel):
     parts: int
     per_part: list[int]
     total: int
+    # Lo que cada parte paga de verdad: venta + propina repartidas juntas
+    # (`tip_amount` es la que se mandó al dividir; 0 si no hubo). Σ
+    # `per_part_due` == `amount_due` == `total` + `tip_amount`.
+    tip_amount: int = 0
+    per_part_due: list[int] = Field(default_factory=list)
+    amount_due: int = 0
 
 
 class BillSplitItemsOut(BaseModel):
@@ -563,3 +579,6 @@ class BillSplitIn(BaseModel):
     mode: Literal["equal", "items"]
     parts: int | None = Field(default=None, gt=0)
     groups: list[SplitGroupIn] | None = None
+    # Partes iguales: la propina que ya se respondió, para repartirla junto
+    # con la venta. Ausente = sin propina.
+    tip_amount: int | None = Field(default=None, ge=0)

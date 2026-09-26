@@ -36,7 +36,13 @@ def test_suggestions_list_below_minimum_without_costs(device_client, open_shift,
     # Sin movimientos el stock es 0: falta el mínimo entero.
     assert row["current_stock"] == "0"
     assert row["min_stock"] == "5"
-    assert row["suggested_qty"] == "5"
+    # Faltan 5 g, pero nadie pide 5 g de papa: la sugerencia se redondea HACIA
+    # ARRIBA a la unidad cómoda (medio kilo). Antes se publicaba «5» exacto; la
+    # auditoría de tablet (58 toques para pedir dos insumos) pidió cantidades
+    # que se puedan pedir, en kg y no en gramos con decimales.
+    assert row["suggested_qty"] == "500"
+    assert row["entry_unit"] == "kg"
+    assert row["suggested_entry_qty"] == "0.5"
     assert row["negative"] is False
     assert find_secret_keys(body) == []
 
@@ -60,7 +66,7 @@ def test_full_supply_flow_approve_adjusted_then_bought(
     assert created["requested_by"]["name"] == "Cashier"
     lines = {line["ingredient_id"]: line for line in created["lines"]}
     assert lines[papa.id]["qty_requested"] == "5"
-    assert lines[papa.id]["suggested_qty"] == "5"  # venía sugerido
+    assert lines[papa.id]["suggested_qty"] == "500"  # venía sugerido (redondeado a medio kilo)
     assert lines[sal.id]["qty_requested"] == "2.5"
     assert find_secret_keys(created) == []
 

@@ -24,6 +24,16 @@ export interface PaymentTargetPanelProps {
   onPaid: (result: PaymentOut) => void;
   onStale: (order: OrderOut) => void;
   onAlreadyPaid: () => void;
+  /**
+   * Lo que va entre la propina ya respondida y los pagos. `CheckoutPage` pone
+   * acá «Partes iguales»: la propina se pregunta ANTES de dividir, para que
+   * el servidor reparta venta + propina y ninguna parte quede en «faltan $X».
+   */
+  beforePayments?: (tip: PaymentTipIn | null) => React.ReactNode;
+  /** Cambia cuando la tabla de pagos se tiene que volver a sembrar (p. ej. partes iguales nuevas) sin perder la propina. */
+  splitsKey?: string;
+  /** Ver `PaymentSplitsForm.confirmSlot`. */
+  confirmSlot?: HTMLElement | null;
 }
 
 /**
@@ -71,6 +81,9 @@ export function PaymentTargetPanel({
   onPaid,
   onStale,
   onAlreadyPaid,
+  beforePayments,
+  splitsKey,
+  confirmSlot,
 }: PaymentTargetPanelProps): React.JSX.Element {
   const [tip, setTip] = useState<PaymentTipIn | null>(null);
 
@@ -79,7 +92,7 @@ export function PaymentTargetPanel({
   const saleTotal = target.totals.total;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {showTipQuestion && target.tipInfo ? (
         <TipQuestion tipInfo={target.tipInfo} value={tip} onChange={setTip} />
       ) : null}
@@ -92,7 +105,8 @@ export function PaymentTargetPanel({
         </p>
       ) : (
         <>
-          <div className="space-y-1 rounded-md border p-3 text-sm">
+          {beforePayments?.(tip)}
+          <div className="space-y-1 rounded-md border px-3 py-2 text-sm">
             <div className="flex justify-between">
               <span>Venta</span>
               <span className="tabular-nums font-medium">{formatCOP(saleTotal)}</span>
@@ -116,6 +130,7 @@ export function PaymentTargetPanel({
             ) : null}
           </div>
           <PaymentSplitsForm
+            key={splitsKey}
             orderId={orderId}
             expectedVersion={expectedVersion}
             subAccountId={target.subAccountId}
@@ -125,6 +140,7 @@ export function PaymentTargetPanel({
             onPaid={onPaid}
             onStale={onStale}
             onAlreadyPaid={onAlreadyPaid}
+            confirmSlot={confirmSlot}
           />
         </>
       )}

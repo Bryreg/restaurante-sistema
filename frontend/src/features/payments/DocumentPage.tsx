@@ -203,12 +203,17 @@ export default function DocumentPage(): React.JSX.Element {
             </Button>
           </div>
 
-          <section className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
-            <div className="flex items-center gap-2 border-b bg-muted/60 px-4 py-2.5 text-muted-foreground">
+          {/* Plegada: se muestra en cada venta, y quien cobra ya la leyó. Se
+              abre para explicarle el papel a un cliente que pregunta. */}
+          <details className="group overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-muted/60 px-4 py-2.5 text-muted-foreground [&::-webkit-details-marker]:hidden">
               <Scale aria-hidden="true" className="size-4" />
               <h2 className="text-xs font-bold tracking-wider uppercase">Qué dice este papel</h2>
-            </div>
-            <div className="grid gap-3 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+              <span aria-hidden="true" className="ml-auto transition-transform group-open:rotate-180">
+                ▾
+              </span>
+            </summary>
+            <div className="grid gap-3 border-t px-4 py-3 text-sm leading-relaxed text-muted-foreground">
               <p>
                 El <b className="text-foreground">impuesto va discriminado, no sumado</b>: su renglón está
                 adentro del bloque de la venta y el «Total venta» ya lo incluye. No se agrega al final.
@@ -222,7 +227,7 @@ export default function DocumentPage(): React.JSX.Element {
                 contador del pie.
               </p>
             </div>
-          </section>
+          </details>
         </div>
 
         <article
@@ -248,12 +253,17 @@ export default function DocumentPage(): React.JSX.Element {
             <Dato k="Fecha" v={doc.business_date ?? "—"} />
             <Dato k="Emitido" v={doc.issued_at ? formatInstant(doc.issued_at) : "—"} />
             <Dato k="Adquirente" v={customer?.name ?? "Consumidor final"} />
-            {customer?.doc_number ? <Dato k={customer.doc_type ?? "Doc."} v={customer.doc_number} /> : null}
+            {/* El adquirente genérico de la DIAN («222222222222») no se
+                repite: «Consumidor final» ya lo dice. Un cliente identificado
+                muestra su tipo de documento en palabras («C.C.», «NIT»). */}
+            {customer?.doc_number && !customer.final_consumer ? (
+              <Dato k={customer.doc_type_label ?? customer.doc_type ?? "Doc."} v={customer.doc_number} />
+            ) : null}
           </div>
 
           {order?.channel || (order?.tables && order.tables.length > 0) || order?.covers != null || order?.served_by || order?.charged_by ? (
             <div className="mt-2 border-t border-dashed pt-2 text-xs">
-              {order?.channel ? <Dato k="Canal" v={order.channel} /> : null}
+              {order?.channel ? <Dato k="Canal" v={order.channel_label ?? order.channel} /> : null}
               {order?.tables && order.tables.length > 0 ? <Dato k="Mesa(s)" v={order.tables.join(", ")} /> : null}
               {order?.covers != null ? <Dato k="Comensales" v={order.covers} /> : null}
               {order?.served_by ? <Dato k="Atendió" v={order.served_by} /> : null}

@@ -1,5 +1,6 @@
-import { screen } from "@testing-library/react"
+import { fireEvent, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "@/test/utils"
@@ -108,5 +109,58 @@ describe("CatalogPanel", () => {
 
     expect(onSelectProduct).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 10 }), { withOptions: true })
     expect(onSelectProduct).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 10 }), { withOptions: false })
+  })
+
+  it("«Menú del día» queda elegida aunque los combos lleguen DESPUÉS del primer render", () => {
+    // Primer render: la carta todavía cargando, sin combos. Antes la pestaña
+    // por defecto se congelaba acá en «Favoritos» y nunca cambiaba.
+    useCatalogMock.mockReturnValue({ data: undefined, isLoading: true })
+    useFavoritesMock.mockReturnValue({ data: [], isLoading: false })
+    function Harness() {
+      const [, setTick] = useState(0)
+      return (
+        <>
+          <button type="button" onClick={() => setTick((n) => n + 1)}>
+            refrescar
+          </button>
+          <CatalogPanel channel="dine_in" onSelectProduct={vi.fn()} onSelectCombo={vi.fn()} />
+        </>
+      )
+    }
+    renderWithProviders(<Harness />, { me: deviceMe({ "pos.daily_menu": true }) })
+
+    useCatalogMock.mockReturnValue({
+      data: buildCatalog({ combos: [buildCatalogCombo({ active_now: true })] }),
+      isLoading: false,
+    })
+    fireEvent.click(screen.getByRole("button", { name: "refrescar" }))
+
+    expect(screen.getByRole("tab", { name: "Menú del día" })).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByText("Menú ejecutivo")).toBeInTheDocument()
+  })
+
+  it("mantener apretado un plato abre sus opciones, sin sumarlo además con el click de soltar", () => {
+    vi.useFakeTimers()
+    try {
+      useCatalogMock.mockReturnValue({ data: buildCatalog(), isLoading: false })
+      useFavoritesMock.mockReturnValue({ data: [{ product_id: 10, qty: 5 }], isLoading: false })
+      const onSelectProduct = vi.fn()
+
+      renderWithProviders(
+        <CatalogPanel channel="dine_in" onSelectProduct={onSelectProduct} onSelectCombo={vi.fn()} quickAdd />,
+        { me: deviceMe({}) },
+      )
+
+      const card = screen.getByRole("button", { name: /agregar limonada de coco/i })
+      fireEvent.pointerDown(card)
+      vi.advanceTimersByTime(600)
+      fireEvent.pointerUp(card)
+      fireEvent.click(card)
+
+      expect(onSelectProduct).toHaveBeenCalledTimes(1)
+      expect(onSelectProduct).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }), { withOptions: true })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

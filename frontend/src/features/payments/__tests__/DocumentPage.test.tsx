@@ -47,6 +47,43 @@ describe("DocumentPage", () => {
     expect(screen.getByText("POS-000123")).toBeInTheDocument();
   });
 
+  it("el papel habla en palabras: canal y adquirente, sin códigos internos", async () => {
+    vi.mocked(getDocument).mockResolvedValue(buildDocument());
+    renderDocument();
+
+    expect(await screen.findByText("Mesa")).toBeInTheDocument();
+    expect(screen.queryByText("dine_in")).not.toBeInTheDocument();
+    // Consumidor final: ni el código «13» ni el número genérico de la DIAN.
+    expect(screen.getAllByText("Consumidor final").length).toBeGreaterThan(0);
+    expect(screen.queryByText("222222222222")).not.toBeInTheDocument();
+    expect(screen.queryByText("13")).not.toBeInTheDocument();
+  });
+
+  it("un cliente identificado muestra su tipo de documento en palabras", async () => {
+    vi.mocked(getDocument).mockResolvedValue(
+      buildDocument({
+        customer: { doc_type: "31", doc_type_label: "NIT", final_consumer: false, doc_number: "900111222", name: "Constructora SAS" },
+      }),
+    );
+    renderDocument();
+
+    expect(await screen.findByText("Constructora SAS")).toBeInTheDocument();
+    expect(screen.getByText("NIT")).toBeInTheDocument();
+    expect(screen.getByText("900111222")).toBeInTheDocument();
+  });
+
+  it("«Qué dice este papel» llega plegado y se abre al tocarlo", async () => {
+    vi.mocked(getDocument).mockResolvedValue(buildDocument());
+    renderDocument();
+
+    const titulo = await screen.findByText("Qué dice este papel");
+    const plegable = titulo.closest("details");
+    expect(plegable).not.toBeNull();
+    expect(plegable).not.toHaveAttribute("open");
+    await userEvent.setup().click(titulo);
+    expect(plegable).toHaveAttribute("open");
+  });
+
   it("muestra el estado DIAN, el CUDE y el QR cuando llegan", async () => {
     vi.mocked(getDocument).mockResolvedValue(
       buildDocument({

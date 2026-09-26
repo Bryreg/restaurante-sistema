@@ -38,8 +38,12 @@ def test_document_printable_shape_and_legend_pos_equivalent(
     assert body["fiscal"]["cude"] is None
     assert body["fiscal"]["qr_url"] is None
     assert body["fiscal"]["range"]["prefix"] == "POS"
+    # Se suman `doc_type_label` y `final_consumer` (cobro en tablet: el papel
+    # decía «13 / 222222222222»); lo que ya estaba no cambia.
     assert body["customer"] == {
         "doc_type": "13",
+        "doc_type_label": "C.C.",
+        "final_consumer": True,
         "doc_number": "222222222222",
         "name": "Consumidor final",
         "email": None,
