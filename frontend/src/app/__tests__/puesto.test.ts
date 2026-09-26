@@ -165,6 +165,18 @@ describe("inicioParaPuesto — a dónde llega después del PIN", () => {
     expect(soloAutoriza({ role: "supervisor" })).toBe(false);
     expect(barraDelSalon(TODAS, todo, { role: "admin" })).toEqual([]);
   });
+
+  it("quien maneja la caja y llega sin turno abierto va primero al cuadre de apertura (Turno)", () => {
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, { turnoAbierto: false })).toBe("/pos/turno");
+    expect(inicioParaPuesto({ role: "supervisor" }, todo, { turnoAbierto: false })).toBe("/pos/turno");
+    // Con turno abierto, o mientras no se sabe, manda el puesto.
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, { turnoAbierto: true })).toBe("/pos/mesas");
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, { turnoAbierto: null })).toBe("/pos/mesas");
+    // Quien no puede tocar la caja no tiene cuadre que hacer.
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: false }, todo, { turnoAbierto: false })).toBe("/pos/mesas");
+    // El administrador sólo autoriza: no abre la caja.
+    expect(inicioParaPuesto({ role: "admin" }, todo, { turnoAbierto: false })).not.toBe("/pos/turno");
+  });
 });
 
 describe("volver a donde se estaba (?next=)", () => {

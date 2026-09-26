@@ -95,14 +95,22 @@ export function navParaPuesto(items: readonly NavItem[], persona: PersonaPuesto 
  * apertura y, si no, sigue sola al KDS: la función es sincrónica y no sabe
  * si ya se contó. `sinConteo` es ese «siguiente» (lo usa la pantalla de
  * conteo para saber a dónde seguir).
+ *
+ * **Caja sin turno abierto** (decisión del dueño, 2026-09-26): quien puede
+ * manejar la caja (`puedeManejarCaja`: permiso de cobrar o supervisor; el
+ * administrador sólo autoriza y va a su pantalla) y llega cuando NO hay
+ * turno abierto aterriza en Turno, que le muestra el cuadre de apertura: lo
+ * primero es contar los sobres. Sólo con `opciones.turnoAbierto === false`
+ * —lo que dice `GET /shifts/current`—; mientras no se sabe manda el puesto.
  */
 export function inicioParaPuesto(
   persona: PersonaPuesto | null | undefined,
   hasFeature: (key: string) => boolean,
-  opciones: { sinConteo?: boolean } = {},
+  opciones: { sinConteo?: boolean; turnoAbierto?: boolean | null } = {},
 ): string {
   const venta = hasFeature("pos.tables") ? "/pos/mesas" : "/pos/comanda/nueva";
   if (soloAutoriza(persona)) return RUTA_AUTORIZAR;
+  if (opciones.turnoAbierto === false && puedeManejarCaja(persona, null)) return "/pos/turno";
   // Modo supervisor: llega a Turno, donde están sus herramientas (abrir,
   // base, retiros, salidas de otros). Mesas sigue en su barra.
   if (persona?.role === "supervisor") return "/pos/turno";

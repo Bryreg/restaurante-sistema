@@ -29,7 +29,7 @@ foránea de `employee_id` se crea sólo en Postgres, igual que `0024`/`0025`/
 `0027`.
 
 Revision ID: 0030
-Revises: 0027
+Revises: 0029
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0030"
-down_revision = "0028"
+down_revision = "0029"
 branch_labels: str | None = None
 depends_on: str | None = None
 

@@ -155,7 +155,7 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
 | movimiento de caja | `cash_movement` |
 | retiro de efectivo | `cash_pickup` |
 | relevo (cuadre sin cerrar) | `shift_handover` |
-| reserva de caja | `cash_reserve` |
+| base de respaldo (antes «reserva de caja»; la ÚNICA «base») | `cash_reserve` (monto `cash_reserve_default`, libro `cash_reserve_movements`, verificación `cash_reserve_checks`) |
 | hora de corte | `cutoff_hour` |
 | rescate (cierre administrativo, reabrir, cancelar, ajustar apertura) | `admin_rescue` (`close_administrative`, `reopen`, `cancel`, `adjust_opening`) |
 | estación de cocina | `station` |
@@ -172,7 +172,9 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
 | responsable de caja | `cash_responsible` |
 | supervisor / encargado | `supervisor` |
 | devolución pendiente | `pending_refund` |
-| base fija | `opening_cash_fixed` |
+| base fija (regla anterior al 2026-09-26) | `opening_cash_fixed` · por turno `opening_fixed_base` |
+| apertura del cajón (en pantalla «Apertura») | `opening_cash_total` / `breakdown.base` |
+| cuadre de apertura por sobres | `shift_opening_count` · regla `opening_mode` (`envelopes` / `fixed_base`) |
 | causa de un movimiento | `cause` |
 | proveedor | `supplier` |
 | lote | `stock_batch` |
@@ -1884,6 +1886,65 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     - Pendiente: `/pos/conteo` no está en los destinos de cocina/bar de la
       barra (`DESTINOS` en `app/puesto.ts`); se llega por el PIN, la puerta y
       Turno.
+46. **El cajón abre con los sobres por consignar; la base de respaldo va
+    aparte** (2026-09-26). Decisiones del dueño, a imagen de café-sistema:
+    el cajón abre SÓLO con los sobres elegidos (sin base fija), una caja
+    por sede, el supervisor autoriza en el piso y el dueño guarda la
+    configuración. «Base» significa una sola cosa: la base de respaldo (el
+    incidente del café: la base de emergencia mezclada con la plata
+    consignable pidió consignar $697.900 en vez de $197.900). Migración
+    `0029` (encadenada `0028 → 0029 → 0030`), 3 tablas.
+    - **Regla por turno, nunca reescrita**: `shifts.opening_mode` y
+      `shifts.opening_fixed_base` (la base fija que congeló cada turno;
+      backfill con la de su sede, 0 con sobres). `to_deposit` resta la del
+      turno, no la de la sede en vivo. `store_cash_settings.opening_mode`:
+      la migración pasa toda sede existente a `envelopes` y, si su monto de
+      base de respaldo estaba en 0, le hereda la base fija (es la misma
+      plata, que sale del cajón); `POST /admin/stores` crea las nuevas así.
+      El default del modelo sigue siendo `fixed_base` (los tests y el seed
+      de desarrollo siguen con la regla anterior; el simulador `app/demo.py`
+      abre con base fija y no se migró).
+    - **Apertura**: `GET /shifts/opening` (regla, sobres **sin monto**, un
+      conteo sellado sin usar), `POST /shifts/opening-counts` (cada sobre
+      contado aparte, a ciegas; revela por sobre esperado, contado,
+      diferencia y quién contó; un conteo nuevo supera al anterior),
+      `POST /shifts/open` con `opening_count_id` (causa si hay diferencia;
+      `OPENING_COUNT_STALE` si el saldo de un sobre cambió). Sin sobres, el
+      cajón abre vacío. Con sobres, `carry-candidates` publica
+      `outstanding: null`. Quien puede manejar la caja y llega sin turno
+      aterriza en Turno (`inicioParaPuesto(..., turnoAbierto)`, `PosHome`).
+    - **Base de respaldo** (`app/shifts/reserve.py`, flag `cash.reserve`):
+      tomar (`POST /shifts/{id}/reserve/take`, PIN de supervisor o admin,
+      no más de lo disponible), devolver (`.../reserve/return`, quien tiene
+      la caja), reversar con motivo, verificar (`POST /reserve/checks`, sólo
+      el custodio, a ciegas). `compute_breakdown` suma `reserve_loan`; con
+      préstamo abierto el conteo de cierre responde `RESERVE_LOAN_OPEN` y
+      el paso 0 lo lista; el cierre administrativo lo resta de
+      `to_deposit`. `GET /shifts/current` publica `reserve_loan` (`null` con
+      la función apagada); Hoy suma `reserve_loans_open_count/_total`;
+      `GET /admin/stores/{id}/reserve` para el panel del admin.
+    - **Frontend**: `OpeningScreen` → `EnvelopeOpeningForm` (elegir,
+      contar cada sobre con `DenominationKeypad`, sellar, ver la diferencia
+      por sobre, causa, abrir); «Tomar de la base», «Devolver a la base» y «Verificar base» enchufados en `baseSlot.ts` (grilla de Turno y cinta de Mesas, misma hoja);
+      `TakeFromReservePanel` / `ReturnToReservePanel` / `VerifyReservePanel`
+      exportados desde `features/shifts` para la cinta de Mesas. Ajustes ›
+      Caja rotula «Base de respaldo» el monto fijo y esconde la base fija con
+      la regla de sobres (baja declarada en el censo de controles).
+    - Pendiente: el simulador `app/demo.py` y el seed siguen con base fija;
+      el panel del admin (Hoy) todavía no pinta los préstamos sin devolver.
+47. **Puerta de entrada, modo supervisor y asistencia separada del turno
+    de caja** (2026-09-26). Migración `0028` (`attendance_entries`). Puerta
+    en «/» (Operar / Administrar); el administrador identificado en la tablet
+    sólo autoriza («Modo autorización», `/pos/autorizar`: sin barra, sin
+    roster, sin asistencia ni propina); el supervisor llega a Turno. El
+    primer PIN del día marca la entrada con o sin caja abierta; la salida
+    olvidada queda «a revisar» y el admin la corrige con motivo; el roster
+    del turno se alimenta de la asistencia al abrir la caja. Y la **cinta de
+    caja en Mesas** (`acciones.ts`, `ShiftActionSheet.tsx`, `cinta.ts`,
+    `baseSlot.ts`): las acciones del turno en hojas encima del mapa; «Tomar /
+    Devolver a la base» se enchufan en `baseSlot.ts` con los paneles de §46.
+    Al integrar, la cadena queda `0027 → 0028 → 0029 → 0030` y el esquema
+    en 111 tablas.
 
 ---
 

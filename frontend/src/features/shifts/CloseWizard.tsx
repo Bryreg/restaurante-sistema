@@ -173,6 +173,11 @@ function ItemPrecheck({
           Liquidar domicilios
         </Button>
       ) : null}
+      {item.code === "RESERVE_LOAN_OPEN" ? (
+        <Button variant="outline" className="h-11" nativeButton={false} render={<Link to="/pos/turno?accion=base_devolver" />}>
+          Devolver a la base
+        </Button>
+      ) : null}
     </li>
   );
 }
@@ -598,6 +603,17 @@ export function CloseWizard({
                   detalle="Plata de días anteriores que se llevó al banco"
                   signo="−"
                   valor={review.equation.deposits}
+                />
+              ) : null}
+              {/* Lo prestado por la base de respaldo (2026-09-26) está en el
+                  cajón y suma. El conteo no entra con préstamo abierto, así
+                  que acá casi siempre es 0; se pinta si el servidor lo manda. */}
+              {review.equation?.reserve_loan ? (
+                <FilaCuadre
+                  rotulo="Prestado por la base de respaldo"
+                  detalle="Se devuelve antes del cierre"
+                  signo="+"
+                  valor={review.equation.reserve_loan}
                 />
               ) : null}
               <FilaCuadre rotulo="Esperado" detalle="Lo que debería haber en el cajón" valor={review.expected} remate />

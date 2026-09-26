@@ -1,6 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { Navigate } from "react-router-dom";
 
-import { inicioParaPuesto } from "./puesto";
+import { getCurrentShift } from "@/api/shifts";
+
+import { inicioParaPuesto, puedeManejarCaja } from "./puesto";
 import { useSession } from "./session";
 
 /**
@@ -10,8 +13,19 @@ import { useSession } from "./session";
  * Sin puesto (o supervisor / admin), lo de siempre: con `pos.tables`
  * encendida el salón abre en el mapa de mesas; si no, directo en una comanda
  * nueva de mostrador (SPEC-NEGOCIO §9.1).
+ *
+ * Quien puede manejar la caja y llega sin turno abierto va primero al cuadre
+ * de apertura (Turno): por eso, sólo para esa persona, se pregunta al
+ * servidor si hay turno (`GET /shifts/current`, la misma clave que usa
+ * Turno). Si la consulta falla, manda el puesto, como siempre.
  */
-export default function PosHome(): React.JSX.Element {
+export default function PosHome(): React.JSX.Element | null {
   const { me, hasFeature } = useSession();
-  return <Navigate to={inicioParaPuesto(me?.employee, hasFeature)} replace />;
+  const persona = me?.employee;
+  // El administrador sólo autoriza: no abre caja ni pregunta por el turno.
+  const conCaja = persona?.role !== "admin" && puedeManejarCaja(persona, null);
+  const turno = useQuery({ queryKey: ["shifts", "current"], queryFn: getCurrentShift, enabled: conCaja });
+  if (conCaja && turno.isLoading) return null;
+  const turnoAbierto = conCaja && turno.isSuccess ? turno.data !== null : null;
+  return <Navigate to={inicioParaPuesto(persona, hasFeature, { turnoAbierto })} replace />;
 }

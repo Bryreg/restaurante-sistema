@@ -192,7 +192,7 @@ const ERROR_ORDEN =
 function cambiosPendientes(guardado: CashSettings, actual: CashSettings): PendingChange[] {
   const plata: { key: keyof CashSettings; field: string; leaks?: string }[] = [
     { key: "opening_cash_fixed", field: "Base fija de apertura", leaks: "Cambia Dinero › Abrir turno" },
-    { key: "cash_reserve_default", field: "Reserva por defecto", leaks: "Cambia Dinero › Abrir turno" },
+    { key: "cash_reserve_default", field: "Base de respaldo", leaks: "Cambia Salón › Turno › Tomar de la base" },
     {
       key: "tolerance_unknown_cause",
       field: "Tolerancia sin causa identificada",
@@ -284,6 +284,9 @@ export function CashSection({ storeId }: { storeId: number | null }): React.JSX.
   }
 
   const guardado = query.data as CashSettings;
+  // La regla de apertura la decide el servidor por sede; con sobres la base
+  // fija ya no existe en el cajón y su campo no se muestra.
+  const sobres = values.opening_mode === "envelopes";
   const cambios = cambiosPendientes(guardado, values);
   const invertidas = fronterasInvertidas(values);
 
@@ -309,16 +312,30 @@ export function CashSection({ storeId }: { storeId: number | null }): React.JSX.
     <div className="space-y-3">
       <FormSection
         title="Con qué abre el cajón"
-        governs="Con cuánto arranca el cajón cada vez que alguien abre turno en esta sede. El POS lo propone y el cajero puede corregirlo."
+        governs={
+          sobres
+            ? "El cajón abre sólo con los sobres por consignar que el cajero elige y cuenta a ciegas. La base de respaldo se guarda aparte."
+            : "Con cuánto arranca el cajón cada vez que alguien abre turno en esta sede. El POS lo propone y el cajero puede corregirlo."
+        }
         reading={
-          <>
-            Cada turno de esta sede abre proponiendo{" "}
-            <b className="font-bold text-foreground tabular-nums">{formatCOP(values.opening_cash_fixed)}</b> en
-            el cajón. El cierre se mide contra ese monto; si el cajero lo corrige al abrir, la diferencia queda
-            registrada con su nombre.
-          </>
+          sobres ? (
+            <>
+              Cada turno abre con los sobres de días por consignar que recibe el cajero, contados uno por uno. La base
+              de respaldo —{" "}
+              <b className="font-bold text-foreground tabular-nums">{formatCOP(values.cash_reserve_default)}</b>— no
+              entra al cajón: se presta con autorización y vuelve antes del cierre.
+            </>
+          ) : (
+            <>
+              Cada turno de esta sede abre proponiendo{" "}
+              <b className="font-bold text-foreground tabular-nums">{formatCOP(values.opening_cash_fixed)}</b> en
+              el cajón. El cierre se mide contra ese monto; si el cajero lo corrige al abrir, la diferencia queda
+              registrada con su nombre.
+            </>
+          )
         }
       >
+        {sobres ? null : (
         <FormField
           label="Base fija de apertura"
           help="El efectivo con el que empieza cada turno. El cierre se mide contra esto; si el cajero la corrige, queda la diferencia registrada."
@@ -333,19 +350,20 @@ export function CashSection({ storeId }: { storeId: number | null }): React.JSX.
             />
           )}
         </FormField>
+        )}
 
         <FormField
-          label="Reserva por defecto"
+          label="Base de respaldo"
           help={
             <>
-              Plata que se aparta del conteo y no cuenta como venta del turno. Con la función apagada el campo{" "}
-              <b className="font-bold text-foreground">no aparece</b> al abrir turno, y el valor queda guardado
-              sin uso.
+              El monto fijo de la plata que se guarda <b className="font-bold text-foreground">aparte</b> del
+              cajón por si los sobres no alcanzan. No entra al cuadre: el cajero toma de ella con el PIN de un
+              supervisor y la devuelve antes del cierre, y su custodio la verifica. Con la función apagada no se usa.
             </>
           }
           scope={{
             flag: "cash.reserve",
-            affects: [{ screen: "Dinero › Abrir turno", verb: "Enciende el campo en" }],
+            affects: [{ screen: "Salón › Turno › Tomar de la base", verb: "Fija el monto de" }],
           }}
         >
           {({ fieldId, describedBy }) => (

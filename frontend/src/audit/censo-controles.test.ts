@@ -122,6 +122,19 @@
  * base de respaldo («Tomar de la base», «Devolver a la base») quedan
  * afuera a propósito: son un hueco que otro trabajo enchufa y puede
  * renombrar.
+ *
+ * **Bajas declaradas · la base de respaldo (decisión del dueño, 2026-09-26).**
+ * Un rótulo de `features/settings/CashSection.tsx` sale de la base, a mano.
+ * **Era un control y no se perdió: se renombró.** La palabra «base» tiene que
+ * significar una sola cosa (el incidente del café: la base de emergencia
+ * mezclada con la plata consignable pidió consignar $697.900 en vez de
+ * $197.900), y la vieja «reserva por defecto» pasó a ser el monto fijo de la
+ * base de respaldo, la plata aparte del cajón.
+ *
+ * - «Reserva por defecto» — el mismo campo (`cash_reserve_default`), ahora
+ *   rotulado «Base de respaldo». «Base fija de apertura» **no** se dio de
+ *   baja: sigue en el archivo y se muestra en las sedes que abren con la
+ *   base fija.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

@@ -51,6 +51,9 @@ def test_the_breakdown_publishes_the_pending_delivery_cash_as_its_own_row(
         # informativo, cuánto de la base es plata de días anteriores.
         "deposits",
         "carried_in",
+        # 2026-09-26: lo prestado por la base de respaldo y sin devolver
+        # (suma: esa plata está en el cajón).
+        "reserve_loan",
         "expected",
         "delivery_cash_pending",
     }

@@ -44,7 +44,8 @@ export type ClaveAccion =
   // Hueco para la «base de respaldo» (ver `baseSlot.ts`): no dibujan nada
   // mientras su panel no esté enchufado.
   | "base_tomar"
-  | "base_devolver";
+  | "base_devolver"
+  | "base_verificar";
 
 export interface Accion {
   clave: ClaveAccion;
@@ -174,11 +175,20 @@ export const BASE_DEVOLVER: Accion = {
   flag: BASE_SLOT.flag,
 };
 
-/** Las de la base que hoy tienen panel (vacío hasta que el agente de la base las enchufe). */
+export const BASE_VERIFICAR: Accion = {
+  clave: "base_verificar",
+  label: "Verificar base",
+  descripcion: "Contar la base de respaldo a ciegas (supervisor o administrador)",
+  icono: Vault,
+  flag: BASE_SLOT.flag,
+};
+
+/** Las de la base que hoy tienen panel. */
 export function accionesDeBase(): Accion[] {
   const out: Accion[] = [];
   if (BASE_SLOT.tomar) out.push(BASE_TOMAR);
   if (BASE_SLOT.devolver) out.push(BASE_DEVOLVER);
+  if (BASE_SLOT.verificar) out.push(BASE_VERIFICAR);
   return out;
 }
 

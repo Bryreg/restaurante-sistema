@@ -292,6 +292,10 @@ export interface TodayOut {
   undeposited_total?: number | null
   /** Fecha de negocio (ISO) del día más viejo con plata sin consignar. */
   undeposited_oldest_date?: string | null
+  /** Base de respaldo (2026-09-26): préstamos al cajón sin devolver (vuelven el mismo día). */
+  reserve_loans_open_count?: number
+  /** `null` con `cash.reserve` apagada: «no hay base», no «nada que devolver». */
+  reserve_loans_open_total?: number | null
   /** La rutina del turno en el POS (2026-09-25). `0` con la función apagada. */
   reception_drafts_pending_count?: number
   requests_pending_count?: number

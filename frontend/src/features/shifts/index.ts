@@ -43,6 +43,21 @@ const adminNav: NavItem[] = [
 const posNav: NavItem[] = [{ to: "/pos/turno", label: "Turno", icon: Wallet, posGroup: "caja" }];
 
 /**
+ * La base de respaldo (2026-09-26), para colgar de cualquier hoja (la cinta
+ * de acciones de Mesas los usa). Props `{ shiftId: number; onDone?: () =>
+ * void }`: `onDone` se llama después de guardar, para cerrar la hoja. Si
+ * hay que devolver lo dice el servidor en `ShiftCurrent.reserve_loan`
+ * (`GET /shifts/current`: monto > 0 = hay préstamo abierto; `null` = la
+ * función `cash.reserve` está apagada). Nunca se resta en el frontend.
+ */
+export {
+  ReturnToReservePanel,
+  TakeFromReservePanel,
+  VerifyReservePanel,
+  type ReservePanelProps,
+} from "./ReservePanels";
+
+/**
  * La cinta de caja (2026-09-26): las acciones del turno a un toque desde
  * Mesas, en hojas encima del mapa. La monta `TablesPage` (dominio de
  * comandas); se exporta con nombre porque no es una ruta ni una entrada de

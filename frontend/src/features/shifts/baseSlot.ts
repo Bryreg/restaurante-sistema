@@ -2,6 +2,8 @@ import type { ComponentType } from "react";
 
 import type { ShiftCurrent } from "@/api/shifts";
 
+import { ReturnToReservePanel, TakeFromReservePanel, VerifyReservePanel } from "./ReservePanels";
+
 /**
  * ─── HUECO PARA LA «BASE DE RESPALDO» ───────────────────────────────────────
  *
@@ -43,11 +45,24 @@ export interface BaseSlot {
   devolver: ComponentType<BasePanelProps> | null;
   /** ¿Hay que devolver a la base ahora? Sin panel de devolver no se consulta. */
   debeDevolver: (shift: ShiftCurrent) => boolean;
+  /**
+   * «Verificar base» del custodio (supervisor o admin), a ciegas. Opcional:
+   * sólo lo ve quien puede manejar la caja, y el servidor rechaza a quien no
+   * es custodio (`403 RESERVE_CUSTODIAN_REQUIRED`).
+   */
+  verificar?: ComponentType<{ onDone?: () => void }> | null;
 }
 
+/**
+ * Enchufado (2026-09-26) con los paneles de la base de respaldo
+ * (`ReservePanels.tsx`). `debeDevolver` lee `reserve_loan` de
+ * `GET /shifts/current` —lo que el cajón le debe a la base, calculado por el
+ * servidor; `null` con la función apagada— y sólo lo compara con cero.
+ */
 export const BASE_SLOT: BaseSlot = {
   flag: "cash.reserve",
-  tomar: null,
-  devolver: null,
-  debeDevolver: () => false,
+  tomar: TakeFromReservePanel,
+  devolver: ReturnToReservePanel,
+  debeDevolver: (shift) => (shift.reserve_loan ?? 0) > 0,
+  verificar: VerifyReservePanel,
 };

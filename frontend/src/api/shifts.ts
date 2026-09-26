@@ -70,6 +70,14 @@ export type CashDifferenceCause =
   | "counting_error"
   | "unknown";
 export type HandoverKind = "handover" | "spot_check";
+/**
+ * Cómo abre el cajón (2026-09-26, `OpeningModeLiteral` del backend):
+ * `envelopes` = sólo los sobres por consignar que se eligen y se cuentan a
+ * ciegas (decisión del dueño); `fixed_base` = la base fija de siempre.
+ */
+export type OpeningMode = "envelopes" | "fixed_base";
+/** El libro de la base de respaldo: tomar (entra al cajón) y devolver. */
+export type CashReserveMovementKind = "take" | "return";
 
 // ---------------------------------------------------------------------------
 // Dinero y denominaciones (entrada)
@@ -116,6 +124,15 @@ export interface ShiftCurrent {
   delivery_cash_pending?: number | null;
   is_stale?: boolean;
   cash_over_threshold?: boolean;
+  /** La regla con que abrió el turno (2026-09-26). */
+  opening_mode?: OpeningMode;
+  /**
+   * Lo que el cajón le debe a la base de respaldo, calculado por el
+   * servidor (tomado − devuelto). `null` con `cash.reserve` apagada: «no hay
+   * base» no es «no debe nada». Mayor que cero = hay que devolver antes del
+   * conteo de cierre.
+   */
+  reserve_loan?: number | null;
 }
 
 /** `GET /shifts/current` — `null` cuando la sede no tiene turno abierto. */
@@ -124,7 +141,10 @@ export function getCurrentShift(): Promise<ShiftCurrent | null> {
 }
 
 export interface OpenShiftIn {
-  opening_cash: DenominationCount;
+  /** Obligatorio con la base fija; con la apertura por sobres no se manda. */
+  opening_cash?: DenominationCount;
+  /** Apertura por sobres: el conteo sellado con `sealOpeningCount`. */
+  opening_count_id?: number;
   /** Sólo se manda si `cash.reserve` está encendida. */
   cash_reserve?: number;
   cash_responsible_id: number;
@@ -150,7 +170,8 @@ export interface OpenShiftIn {
 export interface CarryCandidate {
   shift_id: number;
   business_date: string;
-  outstanding: number;
+  /** `null` con la apertura por sobres: se cuenta a ciegas. */
+  outstanding: number | null;
 }
 
 /** Del más viejo al más nuevo; `[]` con «Consignaciones» (`money.deposits`) apagada. */
@@ -167,6 +188,60 @@ export interface OpenShiftResult {
   cash_responsible?: EmployeeRef;
   opening_cash_total?: number;
   cash_reserve?: number;
+  opening_mode?: OpeningMode;
+}
+
+// ---------------------------------------------------------------------------
+// Apertura por sobres (2026-09-26)
+// ---------------------------------------------------------------------------
+
+/** Un sobre por consignar que se puede elegir al abrir: **sin monto**. */
+export interface OpeningEnvelopeCandidate {
+  shift_id: number;
+  business_date: string;
+}
+
+/** Un sobre revelado después de sellar: lo calcula el servidor, nunca esta pantalla. */
+export interface OpeningEnvelope {
+  shift_id: number;
+  business_date?: string;
+  expected?: number;
+  counted?: number;
+  difference?: number;
+}
+
+/** `POST /shifts/opening-counts` (respuesta): la revelación por sobre, con quién contó. */
+export interface OpeningCount {
+  id: number;
+  counted_by?: EmployeeRef;
+  counted_at?: string;
+  envelopes?: OpeningEnvelope[];
+  expected_total?: number;
+  counted_total?: number;
+  difference_total?: number;
+  requires_cause?: boolean;
+  used?: boolean;
+}
+
+/** `GET /shifts/opening`. */
+export interface OpeningInfo {
+  mode: OpeningMode;
+  envelopes: OpeningEnvelopeCandidate[];
+  pending_count?: OpeningCount | null;
+  reserve_available?: boolean;
+}
+
+export function getOpeningInfo(): Promise<OpeningInfo> {
+  return api<OpeningInfo>("/shifts/opening");
+}
+
+export interface OpeningCountIn {
+  envelopes: { shift_id: number; counted: DenominationCount }[];
+}
+
+/** `POST /shifts/opening-counts` — sella el cuadre a ciegas y revela. Exige `Idempotency-Key`. */
+export function sealOpeningCount(body: OpeningCountIn, idempotencyKey: string): Promise<OpeningCount> {
+  return api<OpeningCount>("/shifts/opening-counts", { method: "POST", body, idempotencyKey });
 }
 
 /** `POST /shifts/open` — exige `Idempotency-Key` (spec § convenciones). */
@@ -229,6 +304,9 @@ export interface Breakdown {
   /** Informativo: cuánto de `base` es plata de días anteriores que quedó en
    * el cajón. No es un sumando aparte. */
   carried_in?: number;
+  /** Prestado por la base de respaldo y sin devolver (2026-09-26): suma al
+   * esperado. `base` es la APERTURA del cajón, no la base de respaldo. */
+  reserve_loan?: number;
 }
 
 /** El desglose congelado que devuelve el servidor: nunca se recalcula acá. */
@@ -428,7 +506,8 @@ export type ClosePrecheckCode =
   | "DELIVERY_UNSETTLED"
   | "CARD_TOTAL_REQUIRED"
   | "TRANSFER_TOTAL_REQUIRED"
-  | "PHOTO_REQUIRED";
+  | "PHOTO_REQUIRED"
+  | "RESERVE_LOAN_OPEN";
 
 export interface ClosePrecheckItem {
   code: ClosePrecheckCode;
@@ -450,6 +529,8 @@ export interface ClosePrecheck {
   card_total_required: boolean;
   transfer_total_required: boolean;
   photo_required: boolean;
+  /** Hay plata de la base de respaldo sin devolver: el conteo no entra. */
+  reserve_loan_open?: boolean;
   sealed_count: { count_id: number; counted_at: string; counted_by: string } | null;
   items: ClosePrecheckItem[];
 }
@@ -985,4 +1066,108 @@ export function voidDeliverySettlement(
     body,
     idempotencyKey,
   });
+}
+
+
+// ---------------------------------------------------------------------------
+// Base de respaldo (`cash.reserve`, 2026-09-26)
+// ---------------------------------------------------------------------------
+
+export interface ReserveMovement {
+  id: number;
+  shift_id?: number;
+  kind?: CashReserveMovementKind;
+  amount?: number;
+  note?: string | null;
+  employee_name?: string;
+  authorized_by_employee_name?: string | null;
+  at?: string;
+  reversed_at?: string | null;
+  reversed_reason?: string | null;
+}
+
+/** `GET /shifts/{id}/reserve`: la base vista desde el cajón. Todo lo calcula el servidor. */
+export interface ReserveStatus {
+  enabled: boolean;
+  configured: boolean;
+  /** Monto fijo de la base; `null` si la sede no lo configuró. */
+  amount?: number | null;
+  /** Lo que se puede tomar ahora; `null` sin monto configurado. */
+  available?: number | null;
+  /** Lo que este cajón le debe a la base. */
+  loan: number;
+  movements: ReserveMovement[];
+  last_check_at?: string | null;
+  last_check_by?: string | null;
+  last_check_matched?: boolean | null;
+  /** Quien mira es custodio (supervisor o admin) y puede verificar la base. */
+  can_verify?: boolean;
+}
+
+export function getShiftReserve(shiftId: number): Promise<ReserveStatus> {
+  return api<ReserveStatus>(`/shifts/${shiftId}/reserve`);
+}
+
+export interface ReserveTakeIn {
+  amount: number;
+  authorizer_pin: string;
+  note?: string | null;
+}
+
+/** `POST /shifts/{id}/reserve/take` — PIN de supervisor o admin. Exige `Idempotency-Key`. */
+export function takeFromReserve(shiftId: number, body: ReserveTakeIn, idempotencyKey: string): Promise<ReserveMovement> {
+  return api<ReserveMovement>(`/shifts/${shiftId}/reserve/take`, { method: "POST", body, idempotencyKey });
+}
+
+export interface ReserveReturnIn {
+  amount: number;
+  note?: string | null;
+}
+
+/** `POST /shifts/{id}/reserve/return` — lo hace quien tiene la caja. Exige `Idempotency-Key`. */
+export function returnToReserve(shiftId: number, body: ReserveReturnIn, idempotencyKey: string): Promise<ReserveMovement> {
+  return api<ReserveMovement>(`/shifts/${shiftId}/reserve/return`, { method: "POST", body, idempotencyKey });
+}
+
+/** `POST /shifts/{id}/reserve/movements/{mid}/reverse` — nunca se borra: se reversa. */
+export function reverseReserveMovement(
+  shiftId: number,
+  movementId: number,
+  body: { reason: string; authorizer_pin: string },
+): Promise<ReserveMovement> {
+  return api<ReserveMovement>(`/shifts/${shiftId}/reserve/movements/${movementId}/reverse`, { method: "POST", body });
+}
+
+/** `POST /reserve/checks` (respuesta): lo que se revela DESPUÉS de contar la base. */
+export interface ReserveCheck {
+  id: number;
+  reserve_amount?: number;
+  loans_outstanding?: number;
+  expected?: number;
+  counted?: number;
+  difference?: number;
+  note?: string | null;
+  employee_name?: string;
+  at?: string;
+}
+
+/** «Verificar base»: el custodio cuenta a ciegas. Exige `Idempotency-Key`. */
+export function verifyReserve(
+  body: { counted: DenominationCount; note?: string | null },
+  idempotencyKey: string,
+): Promise<ReserveCheck> {
+  return api<ReserveCheck>("/reserve/checks", { method: "POST", body, idempotencyKey });
+}
+
+/** `GET /admin/stores/{id}/reserve`: para el panel del administrador. */
+export interface AdminReserve {
+  enabled: boolean;
+  amount: number;
+  loans_outstanding: number;
+  open_loans: { shift_id: number; amount: number; shift_open: boolean }[];
+  checks: ReserveCheck[];
+}
+
+export function getAdminReserve(storeId: number): Promise<AdminReserve> {
+  return api<AdminReserve>(`/admin/stores/${storeId}/reserve`);
 }

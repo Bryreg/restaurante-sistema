@@ -140,6 +140,10 @@ function PanelDeAccion({
       const Panel = BASE_SLOT.devolver;
       return Panel ? <Panel shiftId={shift.id} onDone={onDone} /> : null;
     }
+    case "base_verificar": {
+      const Panel = BASE_SLOT.verificar;
+      return Panel ? <Panel onDone={onDone} /> : null;
+    }
     case "cierre":
       return showBlindClose ? (
         <CloseWizard shiftId={shift.id} onClosed={onClosed} />

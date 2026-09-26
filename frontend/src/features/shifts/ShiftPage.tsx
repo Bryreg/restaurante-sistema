@@ -11,7 +11,7 @@ import { AREA_COUNT_QUERY_KEY } from "@/features/inventory/areaCountLib";
 import { errorMessage } from "@/lib/errors";
 
 import { type Accion, accionesHabilitadas } from "./acciones";
-import { OpenShiftForm } from "./OpenShiftForm";
+import { OpeningScreen } from "./OpeningScreen";
 import { ShiftActionSheet } from "./ShiftActionSheet";
 import { ShiftSummaryPanel } from "./ShiftSummaryPanel";
 import { ShiftTeamCard } from "./ShiftTeamCard";
@@ -129,7 +129,8 @@ export default function ShiftPage(): React.JSX.Element {
         />
       );
     }
-    return <OpenShiftForm />;
+    // El cuadre de apertura (sobres por consignar o base fija, según la sede).
+    return <OpeningScreen />;
   }
 
   const habilitadas = accionesHabilitadas({ hasFeature, conCaja, sinArea });

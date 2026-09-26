@@ -503,7 +503,17 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     tabla. Se llama `0030` y cuelga de `0027` porque en paralelo nacen
     `0028`/`0029` sobre `0027` y la cadena se re-encadena al integrar: si al
     integrar la cabeza es otra, el poste se mueve de nuevo, con su motivo.
-    Al integrar, la cadena queda `0027 → 0028 → 0030` y el conteo en 108.
+
+    **Re-apuntado al integrar la apertura por sobres y la base de respaldo**
+    (decisión del dueño, 2026-09-26): la cadena queda `0027 → 0028_attendance
+    → 0029_envelope_opening_and_backup_base → 0030_area_count_per_item`, la
+    cabeza sigue en **`0030`** y el conteo pasa de 108 a **111**. `0029` suma
+    tres tablas: el conteo de apertura por sobres sellado a ciegas
+    (`shift_opening_counts`) y el libro y las verificaciones de la base de
+    respaldo, la plata aparte del cajón (`cash_reserve_movements`,
+    `cash_reserve_checks`); `shifts` y `store_cash_settings` suman columnas.
+    Se mueve el poste; las dos igualdades siguen exactas y los tres nombres
+    entran enumerados abajo.
     """
     from sqlalchemy import text
 
@@ -516,9 +526,10 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
         engine.dispose()
 
     assert version == "0030", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0030: 0027 → 0028 (asistencia separada del turno de caja) → 0030 (conteo artículo por artículo). "
+        f"la cadena quedó en {version!r}; el punto de llegada es 0030: 0027 → 0028 (asistencia separada del turno de caja) "
+        "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028 y 0030"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029 y 0030"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -572,6 +583,8 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
         "area_count_settings",
     }
     de_la_asistencia = {"attendance_entries"}
+    # 2026-09-26: el conteo de apertura por sobres y la base de respaldo.
+    de_la_base_de_respaldo = {"shift_opening_counts", "cash_reserve_movements", "cash_reserve_checks"}
     de_la_nomina = {
         "payroll_surcharge_tables",
         "payroll_holidays",
@@ -597,6 +610,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
             | de_la_rutina
             | del_conteo_por_area
             | de_la_asistencia
+            | de_la_base_de_respaldo
         )
         - tablas
     )
@@ -619,11 +633,13 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # `0026` siete del conteo corto por área: **107**. `0027` (el puesto de
     # cada persona y la última que usó la tablet) agrega columnas, no tablas:
     # sigue 107. `0028` suma la asistencia del día (`attendance_entries`),
-    # separada del turno de caja: **108**.
-    assert len(tablas) == 108, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; `0028` lo deja en 108 "
+    # separada del turno de caja: 108. `0029` (apertura por sobres y base de
+    # respaldo) suma tres: **111**. `0030` agrega columnas, no tablas.
+    assert len(tablas) == 111, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; `0029` lo deja en 111 "
         f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón "
-        f"+ 5 de la rutina del turno + 7 del conteo por área + 1 de asistencia). "
+        f"+ 5 de la rutina del turno + 7 del conteo por área + 1 de asistencia "
+        f"+ 3 de la apertura por sobres y la base de respaldo). "
         f"Actualizá este número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 

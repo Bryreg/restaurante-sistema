@@ -767,3 +767,22 @@ def cash_swap_store_id(db: Session, cash_swap_id: int) -> int | None:
     from app.shifts.models import CashSwap
 
     return db.execute(select(CashSwap.store_id).where(CashSwap.id == cash_swap_id)).scalar_one_or_none()
+
+
+def reserve_loans_tray(db: Session, store: Any) -> dict[str, Any]:
+    """**Base de respaldo** (2026-09-26): los préstamos al cajón sin devolver,
+    para la bandeja de Hoy (`app.reports`). Un préstamo vuelve el mismo día,
+    antes del conteo de cierre; si un turno se cerró por rescate con plata de
+    la base adentro, sigue acá hasta que alguien la devuelva. Con
+    `cash.reserve` apagada el total es `None` («no hay base», no «nada que
+    devolver»)."""
+    from app.core import features
+    from app.shifts import reserve
+
+    if not features.is_enabled(db, store.organization_id, store.id, reserve.FEATURE):
+        return {"reserve_loans_open_count": 0, "reserve_loans_open_total": None}
+    loans = reserve.open_loans(db, store_id=store.id)
+    return {
+        "reserve_loans_open_count": len(loans),
+        "reserve_loans_open_total": sum(loan.amount for loan in loans),
+    }

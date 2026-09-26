@@ -483,15 +483,21 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       momento y día, y el conteo completo mensual por categoría son columnas
       e índices, no tablas. Cuelga de `0027` porque `0028`/`0029` nacen en
       paralelo; al integrar se re-encadena y el poste se mueve con su motivo.
-    - Al integrar, la cadena queda `0027 → 0028 → 0030` y el conteo en **108**.
+    - Con **`0029_envelope_opening_and_backup_base`** (decisión del dueño,
+      2026-09-26) el conteo pasa a **111**: el cajón abre sólo con los sobres
+      por consignar, contados a ciegas (`shift_opening_counts`), y la base de
+      respaldo vive aparte con su libro y sus verificaciones
+      (`cash_reserve_movements`, `cash_reserve_checks`).
+    - Al integrar, la cadena queda `0027 → 0028 → 0029 → 0030`: cabeza
+      **`0030`** y conteo **111**. Las dos igualdades siguen exactas.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
     assert 'version == "0030"' in fuente, (
         "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0030 "
-        "(asistencia 0028 y conteo artículo por artículo 0030)"
+        "(asistencia 0028, apertura por sobres 0029 y conteo artículo por artículo 0030)"
     )
-    assert "len(tablas) == 108" in fuente, (
-        "el conteo de tablas sigue en un número viejo: 0028 lo deja en 108 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1)"
+    assert "len(tablas) == 111" in fuente, (
+        "el conteo de tablas sigue en un número viejo: 0029 lo deja en 111 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3)"
     )
     assert ">=" not in fuente.split("def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory")[1].split("\ndef ")[0], (
         "el invariante de la cadena se aflojó a una desigualdad: un conjunto exacto se MUEVE, no se afloja"
