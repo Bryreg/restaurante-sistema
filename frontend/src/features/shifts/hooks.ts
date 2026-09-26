@@ -6,8 +6,12 @@
  * misma clave.
  */
 import { useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { getCurrentShift, getShiftSummary, getShiftTips, listPendingDeliveryCash } from "@/api/shifts";
+
+import type { ClaveAccion } from "./acciones";
 
 export const CURRENT_SHIFT_QUERY_KEY = ["shifts", "current"] as const;
 
@@ -72,3 +76,51 @@ export const CARRY_CANDIDATES_QUERY_KEY = ["shifts", "carry-candidates"] as cons
 
 /** `GET /deposits/drawer` (2026-09-24): los días anteriores que están en el cajón del turno abierto. */
 export const DEPOSIT_DRAWER_QUERY_KEY = ["deposits", "drawer"] as const;
+
+/** `GET /shifts/opening` (2026-09-26): la regla de apertura de la sede y los sobres elegibles, sin montos. */
+export const OPENING_INFO_QUERY_KEY = ["shifts", "opening"] as const;
+
+/** `GET /shifts/{id}/reserve` (2026-09-26): la base de respaldo vista desde el cajón. */
+export function reserveQueryKey(shiftId: number | null | undefined) {
+  return ["shifts", "reserve", shiftId] as const;
+}
+
+/**
+ * La acción abierta vive en la URL (`?accion=`), no en un estado: así se
+ * puede enlazar desde otra pantalla (`/pos/turno?accion=consignar`,
+ * `/pos/mesas?accion=retiros`). Quien la usa resuelve la clave contra sus
+ * acciones habilitadas: una desconocida o apagada por flag se ignora.
+ */
+export function useAccionEnUrl(): {
+  claveAbierta: string | null;
+  abrir: (clave: ClaveAccion) => void;
+  cerrar: () => void;
+} {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const claveAbierta = searchParams.get("accion");
+  const abrir = useCallback(
+    (clave: ClaveAccion) =>
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("accion", clave);
+          return next;
+        },
+        { replace: true },
+      ),
+    [setSearchParams],
+  );
+  const cerrar = useCallback(
+    () =>
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("accion");
+          return next;
+        },
+        { replace: true },
+      ),
+    [setSearchParams],
+  );
+  return { claveAbierta, abrir, cerrar };
+}

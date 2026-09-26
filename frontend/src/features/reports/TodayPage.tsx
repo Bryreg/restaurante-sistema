@@ -223,6 +223,10 @@ function directAttentionItems(today: {
   inventory_unreliable?: boolean | null
   days_since_last_full_count?: number | null
   current_shift?: PanelCashOut | null
+  store_closed?: boolean
+  reserve_loans_open_count?: number
+  reserve_loans_open_total?: number | null
+  attendance_pending_review_count?: number
 }): AttentionItem[] {
   const items: AttentionItem[] = []
 
@@ -267,15 +271,57 @@ function directAttentionItems(today: {
   }
 
   if (today.expected_cash === null || today.expected_cash === undefined) {
+    // Crítico sólo si hay actividad que pida caja (alguien de caja con
+    // entrada, o comandas del día sin turno): el mismo criterio que el
+    // semáforo del panel (`store_closed`, del servidor). Sin actividad, la
+    // sede está cerrada: de noche no es una alarma.
+    const closed = today.store_closed === true
     items.push({
       key: "no-shift",
       title: "Sin turno abierto",
-      body: "No hay un turno de caja abierto ahora.",
+      body: closed
+        ? "La sede está cerrada: no hay nadie de caja ni comandas del día."
+        : "Hay actividad sin turno de caja: no se puede cobrar.",
       to: "/admin/dinero",
       ctaLabel: "Abrir Dinero",
-      tone: "critical",
+      tone: closed ? "default" : "critical",
       screen: "Dinero",
       tab: "Operacional",
+    })
+  }
+
+  // Base de respaldo: un préstamo al cajón vuelve el mismo día. Conteo y
+  // total del servidor (`reserve_loans_tray`), los mismos del panel.
+  const loans = today.reserve_loans_open_count ?? 0
+  if (loans > 0) {
+    const shiftId = today.current_shift?.shift_id
+    items.push({
+      key: "reserve-loans",
+      title: `${loans} préstamo${loans === 1 ? "" : "s"} de la base sin devolver`,
+      body: "Lo que el cajón tomó de la base de respaldo vuelve el mismo día, antes del conteo de cierre.",
+      amount: today.reserve_loans_open_total ?? null,
+      to: shiftId !== undefined ? fichaTurnoHref(shiftId) : "/admin/dinero",
+      ctaLabel: "Ver el turno",
+      tone: "warning",
+      screen: "Dinero",
+      tab: shiftId !== undefined ? `Turno #${shiftId}` : "Operacional",
+    })
+  }
+
+  // Asistencia: salidas olvidadas de días anteriores. No suman horas hasta
+  // que se corrigen en Nómina › Horas.
+  const exits = today.attendance_pending_review_count ?? 0
+  if (exits > 0) {
+    items.push({
+      key: "attendance-review",
+      title: `${exits} salida${exits === 1 ? "" : "s"} olvidada${exits === 1 ? "" : "s"} a revisar`,
+      body: "Alguien no marcó salida en un día que ya pasó; esas horas no cuentan hasta corregirlas.",
+      to: "/admin/nomina?tab=horas",
+      ctaLabel: "Ver Horas",
+      tone: "warning",
+      screen: "Nómina",
+      tab: "Horas",
+      filter: "salidas a revisar",
     })
   }
 
@@ -444,9 +490,15 @@ function directAttentionItems(today: {
   // la plata que manda el servidor. Los recuentos dentro del umbral no son
   // aviso: los muestra la tarjeta.
   if (today.area_counts_enabled) {
-    const sinApertura = (today.area_counts_areas ?? []).filter((a) => a.opening === null)
+    // `opening_missing` (conteo compartido): la apertura es obligatoria y no
+    // está. Sin ese dato, la regla de antes (ningún conteo de apertura).
+    const sinApertura = (today.area_counts_areas ?? []).filter((a) => a.opening_missing ?? a.opening === null)
     if (sinApertura.length > 0) {
-      const nombres = sinApertura.map((a) => a.area_name).join(", ")
+      const nombres = sinApertura
+        .map((a) =>
+          a.opening_total ? `${a.area_name} (${a.opening_counted ?? 0} de ${a.opening_total} contados)` : a.area_name,
+        )
+        .join(", ")
       items.push({
         key: "area-counts-missing",
         title: `${sinApertura.length} área${sinApertura.length === 1 ? "" : "s"} sin conteo de apertura`,
@@ -1478,8 +1530,8 @@ export function TodayPage(): React.JSX.Element {
             {noShift ? (
               <IndicadorSinDato
                 label="Efectivo esperado"
-                motivo="no hay un turno de caja abierto"
-                tone="critical"
+                motivo={today.store_closed ? "la sede está cerrada: no hay turno de caja" : "no hay un turno de caja abierto"}
+                tone={today.store_closed ? "default" : "critical"}
                 icon={Banknote}
                 link={{ to: "/admin/dinero", screen: "Dinero", tab: "Operacional" }}
               />

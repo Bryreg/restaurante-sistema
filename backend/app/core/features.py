@@ -213,7 +213,7 @@ FEATURE_CATALOG: list[FeatureDef] = [
     ),
     FeatureDef(
         "cash.reserve",
-        "Reserva de caja declarada aparte de la base",
+        "Base de respaldo aparte del cajón: monto fijo por sede, tomar y devolver con autorización y verificación del custodio",
         [],
         {"basic": True, "standard": True, "full": True},
         "1a",

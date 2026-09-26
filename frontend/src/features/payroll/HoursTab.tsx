@@ -27,6 +27,7 @@ const HOURS_COLUMNS: readonly DenseColumn<PayrollHoursRowOut>[] = [
 ]
 
 import { daysAgoLocal, todayLocal } from "./lib"
+import { PendingExitsPanel } from "./PendingExitsPanel"
 
 export function HoursTab({ storeId }: { storeId: number }): React.JSX.Element {
   const [from, setFrom] = useState(daysAgoLocal(15))
@@ -43,6 +44,13 @@ export function HoursTab({ storeId }: { storeId: number }): React.JSX.Element {
     <div className="space-y-4">
       <DateRangeFilter idPrefix="payroll-hours" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
 
+      <PendingExitsPanel storeId={storeId} />
+      {(query.data?.pending_review?.length ?? 0) > 0 ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          {query.data?.pending_review?.length} salida(s) olvidada(s) de este período todavía no suman horas.
+        </p>
+      ) : null}
+
       {query.isLoading ? (
         <Cargando texto="Cargando la jornada del período…" />
       ) : query.isError ? (
@@ -53,7 +61,7 @@ export function HoursTab({ storeId }: { storeId: number }): React.JSX.Element {
         <EmptyState
           reason="dependency"
           title="No hay jornada registrada en este período"
-          description="Las horas salen del roster del turno: si nadie marcó entrada y salida, no hay jornada que mostrar."
+          description="Las horas salen de la asistencia del día (el primer PIN marca la entrada) y del roster del turno: si nadie marcó entrada y salida, no hay jornada que mostrar."
           action={{ label: "Ver los turnos en Dinero", to: "/admin/dinero" }}
         />
       ) : (

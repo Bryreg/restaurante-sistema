@@ -26,17 +26,17 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.audit.models import AuditLog
 from app.auth.models import Employee
 from app.banking import hooks as banking_hooks
 from app.core import clock, features, tz
 from app.core.errors import AppError
+from app.core.money import format_cop
 from app.core.quantity import format_qty_base
 from app.orders import service as orders_service
-from app.orders.models import Order, OrderDiscount, OrderItem
+from app.orders.models import Order, OrderDiscount, OrderItem, OrderStatus
 from app.reports import service
 from app.reports.panel_schemas import (
     EmployeeRecordOut,
@@ -53,6 +53,10 @@ from app.reports.panel_schemas import (
     PanelSalonOut,
     PanelStaffOut,
     PanelStaffPersonOut,
+    PanelPendingExitOut,
+    RecordEnvelopeOut,
+    RecordOpeningCountOut,
+    RecordReserveMovementOut,
     PersonRefOut,
     RecordAreaCountOut,
     RecordAttendanceOut,
@@ -65,14 +69,10 @@ from app.reports.panel_schemas import (
     StorePanelOut,
 )
 from app.reports.schemas import SalesBucketOut
+from app.shifts import hooks as shifts_hooks
 from app.shifts import service as shifts_service
 from app.shifts.models import BusinessDay, Shift, ShiftRoster, ShiftStatus
 from app.stores.models import Store
-
-#: Acciones de auditoría del roster que dicen «esta persona marcó entrada»
-#: (`app.shifts.service.roster_action` y la reapertura de un turno). Una
-#: fila del roster sin ninguna de estas nació de identificarse en la tablet.
-CLOCK_IN_ACTIONS = ("in", "in_on_reopen")
 
 #: Rango por defecto de una ficha sin fechas: los últimos 30 días operativos.
 RECORD_DEFAULT_DAYS = 30
@@ -126,24 +126,9 @@ def current_cash(db: Session, store: Store) -> PanelCashOut | None:
     )
 
 
-def _clocked_in_entry_ids(db: Session, entry_ids: list[int]) -> set[int]:
-    if not entry_ids:
-        return set()
-    rows = db.execute(
-        select(AuditLog.entity_id).where(
-            AuditLog.entity == "shift_roster",
-            AuditLog.entity_id.in_([str(i) for i in entry_ids]),
-            AuditLog.action.in_(CLOCK_IN_ACTIONS),
-        )
-    ).scalars()
-    return {int(r) for r in rows}
-
-
-def _attendance(db: Session, entries: list[ShiftRoster], shifts: dict[int, Shift]) -> list[RecordAttendanceOut]:
-    """Asistencia: una fila por entrada del roster, con si la persona marcó
-    entrada o sólo se identificó. El responsable de caja cuenta siempre
-    como presente: tiene el cajón."""
-    clocked = _clocked_in_entry_ids(db, [e.id for e in entries])
+def _roster_attendance(db: Session, entries: list[ShiftRoster], shifts: dict[int, Shift]) -> list[RecordAttendanceOut]:
+    """El roster del turno: la asistencia proyectada sobre su ventana (desde
+    0028 el roster lo alimenta la asistencia; el administrador no entra)."""
     day_ids = {s.business_day_id for s in shifts.values()}
     dates = (
         {d.id: d.business_date for d in db.execute(select(BusinessDay).where(BusinessDay.id.in_(day_ids))).scalars()}
@@ -153,7 +138,6 @@ def _attendance(db: Session, entries: list[ShiftRoster], shifts: dict[int, Shift
     out: list[RecordAttendanceOut] = []
     for e in entries:
         shift = shifts.get(e.shift_id)
-        is_responsible = shift is not None and shift.cash_responsible_id == e.employee_id
         out.append(
             RecordAttendanceOut(
                 shift_id=e.shift_id,
@@ -162,54 +146,74 @@ def _attendance(db: Session, entries: list[ShiftRoster], shifts: dict[int, Shift
                 employee_name=e.employee_name,
                 in_at=e.in_at,
                 out_at=e.out_at,
-                clocked_in=e.id in clocked or is_responsible,
+                status="closed" if e.out_at is not None else "open",
             )
         )
     return out
 
 
-def present_staff(db: Session, cash: PanelCashOut | None) -> PanelStaffOut:
-    """Quién trabaja ahora: las entradas abiertas del roster del turno
-    abierto, separando a quien marcó entrada de quien sólo se identificó.
-
-    **Costura declarada.** El roster es hoy la única fuente de asistencia;
-    cuando exista una tabla propia de asistencia, esta función es el único
-    lugar del panel que cambia."""
-    if cash is None:
-        return PanelStaffOut(clocked_in=[], identified_only=[], reason="No hay un turno abierto.")
-    if cash.is_stale:
-        return PanelStaffOut(
-            clocked_in=[],
-            identified_only=[],
-            reason=(
-                f"El turno abierto es del {cash.business_date.isoformat()} y nadie lo cerró: "
-                "su lista no dice quién está hoy."
-            ),
-        )
-    shift = db.get(Shift, cash.shift_id)
-    assert shift is not None
-    entries = list(
-        db.execute(
-            select(ShiftRoster)
-            .where(ShiftRoster.shift_id == shift.id, ShiftRoster.out_at.is_(None))
-            .order_by(ShiftRoster.in_at)
-        ).scalars()
+def present_staff(db: Session, store: Store) -> PanelStaffOut:
+    """Quién trabaja ahora, leído de la **asistencia real** del día
+    (`app.shifts.hooks.present_today`), con o sin caja abierta, y las
+    salidas olvidadas «a revisar» de días anteriores."""
+    present = shifts_hooks.present_today(db, store_id=store.id)
+    review = shifts_hooks.attendance_pending_review(db, store_id=store.id)
+    active = _active_map(db, {p.employee_id for p in present})
+    return PanelStaffOut(
+        present=[
+            PanelStaffPersonOut(
+                employee_id=p.employee_id,
+                name=p.employee_name,
+                since=p.in_at,
+                on_pause=p.on_pause,
+                active=active.get(p.employee_id, False),
+                puesto=p.puesto,
+            )
+            for p in present
+        ],
+        pending_review=[
+            PanelPendingExitOut(
+                entry_id=r.entry_id,
+                employee_id=r.employee_id,
+                name=r.employee_name,
+                business_date=r.business_date,
+                in_at=r.in_at,
+            )
+            for r in review
+        ],
+        reason=None if present else "Nadie marcó entrada hoy.",
     )
-    attendance = _attendance(db, entries, {shift.id: shift})
-    active = _active_map(db, {e.employee_id for e in entries})
-    clocked: list[PanelStaffPersonOut] = []
-    identified: list[PanelStaffPersonOut] = []
-    for e, a in zip(entries, attendance, strict=True):
-        pauses = e.pauses or []
-        person = PanelStaffPersonOut(
-            employee_id=e.employee_id,
-            name=e.employee_name,
-            since=e.in_at,
-            on_pause=bool(pauses) and pauses[-1].get("end") is None,
-            active=active.get(e.employee_id, False),
+
+
+def shift_activity(db: Session, store: Store) -> bool:
+    """¿Hay actividad que pida un turno de caja? Alguien de caja (puesto
+    «caja» o que puede cobrar) con asistencia abierta hoy, o comandas del
+    día sin turno. Sin turno y sin esto, la sede está cerrada y «sin turno
+    abierto» es neutro. Lo usan el semáforo y el aviso de Hoy: el mismo
+    criterio en los dos lugares."""
+    present = shifts_hooks.present_today(db, store_id=store.id)
+    if present:
+        can_charge = {
+            int(i)
+            for i in db.execute(
+                select(Employee.id).where(
+                    Employee.id.in_({p.employee_id for p in present}), Employee.can_charge.is_(True)
+                )
+            ).scalars()
+        }
+        if any(p.puesto == "caja" or p.employee_id in can_charge for p in present):
+            return True
+    today = tz.today_business_date(store.cutoff_hour)
+    orphan = db.execute(
+        select(Order.id)
+        .where(
+            Order.store_id == store.id,
+            Order.shift_id.is_(None),
+            or_(Order.business_date == today, Order.status.in_((OrderStatus.OPEN, OrderStatus.TO_PAY))),
         )
-        (clocked if a.clocked_in else identified).append(person)
-    return PanelStaffOut(clocked_in=clocked, identified_only=identified, reason=None)
+        .limit(1)
+    ).first()
+    return orphan is not None
 
 
 # ---------------------------------------------------------------------------
@@ -223,11 +227,13 @@ def _area_counts(db: Session, store: Store) -> PanelAreaCountsOut:
     return PanelAreaCountsOut(
         enabled=bool(tray["area_counts_enabled"]),
         areas_total=len(areas),
-        # `opening_missing` lo publica el conteo compartido cuando existe
-        # (la apertura cuenta como hecha sólo completa); sin él, la regla de
-        # siempre: hay un conteo de apertura.
-        opening_done=sum(
-            1 for a in areas if (not a.opening_missing if a.opening_missing is not None else a.opening is not None)
+        # Completa: el conteo compartido deja `opening` en `None` mientras
+        # falte algún artículo.
+        opening_done=sum(1 for a in areas if a.opening is not None),
+        # Faltante de verdad: la apertura es obligatoria y no está
+        # (`opening_missing`); sin ese dato, la regla de antes.
+        opening_missing=sum(
+            1 for a in areas if (a.opening_missing if a.opening_missing is not None else a.opening is None)
         ),
         closing_done=sum(1 for a in areas if a.closing is not None),
         flagged=sum(1 for f in tray["area_counts_flags"] if f.flagged),
@@ -264,12 +270,16 @@ def _kitchen(db: Session, store: Store) -> PanelKitchenOut:
 def _pending(db: Session, store: Store) -> PanelPendingOut:
     deposits = service._deposits_tray(db, store)
     routine = service._pos_routine_tray(db, store)
+    reserve = shifts_hooks.reserve_loans_tray(db, store)
     return PanelPendingOut(
         deposits_to_confirm=int(deposits["deposits_to_confirm_count"]),
         requests_pending=int(routine["requests_pending_count"]),
         novelties_open=int(routine["novelties_open_count"]),
         novelties_urgent=int(routine["novelties_urgent_count"]),
         unreviewed_closes=service._unreviewed_closes_count(db, store),
+        reserve_loans_open=int(reserve["reserve_loans_open_count"]),
+        reserve_loans_total=reserve["reserve_loans_open_total"],
+        attendance_review=len(shifts_hooks.attendance_pending_review(db, store_id=store.id)),
     )
 
 
@@ -279,6 +289,7 @@ def _plural(n: int, one: str, many: str) -> str:
 
 def _reasons(
     cash: PanelCashOut | None,
+    activity: bool,
     area: PanelAreaCountsOut,
     salon: PanelSalonOut,
     kitchen: PanelKitchenOut,
@@ -292,8 +303,11 @@ def _reasons(
         out.append(PanelReasonOut(key=key, level=level, text=text))  # type: ignore[arg-type]
 
     if cash is None:
-        # Igual que «Sin turno abierto» de Hoy: crítico, porque sin turno no se vende.
-        add("no_shift", "critical", "Sin turno abierto: no se puede vender.")
+        # El mismo criterio que el aviso de Hoy (`store_closed`): crítico sólo
+        # si hay actividad que pida caja; sin actividad, la sede está cerrada
+        # y eso no es un problema (el semáforo queda gris).
+        if activity:
+            add("no_shift", "critical", "Sin turno abierto y hay actividad: no se puede cobrar.")
     else:
         if cash.is_stale:
             add(
@@ -315,9 +329,12 @@ def _reasons(
         add("novelties_open", "warning", _plural(pending.novelties_open, "novedad sin resolver", "novedades sin resolver") + ".")
     if area.enabled and area.flagged > 0:
         add("area_count_flags", "warning", _plural(area.flagged, "faltante", "faltantes") + " del conteo por área sobre el umbral.")
-    if area.enabled and area.areas_total > area.opening_done:
-        missing = area.areas_total - area.opening_done
-        add("area_counts_missing", "critical", _plural(missing, "área sin conteo", "áreas sin conteo") + " de apertura.")
+    if area.enabled and area.opening_missing > 0:
+        add(
+            "area_counts_missing",
+            "critical",
+            _plural(area.opening_missing, "área sin conteo", "áreas sin conteo") + " de apertura.",
+        )
     if salon.unsent > 0 or salon.unpaid > 0:
         parts = []
         if salon.unsent > 0:
@@ -339,6 +356,19 @@ def _reasons(
             "warning",
             _plural(pending.requests_pending, "solicitud del salón", "solicitudes del salón") + " por resolver.",
         )
+    if pending.reserve_loans_open > 0:
+        total = f" ({format_cop(pending.reserve_loans_total)})" if pending.reserve_loans_total is not None else ""
+        add(
+            "reserve_loans_open",
+            "warning",
+            _plural(pending.reserve_loans_open, "préstamo de la base", "préstamos de la base") + f" sin devolver{total}.",
+        )
+    if pending.attendance_review > 0:
+        add(
+            "attendance_review",
+            "warning",
+            _plural(pending.attendance_review, "salida olvidada", "salidas olvidadas") + " a revisar en la asistencia.",
+        )
     if pending.unreviewed_closes > 0:
         add("unreviewed_closes", "info", _plural(pending.unreviewed_closes, "cierre sin revisar", "cierres sin revisar") + ".")
     rank = {"critical": 0, "warning": 1, "info": 2}
@@ -346,12 +376,12 @@ def _reasons(
     return out
 
 
-def _light(reasons: list[PanelReasonOut]) -> PanelLight:
+def _light(reasons: list[PanelReasonOut], *, closed: bool) -> PanelLight:
     if any(r.level == "critical" for r in reasons):
         return "red"
     if any(r.level == "warning" for r in reasons):
         return "amber"
-    return "green"
+    return "gray" if closed else "green"
 
 
 def store_panel(db: Session, store: Store, *, now: datetime) -> StorePanelOut:
@@ -360,15 +390,18 @@ def store_panel(db: Session, store: Store, *, now: datetime) -> StorePanelOut:
     salon = _salon(db, store, now)
     kitchen = _kitchen(db, store)
     pending = _pending(db, store)
-    reasons = _reasons(cash, area, salon, kitchen, pending)
+    activity = cash is None and shift_activity(db, store)
+    closed = cash is None and not activity
+    reasons = _reasons(cash, activity, area, salon, kitchen, pending)
     return StorePanelOut(
         store_id=store.id,
         store_name=store.name,
         business_date=tz.today_business_date(store.cutoff_hour),
-        light=_light(reasons),
+        light=_light(reasons, closed=closed),
         reasons=reasons,
+        closed=closed,
         cash=cash,
-        staff=present_staff(db, cash),
+        staff=present_staff(db, store),
         area_counts=area,
         salon=salon,
         kitchen=kitchen,
@@ -538,6 +571,42 @@ def shift_record(db: Session, *, shift: Shift) -> ShiftRecordOut:
 
     roster = list(db.execute(select(ShiftRoster).where(ShiftRoster.shift_id == shift.id).order_by(ShiftRoster.in_at)).scalars())
 
+    # Apertura por sobres (0029): lo que selló el servidor al abrir.
+    opening = shifts_hooks.opening_count_of(db, shift.id)
+    opening_count: RecordOpeningCountOut | None = None
+    if opening is not None:
+        opening_count = RecordOpeningCountOut(
+            envelopes=[
+                RecordEnvelopeOut(
+                    source_shift_id=e.get("source_shift_id"),
+                    business_date=e.get("business_date"),
+                    expected=e.get("expected"),
+                    counted=e.get("counted"),
+                    difference=e.get("difference"),
+                )
+                for e in (opening.envelopes or [])
+            ],
+            expected_total=opening.expected_total,
+            counted_total=opening.counted_total,
+            counted_by=opening.counted_by_employee_name,
+            counted_at=opening.created_at,
+        )
+
+    # Base de respaldo: sus movimientos con este cajón y lo que le debe.
+    reserve_on = features.is_enabled(db, store.organization_id, store.id, "cash.reserve")
+    movements, owed = shifts_hooks.reserve_of_shift(db, shift.id)
+    reserve_movements = [
+        RecordReserveMovementOut(
+            kind=getattr(m.kind, "value", str(m.kind)),
+            amount=m.amount,
+            employee_name=m.employee_name,
+            authorized_by=m.authorized_by_employee_name,
+            at=m.at,
+            reversed=m.reversed_at is not None,
+        )
+        for m in movements
+    ]
+
     return ShiftRecordOut(
         shift_id=shift.id,
         store_id=store.id,
@@ -553,11 +622,15 @@ def shift_record(db: Session, *, shift: Shift) -> ShiftRecordOut:
         reviewed=shift.reviewed_at is not None,
         sales=sales,
         deposit=deposit,
+        opening_mode=getattr(shift, "opening_mode", "fixed_base") or "fixed_base",
+        opening_count=opening_count,
+        reserve_movements=reserve_movements,
+        reserve_loan_outstanding=owed if (reserve_on or movements) else None,
         voids=_voids(db, [Order.shift_id == shift.id]),
         discounts=_discounts(db, [Order.shift_id == shift.id], [Order.shift_id == shift.id]),
         novelties=novelties,
         area_counts=area_counts,
-        attendance=_attendance(db, roster, {shift.id: shift}),
+        attendance=_roster_attendance(db, roster, {shift.id: shift}),
     )
 
 
@@ -600,22 +673,22 @@ def employee_record(
         for s, bd in shift_rows
     ]
 
-    roster = list(
-        db.execute(
-            select(ShiftRoster, Shift)
-            .join(Shift, ShiftRoster.shift_id == Shift.id)
-            .join(BusinessDay, Shift.business_day_id == BusinessDay.id)
-            .where(
-                ShiftRoster.employee_id == employee.id,
-                Shift.store_id == store.id,
-                BusinessDay.business_date >= frm,
-                BusinessDay.business_date <= to,
-            )
-            .order_by(ShiftRoster.in_at.desc())
-            .limit(RECORD_LIST_LIMIT)
-        ).all()
-    )
-    attendance = _attendance(db, [r for r, _s in roster], {s.id: s for _r, s in roster})
+    # La asistencia real de la persona (0028), no el roster: incluye los días
+    # sin caja abierta y las salidas olvidadas «a revisar».
+    attendance = [
+        RecordAttendanceOut(
+            shift_id=None,
+            business_date=row.business_date,
+            employee_id=row.employee_id,
+            employee_name=row.employee_name,
+            in_at=row.in_at,
+            out_at=row.out_at,
+            status=row.status,
+        )
+        for row in reversed(
+            shifts_hooks.attendance_rows(db, store_id=store.id, date_from=frm, date_to=to, employee_id=employee.id)
+        )
+    ][:RECORD_LIST_LIMIT]
 
     scope = [Order.store_id == store.id, Order.business_date >= frm, Order.business_date <= to]
     return EmployeeRecordOut(

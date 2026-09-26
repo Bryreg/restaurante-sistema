@@ -71,15 +71,35 @@ function storePanel(overrides: Partial<StorePanelOut> = {}): StorePanelOut {
       { key: "responsible_inactive", level: "warning", text: "La caja está a nombre de Operador 1, que ya no está activo." },
     ],
     cash: STALE_CASH,
+    closed: false,
     staff: {
-      clocked_in: [],
-      identified_only: [],
-      reason: "El turno abierto es del 2026-09-16 y nadie lo cerró: su lista no dice quién está hoy.",
+      present: [],
+      pending_review: [
+        { entry_id: 1, employee_id: 3, name: "Operador 1", business_date: "2026-09-16", in_at: "2026-09-16T14:00:00Z" },
+      ],
+      reason: "Nadie marcó entrada hoy.",
     },
-    area_counts: { enabled: true, areas_total: 2, opening_done: 1, closing_done: 0, flagged: 1, pending_recounts: 0 },
+    area_counts: {
+      enabled: true,
+      areas_total: 2,
+      opening_done: 1,
+      opening_missing: 1,
+      closing_done: 0,
+      flagged: 1,
+      pending_recounts: 0,
+    },
     salon: { tables_occupied: 2, tables_total: 8, open_orders: 3, unsent: 1, unpaid: 0 },
     kitchen: { enabled: true, in_kitchen: 4, late: 2, very_late: 1, oldest_late_minutes: 31 },
-    pending: { deposits_to_confirm: 0, requests_pending: 0, novelties_open: 0, novelties_urgent: 0, unreviewed_closes: 0 },
+    pending: {
+      deposits_to_confirm: 0,
+      requests_pending: 0,
+      novelties_open: 0,
+      novelties_urgent: 0,
+      unreviewed_closes: 0,
+      reserve_loans_open: 1,
+      reserve_loans_total: 50_000,
+      attendance_review: 1,
+    },
     ...overrides,
   }
 }
@@ -100,25 +120,42 @@ describe("PanelAhora (la portada)", () => {
     expect(screen.getByText("inactivo")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /Turno #7/ })).toHaveAttribute("href", "/admin/dinero/turno/7")
     expect(screen.getByRole("link", { name: "Operador 1" })).toHaveAttribute("href", "/admin/personal/persona/3")
-    // Quién trabaja: con el turno de otro día no se inventa un equipo; se dice por qué.
-    expect(screen.getByText(/su lista no dice quién está hoy/)).toBeInTheDocument()
+    // Quién trabaja: la asistencia real; la entrada del 16 es una salida olvidada.
+    expect(screen.getByText(/Nadie marcó entrada hoy/)).toBeInTheDocument()
+    expect(screen.getByText(/1 salida olvidada a revisar: Operador 1/)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /Nómina › Horas/ })).toHaveAttribute("href", "/admin/nomina?tab=horas")
+    expect(screen.getByText(/1 préstamo de la base sin devolver/)).toBeInTheDocument()
+    expect(screen.getByText(/1 área sin apertura/)).toBeInTheDocument()
     expect(screen.getByText(/2 platos atrasados/)).toBeInTheDocument()
     expect(screen.getByText("Requiere atención")).toBeInTheDocument()
   })
 
-  it("separa a quien marcó entrada de quien sólo se identificó", async () => {
+  it("quién trabaja sale de la asistencia; sin turno ni actividad la sede está cerrada, no en rojo", async () => {
     getPanelMock.mockResolvedValue({
       scope: "store",
       generated_at: "2026-09-26T15:00:00Z",
       stores: [
         storePanel({
-          light: "green",
+          light: "gray",
           reasons: [],
-          cash: { ...STALE_CASH, is_stale: false, responsible: { id: 3, name: "Luz", active: true } },
+          closed: true,
+          cash: null,
           staff: {
-            clocked_in: [{ employee_id: 3, name: "Luz", since: "2026-09-26T13:00:00Z", on_pause: false, active: true }],
-            identified_only: [{ employee_id: 9, name: "Supervisor Ana", since: "2026-09-26T14:00:00Z", on_pause: false, active: true }],
+            present: [
+              { employee_id: 8, name: "Cocinero Juan", since: "2026-09-26T11:00:00Z", on_pause: false, active: true, puesto: "cocina" },
+            ],
+            pending_review: [],
             reason: null,
+          },
+          pending: {
+            deposits_to_confirm: 0,
+            requests_pending: 0,
+            novelties_open: 0,
+            novelties_urgent: 0,
+            unreviewed_closes: 0,
+            reserve_loans_open: 0,
+            reserve_loans_total: null,
+            attendance_review: 0,
           },
         }),
       ],
@@ -126,9 +163,10 @@ describe("PanelAhora (la portada)", () => {
 
     renderWithProviders(<PanelAhora />, { me: buildMe() })
 
-    expect(await screen.findByText("1 persona en turno")).toBeInTheDocument()
-    expect(screen.getByText(/Sólo se identificaron, sin marcar entrada: Supervisor Ana/)).toBeInTheDocument()
-    expect(screen.getByText("Al día")).toBeInTheDocument()
+    expect(await screen.findByText("1 persona con entrada")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Cocinero Juan" })).toHaveAttribute("href", "/admin/personal/persona/8")
+    expect(screen.getAllByText("Cerrado").length).toBeGreaterThan(0)
+    expect(screen.getByText(/la sede no está operando/)).toBeInTheDocument()
   })
 
   it("con varias sedes pide todas y las pone en un semáforo que cambia la sede activa", async () => {
@@ -192,6 +230,10 @@ describe("Hoy y el turno abierto de otro día", () => {
       preps_without_production: [],
       products_discounting_nothing: [],
       current_shift: STALE_CASH,
+      store_closed: false,
+      reserve_loans_open_count: 1,
+      reserve_loans_open_total: 50_000,
+      attendance_pending_review_count: 2,
     })
 
     renderWithProviders(<TodayPage />, { me: buildMe() })
@@ -203,6 +245,9 @@ describe("Hoy y el turno abierto de otro día", () => {
       .find((li) => li !== null) as HTMLElement
     expect(within(aviso).getByRole("link")).toHaveAttribute("href", "/admin/dinero/turno/7")
     expect(within(aviso).getByText(/ya no está activo/)).toBeInTheDocument()
+    expect(screen.getByText("1 préstamo de la base sin devolver")).toBeInTheDocument()
+    const salidas = screen.getByText("2 salidas olvidadas a revisar").closest("li") as HTMLElement
+    expect(within(salidas).getByRole("link")).toHaveAttribute("href", "/admin/nomina?tab=horas")
     // La notificación del servidor no se repite al lado del aviso directo.
     expect(screen.queryByText("Turno sin cerrar")).not.toBeInTheDocument()
   })
@@ -253,6 +298,18 @@ describe("Ficha del turno", () => {
       reviewed: false,
       sales: { key: "7", label: "Turno #7", net: 370_370, orders: 12 },
       deposit: null,
+      opening_mode: "envelopes",
+      opening_count: {
+        envelopes: [{ source_shift_id: 5, business_date: "2026-09-15", expected: 300_000, counted: 290_000, difference: -10_000 }],
+        expected_total: 300_000,
+        counted_total: 290_000,
+        counted_by: "Operador 1",
+        counted_at: "2026-09-16T13:55:00Z",
+      },
+      reserve_movements: [
+        { kind: "take", amount: 50_000, employee_name: "Operador 1", authorized_by: "Supervisor", at: "2026-09-16T16:00:00Z", reversed: false },
+      ],
+      reserve_loan_outstanding: 50_000,
       voids: [
         {
           order_id: 41,
@@ -272,8 +329,8 @@ describe("Ficha del turno", () => {
         { count_id: 5, area_name: "Barra", moment: "opening", counted_at: "2026-09-16T14:10:00Z", employee_name: "Operador 1" },
       ],
       attendance: [
-        { shift_id: 7, business_date: "2026-09-16", employee_id: 3, employee_name: "Operador 1", in_at: "2026-09-16T14:00:00Z", out_at: null, clocked_in: true },
-        { shift_id: 7, business_date: "2026-09-16", employee_id: 9, employee_name: "Supervisor", in_at: "2026-09-16T15:00:00Z", out_at: null, clocked_in: false },
+        { shift_id: 7, business_date: "2026-09-16", employee_id: 3, employee_name: "Operador 1", in_at: "2026-09-16T14:00:00Z", out_at: null, status: "open" },
+        { shift_id: 7, business_date: "2026-09-16", employee_id: 9, employee_name: "Supervisor", in_at: "2026-09-16T15:00:00Z", out_at: null, status: "closed" },
       ],
     }
     getShiftRecordMock.mockResolvedValue(record)
@@ -306,7 +363,55 @@ describe("Ficha del turno", () => {
     expect(screen.getByText("$ 480.000")).toBeInTheDocument()
     expect(screen.getByText("1 × Bandeja paisa")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Barra" })).toHaveAttribute("href", "/admin/inventario?tab=por-area&conteo=5")
-    expect(screen.getByText("Sólo se identificó")).toBeInTheDocument()
+    expect(screen.getAllByText("Salió").length).toBeGreaterThan(1)
+    // Apertura por sobres: cada sobre enlaza al turno de donde salió.
+    expect(screen.getByRole("link", { name: /turno #5/ })).toHaveAttribute("href", "/admin/dinero/turno/5")
+    expect(screen.getByText("Tomó de la base")).toBeInTheDocument()
+    expect(screen.getByText(/el cajón le debe \$ 50\.000 a la base/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Rescates y revisión" })).toBeInTheDocument()
+  })
+})
+
+describe("Hoy sin turno abierto", () => {
+  it("con la sede cerrada el aviso es neutro; con actividad, crítico", async () => {
+    const base = {
+      store_id: 1,
+      business_date: "2026-09-26",
+      sales_by_hour: [],
+      gross: 0,
+      net: 0,
+      tax: 0,
+      tips_total: 0,
+      tips_by_method: [],
+      orders: 0,
+      covers: null,
+      avg_ticket: null,
+      avg_per_cover: null,
+      tables_occupied: 0,
+      tables_total: 0,
+      open_orders: [],
+      unsent_count: 0,
+      unpaid_count: 0,
+      expected_cash: null,
+      unavailable_products: [],
+      pending_refunds_count: 0,
+      unreviewed_closes_count: 0,
+      alerts: [],
+      ingredients_below_min: [],
+      ingredients_negative: [],
+      preps_without_production: [],
+      products_discounting_nothing: [],
+      current_shift: null,
+    }
+    getPanelMock.mockResolvedValue({ scope: "store", generated_at: "2026-09-26T03:00:00Z", stores: [] })
+    getTodayMock.mockResolvedValue({ ...base, store_closed: true })
+    const { unmount } = renderWithProviders(<TodayPage />, { me: buildMe() })
+    expect(await screen.findByText(/la sede está cerrada: no hay turno de caja/)).toBeInTheDocument()
+    expect(screen.queryByText(/Hay actividad sin turno de caja/)).not.toBeInTheDocument()
+    unmount()
+
+    getTodayMock.mockResolvedValue({ ...base, store_closed: false })
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+    expect(await screen.findByText(/Hay actividad sin turno de caja/)).toBeInTheDocument()
   })
 })

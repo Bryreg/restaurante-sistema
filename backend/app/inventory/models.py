@@ -590,6 +590,10 @@ class CountArea(Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     name: Mapped[str] = mapped_column(sa.String(80))
     active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
+    # Las categorías de insumo (`ingredients.category`) que cuenta esta área el
+    # día del conteo completo mensual (0030). `NULL`/vacío = ninguna: ese día
+    # el área cuenta sólo su lista corta. Una categoría es de un solo área.
+    full_count_categories: Mapped[list[str] | None] = mapped_column(sa.JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime())
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
@@ -688,8 +692,19 @@ class AreaCount(Base):
     business_date: Mapped[date] = mapped_column(sa.Date)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
     employee_name: Mapped[str] = mapped_column(sa.String(200))
+    # Con qué lista se contó (0030): `short` (la lista corta del área) o
+    # `full` (el conteo completo mensual, todo lo del área por categoría).
+    # `NULL` en un recuento sorpresa.
+    scope: Mapped[str | None] = mapped_column(sa.String(8), nullable=True)
+    # `área:momento:fecha` en una SESIÓN de conteo artículo por artículo
+    # (0030): única, para que dos tablets que guardan el primer artículo a la
+    # vez caigan en la misma. `NULL` en los conteos de lista entera y en los
+    # recuentos. `counted_at`/`employee_*` de la sesión son los del PRIMER
+    # artículo; cada entrada lleva los suyos.
+    session_key: Mapped[str | None] = mapped_column(sa.String(80), nullable=True)
 
     __table_args__ = (
+        Index("uq_area_counts_session_key", "session_key", unique=True),
         Index("ix_area_counts_store_date", "store_id", "business_date"),
         Index("ix_area_counts_area_counted", "area_id", "counted_at"),
         CheckConstraint(
@@ -701,10 +716,17 @@ class AreaCount(Base):
 
 
 class AreaCountLine(Base):
-    """Un renglón de un conteo corto. `qty_base` en milésimas de la unidad
-    base (`app.core.quantity`), convertido UNA vez en el servidor desde lo
-    que la persona tecleó en su unidad cómoda (`entered_qty` + `entered_unit`,
-    guardados tal cual: «2.3 botella»)."""
+    """Una ENTRADA de un conteo corto: un artículo contado por una persona a
+    una hora. `qty_base` en milésimas de la unidad base (`app.core.quantity`),
+    convertido UNA vez en el servidor desde lo que la persona tecleó en su
+    unidad cómoda (`entered_qty` + `entered_unit`, guardados tal cual: «2.3
+    botella»).
+
+    Append-only (0030): recontar un artículo agrega otra entrada; **manda la
+    última** (por `counted_at`, luego `id`) y las anteriores quedan en el
+    historial. `counted_at`/`employee_*` son de la entrada (quién contó ESE
+    artículo); en las filas anteriores a 0030 se rellenaron con los de su
+    conteo."""
 
     __tablename__ = "area_count_lines"
 
@@ -714,9 +736,12 @@ class AreaCountLine(Base):
     qty_base: Mapped[int] = mapped_column(sa.Integer)
     entered_qty: Mapped[str] = mapped_column(sa.String(20))
     entered_unit: Mapped[str] = mapped_column(sa.String(50))
+    counted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
     __table_args__ = (
-        sa.UniqueConstraint("count_id", "ingredient_id", name="uq_area_count_lines_count_ingredient"),
+        Index("ix_area_count_lines_count_ingredient", "count_id", "ingredient_id"),
         CheckConstraint("qty_base >= 0", name="ck_area_count_lines_qty_nonneg"),
     )
 
@@ -733,6 +758,9 @@ class AreaCountSettings(Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), primary_key=True)
     threshold_pct_bp: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     threshold_amount: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    # Día del mes (1–28) del conteo completo (0030): ese día la lista de
+    # apertura de cada área es todo lo suyo por categoría. `NULL` = apagado.
+    monthly_full_count_day: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
     __table_args__ = (

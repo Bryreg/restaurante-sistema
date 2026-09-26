@@ -3,7 +3,13 @@ import { ArrowLeft } from "lucide-react"
 import { useState } from "react"
 import { Link, useParams } from "react-router-dom"
 
-import { getShiftRecord, type RecordAreaCountOut, type RecordNoveltyOut } from "@/api/panel"
+import {
+  getShiftRecord,
+  type RecordAreaCountOut,
+  type RecordEnvelopeOut,
+  type RecordNoveltyOut,
+  type RecordReserveMovementOut,
+} from "@/api/panel"
 import {
   getShiftSummary,
   type AdminShiftListItem,
@@ -28,6 +34,7 @@ import { ShiftDetailDialog } from "@/features/shifts/admin/ShiftDetailDialog"
 
 import { ATTENDANCE_NOTE, DISCOUNT_COLUMNS, VOID_COLUMNS, attendanceColumns } from "./columnas"
 import { PersonaLink, SeccionFicha } from "./comun"
+import { fichaTurnoHref } from "./rutas"
 
 const PICKUP_COLUMNS: readonly DenseColumn<CashPickup>[] = [
   { key: "at", header: "Cuándo", cell: (p) => formatInstant(p.at) },
@@ -43,6 +50,40 @@ const MOVEMENT_COLUMNS: readonly DenseColumn<CashMovement>[] = [
   { key: "cause", header: "Causa", cell: (m) => (m.cause ? CAUSE_LABEL[m.cause] : "—") },
   { key: "amount", header: "Monto", kind: "number", cell: (m) => formatCOP(m.amount) },
   { key: "who", header: "Quién", cell: (m) => m.employee_name ?? "—" },
+]
+
+const ENVELOPE_COLUMNS: readonly DenseColumn<RecordEnvelopeOut>[] = [
+  {
+    key: "day",
+    header: "Sobre del día",
+    kind: "name",
+    cell: (e) =>
+      e.source_shift_id !== null ? (
+        <Link to={fichaTurnoHref(e.source_shift_id)} className="text-primary hover:underline">
+          {formatBusinessDate(e.business_date)} · turno #{e.source_shift_id}
+        </Link>
+      ) : (
+        formatBusinessDate(e.business_date)
+      ),
+  },
+  { key: "expected", header: "Esperado", kind: "number", cell: (e) => formatCOP(e.expected) },
+  { key: "counted", header: "Contado", kind: "number", cell: (e) => formatCOP(e.counted) },
+  {
+    key: "diff",
+    header: "Diferencia",
+    kind: "number",
+    cell: (e) => <Diferencia valor={e.difference} motivoSinDato="sin conteo" />,
+  },
+]
+
+const RESERVE_KIND: Record<string, string> = { take: "Tomó de la base", return: "Devolvió a la base" }
+
+const RESERVE_COLUMNS: readonly DenseColumn<RecordReserveMovementOut>[] = [
+  { key: "at", header: "Cuándo", cell: (m) => formatInstant(m.at) },
+  { key: "kind", header: "Movimiento", cell: (m) => (RESERVE_KIND[m.kind] ?? m.kind) + (m.reversed ? " (reversado)" : "") },
+  { key: "amount", header: "Monto", kind: "number", cell: (m) => formatCOP(m.amount) },
+  { key: "who", header: "Quién", cell: (m) => m.employee_name },
+  { key: "auth", header: "Autorizó", cell: (m) => m.authorized_by ?? "—" },
 ]
 
 const HANDOVER_KIND: Record<string, string> = { handover: "Relevo", spot_check: "Arqueo sorpresa" }
@@ -243,6 +284,38 @@ export function FichaTurno(): React.JSX.Element {
         </div>
       </div>
 
+      {r.opening_count ? (
+        <SeccionFicha
+          titulo="Apertura por sobres"
+          dice={`contó ${r.opening_count.counted_by} a ciegas, sobre por sobre · esperado ${formatCOP(r.opening_count.expected_total)} · contado ${formatCOP(r.opening_count.counted_total)}`}
+          sustantivo="sobres"
+          vacio="La apertura no llevó sobres."
+          columns={ENVELOPE_COLUMNS}
+          rows={r.opening_count.envelopes}
+          rowKey={(e) => `${e.source_shift_id ?? "?"}-${e.business_date ?? ""}`}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {r.opening_mode === "envelopes"
+            ? "Abrió con la regla de sobres, pero no hay un conteo de apertura sellado."
+            : `Abrió con base fija de ${formatCOP(s.opening_cash_total)}.`}
+        </p>
+      )}
+      {r.reserve_loan_outstanding !== null || r.reserve_movements.length > 0 ? (
+        <SeccionFicha
+          titulo="Base de respaldo"
+          dice={
+            r.reserve_loan_outstanding !== null && r.reserve_loan_outstanding > 0
+              ? `el cajón le debe ${formatCOP(r.reserve_loan_outstanding)} a la base`
+              : "lo que el cajón tomó y devolvió de la base"
+          }
+          sustantivo="movimientos de la base"
+          vacio="El cajón no tomó nada de la base."
+          columns={RESERVE_COLUMNS}
+          rows={r.reserve_movements}
+          rowKey={(m) => `${m.kind}-${m.at}`}
+        />
+      ) : null}
       <SeccionFicha
         titulo="Retiros"
         dice="plata que salió del cajón a la mano del dueño"
@@ -308,7 +381,7 @@ export function FichaTurno(): React.JSX.Element {
       />
       <SeccionFicha
         titulo="Asistencia"
-        dice="quién marcó entrada y quién sólo se identificó"
+        dice="quién estuvo en este turno (la asistencia del día sobre la ventana del turno)"
         sustantivo="entradas"
         vacio="Nadie quedó registrado en el turno."
         columns={attendanceColumns("persona")}

@@ -300,6 +300,10 @@ export interface TodayOut {
   undeposited_total?: number | null
   /** Fecha de negocio (ISO) del día más viejo con plata sin consignar. */
   undeposited_oldest_date?: string | null
+  /** Base de respaldo (2026-09-26): préstamos al cajón sin devolver (vuelven el mismo día). */
+  reserve_loans_open_count?: number
+  /** `null` con `cash.reserve` apagada: «no hay base», no «nada que devolver». */
+  reserve_loans_open_total?: number | null
   /** La rutina del turno en el POS (2026-09-25). `0` con la función apagada. */
   reception_drafts_pending_count?: number
   requests_pending_count?: number
@@ -354,6 +358,10 @@ export interface TodayOut {
    * abandonado de otro día se ve como abandonado, y su responsable con la
    * marca de inactivo si ya no trabaja. */
   current_shift?: PanelCashOut | null
+  /** Sin turno ni actividad que lo pida: la sede está cerrada y «sin turno» es neutro. */
+  store_closed?: boolean
+  /** Salidas olvidadas «a revisar» de la asistencia. */
+  attendance_pending_review_count?: number
 }
 
 export function getToday(storeId: number): Promise<TodayOut> {

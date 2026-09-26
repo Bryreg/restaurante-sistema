@@ -108,7 +108,18 @@ class StoreCashSettings(Base):
 
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), primary_key=True)
     opening_cash_fixed: Mapped[int] = mapped_column(Integer, nullable=False, default=200_000)
+    # **Monto fijo de la base de respaldo** (2026-09-26). El nombre viene de
+    # cuando era «la reserva por defecto» que se declaraba al abrir; hoy es
+    # la plata aparte del cajón que el custodio verifica y de la que el
+    # cajero toma prestado con autorización (`app.shifts.reserve`).
     cash_reserve_default: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Cómo abre el cajón esta sede (2026-09-26): `envelopes` (sólo los sobres
+    # por consignar que se eligen y se cuentan; decisión del dueño) o
+    # `fixed_base` (la base fija de siempre, `opening_cash_fixed`). El default
+    # del modelo es la regla anterior para que nada existente cambie de
+    # cuenta en silencio; la migración 0029 pasa las sedes existentes a
+    # `envelopes` y `POST /admin/stores` crea las nuevas así.
+    opening_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="fixed_base", server_default="fixed_base")
     tolerance_unknown_cause: Mapped[int] = mapped_column(Integer, nullable=False, default=20_000)
     critical_difference: Mapped[int] = mapped_column(Integer, nullable=False, default=100_000)
     cash_pickup_threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=500_000)

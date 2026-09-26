@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatInstant } from "@/lib/businessDate"
 import { formatFechaCorta } from "@/lib/format"
+import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
 import { fichaPersonaHref, fichaTurnoHref } from "./fichas/rutas"
@@ -22,12 +23,14 @@ const LIGHT_WORD: Record<PanelLight, string> = {
   red: "Requiere atención",
   amber: "Para revisar",
   green: "Al día",
+  gray: "Cerrado",
 }
 
 const LIGHT_DOT: Record<PanelLight, string> = {
   red: "bg-destructive",
   amber: "bg-warning",
   green: "bg-success",
+  gray: "bg-muted-foreground",
 }
 
 function Luz({ light, className }: { light: PanelLight; className?: string }): React.JSX.Element {
@@ -115,11 +118,27 @@ function Bloque({
 
 function Caja({ panel }: { panel: StorePanelOut }): React.JSX.Element {
   const cash = panel.cash
+  const reserva = panel.pending.reserve_loans_open > 0 ? (
+    <p className="text-xs text-warning">
+      {panel.pending.reserve_loans_open} préstamo{panel.pending.reserve_loans_open === 1 ? "" : "s"} de la base sin devolver
+      {panel.pending.reserve_loans_total !== null ? ` · ${formatCOP(panel.pending.reserve_loans_total)}` : ""}.
+    </p>
+  ) : null
   if (!cash) {
+    // Sin turno: crítico sólo si hay actividad que lo pida (alguien de caja
+    // con entrada, o comandas del día sin turno). Sin actividad, cerrado.
     return (
-      <Bloque icon={Wallet} titulo="Caja" tone="critical" link={{ to: "/admin/dinero", screen: "Dinero", tab: "Operacional" }}>
-        <p className="text-base font-semibold">Sin turno abierto</p>
-        <p className="text-muted-foreground">Sin turno no se puede vender.</p>
+      <Bloque
+        icon={Wallet}
+        titulo="Caja"
+        tone={panel.closed ? "default" : "critical"}
+        link={{ to: "/admin/dinero", screen: "Dinero", tab: "Operacional" }}
+      >
+        <p className="text-base font-semibold">{panel.closed ? "Cerrado" : "Sin turno abierto"}</p>
+        <p className="text-muted-foreground">
+          {panel.closed ? "Sin turno ni actividad: la sede no está operando." : "Hay actividad y no hay turno: no se puede cobrar."}
+        </p>
+        {reserva}
       </Bloque>
     )
   }
@@ -147,25 +166,32 @@ function Caja({ panel }: { panel: StorePanelOut }): React.JSX.Element {
           : `Desde ${formatInstant(cash.opened_at)}.`}
         {cash.cash_over_threshold ? " Efectivo sobre el umbral: conviene un retiro." : ""}
       </p>
+      {reserva}
     </Bloque>
   )
 }
 
 function QuienTrabaja({ panel }: { panel: StorePanelOut }): React.JSX.Element {
-  const { clocked_in, identified_only, reason } = panel.staff
+  const { present, pending_review, reason } = panel.staff
+  const revisar: FilterLinkProps = { to: "/admin/nomina?tab=horas", screen: "Nómina", tab: "Horas", filter: "salidas a revisar" }
   return (
-    <Bloque icon={Users} titulo="Quién trabaja">
-      {reason ? (
+    <Bloque
+      icon={Users}
+      titulo="Quién trabaja"
+      tone={pending_review.length > 0 ? "warning" : "default"}
+      link={pending_review.length > 0 ? revisar : undefined}
+    >
+      {present.length === 0 ? (
         <SinDato motivo={reason} forma="bloque">
           Nadie en turno
         </SinDato>
       ) : (
         <>
           <p className="text-base font-semibold">
-            {clocked_in.length} {clocked_in.length === 1 ? "persona" : "personas"} en turno
+            {present.length} {present.length === 1 ? "persona" : "personas"} con entrada
           </p>
           <ul className="flex flex-wrap gap-x-2 gap-y-0.5">
-            {clocked_in.map((p) => (
+            {present.map((p) => (
               <li key={p.employee_id}>
                 <Link to={fichaPersonaHref(p.employee_id)} className="text-primary hover:underline">
                   {p.name}
@@ -175,13 +201,14 @@ function QuienTrabaja({ panel }: { panel: StorePanelOut }): React.JSX.Element {
               </li>
             ))}
           </ul>
-          {identified_only.length > 0 ? (
-            <p className="text-xs text-muted-foreground" title="Se identificaron en la tablet (para cobrar o autorizar) pero no marcaron entrada.">
-              Sólo se identificaron, sin marcar entrada: {identified_only.map((p) => p.name).join(", ")}.
-            </p>
-          ) : null}
         </>
       )}
+      {pending_review.length > 0 ? (
+        <p className="text-xs text-muted-foreground" title="Entradas que quedaron abiertas en un día que ya pasó: no suman horas hasta corregirlas.">
+          {pending_review.length} salida{pending_review.length === 1 ? "" : "s"} olvidada
+          {pending_review.length === 1 ? "" : "s"} a revisar: {pending_review.map((p) => p.name).join(", ")}.
+        </p>
+      ) : null}
     </Bloque>
   )
 }
@@ -197,15 +224,16 @@ function Conteos({ panel }: { panel: StorePanelOut }): React.JSX.Element {
     )
   }
   // Mismo criterio que el aviso de Hoy y que la razón del semáforo: un área
-  // sin conteo de apertura es crítica (no bloquea nada, pero sin apertura no
-  // hay faltante que medir).
-  const tone = a.opening_done < a.areas_total ? "critical" : a.flagged > 0 ? "warning" : "default"
+  // con la apertura obligatoria sin hacer (`opening_missing`) es crítica (no
+  // bloquea nada, pero sin apertura no hay faltante que medir).
+  const tone = a.opening_missing > 0 ? "critical" : a.flagged > 0 ? "warning" : "default"
   return (
     <Bloque icon={ClipboardCheck} titulo="Conteos" tone={tone} link={link}>
       <p className="text-base font-semibold">
         Apertura {a.opening_done}/{a.areas_total} · Cierre {a.closing_done}/{a.areas_total}
       </p>
       <p className="text-xs text-muted-foreground">
+        {a.opening_missing > 0 ? `${a.opening_missing} área${a.opening_missing === 1 ? "" : "s"} sin apertura. ` : ""}
         {a.flagged > 0 ? `${a.flagged} faltante${a.flagged === 1 ? "" : "s"} sobre el umbral. ` : "Sin faltantes sobre el umbral. "}
         {a.pending_recounts > 0 ? `${a.pending_recounts} recuento${a.pending_recounts === 1 ? "" : "s"} por responder.` : ""}
       </p>

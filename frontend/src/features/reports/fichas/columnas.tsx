@@ -54,26 +54,35 @@ export function attendanceColumns(por: "persona" | "turno"): readonly DenseColum
         }
       : {
           key: "shift",
-          header: "Turno",
+          header: "Día",
           kind: "name",
-          cell: (a) => (
-            <Link to={fichaTurnoHref(a.shift_id)} className="text-primary hover:underline">
-              #{a.shift_id} · {formatBusinessDate(a.business_date)}
-            </Link>
-          ),
+          cell: (a) =>
+            a.shift_id !== null ? (
+              <Link to={fichaTurnoHref(a.shift_id)} className="text-primary hover:underline">
+                #{a.shift_id} · {formatBusinessDate(a.business_date)}
+              </Link>
+            ) : (
+              formatBusinessDate(a.business_date)
+            ),
         }
   return [
     primera,
     { key: "in", header: "Entró", cell: (a) => formatInstant(a.in_at) },
-    { key: "out", header: "Salió", cell: (a) => (a.out_at ? formatInstant(a.out_at) : "Sigue adentro") },
+    { key: "out", header: "Salió", cell: (a) => (a.out_at ? formatInstant(a.out_at) : a.status === "review" ? "Sin marcar" : "Sigue adentro") },
     {
-      key: "kind",
-      header: "Cómo",
-      cell: (a) => (a.clocked_in ? "Marcó entrada" : "Sólo se identificó"),
+      key: "status",
+      header: "Estado",
+      cell: (a) => ATTENDANCE_STATUS[a.status] ?? a.status,
     },
   ]
 }
 
+const ATTENDANCE_STATUS: Record<string, string> = {
+  open: "Adentro",
+  closed: "Salió",
+  review: "Salida olvidada: a revisar",
+}
+
 /** La leyenda de asistencia, dicha una vez donde se muestra. */
 export const ATTENDANCE_NOTE =
-  "«Sólo se identificó»: puso su PIN en la tablet (para cobrar, autorizar o anular) pero no marcó entrada. No cuenta como que trabajó."
+  "La entrada la marca el primer PIN del día. «Salida olvidada»: la entrada quedó abierta en un día que ya pasó; no suma horas hasta que se corrija en Nómina › Horas."

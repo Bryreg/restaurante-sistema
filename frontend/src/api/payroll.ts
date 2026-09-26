@@ -53,6 +53,16 @@ export interface PayrollHoursOut {
   available: boolean
   reason: string | null
   rows?: PayrollHoursRowOut[]
+  /** Salidas olvidadas del período: sus horas NO están en `rows` hasta que se corrijan. */
+  pending_review?: PayrollPendingExitOut[]
+}
+
+export interface PayrollPendingExitOut {
+  attendance_id: number
+  employee_id: number
+  employee_name: string
+  business_date: string
+  in_at: string
 }
 
 export function getPayrollHours(params: PeriodQuery): Promise<PayrollHoursOut> {

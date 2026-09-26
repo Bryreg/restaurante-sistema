@@ -27,7 +27,8 @@ export default function LoginPage(): React.JSX.Element {
   // Fuera de `AdminLayout`: es la puerta del escritorio y tiene que abrir
   // con la misma escala que lo que hay detrás.
   useDensity("oficina");
-  const { refresh } = useSession();
+  const { me, refresh } = useSession();
+  const enTablet = me?.kind === "device";
   const navigate = useNavigate();
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -115,6 +116,24 @@ export default function LoginPage(): React.JSX.Element {
           </CardContent>
         </Card>
 
+        {enTablet ? (
+          <Card>
+            <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-2 py-4">
+              <Store className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold">Estás en una tablet del salón</p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Acá la sesión de administrador dura 15 minutos y, al salir, la tablet vuelve sola a «Quién
+                  opera». No hace falta activarla de nuevo.
+                </p>
+              </div>
+              <Link to="/pos/identify" className={buttonVariants({ variant: "outline", className: "w-full" })}>
+                Volver al POS
+              </Link>
+            </CardContent>
+          </Card>
+        ) : null}
+
         {/* La pantalla de activación existía y estaba bien hecha, pero sólo
             llegaba quien ya sabía la URL: la raíz manda acá, y acá no había
             nada que mencionara el POS. El dueño que monta una tablet abre el
@@ -128,7 +147,7 @@ export default function LoginPage(): React.JSX.Element {
             el formulario y un botón de verdad. Azul y secundario —no compite
             con «Ingresar», pero tampoco se esconde (`docs/DISENO.md`)—.
             No regala nada: activar sigue exigiendo el PIN de sede. */}
-        <Card>
+        <Card hidden={enTablet}>
           <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-2 py-4">
             <Store className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
             <div className="min-w-0 flex-1">

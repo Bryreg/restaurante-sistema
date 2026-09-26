@@ -33,7 +33,7 @@ from app.banking import hooks as banking_hooks
 from app.photos import hooks as photos_hooks
 from app.stores import service as stores_service
 from app.stores.models import Store
-from app.shifts import activity_metrics, hooks
+from app.shifts import activity_metrics, attendance, hooks, reserve
 from app.shifts.models import (
     BusinessDay,
     BusinessDayStatus,
@@ -44,13 +44,16 @@ from app.shifts.models import (
     CashSwap,
     HandoverKind,
     Shift,
+    CashReserveMovement,
     ShiftCarryIn,
     ShiftCloseCount,
     ShiftHandover,
+    ShiftOpeningCount,
     ShiftRoster,
     ShiftStatus,
 )
 from app.shifts.schemas import (
+    OpeningCountIn,
     CashMovementIn,
     CashPickupIn,
     CashSwapIn,
@@ -238,6 +241,13 @@ def compute_breakdown(db: Session, shift: Shift) -> dict[str, int]:
     `carried_in` es informativo: cuánto de `base` es plata de días
     anteriores (`ShiftCarryIn`), no un sumando aparte.
 
+    **`reserve_loan` (2026-09-26)**: lo que el cajón tomó prestado de la base
+    de respaldo y todavía no devolvió (`app.shifts.reserve`). Entra al cajón,
+    así que suma; devolverlo lo saca. La base de respaldo en sí NO entra: vive
+    aparte y la verifica su custodio. `base` es la apertura del cajón (con la
+    regla de sobres, la suma de los sobres contados; con la regla anterior, la
+    base fija contada) — la pantalla la llama «Apertura», nunca «base».
+
     La reserva de caja NO entra (`cash_reserve` no aparece acá). El
     `cash_swap` NO cambia nada (no se consulta). Los retiros reversados no
     restan (filtrados por `reversed_at IS NULL`). Ajustar la apertura
@@ -268,8 +278,9 @@ def compute_breakdown(db: Session, shift: Shift) -> dict[str, int]:
     expenses = _sum_movements(db, shift.id, CashMovementKind.EXPENSE)
     pickups = _sum_pickups(db, shift.id)
     deposits = banking_hooks.drawer_deposits(db, shift.id)
+    reserve_loan = reserve.loan_outstanding(db, shift.id)
     base = shift.opening_cash_total
-    expected = base + sales.cash + incomes - expenses - pickups - deposits
+    expected = base + sales.cash + incomes - expenses - pickups - deposits + reserve_loan
     return {
         "base": base,
         "cash_sales": sales.cash,
@@ -277,6 +288,7 @@ def compute_breakdown(db: Session, shift: Shift) -> dict[str, int]:
         "expenses": expenses,
         "pickups": pickups,
         "deposits": deposits,
+        "reserve_loan": reserve_loan,
         "expected": expected,
         "carried_in": sum(hooks.carried_into(db, shift.id).values()),
         # Informativo, FUERA de `expected` (ver el docstring). Renglón
@@ -462,7 +474,28 @@ def handover_candidates(db: Session, *, shift: Shift) -> list[tuple[Employee, bo
 # ---------------------------------------------------------------------------
 
 
+ENVELOPES = "envelopes"
+FIXED_BASE = "fixed_base"
+
+
+def opening_mode_of(db: Session, store: Store) -> str:
+    """Cómo abre el cajón esta sede: `envelopes` (decisión del dueño,
+    2026-09-26) o `fixed_base` (la regla anterior)."""
+    mode = stores_service.get_cash_settings(db, store.id).opening_mode
+    return ENVELOPES if mode == ENVELOPES else FIXED_BASE
+
+
 def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn) -> Shift:
+    if opening_mode_of(db, store) == ENVELOPES:
+        return _open_shift_with_envelopes(db, actor=actor, store=store, payload=payload)
+    if payload.opening_count_id is not None:
+        raise AppError(
+            "OPENING_MODE_MISMATCH",
+            "Esta sede abre con la base fija, no con sobres: contá la base y volvé a intentar",
+            status=400,
+        )
+    if payload.opening_cash is None:
+        raise AppError("OPENING_CASH_REQUIRED", "Contá la base fija por denominaciones para abrir el turno", status=400)
     cash_settings = stores_service.get_cash_settings(db, store.id)
 
     denominations = _to_denominations(payload.opening_cash.denominations)
@@ -537,18 +570,11 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
         cash_reserve=cash_reserve,
         opening_cause=payload.opening_cause,
         opening_note=payload.opening_note,
+        opening_mode=FIXED_BASE,
+        opening_fixed_base=cash_settings.opening_cash_fixed,
         adjustments=[],
     )
-    db.add(shift)
-    try:
-        db.flush()
-    except IntegrityError as exc:
-        db.rollback()
-        raise AppError(
-            "SHIFT_OPEN_RACE",
-            "Otra apertura ganó la carrera para esta sede: recargá y usá el turno que quedó abierto",
-            status=409,
-        ) from exc
+    _insert_shift(db, shift)
 
     for pending in carried:
         db.add(
@@ -564,16 +590,7 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
     if carried:
         db.flush()
 
-    hooks.on_employee_identified(db, store_id=store.id, employee=cash_responsible)
-    if opener_id != cash_responsible.id:
-        opener = db.get(Employee, opener_id)
-        if opener is not None:
-            hooks.on_employee_identified(db, store_id=store.id, employee=opener)
-
-    # Comandas que quedaron trasladadas (`shift_id NULL`) por el cierre de un
-    # turno anterior: este nuevo turno las adopta (CONTRATO-INTERNO-1b-1.md
-    # §2.5, dueño del test E2E: backend-base).
-    _adopt_transferred_orders(db, store_id=store.id, shift=shift, actor=actor)
+    _after_open(db, actor=actor, store=store, shift=shift, cash_responsible=cash_responsible, opener_id=opener_id)
 
     record_audit(
         db,
@@ -591,6 +608,319 @@ def open_shift(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn)
             "business_day_id": day.id,
             "carried": {str(p.shift_id): p.outstanding for p in carried},
             "carried_counted_apart": payload.carried_counted_apart,
+        },
+    )
+    return shift
+
+
+def _insert_shift(db: Session, shift: Shift) -> None:
+    db.add(shift)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise AppError(
+            "SHIFT_OPEN_RACE",
+            "Otra apertura ganó la carrera para esta sede: recargá y usá el turno que quedó abierto",
+            status=409,
+        ) from exc
+
+
+def _after_open(
+    db: Session, *, actor: Actor, store: Store, shift: Shift, cash_responsible: Employee, opener_id: int
+) -> None:
+    hooks.on_employee_identified(db, store_id=store.id, employee=cash_responsible)
+    if opener_id != cash_responsible.id:
+        opener = db.get(Employee, opener_id)
+        if opener is not None:
+            hooks.on_employee_identified(db, store_id=store.id, employee=opener)
+    # La asistencia del día manda (0028): quien marcó entrada antes de que
+    # se abriera la caja también está en este turno.
+    attendance.sync_roster_on_shift_open(db, shift=shift)
+
+    # Comandas que quedaron trasladadas (`shift_id NULL`) por el cierre de un
+    # turno anterior: este nuevo turno las adopta (CONTRATO-INTERNO-1b-1.md
+    # §2.5, dueño del test E2E: backend-base).
+    _adopt_transferred_orders(db, store_id=store.id, shift=shift, actor=actor)
+
+
+# ---------------------------------------------------------------------------
+# Apertura por sobres (decisión del dueño, 2026-09-26)
+# ---------------------------------------------------------------------------
+
+
+def opening_envelope_candidates(db: Session, *, store: Store) -> list[banking_hooks.PendingShift]:
+    """Los sobres que quien abre puede elegir: los días con saldo por
+    consignar (sin «Consignaciones» no hay saldo publicado, y la lista queda
+    vacía). La pantalla recibe sólo la fecha: el monto se revela al sellar."""
+    if not features.is_enabled(db, store.organization_id, store.id, "money.deposits"):
+        return []
+    return banking_hooks.pending_shifts(db, organization_id=store.organization_id, store_id=store.id)
+
+
+def _open_shift_in_store(db: Session, store: Store) -> bool:
+    return (
+        db.execute(select(Shift.id).where(Shift.store_id == store.id, Shift.status == ShiftStatus.OPEN)).first()
+        is not None
+    )
+
+
+def pending_opening_count(db: Session, *, store: Store) -> ShiftOpeningCount | None:
+    """El conteo sellado más reciente de la sede que todavía no abrió turno
+    (ni quedó superado): la pantalla retoma la revelación con él."""
+    return (
+        db.execute(
+            select(ShiftOpeningCount)
+            .where(
+                ShiftOpeningCount.store_id == store.id,
+                ShiftOpeningCount.shift_id.is_(None),
+                ShiftOpeningCount.superseded.is_(False),
+            )
+            .order_by(ShiftOpeningCount.created_at.desc(), ShiftOpeningCount.id.desc())
+        )
+        .scalars()
+        .first()
+    )
+
+
+def opening_count_view(count: ShiftOpeningCount) -> dict[str, Any]:
+    """La revelación de un conteo sellado: por sobre, esperado, contado y
+    diferencia, con quién contó. La diferencia se calcula acá, una vez."""
+    envelopes = [
+        {
+            "shift_id": e["source_shift_id"],
+            "business_date": e["business_date"],
+            "expected": e["expected"],
+            "counted": e["counted"],
+            "difference": e["counted"] - e["expected"],
+        }
+        for e in (count.envelopes or [])
+    ]
+    return {
+        "id": count.id,
+        "counted_by": {"id": count.counted_by_employee_id, "name": count.counted_by_employee_name},
+        "counted_at": count.created_at,
+        "envelopes": envelopes,
+        "expected_total": count.expected_total,
+        "counted_total": count.counted_total,
+        "difference_total": count.counted_total - count.expected_total,
+        "requires_cause": any(e["difference"] != 0 for e in envelopes),
+        "used": count.shift_id is not None,
+    }
+
+
+def seal_opening_count(db: Session, *, actor: Actor, store: Store, payload: OpeningCountIn) -> ShiftOpeningCount:
+    """El cuadre de apertura por sobres, **sellado a ciegas**: cada sobre
+    elegido se contó aparte, por denominaciones, sin ver su monto. Se valida
+    todo antes de escribir; el saldo de cada sobre lo calcula el servidor.
+    Un conteo anterior sin usar queda superado (se conserva)."""
+    if opening_mode_of(db, store) != ENVELOPES:
+        raise AppError(
+            "OPENING_MODE_MISMATCH",
+            "Esta sede abre con la base fija, no con sobres: contá la base al abrir el turno",
+            status=400,
+        )
+    if _open_shift_in_store(db, store):
+        raise AppError("SHIFT_ALREADY_OPEN", "Ya hay un turno abierto en esta sede: cerralo antes de abrir otro", status=400)
+    if actor.employee_id is None:
+        raise AppError("IDENTIFY_REQUIRED", "Identificate con tu PIN antes de contar los sobres", status=401)
+
+    ids = [e.shift_id for e in payload.envelopes]
+    pending = {p.shift_id: p for p in _resolve_carried(db, store=store, shift_ids=ids)}
+    envelopes: list[dict[str, Any]] = []
+    for item in payload.envelopes:
+        counted = money.validate_denominations(_to_denominations(item.counted.denominations), item.counted.total)
+        p = pending[item.shift_id]
+        envelopes.append(
+            {
+                "source_shift_id": p.shift_id,
+                "business_date": p.business_date.isoformat(),
+                "expected": p.outstanding,
+                "counted": counted,
+                "difference": counted - p.outstanding,
+                "denominations": [d.model_dump() for d in item.counted.denominations],
+            }
+        )
+
+    previous = pending_opening_count(db, store=store)
+    if previous is not None:
+        previous.superseded = True
+
+    count = ShiftOpeningCount(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        shift_id=None,
+        envelopes=envelopes,
+        expected_total=sum(e["expected"] for e in envelopes),
+        counted_total=sum(e["counted"] for e in envelopes),
+        counted_by_employee_id=actor.employee_id,
+        counted_by_employee_name=actor.employee_name or "",
+        created_at=clock.now_utc(),
+        superseded=False,
+    )
+    db.add(count)
+    db.flush()
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="shift_opening_count",
+        entity_id=count.id,
+        action="seal",
+        before=None,
+        after={
+            "envelopes": {
+                str(e["source_shift_id"]): {"expected": e["expected"], "counted": e["counted"]} for e in envelopes
+            },
+            "superseded": previous.id if previous is not None else None,
+        },
+    )
+    return count
+
+
+def get_opening_count_or_404(db: Session, *, store: Store, count_id: int) -> ShiftOpeningCount:
+    count = db.get(ShiftOpeningCount, count_id)
+    if count is None or count.store_id != store.id:
+        raise AppError("NOT_FOUND", "El conteo de apertura no existe en esta sede", status=404)
+    return count
+
+
+def opening_count_of_shift(db: Session, shift_id: int) -> ShiftOpeningCount | None:
+    return db.execute(select(ShiftOpeningCount).where(ShiftOpeningCount.shift_id == shift_id)).scalars().first()
+
+
+def _open_shift_with_envelopes(db: Session, *, actor: Actor, store: Store, payload: OpenShiftIn) -> Shift:
+    """Abrir con la regla de sobres: el cajón abre con lo contado en el
+    conteo sellado (`opening_count_id`) y nada más —ni base fija, ni la base
+    de respaldo, que vive aparte—. Sin conteo, el cajón abre vacío (no se
+    eligió ningún sobre). Todo se valida antes de escribir."""
+    if payload.carried_shift_ids or payload.carried_counted_apart:
+        raise AppError(
+            "OPENING_MODE_MISMATCH",
+            "Esta sede abre con sobres: elegí y contá cada sobre en la apertura, no los marques",
+            status=400,
+        )
+    count: ShiftOpeningCount | None = None
+    if payload.opening_count_id is not None:
+        count = get_opening_count_or_404(db, store=store, count_id=payload.opening_count_id)
+        if count.shift_id is not None or count.superseded:
+            raise AppError(
+                "OPENING_COUNT_USED",
+                "Ese conteo de sobres ya se usó o se reemplazó por otro: volvé a contar los sobres",
+                status=409,
+            )
+    elif payload.opening_cash is not None and payload.opening_cash.total != 0:
+        raise AppError(
+            "OPENING_COUNT_REQUIRED",
+            "Esta sede abre sólo con los sobres por consignar: elegí los sobres y contá cada uno antes de abrir",
+            status=400,
+        )
+
+    if _open_shift_in_store(db, store):
+        raise AppError("SHIFT_ALREADY_OPEN", "Ya hay un turno abierto en esta sede: cerralo antes de abrir otro", status=400)
+
+    envelopes = list(count.envelopes or []) if count is not None else []
+    # El saldo de cada sobre se vuelve a leer ahora: si cambió desde que se
+    # contó (una consignación del administrador, por ejemplo), la
+    # comparación ya no vale y hay que volver a contar.
+    sealed = {int(e["source_shift_id"]): int(e["expected"]) for e in envelopes}
+    stale: list[int] = []
+    if sealed:
+        pending = {p.shift_id: p.outstanding for p in opening_envelope_candidates(db, store=store)}
+        stale = [sid for sid, expected in sealed.items() if pending.get(sid) != expected]
+    if stale:
+        raise AppError(
+            "OPENING_COUNT_STALE",
+            "El saldo de un sobre cambió mientras contabas (alguien lo consignó): volvé a contar los sobres",
+            status=409,
+            extra={"shift_ids": stale},
+        )
+
+    counted_total = count.counted_total if count is not None else 0
+    expected_total = count.expected_total if count is not None else 0
+    has_difference = any(int(e["counted"]) != int(e["expected"]) for e in envelopes)
+    if has_difference and not payload.opening_cause:
+        raise AppError(
+            "OPENING_DIFFERENCE_NEEDS_CAUSE",
+            f"Los sobres contados ({format_cop(counted_total)}) no coinciden con su saldo "
+            f"({format_cop(expected_total)}). Elegí una causa para poder abrir el turno",
+            status=400,
+        )
+
+    cash_responsible = _get_org_employee(db, store.organization_id, payload.cash_responsible_id)
+
+    day, created = get_or_create_business_day(
+        db, organization_id=store.organization_id, store_id=store.id, cutoff_hour=store.cutoff_hour
+    )
+    if created:
+        _reset_daily_availability_if_present(db, store_id=store.id)
+
+    now = clock.now_utc()
+    opener_id = actor.employee_id or cash_responsible.id
+    opener_name = actor.employee_name or cash_responsible.name
+
+    merged: dict[int, int] = {}
+    for e in envelopes:
+        for d in e.get("denominations") or []:
+            merged[int(d["value"])] = merged.get(int(d["value"]), 0) + int(d["count"])
+
+    shift = Shift(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        business_day_id=day.id,
+        status=ShiftStatus.OPEN,
+        opened_at=now,
+        opened_by_employee_id=opener_id,
+        opened_by_employee_name=opener_name,
+        cash_responsible_id=cash_responsible.id,
+        cash_responsible_name=cash_responsible.name,
+        opening_cash_total=counted_total,
+        opening_denominations=[{"value": v, "count": c} for v, c in sorted(merged.items(), reverse=True) if c],
+        # La base de respaldo no se declara al abrir: vive aparte y la
+        # verifica su custodio (`app.shifts.reserve`).
+        cash_reserve=0,
+        opening_cause=payload.opening_cause if has_difference else None,
+        opening_note=payload.opening_note if has_difference else None,
+        opening_mode=ENVELOPES,
+        opening_fixed_base=0,
+        adjustments=[],
+    )
+    _insert_shift(db, shift)
+
+    for source_shift_id, expected in sealed.items():
+        db.add(
+            ShiftCarryIn(
+                organization_id=store.organization_id,
+                store_id=store.id,
+                shift_id=shift.id,
+                source_shift_id=source_shift_id,
+                amount=expected,
+                created_at=now,
+            )
+        )
+    if count is not None:
+        count.shift_id = shift.id
+    db.flush()
+
+    _after_open(db, actor=actor, store=store, shift=shift, cash_responsible=cash_responsible, opener_id=opener_id)
+
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="shift",
+        entity_id=shift.id,
+        action="open",
+        before=None,
+        after={
+            "opening_mode": ENVELOPES,
+            "opening_cash_total": counted_total,
+            "opening_count_id": count.id if count is not None else None,
+            "cash_responsible_id": cash_responsible.id,
+            "business_day_id": day.id,
+            "carried": {str(k): v for k, v in sealed.items()},
         },
     )
     return shift
@@ -716,6 +1046,15 @@ def roster_action(db: Session, *, actor: Actor, shift: Shift, payload: RosterAct
     if not auth_service.verify_pin(db, employee, payload.pin):
         raise AppError("PIN_INVALID", "El PIN no es válido: volvé a intentarlo", status=400)
 
+    if employee.role == "admin":
+        # Decisión del dueño: en la tablet el administrador sólo autoriza.
+        # No entra al turno, no suma horas ni propina.
+        raise AppError(
+            "ADMIN_NOT_IN_ROSTER",
+            "El administrador autoriza, no entra al turno: no suma horas ni propina",
+            status=400,
+        )
+
     if payload.action == "out" and employee.id == shift.cash_responsible_id:
         raise AppError(
             "NOT_CASH_RESPONSIBLE",
@@ -751,6 +1090,11 @@ def roster_action(db: Session, *, actor: Actor, shift: Shift, payload: RosterAct
         entry.pauses = pauses
 
     db.flush()
+    # La salida y las pausas del roster son las de la jornada del día (0028).
+    if payload.action != "in":
+        attendance.mirror_roster_action(
+            db, actor=actor, store_id=shift.store_id, employee=employee, action=payload.action, at=now
+        )
     record_audit(
         db,
         actor=actor,
@@ -1209,6 +1553,10 @@ def review_close(db: Session, *, shift: Shift, store: Store, count: ShiftCloseCo
         # Lo consignado desde el cajón (2026-09-24) sí es un sumando del
         # esperado: sin este renglón, los que se ven no llegaban al total.
         "deposits": ev.breakdown["deposits"],
+        # Lo prestado por la base de respaldo (2026-09-26) también es un
+        # sumando: el conteo no entra con préstamo abierto, así que casi
+        # siempre vale 0, pero la ecuación publicada tiene que cerrar.
+        "reserve_loan": ev.breakdown["reserve_loan"],
         "expected": ev.expected,
         # Pedido 2c: el paso 2 del cierre a ciegas es EL momento en que hay
         # que ver que el efectivo de domicilios no está en el cajón —
@@ -1334,7 +1682,6 @@ def _finalize_close(
     closes_day: bool,
     ev: CloseEvaluation,
 ) -> dict[str, Any]:
-    settings = stores_service.get_cash_settings(db, store.id)
     now = clock.now_utc()
     before = {"status": shift.status.value if hasattr(shift.status, "value") else shift.status}
 
@@ -1352,11 +1699,18 @@ def _finalize_close(
 
     # Sólo la venta de este turno: la plata de días anteriores que sigue en el
     # cajón es saldo de sus turnos de origen (`carried_still_in_drawer`).
+    # La base fija es la que el TURNO congeló al abrir (`opening_fixed_base`,
+    # 0 con la regla de sobres), no la de la sede hoy. Y lo prestado por la
+    # base de respaldo vuelve a la base, nunca al banco (`reserve_loan`; el
+    # cierre contado no entra con préstamo abierto, así que acá vale 0, pero
+    # la resta se escribe igual: es la misma cuenta que el cierre
+    # administrativo, que sí puede encontrar un préstamo).
     to_deposit = (
         count.counted_cash_total
-        - settings.opening_cash_fixed
+        - shift.opening_fixed_base
         - (count.tips_cash_out or 0)
         - carried_still_in_drawer(db, shift)
+        - reserve.loan_outstanding(db, shift.id)
     )
     shift.to_deposit = to_deposit
 
@@ -1414,8 +1768,25 @@ def _finalize_close(
 # ---------------------------------------------------------------------------
 
 
+def _reject_open_reserve_loan(db: Session, shift: Shift) -> None:
+    """Decisión del dueño (2026-09-26): lo tomado de la base de respaldo se
+    devuelve el mismo día, **antes** del conteo de cierre. Con préstamo
+    abierto el cierre no se cuenta: el mensaje dice cuánto y dónde
+    devolverlo. Se llama antes de escribir nada."""
+    owed = reserve.loan_outstanding(db, shift.id)
+    if owed > 0:
+        raise AppError(
+            "RESERVE_LOAN_OPEN",
+            f"El cajón le debe {format_cop(owed)} a la base de respaldo: devolvelos en Turno › Devolver a la base "
+            "antes de contar el cierre",
+            status=400,
+            extra={"owed": owed},
+        )
+
+
 def create_close_count(db: Session, *, actor: Actor, shift: Shift, store: Store, payload: CloseCountIn) -> ShiftCloseCount:
     _require_open(shift)
+    _reject_open_reserve_loan(db, shift)
     _check_photo_required(db, store, payload.photo, setting_attr="photo_required_on_close")
 
     denominations = _to_denominations(payload.counted_cash.denominations)
@@ -1556,8 +1927,21 @@ def close_precheck(db: Session, *, shift: Shift, store: Store) -> dict[str, Any]
         photo_required = bool(stores_service.get_cash_settings(db, store.id).photo_required_on_close)
     card_required = sales.card + sales.tips_card > 0
     transfer_required = sales.transfer + sales.tips_transfer > 0
+    reserve_loan_open = reserve.loan_outstanding(db, shift.id) > 0
 
     items: list[dict[str, Any]] = []
+    if reserve_loan_open:
+        # Sin monto, como todo el paso 0: sólo que hay un préstamo abierto.
+        items.append(
+            {
+                "code": "RESERVE_LOAN_OPEN",
+                "level": "blocking",
+                "message": (
+                    "Hay plata tomada de la base de respaldo sin devolver: devolvela en Turno › Devolver a la base "
+                    "antes de contar el cierre"
+                ),
+            }
+        )
     if open_orders:
         items.append(
             {
@@ -1622,6 +2006,7 @@ def close_precheck(db: Session, *, shift: Shift, store: Store) -> dict[str, Any]
         "card_total_required": card_required,
         "transfer_total_required": transfer_required,
         "photo_required": photo_required,
+        "reserve_loan_open": reserve_loan_open,
         "sealed_count": sealed,
         "items": items,
     }
@@ -1667,6 +2052,7 @@ def confirm_close(
     transfer_open_orders: bool = False,
 ) -> dict[str, Any]:
     _require_open(shift)
+    _reject_open_reserve_loan(db, shift)
     if count.superseded:
         raise AppError(
             "CLOSE_COUNT_SUPERSEDED",
@@ -1695,6 +2081,7 @@ def confirm_close(
 
 def close_single_step(db: Session, *, actor: Actor, shift: Shift, store: Store, payload: SingleStepCloseIn) -> dict[str, Any]:
     _require_open(shift)
+    _reject_open_reserve_loan(db, shift)
     _apply_open_orders_gate(db, shift=shift, actor=actor, transfer_open_orders=payload.transfer_open_orders)
     count = create_close_count(
         db,
@@ -1737,7 +2124,6 @@ def close_administrative(db: Session, *, actor: Actor, shift: Shift, store: Stor
     # cobrando o anulando.
     _detach_open_orders(db, shift_id=shift.id, actor=actor)
 
-    cash_settings = stores_service.get_cash_settings(db, store.id)
     breakdown = compute_breakdown(db, shift)
     now = clock.now_utc()
 
@@ -1753,7 +2139,12 @@ def close_administrative(db: Session, *, actor: Actor, shift: Shift, store: Stor
     shift.close_note = reason
     shift.closed_without_count = True
     shift.closes_day = True
-    shift.to_deposit = breakdown["expected"] - cash_settings.opening_cash_fixed - carried_still_in_drawer(db, shift)
+    shift.to_deposit = (
+        breakdown["expected"]
+        - shift.opening_fixed_base
+        - carried_still_in_drawer(db, shift)
+        - breakdown["reserve_loan"]
+    )
 
     db.flush()
     # Un turno abandonado se rescata a veces días después: la jornada de quien
@@ -1829,7 +2220,7 @@ def reopen_shift(db: Session, *, actor: Actor, shift: Shift, reason: str) -> Shi
 
 
 def _has_activity(db: Session, shift: Shift) -> bool:
-    for model in (CashMovement, CashSwap, CashPickup, ShiftHandover, ShiftCloseCount):
+    for model in (CashMovement, CashSwap, CashPickup, ShiftHandover, ShiftCloseCount, CashReserveMovement):
         found = db.execute(select(model.id).where(model.shift_id == shift.id).limit(1)).first()
         if found is not None:
             return True
@@ -1909,11 +2300,14 @@ def adjust_opening(
         breakdown = compute_breakdown(db, shift)
         shift.expected_cash = breakdown["expected"]
         shift.difference = shift.counted_cash - breakdown["expected"]
-        settings = stores_service.get_cash_settings(db, shift.store_id)
         active_count = _get_active_close_count(db, shift.id)
         tips_cash_out = active_count.tips_cash_out if active_count is not None else 0
         shift.to_deposit = (
-            shift.counted_cash - settings.opening_cash_fixed - tips_cash_out - carried_still_in_drawer(db, shift)
+            shift.counted_cash
+            - shift.opening_fixed_base
+            - tips_cash_out
+            - carried_still_in_drawer(db, shift)
+            - breakdown["reserve_loan"]
         )
 
     db.flush()
@@ -2139,6 +2533,45 @@ def build_timeline(db: Session, shift: Shift) -> list[dict[str, Any]]:
         label = "Relevo" if h.kind == "handover" else "Arqueo sorpresa"
         events.append(
             {"at": h.at, "kind": h.kind, "summary": f"{label} por {h.from_responsible_name} (diferencia {_cop_or_dash(h.breakdown.get('difference'))})", "employee_name": h.from_responsible_name, "data": {"id": h.id}}
+        )
+
+    for rm in reserve.list_movements(db, shift_id=shift.id):
+        kind = rm.kind.value if hasattr(rm.kind, "value") else rm.kind
+        verb = "Se tomó de" if kind == "take" else "Se devolvió a"
+        events.append(
+            {
+                "at": rm.at,
+                "kind": f"reserve_{kind}",
+                "summary": f"{verb} la base de respaldo {format_cop(rm.amount)}",
+                "employee_name": rm.employee_name,
+                "data": {"id": rm.id, "amount": rm.amount, "authorized_by": rm.authorized_by_employee_name},
+            }
+        )
+        if rm.reversed_at is not None:
+            events.append(
+                {
+                    "at": rm.reversed_at,
+                    "kind": "reserve_reverse",
+                    "summary": f"Reversa del movimiento de la base #{rm.id}: {rm.reversed_reason}",
+                    "employee_name": rm.reversed_by_employee_name,
+                    "data": {"id": rm.id},
+                }
+            )
+
+    opening_count = opening_count_of_shift(db, shift.id)
+    if opening_count is not None:
+        view = opening_count_view(opening_count)
+        events.append(
+            {
+                "at": opening_count.created_at,
+                "kind": "opening_count",
+                "summary": (
+                    f"Cuadre de apertura por sobres de {opening_count.counted_by_employee_name}: "
+                    f"{len(view['envelopes'])} sobre(s), diferencia {format_cop(view['difference_total'])}"
+                ),
+                "employee_name": opening_count.counted_by_employee_name,
+                "data": {"id": opening_count.id, "envelopes": view["envelopes"]},
+            }
         )
 
     recounted = recounted_count_ids(db, shift.id)

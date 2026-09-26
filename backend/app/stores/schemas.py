@@ -115,10 +115,16 @@ class CashSettingsIn(BaseModel):
     photo_required_on_close: bool
     photo_required_on_pickup: bool
     streak_alert_shifts: int = Field(ge=1)
+    # Cómo abre el cajón (2026-09-26): `envelopes` (sólo los sobres por
+    # consignar, contados a ciegas; la base de respaldo aparte con el monto
+    # de `cash_reserve_default`) o `fixed_base` (la base fija de siempre).
+    # Opcional al guardar: sin él, la sede conserva el que tenía (un cliente
+    # escrito antes del campo no la cambia de regla sin querer).
+    opening_mode: Literal["envelopes", "fixed_base"] | None = None
 
 
 class CashSettingsOut(CashSettingsIn):
-    pass
+    opening_mode: Literal["envelopes", "fixed_base"] | None = "fixed_base"
 
 
 class PaymentMethodIn(BaseModel):

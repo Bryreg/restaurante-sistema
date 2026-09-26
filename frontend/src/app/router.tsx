@@ -25,6 +25,8 @@ import SettingsPage from "@/features/settings/SettingsPage";
 import { shiftsFeature } from "@/features/shifts";
 
 import AdminLayout from "./AdminLayout";
+import AutorizarPage from "./AutorizarPage";
+import HomePage from "./HomePage";
 import PosHome from "./PosHome";
 import PosLayout from "./PosLayout";
 import { useSession } from "./session";
@@ -40,6 +42,10 @@ function FullScreenSpinner(): React.JSX.Element {
 function RequireAdmin({ children }: { children: React.ReactElement }): React.ReactElement {
   const { me, loading } = useSession();
   if (loading) return <FullScreenSpinner />;
+  // En una tablet del salón (hay sesión de dispositivo) el admin no se
+  // queda en «Entrar»: al salir de la sesión corta de administrador, o al
+  // vencer, la tablet vuelve a «Quién opera».
+  if (me?.kind === "device") return <Navigate to="/pos/identify" replace />;
   if (!me || me.kind !== "admin") return <Navigate to="/login" replace />;
   return children;
 }
@@ -47,6 +53,9 @@ function RequireAdmin({ children }: { children: React.ReactElement }): React.Rea
 function RequireDevice({ children }: { children: React.ReactElement }): React.ReactElement {
   const { me, loading } = useSession();
   if (loading) return <FullScreenSpinner />;
+  // Sesión corta de administrador abierta en esta tablet: a la puerta, donde
+  // «Operar (POS)» la cierra y devuelve el salón (activar de nuevo no hace falta).
+  if (me?.kind === "admin" && me.on_device) return <Navigate to="/" replace />;
   if (!me || me.kind !== "device") return <Navigate to="/pos/activate" replace />;
   return children;
 }
@@ -59,6 +68,9 @@ function RequireDevice({ children }: { children: React.ReactElement }): React.Re
  * (CONTRATO-INTERNO-1b-1.md §6.2, pedido 1b-2), más `inventoryFeature` y
  * `recipesFeature` (pedido 2a) y `purchasesFeature` (pedido 2b — sólo
  * `adminRoutes`: la recepción lleva precios, nunca una ruta bajo `/pos`).
+ * `/` es la puerta (`HomePage`): «Operar (POS)» o «Administrar»; una ruta
+ * desconocida vuelve ahí, no a `/login`. `/pos/autorizar` es el «Modo
+ * autorización» del administrador que se identifica en la tablet.
  * `PosHome` es la ruta índice de `/pos`:
  * decide entre Mesas y Comanda nueva según `pos.tables`. La ruta índice de
  * `/admin` es "Hoy" (`reportsFeature`): es la pantalla por la que el dueño
@@ -72,7 +84,7 @@ function RequireDevice({ children }: { children: React.ReactElement }): React.Re
  * márgenes").
  */
 const routes: RouteObject[] = [
-  { path: "/", element: <Navigate to="/login" replace /> },
+  { path: "/", element: <HomePage /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/pos/activate", element: <DeviceActivatePage /> },
   {
@@ -120,17 +132,21 @@ const routes: RouteObject[] = [
       </RequireDevice>
     ),
     errorElement: <RouteError home="/pos" />,
-    children: [
+    // La apertura del conteo por área es obligatoria para cocina y bar
+    // (`inventoryFeature.withOpeningGate`): cada pantalla queda detrás de la
+    // puerta, con su misma ruta; el KDS y la vista de cocina sólo avisan.
+    children: inventoryFeature.withOpeningGate([
       { index: true, element: <PosHome /> },
+      { path: "autorizar", element: <AutorizarPage /> },
       ...shiftsFeature.posRoutes,
       ...ordersFeature.posRoutes,
       ...paymentsFeature.posRoutes,
       ...inventoryFeature.posRoutes,
       ...recipesFeature.posRoutes,
       ...kitchenFeature.posRoutes,
-    ],
+    ]),
   },
-  { path: "*", element: <Navigate to="/login" replace /> },
+  { path: "*", element: <Navigate to="/" replace /> },
 ];
 
 export const router = createBrowserRouter(routes);

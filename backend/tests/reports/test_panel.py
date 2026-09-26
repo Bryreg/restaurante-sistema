@@ -25,19 +25,36 @@ def _panel(admin_client: TestClient, store_id: int | str) -> dict[str, Any]:
     return resp.json()
 
 
-def test_panel_without_shift_says_so_and_matches_today(admin_client: TestClient, store: Any) -> None:
+def test_panel_without_shift_nor_activity_is_closed_not_red(admin_client: TestClient, store: Any) -> None:
     body = _panel(admin_client, store.id)
     assert body["scope"] == "store"
     [panel] = body["stores"]
     assert panel["cash"] is None
-    assert panel["light"] == "red"
-    assert [r["key"] for r in panel["reasons"]][:1] == ["no_shift"]
-    assert panel["staff"]["clocked_in"] == []
+    # De noche, sin nadie de caja ni comandas: la sede está cerrada, no en rojo.
+    assert panel["closed"] is True
+    assert panel["light"] == "gray"
+    assert "no_shift" not in [r["key"] for r in panel["reasons"]]
+    assert panel["staff"]["present"] == []
     assert panel["staff"]["reason"]
 
     today = admin_client.get("/api/v1/admin/today", params={"store_id": store.id}).json()
     assert today["current_shift"] is None
     assert today["expected_cash"] is None
+    assert today["store_closed"] is True
+
+
+def test_no_shift_with_cash_attendance_is_red_in_panel_and_today(
+    admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any, store: Any,
+) -> None:
+    # La cajera llegó (su PIN marca la entrada) y nadie abrió la caja.
+    identify(device_client, employees["cashier"])
+
+    [panel] = _panel(admin_client, store.id)["stores"]
+    assert panel["closed"] is False
+    assert panel["light"] == "red"
+    assert [r["key"] for r in panel["reasons"]][:1] == ["no_shift"]
+    today = admin_client.get("/api/v1/admin/today", params={"store_id": store.id}).json()
+    assert today["store_closed"] is False
 
 
 def test_panel_cash_is_the_same_figure_in_today_and_in_dinero(
@@ -69,33 +86,42 @@ def test_panel_cash_is_the_same_figure_in_today_and_in_dinero(
     assert panel["cash"]["is_stale"] is False
 
 
-def test_staff_separates_clocking_in_from_merely_identifying(
-    admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any, open_shift: Any, store: Any,
+def test_staff_is_the_real_attendance_and_forgotten_exits_are_flagged(
+    admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any, open_shift: Any,
+    store: Any, clock: Any,
 ) -> None:
+    clock.set(datetime(2026, 3, 1, 15, 0, tzinfo=timezone.utc))
     shift = open_shift()
-    # El supervisor sólo se identifica (p. ej. para autorizar algo): entra al
-    # roster, pero no marcó entrada.
-    identify(device_client, employees["supervisor"])
-    # El mesero marca entrada con su PIN.
-    resp = device_client.post(
-        f"/api/v1/shifts/{shift['id']}/roster",
-        json={"employee_id": employees["operator"].id, "action": "in", "pin": "2222"},
-    )
-    assert resp.status_code in (200, 201), resp.text
+    identify(device_client, employees["operator"])
+    # El administrador sólo autoriza: nunca tiene asistencia.
+    identify(device_client, employees["admin"])
 
     [panel] = _panel(admin_client, store.id)["stores"]
-    clocked = {p["employee_id"] for p in panel["staff"]["clocked_in"]}
-    identified = {p["employee_id"] for p in panel["staff"]["identified_only"]}
-    # El responsable de caja cuenta como presente: tiene el cajón.
-    assert employees["cashier"].id in clocked
-    assert employees["operator"].id in clocked
-    assert employees["supervisor"].id in identified
-    assert employees["supervisor"].id not in clocked
+    present = {p["employee_id"] for p in panel["staff"]["present"]}
+    assert employees["cashier"].id in present
+    assert employees["operator"].id in present
+    assert employees["admin"].id not in present
+    assert panel["staff"]["pending_review"] == []
 
     record = admin_client.get(f"/api/v1/admin/records/shift/{shift['id']}").json()
-    by_person = {a["employee_id"]: a["clocked_in"] for a in record["attendance"]}
-    assert by_person[employees["supervisor"].id] is False
-    assert by_person[employees["operator"].id] is True
+    by_person = {a["employee_id"]: a["status"] for a in record["attendance"]}
+    assert by_person[employees["operator"].id] == "open"
+    assert employees["admin"].id not in by_person
+
+    # Al día siguiente nadie marcó salida: son salidas olvidadas, a revisar.
+    clock.advance(days=1)
+    [panel] = _panel(admin_client, store.id)["stores"]
+    review = {p["employee_id"] for p in panel["staff"]["pending_review"]}
+    assert employees["operator"].id in review
+    assert panel["pending"]["attendance_review"] == len(review)
+    assert "attendance_review" in [r["key"] for r in panel["reasons"]]
+    today = admin_client.get("/api/v1/admin/today", params={"store_id": store.id}).json()
+    assert today["attendance_pending_review_count"] == len(review)
+
+    person = admin_client.get(
+        f"/api/v1/admin/records/employee/{employees['operator'].id}", params={"store_id": store.id}
+    ).json()
+    assert [a["status"] for a in person["attendance"]] == ["review"]
 
 
 def test_abandoned_shift_from_a_previous_day_shows_everywhere(
@@ -118,9 +144,9 @@ def test_abandoned_shift_from_a_previous_day_shows_everywhere(
     assert panel["light"] == "red"
     keys = [r["key"] for r in panel["reasons"]]
     assert "shift_stale" in keys and "responsible_inactive" in keys
-    # Su roster es del 16: no dice quién está hoy.
-    assert panel["staff"]["clocked_in"] == []
-    assert panel["staff"]["reason"] and "2026-09-16" in panel["staff"]["reason"]
+    # Nadie marcó entrada hoy; la entrada del 16 quedó como salida olvidada.
+    assert panel["staff"]["present"] == []
+    assert cashier.id in {p["employee_id"] for p in panel["staff"]["pending_review"]}
 
     today = admin_client.get("/api/v1/admin/today", params={"store_id": store.id}).json()
     assert today["current_shift"]["is_stale"] is True
@@ -178,6 +204,8 @@ def test_shift_record_sales_are_the_sales_report_by_shift(
     assert body["responsible"]["active"] is True
     assert body["is_stale"] is False
     assert body["voids"] == [] and body["novelties"] == []
+    assert body["opening_mode"] in ("fixed_base", "envelopes")
+    assert isinstance(body["reserve_movements"], list)
 
 
 def test_shift_record_of_another_organization_is_404(admin_client: TestClient) -> None:
@@ -293,3 +321,31 @@ def test_kitchen_lateness_uses_the_kds_color(
     [panel] = _panel(admin_client, store.id)["stores"]
     assert panel["kitchen"]["enabled"] is False
 
+
+
+def test_reserve_loan_shows_in_panel_today_and_shift_record(
+    admin_client: TestClient, device_client: TestClient, open_shift: Any, store: Any, db: Session,
+) -> None:
+    from app.stores import service as stores_service
+
+    settings = stores_service.get_cash_settings(db, store.id)
+    settings.cash_reserve_default = 100_000
+    db.commit()
+    shift = open_shift()
+    took = device_client.post(
+        f"/api/v1/shifts/{shift['id']}/reserve/take",
+        json={"amount": 50_000, "authorizer_pin": "5555"},
+        headers=idem_headers(),
+    )
+    assert took.status_code == 201, took.text
+
+    [panel] = _panel(admin_client, store.id)["stores"]
+    today = admin_client.get("/api/v1/admin/today", params={"store_id": store.id}).json()
+    assert panel["pending"]["reserve_loans_open"] == today["reserve_loans_open_count"] == 1
+    assert panel["pending"]["reserve_loans_total"] == today["reserve_loans_open_total"] == 50_000
+    assert "reserve_loans_open" in [r["key"] for r in panel["reasons"]]
+
+    record = admin_client.get(f"/api/v1/admin/records/shift/{shift['id']}").json()
+    assert record["reserve_loan_outstanding"] == 50_000
+    [move] = record["reserve_movements"]
+    assert move["kind"] == "take" and move["amount"] == 50_000 and move["authorized_by"] == "Supervisor"

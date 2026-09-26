@@ -307,7 +307,19 @@ def on_employee_identified(db: Session, *, store_id: int, employee: object) -> N
     roster del turno con hora de entrada"). Si no hay turno abierto, no hace
     nada (identificarse no exige turno abierto). Es idempotente: si la persona
     ya tiene una entrada abierta en el roster, no duplica.
+
+    Desde 0028 la jornada es la asistencia del día (`app.shifts.attendance`):
+    entrar al roster también marca la entrada del día si todavía no la había
+    (abrir la caja, recibir un relevo, «Entrada» del roster). El
+    administrador no entra nunca, ni al roster ni a la asistencia: autoriza,
+    no opera, y no suma horas ni propina (decisión del dueño).
     """
+
+    if getattr(employee, "role", None) == "admin":
+        return
+    from app.shifts import attendance
+
+    attendance.record_entry(db, store_id=store_id, employee=employee, source="shift")
 
     shift = db.execute(
         select(Shift).where(Shift.store_id == store_id, Shift.status == ShiftStatus.OPEN)
@@ -340,6 +352,39 @@ def on_employee_identified(db: Session, *, store_id: int, employee: object) -> N
         )
     )
     db.flush()
+
+
+def record_attendance_on_identify(db: Session, *, store_id: int, employee: object) -> dict[str, Any] | None:
+    """El primer PIN del día operativo marca la entrada, haya o no turno de
+    caja abierto. Lo llama `POST /auth/device/identify` ANTES de
+    `on_employee_identified`, para poder decirle a la pantalla si la entrada
+    se acaba de marcar («Entrada 7:02 a. m.») o ya estaba. `None` para quien
+    no lleva asistencia (el administrador)."""
+
+    from app.shifts import attendance
+
+    mark = attendance.record_entry(db, store_id=store_id, employee=employee, source="identify")
+    if mark.entry is None:
+        return None
+    return {
+        "id": mark.entry.id,
+        "business_date": mark.entry.business_date,
+        "in_at": mark.entry.in_at,
+        "created": mark.created,
+    }
+
+
+def open_attendance_for(db: Session, *, store_id: int, employee_id: int) -> dict[str, Any] | None:
+    """La entrada abierta de hoy de una persona (para `GET /auth/me`: la
+    pantalla ofrece «Marcar salida» sólo si hay de qué salir)."""
+
+    from app.shifts import attendance
+
+    today = attendance.business_date_now(db, store_id)
+    entry = attendance.open_entry(db, store_id=store_id, employee_id=employee_id, business_date=today)
+    if entry is None:
+        return None
+    return {"id": entry.id, "business_date": entry.business_date, "in_at": entry.in_at}
 
 
 # ---------------------------------------------------------------------------
@@ -722,3 +767,117 @@ def cash_swap_store_id(db: Session, cash_swap_id: int) -> int | None:
     from app.shifts.models import CashSwap
 
     return db.execute(select(CashSwap.store_id).where(CashSwap.id == cash_swap_id)).scalar_one_or_none()
+
+
+def reserve_loans_tray(db: Session, store: Any) -> dict[str, Any]:
+    """**Base de respaldo** (2026-09-26): los préstamos al cajón sin devolver,
+    para la bandeja de Hoy (`app.reports`). Un préstamo vuelve el mismo día,
+    antes del conteo de cierre; si un turno se cerró por rescate con plata de
+    la base adentro, sigue acá hasta que alguien la devuelva. Con
+    `cash.reserve` apagada el total es `None` («no hay base», no «nada que
+    devolver»)."""
+    from app.core import features
+    from app.shifts import reserve
+
+    if not features.is_enabled(db, store.organization_id, store.id, reserve.FEATURE):
+        return {"reserve_loans_open_count": 0, "reserve_loans_open_total": None}
+    loans = reserve.open_loans(db, store_id=store.id)
+    return {
+        "reserve_loans_open_count": len(loans),
+        "reserve_loans_open_total": sum(loan.amount for loan in loans),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Lecturas para el panel del administrador (`app.reports.panel`): la
+# asistencia real, la apertura por sobres y la base de respaldo de un turno.
+# Sólo lectura; ninguna suma plata nueva.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AttendanceRow:
+    """Una entrada de asistencia como la publica `app.shifts.attendance`:
+    `status` es `open` (hoy, sin salida), `closed` o `review` (salida
+    olvidada de un día que ya pasó; no se cuenta hasta que el admin la
+    corrija)."""
+
+    entry_id: int
+    employee_id: int
+    employee_name: str
+    business_date: Any
+    puesto: str | None
+    in_at: Any
+    out_at: Any
+    on_pause: bool
+    status: str
+
+
+def _attendance_row(entry: Any, today: Any) -> AttendanceRow:
+    from app.shifts import attendance
+
+    pauses = entry.pauses or []
+    return AttendanceRow(
+        entry_id=entry.id,
+        employee_id=entry.employee_id,
+        employee_name=entry.employee_name,
+        business_date=entry.business_date,
+        puesto=entry.puesto,
+        in_at=entry.in_at,
+        out_at=entry.out_at,
+        on_pause=bool(pauses) and pauses[-1].get("end") is None and entry.out_at is None,
+        status=attendance.entry_status(entry, today),
+    )
+
+
+def present_today(db: Session, *, store_id: int) -> list[AttendanceRow]:
+    """Quién está trabajando ahora: las entradas de hoy sin salida."""
+    from app.shifts import attendance
+
+    today = attendance.business_date_now(db, store_id)
+    return [
+        _attendance_row(e, today)
+        for e in attendance.list_entries(db, store_id=store_id, date_from=today, date_to=today)
+        if e.out_at is None
+    ]
+
+
+def attendance_pending_review(db: Session, *, store_id: int) -> list[AttendanceRow]:
+    """Las salidas olvidadas de la sede (las mismas de `GET /admin/attendance`)."""
+    from app.shifts import attendance
+
+    today = attendance.business_date_now(db, store_id)
+    return [_attendance_row(e, today) for e in attendance.list_pending_review(db, store_id=store_id)]
+
+
+def attendance_rows(
+    db: Session, *, store_id: int, date_from: Any, date_to: Any, employee_id: int | None = None
+) -> list[AttendanceRow]:
+    from app.shifts import attendance
+
+    today = attendance.business_date_now(db, store_id)
+    return [
+        _attendance_row(e, today)
+        for e in attendance.list_entries(db, store_id=store_id, date_from=date_from, date_to=date_to)
+        if employee_id is None or e.employee_id == employee_id
+    ]
+
+
+def opening_count_of(db: Session, shift_id: int) -> Any | None:
+    """El conteo de apertura por sobres con el que abrió el turno (el vigente,
+    no los reemplazados), o `None` si abrió con base fija."""
+    from app.shifts.models import ShiftOpeningCount
+
+    return db.execute(
+        select(ShiftOpeningCount)
+        .where(ShiftOpeningCount.shift_id == shift_id, ShiftOpeningCount.superseded.is_(False))
+        .order_by(ShiftOpeningCount.created_at.desc())
+    ).scalars().first()
+
+
+def reserve_of_shift(db: Session, shift_id: int) -> tuple[list[Any], int]:
+    """Los movimientos de la base de respaldo de un turno y lo que el cajón
+    todavía le debe (`reserve.loan_outstanding`, la misma cuenta del cierre)."""
+    from app.shifts import reserve
+
+    return reserve.list_movements(db, shift_id=shift_id), reserve.loan_outstanding(db, shift_id)

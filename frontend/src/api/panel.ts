@@ -14,7 +14,7 @@ import type { SalesBucketOut } from "@/api/reports"
 /** Espejo de `PanelLevelLiteral` (`app/reports/schemas.py`). */
 export type PanelLevel = "critical" | "warning" | "info"
 /** Espejo de `PanelLightLiteral` (`app/reports/schemas.py`). */
-export type PanelLight = "red" | "amber" | "green"
+export type PanelLight = "red" | "amber" | "green" | "gray"
 
 /** Una persona con el nombre congelado del registro y si HOY sigue activa. */
 export interface PersonRefOut {
@@ -40,11 +40,22 @@ export interface PanelStaffPersonOut {
   since: string
   on_pause: boolean
   active: boolean
+  puesto?: string | null
 }
 
+/** Una salida olvidada: entrada abierta de un día que ya pasó (no suma horas hasta corregirla). */
+export interface PanelPendingExitOut {
+  entry_id: number
+  employee_id: number
+  name: string
+  business_date: string
+  in_at: string
+}
+
+/** Quién trabaja: la asistencia real del día, con o sin caja abierta. */
 export interface PanelStaffOut {
-  clocked_in: PanelStaffPersonOut[]
-  identified_only: PanelStaffPersonOut[]
+  present: PanelStaffPersonOut[]
+  pending_review: PanelPendingExitOut[]
   reason: string | null
 }
 
@@ -52,6 +63,8 @@ export interface PanelAreaCountsOut {
   enabled: boolean
   areas_total: number
   opening_done: number
+  /** Áreas con la apertura obligatoria sin hacer. */
+  opening_missing: number
   closing_done: number
   flagged: number
   pending_recounts: number
@@ -79,6 +92,10 @@ export interface PanelPendingOut {
   novelties_open: number
   novelties_urgent: number
   unreviewed_closes: number
+  reserve_loans_open: number
+  /** `null`: la sede no usa base de respaldo. */
+  reserve_loans_total: number | null
+  attendance_review: number
 }
 
 export interface PanelReasonOut {
@@ -93,6 +110,8 @@ export interface StorePanelOut {
   business_date: string
   light: PanelLight
   reasons: PanelReasonOut[]
+  /** Sin turno y sin actividad: la sede está cerrada (semáforo gris). */
+  closed: boolean
   cash: PanelCashOut | null
   staff: PanelStaffOut
   area_counts: PanelAreaCountsOut
@@ -156,13 +175,39 @@ export interface RecordAreaCountOut {
 }
 
 export interface RecordAttendanceOut {
-  shift_id: number
+  shift_id: number | null
   business_date: string | null
   employee_id: number
   employee_name: string
   in_at: string
   out_at: string | null
-  clocked_in: boolean
+  /** `open`, `closed` o `review` (salida olvidada). */
+  status: string
+}
+
+export interface RecordEnvelopeOut {
+  source_shift_id: number | null
+  business_date: string | null
+  expected: number | null
+  counted: number | null
+  difference: number | null
+}
+
+export interface RecordOpeningCountOut {
+  envelopes: RecordEnvelopeOut[]
+  expected_total: number
+  counted_total: number
+  counted_by: string
+  counted_at: string
+}
+
+export interface RecordReserveMovementOut {
+  kind: string
+  amount: number
+  employee_name: string
+  authorized_by: string | null
+  at: string
+  reversed: boolean
 }
 
 export interface RecordDepositOut {
@@ -186,6 +231,11 @@ export interface ShiftRecordOut {
   reviewed: boolean
   sales: SalesBucketOut | null
   deposit: RecordDepositOut | null
+  opening_mode: string
+  opening_count: RecordOpeningCountOut | null
+  reserve_movements: RecordReserveMovementOut[]
+  /** `null`: la sede no usa base de respaldo. */
+  reserve_loan_outstanding: number | null
   voids: RecordVoidOut[]
   discounts: RecordDiscountOut[]
   novelties: RecordNoveltyOut[]

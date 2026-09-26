@@ -59,22 +59,28 @@ class PanelStaffPersonOut(BaseModel):
     since: datetime
     on_pause: bool
     active: bool
+    puesto: str | None = None
+
+
+class PanelPendingExitOut(BaseModel):
+    """Una salida olvidada: la entrada quedó abierta en un día que ya pasó."""
+
+    entry_id: int
+    employee_id: int
+    name: str
+    business_date: date
+    in_at: datetime
 
 
 class PanelStaffOut(BaseModel):
-    """Quién trabaja. **Marcar entrada no es lo mismo que identificarse**:
-    identificarse en la tablet (para cobrar, para anular) también deja una
-    fila en el roster del turno, y contarla como «trabajando» inflaba el
-    equipo con quien sólo pasó a autorizar algo. `clocked_in` son quienes
-    marcaron entrada (o tienen la caja); `identified_only`, quienes sólo se
-    identificaron, a la vista y aparte.
+    """Quién trabaja, leído de la **asistencia** del día (`attendance_entries`,
+    vía `app.shifts.hooks.present_today`): con o sin caja abierta. El
+    administrador no tiene asistencia. `pending_review` son las salidas
+    olvidadas de días anteriores, que nómina no cuenta hasta corregirlas.
+    `reason` explica una lista vacía que no es un error."""
 
-    `reason` explica una lista vacía que no es «nadie»: sin turno abierto,
-    o con el turno abierto de un día anterior (su roster no dice quién está
-    hoy)."""
-
-    clocked_in: list[PanelStaffPersonOut]
-    identified_only: list[PanelStaffPersonOut]
+    present: list[PanelStaffPersonOut]
+    pending_review: list[PanelPendingExitOut]
     reason: str | None
 
 
@@ -85,6 +91,8 @@ class PanelAreaCountsOut(BaseModel):
     enabled: bool
     areas_total: int
     opening_done: int
+    # Áreas cuya apertura es obligatoria y no está (`opening_missing` del conteo compartido).
+    opening_missing: int
     closing_done: int
     flagged: int
     pending_recounts: int
@@ -118,6 +126,11 @@ class PanelPendingOut(BaseModel):
     novelties_open: int
     novelties_urgent: int
     unreviewed_closes: int
+    # Base de respaldo: préstamos al cajón sin devolver (`reserve_loans_tray`,
+    # lo mismo que Hoy). `None` en el total = la sede no usa base.
+    reserve_loans_open: int = 0
+    reserve_loans_total: int | None = None
+    attendance_review: int = 0
 
 
 class PanelReasonOut(BaseModel):
@@ -135,6 +148,8 @@ class StorePanelOut(BaseModel):
     business_date: date
     light: PanelLight
     reasons: list[PanelReasonOut]
+    # Sin turno y sin actividad: la sede está cerrada (semáforo gris).
+    closed: bool
     cash: PanelCashOut | None
     staff: PanelStaffOut
     area_counts: PanelAreaCountsOut
@@ -198,14 +213,45 @@ class RecordAreaCountOut(BaseModel):
 
 
 class RecordAttendanceOut(BaseModel):
-    shift_id: int
+    """En la ficha del turno, las filas del roster (la asistencia proyectada
+    sobre la ventana del turno: `status` `open`/`closed`). En la de la
+    persona, su asistencia real del día (`open`/`closed`/`review`)."""
+
+    shift_id: int | None
     business_date: date | None
     employee_id: int
     employee_name: str
     in_at: datetime
     out_at: datetime | None
-    # Marcó entrada (o tuvo la caja) vs. sólo se identificó en la tablet.
-    clocked_in: bool
+    status: str
+
+
+class RecordEnvelopeOut(BaseModel):
+    source_shift_id: int | None
+    business_date: date | None
+    expected: int | None
+    counted: int | None
+    difference: int | None
+
+
+class RecordOpeningCountOut(BaseModel):
+    """La apertura por sobres: qué sobres, lo esperado y lo contado de cada
+    uno, y quién contó. Cifras tal como las selló el servidor al abrir."""
+
+    envelopes: list[RecordEnvelopeOut]
+    expected_total: int
+    counted_total: int
+    counted_by: str
+    counted_at: datetime
+
+
+class RecordReserveMovementOut(BaseModel):
+    kind: str
+    amount: int
+    employee_name: str
+    authorized_by: str | None
+    at: datetime
+    reversed: bool
 
 
 class RecordDepositOut(BaseModel):
@@ -234,6 +280,11 @@ class ShiftRecordOut(BaseModel):
     # suma que Ventas › Por turno. `None` si el turno no cobró nada.
     sales: SalesBucketOut | None
     deposit: RecordDepositOut | None
+    opening_mode: str
+    opening_count: RecordOpeningCountOut | None
+    reserve_movements: list[RecordReserveMovementOut]
+    # Lo que el cajón le debe a la base; `None` si la sede no usa base.
+    reserve_loan_outstanding: int | None
     voids: list[RecordVoidOut]
     discounts: list[RecordDiscountOut]
     novelties: list[RecordNoveltyOut]

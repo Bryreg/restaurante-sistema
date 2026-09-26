@@ -63,10 +63,25 @@ PHOTO = "data:image/png;base64,AAAA"
 #: `carried_still_in_drawer` —la plata de días anteriores que sigue en el
 #: cajón, que es saldo de su turno de origen— resta de lo que este turno
 #: debe consignar. Sin el segundo, la venta de ayer se contaría dos veces.
-EXPECTED_FORMULA = "expected = base + sales.cash + incomes - expenses - pickups - deposits"
+#:
+#: **Movida otra vez a propósito el 2026-09-26, por decisión del dueño**
+#: (`docs/SPEC-NEGOCIO.md` §3.2, `docs/ESTADO.md` §46): el cajón abre SÓLO con
+#: los sobres por consignar que se eligen y se cuentan, y la «base» es una
+#: sola cosa —la base de respaldo, aparte del cajón—. Tres cambios, y ninguno
+#: es de domicilios ni de propinas (eso lo sigue cobrando el test de abajo):
+#: `reserve_loan` —lo que el cajón tomó prestado de la base de respaldo y no
+#: devolvió— SUMA al esperado, porque esa plata está en el cajón; la base fija
+#: que resta `to_deposit` pasa a ser la que el TURNO congeló al abrir
+#: (`shift.opening_fixed_base`: la de la sede para los turnos de la regla
+#: anterior, 0 con la regla de sobres) en vez de la de la sede en vivo —así un
+#: cambio de configuración nunca reescribe la cuenta de un turno—; y el
+#: préstamo sin devolver resta de lo que se consigna, porque vuelve a la
+#: base, no al banco (es la resta que el café no hizo: $697.900 en vez de
+#: $197.900).
+EXPECTED_FORMULA = "expected = base + sales.cash + incomes - expenses - pickups - deposits + reserve_loan"
 TO_DEPOSIT_FORMULA = (
-    "to_deposit = count.counted_cash_total - settings.opening_cash_fixed - (count.tips_cash_out or 0)"
-    " - carried_still_in_drawer(db, shift)"
+    "to_deposit = count.counted_cash_total - shift.opening_fixed_base - (count.tips_cash_out or 0)"
+    " - carried_still_in_drawer(db, shift) - reserve.loan_outstanding(db, shift.id)"
 )
 
 

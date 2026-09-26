@@ -175,12 +175,12 @@ export function FichaPersona(): React.JSX.Element {
       />
       <SeccionFicha
         titulo="Asistencia"
-        dice="en qué turnos estuvo, y si marcó entrada o sólo se identificó"
+        dice="su asistencia real de cada día, con o sin caja abierta"
         sustantivo="entradas"
         vacio="No figura en ningún turno del período."
         columns={attendanceColumns("turno")}
         rows={r.attendance}
-        rowKey={(a) => `${a.shift_id}-${a.in_at}`}
+        rowKey={(a) => `${a.business_date ?? ""}-${a.in_at}`}
       />
       <p className="text-xs text-muted-foreground">{ATTENDANCE_NOTE}</p>
       <SeccionFicha

@@ -36,6 +36,10 @@ export function ShiftSummaryPanel({
   const summary = useShiftSummary(conCaja ? shift.id : null);
   const openingTotal = summary.data?.opening_cash_total;
   const reserve = summary.data?.cash_reserve;
+  // 2026-09-26: con la regla de sobres el cajón abrió con los sobres (no hay
+  // base fija), y la base de respaldo vive aparte: sólo se muestra lo que el
+  // cajón le debe, tal como lo publica el servidor (`reserve_loan`).
+  const sobres = shift.opening_mode === "envelopes";
   // `shift.delivery_cash_pending` (sondeo cada 5 s) y `summary.data.
   // delivery_cash_pending` (resumen completo) son el MISMO campo servido
   // por dos rutas (`GET /shifts/current` y `GET /shifts/{id}`); se prefiere
@@ -65,13 +69,22 @@ export function ShiftSummaryPanel({
         {conCaja ? (
           <>
             <div>
-              <p className="text-sm text-muted-foreground">Base fija</p>
+              <p className="text-sm text-muted-foreground">{sobres ? "Apertura (sobres)" : "Base fija"}</p>
               <p className="font-medium tabular-nums">{formatCOP(openingTotal)}</p>
             </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Reserva (aparte, no entra al cuadre)</p>
-              <p className="font-medium tabular-nums">{formatCOP(reserve)}</p>
-            </div>
+            {sobres ? (
+              shift.reserve_loan !== null && shift.reserve_loan !== undefined ? (
+                <div>
+                  <p className="text-sm text-muted-foreground">Le debe a la base de respaldo</p>
+                  <p className="font-medium tabular-nums">{formatCOP(shift.reserve_loan)}</p>
+                </div>
+              ) : null
+            ) : (
+              <div>
+                <p className="text-sm text-muted-foreground">Reserva (aparte, no entra al cuadre)</p>
+                <p className="font-medium tabular-nums">{formatCOP(reserve)}</p>
+              </div>
+            )}
             <div>
               <p className="text-sm text-muted-foreground">Esperado</p>
               <p className="font-medium tabular-nums">{formatCOP(shift.expected_cash)}</p>

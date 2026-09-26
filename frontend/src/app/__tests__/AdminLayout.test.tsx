@@ -274,6 +274,20 @@ describe("AdminLayout: la salida", () => {
     expect(clear).toHaveBeenCalledTimes(1);
   });
 
+  it("en una tablet (sesión corta): relee la sesión en vez de olvidarla, para volver a «Quién opera»", async () => {
+    // Antes caía en `/login` y parecía que había que activar la tablet de nuevo.
+    const clear = vi.fn();
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderAdmin(buildMe({ on_device: true }), { clear, refresh });
+
+    await user.click(await screen.findByRole("button", { name: /salir/i }));
+
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(clear).not.toHaveBeenCalled();
+  });
+
   it("si el servidor falla, la sesión NO se da por cerrada", async () => {
     // La cookie `httpOnly` la borra el servidor. Limpiar `me` igual dejaría
     // a la persona en `/login` con la sesión todavía viva: recarga y vuelve

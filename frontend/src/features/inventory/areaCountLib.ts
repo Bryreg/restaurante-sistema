@@ -10,6 +10,32 @@ import { formatCantidad } from "@/lib/format"
 /** El tablero del POS (`GET /device/area-count`). */
 export const AREA_COUNT_QUERY_KEY = ["area-count", "board"] as const
 
+/** La pantalla de conteo del POS (`GET /device/area-count/sheet`) y la puerta de la apertura. */
+export const AREA_COUNT_SHEET_QUERY_KEY = ["area-count", "sheet"] as const
+export const AREA_COUNT_GATE_QUERY_KEY = ["area-count", "gate"] as const
+
+const HORA = new Intl.DateTimeFormat("es-CO", {
+  timeZone: "America/Bogota",
+  hour: "numeric",
+  minute: "2-digit",
+  hourCycle: "h23",
+})
+
+/** «7:10»: la hora de Bogotá de un instante del servidor. */
+export function horaBogota(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  const instant = new Date(iso)
+  if (Number.isNaN(instant.getTime())) return "—"
+  return HORA.format(instant)
+}
+
+/** «Contado por Kevin · 7:10» (y «· recontado» si hubo más de una entrada). Sin la cantidad: es a ciegas. */
+export function contadoPor(mark: { employee_name: string; counted_at: string; entries: number } | null): string {
+  if (mark === null) return "Sin contar"
+  const recontado = mark.entries > 1 ? " · recontado" : ""
+  return `Contado por ${mark.employee_name} · ${horaBogota(mark.counted_at)}${recontado}`
+}
+
 export const AREA_COUNTS_QUERY_KEYS = {
   areas: (storeId: number) => ["area-counts", "areas", storeId] as const,
   settings: (storeId: number) => ["area-counts", "settings", storeId] as const,
