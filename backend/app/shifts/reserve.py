@@ -126,6 +126,57 @@ def available(db: Session, store_id: int) -> int:
     return max(0, reserve_amount(db, store_id) - store_loans_outstanding(db, store_id))
 
 
+# ---------------------------------------------------------------------------
+# Aviso grave: plata de la base sin devolver (`reserve_loan_open`, 0031)
+# ---------------------------------------------------------------------------
+
+
+def notify_loan_open(db: Session, *, shift: Shift, owed: int, when: str) -> None:
+    """Crítico, y al celular: un préstamo de la base tiene que volver el
+    mismo día. `when` = `close` (intentaron contar el cierre con el préstamo
+    abierto) o `overdue` (pasó la hora de corte del día del turno, o el
+    turno se cerró por rescate con la plata adentro). El supervisor de la
+    sede —custodio de la base— también lo recibe, sin el monto."""
+    if when == "close":
+        body = f"Intentaron cerrar el turno #{shift.id} con {format_cop(owed)} de la base de respaldo sin devolver."
+        supervisor = f"Intentaron cerrar el turno #{shift.id} sin devolver la plata de la base de respaldo."
+    else:
+        body = f"El turno #{shift.id} sigue debiendo {format_cop(owed)} a la base de respaldo y ya pasó la hora de corte."
+        supervisor = f"El turno #{shift.id} no devolvió la plata de la base de respaldo y ya pasó la hora de corte."
+    notify(
+        db,
+        organization_id=shift.organization_id,
+        store_id=shift.store_id,
+        type="reserve_loan_open",
+        level="critical",
+        title="Base de respaldo sin devolver",
+        body=body,
+        payload={"shift_id": shift.id, "owed": owed, "when": when},
+        dedupe_key=f"reserve_loan_open:{when}:{shift.id}",
+        supervisor_body=supervisor,
+        push_url="/admin/dinero",
+    )
+
+
+def _loan_overdue(db: Session, shift: Shift, store: Store) -> bool:
+    if shift.status != ShiftStatus.OPEN:
+        return True
+    # Import local: `service` importa este módulo al cargar.
+    from app.shifts.service import end_of_business_day
+
+    end = end_of_business_day(db, shift, store)
+    return end is not None and clock.now_utc() >= end
+
+
+def notify_overdue_loans(db: Session, *, store: Store, loans: list[OpenLoan]) -> None:
+    """Lo llama la bandeja de Hoy y del panel al leer los préstamos
+    abiertos: así el aviso no depende de que alguien intente cerrar."""
+    for loan in loans:
+        shift = db.get(Shift, loan.shift_id)
+        if shift is not None and _loan_overdue(db, shift, store):
+            notify_loan_open(db, shift=shift, owed=loan.amount, when="overdue")
+
+
 def list_movements(db: Session, *, shift_id: int) -> list[CashReserveMovement]:
     return list(
         db.execute(

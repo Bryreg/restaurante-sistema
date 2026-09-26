@@ -63,6 +63,8 @@ const TIPOS_DEL_BACKEND = [
   "order_unsent_too_long", "order_unpaid_too_long", "fiscal_rejected", "fiscal_contingency_overdue",
   "fiscal_range_low", "pending_refund", "ingredient_below_min", "ingredient_negative", "prep_no_production",
   "product_discounts_nothing", "waste_spike",
+  // 0031, avisos al celular: los dos hechos graves que no se emitían.
+  "reserve_loan_open", "area_count_shortage",
 ];
 
 describe("reglas de notificación", () => {

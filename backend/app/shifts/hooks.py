@@ -782,6 +782,9 @@ def reserve_loans_tray(db: Session, store: Any) -> dict[str, Any]:
     if not features.is_enabled(db, store.organization_id, store.id, reserve.FEATURE):
         return {"reserve_loans_open_count": 0, "reserve_loans_open_total": None}
     loans = reserve.open_loans(db, store_id=store.id)
+    # Un préstamo que pasó la hora de corte (o quedó adentro de un turno
+    # rescatado) es un aviso crítico: sale al celular del dueño (0031).
+    reserve.notify_overdue_loans(db, store=store, loans=loans)
     return {
         "reserve_loans_open_count": len(loans),
         "reserve_loans_open_total": sum(loan.amount for loan in loans),

@@ -47,3 +47,54 @@ export function setNotificationRules(storeId: number, rules: NotificationRule[])
     body: rules,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Avisos al celular (Web Push, función `notifications.push`). Cada persona
+// maneja SUS celulares; la clave privada nunca viaja.
+// ---------------------------------------------------------------------------
+
+export interface PushPublicKey {
+  public_key: string;
+}
+
+export interface PushDevice {
+  id: number;
+  /** «iPhone · Safari», armado por el servidor a partir del navegador. */
+  label: string;
+  endpoint: string;
+  created_at: string;
+  last_success_at: string | null;
+  last_error: string | null;
+}
+
+/** La forma de `PushSubscription.toJSON()` que el servidor necesita. */
+export interface PushSubscriptionIn {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+export interface PushTestResult {
+  sent: number;
+  failed: number;
+  removed: number;
+}
+
+export function getPushPublicKey(): Promise<PushPublicKey> {
+  return api<PushPublicKey>("/admin/push/public-key");
+}
+
+export function listPushDevices(): Promise<PushDevice[]> {
+  return api<PushDevice[]>("/admin/push/devices");
+}
+
+export function subscribePush(subscription: PushSubscriptionIn): Promise<PushDevice> {
+  return api<PushDevice>("/admin/push/subscribe", { method: "POST", body: subscription });
+}
+
+export function unsubscribePush(target: { subscription_id: number } | { endpoint: string }): Promise<{ removed: boolean }> {
+  return api<{ removed: boolean }>("/admin/push/unsubscribe", { method: "POST", body: target });
+}
+
+export function sendPushTest(): Promise<PushTestResult> {
+  return api<PushTestResult>("/admin/push/test", { method: "POST" });
+}

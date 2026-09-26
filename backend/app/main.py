@@ -102,8 +102,20 @@ def create_app() -> FastAPI:
     return app
 
 
-def _mount_frontend(app: FastAPI) -> None:
-    frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+# Archivos de la raíz del build que el navegador trata distinto (avisos al
+# celular, 0031). El service worker se sirve desde `/` para que su alcance
+# sea todo el sitio, y sin caché: una versión nueva tiene que llegar en la
+# próxima visita, no cuando venza un caché de un día. El manifiesto con su
+# tipo propio, que es lo que mira el iPhone para «Agregar a inicio».
+_ROOT_FILE_HEADERS: dict[str, tuple[str, dict[str, str]]] = {
+    "sw.js": ("text/javascript", {"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"}),
+    "manifest.webmanifest": ("application/manifest+json", {"Cache-Control": "no-cache"}),
+}
+
+
+def _mount_frontend(app: FastAPI, frontend_dist: Path | None = None) -> None:
+    if frontend_dist is None:
+        frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
     if not frontend_dist.is_dir():
         return
     dist_root = frontend_dist.resolve()
@@ -116,6 +128,10 @@ def _mount_frontend(app: FastAPI) -> None:
         except ValueError:
             candidate = dist_root / "index.html"
         if full_path and candidate.is_file():
+            special = _ROOT_FILE_HEADERS.get(full_path)
+            if special is not None:
+                media_type, headers = special
+                return FileResponse(candidate, media_type=media_type, headers=headers)
             return FileResponse(candidate)
         return FileResponse(dist_root / "index.html")
 

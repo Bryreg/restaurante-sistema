@@ -22,6 +22,8 @@ export const TYPE_LABEL: Record<string, string> = {
   prep_no_production: "Preparación sin producir",
   product_discounts_nothing: "Plato que no descuenta inventario",
   waste_spike: "Merma por encima de lo habitual",
+  reserve_loan_open: "Base de respaldo sin devolver",
+  area_count_shortage: "Faltante grande en un conteo",
 };
 
 /** Qué gobierna cada regla, en palabras: a quién le llega y de dónde sale. */
@@ -47,4 +49,7 @@ export const TYPE_HELP: Record<string, string> = {
   prep_no_production: "Una preparación por lote se está usando sin que nadie registre haberla producido.",
   product_discounts_nothing: "Se vendió un plato sin ficha técnica: la venta siguió, pero el inventario no se movió.",
   waste_spike: "La merma de un insumo esta semana supera 1,5 veces la de la semana anterior.",
+  reserve_loan_open:
+    "Se intentó cerrar un turno sin devolver lo tomado de la base de respaldo, o pasó la hora de corte y sigue sin volver.",
+  area_count_shortage: "Un artículo del conteo por área faltó por encima del umbral de Inventario › Conteo por área.",
 };

@@ -70,6 +70,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -83,6 +84,7 @@ from app.core.money import format_cop
 from app.core.percent import format_pct_bp
 from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.inventory import hooks, service
+from app.notifications.service import notify
 from app.inventory.units import entry_qty_to_base, entry_spec
 from app.inventory.models import (
     AreaCount,
@@ -800,10 +802,12 @@ def register_count(db: Session, *, store: Store, actor: Actor, data: AreaCountIn
     if not items:
         raise AppError(code="COUNT_AREA_EMPTY", message=f"El área {area.name} no tiene artículos para contar todavía")
     parsed = _parse_lines(data.lines, expected=items, what=f"la lista de {area.name}")
-    return _write_count(
+    count = _write_count(
         db, store=store, actor=actor, area=area, moment=AreaCountMoment(data.moment), parsed=parsed,
         recount_request_id=None, now=clock.now_utc(),
     )
+    notify_shortages(db, store=store, count=count, ingredient_ids={ing.id for ing, *_ in parsed})
+    return count
 
 
 def recount_or_404(db: Session, *, store: Store, request_id: int) -> AreaRecountRequest:
@@ -839,6 +843,7 @@ def answer_recount(
     req.status = AreaRecountStatus.ANSWERED
     req.answered_at = now
     db.flush()
+    notify_shortages(db, store=store, count=count, ingredient_ids={ing.id for ing, *_ in parsed})
     return count
 
 
@@ -1021,6 +1026,7 @@ def record_item(db: Session, *, store: Store, actor: Actor, data: AreaCountItemI
     )
     db.add(line)
     db.flush()
+    notify_shortages(db, store=store, count=count, ingredient_ids={ingredient.id})
     return SavedItem(area=area, count=count, line=line, ingredient=ingredient, moment=moment)
 
 
@@ -1464,6 +1470,75 @@ def count_detail(db: Session, *, store: Store, count: AreaCount) -> AreaCountDet
         people=people,
         last_counted_at=last_at,
         lines=out_lines,
+    )
+
+
+_UNIT_LABEL = {"g": "g", "ml": "ml", "unit": "und"}
+
+
+def _flagged_shortages(
+    db: Session, *, store: Store, count: AreaCount, ingredient_ids: set[int]
+) -> list[AreaCountLineOut]:
+    """Los artículos recién contados que quedaron FUERA del umbral por
+    FALTANTE (no por sobrante), con la misma matemática de `count_detail`
+    pero sólo para esos artículos: guardar uno no recalcula la lista
+    entera."""
+    reference, reason = reference_for(db, count)
+    reference_lines = (
+        {ing_id: entries[-1] for ing_id, entries in _effective_lines(db, reference).items()}
+        if reference is not None
+        else {}
+    )
+    by_ingredient = {k: v for k, v in _effective_lines(db, count).items() if k in ingredient_ids}
+    ingredients = _ingredients_by_id(db, list(by_ingredient))
+    limits = thresholds(db, store)
+    out: list[AreaCountLineOut] = []
+    for ing_id, entries in by_ingredient.items():
+        if ing_id not in ingredients:
+            continue
+        line = _line_result(
+            db, store=store, count=count, entries=entries, ingredient=ingredients[ing_id], reference=reference,
+            reference_lines=reference_lines, reason=reason, limits=limits,
+        )
+        if line.flagged and line.shortage_qty is not None and Decimal(line.shortage_qty) > 0:
+            out.append(line)
+    return out
+
+
+def notify_shortages(db: Session, *, store: Store, count: AreaCount, ingredient_ids: set[int]) -> None:
+    """Faltante grande del conteo por área (`area_count_shortage`, 0031):
+    crítico, así que sale al celular del dueño si tiene
+    `notifications.push`. Nunca bloquea: el conteo ya quedó guardado. Sólo
+    al administrador (el texto puede llevar el valor del faltante); una vez
+    por artículo, conteo y día."""
+    lines = _flagged_shortages(db, store=store, count=count, ingredient_ids=ingredient_ids)
+    if not lines:
+        return
+    window = {AreaCountMoment.OPENING: "de la noche", AreaCountMoment.CLOSING: "del turno"}.get(
+        count.moment, "en el recuento"
+    )
+
+    def _what(line: AreaCountLineOut) -> str:
+        unit = _UNIT_LABEL.get(line.base_unit, line.base_unit)
+        text = f"{line.ingredient_name} ({line.shortage_qty} {unit}"
+        if line.shortage_value is not None:
+            text += f", {format_cop(line.shortage_value)}"
+        return text + ")"
+
+    shown = ", ".join(_what(line) for line in lines[:3])
+    more = f" y {len(lines) - 3} más" if len(lines) > 3 else ""
+    ids = sorted(line.ingredient_id for line in lines)
+    notify(
+        db,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        type="area_count_shortage",
+        level="critical",
+        title=f"Faltante grande en {count.area_name}",
+        body=f"Faltante {window} en {count.area_name}: {shown}{more}.",
+        payload={"count_id": count.id, "ingredient_ids": ids},
+        dedupe_key=f"area_count_shortage:{count.id}:{','.join(str(i) for i in ids)}",
+        push_url="/admin/inventario?tab=por-area",
     )
 
 

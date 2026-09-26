@@ -166,6 +166,8 @@ def test_void_rate_high_notifies_with_dedupe(
     notifications = _notifications_of_type(db, org.id, "void_rate_high")
     assert len(notifications) == 1
     assert notifications[0].dedupe_key == f"void_rate_high:{shift['id']}:{operator.id}"
+    # Crítico desde 0031: el dueño pidió que le llegue al celular.
+    assert notifications[0].level == "critical"
 
     order_c = new_order().json()
     order_c = add_items(order_c, [{"product_id": drink_product.id, "qty": 1}]).json()
