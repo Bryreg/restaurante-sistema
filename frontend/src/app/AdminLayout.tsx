@@ -586,13 +586,21 @@ function LogoutButton({
   variant?: "barra" | "rail";
   touch?: boolean;
 } = {}): React.JSX.Element {
-  const { clear } = useSession();
+  const { me, clear, refresh } = useSession();
   const [saliendo, setSaliendo] = useState(false);
 
   async function handleLogout() {
     setSaliendo(true);
     try {
       await logout();
+      if (me?.on_device) {
+        // Sesión corta abierta desde una tablet del salón: se RELEE la
+        // sesión (queda la del dispositivo) y `RequireAdmin` manda a
+        // «Quién opera». Antes caía en `/login` y parecía que había que
+        // volver a activar la tablet.
+        await refresh();
+        return;
+      }
       // `clear()` deja `me` en `null` y el guard `RequireAdmin` de
       // `router.tsx` redirige a `/login`; no hace falta navegar a mano.
       clear();

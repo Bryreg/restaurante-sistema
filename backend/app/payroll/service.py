@@ -52,7 +52,7 @@ from app.payroll.models import (
     TipDistributionMethod,
     TipDistributionSettings,
 )
-from app.shifts.models import BusinessDay, Shift, ShiftRoster, ShiftStatus
+from app.shifts.models import AttendanceEntry, BusinessDay, Shift, ShiftRoster, ShiftStatus
 from app.shifts.tips import get_shift_tips
 from app.stores.models import Store
 
@@ -395,7 +395,7 @@ def _subtract_interval(
     return result
 
 
-def _worked_intervals(roster: ShiftRoster, *, until: datetime) -> list[tuple[datetime, datetime]]:
+def _worked_intervals(roster: ShiftRoster | AttendanceEntry, *, until: datetime) -> list[tuple[datetime, datetime]]:
     """Intervalos trabajados de una entrada de roster, restando las pausas
     (`ShiftRoster.pauses`, forma `[{"start": iso, "end": iso|None}]`). Una
     pausa sin cerrar, o una entrada sin `out_at` (todavía en curso), se
@@ -475,6 +475,104 @@ def _query_roster(
     return list(db.execute(stmt).scalars())
 
 
+def _admin_ids(db: Session, employee_ids: set[int]) -> set[int]:
+    """Quiénes de `employee_ids` son administradores HOY. Decisión del dueño:
+    el administrador autoriza, no opera — no suma horas ni propina, aunque
+    haya filas viejas de roster a su nombre. Las liquidaciones ya calculadas
+    no se tocan (son un snapshot en `payroll_run_lines`)."""
+
+    if not employee_ids:
+        return set()
+    from app.auth.models import Employee
+
+    rows = db.execute(select(Employee.id).where(Employee.id.in_(employee_ids), Employee.role == "admin")).all()
+    return {int(r[0]) for r in rows}
+
+
+def _query_attendance(
+    db: Session, *, store_id: int, date_from: date, date_to: date, employee_id: int | None
+) -> list[AttendanceEntry]:
+    # Misma ventana generosa que el roster, sobre la fecha operativa propia
+    # de la fila (una jornada cruza medianoche y la parte `_employee_pieces`).
+    stmt = select(AttendanceEntry).where(
+        AttendanceEntry.store_id == store_id,
+        AttendanceEntry.business_date >= date_from - timedelta(days=1),
+        AttendanceEntry.business_date <= date_to + timedelta(days=1),
+    )
+    if employee_id is not None:
+        stmt = stmt.where(AttendanceEntry.employee_id == employee_id)
+    return list(db.execute(stmt).scalars())
+
+
+def _merge_intervals(intervals: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
+    merged: list[tuple[datetime, datetime]] = []
+    for start, end in sorted(intervals):
+        if merged and start <= merged[-1][1]:
+            if end > merged[-1][1]:
+                merged[-1] = (merged[-1][0], end)
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _employee_intervals(
+    db: Session, *, store: Store, date_from: date, date_to: date, employee_id: int | None, until: datetime
+) -> tuple[dict[int, list[tuple[datetime, datetime]]], dict[int, str]]:
+    """La jornada de cada persona: la **unión** de la asistencia del día
+    (0028) y del roster del turno de caja. Desde 0028 la asistencia es la
+    jornada y el roster su proyección sobre la ventana del turno; los datos
+    anteriores sólo tienen roster. Unir —en vez de sumar— es lo que evita
+    contar dos veces el mismo minuto cuando una persona tiene las dos filas.
+
+    Una salida olvidada (asistencia abierta de un día operativo que ya pasó)
+    **no** se cuenta hasta ahora: queda «a revisar» (`pending_review`) hasta
+    que el administrador escriba la hora. El error tolerable es el que paga
+    menos, y se publica."""
+
+    today = tz.business_date_for(until, store.cutoff_hour)
+    roster_rows = _query_roster(db, store_id=store.id, date_from=date_from, date_to=date_to, employee_id=employee_id)
+    attendance_rows = _query_attendance(
+        db, store_id=store.id, date_from=date_from, date_to=date_to, employee_id=employee_id
+    )
+    admins = _admin_ids(db, {r.employee_id for r in roster_rows} | {a.employee_id for a in attendance_rows})
+
+    raw: dict[int, list[tuple[datetime, datetime]]] = {}
+    names: dict[int, str] = {}
+    for row in roster_rows:
+        if row.employee_id in admins:
+            continue
+        names.setdefault(row.employee_id, row.employee_name)
+        raw.setdefault(row.employee_id, []).extend(_worked_intervals(row, until=until))
+    for entry in attendance_rows:
+        if entry.employee_id in admins:
+            continue
+        if entry.out_at is None and entry.business_date < today:
+            continue  # salida olvidada: a revisar, no se inventa la hora
+        names[entry.employee_id] = entry.employee_name
+        raw.setdefault(entry.employee_id, []).extend(_worked_intervals(entry, until=until))
+    return {eid: _merge_intervals(iv) for eid, iv in raw.items()}, names
+
+
+def pending_review_entries(
+    db: Session, *, store: Store, date_from: date, date_to: date, employee_id: int | None = None
+) -> list[AttendanceEntry]:
+    """Salidas olvidadas del período: entradas de asistencia sin salida en un
+    día operativo que ya pasó. Sus horas no están en `get_hours` hasta que
+    el administrador corrija la salida."""
+
+    today = tz.business_date_for(clock.now_utc(), store.cutoff_hour)
+    stmt = select(AttendanceEntry).where(
+        AttendanceEntry.store_id == store.id,
+        AttendanceEntry.out_at.is_(None),
+        AttendanceEntry.business_date < today,
+        AttendanceEntry.business_date >= date_from,
+        AttendanceEntry.business_date <= date_to,
+    )
+    if employee_id is not None:
+        stmt = stmt.where(AttendanceEntry.employee_id == employee_id)
+    return list(db.execute(stmt.order_by(AttendanceEntry.business_date, AttendanceEntry.in_at)).scalars())
+
+
 def _employee_pieces(
     db: Session,
     *,
@@ -490,13 +588,15 @@ def _employee_pieces(
     vigentes en algún día del período (para `tables_used`)."""
     tables_sorted = list_surcharge_tables(db, store_id=store.id)
     holidays = _holiday_dates(db, store_id=store.id)
-    roster_rows = _query_roster(db, store_id=store.id, date_from=date_from, date_to=date_to, employee_id=employee_id)
+    intervals_by_employee, names = _employee_intervals(
+        db, store=store, date_from=date_from, date_to=date_to, employee_id=employee_id, until=until
+    )
 
     by_employee: dict[int, list[_Piece]] = {}
     used_tables: dict[int, SurchargeTable] = {}
 
-    for row in roster_rows:
-        for w_start, w_end in _worked_intervals(row, until=until):
+    for row_employee_id, intervals in intervals_by_employee.items():
+        for w_start, w_end in intervals:
             hour_marks = {0, store.cutoff_hour}
             cursor_date = tz.to_bogota(w_start).date()
             end_date = tz.to_bogota(w_end).date()
@@ -525,8 +625,8 @@ def _employee_pieces(
                 is_holiday = calendar_date in holidays
                 is_sunday = (not is_holiday) and calendar_date.weekday() == 6
                 piece = _Piece(
-                    employee_id=row.employee_id,
-                    employee_name=row.employee_name,
+                    employee_id=row_employee_id,
+                    employee_name=names[row_employee_id],
                     start=p_start,
                     minutes=minutes,
                     business_date=business_date,
@@ -536,7 +636,7 @@ def _employee_pieces(
                     is_holiday=is_holiday,
                     table=table,
                 )
-                by_employee.setdefault(row.employee_id, []).append(piece)
+                by_employee.setdefault(row_employee_id, []).append(piece)
 
     for pieces in by_employee.values():
         _split_ordinary_overtime(pieces)
@@ -960,6 +1060,10 @@ def _participants(db: Session, *, store: Store, shift_ids: list[int]) -> dict[in
     result: dict[int, str] = {}
     for employee_id, employee_name in db.execute(stmt).all():
         result[employee_id] = employee_name
+    # El administrador autoriza, no opera: no entra al reparto aunque haya
+    # una fila vieja de roster a su nombre (decisión del dueño).
+    for admin_id in _admin_ids(db, set(result)):
+        result.pop(admin_id, None)
     return result
 
 
@@ -1081,6 +1185,8 @@ def compute_tip_proposal(
         minutes_by_employee: dict[int, int] = {eid: 0 for eid in ordered_ids}
         stmt = select(ShiftRoster).where(ShiftRoster.shift_id.in_(shift_ids))
         for roster in db.execute(stmt).scalars():
+            if roster.employee_id not in minutes_by_employee:
+                continue  # no participa (el administrador)
             worked = sum(hours_mod.minutes_between(s, e) for s, e in _worked_intervals(roster, until=until))
             minutes_by_employee[roster.employee_id] = minutes_by_employee.get(roster.employee_id, 0) + worked
         weights = [minutes_by_employee.get(eid, 0) for eid in ordered_ids]

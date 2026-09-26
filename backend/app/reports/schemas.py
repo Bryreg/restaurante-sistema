@@ -237,6 +237,16 @@ class AreaCountAreaTodayOut(BaseModel):
     area_name: str
     opening: AreaCountDoneTodayOut | None
     closing: AreaCountDoneTodayOut | None
+    # Conteo compartido barra/cocina (`app.inventory.AreaTodayStatus`, en
+    # integración): cuántos artículos van contados de cuántos, y si falta la
+    # apertura. Opcionales y `None` mientras `inventory` no los publique: el
+    # mapeo es tolerante (`getattr`) para que la integración no rompa nada.
+    opening_counted: int | None = None
+    opening_total: int | None = None
+    closing_counted: int | None = None
+    closing_total: int | None = None
+    full_count: bool | None = None
+    opening_missing: bool | None = None
 
 
 class AreaCountFlagOut(BaseModel):
@@ -289,6 +299,10 @@ class TodayOut(BaseModel):
     deposits_to_confirm_count: int = 0
     undeposited_total: int | None = None
     undeposited_oldest_date: date | None = None
+    # Base de respaldo (2026-09-26): préstamos al cajón sin devolver. Tienen
+    # que volver el mismo día. `None` en el total con `cash.reserve` apagada.
+    reserve_loans_open_count: int = 0
+    reserve_loans_open_total: int | None = None
     # La rutina del turno en el POS (2026-09-25): lo que el salón le dejó al
     # dueño para resolver. `0` con la función apagada.
     reception_drafts_pending_count: int = 0
@@ -337,6 +351,19 @@ class TodayOut(BaseModel):
     comparison: TodayComparisonOut | None = None
     sales_by_hour_reference: list[HourBucketOut] = []
     yesterday_close: DayCloseOut | None = None
+    # El turno abierto de la sede, **sea del día que sea** (`app.reports.
+    # panel.current_cash`, la misma lectura que el panel y que Dinero ›
+    # Operacional). Antes Hoy mostraba el esperado de un turno abandonado de
+    # otro día como si fuera el de hoy, sin decir que estaba abandonado ni
+    # que su responsable ya no estaba activo. `None` = no hay turno abierto.
+    current_shift: PanelCashOut | None = None
+    # Sin turno abierto, ¿hay actividad que lo pida? (`panel.shift_activity`:
+    # alguien de caja con asistencia abierta hoy, o comandas del día sin
+    # turno). `False` = la sede está cerrada: «sin turno» es neutro, no
+    # crítico. Con turno abierto, `False`.
+    store_closed: bool = False
+    # Salidas olvidadas de la asistencia «a revisar» (`GET /admin/attendance`).
+    attendance_pending_review_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -607,3 +634,17 @@ class ReportsOverviewOut(BaseModel):
     cost: CostSectionOut
     # Sólo con `scope="all"`; `None` por sede.
     by_store: list[StoreRowOut] | None
+
+
+# Los literales del panel viven acá (y no en `panel_schemas`) para que
+# `frontend/src/audit/api-literal-types.test.ts`, que lee los `schemas.py`,
+# los cruce contra `PanelLevel`/`PanelLight` de `src/api/panel.ts`.
+PanelLevelLiteral = Literal["critical", "warning", "info"]
+PanelLightLiteral = Literal["red", "amber", "green", "gray"]
+
+# El panel (`panel_schemas`) reusa `SalesBucketOut` de este módulo y `TodayOut`
+# reusa `PanelCashOut` de aquél: se importa al final, cuando todo lo de acá ya
+# existe, y se reconstruye el modelo que lo nombra.
+from app.reports.panel_schemas import PanelCashOut  # noqa: E402
+
+TodayOut.model_rebuild()

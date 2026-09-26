@@ -1,177 +1,28 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  ArrowRightLeft,
-  Bike,
-  ClipboardCheck,
-  ClipboardList,
-  Coins,
-  Landmark,
-  LockKeyhole,
-  type LucideIcon,
-  MessageSquareWarning,
-  PackagePlus,
-  PiggyBank,
-  UserCheck,
-  Users,
-} from "lucide-react";
+import { LockKeyhole } from "lucide-react";
 import { useEffect, useId, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 
 import { getDeviceAreaCount } from "@/api/areaCounts";
-import type { ShiftCurrent } from "@/api/shifts";
 import { puedeManejarCaja } from "@/app/puesto";
 import { useSession } from "@/app/session";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { AreaCountPanel } from "@/features/inventory/AreaCountPanel";
 import { AREA_COUNT_QUERY_KEY } from "@/features/inventory/areaCountLib";
-import { NoveltiesPanel } from "@/features/novelties";
-import { ReceiveGoodsPanel } from "@/features/purchases";
-import { RequestsPanel } from "@/features/requests";
 import { errorMessage } from "@/lib/errors";
 
-import { CashSwapPanel } from "./CashSwapPanel";
-import { CloseWizard } from "./CloseWizard";
-import { DeliverySettlementPanel } from "./DeliverySettlementPanel";
-import { DepositDrawerPanel } from "./DepositDrawerPanel";
-import { HandoverPanel } from "./HandoverPanel";
-import { MovementsPanel } from "./MovementsPanel";
-import { OpenShiftForm } from "./OpenShiftForm";
-import { PickupsPanel } from "./PickupsPanel";
-import { RosterPanel } from "./RosterPanel";
+import { type Accion, accionesHabilitadas } from "./acciones";
+import { OpeningScreen } from "./OpeningScreen";
+import { ShiftActionSheet } from "./ShiftActionSheet";
 import { ShiftSummaryPanel } from "./ShiftSummaryPanel";
 import { ShiftTeamCard } from "./ShiftTeamCard";
-import { SingleStepCloseForm } from "./SingleStepCloseForm";
 import { PasoPastilla, TarjetaTurnoCerrado, type ResultadoCierre } from "./closeUi";
-import { useCurrentShift } from "./hooks";
+import { useAccionEnUrl, useCurrentShift } from "./hooks";
 
-/**
- * Las acciones del turno, en el orden en que se dibujan. `clave` es la que
- * va en `?accion=` (deep link: otra pantalla puede mandar directo a
- * `/pos/turno?accion=consignar`); `flag` es la función opcional que la
- * enciende — sin flag, siempre está. «Cierre» no entra a la grilla: va
- * aparte, al pie (ver `ShiftPage`).
+/*
+ * Las acciones (rótulos, flags, quién ve cuál) viven en `acciones.ts` y la
+ * hoja que abre cada una en `ShiftActionSheet.tsx`: las comparte la cinta de
+ * caja de Mesas (`CashRibbon`), que abre las mismas hojas sin salir de Mesas.
  */
-type ClaveAccion =
-  | "entrada"
-  | "movimientos"
-  | "cambio"
-  | "retiros"
-  | "domicilios"
-  | "consignar"
-  | "relevo"
-  | "recibir"
-  | "solicitudes"
-  | "novedades"
-  | "conteo"
-  | "cierre";
-
-interface Accion {
-  clave: ClaveAccion;
-  label: string;
-  descripcion: string;
-  icono: LucideIcon;
-  flag?: string;
-}
-
-/**
- * **Inicio por rol**: lo que toca la plata del cajón lo ve sólo quien puede
- * manejar la caja (`puedeManejarCaja`: permiso de cobrar, responsable de la
- * caja del turno, supervisor o admin). Entrada / Salida, Solicitudes,
- * Novedades y el conteo del área son de todos. El backend rechaza igual
- * (`403 CASH_PERMISSION_REQUIRED`): esconder el botón ordena la pantalla, no
- * es el control.
- */
-const ACCIONES_DE_TODOS: ReadonlySet<ClaveAccion> = new Set(["entrada", "solicitudes", "novedades", "conteo"]);
-
-const ACCIONES: Accion[] = [
-  {
-    clave: "entrada",
-    label: "Entrada / Salida",
-    descripcion: "Entrar, salir o pausar con tu PIN",
-    icono: UserCheck,
-  },
-  { clave: "movimientos", label: "Movimientos", descripcion: "Ingreso o egreso de efectivo", icono: ArrowRightLeft },
-  {
-    clave: "cambio",
-    label: "Cambio",
-    descripcion: "Cambiar billetes por sencilla",
-    icono: Coins,
-    flag: "cash.swaps",
-  },
-  {
-    clave: "retiros",
-    label: "Retiros",
-    descripcion: "Sacar efectivo del cajón a sobre",
-    icono: PiggyBank,
-    flag: "cash.pickups",
-  },
-  {
-    clave: "domicilios",
-    label: "Domicilios",
-    descripcion: "Liquidar el efectivo de los domiciliarios",
-    icono: Bike,
-    flag: "pos.delivery",
-  },
-  {
-    // Consignar desde el POS (2026-09-24): la plata de días anteriores que
-    // está en el cajón. El turno está abierto si se llegó hasta acá.
-    clave: "consignar",
-    label: "Consignar",
-    descripcion: "Llevar al banco la plata de días anteriores",
-    icono: Landmark,
-    flag: "money.deposits",
-  },
-  {
-    clave: "relevo",
-    label: "Relevo",
-    descripcion: "Entregar la caja o hacer un arqueo sorpresa",
-    icono: Users,
-    flag: "cash.handovers",
-  },
-  // La rutina del turno (2026-09-25): lo que en café-sistema hace el barista
-  // desde su dock — recibir, pedir y dejar novedades.
-  {
-    clave: "recibir",
-    label: "Recibir mercancía",
-    descripcion: "Registrar lo que trajo un proveedor, con foto",
-    icono: PackagePlus,
-    flag: "purchases",
-  },
-  {
-    clave: "solicitudes",
-    label: "Solicitudes",
-    descripcion: "Pedir insumos o sencilla al administrador",
-    icono: ClipboardList,
-    flag: "pos.requests",
-  },
-  {
-    clave: "novedades",
-    label: "Novedades",
-    descripcion: "Dejar dicho lo que pasó para el que sigue",
-    icono: MessageSquareWarning,
-    flag: "pos.novelties",
-  },
-  // Conteo corto por área (2026-09-25): cada área cuenta sus artículos clave
-  // al abrir y al cerrar, a ciegas. No bloquea el cierre de caja.
-  {
-    clave: "conteo",
-    label: "Conteo de mi área",
-    descripcion: "Contar los artículos clave al abrir o al cerrar",
-    icono: ClipboardCheck,
-    flag: "inventory.shift_counts",
-  },
-];
-
-/** El cierre, aparte de la grilla pero con la misma forma, para el deep link y la hoja. */
-const CIERRE: Accion = {
-  clave: "cierre",
-  label: "Cierre",
-  descripcion: "Contar el cajón y cerrar la caja",
-  icono: LockKeyhole,
-};
 
 /** Lo que muestra el botón de volver: el panel mismo, que antes era la pestaña «Resumen». */
 const VOLVER = { label: "Resumen" } as const;
@@ -190,7 +41,7 @@ const VOLVER = { label: "Resumen" } as const;
  *
  * Antes eran hasta ocho pestañas (Resumen, Movimientos, Cambio, Retiros,
  * Domicilios, Consignar, Relevo, Cierre); los rótulos siguen siendo los
- * mismos, en `ACCIONES`, `CIERRE` y `VOLVER`.
+ * mismos, en `ACCIONES` y `CIERRE` (`acciones.ts`) y en `VOLVER`.
  *
  * **Tercera pantalla: el turno recién cerrado.** El resultado del cierre lo
  * guarda esta página (`closeResult`), no el formulario que lo produjo —los
@@ -214,7 +65,7 @@ export default function ShiftPage(): React.JSX.Element {
   const area = useQuery({ queryKey: AREA_COUNT_QUERY_KEY, queryFn: getDeviceAreaCount, enabled: conteoEncendido });
   const sinArea = area.data !== undefined && area.data.area_id === null;
   const showBlindClose = hasFeature("cash.blind_close");
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { claveAbierta, abrir, cerrar: cerrarAccion } = useAccionEnUrl();
 
   /**
    * El resultado del último cierre hecho en esta pantalla. Vive acá y no en
@@ -227,40 +78,13 @@ export default function ShiftPage(): React.JSX.Element {
    */
   const [closeResult, setCloseResult] = useState<ResultadoCierre | null>(null);
 
-  // La acción abierta vive en la URL (`?accion=`), no en un estado: así se
-  // puede enlazar desde otra pantalla. Una clave desconocida o apagada por
-  // flag se ignora (más abajo, al buscarla entre las habilitadas).
-  const claveAbierta = searchParams.get("accion");
-
-  function abrir(clave: ClaveAccion): void {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set("accion", clave);
-        return next;
-      },
-      { replace: true },
-    );
-  }
-
-  function cerrarAccion(): void {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("accion");
-        return next;
-      },
-      { replace: true },
-    );
-  }
-
   // Sin turno no hay acción que abrir: si la URL trae una (un enlace viejo,
   // o el `?accion=cierre` del cierre que se acaba de hacer), se descarta
   // para que no salte sola apenas alguien abra el turno siguiente.
   const sinTurno = !isLoading && !isError && !shift && !closeResult;
   useEffect(() => {
-    if (sinTurno && claveAbierta !== null) setSearchParams({}, { replace: true });
-  }, [sinTurno, claveAbierta, setSearchParams]);
+    if (sinTurno && claveAbierta !== null) cerrarAccion();
+  }, [sinTurno, claveAbierta, cerrarAccion]);
 
   // Va ANTES que `isLoading`/`isError`/`!shift`: mientras haya un resultado
   // sin acusar recibo, manda él. Sólo lo borra el botón de continuar — ni el
@@ -305,16 +129,14 @@ export default function ShiftPage(): React.JSX.Element {
         />
       );
     }
-    return <OpenShiftForm />;
+    // El cuadre de apertura (sobres por consignar o base fija, según la sede).
+    return <OpeningScreen />;
   }
 
-  const habilitadas = ACCIONES.filter(
-    (a) =>
-      (!a.flag || hasFeature(a.flag)) &&
-      (conCaja || ACCIONES_DE_TODOS.has(a.clave)) &&
-      !(a.clave === "conteo" && sinArea),
-  );
-  const abierta = [...habilitadas, ...(conCaja ? [CIERRE] : [])].find((a) => a.clave === claveAbierta) ?? null;
+  const habilitadas = accionesHabilitadas({ hasFeature, conCaja, sinArea });
+  // La grilla lleva todas menos el cierre, que va aparte, al pie.
+  const grilla = habilitadas.filter((a) => a.clave !== "cierre");
+  const abierta = habilitadas.find((a) => a.clave === claveAbierta) ?? null;
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -332,7 +154,7 @@ export default function ShiftPage(): React.JSX.Element {
           Acciones del turno
         </h2>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {habilitadas.map((accion) => (
+          {grilla.map((accion) => (
             <BotonAccion key={accion.clave} accion={accion} onClick={() => abrir(accion.clave)} />
           ))}
         </div>
@@ -361,47 +183,14 @@ export default function ShiftPage(): React.JSX.Element {
         </section>
       ) : null}
 
-      <Sheet
-        open={abierta !== null}
-        onOpenChange={(open) => {
-          if (!open) cerrarAccion();
-        }}
-      >
-        {abierta ? (
-          <SheetContent
-            side="right"
-            showCloseButton={false}
-            className={
-              abierta.clave === "cierre"
-                ? "gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-none"
-                : "gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-2xl"
-            }
-          >
-            <div className="flex items-center gap-3 border-b p-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="gap-2 px-4 text-base"
-                aria-label="Volver al resumen del turno"
-                onClick={cerrarAccion}
-              >
-                <ArrowLeft className="size-5" aria-hidden="true" />
-                {VOLVER.label}
-              </Button>
-              <div className="min-w-0">
-                <SheetTitle className="text-xl font-semibold">
-                  {abierta.label}
-                </SheetTitle>
-                <SheetDescription>{abierta.descripcion}</SheetDescription>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4">
-              <PanelDeAccion clave={abierta.clave} shift={shift} showBlindClose={showBlindClose} onClosed={setCloseResult} />
-            </div>
-          </SheetContent>
-        ) : null}
-      </Sheet>
+      <ShiftActionSheet
+        accion={abierta}
+        shift={shift}
+        showBlindClose={showBlindClose}
+        volver={{ label: VOLVER.label, ariaLabel: "Volver al resumen del turno" }}
+        onClose={cerrarAccion}
+        onClosed={setCloseResult}
+      />
     </div>
   );
 }
@@ -430,48 +219,4 @@ function BotonAccion({ accion, onClick }: { accion: Accion; onClick: () => void 
       </span>
     </Button>
   );
-}
-
-/** El panel de siempre para cada acción: se reusan tal cual. */
-function PanelDeAccion({
-  clave,
-  shift,
-  showBlindClose,
-  onClosed,
-}: {
-  clave: ClaveAccion;
-  shift: ShiftCurrent;
-  showBlindClose: boolean;
-  onClosed: (resultado: ResultadoCierre) => void;
-}): React.JSX.Element {
-  switch (clave) {
-    case "entrada":
-      return <RosterPanel shift={shift} />;
-    case "movimientos":
-      return <MovementsPanel shiftId={shift.id} />;
-    case "cambio":
-      return <CashSwapPanel shiftId={shift.id} />;
-    case "retiros":
-      return <PickupsPanel shiftId={shift.id} />;
-    case "domicilios":
-      return <DeliverySettlementPanel shiftId={shift.id} />;
-    case "consignar":
-      return <DepositDrawerPanel shiftId={shift.id} />;
-    case "relevo":
-      return <HandoverPanel shiftId={shift.id} />;
-    case "recibir":
-      return <ReceiveGoodsPanel />;
-    case "solicitudes":
-      return <RequestsPanel shiftId={shift.id} />;
-    case "novedades":
-      return <NoveltiesPanel />;
-    case "conteo":
-      return <AreaCountPanel />;
-    case "cierre":
-      return showBlindClose ? (
-        <CloseWizard shiftId={shift.id} onClosed={onClosed} />
-      ) : (
-        <SingleStepCloseForm shiftId={shift.id} onClosed={onClosed} />
-      );
-  }
 }

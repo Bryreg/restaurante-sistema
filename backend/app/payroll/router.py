@@ -66,6 +66,7 @@ from app.payroll.schemas import (
     HolidayIn,
     HolidayOut,
     HoursOut,
+    PendingExitOut,
     HoursRowOut,
     PayrollRunIn,
     PayrollRunLineOut,
@@ -206,6 +207,18 @@ def get_hours(
         rows=[_hours_row_out(r) for r in result.rows],
         available=result.available,
         reason=result.reason,
+        pending_review=[
+            PendingExitOut(
+                attendance_id=e.id,
+                employee_id=e.employee_id,
+                employee_name=e.employee_name,
+                business_date=e.business_date,
+                in_at=e.in_at,
+            )
+            for e in service.pending_review_entries(
+                db, store=store, date_from=date_from, date_to=date_to, employee_id=employee_id
+            )
+        ],
     )
 
 

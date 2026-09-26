@@ -20,12 +20,13 @@ from sqlalchemy.orm import Session
 from app.audit.service import record_audit
 from app.banking import hooks as banking_hooks
 from app.auth.deps import Actor, admin_store, current_actor, current_admin, current_device, current_operator
-from app.core import clock, features
+from app.auth.models import Employee
+from app.core import clock, features, money
 from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.shifts import hooks as shifts_hooks, service, tips as tips_service
+from app.shifts import hooks as shifts_hooks, reserve as reserve_service, service, tips as tips_service
 from app.shifts.models import BusinessDay, CashMovement, CashPickup, CashSwap, HandoverKind, Shift, ShiftHandover, ShiftStatus
 from app.shifts.schemas import (
     ShiftCashSummaryOut,
@@ -53,8 +54,21 @@ from app.shifts.schemas import (
     HandoverIn,
     HandoverKindLiteral,
     HandoverOut,
+    AdminReserveOut,
+    OpeningCountIn,
+    OpeningCountOut,
+    OpeningEnvelopeCandidateOut,
+    OpeningInfoOut,
     OpenShiftIn,
     OpenShiftOut,
+    ReserveCheckIn,
+    ReserveCheckOut,
+    ReserveMovementOut,
+    ReserveOpenLoanOut,
+    ReserveReturnIn,
+    ReserveReverseIn,
+    ReserveStatusOut,
+    ReserveTakeIn,
     RosterActionIn,
     RosterActionOut,
     RosterEntryOut,
@@ -191,6 +205,8 @@ def _shift_summary(db: Session, shift: Shift, actor: Actor) -> ShiftSummaryOut:
         cash_responsible=EmployeeRef(id=shift.cash_responsible_id, name=shift.cash_responsible_name),
         opening_cash_total=shift.opening_cash_total,
         cash_reserve=shift.cash_reserve,
+        opening_mode=_opening_mode(shift),
+        opening_count=_opening_count_out(db, shift),
         roster=[RosterEntryOut.model_validate(r) for r in roster],
         movements=[CashMovementOut.model_validate(m) for m in movements],
         swaps=[CashSwapOut(id=s.id, amount=s.amount, at=s.at) for s in swaps],
@@ -231,12 +247,38 @@ def _shift_summary(db: Session, shift: Shift, actor: Actor) -> ShiftSummaryOut:
     )
 
 
+def _opening_mode(shift: Shift) -> Any:
+    return "envelopes" if shift.opening_mode == service.ENVELOPES else "fixed_base"
+
+
+def _opening_count_out(db: Session, shift: Shift) -> OpeningCountOut | None:
+    count = service.opening_count_of_shift(db, shift.id)
+    return OpeningCountOut(**service.opening_count_view(count)) if count is not None else None
+
+
+def _reserve_loan_or_none(db: Session, shift: Shift) -> int | None:
+    """Lo que el cajón le debe a la base de respaldo; `None` (no `0`) con la
+    base apagada: «no hay base» no es «no debe nada»."""
+    if not features.is_enabled(db, shift.organization_id, shift.store_id, reserve_service.FEATURE):
+        return None
+    return reserve_service.loan_outstanding(db, shift.id)
+
+
 def _admin_shift_item(db: Session, shift: Shift) -> AdminShiftListItem:
     day = db.get(BusinessDay, shift.business_day_id)
     assert day is not None
     store = db.get(Store, shift.store_id)
     assert store is not None
     stale = service.is_shift_stale(db, shift, store) if shift.status == ShiftStatus.OPEN else False
+    # Esta lista es sólo de administrador (`current_admin`), igual que
+    # `_shift_summary` con actor admin: con el turno abierto publica el
+    # esperado vivo (`compute_breakdown`, la única fórmula) y no el `None`
+    # de la columna, que se llena al cerrar. Antes Dinero › Operacional decía
+    # «—» para el mismo turno que Hoy mostraba con su esperado.
+    expected = (
+        service.compute_breakdown(db, shift)["expected"] if shift.status == ShiftStatus.OPEN else shift.expected_cash
+    )
+    responsible = db.get(Employee, shift.cash_responsible_id)
     return AdminShiftListItem(
         id=shift.id,
         business_date=day.business_date,
@@ -245,7 +287,8 @@ def _admin_shift_item(db: Session, shift: Shift) -> AdminShiftListItem:
         opened_at=shift.opened_at,
         closed_at=shift.closed_at,
         cash_responsible=EmployeeRef(id=shift.cash_responsible_id, name=shift.cash_responsible_name),
-        expected_cash=shift.expected_cash,
+        cash_responsible_active=bool(responsible.active) if responsible is not None else None,
+        expected_cash=expected,
         counted_cash=shift.counted_cash,
         difference=shift.difference,
         is_stale=stale,
@@ -296,13 +339,17 @@ def get_current(actor: Actor = Depends(current_device), db: Session = Depends(ge
         delivery_cash_pending=delivery_cash_pending,
         is_stale=is_stale,
         cash_over_threshold=over,
+        opening_mode=_opening_mode(shift),
+        reserve_loan=_reserve_loan_or_none(db, shift),
     )
 
 
 class CarryCandidateOut(BaseModel):
     shift_id: int
     business_date: date
-    outstanding: int
+    # `None` con la apertura por sobres: ahí cada sobre se cuenta a ciegas y
+    # su saldo se revela recién al sellar (`POST /shifts/opening-counts`).
+    outstanding: int | None
 
 
 @router.get("/shifts/carry-candidates")
@@ -314,10 +361,58 @@ def get_carry_candidates(actor: Actor = Depends(current_device), db: Session = D
     store = _store_of(db, actor)
     if not features.is_enabled(db, store.organization_id, store.id, "money.deposits"):
         return []
+    blind = service.opening_mode_of(db, store) == service.ENVELOPES
     return [
-        CarryCandidateOut(shift_id=p.shift_id, business_date=p.business_date, outstanding=p.outstanding)
+        CarryCandidateOut(
+            shift_id=p.shift_id, business_date=p.business_date, outstanding=None if blind else p.outstanding
+        )
         for p in banking_hooks.pending_shifts(db, organization_id=store.organization_id, store_id=store.id)
     ]
+
+
+@router.get("/shifts/opening")
+def get_opening_info(actor: Actor = Depends(current_device), db: Session = Depends(get_db)) -> OpeningInfoOut:
+    """Lo que necesita la pantalla de apertura: la regla de la sede, los
+    sobres por consignar que se pueden elegir (**sólo la fecha**: se cuentan
+    a ciegas) y un conteo ya sellado sin usar, para retomar."""
+    store = _store_of(db, actor)
+    mode = service.opening_mode_of(db, store)
+    envelopes: list[OpeningEnvelopeCandidateOut] = []
+    pending: OpeningCountOut | None = None
+    if mode == service.ENVELOPES:
+        envelopes = [
+            OpeningEnvelopeCandidateOut(shift_id=p.shift_id, business_date=p.business_date)
+            for p in service.opening_envelope_candidates(db, store=store)
+        ]
+        count = service.pending_opening_count(db, store=store)
+        if count is not None:
+            pending = OpeningCountOut(**service.opening_count_view(count))
+    reserve_on = features.is_enabled(db, store.organization_id, store.id, reserve_service.FEATURE)
+    return OpeningInfoOut(
+        mode="envelopes" if mode == service.ENVELOPES else "fixed_base",
+        envelopes=envelopes,
+        pending_count=pending,
+        reserve_available=reserve_on and reserve_service.reserve_amount(db, store.id) > 0,
+    )
+
+
+@router.post("/shifts/opening-counts", status_code=201)
+def post_opening_count(
+    payload: OpeningCountIn, request: Request, actor: Actor = Depends(current_operator), db: Session = Depends(get_db)
+) -> JSONResponse:
+    """Sella el cuadre de apertura por sobres (a ciegas) y **recién ahí**
+    revela, por sobre, lo esperado, lo contado y la diferencia, con quién
+    contó. Abrir el turno con este conteo es `POST /shifts/open`."""
+    store = _store_of(db, actor)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=None)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        count = service.seal_opening_count(db, actor=actor, store=store, payload=payload)
+        return 201, OpeningCountOut(**service.opening_count_view(count)).model_dump(mode="json")
+
+    return _idempotent(
+        db, organization_id=actor.organization_id, scope="shifts.opening_count", request=request, payload=payload, fn=_do
+    )
 
 
 @router.post("/shifts/open", status_code=201)
@@ -342,6 +437,7 @@ def post_open_shift(
             cash_responsible=EmployeeRef(id=shift.cash_responsible_id, name=shift.cash_responsible_name),
             opening_cash_total=shift.opening_cash_total,
             cash_reserve=shift.cash_reserve,
+            opening_mode=_opening_mode(shift),
         )
         return 201, out.model_dump(mode="json")
 
@@ -695,13 +791,19 @@ def admin_list_shifts(
     request: Request,
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
+    include_open: bool = Query(
+        False,
+        description="Suma los turnos abiertos de cualquier fecha: un turno abandonado de un día anterior no se esconde por su fecha",
+    ),
     format: str | None = Query(None, description='"csv" exporta el listado como CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> Any:
     del format  # declarado sólo para el OpenAPI (deuda de 1b-2, pedido 2b la cierra); el valor real lo lee `wants_csv(request)`.
     store = admin_store(db, actor, store_id)
-    shifts = service.list_admin_shifts(db, store_id=store.id, date_from=date_from, date_to=date_to)
+    shifts = service.list_admin_shifts(
+        db, store_id=store.id, date_from=date_from, date_to=date_to, include_open=include_open
+    )
     rows = [_admin_shift_item(db, s) for s in shifts]
     if wants_csv(request):
         return csv_response([r.model_dump(mode="json") for r in rows], filename="shifts.csv")
@@ -902,3 +1004,178 @@ def admin_create_tip_payout(
     return _idempotent(
         db, organization_id=actor.organization_id, scope="tips.payouts", request=request, payload=payload, fn=_do
     )
+
+
+# ---------------------------------------------------------------------------
+# Base de respaldo (`cash.reserve`, 2026-09-26)
+# ---------------------------------------------------------------------------
+
+
+def _reserve_status(db: Session, actor: Actor, store: Store, shift: Shift) -> ReserveStatusOut:
+    enabled = features.is_enabled(db, store.organization_id, store.id, reserve_service.FEATURE)
+    amount = reserve_service.reserve_amount(db, store.id)
+    last = reserve_service.last_check(db, store_id=store.id)
+    return ReserveStatusOut(
+        enabled=enabled,
+        configured=amount > 0,
+        amount=amount if amount > 0 else None,
+        available=reserve_service.available(db, store.id) if amount > 0 else None,
+        loan=reserve_service.loan_outstanding(db, shift.id),
+        movements=[ReserveMovementOut.model_validate(m) for m in reserve_service.list_movements(db, shift_id=shift.id)],
+        last_check_at=last.at if last is not None else None,
+        last_check_by=last.employee_name if last is not None else None,
+        last_check_matched=(last.difference == 0) if last is not None else None,
+        can_verify=reserve_service.is_custodian(actor),
+    )
+
+
+@router.get("/shifts/{shift_id}/reserve")
+def get_shift_reserve(
+    shift_id: int, actor: Actor = Depends(current_operator), db: Session = Depends(get_db)
+) -> ReserveStatusOut:
+    """La base de respaldo vista desde el cajón de este turno: monto fijo,
+    cuánto se puede tomar, cuánto debe el cajón y sus movimientos."""
+    store = _store_of(db, actor)
+    shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
+    return _reserve_status(db, actor, store, shift)
+
+
+@router.post("/shifts/{shift_id}/reserve/take", status_code=201)
+def post_reserve_take(
+    shift_id: int,
+    payload: ReserveTakeIn,
+    request: Request,
+    actor: Actor = Depends(current_operator),
+    db: Session = Depends(get_db),
+    _feature: None = Depends(features.require_feature("cash.reserve")),
+) -> JSONResponse:
+    """«Tomar de la base»: con PIN de supervisor o administrador; entra al
+    cajón como préstamo que se devuelve antes del conteo de cierre."""
+    store = _store_of(db, actor)
+    shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        movement = reserve_service.take(
+            db,
+            actor=actor,
+            shift=shift,
+            store=store,
+            amount=payload.amount,
+            authorizer_pin=payload.authorizer_pin,
+            note=payload.note,
+        )
+        return 201, ReserveMovementOut.model_validate(movement).model_dump(mode="json")
+
+    return _idempotent(
+        db, organization_id=actor.organization_id, scope="shifts.reserve_take", request=request, payload=payload, fn=_do
+    )
+
+
+@router.post("/shifts/{shift_id}/reserve/return", status_code=201)
+def post_reserve_return(
+    shift_id: int,
+    payload: ReserveReturnIn,
+    request: Request,
+    actor: Actor = Depends(current_operator),
+    db: Session = Depends(get_db),
+    _feature: None = Depends(features.require_feature("cash.reserve")),
+) -> JSONResponse:
+    """«Devolver a la base»: lo hace quien tiene la caja, sin autorización."""
+    store = _store_of(db, actor)
+    shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        movement = reserve_service.give_back(
+            db, actor=actor, shift=shift, store=store, amount=payload.amount, note=payload.note
+        )
+        return 201, ReserveMovementOut.model_validate(movement).model_dump(mode="json")
+
+    return _idempotent(
+        db, organization_id=actor.organization_id, scope="shifts.reserve_return", request=request, payload=payload, fn=_do
+    )
+
+
+@router.post("/shifts/{shift_id}/reserve/movements/{movement_id}/reverse")
+def post_reserve_reverse(
+    shift_id: int,
+    movement_id: int,
+    payload: ReserveReverseIn,
+    actor: Actor = Depends(current_operator),
+    db: Session = Depends(get_db),
+    _feature: None = Depends(features.require_feature("cash.reserve")),
+) -> ReserveMovementOut:
+    """Reversar un movimiento de la base equivocado: motivo y PIN de
+    supervisor o administrador. Los dos quedan."""
+    store = _store_of(db, actor)
+    shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
+    movement = reserve_service.get_movement_or_404(db, shift=shift, movement_id=movement_id)
+    movement = reserve_service.reverse(
+        db,
+        actor=actor,
+        shift=shift,
+        store=store,
+        movement=movement,
+        reason=payload.reason,
+        authorizer_pin=payload.authorizer_pin,
+    )
+    return ReserveMovementOut.model_validate(movement)
+
+
+@router.post("/reserve/checks", status_code=201)
+def post_reserve_check(
+    payload: ReserveCheckIn,
+    request: Request,
+    actor: Actor = Depends(current_operator),
+    db: Session = Depends(get_db),
+    _feature: None = Depends(features.require_feature("cash.reserve")),
+) -> JSONResponse:
+    """«Verificar base»: el custodio (supervisor o administrador) cuenta la
+    base de respaldo a ciegas; el servidor revela lo esperado y la
+    diferencia. No es parte del cuadre del cajero."""
+    store = _store_of(db, actor)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        shift = service.get_current_shift(db, store=store)
+        check = reserve_service.verify(
+            db,
+            actor=actor,
+            store=store,
+            shift=shift,
+            denominations=[money.Denomination(value=d.value, count=d.count) for d in payload.counted.denominations],
+            denominations_raw=[d.model_dump() for d in payload.counted.denominations],
+            total=payload.counted.total,
+            note=payload.note,
+        )
+        return 201, ReserveCheckOut.model_validate(check).model_dump(mode="json")
+
+    return _idempotent(
+        db, organization_id=actor.organization_id, scope="shifts.reserve_check", request=request, payload=payload, fn=_do
+    )
+
+
+@router.get("/admin/stores/{store_id}/reserve")
+def get_admin_reserve(
+    store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> AdminReserveOut:
+    """La base de respaldo de una sede para el administrador: monto fijo,
+    préstamos sin devolver (por turno) y las verificaciones del custodio."""
+    store = admin_store(db, actor, store_id)
+    loans = reserve_service.open_loans(db, store_id=store.id)
+    return AdminReserveOut(
+        enabled=features.is_enabled(db, store.organization_id, store.id, reserve_service.FEATURE),
+        amount=reserve_service.reserve_amount(db, store.id),
+        loans_outstanding=sum(loan.amount for loan in loans),
+        open_loans=[ReserveOpenLoanOut(shift_id=loan.shift_id, amount=loan.amount, shift_open=loan.shift_open) for loan in loans],
+        checks=[ReserveCheckOut.model_validate(c) for c in reserve_service.list_checks(db, store_id=store.id)],
+    )
+
+
+# Asistencia del día (0028): rutas propias en su módulo, montadas con las del
+# dominio para no tocar `app.main.DOMAINS`.
+from app.shifts import attendance_router as _attendance_router  # noqa: E402
+
+router.include_router(_attendance_router.router)

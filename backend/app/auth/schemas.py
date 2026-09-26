@@ -7,7 +7,7 @@ extensión, y checklist del pedido 1a).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -68,8 +68,20 @@ class EmployeeBriefOut(BaseModel):
     puesto: Puesto | None = None
 
 
+class AttendanceBriefOut(BaseModel):
+    """La entrada del día de la persona identificada (asistencia, 0028)."""
+
+    id: int
+    business_date: date
+    in_at: datetime
+    # Sólo en `identify`: `True` si este PIN acaba de marcar la entrada.
+    created: bool = False
+
+
 class DeviceIdentifyOut(BaseModel):
     employee: EmployeeBriefOut
+    # `None` para quien no lleva asistencia: el administrador sólo autoriza.
+    attendance: AttendanceBriefOut | None = None
 
 
 class MeOut(BaseModel):
@@ -78,6 +90,12 @@ class MeOut(BaseModel):
     store: StoreBriefOut | None = None
     employee: EmployeeBriefOut | None = None
     employee_expires_at: datetime | None = None
+    # Dispositivo: la entrada abierta de hoy de la persona identificada.
+    employee_attendance: AttendanceBriefOut | None = None
+    # Admin: `True` si la sesión se abrió desde una tablet del salón (corta;
+    # al salir, la tablet vuelve a «Quién opera»).
+    on_device: bool = False
+    session_expires_at: datetime | None = None
     # Sólo en el dispositivo: quién se identificó por última vez en esta
     # tablet (sobrevive a soltar la persona), para ofrecerla primero.
     last_employee_id: int | None = None

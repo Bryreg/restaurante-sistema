@@ -22,6 +22,7 @@
  */
 
 import { api } from "@/api/client"
+import type { PanelCashOut } from "@/api/panel"
 
 // ---------------------------------------------------------------------------
 // Piezas compartidas.
@@ -243,6 +244,13 @@ export interface AreaCountAreaTodayOut {
   area_name: string
   opening: AreaCountDoneTodayOut | null
   closing: AreaCountDoneTodayOut | null
+  /** Conteo compartido barra/cocina (en integración): `null`/ausente mientras `inventory` no los publique. */
+  opening_counted?: number | null
+  opening_total?: number | null
+  closing_counted?: number | null
+  closing_total?: number | null
+  full_count?: boolean | null
+  opening_missing?: boolean | null
 }
 
 /** Un artículo con diferencia (la calcula el servidor). `shortage_qty`
@@ -292,6 +300,10 @@ export interface TodayOut {
   undeposited_total?: number | null
   /** Fecha de negocio (ISO) del día más viejo con plata sin consignar. */
   undeposited_oldest_date?: string | null
+  /** Base de respaldo (2026-09-26): préstamos al cajón sin devolver (vuelven el mismo día). */
+  reserve_loans_open_count?: number
+  /** `null` con `cash.reserve` apagada: «no hay base», no «nada que devolver». */
+  reserve_loans_open_total?: number | null
   /** La rutina del turno en el POS (2026-09-25). `0` con la función apagada. */
   reception_drafts_pending_count?: number
   requests_pending_count?: number
@@ -341,6 +353,15 @@ export interface TodayOut {
   /** Día operativo anterior, para mostrar antes de la primera venta.
    * `null` si la sede todavía no operaba. */
   yesterday_close?: DayCloseOut | null
+  /** El turno abierto de la sede, **de cualquier día** (`null` = no hay).
+   * La misma lectura que el panel y que Dinero › Operacional: un turno
+   * abandonado de otro día se ve como abandonado, y su responsable con la
+   * marca de inactivo si ya no trabaja. */
+  current_shift?: PanelCashOut | null
+  /** Sin turno ni actividad que lo pida: la sede está cerrada y «sin turno» es neutro. */
+  store_closed?: boolean
+  /** Salidas olvidadas «a revisar» de la asistencia. */
+  attendance_pending_review_count?: number
 }
 
 export function getToday(storeId: number): Promise<TodayOut> {

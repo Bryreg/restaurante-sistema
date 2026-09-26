@@ -38,6 +38,30 @@ La matemática (una sola, acá; la pantalla la pinta como llega):
   supera el porcentaje de lo esperado **y** el monto (una frontera en `None`
   no se exige; sin costo conocido manda sólo el porcentaje).
 
+**Artículo por artículo y obligatorio al abrir** (0030, decisión 5 del
+dueño). La apertura y el cierre de un área son una SESIÓN (un `AreaCount` con
+`session_key` único por área, momento y día operativo) que se llena de a un
+artículo: cada artículo se guarda al contarlo (`record_item`) con quién y a
+qué hora, cualquier persona identificada puede contar cualquier área (quien
+termina primero ayuda al otro), y nadie ve la cantidad que tecleó otro —sólo
+«contado por Kevin 7:10»—. Recontar agrega otra entrada: manda la última y
+la anterior queda en el historial. La sesión está completa cuando todos los
+artículos de la lista del día tienen conteo. Nada de esto exige una caja
+abierta: la ventana es el día operativo (hora de corte de la sede), y el
+faltante de la noche se mide de la hora del último cierre a la hora de cada
+artículo contado al abrir, con la misma fórmula.
+
+La apertura del área de cada persona es **obligatoria**: `opening_gate`
+dice si quien está identificado tiene que contar primero (la pantalla lo
+lleva a Conteo y frena las demás, salvo el KDS, que sólo avisa en rojo). Eso
+no toca la caja ni las ventas en el servidor: sigue siendo cierto que el
+conteo corto nunca bloquea abrir ni cerrar el turno.
+
+**Conteo completo mensual**: el día `monthly_full_count_day` (1–28) la lista
+de apertura de cada área es su lista corta más TODOS los insumos activos de
+sus categorías (`CountArea.full_count_categories`). Sigue siendo obligatoria
+y filtrable; el tope de 15 es sólo de la lista corta.
+
 Todo se valida antes de escribir (`get_db` comitea también ante un
 `AppError`, `tests/audit/test_write_before_reject.py`).
 """
@@ -48,6 +72,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor
@@ -73,19 +98,29 @@ from app.inventory.models import (
     MovementCause,
 )
 from app.inventory.schemas import (
+    AdminAreaCountStatusOut,
     AreaCountDetailOut,
     AreaCountDoneOut,
+    AreaCountEntryOut,
     AreaCountIn,
+    AreaCountItemIn,
     AreaCountItemOut,
+    AreaCountItemSavedOut,
     AreaCountLineIn,
     AreaCountLineOut,
+    AreaCountMarkOut,
     AreaCountOut,
+    AreaCountProgressOut,
     AreaCountReceiptOut,
     AreaCountSettingsIn,
     AreaCountSettingsOut,
+    AreaCountSheetAreaOut,
+    AreaCountSheetItemOut,
+    AreaOpeningPendingOut,
     AreaRecountAnswerIn,
     AreaRecountRequestIn,
     AreaRecountRequestOut,
+    CountAreaCategoriesIn,
     CountAreaIn,
     CountAreaItemsIn,
     CountAreaMemberIn,
@@ -93,7 +128,9 @@ from app.inventory.schemas import (
     CountAreaOut,
     CountAreaUpdateIn,
     DeviceAreaCountBoardOut,
+    DeviceAreaCountSheetOut,
     DeviceAreaRecountOut,
+    DeviceOpeningGateOut,
 )
 from app.stores.models import Store
 
@@ -180,10 +217,49 @@ def _reading(pct_bp: int | None, amount: int | None) -> str:
     return regla + " Nunca bloquea abrir ni cerrar el turno: sólo avisa en Hoy."
 
 
+def monthly_full_count_day(db: Session, store: Store) -> int | None:
+    """El día del mes del conteo completo, o `None` (apagado, el default)."""
+    row = db.get(AreaCountSettings, store.id)
+    return row.monthly_full_count_day if row is not None else None
+
+
+def is_full_count_day(db: Session, store: Store, business_date: date) -> bool:
+    day = monthly_full_count_day(db, store)
+    return day is not None and business_date.day == day
+
+
+def _next_full_count_date(day: int, today: date) -> date:
+    if today.day <= day:
+        return today.replace(day=day)
+    year, month = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+    return date(year, month, day)
+
+
+def _monthly_reading(day: int | None, today: date) -> str:
+    if day is None:
+        return (
+            "Conteo completo mensual apagado: todos los días la apertura cuenta la lista corta de cada área."
+        )
+    nxt = _next_full_count_date(day, today)
+    cuando = "hoy" if nxt == today else f"el {nxt.day:02d}/{nxt.month:02d}/{nxt.year}"
+    return (
+        f"El día {day} de cada mes la apertura de cada área cuenta su lista corta y además todos los insumos "
+        f"activos de sus categorías. Sigue siendo obligatoria. El próximo es {cuando}."
+    )
+
+
 def settings_out(db: Session, store: Store) -> AreaCountSettingsOut:
     pct_bp, amount = thresholds(db, store)
+    day = monthly_full_count_day(db, store)
+    today = tz.today_business_date(store.cutoff_hour)
     return AreaCountSettingsOut(
-        store_id=store.id, threshold_pct_bp=pct_bp, threshold_amount=amount, reading=_reading(pct_bp, amount)
+        store_id=store.id,
+        threshold_pct_bp=pct_bp,
+        threshold_amount=amount,
+        reading=_reading(pct_bp, amount),
+        monthly_full_count_day=day,
+        monthly_reading=_monthly_reading(day, today),
+        full_count_today=day is not None and today.day == day,
     )
 
 
@@ -191,10 +267,18 @@ def update_settings(db: Session, store: Store, data: AreaCountSettingsIn) -> Are
     now = clock.now_utc()
     row = db.get(AreaCountSettings, store.id)
     if row is None:
-        row = AreaCountSettings(store_id=store.id, updated_at=now)
+        row = AreaCountSettings(
+            store_id=store.id,
+            threshold_pct_bp=DEFAULT_THRESHOLD_PCT_BP,
+            threshold_amount=DEFAULT_THRESHOLD_AMOUNT,
+            updated_at=now,
+        )
         db.add(row)
     row.threshold_pct_bp = data.threshold_pct_bp
     row.threshold_amount = data.threshold_amount
+    # Guardar el umbral sin mandar el día no apaga el conteo completo.
+    if "monthly_full_count_day" in data.model_fields_set:
+        row.monthly_full_count_day = data.monthly_full_count_day
     row.updated_at = now
     db.flush()
     return settings_out(db, store)
@@ -360,6 +444,93 @@ def set_area_items(db: Session, *, store: Store, area: CountArea, data: CountAre
     return area
 
 
+def _category_key(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
+def area_categories(area: CountArea) -> list[str]:
+    return [c for c in (area.full_count_categories or []) if c.strip()]
+
+
+def set_area_categories(db: Session, *, store: Store, area: CountArea, data: CountAreaCategoriesIn) -> CountArea:
+    """Qué categorías de insumo cuenta el área el día del conteo completo.
+    Una categoría es de un solo área (activa): contada a medias en dos, el
+    libro —un saldo por insumo— no se podría comparar con ninguna."""
+    if not area.active:
+        raise AppError(code="AREA_INACTIVE", message=f"El área «{area.name}» está desactivada: activala primero")
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in data.categories:
+        name = " ".join(raw.split())
+        if not name:
+            raise AppError(code="VALIDATION_ERROR", message="Hay una categoría vacía: escribí su nombre o sacala")
+        if len(name) > 100:
+            raise AppError(code="VALIDATION_ERROR", message=f"«{name[:30]}…» es demasiado largo para una categoría")
+        key = _category_key(name)
+        if key in seen:
+            raise AppError(code="VALIDATION_ERROR", message=f"La categoría «{name}» está repetida")
+        seen.add(key)
+        cleaned.append(name)
+    for other in list_areas(db, store=store, active_only=True):
+        if other.id == area.id:
+            continue
+        taken = {_category_key(c) for c in area_categories(other)}
+        clash = next((c for c in cleaned if _category_key(c) in taken), None)
+        if clash is not None:
+            raise AppError(
+                code="CATEGORY_IN_OTHER_AREA",
+                message=f"«{clash}» ya la cuenta {other.name} en el conteo completo: sacala de esa área primero",
+            )
+    area.full_count_categories = cleaned
+    area.updated_at = clock.now_utc()
+    db.flush()
+    return area
+
+
+def _short_list_elsewhere(db: Session, *, store: Store, area: CountArea) -> set[int]:
+    """Insumos que están en la lista corta de OTRA área activa: se cuentan
+    allá aunque su categoría sea de ésta (un insumo, un área)."""
+    stmt = (
+        select(CountAreaItem.ingredient_id)
+        .join(CountArea, CountArea.id == CountAreaItem.area_id)
+        .where(
+            CountAreaItem.store_id == store.id,
+            CountAreaItem.active.is_(True),
+            CountAreaItem.area_id != area.id,
+            CountArea.active.is_(True),
+        )
+    )
+    return set(db.execute(stmt).scalars().all())
+
+
+def full_list(db: Session, *, store: Store, area: CountArea) -> list[Ingredient]:
+    """La lista del conteo completo: la lista corta (en su orden) y después
+    todos los insumos activos de las categorías del área, por nombre."""
+    short = area_ingredients(db, area=area)
+    keys = {_category_key(c) for c in area_categories(area)}
+    if not keys:
+        return short
+    have = {i.id for i in short} | _short_list_elsewhere(db, store=store, area=area)
+    candidates = db.execute(
+        select(Ingredient).where(
+            Ingredient.store_id == store.id, Ingredient.active.is_(True), Ingredient.category.is_not(None)
+        )
+    ).scalars().all()
+    extra = sorted(
+        (i for i in candidates if i.id not in have and _category_key(i.category or "") in keys),
+        key=lambda i: (i.name.casefold(), i.id),
+    )
+    return short + extra
+
+
+def list_for(db: Session, *, store: Store, area: CountArea, business_date: date) -> tuple[str, list[Ingredient]]:
+    """`(scope, artículos)` que cuenta el área ese día operativo: la lista
+    completa el día del conteo mensual, la corta los demás."""
+    if is_full_count_day(db, store, business_date):
+        return "full", full_list(db, store=store, area=area)
+    return "short", area_ingredients(db, area=area)
+
+
 def _member_rows(db: Session, *, store: Store) -> list[CountAreaMember]:
     stmt = select(CountAreaMember).where(CountAreaMember.store_id == store.id, CountAreaMember.active.is_(True))
     return list(db.execute(stmt.order_by(CountAreaMember.employee_name)).scalars().all())
@@ -412,7 +583,7 @@ def set_member(db: Session, *, store: Store, data: CountAreaMemberIn) -> CountAr
     return row
 
 
-def area_out(db: Session, area: CountArea, members: list[CountAreaMember]) -> CountAreaOut:
+def area_out(db: Session, area: CountArea, members: list[CountAreaMember], store: Store) -> CountAreaOut:
     return CountAreaOut(
         id=area.id,
         name=area.name,
@@ -423,12 +594,14 @@ def area_out(db: Session, area: CountArea, members: list[CountAreaMember]) -> Co
             if m.area_id == area.id
         ],
         items=[item_out(i) for i in area_ingredients(db, area=area)],
+        categories=area_categories(area),
+        full_count_items=len(full_list(db, store=store, area=area)),
     )
 
 
 def areas_out(db: Session, *, store: Store) -> list[CountAreaOut]:
     members = _member_rows(db, store=store)
-    return [area_out(db, a, members) for a in list_areas(db, store=store)]
+    return [area_out(db, a, members, store) for a in list_areas(db, store=store)]
 
 
 # ---------------------------------------------------------------------------
@@ -594,13 +767,15 @@ def _write_count(
         business_date=tz.business_date_for(now, store.cutoff_hour),
         employee_id=actor.employee_id,
         employee_name=actor.employee_name,
+        scope=None if moment == AreaCountMoment.SPOT else "short",
     )
     db.add(count)
     db.flush()
     for ing, qty_base, entered, unit in parsed:
         db.add(
             AreaCountLine(
-                count_id=count.id, ingredient_id=ing.id, qty_base=qty_base, entered_qty=entered, entered_unit=unit
+                count_id=count.id, ingredient_id=ing.id, qty_base=qty_base, entered_qty=entered, entered_unit=unit,
+                counted_at=now, employee_id=actor.employee_id, employee_name=actor.employee_name,
             )
         )
     db.flush()
@@ -675,6 +850,335 @@ def receipt_out(db: Session, count: AreaCount) -> AreaCountReceiptOut:
         counted_at=count.counted_at,
         employee_name=count.employee_name,
         lines_count=len(_lines(db, count)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Artículo por artículo (0030): la sesión, las entradas y lo que ve la tablet.
+# ---------------------------------------------------------------------------
+
+
+def _entry_time(line: AreaCountLine, count: AreaCount) -> datetime:
+    return line.counted_at or count.counted_at
+
+
+def _entry_name(line: AreaCountLine, count: AreaCount) -> str:
+    return line.employee_name or count.employee_name
+
+
+@dataclass
+class _Mark:
+    """El estado de un artículo en un área, momento y día: la entrada que
+    manda (la última) y cuántas hubo."""
+
+    line: AreaCountLine
+    count: AreaCount
+    entries: int
+
+    @property
+    def at(self) -> datetime:
+        return _entry_time(self.line, self.count)
+
+    @property
+    def name(self) -> str:
+        return _entry_name(self.line, self.count)
+
+
+def _marks(db: Session, *, area_id: int, moment: AreaCountMoment, business_date: date) -> dict[int, _Mark]:
+    """Por insumo, la última entrada de ese área, momento y día operativo —en
+    cualquiera de sus conteos: la sesión artículo por artículo o un conteo de
+    lista entera—. Manda la última; las demás cuentan en `entries`."""
+    rows = db.execute(
+        select(AreaCountLine, AreaCount)
+        .join(AreaCount, AreaCount.id == AreaCountLine.count_id)
+        .where(
+            AreaCount.area_id == area_id,
+            AreaCount.moment == moment,
+            AreaCount.business_date == business_date,
+        )
+    ).all()
+    ordered = sorted(rows, key=lambda r: (_entry_time(r[0], r[1]), r[0].id))
+    out: dict[int, _Mark] = {}
+    for line, count in ordered:
+        prev = out.get(line.ingredient_id)
+        out[line.ingredient_id] = _Mark(line=line, count=count, entries=(prev.entries + 1) if prev else 1)
+    return out
+
+
+def _progress(items: list[Ingredient], marks: dict[int, _Mark]) -> AreaCountProgressOut:
+    mine = [marks[i.id] for i in items if i.id in marks]
+    complete = bool(items) and len(mine) == len(items)
+    people: list[str] = []
+    for m in sorted(mine, key=lambda m: (m.at, m.line.id)):
+        if m.name not in people:
+            people.append(m.name)
+    return AreaCountProgressOut(
+        counted=len(mine),
+        total=len(items),
+        complete=complete,
+        completed_at=max(m.at for m in mine) if complete else None,
+        people=people,
+    )
+
+
+def _mark_out(mark: _Mark | None) -> AreaCountMarkOut | None:
+    if mark is None:
+        return None
+    return AreaCountMarkOut(employee_name=mark.name, counted_at=mark.at, entries=mark.entries)
+
+
+def _session_key(area_id: int, moment: AreaCountMoment, business_date: date) -> str:
+    return f"{area_id}:{moment.value}:{business_date.isoformat()}"
+
+
+def _session_for(
+    db: Session,
+    *,
+    store: Store,
+    actor: Actor,
+    area: CountArea,
+    moment: AreaCountMoment,
+    business_date: date,
+    scope: str,
+    now: datetime,
+) -> AreaCount:
+    """La sesión de ese área, momento y día; la crea el primer artículo. Dos
+    tablets a la vez: el índice único de `session_key` deja entrar a una y
+    la otra relee la que ganó (nunca dos sesiones del mismo momento)."""
+    assert actor.employee_id is not None and actor.employee_name is not None
+    key = _session_key(area.id, moment, business_date)
+    stmt = select(AreaCount).where(AreaCount.session_key == key)
+    found = db.execute(stmt).scalar_one_or_none()
+    if found is not None:
+        return found
+    try:
+        with db.begin_nested():
+            count = AreaCount(
+                organization_id=store.organization_id,
+                store_id=store.id,
+                area_id=area.id,
+                area_name=area.name,
+                moment=moment,
+                recount_request_id=None,
+                counted_at=now,
+                business_date=business_date,
+                employee_id=actor.employee_id,
+                employee_name=actor.employee_name,
+                scope=scope,
+                session_key=key,
+            )
+            db.add(count)
+            db.flush()
+    except IntegrityError:
+        found = db.execute(stmt).scalar_one_or_none()
+        if found is None:
+            raise
+        return found
+    return count
+
+
+@dataclass(frozen=True)
+class SavedItem:
+    area: CountArea
+    count: AreaCount
+    line: AreaCountLine
+    ingredient: Ingredient
+    moment: AreaCountMoment
+
+
+def record_item(db: Session, *, store: Store, actor: Actor, data: AreaCountItemIn) -> SavedItem:
+    """Guarda UN artículo contado. Cualquier persona identificada puede
+    contar cualquier área (quien termina primero ayuda). Recontar agrega otra
+    entrada: manda la última. Todo se valida antes de escribir."""
+    _require_person(actor)
+    assert actor.employee_id is not None and actor.employee_name is not None
+    area = area_or_404(db, store=store, area_id=data.area_id)
+    if not area.active:
+        raise AppError(code="AREA_INACTIVE", message=f"El área «{area.name}» está desactivada: no se cuenta")
+    now = clock.now_utc()
+    business_date = tz.business_date_for(now, store.cutoff_hour)
+    scope, items = list_for(db, store=store, area=area, business_date=business_date)
+    ingredient = next((i for i in items if i.id == data.ingredient_id), None)
+    if ingredient is None:
+        raise AppError(
+            code="ITEM_NOT_IN_LIST",
+            message=f"Ese artículo no está en la lista de {area.name} de hoy: recargá la lista",
+        )
+    moment = AreaCountMoment(data.moment)
+    qty_base = _to_base(ingredient, data.qty)
+    count = _session_for(
+        db, store=store, actor=actor, area=area, moment=moment, business_date=business_date, scope=scope, now=now
+    )
+    line = AreaCountLine(
+        count_id=count.id,
+        ingredient_id=ingredient.id,
+        qty_base=qty_base,
+        entered_qty=data.qty.strip(),
+        entered_unit=entry_spec(ingredient).unit,
+        counted_at=now,
+        employee_id=actor.employee_id,
+        employee_name=actor.employee_name,
+    )
+    db.add(line)
+    db.flush()
+    return SavedItem(area=area, count=count, line=line, ingredient=ingredient, moment=moment)
+
+
+def saved_item_out(db: Session, *, store: Store, saved: SavedItem) -> AreaCountItemSavedOut:
+    business_date = saved.count.business_date
+    _scope, items = list_for(db, store=store, area=saved.area, business_date=business_date)
+    marks = _marks(db, area_id=saved.area.id, moment=saved.moment, business_date=business_date)
+    return AreaCountItemSavedOut(
+        area_id=saved.area.id,
+        area_name=saved.area.name,
+        moment=saved.moment.value,  # type: ignore[arg-type]
+        ingredient_id=saved.ingredient.id,
+        ingredient_name=saved.ingredient.name,
+        count_id=saved.count.id,
+        counted_at=_entry_time(saved.line, saved.count),
+        employee_name=_entry_name(saved.line, saved.count),
+        progress=_progress(items, marks),
+    )
+
+
+def _sheet_areas(
+    db: Session, *, store: Store, business_date: date, my_area_id: int | None
+) -> list[AreaCountSheetAreaOut]:
+    out: list[AreaCountSheetAreaOut] = []
+    for area in list_areas(db, store=store, active_only=True):
+        scope, items = list_for(db, store=store, area=area, business_date=business_date)
+        if not items:
+            continue
+        opening = _marks(db, area_id=area.id, moment=AreaCountMoment.OPENING, business_date=business_date)
+        closing = _marks(db, area_id=area.id, moment=AreaCountMoment.CLOSING, business_date=business_date)
+        out.append(
+            AreaCountSheetAreaOut(
+                area_id=area.id,
+                area_name=area.name,
+                scope=scope,  # type: ignore[arg-type]
+                mine=area.id == my_area_id,
+                items=[
+                    AreaCountSheetItemOut(
+                        **item_out(i).model_dump(),
+                        opening=_mark_out(opening.get(i.id)),
+                        closing=_mark_out(closing.get(i.id)),
+                    )
+                    for i in items
+                ],
+                opening=_progress(items, opening),
+                closing=_progress(items, closing),
+            )
+        )
+    return out
+
+
+#: Quien supervisa o administra no queda frenado por el conteo de un área.
+_GATE_EXEMPT_ROLES = ("supervisor", "admin")
+
+
+def _opening_pending(area: AreaCountSheetAreaOut) -> bool:
+    """La apertura del área está pendiente: no está completa y todavía nadie
+    empezó el cierre de ese día (de noche ya no tiene sentido frenar a nadie
+    por la apertura; el dueño lo ve en rojo en Hoy)."""
+    return not area.opening.complete and area.closing.counted == 0
+
+
+def sheet(db: Session, *, store: Store, actor: Actor) -> DeviceAreaCountSheetOut:
+    """La pantalla de conteo del POS: las listas del día de todas las áreas,
+    con quién contó cada artículo y cuándo —nunca cuánto—."""
+    _require_person(actor)
+    assert actor.employee_id is not None
+    now = clock.now_utc()
+    business_date = tz.business_date_for(now, store.cutoff_hour)
+    my_area = member_area(db, store=store, employee_id=actor.employee_id)
+    areas = _sheet_areas(db, store=store, business_date=business_date, my_area_id=my_area.id if my_area else None)
+    mine = next((a for a in areas if a.mine), None)
+    if my_area is None:
+        reason: str | None = (
+            "No tenés un área de conteo asignada: podés ayudar a contar cualquier área. Para tener la tuya, "
+            "pedile al administrador que te asigne una en Inventario › Conteo por área"
+        )
+    elif mine is None:
+        reason = f"El área {my_area.name} todavía no tiene artículos para contar. Avisale al administrador"
+    else:
+        reason = None
+    recounts = (
+        [
+            DeviceAreaRecountOut(
+                id=r.id,
+                requested_at=r.requested_at,
+                requested_by_employee_name=r.requested_by_employee_name,
+                note=r.note,
+                items=[item_out(i) for i in _recount_items(db, r)],
+            )
+            for r in _pending_recounts(db, area_id=my_area.id)
+        ]
+        if my_area is not None
+        else []
+    )
+    return DeviceAreaCountSheetOut(
+        business_date=business_date.isoformat(),
+        my_area_id=mine.area_id if mine else None,
+        reason=reason,
+        suggested_moment=suggested_moment(  # type: ignore[arg-type]
+            store=store,
+            now=now,
+            opening_done=bool(mine and mine.opening.complete),
+            closing_done=bool(mine and mine.closing.counted > 0),
+        ),
+        full_count_today=is_full_count_day(db, store, business_date),
+        opening_required=bool(mine and actor.role not in _GATE_EXEMPT_ROLES and _opening_pending(mine)),
+        areas=areas,
+        recounts=recounts,
+    )
+
+
+def opening_gate(db: Session, *, store: Store, actor: Actor) -> DeviceOpeningGateOut:
+    """¿Tiene que contar primero quien está identificado? Y qué áreas no
+    terminaron su apertura hoy (para el aviso del KDS, que nunca se frena).
+    No exige persona: sin persona, nadie queda frenado."""
+    now = clock.now_utc()
+    business_date = tz.business_date_for(now, store.cutoff_hour)
+    my_area = (
+        member_area(db, store=store, employee_id=actor.employee_id) if actor.employee_id is not None else None
+    )
+    areas = _sheet_areas(db, store=store, business_date=business_date, my_area_id=my_area.id if my_area else None)
+    pending = [a for a in areas if _opening_pending(a)]
+    mine = next((a for a in pending if a.mine), None)
+    required = mine is not None and actor.role not in _GATE_EXEMPT_ROLES
+    message = None
+    if required and mine is not None:
+        message = (
+            f"Primero el conteo de apertura de {mine.area_name}: van {mine.opening.counted} de "
+            f"{mine.opening.total} artículos."
+        )
+    return DeviceOpeningGateOut(
+        business_date=business_date.isoformat(),
+        required=required,
+        area_id=mine.area_id if required and mine else None,
+        area_name=mine.area_name if required and mine else None,
+        message=message,
+        pending=[
+            AreaOpeningPendingOut(
+                area_id=a.area_id,
+                area_name=a.area_name,
+                counted=a.opening.counted,
+                total=a.opening.total,
+                full_count=a.scope == "full",
+            )
+            for a in pending
+        ],
+    )
+
+
+def admin_status(db: Session, *, store: Store) -> AdminAreaCountStatusOut:
+    """Hoy, por área y artículo: quién contó y cuándo (sin cantidades: esas
+    están en el detalle de cada conteo, con su diferencia)."""
+    business_date = tz.today_business_date(store.cutoff_hour)
+    return AdminAreaCountStatusOut(
+        business_date=business_date.isoformat(),
+        full_count_today=is_full_count_day(db, store, business_date),
+        areas=_sheet_areas(db, store=store, business_date=business_date, my_area_id=None),
     )
 
 
@@ -760,6 +1264,17 @@ def _lines(db: Session, count: AreaCount) -> list[AreaCountLine]:
     return list(db.execute(stmt).scalars().all())
 
 
+def _effective_lines(db: Session, count: AreaCount) -> dict[int, list[AreaCountLine]]:
+    """Por insumo, sus entradas en este conteo de la más vieja a la última:
+    la última manda, las anteriores son el historial de recuentos. En orden
+    de primera aparición (la lista entera se guardó en su orden)."""
+    lines = sorted(_lines(db, count), key=lambda l: (_entry_time(l, count), l.id))
+    out: dict[int, list[AreaCountLine]] = {}
+    for line in lines:
+        out.setdefault(line.ingredient_id, []).append(line)
+    return out
+
+
 def count_or_404(db: Session, *, store: Store, count_id: int) -> AreaCount:
     count = db.get(AreaCount, count_id)
     if count is None or count.store_id != store.id or count.organization_id != store.organization_id:
@@ -820,13 +1335,19 @@ def _line_result(
     *,
     store: Store,
     count: AreaCount,
-    line: AreaCountLine,
+    entries: list[AreaCountLine],
     ingredient: Ingredient,
     reference: AreaCount | None,
-    reference_lines: dict[int, int],
+    reference_lines: dict[int, AreaCountLine],
     reason: str | None,
     limits: tuple[int | None, int | None],
 ) -> AreaCountLineOut:
+    """Un artículo: manda su última entrada. La ventana de entradas y salidas
+    va de la hora en que se contó ESE artículo en el conteo anterior a la
+    hora en que se contó ahora (artículo por artículo, cada uno con la suya;
+    en un conteo de lista entera las dos son la hora del conteo)."""
+    line = entries[-1]
+    counted_at = _entry_time(line, count)
     base = dict(
         ingredient_id=ingredient.id,
         ingredient_name=ingredient.name,
@@ -834,12 +1355,24 @@ def _line_result(
         entered_qty=line.entered_qty,
         entered_unit=line.entered_unit,
         counted_qty=format_qty_base(line.qty_base),
+        employee_name=_entry_name(line, count),
+        counted_at=counted_at,
+        history=[
+            AreaCountEntryOut(
+                employee_name=_entry_name(e, count),
+                counted_at=_entry_time(e, count),
+                entered_qty=e.entered_qty,
+                entered_unit=e.entered_unit,
+                counted_qty=format_qty_base(e.qty_base),
+            )
+            for e in entries[:-1]
+        ],
     )
     inflow: int | None = None
     outflow: int | None = None
     if count.moment == AreaCountMoment.SPOT:
         ref_qty: int | None = hooks.current_stock(
-            db, store_id=store.id, ingredient_id=ingredient.id, as_of=count.counted_at
+            db, store_id=store.id, ingredient_id=ingredient.id, as_of=counted_at
         )
         null_reason = None
     elif reference is None:
@@ -847,14 +1380,16 @@ def _line_result(
     elif ingredient.id not in reference_lines:
         ref_qty, null_reason = None, "No estaba en el conteo anterior de esta área"
     else:
-        ref_qty, null_reason = reference_lines[ingredient.id], None
+        ref_line = reference_lines[ingredient.id]
+        ref_qty, null_reason = ref_line.qty_base, None
+        window_from = _entry_time(ref_line, reference)
         inflow = service._movement_sum(
-            db, store_id=store.id, ingredient_id=ingredient.id, window_from=reference.counted_at,
-            window_to=count.counted_at, positive=True, exclude_causes=_NOT_A_FLOW,
+            db, store_id=store.id, ingredient_id=ingredient.id, window_from=window_from,
+            window_to=counted_at, positive=True, exclude_causes=_NOT_A_FLOW,
         )
         outflow = -service._movement_sum(
-            db, store_id=store.id, ingredient_id=ingredient.id, window_from=reference.counted_at,
-            window_to=count.counted_at, positive=False, exclude_causes=_NOT_A_FLOW,
+            db, store_id=store.id, ingredient_id=ingredient.id, window_from=window_from,
+            window_to=counted_at, positive=False, exclude_causes=_NOT_A_FLOW,
         )
 
     if ref_qty is None:
@@ -885,18 +1420,27 @@ def _line_result(
 
 def count_detail(db: Session, *, store: Store, count: AreaCount) -> AreaCountDetailOut:
     reference, reason = reference_for(db, count)
-    reference_lines = {l.ingredient_id: l.qty_base for l in _lines(db, reference)} if reference is not None else {}
-    lines = _lines(db, count)
-    ingredients = _ingredients_by_id(db, [l.ingredient_id for l in lines])
+    reference_lines = (
+        {ing_id: entries[-1] for ing_id, entries in _effective_lines(db, reference).items()}
+        if reference is not None
+        else {}
+    )
+    by_ingredient = _effective_lines(db, count)
+    ingredients = _ingredients_by_id(db, list(by_ingredient))
     limits = thresholds(db, store)
     out_lines = [
         _line_result(
-            db, store=store, count=count, line=l, ingredient=ingredients[l.ingredient_id], reference=reference,
+            db, store=store, count=count, entries=entries, ingredient=ingredients[ing_id], reference=reference,
             reference_lines=reference_lines, reason=reason, limits=limits,
         )
-        for l in lines
-        if l.ingredient_id in ingredients
+        for ing_id, entries in by_ingredient.items()
+        if ing_id in ingredients
     ]
+    people: list[str] = []
+    for l in sorted(out_lines, key=lambda l: l.counted_at or count.counted_at):
+        if l.employee_name and l.employee_name not in people:
+            people.append(l.employee_name)
+    last_at = max((l.counted_at for l in out_lines if l.counted_at is not None), default=count.counted_at)
     valued = [l.shortage_value for l in out_lines if l.shortage_value is not None]
     return AreaCountDetailOut(
         id=count.id,
@@ -916,6 +1460,9 @@ def count_detail(db: Session, *, store: Store, count: AreaCount) -> AreaCountDet
         flagged_count=sum(1 for l in out_lines if l.flagged),
         shortage_value_total=sum(valued) if valued else None,
         unvalued_lines=sum(1 for l in out_lines if l.shortage_qty is not None and l.shortage_value is None),
+        scope=count.scope,  # type: ignore[arg-type]
+        people=people,
+        last_counted_at=last_at,
         lines=out_lines,
     )
 
@@ -952,10 +1499,23 @@ class AreaDone:
 
 @dataclass(frozen=True)
 class AreaTodayStatus:
+    """`opening`/`closing` en `None` = ese conteo NO está completo (algún
+    artículo de la lista del día sin contar): Hoy lo pinta en rojo. Completo,
+    `employee_name` nombra a todos los que contaron y `counted_at` es la hora
+    del último artículo. Los `*_counted`/`*_total` dicen cuánto va."""
+
     area_id: int
     area_name: str
     opening: AreaDone | None
     closing: AreaDone | None
+    opening_counted: int = 0
+    opening_total: int = 0
+    closing_counted: int = 0
+    closing_total: int = 0
+    # Hoy es el conteo completo mensual (la lista es todo lo del área).
+    full_count: bool = False
+    # La apertura es obligatoria y no está (y el cierre no empezó).
+    opening_missing: bool = False
 
 
 @dataclass(frozen=True)
@@ -980,10 +1540,11 @@ class AreaCountsToday:
     pending_recounts: int
 
 
-def _as_done(count: AreaCount | None) -> AreaDone | None:
-    if count is None:
+def _as_complete(count: AreaCount | None, progress: AreaCountProgressOut) -> AreaDone | None:
+    """Hecho sólo si TODOS los artículos de la lista del día tienen conteo."""
+    if count is None or not progress.complete or progress.completed_at is None:
         return None
-    return AreaDone(count_id=count.id, counted_at=count.counted_at, employee_name=count.employee_name)
+    return AreaDone(count_id=count.id, counted_at=progress.completed_at, employee_name=", ".join(progress.people))
 
 
 def today_summary(db: Session, *, store: Store) -> AreaCountsToday:
@@ -995,12 +1556,27 @@ def today_summary(db: Session, *, store: Store) -> AreaCountsToday:
     areas: list[AreaTodayStatus] = []
     flags: list[AreaCountFlag] = []
     counts_to_read: list[AreaCount] = []
-    for area in list_areas(db, store=store, active_only=True):
-        if not area_ingredients(db, area=area):
-            continue
-        opening = _latest_count(db, area_id=area.id, moment=AreaCountMoment.OPENING, business_date=business_date)
-        closing = _latest_count(db, area_id=area.id, moment=AreaCountMoment.CLOSING, business_date=business_date)
-        areas.append(AreaTodayStatus(area.id, area.name, _as_done(opening), _as_done(closing)))
+    for sheet_area in _sheet_areas(db, store=store, business_date=business_date, my_area_id=None):
+        opening = _latest_count(
+            db, area_id=sheet_area.area_id, moment=AreaCountMoment.OPENING, business_date=business_date
+        )
+        closing = _latest_count(
+            db, area_id=sheet_area.area_id, moment=AreaCountMoment.CLOSING, business_date=business_date
+        )
+        areas.append(
+            AreaTodayStatus(
+                sheet_area.area_id,
+                sheet_area.area_name,
+                _as_complete(opening, sheet_area.opening),
+                _as_complete(closing, sheet_area.closing),
+                opening_counted=sheet_area.opening.counted,
+                opening_total=sheet_area.opening.total,
+                closing_counted=sheet_area.closing.counted,
+                closing_total=sheet_area.closing.total,
+                full_count=sheet_area.scope == "full",
+                opening_missing=_opening_pending(sheet_area),
+            )
+        )
         counts_to_read.extend(c for c in (opening, closing) if c is not None)
     spots = db.execute(
         select(AreaCount)

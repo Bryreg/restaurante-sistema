@@ -28,6 +28,7 @@ import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
 import { OrderDetailBody } from "@/features/orders/OrdersAdminPage"
+import { fichaPersonaHref } from "./fichas/rutas"
 import { CHANNEL_LABEL, ORDER_STATUS_LABEL } from "@/features/orders/lib"
 
 import {
@@ -283,9 +284,23 @@ function TopDeProductos({ data }: { data: ReportsOverviewOut }): React.JSX.Eleme
   )
 }
 
-function PorPersona({ rows }: { rows: SalesBucketOut[] }): React.JSX.Element {
+function PorPersona({ rows, enlazar }: { rows: SalesBucketOut[]; enlazar: boolean }): React.JSX.Element {
+  // Cada persona lleva a su ficha, que muestra esta misma fila (la ficha usa
+  // la misma agregación). Con «Todas las sedes» no: la ficha es de una sede.
   const columns: readonly DenseColumn<SalesBucketOut>[] = [
-    { key: "persona", header: "Persona", kind: "name", cell: (r) => r.label ?? r.key },
+    {
+      key: "persona",
+      header: "Persona",
+      kind: "name",
+      cell: (r) =>
+        enlazar && /^\d+$/.test(r.key) ? (
+          <Link to={fichaPersonaHref(Number(r.key))} className="text-primary hover:underline">
+            {r.label ?? r.key}
+          </Link>
+        ) : (
+          (r.label ?? r.key)
+        ),
+    },
     { key: "orders", header: "Comandas", kind: "number", cell: (r) => r.orders ?? "—" },
     { key: "net", header: "Venta neta", kind: "number", cell: (r) => formatCOP(r.net) },
     { key: "avg", header: "Ticket prom.", kind: "number", cell: (r) => formatCOP(r.avg_ticket) },
@@ -666,7 +681,7 @@ export function InformesPage(): React.JSX.Element {
           <VentasPorHora data={data} />
           <div className="grid gap-5 lg:grid-cols-2">
             <TopDeProductos data={data} />
-            <PorPersona rows={data.by_employee} />
+            <PorPersona rows={data.by_employee} enlazar={!consolidado} />
           </div>
           <CanalYZona channels={data.by_channel} zones={data.by_zone} />
           <DomiciliosYClientes data={data} />

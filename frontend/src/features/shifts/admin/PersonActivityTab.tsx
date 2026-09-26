@@ -14,6 +14,7 @@ import { formatBusinessDate } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 
 import { Explicacion } from "@/components/admin";
+import { fichaPersonaHref } from "@/features/reports/fichas/rutas";
 
 /**
  * Turnos y personal → Por persona (`GET /admin/employees/{id}/activity`):
@@ -141,10 +142,17 @@ export function PersonActivityTab(): React.JSX.Element {
                   }
                 : { value: String(activityQuery.data.difference_streak) })}
             />
+            {/* Antes decía «esta respuesta todavía no los trae», y era falso:
+                la respuesta sí traía una venta, pero contada por quien ABRIÓ
+                la comanda, mientras Informes › Por persona cuenta por quien
+                COBRÓ. Dos cifras distintas con el mismo nombre. La venta de
+                una persona se lee en un solo lugar —su ficha—, con la misma
+                cuenta que Informes. */}
             <StatTile
               label="Ventas y ticket promedio"
               value={null}
-              nullNote="Esta respuesta todavía no los trae. No es cero — es que no se están midiendo acá."
+              nullNote="Lo que cobró está en su ficha, con la misma cuenta que Informes › Por persona."
+              link={{ to: fichaPersonaHref(employeeId), screen: "Ficha de la persona" }}
             />
           </div>
           {/* Regla 2 · La pista de la tarjeta de racha, plegada. Los «sin

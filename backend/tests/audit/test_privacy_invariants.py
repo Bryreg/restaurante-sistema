@@ -487,8 +487,14 @@ def test_a_sale_to_consumidor_final_stores_no_personal_data_at_all(
     assert db.execute(select(func.count()).select_from(CustomerConsent)).scalar_one() == 0
 
     printable = device_client.get(f"{API}/documents/{cobro.json()['document']['id']}").json()
+    # Poste movido con motivo (cobro en tablet, #12): el papel suma dos campos
+    # DERIVADOS del tipo de documento —`doc_type_label` («C.C.») y
+    # `final_consumer`—, ninguno es dato personal. La igualdad sigue exacta:
+    # cualquier otra llave nueva vuelve a romper esta auditoría.
     assert printable["customer"] == {
         "doc_type": "13",
+        "doc_type_label": "C.C.",
+        "final_consumer": True,
         "doc_number": "222222222222",
         "name": "Consumidor final",
         "email": None,

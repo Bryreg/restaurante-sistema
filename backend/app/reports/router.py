@@ -18,7 +18,9 @@ from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.reports import overview as overview_service
+from app.reports import panel as panel_service
 from app.reports import service
+from app.reports.panel_schemas import EmployeeRecordOut, IngredientRecordOut, PanelOut, ShiftRecordOut
 from app.reports.schemas import AccountantReportOut, GroupBy, ReportsOverviewOut, TodayOut
 
 router = APIRouter()
@@ -142,3 +144,86 @@ def get_reports_overview(
         raise AppError("VALIDATION_ERROR", 'store_id: tiene que ser el id de una sede o "all"', status=400)
     store = admin_store(db, actor, int(store_id))
     return overview_service.reports_overview(db, stores=[store], all_stores=False, date_from=date_from, date_to=date_to)
+
+
+# ---------------------------------------------------------------------------
+# Panel de control y fichas relacionales (`app.reports.panel`)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/panel")
+def get_panel(
+    store_id: str = Query(..., description='Id de la sede, o "all" para todas las sedes activas de la organización'),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PanelOut:
+    """«Ahora» por sede: caja, quién trabaja, conteos, salón, cocina y lo que
+    espera al dueño, con un semáforo que dice su porqué. `store_id=all`
+    recorre las sedes activas de la organización; un id ajeno es `404`."""
+    if store_id == "all":
+        stores = [s for s in overview_service.organization_stores(db, actor.organization_id) if s.active]
+        if not stores:
+            raise AppError("VALIDATION_ERROR", "Todavía no hay sedes activas: creá una en Configuración", status=400)
+        return panel_service.panel(db, stores=stores, all_stores=True)
+    if not store_id.isdigit():
+        raise AppError("VALIDATION_ERROR", 'store_id: tiene que ser el id de una sede o "all"', status=400)
+    store = admin_store(db, actor, int(store_id))
+    return panel_service.panel(db, stores=[store], all_stores=False)
+
+
+@router.get("/admin/records/shift/{shift_id}")
+def get_shift_record(
+    shift_id: int,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> ShiftRecordOut:
+    """La ficha del turno: ventas, consignado, anulaciones, descuentos y
+    cortesías, novedades, conteos por área y asistencia. El dinero del
+    cajón (retiros, movimientos, relevos, esperado) lo trae `GET /shifts/{id}`."""
+    from app.shifts.models import Shift
+
+    shift = db.get(Shift, shift_id)
+    if shift is None:
+        raise AppError("NOT_FOUND", "El turno no existe", status=404)
+    admin_store(db, actor, shift.store_id)
+    return panel_service.shift_record(db, shift=shift)
+
+
+@router.get("/admin/records/employee/{employee_id}")
+def get_employee_record(
+    employee_id: int,
+    store_id: int = Query(...),
+    date_from: date | None = Query(None, alias="from"),
+    date_to: date | None = Query(None, alias="to"),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> EmployeeRecordOut:
+    """La ficha de una persona en una sede y un período (30 días por
+    defecto): lo que cobró, los turnos en que tuvo la caja, su asistencia,
+    y sus anulaciones, descuentos y cortesías."""
+    store = admin_store(db, actor, store_id)
+    employee = panel_service.get_employee_or_404(db, organization_id=actor.organization_id, employee_id=employee_id)
+    return panel_service.employee_record(db, employee=employee, store=store, date_from=date_from, date_to=date_to)
+
+
+@router.get("/admin/records/ingredient/{ingredient_id}")
+def get_ingredient_record(
+    ingredient_id: int,
+    date_from: date | None = Query(None, alias="from"),
+    date_to: date | None = Query(None, alias="to"),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> IngredientRecordOut:
+    """La ficha de un insumo: stock según el libro, entradas y salidas por
+    causa, y sus conteos por área. El detalle movimiento por movimiento lo
+    trae `GET /admin/ingredients/{id}/movements`."""
+    from app.inventory.models import Ingredient
+
+    ingredient = db.get(Ingredient, ingredient_id)
+    if ingredient is None:
+        raise AppError("NOT_FOUND", "El insumo no existe", status=404)
+    store = admin_store(db, actor, ingredient.store_id)
+    return panel_service.ingredient_record(
+        db, ingredient=ingredient, store=store, date_from=date_from, date_to=date_to
+    )
+

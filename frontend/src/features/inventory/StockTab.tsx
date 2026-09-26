@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
+import { Link } from "react-router-dom"
 
 import { getInventoryStock, inventoryStockCsvUrl, type StockRowOut } from "@/api/inventory"
 import {
@@ -20,6 +21,7 @@ import { Label } from "@/components/ui/label"
 import { errorMessage } from "@/lib/errors"
 import { formatCantidad } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { fichaInsumoHref } from "@/features/reports/fichas/rutas"
 
 const UNIT_LABEL: Record<string, string> = { g: "g", ml: "ml", unit: "unidad" }
 
@@ -198,7 +200,10 @@ export function StockTab({
       kind: "name",
       cell: (row) => (
         <span className="inline-flex items-center gap-2">
-          {row.name}
+          {/* El insumo lleva a su ficha: stock, entradas y salidas por causa, conteos. */}
+          <Link to={fichaInsumoHref(row.ingredient_id)} className="text-primary hover:underline">
+            {row.name}
+          </Link>
           {row.key_item ? (
             <span className="rounded border px-1 py-px text-[0.7rem] font-normal text-muted-foreground">
               Crítico

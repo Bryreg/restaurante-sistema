@@ -128,6 +128,13 @@ export interface CashSettings {
   photo_required_on_close: boolean;
   photo_required_on_pickup: boolean;
   streak_alert_shifts: number;
+  /**
+   * Cómo abre el cajón (2026-09-26): `envelopes` = sólo los sobres por
+   * consignar, y `cash_reserve_default` es el monto fijo de la base de
+   * respaldo; `fixed_base` = la base fija de siempre (`opening_cash_fixed`).
+   * Ausente al guardar = la sede conserva la que tenía.
+   */
+  opening_mode?: "envelopes" | "fixed_base" | null;
 }
 
 export function getCashSettings(storeId: number): Promise<CashSettings> {

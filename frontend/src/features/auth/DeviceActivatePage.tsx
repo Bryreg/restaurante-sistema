@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { useDensity } from "@/app/density";
 import { useSalonTheme } from "@/app/theme";
 import { useSession } from "@/app/session";
 import { deviceActivate } from "@/api/auth";
 import { PinPad } from "@/components/PinPad";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/errors";
@@ -88,6 +89,15 @@ export default function DeviceActivatePage(): React.JSX.Element {
         disabled={submitting || !storeIdValid}
         errorMessage={error}
       />
+      {/* Secundario: quien llegó acá buscando el admin tiene su puerta. */}
+      <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
+        <Link to="/login" className={buttonVariants({ variant: "ghost", className: "h-11 text-muted-foreground" })}>
+          Entrar como administrador
+        </Link>
+        <Link to="/" className={buttonVariants({ variant: "ghost", className: "h-11 text-muted-foreground" })}>
+          Inicio
+        </Link>
+      </div>
     </div>
   );
 }

@@ -14,6 +14,9 @@ import type { RouteObject } from "react-router-dom"
 
 import type { NavItem } from "@/app/nav"
 
+import { FichaInsumo } from "./fichas/FichaInsumo"
+import { FichaPersona } from "./fichas/FichaPersona"
+import { FichaTurno } from "./fichas/FichaTurno"
 import { InformesPage } from "./InformesPage"
 import { SalesPage } from "./SalesPage"
 import { TodayPage } from "./TodayPage"
@@ -22,6 +25,12 @@ const adminRoutes: RouteObject[] = [
   { path: "hoy", element: createElement(TodayPage) },
   { path: "ventas", element: createElement(SalesPage) },
   { path: "informes", element: createElement(InformesPage) },
+  // Las fichas relacionales cuelgan de la pantalla de su sección (Caja ›
+  // Dinero, Equipo › Turnos, Inventario): el rail enciende la sección por
+  // prefijo de ruta y no suma entradas (`app/AdminLayout.tsx`).
+  { path: "dinero/turno/:shiftId", element: createElement(FichaTurno) },
+  { path: "personal/persona/:employeeId", element: createElement(FichaPersona) },
+  { path: "inventario/insumo/:ingredientId", element: createElement(FichaInsumo) },
 ]
 
 const adminNav: NavItem[] = [

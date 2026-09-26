@@ -42,6 +42,17 @@ class HoursRowOut(BaseModel):
     overtime_hours: str
 
 
+class PendingExitOut(BaseModel):
+    """Una salida olvidada (asistencia sin salida en un día que ya pasó):
+    sus horas NO están en `rows` hasta que el administrador corrija la hora."""
+
+    attendance_id: int
+    employee_id: int
+    employee_name: str
+    business_date: date
+    in_at: datetime
+
+
 class HoursOut(BaseModel):
     store_id: int
     date_from: date
@@ -49,6 +60,7 @@ class HoursOut(BaseModel):
     rows: list[HoursRowOut]
     available: bool
     reason: str | None
+    pending_review: list[PendingExitOut] = []
 
 
 # ---------------------------------------------------------------------------

@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
+
+import jwt
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import or_, select
@@ -28,6 +30,7 @@ from app.auth.models import Authorization, DeviceSession, Employee
 from app.auth.schemas import (
     AdminLoginIn,
     AdminLoginOut,
+    AttendanceBriefOut,
     AuthorizationOut,
     AuthorizeIn,
     AuthorizeOut,
@@ -58,6 +61,7 @@ from app.core.security import (
     clear_session_cookie,
     hash_secret,
     make_token,
+    read_token,
     set_session_cookie,
     verify_secret,
 )
@@ -121,7 +125,9 @@ def _store_brief(store: Store) -> StoreBriefOut:
 
 
 @router.post("/auth/admin/login")
-def admin_login(body: AdminLoginIn, response: Response, db: Session = Depends(get_db)) -> AdminLoginOut:
+def admin_login(
+    body: AdminLoginIn, request: Request, response: Response, db: Session = Depends(get_db)
+) -> AdminLoginOut:
     stmt = select(Employee).where(
         Employee.role == "admin", Employee.email == body.email, Employee.active.is_(True)
     )
@@ -135,10 +141,20 @@ def admin_login(body: AdminLoginIn, response: Response, db: Session = Depends(ge
     if org is None:
         raise NotFoundError("La organización no existe")
 
-    token = make_token(
-        {"employee_id": employee.id}, ttl=timedelta(hours=settings.ADMIN_SESSION_HOURS)
-    )
-    set_session_cookie(response, COOKIE_ADMIN, token, max_age=settings.ADMIN_SESSION_HOURS * 3600)
+    # Desde una tablet del salón (el navegador tiene una sesión de
+    # dispositivo vigente) la sesión de administrador es corta: la cookie de
+    # admin le gana a la del dispositivo en `/auth/me` y en `current_actor`,
+    # así que una sesión de 12 h en la tablet escondía el POS y le atribuía
+    # al dueño lo que escribiera el que viniera después. 15 minutos, fijos;
+    # al vencer, la tablet vuelve sola a «Quién opera».
+    on_device = _read_device_session(request, db) is not None
+    if on_device:
+        ttl = timedelta(minutes=settings.ADMIN_ON_DEVICE_SESSION_MINUTES)
+        token = make_token({"employee_id": employee.id, "on_device": True}, ttl=ttl)
+    else:
+        ttl = timedelta(hours=settings.ADMIN_SESSION_HOURS)
+        token = make_token({"employee_id": employee.id}, ttl=ttl)
+    set_session_cookie(response, COOKIE_ADMIN, token, max_age=int(ttl.total_seconds()))
 
     return AdminLoginOut(
         user=UserOut(id=employee.id, name=employee.name, role=employee.role),
@@ -159,13 +175,21 @@ def admin_logout(response: Response) -> dict[str, bool]:
 
 @router.post("/auth/device/activate")
 def device_activate(
-    body: DeviceActivateIn, response: Response, db: Session = Depends(get_db)
+    body: DeviceActivateIn, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> DeviceActivateOut:
     store = db.get(Store, body.store_id)
     if store is None or not store.active or not verify_secret(body.store_pin, store.store_pin_hash):
         raise AppError(code="STORE_PIN_INVALID", message="PIN de sede incorrecto")
 
     now = clock.now_utc()
+    # Re-activar en el mismo navegador no deja dos sesiones vivas: la
+    # anterior (la de la cookie que trae este navegador) se revoca —nunca se
+    # borra— antes de crear la nueva.
+    previous = _read_device_session(request, db)
+    if previous is not None:
+        previous.revoked_at = now
+        previous.employee_id = None
+        previous.employee_expires_at = None
     session = DeviceSession(
         id=str(uuid4()),
         organization_id=store.organization_id,
@@ -226,6 +250,18 @@ def device_identify(
     session.employee_expires_at = now + timedelta(minutes=settings.EMPLOYEE_SESSION_MINUTES)
     db.flush()
 
+    # Hook cruzado: el primer PIN del día operativo marca la entrada, haya o
+    # no caja abierta (asistencia, 0028). Va ANTES del roster para saber si
+    # la entrada se acaba de marcar. El administrador no lleva asistencia.
+    attendance_out: AttendanceBriefOut | None = None
+    if importlib.util.find_spec("app.shifts.hooks") is not None:
+        shifts_hooks = importlib.import_module("app.shifts.hooks")
+        record_attendance = getattr(shifts_hooks, "record_attendance_on_identify", None)
+        if callable(record_attendance):
+            mark = record_attendance(db, store_id=session.store_id, employee=employee)
+            if mark is not None:
+                attendance_out = AttendanceBriefOut(**mark)
+
     # Hook cruzado: si el dominio de turnos ya existe, suma al roster.
     # La función vive en app/shifts/hooks.py (no en service.py, que solo lo
     # importa): buscarla en el módulo equivocado dejaba el hook sin correr
@@ -236,7 +272,7 @@ def device_identify(
         if callable(on_identified):
             on_identified(db, store_id=session.store_id, employee=employee)
 
-    return DeviceIdentifyOut(employee=_employee_brief(employee))
+    return DeviceIdentifyOut(employee=_employee_brief(employee), attendance=attendance_out)
 
 
 @router.post("/auth/device/release")
@@ -297,6 +333,33 @@ def list_device_employees(
 # ---------------------------------------------------------------------------
 
 
+def _admin_session_info(request: Request) -> tuple[bool, datetime | None]:
+    """`on_device` y el vencimiento de la cookie de admin vigente (ya validada
+    por `_read_admin_actor`)."""
+
+    token = request.cookies.get(COOKIE_ADMIN)
+    if not token:
+        return False, None
+    try:
+        payload = read_token(token)
+    except jwt.PyJWTError:
+        return False, None
+    exp = payload.get("exp")
+    expires_at = datetime.fromtimestamp(int(exp), tz=timezone.utc) if exp is not None else None
+    return bool(payload.get("on_device")), expires_at
+
+
+def _open_attendance(db: Session, store_id: int, employee_id: int) -> AttendanceBriefOut | None:
+    if importlib.util.find_spec("app.shifts.hooks") is None:
+        return None
+    shifts_hooks = importlib.import_module("app.shifts.hooks")
+    open_for = getattr(shifts_hooks, "open_attendance_for", None)
+    if not callable(open_for):
+        return None
+    row = open_for(db, store_id=store_id, employee_id=employee_id)
+    return AttendanceBriefOut(**row) if row is not None else None
+
+
 @router.get("/auth/me")
 def me(request: Request, db: Session = Depends(get_db)) -> MeOut:
     admin_actor = _read_admin_actor(request, db)
@@ -306,11 +369,14 @@ def me(request: Request, db: Session = Depends(get_db)) -> MeOut:
         if employee is None or org is None:
             raise UnauthorizedError("Iniciá sesión", code="NOT_AUTHENTICATED")
         features = enabled_map(db, org.id, None)
+        on_device, session_expires_at = _admin_session_info(request)
         return MeOut(
             kind="admin",
             user=UserOut(id=employee.id, name=employee.name, role=employee.role),
             organization=OrganizationOut(id=org.id, name=org.name),
             features=features,
+            on_device=on_device,
+            session_expires_at=session_expires_at,
         )
 
     session = _read_device_session(request, db)
@@ -328,6 +394,7 @@ def me(request: Request, db: Session = Depends(get_db)) -> MeOut:
 
     employee_out = None
     employee_expires_at = None
+    employee_attendance: AttendanceBriefOut | None = None
     now = clock.now_utc()
     if (
         session.employee_id is not None
@@ -338,6 +405,7 @@ def me(request: Request, db: Session = Depends(get_db)) -> MeOut:
         if employee is not None and employee.active:
             employee_out = _employee_brief(employee)
             employee_expires_at = session.employee_expires_at
+            employee_attendance = _open_attendance(db, session.store_id, employee.id)
 
     features = enabled_map(db, session.organization_id, session.store_id)
 
@@ -346,6 +414,7 @@ def me(request: Request, db: Session = Depends(get_db)) -> MeOut:
         store=_store_brief(store),
         employee=employee_out,
         employee_expires_at=employee_expires_at,
+        employee_attendance=employee_attendance,
         last_employee_id=session.last_employee_id,
         organization=OrganizationOut(id=org.id, name=org.name),
         features=features,

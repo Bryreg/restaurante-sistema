@@ -955,7 +955,17 @@ def _area_counts_tray(db: Session, store: Store) -> dict[str, Any]:
         "area_counts_enabled": True,
         "area_counts_areas": [
             AreaCountAreaTodayOut(
-                area_id=a.area_id, area_name=a.area_name, opening=done(a.opening), closing=done(a.closing)
+                area_id=a.area_id,
+                area_name=a.area_name,
+                opening=done(a.opening),
+                closing=done(a.closing),
+                # Tolerante: estos campos llegan con el conteo compartido.
+                opening_counted=getattr(a, "opening_counted", None),
+                opening_total=getattr(a, "opening_total", None),
+                closing_counted=getattr(a, "closing_counted", None),
+                closing_total=getattr(a, "closing_total", None),
+                full_count=getattr(a, "full_count", None),
+                opening_missing=getattr(a, "opening_missing", None),
             )
             for a in summary.areas
         ],
@@ -1487,8 +1497,13 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     fiscal_service.sweep_contingency_overdue(db, store_id=store.id)
     open_orders = _open_orders_out(db, store, now)
 
-    shift = shifts_service.get_current_shift(db, store=store)
-    expected_cash = shifts_service.compute_breakdown(db, shift)["expected"] if shift is not None else None
+    # El turno abierto, de cualquier día, con la MISMA lectura del panel
+    # (`app.reports.panel.current_cash`): el esperado de la tarjeta y el del
+    # panel son la misma cifra porque salen de la misma llamada.
+    from app.reports import panel as panel_service
+
+    current_shift = panel_service.current_cash(db, store)
+    expected_cash = current_shift.expected_cash if current_shift is not None else None
 
     inventory_unreliable, days_since_last_full_count = _inventory_reliability(db, store)
 
@@ -1528,6 +1543,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         pending_refunds_count=_pending_refunds_count(db, store),
         unreviewed_closes_count=_unreviewed_closes_count(db, store),
         **_deposits_tray(db, store),
+        **shifts_hooks.reserve_loans_tray(db, store),
         **_pos_routine_tray(db, store),
         **_area_counts_tray(db, store),
         alerts=_recent_alerts(db, store),
@@ -1546,6 +1562,9 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         comparison=comparison,
         sales_by_hour_reference=sales_by_hour_reference,
         yesterday_close=yesterday_close,
+        current_shift=current_shift,
+        store_closed=current_shift is None and not panel_service.shift_activity(db, store),
+        attendance_pending_review_count=len(shifts_hooks.attendance_pending_review(db, store_id=store.id)),
     )
 
 

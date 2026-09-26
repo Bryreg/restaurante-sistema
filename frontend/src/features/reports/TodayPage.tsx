@@ -13,6 +13,7 @@ import {
 import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 
+import type { PanelCashOut } from "@/api/panel"
 import {
   CASH_DIFF_SUMMARY_ALERT_TYPE,
   getToday,
@@ -80,6 +81,8 @@ import { receptionDraftsTrayItem } from "@/features/purchases"
 import { RequestsTray } from "@/features/requests"
 
 import { Definiciones, Plegable, type Definicion } from "./Plegable"
+import { fichaTurnoHref } from "./fichas/rutas"
+import { PanelAhora } from "./PanelAhora"
 
 /** El ancla de la bandeja: solicitudes y novedades que el salón le dejó al dueño. */
 const ANCLA_BANDEJA = "bandeja"
@@ -219,19 +222,106 @@ function directAttentionItems(today: {
   payables_pending_review_count?: number
   inventory_unreliable?: boolean | null
   days_since_last_full_count?: number | null
+  current_shift?: PanelCashOut | null
+  store_closed?: boolean
+  reserve_loans_open_count?: number
+  reserve_loans_open_total?: number | null
+  attendance_pending_review_count?: number
 }): AttentionItem[] {
   const items: AttentionItem[] = []
 
+  // El turno abierto de cualquier día (`current_shift`, la misma lectura que
+  // el panel y que Dinero › Operacional). Un turno abandonado de otro día
+  // tenía esperado en la tarjeta de abajo y ningún aviso propio: ahora es
+  // crítico y lleva a su ficha, donde están el cierre administrativo y los
+  // demás rescates.
+  const shift = today.current_shift ?? null
+  if (shift?.is_stale) {
+    items.push({
+      key: "shift-stale",
+      title: `Turno abandonado del ${formatFechaCorta(shift.business_date)}`,
+      body:
+        `Sigue abierto y nadie lo cerró. Responsable: ${shift.responsible.name}` +
+        (shift.responsible.active ? "." : " (ya no está activo)."),
+      why: {
+        term: "Turno abandonado",
+        text: "Pasó la hora de corte del día siguiente y el turno sigue abierto. No bloquea la venta, pero su plata no se cuadró: cerralo con el cierre administrativo.",
+      },
+      to: fichaTurnoHref(shift.shift_id),
+      ctaLabel: "Ver el turno",
+      tone: "critical",
+      screen: "Dinero",
+      tab: `Turno #${shift.shift_id}`,
+    })
+  } else if (shift && !shift.responsible.active) {
+    items.push({
+      key: "responsible-inactive",
+      title: "Caja a nombre de alguien inactivo",
+      body: `${shift.responsible.name} ya no está activo y el turno #${shift.shift_id} sigue a su nombre.`,
+      why: {
+        term: "Responsable inactivo",
+        text: "Hacé un relevo del turno a alguien activo, o cerralo: la diferencia del cierre se atribuye al responsable.",
+      },
+      to: fichaTurnoHref(shift.shift_id),
+      ctaLabel: "Ver el turno",
+      tone: "warning",
+      screen: "Dinero",
+      tab: `Turno #${shift.shift_id}`,
+    })
+  }
+
   if (today.expected_cash === null || today.expected_cash === undefined) {
+    // Crítico sólo si hay actividad que pida caja (alguien de caja con
+    // entrada, o comandas del día sin turno): el mismo criterio que el
+    // semáforo del panel (`store_closed`, del servidor). Sin actividad, la
+    // sede está cerrada: de noche no es una alarma.
+    const closed = today.store_closed === true
     items.push({
       key: "no-shift",
       title: "Sin turno abierto",
-      body: "No hay un turno de caja abierto ahora.",
+      body: closed
+        ? "La sede está cerrada: no hay nadie de caja ni comandas del día."
+        : "Hay actividad sin turno de caja: no se puede cobrar.",
       to: "/admin/dinero",
       ctaLabel: "Abrir Dinero",
-      tone: "critical",
+      tone: closed ? "default" : "critical",
       screen: "Dinero",
       tab: "Operacional",
+    })
+  }
+
+  // Base de respaldo: un préstamo al cajón vuelve el mismo día. Conteo y
+  // total del servidor (`reserve_loans_tray`), los mismos del panel.
+  const loans = today.reserve_loans_open_count ?? 0
+  if (loans > 0) {
+    const shiftId = today.current_shift?.shift_id
+    items.push({
+      key: "reserve-loans",
+      title: `${loans} préstamo${loans === 1 ? "" : "s"} de la base sin devolver`,
+      body: "Lo que el cajón tomó de la base de respaldo vuelve el mismo día, antes del conteo de cierre.",
+      amount: today.reserve_loans_open_total ?? null,
+      to: shiftId !== undefined ? fichaTurnoHref(shiftId) : "/admin/dinero",
+      ctaLabel: "Ver el turno",
+      tone: "warning",
+      screen: "Dinero",
+      tab: shiftId !== undefined ? `Turno #${shiftId}` : "Operacional",
+    })
+  }
+
+  // Asistencia: salidas olvidadas de días anteriores. No suman horas hasta
+  // que se corrigen en Nómina › Horas.
+  const exits = today.attendance_pending_review_count ?? 0
+  if (exits > 0) {
+    items.push({
+      key: "attendance-review",
+      title: `${exits} salida${exits === 1 ? "" : "s"} olvidada${exits === 1 ? "" : "s"} a revisar`,
+      body: "Alguien no marcó salida en un día que ya pasó; esas horas no cuentan hasta corregirlas.",
+      to: "/admin/nomina?tab=horas",
+      ctaLabel: "Ver Horas",
+      tone: "warning",
+      screen: "Nómina",
+      tab: "Horas",
+      filter: "salidas a revisar",
     })
   }
 
@@ -290,11 +380,14 @@ function directAttentionItems(today: {
       key: "unreviewed-closes",
       title: `${unreviewed} cierre${unreviewed === 1 ? "" : "s"} sin revisar`,
       body: "Falta el paso 2 del cierre a ciegas.",
-      to: "/admin/dinero",
+      // El recuento es de TODOS los cierres sin revisar, de cualquier día:
+      // Operacional sólo muestra los de hoy, así que el enlace iba a una
+      // tabla donde no estaban. Historial los tiene todos, con su revisión.
+      to: "/admin/dinero?tab=historial",
       ctaLabel: "Ver Dinero",
       tone: "default",
       screen: "Dinero",
-      tab: "Operacional",
+      tab: "Historial",
     })
   }
 
@@ -397,9 +490,15 @@ function directAttentionItems(today: {
   // la plata que manda el servidor. Los recuentos dentro del umbral no son
   // aviso: los muestra la tarjeta.
   if (today.area_counts_enabled) {
-    const sinApertura = (today.area_counts_areas ?? []).filter((a) => a.opening === null)
+    // `opening_missing` (conteo compartido): la apertura es obligatoria y no
+    // está. Sin ese dato, la regla de antes (ningún conteo de apertura).
+    const sinApertura = (today.area_counts_areas ?? []).filter((a) => a.opening_missing ?? a.opening === null)
     if (sinApertura.length > 0) {
-      const nombres = sinApertura.map((a) => a.area_name).join(", ")
+      const nombres = sinApertura
+        .map((a) =>
+          a.opening_total ? `${a.area_name} (${a.opening_counted ?? 0} de ${a.opening_total} contados)` : a.area_name,
+        )
+        .join(", ")
       items.push({
         key: "area-counts-missing",
         title: `${sinApertura.length} área${sinApertura.length === 1 ? "" : "s"} sin conteo de apertura`,
@@ -607,7 +706,14 @@ function directAttentionItems(today: {
 }
 
 /** Tipos que ya tienen su propia tarjeta directa arriba — evita mostrar el mismo aviso dos veces. */
-const DEDUPED_ALERT_TYPES = new Set(["order_unsent_too_long", "order_unpaid_too_long", "product_unavailable", "pending_refund"])
+const DEDUPED_ALERT_TYPES = new Set([
+  "order_unsent_too_long",
+  "order_unpaid_too_long",
+  "product_unavailable",
+  "pending_refund",
+  // «Turno abandonado» ya es un aviso directo, con la fecha y el responsable.
+  "shift_stale",
+])
 
 /**
  * El aviso resumen de caja (`cash_diff_summary`): el texto lo escribe el
@@ -1278,6 +1384,11 @@ export function TodayPage(): React.JSX.Element {
         }
       />
 
+      {/* **La portada** (panel de control): con varias sedes, todas en un
+          semáforo; de la sede activa, qué pasa ahora —caja, quién trabaja,
+          conteos, salón, cocina—. Cada bloque lleva a su detalle. */}
+      <PanelAhora />
+
       {/* **Un solo nivel de grilla, en el orden en que se lee en el
           celular** (`docs/diseno/propuesta.html`, Momento 5): primero la
           respuesta —la cifra rectora—, después lo que exige actuar, y los
@@ -1419,10 +1530,25 @@ export function TodayPage(): React.JSX.Element {
             {noShift ? (
               <IndicadorSinDato
                 label="Efectivo esperado"
-                motivo="no hay un turno de caja abierto"
-                tone="critical"
+                motivo={today.store_closed ? "la sede está cerrada: no hay turno de caja" : "no hay un turno de caja abierto"}
+                tone={today.store_closed ? "default" : "critical"}
                 icon={Banknote}
                 link={{ to: "/admin/dinero", screen: "Dinero", tab: "Operacional" }}
+              />
+            ) : today.current_shift?.is_stale ? (
+              // El esperado de un turno abandonado de otro día no es «el de
+              // hoy»: la tarjeta lo dice y lleva a la ficha del turno.
+              <StatTile
+                label="Efectivo esperado"
+                value={formatCOP(today.expected_cash)}
+                hint={`Turno abandonado del ${formatFechaCorta(today.current_shift.business_date)}.`}
+                tone="critical"
+                icon={Banknote}
+                link={{
+                  to: fichaTurnoHref(today.current_shift.shift_id),
+                  screen: "Dinero",
+                  tab: `Turno #${today.current_shift.shift_id}`,
+                }}
               />
             ) : (
               <StatTile

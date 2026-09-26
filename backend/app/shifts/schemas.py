@@ -53,6 +53,12 @@ CashDifferenceCauseLiteral = Literal[
     "change_error", "expense_without_voucher", "tips_mixed", "unrecorded_sale", "counting_error", "unknown"
 ]
 HandoverKindLiteral = Literal["handover", "spot_check"]
+# Cómo abre el cajón (2026-09-26): `envelopes` = sólo los sobres por
+# consignar elegidos y contados a ciegas (decisión del dueño); `fixed_base` =
+# la base fija de siempre (turnos anteriores y sedes que no se pasaron).
+OpeningModeLiteral = Literal["envelopes", "fixed_base"]
+# El libro de la base de respaldo: tomar (entra al cajón) y devolver.
+CashReserveMovementKindLiteral = Literal["take", "return"]
 
 
 class OutModel(BaseModel):
@@ -121,10 +127,77 @@ class ShiftCurrentOut(BaseModel):
     delivery_cash_pending: int | None = None
     is_stale: bool
     cash_over_threshold: bool
+    # 2026-09-26: la regla con que abrió el turno y lo que el cajón le debe a
+    # la base de respaldo. `reserve_loan` es `None` con la base apagada (no
+    # «no debe nada»); no es plata derivada del esperado: es lo que se tomó.
+    opening_mode: OpeningModeLiteral = "fixed_base"
+    reserve_loan: int | None = None
+
+
+class OpeningEnvelopeCountIn(BaseModel):
+    """Un sobre elegido y contado por denominaciones, aparte de los demás."""
+
+    shift_id: int
+    counted: DenominationCountIn
+
+
+class OpeningCountIn(BaseModel):
+    """`POST /shifts/opening-counts`: el cuadre de apertura por sobres,
+    sellado a ciegas. Ningún monto esperado viaja desde la pantalla: el
+    servidor calcula el saldo de cada sobre."""
+
+    envelopes: list[OpeningEnvelopeCountIn] = Field(default_factory=list)
+
+
+class OpeningEnvelopeOut(BaseModel):
+    shift_id: int
+    business_date: date
+    expected: int
+    counted: int
+    difference: int
+
+
+class OpeningCountOut(BaseModel):
+    """Lo que se revela DESPUÉS de sellar: por sobre, lo esperado, lo contado y
+    la diferencia, atribuidos a quien contó."""
+
+    id: int
+    counted_by: EmployeeRef
+    counted_at: datetime
+    envelopes: list[OpeningEnvelopeOut]
+    expected_total: int
+    counted_total: int
+    difference_total: int
+    requires_cause: bool
+    used: bool
+
+
+class OpeningEnvelopeCandidateOut(BaseModel):
+    """Un sobre por consignar que se puede elegir al abrir. **Sin monto**:
+    se cuenta a ciegas."""
+
+    shift_id: int
+    business_date: date
+
+
+class OpeningInfoOut(BaseModel):
+    """`GET /shifts/opening`: lo que la pantalla de apertura necesita."""
+
+    mode: OpeningModeLiteral
+    envelopes: list[OpeningEnvelopeCandidateOut]
+    # Un conteo sellado de esta sede que todavía no abrió turno: la pantalla
+    # retoma en la revelación en vez de volver a contar.
+    pending_count: OpeningCountOut | None = None
+    # La base de respaldo existe en esta sede (función encendida y monto > 0).
+    reserve_available: bool = False
 
 
 class OpenShiftIn(BaseModel):
-    opening_cash: DenominationCountIn
+    # Con la regla de sobres puede faltar: el cajón abre con lo que dice el
+    # conteo sellado (`opening_count_id`), o vacío si no se eligió ningún
+    # sobre. Con la base fija es obligatorio (`OPENING_CASH_REQUIRED`).
+    opening_cash: DenominationCountIn | None = None
+    opening_count_id: int | None = None
     cash_reserve: int = 0
     cash_responsible_id: int
     opening_cause: CashDifferenceCauseLiteral | None = None
@@ -151,6 +224,7 @@ class OpenShiftOut(BaseModel):
     cash_responsible: EmployeeRef
     opening_cash_total: int
     cash_reserve: int
+    opening_mode: OpeningModeLiteral = "fixed_base"
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +271,8 @@ class BreakdownOut(BaseModel):
     pickups: int
     # Consignado desde el cajón en el POS (2026-09-24): resta del esperado.
     deposits: int = 0
+    # Prestado por la base de respaldo y sin devolver (2026-09-26): suma.
+    reserve_loan: int = 0
     expected: int
     # Pedido 2c (SPEC-NEGOCIO §3.3): el efectivo de domicilios que el
     # domiciliario todavía no entregó. Renglón PROPIO y separado: **no está
@@ -344,7 +420,13 @@ class CloseReviewOut(BaseModel):
 
 class ClosePrecheckItemOut(BaseModel):
     code: Literal[
-        "OPEN_ORDERS", "DELIVERY_UNSETTLED", "CARD_TOTAL_REQUIRED", "TRANSFER_TOTAL_REQUIRED", "PHOTO_REQUIRED"
+        "OPEN_ORDERS",
+        "DELIVERY_UNSETTLED",
+        "CARD_TOTAL_REQUIRED",
+        "TRANSFER_TOTAL_REQUIRED",
+        "PHOTO_REQUIRED",
+        # 2026-09-26: plata de la base de respaldo sin devolver.
+        "RESERVE_LOAN_OPEN",
     ]
     # `blocking`: el cierre no entra sin resolverlo (o sin trasladar);
     # `warning`: entra, pero conviene resolverlo antes de contar; `info`: qué
@@ -372,6 +454,8 @@ class ClosePrecheckOut(BaseModel):
     card_total_required: bool
     transfer_total_required: bool
     photo_required: bool
+    # Hay plata de la base de respaldo sin devolver: el conteo no entra.
+    reserve_loan_open: bool = False
     # Un conteo ya sellado y activo: la pantalla retoma en el paso 2.
     sealed_count: SealedCountOut | None
     items: list[ClosePrecheckItemOut]
@@ -428,6 +512,10 @@ class ShiftSummaryOut(BaseModel):
     cash_responsible: EmployeeRef
     opening_cash_total: int
     cash_reserve: int
+    opening_mode: OpeningModeLiteral = "fixed_base"
+    # El conteo de apertura por sobres (regla de sobres), con la diferencia
+    # por sobre y quién contó. `None` con la base fija.
+    opening_count: OpeningCountOut | None = None
     roster: list[RosterEntryOut]
     movements: list[CashMovementOut]
     swaps: list[CashSwapOut]
@@ -461,6 +549,10 @@ class AdminShiftListItem(BaseModel):
     opened_at: datetime
     closed_at: datetime | None = None
     cash_responsible: EmployeeRef
+    # Si la persona responsable sigue activa HOY. El nombre es el congelado
+    # del turno; esto dice si todavía hay a quién preguntarle. `None` si la
+    # fila de la persona no se encontró.
+    cash_responsible_active: bool | None = None
     expected_cash: int | None = None
     counted_cash: int | None = None
     difference: int | None = None
@@ -741,3 +833,97 @@ class TipPayoutOut(OutModel):
     created_by: EmployeeRef
     created_at: datetime
     distribution: list[TipPayoutDistributionOut]
+
+
+# ---------------------------------------------------------------------------
+# Base de respaldo (`cash_reserve`, 2026-09-26)
+# ---------------------------------------------------------------------------
+
+
+class ReserveTakeIn(BaseModel):
+    amount: int = Field(gt=0)
+    # PIN de un supervisor o administrador: tomar de la base se autoriza.
+    authorizer_pin: str | None = None
+    note: str | None = None
+
+
+class ReserveReturnIn(BaseModel):
+    amount: int = Field(gt=0)
+    note: str | None = None
+
+
+class ReserveReverseIn(BaseModel):
+    reason: str = Field(min_length=1)
+    authorizer_pin: str | None = None
+
+
+class ReserveMovementOut(OutModel):
+    id: int
+    shift_id: int
+    kind: CashReserveMovementKindLiteral
+    amount: int
+    note: str | None = None
+    employee_id: int
+    employee_name: str
+    authorized_by_employee_id: int | None = None
+    authorized_by_employee_name: str | None = None
+    at: datetime
+    reversed_at: datetime | None = None
+    reversed_reason: str | None = None
+    reversed_by_employee_name: str | None = None
+
+
+class ReserveCheckIn(BaseModel):
+    counted: DenominationCountIn
+    note: str | None = None
+
+
+class ReserveCheckOut(OutModel):
+    """Lo que se revela DESPUÉS de contar la base (a ciegas)."""
+
+    id: int
+    reserve_amount: int
+    loans_outstanding: int
+    expected: int
+    counted: int
+    difference: int
+    note: str | None = None
+    employee_id: int
+    employee_name: str
+    at: datetime
+
+
+class ReserveStatusOut(BaseModel):
+    """`GET /shifts/{id}/reserve`: el estado de la base de respaldo para el
+    cajón de este turno. `amount` es el monto fijo; `available`, lo que se
+    puede tomar ahora; `loan`, lo que este cajón debe. La última verificación
+    del custodio se publica sin el esperado de la base (sólo cuándo, quién y
+    si cuadró): contar la base es a ciegas."""
+
+    enabled: bool
+    configured: bool
+    amount: int | None = None
+    available: int | None = None
+    loan: int
+    movements: list[ReserveMovementOut]
+    last_check_at: datetime | None = None
+    last_check_by: str | None = None
+    last_check_matched: bool | None = None
+    can_verify: bool = False
+
+
+class ReserveOpenLoanOut(BaseModel):
+    shift_id: int
+    amount: int
+    shift_open: bool
+
+
+class AdminReserveOut(BaseModel):
+    """`GET /admin/stores/{id}/reserve`: la base de respaldo de una sede para
+    el administrador —monto, prestado sin devolver y las verificaciones—."""
+
+    enabled: bool
+    amount: int
+    loans_outstanding: int
+    open_loans: list[ReserveOpenLoanOut]
+    checks: list[ReserveCheckOut]
