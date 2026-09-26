@@ -1945,6 +1945,27 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
     Devolver a la base» se enchufan en `baseSlot.ts` con los paneles de §46.
     Al integrar, la cadena queda `0027 → 0028 → 0029 → 0030` y el esquema
     en 111 tablas.
+48. **Panel de control relacional** (2026-09-26). `GET /admin/panel`
+    (`app/reports/panel.py`): semáforo por sede (gris «Cerrado» sin
+    actividad), bloques Caja / Quién trabaja / Conteos / Salón / Cocina que
+    reusan las funciones de Hoy, `compute_breakdown`, `aggregate_sales` y
+    `kitchen.hooks.kitchen_load`; fichas de turno, persona e insumo
+    (`/admin/records/...`). Contradicciones arregladas en la fuente: turno
+    abandonado visible en Operacional, esperado vivo igual en Hoy y
+    Operacional, responsable inactivo marcado, ventas por persona con una
+    sola definición. El push al teléfono no tiene infraestructura todavía
+    (ver CONTEXTO-AGENTES §8).
+
+    **Decisiones del dueño (2026-09-26)**, que rigen §45–§48:
+    1. La base es plata aparte con monto fijo; la caja arranca sólo con la
+       consignación elegida; lo prestado de la base vuelve el mismo día.
+    2. Una caja por sede.
+    3. El supervisor autoriza lo del piso (retiros, base, apertura, salidas
+       de otros); el dueño se queda con ajustes y correcciones.
+    4. El dueño en la tablet sólo autoriza: no opera, no suma horas ni
+       propina.
+    5. El conteo de apertura de la lista elegida es obligatorio, y una vez
+       al mes el conteo completo.
 
 ---
 
