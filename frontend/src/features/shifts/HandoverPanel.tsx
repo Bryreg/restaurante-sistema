@@ -37,7 +37,7 @@ function emptyDenominations(): Denomination[] {
 }
 
 const BREAKDOWN_LABEL: Record<string, string> = {
-  base: "Base",
+  base: "Apertura",
   cash_sales: "Ventas en efectivo",
   incomes: "Ingresos",
   expenses: "Egresos",
@@ -45,7 +45,8 @@ const BREAKDOWN_LABEL: Record<string, string> = {
   // 2026-09-24: lo consignado desde el cajón sale del esperado; lo traído de
   // días anteriores es informativo (ya está dentro de la base).
   deposits: "Consignado desde el cajón",
-  carried_in: "De días anteriores (en la base)",
+  carried_in: "De días anteriores (en la apertura)",
+  reserve_loan: "Prestado por la base de respaldo",
   expected: "Esperado",
   counted: "Contado",
   difference: "Diferencia",

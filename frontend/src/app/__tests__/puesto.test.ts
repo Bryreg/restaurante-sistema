@@ -136,6 +136,16 @@ describe("inicioParaPuesto — a dónde llega después del PIN", () => {
     expect(inicioParaPuesto({ role: "operator" }, todo)).toBe("/pos/mesas");
     expect(inicioParaPuesto({ role: "supervisor", puesto: "caja" }, nada)).toBe("/pos/comanda/nueva");
   });
+
+  it("quien maneja la caja y llega sin turno abierto va primero al cuadre de apertura (Turno)", () => {
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, false)).toBe("/pos/turno");
+    expect(inicioParaPuesto({ role: "supervisor" }, todo, false)).toBe("/pos/turno");
+    // Con turno abierto, o mientras no se sabe, manda el puesto.
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, true)).toBe("/pos/mesas");
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: true }, todo, null)).toBe("/pos/mesas");
+    // Quien no puede tocar la caja no tiene cuadre que hacer.
+    expect(inicioParaPuesto({ role: "operator", puesto: "salon", can_charge: false }, todo, false)).toBe("/pos/mesas");
+  });
 });
 
 describe("volver a donde se estaba (?next=)", () => {

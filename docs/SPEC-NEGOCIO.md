@@ -229,7 +229,57 @@ Es la **unidad de responsabilidad sobre el dinero**. Estados: `abierto → cerra
 Un solo turno abierto por sede, con **índice único parcial** en la base y `409` en
 la carrera (la referencia lo tiene: `caja.py:296-303`).
 
-**Base fija.** La sede define `opening_cash_fixed` (por ejemplo $200.000). Todo turno
+> **Regla vigente desde el 2026-09-26 (decisión del dueño): el cajón abre sólo con
+> los sobres por consignar, y «base» significa UNA sola cosa: la base de respaldo.**
+> Lo que sigue en esta sección sobre la «base fija» describe la regla anterior; queda
+> para los turnos abiertos antes del cambio (cada turno congela su regla al abrir:
+> `shifts.opening_mode` y `shifts.opening_fixed_base`, así que ningún número
+> histórico se reescribe) y para una sede con `opening_mode = fixed_base`. Toda sede
+> existente pasó a la regla nueva con la migración `0029`, y toda sede nueva nace
+> con ella.
+>
+> 1. **Apertura = cuadre de los sobres** (como café-sistema). Para quien puede
+>    manejar la caja, lo primero después del PIN —si no hay turno abierto— es el
+>    cuadre: elige los sobres de días por consignar (`shift_carry_ins`, los «días
+>    por consignar») que va a trabajar en el turno —ve sólo la **fecha** de cada
+>    sobre, nunca su monto— y cuenta **cada sobre aparte** por denominaciones, a
+>    ciegas. Al sellar (`POST /shifts/opening-counts`) el servidor revela, por
+>    sobre, lo esperado (su saldo por consignar), lo contado y la diferencia,
+>    **atribuidos a quien contó**; con diferencia, abrir exige causa tipada.
+>    **Esperado de apertura = suma de los sobres elegidos. No hay base fija.** Sin
+>    sobres, el cajón abre vacío. Si el cajero no llegó, el supervisor abre y
+>    después le entrega la caja con un relevo.
+> 2. **Base de respaldo** (`cash_reserve`): plata **aparte** del cajón, con monto
+>    fijo por sede (`store_cash_settings.cash_reserve_default`, Ajustes › Caja), por
+>    si la plata de los sobres no alcanza para dar vueltas. **No entra al cuadre**:
+>    el cuadre sólo cuenta lo que va a estar en el cajón. Tiene su propio libro
+>    (`cash_reserve_movements`): **tomar de la base** exige el PIN de un supervisor
+>    o administrador y entra al cajón como préstamo (suma al esperado:
+>    `reserve_loan`); **devolver a la base** lo hace quien tiene la caja y sale del
+>    cajón. El préstamo vuelve **el mismo día, antes del conteo de cierre**: con
+>    préstamo abierto el conteo de cierre no entra (`RESERVE_LOAN_OPEN`, y el paso
+>    0 del cierre lo lista). Lo prestado vuelve a la base, nunca al banco: resta de
+>    `to_deposit`. Un préstamo sin devolver aparece en la bandeja de Hoy.
+> 3. **El custodio verifica la base** (supervisor o administrador), a ciegas y
+>    **aparte del cuadre del cajero** («Verificar base»): cuenta, y el servidor
+>    revela lo esperado (monto fijo − prestado sin devolver) y la diferencia.
+> 4. **Una caja por sede.** El supervisor autoriza en el piso (retiros, base,
+>    apertura); el dueño guarda la configuración y los rescates.
+>
+> El incidente que esto evita, del café: la base de emergencia se mezcló con la
+> plata consignable y el sistema pidió consignar $697.900 en vez de $197.900. Por
+> eso la palabra «base» ya no nombra la apertura del cajón: en pantalla la
+> apertura se llama «Apertura» (en código sigue siendo `breakdown.base` /
+> `opening_cash_total`), y «base» es sólo la base de respaldo. Fórmulas vigentes
+> (una sola vez, en `app/shifts/service.py`):
+>
+> - `esperado = apertura + ventas en efectivo + ingresos − egresos − retiros −
+>   consignado desde el cajón + prestado por la base sin devolver`
+> - `a consignar = contado − base fija del turno (0 con sobres) − propinas en
+>   efectivo − lo de días anteriores que sigue en el cajón − prestado por la base
+>   sin devolver`
+
+**Base fija (regla anterior).** La sede define `opening_cash_fixed` (por ejemplo $200.000). Todo turno
 abre con la base fija y al cerrar deja la base fija en el cajón. Es la práctica
 colombiana habitual y elimina de un golpe tres mecanismos que la referencia
 necesitó (cuadre inicial por saldos de días anteriores, «sobrante consignable»,
@@ -263,7 +313,9 @@ cascada entre días) y sus bugs (Palmetto, 18-jul: la misma plata pedida dos vec
 - **Reserva de caja** (plata de emergencia que vive en el cajón y no se usa) en un
   campo aparte que **no entra** al esperado ni al cuadre (Palmetto, 15-ago: una
   reserva contada dentro de la base fabricó un sobrante de $500.000 que el sistema
-  mandó consignar).
+  mandó consignar). *Desde el 2026-09-26 la reserva es la **base de respaldo**:
+  vive aparte del cajón, con monto fijo y libro propio (ver el recuadro de arriba);
+  con la regla de sobres ya no se declara al abrir.*
 - El conteo de inventario **no es gate** de la venta.
 
 **Durante el turno**:

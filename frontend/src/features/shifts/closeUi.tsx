@@ -95,7 +95,9 @@ export function TarjetaCierre({
  * (`backend/tests/channels/test_expected_cash_parity.py`).
  */
 export const RENGLONES_ESPERADO = [
-  { clave: "base", rotulo: "Base del turno", detalle: "Con la que se abrió el cajón", signo: "" },
+  // «Apertura», no «base»: desde 2026-09-26 «base» es sólo la base de
+  // respaldo, que vive aparte y no entra al cuadre.
+  { clave: "base", rotulo: "Apertura del cajón", detalle: "Con lo que se abrió el cajón", signo: "" },
   { clave: "cash_sales", rotulo: "Ventas en efectivo", detalle: "Lo que se cobró en billetes", signo: "+" },
   { clave: "incomes", rotulo: "Ingresos de caja", detalle: "Lo que entró por fuera de la venta", signo: "+" },
   { clave: "expenses", rotulo: "Egresos de caja", detalle: "Lo que se pagó del cajón", signo: "−" },

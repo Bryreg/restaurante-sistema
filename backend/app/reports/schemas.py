@@ -289,6 +289,10 @@ class TodayOut(BaseModel):
     deposits_to_confirm_count: int = 0
     undeposited_total: int | None = None
     undeposited_oldest_date: date | None = None
+    # Base de respaldo (2026-09-26): préstamos al cajón sin devolver. Tienen
+    # que volver el mismo día. `None` en el total con `cash.reserve` apagada.
+    reserve_loans_open_count: int = 0
+    reserve_loans_open_total: int | None = None
     # La rutina del turno en el POS (2026-09-25): lo que el salón le dejó al
     # dueño para resolver. `0` con la función apagada.
     reception_drafts_pending_count: int = 0

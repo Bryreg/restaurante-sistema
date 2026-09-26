@@ -1528,6 +1528,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         pending_refunds_count=_pending_refunds_count(db, store),
         unreviewed_closes_count=_unreviewed_closes_count(db, store),
         **_deposits_tray(db, store),
+        **shifts_hooks.reserve_loans_tray(db, store),
         **_pos_routine_tray(db, store),
         **_area_counts_tray(db, store),
         alerts=_recent_alerts(db, store),

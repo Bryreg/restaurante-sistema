@@ -14,6 +14,7 @@ import {
   PiggyBank,
   UserCheck,
   Users,
+  Vault,
 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -38,8 +39,9 @@ import { DeliverySettlementPanel } from "./DeliverySettlementPanel";
 import { DepositDrawerPanel } from "./DepositDrawerPanel";
 import { HandoverPanel } from "./HandoverPanel";
 import { MovementsPanel } from "./MovementsPanel";
-import { OpenShiftForm } from "./OpenShiftForm";
+import { OpeningScreen } from "./OpeningScreen";
 import { PickupsPanel } from "./PickupsPanel";
+import { ReservePanel } from "./ReservePanels";
 import { RosterPanel } from "./RosterPanel";
 import { ShiftSummaryPanel } from "./ShiftSummaryPanel";
 import { ShiftTeamCard } from "./ShiftTeamCard";
@@ -61,6 +63,7 @@ type ClaveAccion =
   | "retiros"
   | "domicilios"
   | "consignar"
+  | "base"
   | "relevo"
   | "recibir"
   | "solicitudes"
@@ -123,6 +126,15 @@ const ACCIONES: Accion[] = [
     descripcion: "Llevar al banco la plata de días anteriores",
     icono: Landmark,
     flag: "money.deposits",
+  },
+  {
+    // La base de respaldo (2026-09-26): plata aparte del cajón. Tomar
+    // (con PIN de supervisor), devolver y, para el custodio, verificarla.
+    clave: "base",
+    label: "Base de respaldo",
+    descripcion: "Tomar o devolver plata de la base",
+    icono: Vault,
+    flag: "cash.reserve",
   },
   {
     clave: "relevo",
@@ -305,7 +317,10 @@ export default function ShiftPage(): React.JSX.Element {
         />
       );
     }
-    return <OpenShiftForm />;
+    // El cuadre de apertura: lo primero que ve quien puede tener la caja
+    // cuando no hay turno (con la regla de sobres, elegir y contar los
+    // sobres por consignar; con la base fija, contar la base).
+    return <OpeningScreen />;
   }
 
   const habilitadas = ACCIONES.filter(
@@ -457,6 +472,8 @@ function PanelDeAccion({
       return <DeliverySettlementPanel shiftId={shift.id} />;
     case "consignar":
       return <DepositDrawerPanel shiftId={shift.id} />;
+    case "base":
+      return <ReservePanel shiftId={shift.id} />;
     case "relevo":
       return <HandoverPanel shiftId={shift.id} />;
     case "recibir":

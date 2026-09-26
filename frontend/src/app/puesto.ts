@@ -74,11 +74,20 @@ export function navParaPuesto(items: readonly NavItem[], persona: PersonaPuesto 
  * A dónde llega la persona al identificarse, cuando no venía de ninguna
  * pantalla. Sin puesto, lo de siempre: Mesas con `pos.tables`, si no una
  * comanda de mostrador.
+ *
+ * **Caja sin turno abierto** (decisión del dueño, 2026-09-26): quien puede
+ * manejar la caja (`puedeManejarCaja`: permiso de cobrar, supervisor o
+ * admin) y llega cuando NO hay turno abierto aterriza en Turno, que le
+ * muestra el cuadre de apertura: lo primero es contar los sobres. Sólo con
+ * `turnoAbierto === false` —lo que dice `GET /shifts/current`—; mientras no
+ * se sabe (`undefined`/`null`) manda el puesto, como siempre.
  */
 export function inicioParaPuesto(
   persona: PersonaPuesto | null | undefined,
   hasFeature: (key: string) => boolean,
+  turnoAbierto?: boolean | null,
 ): string {
+  if (turnoAbierto === false && puedeManejarCaja(persona, null)) return "/pos/turno";
   const venta = hasFeature("pos.tables") ? "/pos/mesas" : "/pos/comanda/nueva";
   const puesto = puestoEfectivo(persona);
   switch (puesto) {

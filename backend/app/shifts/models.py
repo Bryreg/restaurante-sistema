@@ -181,6 +181,21 @@ class Shift(Base):
     opening_cause: Mapped[CashDifferenceCause | None] = mapped_column(_enum(CashDifferenceCause), nullable=True)
     opening_note: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
+    # **La regla de apertura con la que abrió ESTE turno** (2026-09-26,
+    # migración 0029). El dueño decidió que el cajón abre SÓLO con los sobres
+    # por consignar que quien abre elige y cuenta (`envelopes`); la «base
+    # fija» de siempre (`fixed_base`) queda para los turnos anteriores al
+    # cambio y para las sedes que todavía no se pasaron. La regla vive en el
+    # turno —no se lee de la sede al cerrar— para que ningún cambio de
+    # configuración reescriba la cuenta de un turno ya abierto o ya cerrado.
+    opening_mode: Mapped[str] = mapped_column(sa.String(16), default="fixed_base", server_default="fixed_base")
+    # La base fija que este turno tiene que dejar en el cajón al cerrar, tal
+    # como regía al abrir (`StoreCashSettings.opening_cash_fixed` en ese
+    # instante). `0` con la regla de sobres: ahí no hay base en el cajón. Es
+    # el sumando que resta `to_deposit` (`service._finalize_close`); antes se
+    # leía de la sede en vivo.
+    opening_fixed_base: Mapped[int] = mapped_column(sa.Integer, default=0, server_default="0")
+
     # Marca por defecto el turno cuya hora de cierre es la última del horario
     # de la sede; lo decide quien confirma el cierre (`close/confirm`).
     closes_day: Mapped[bool] = mapped_column(sa.Boolean, default=False)
@@ -566,4 +581,131 @@ class ShiftCarryIn(Base):
         UniqueConstraint("shift_id", "source_shift_id", name="uq_shift_carry_ins_shift_source"),
         CheckConstraint("amount > 0", name="ck_shift_carry_ins_amount_positive"),
         CheckConstraint("shift_id <> source_shift_id", name="ck_shift_carry_ins_not_self"),
+    )
+
+
+class ShiftOpeningCount(Base):
+    """**El conteo de apertura por sobres, sellado a ciegas** (2026-09-26).
+
+    Con la regla de sobres (`StoreCashSettings.opening_mode == "envelopes"`)
+    el cajón abre sólo con los sobres de días por consignar que quien abre
+    eligió. Cada sobre se cuenta **aparte**, por denominaciones y **sin ver
+    su monto**; al sellar, el servidor revela por sobre lo esperado (el saldo
+    por consignar de ese día, calculado acá), lo contado y la diferencia,
+    atribuidos a quien contó. Recién después se abre el turno con este conteo
+    (`POST /shifts/open` con `opening_count_id`), y si hay diferencia se pide
+    la causa: la diferencia ya se vio, así que pedirla no invita a «cuadrar».
+
+    Append-only: volver a contar deja el conteo anterior `superseded` (se
+    conserva). `shift_id` se llena al abrir con él.
+
+    `envelopes`: `[{"source_shift_id", "business_date", "expected",
+    "counted", "difference", "denominations"}]`.
+    """
+
+    __tablename__ = "shift_opening_counts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    shift_id: Mapped[int | None] = mapped_column(ForeignKey("shifts.id"), nullable=True, index=True)
+
+    envelopes: Mapped[list] = mapped_column(sa.JSON)
+    expected_total: Mapped[int] = mapped_column(sa.Integer)
+    counted_total: Mapped[int] = mapped_column(sa.Integer)
+
+    counted_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    counted_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    superseded: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+
+    __table_args__ = (
+        CheckConstraint("expected_total >= 0", name="ck_shift_opening_counts_expected_nonneg"),
+        CheckConstraint("counted_total >= 0", name="ck_shift_opening_counts_counted_nonneg"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Base de respaldo (`cash_reserve`, 2026-09-26)
+# ---------------------------------------------------------------------------
+
+
+class CashReserveMovementKind(str, enum.Enum):
+    """«Tomar de la base» (entra al cajón) y «Devolver a la base» (sale)."""
+
+    TAKE = "take"
+    RETURN = "return"
+
+
+class CashReserveMovement(Base):
+    """**El libro de la base de respaldo.** La base es plata APARTE del
+    cajón, con un monto fijo por sede (`StoreCashSettings.cash_reserve_default`)
+    y su custodio (supervisor o administrador). No entra al conteo de
+    apertura ni al de cierre: sólo lo que se le presta al cajón.
+
+    Tomar exige el PIN de un supervisor o administrador; devolver lo hace
+    quien tiene la caja. Lo tomado entra al esperado del cajón como un
+    préstamo (`service.compute_breakdown`, `reserve_loan`) y lo devuelto sale;
+    el préstamo se devuelve el mismo día, **antes** del conteo de cierre
+    (`RESERVE_LOAN_OPEN`). Nada se borra: un movimiento equivocado se reversa
+    con motivo y los dos quedan.
+    """
+
+    __tablename__ = "cash_reserve_movements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    shift_id: Mapped[int] = mapped_column(ForeignKey("shifts.id"), index=True)
+
+    kind: Mapped[CashReserveMovementKind] = mapped_column(_enum(CashReserveMovementKind, length=16))
+    amount: Mapped[int] = mapped_column(sa.Integer)
+    note: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    employee_name: Mapped[str] = mapped_column(sa.String(200))
+    authorized_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    authorized_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    reversed_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    reversed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    reversed_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    __table_args__ = (
+        Index("ix_cash_reserve_movements_shift_at", "shift_id", "at"),
+        CheckConstraint("amount > 0", name="ck_cash_reserve_movements_amount_positive"),
+    )
+
+
+class CashReserveCheck(Base):
+    """**«Verificar base»**: el custodio (supervisor o administrador) cuenta
+    la base de respaldo a ciegas y el servidor revela lo esperado —el monto
+    fijo menos lo prestado al cajón sin devolver— y la diferencia. No es
+    parte del cuadre del cajero. Append-only."""
+
+    __tablename__ = "cash_reserve_checks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    shift_id: Mapped[int | None] = mapped_column(ForeignKey("shifts.id"), nullable=True)
+
+    reserve_amount: Mapped[int] = mapped_column(sa.Integer)
+    loans_outstanding: Mapped[int] = mapped_column(sa.Integer)
+    expected: Mapped[int] = mapped_column(sa.Integer)
+    counted: Mapped[int] = mapped_column(sa.Integer)
+    denominations: Mapped[list] = mapped_column(sa.JSON)
+    difference: Mapped[int] = mapped_column(sa.Integer)
+    note: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    employee_name: Mapped[str] = mapped_column(sa.String(200))
+    at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (
+        Index("ix_cash_reserve_checks_store_at", "store_id", "at"),
+        CheckConstraint("counted >= 0", name="ck_cash_reserve_checks_counted_nonneg"),
     )

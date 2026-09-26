@@ -72,3 +72,11 @@ export const CARRY_CANDIDATES_QUERY_KEY = ["shifts", "carry-candidates"] as cons
 
 /** `GET /deposits/drawer` (2026-09-24): los días anteriores que están en el cajón del turno abierto. */
 export const DEPOSIT_DRAWER_QUERY_KEY = ["deposits", "drawer"] as const;
+
+/** `GET /shifts/opening` (2026-09-26): la regla de apertura de la sede y los sobres elegibles, sin montos. */
+export const OPENING_INFO_QUERY_KEY = ["shifts", "opening"] as const;
+
+/** `GET /shifts/{id}/reserve` (2026-09-26): la base de respaldo vista desde el cajón. */
+export function reserveQueryKey(shiftId: number | null | undefined) {
+  return ["shifts", "reserve", shiftId] as const;
+}

@@ -216,8 +216,10 @@ Una sola forma en toda la API: `{ "error": { "code", "message", ...extra } }`.
 
 **Caja y turno** — `app/shifts/`:
 - `service.compute_breakdown(db, shift)` — **la única** fórmula del esperado:
-  `expected = base + cash_sales + incomes − expenses − pickups`. La reserva de caja
-  **no** entra. Un `cash_swap` no la mueve. Si tu pedido agrega un flujo de plata,
+  `expected = base + cash_sales + incomes − expenses − pickups − deposits +
+  reserve_loan`. `base` es la APERTURA del cajón (con la regla de sobres, la suma
+  de los sobres contados); la base de respaldo **no** entra, sólo lo que el cajón
+  le debe (`reserve_loan`, `app/shifts/reserve.py`). Un `cash_swap` no la mueve. Si tu pedido agrega un flujo de plata,
   **no escribas una segunda fórmula**: hacelo llegar por `incomes`/`expenses`, o
   publicalo como renglón informativo propio que no se suma.
 - `hooks.payment_bucket(method, courier_employee_id)` — **el único** clasificador
@@ -243,8 +245,9 @@ residuo perdido. Usalo; no escribas otro.
 
 **Plata fuera del cajón** (fase 3) — `app/banking/`:
 - **`Shift.to_deposit` no se recalcula nunca.** Lo escribe `app/shifts/service.py`
-  al cerrar el turno (`contado − base fija − propinas en efectivo`) y es un
-  snapshot de cierre. Lo que sí se deriva es el **saldo**:
+  al cerrar el turno (contado − base fija DEL TURNO, `opening_fixed_base`, 0 con
+  la regla de sobres − propinas en efectivo − días anteriores en el cajón −
+  préstamo de la base sin devolver) y es un snapshot de cierre. Lo que sí se deriva es el **saldo**:
   `Σ to_deposit − Σ consignado`.
 - Un turno cerrado **sin conteo** (`Shift.closed_without_count`) no aporta a la
   mano del dueño: su cifra sale del libro, no de un arqueo. Se excluye y la
@@ -369,8 +372,13 @@ hora de corte `cutoff_hour` · rescate `admin_rescue` · estación `station` · 
 `course` · ronda `round` · precuenta `bill_presented_at`/`pre_bill` · sub-cuenta
 `sub_account` · documento fiscal `fiscal_document` · rango DIAN `fiscal_range` ·
 cliente `customer` · cambio/sencilla `cash_swap` · devolución pendiente
-`pending_refund` · base fija `opening_cash_fixed` · causa `cause` · consignación
-`bank_deposit`.
+`pending_refund` · base fija (regla anterior) `opening_cash_fixed` · causa `cause` · consignación
+`bank_deposit` · **base de respaldo** `cash_reserve` (monto
+`cash_reserve_default`, libro `cash_reserve_movements`, verificación
+`cash_reserve_checks`; la ÚNICA cosa que se llama «base») · apertura del cajón
+`opening_cash_total` / `breakdown.base` (en pantalla «Apertura», nunca «base») ·
+cuadre de apertura por sobres `shift_opening_count` · regla de apertura
+`opening_mode` (`envelopes` / `fixed_base`).
 
 ---
 
