@@ -114,3 +114,33 @@ def test_tables_status_counts_the_dishes_ready_to_serve(
     served = device_client.post(f"/api/v1/orders/{order['id']}/items/{item_ids[0]}/served", headers=idem_headers())
     assert served.status_code == 200, served.text
     assert ready_count() == 1
+
+
+def test_tables_status_counts_unsent_units_and_names_who_opened(
+    device_client: TestClient, identify: Any, employees: Any, open_shift: Any, set_feature: Any,
+    new_order: Any, add_items: Any, main_product: Any, send_order: Any, tables: Any,
+) -> None:
+    """«3 sin enviar» en el mapa: unidades pendientes (no líneas), que bajan a
+    cero al enviar. La tarjeta dice quién abrió la mesa (iniciales y el
+    filtro «Mis mesas»); una mesa libre no trae a nadie."""
+    set_feature("pos.tables", True)
+    open_shift()
+    identify(device_client, employees["operator"])
+    order = new_order(channel="dine_in", table_ids=[tables[0].id]).json()
+    order = add_items(order, [{"product_id": main_product.id, "qty": 1}, {"product_id": main_product.id, "qty": 2, "note": "sin sal"}]).json()
+
+    def table_row(table_id: int) -> dict[str, Any]:
+        status = device_client.get("/api/v1/tables/status").json()
+        by_id: dict[int, dict[str, Any]] = {t["id"]: t for z in status["zones"] for t in z["tables"]}
+        return by_id[table_id]
+
+    free = table_row(tables[1].id)
+    assert free["unsent_count"] == 0
+    assert free["opened_by"] is None
+
+    busy = table_row(tables[0].id)
+    assert busy["unsent_count"] == 3
+    assert busy["opened_by"] == {"id": employees["operator"].id, "name": employees["operator"].name}
+
+    order = send_order(order).json()
+    assert table_row(tables[0].id)["unsent_count"] == 0

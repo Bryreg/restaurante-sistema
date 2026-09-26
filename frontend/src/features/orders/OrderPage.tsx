@@ -1,7 +1,9 @@
-import { CheckCheck, Send } from "lucide-react"
+import { CheckCheck, ReceiptText, Send } from "lucide-react"
 import { useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
+import { toast } from "sonner"
 
+import { puedeManejarCaja } from "@/app/puesto"
 import { useSession } from "@/app/session"
 import type { CatalogComboOut, CatalogProductOut } from "@/api/catalog"
 import { newIdempotencyKey } from "@/api/client"
@@ -46,6 +48,7 @@ import {
   isStaleVersionError,
   orderQueryKey,
   STALE_VERSION_MESSAGE,
+  TABLES_STATUS_QUERY_KEY,
   useOrder,
   useOrderMutationHandler,
 } from "./hooks"
@@ -53,22 +56,42 @@ import {
   CHANNEL_LABEL,
   courseLabel,
   findMergeableLine,
+  isDishLine,
   nextRoundNo,
   ORDER_STATUS_LABEL,
   productNeedsOptions,
   unsentItemCount,
   unsentQtyByProduct,
+  VOID_NEEDS_PIN_TEXT,
 } from "./lib"
 
-type ItemTarget = { product?: CatalogProductOut; combo?: CatalogComboOut }
+/**
+ * `required`: el diálogo se abrió porque el plato pide algo (no porque la
+ * persona pidió «Elegir opciones»): al completar el único grupo obligatorio,
+ * el plato entra solo.
+ */
+type ItemTarget = { product?: CatalogProductOut; combo?: CatalogComboOut; required?: boolean }
 type VoidTarget = { scope: "order" } | { scope: "item"; item: OrderItemOut }
 type DiscountTarget = { scope: "order" } | { scope: "item"; item: OrderItemOut }
+
+/**
+ * ¿Esta anulación va a pedir PIN? La misma regla que el servidor
+ * (`app/orders/service.py::void_item`): lo que ya salió de `pending`, o
+ * cualquier cosa con la cuenta presentada. Sólo decide el aviso previo; el
+ * PIN lo exige el backend.
+ */
+function voidNeedsAuthorizer(target: VoidTarget | null, order: OrderOut | undefined): boolean {
+  if (!target || !order) return false
+  if (order.bill_presented_at) return true
+  if (target.scope === "item") return target.item.status !== "pending"
+  return (order.items ?? []).some((item) => item.status !== "pending" && item.status !== "voided")
+}
 
 export function OrderPage(): React.JSX.Element {
   const { orderId: orderIdParam } = useParams<{ orderId: string }>()
   const orderId = orderIdParam ? Number(orderIdParam) : null
   const navigate = useNavigate()
-  const { hasFeature } = useSession()
+  const { hasFeature, me } = useSession()
 
   const orderQuery = useOrder(orderId)
   const order = orderQuery.data
@@ -93,6 +116,8 @@ export function OrderPage(): React.JSX.Element {
   const [busyItemId, setBusyItemId] = useState<number | null>(null)
   const [firingCourse, setFiringCourse] = useState<string | null>(null)
   const [servingAll, setServingAll] = useState(false)
+  // Por qué se pide el PIN esta vez: anular lo enviado lo dice con su texto.
+  const [authorizerReason, setAuthorizerReason] = useState<string | null>(null)
   // Los toques rápidos en la carta van en fila: cada uno manda la versión
   // que dejó el anterior. Sin la fila, dos toques seguidos salen con la
   // misma `expected_version` y el segundo rebota con `STALE_VERSION` — un
@@ -101,6 +126,17 @@ export function OrderPage(): React.JSX.Element {
 
   function saveOrder(updated: NonNullable<typeof order>) {
     if (orderId !== null) queryClient.setQueryData(orderQueryKey(orderId), updated)
+  }
+
+  /**
+   * Una acción que pasó —con o sin PIN—: cierra el diálogo de PIN y borra el
+   * aviso rojo que dejó el primer intento («necesita autorización»). Antes el
+   * aviso quedaba pegado después de autorizar, como si hubiera fallado.
+   */
+  function settled() {
+    authorizerFlow.close()
+    setError(null)
+    setAuthorizerReason(null)
   }
 
   if (orderId === null || Number.isNaN(orderId)) {
@@ -122,9 +158,11 @@ export function OrderPage(): React.JSX.Element {
   // «Marchar» (pos.courses): un curso por cada valor distinto entre los
   // ítems vivos (no anulados) que lo tienen — el orden es el de primera
   // aparición, nunca alfabético ni inventado.
+  // El cargo de domicilio no se marcha: no es un plato (aunque viaje con el
+  // curso por defecto del producto).
   const coursesInOrder: string[] = []
   for (const item of items) {
-    if (item.status === "voided" || !item.course) continue
+    if (item.status === "voided" || !item.course || !isDishLine(item)) continue
     if (!coursesInOrder.includes(item.course)) coursesInOrder.push(item.course)
   }
   const firedCourses = new Map((order.courses_fired ?? []).map((fire) => [fire.course, fire]))
@@ -144,7 +182,7 @@ export function OrderPage(): React.JSX.Element {
       )
       saveOrder(updated)
       setItemTarget(null)
-      authorizerFlow.close()
+      settled()
     } catch (err) {
       handleError(err, { pin, retry: (retryPin) => void handleAddItem(itemIn, retryPin), onStale: () => setItemTarget(null) })
     } finally {
@@ -158,8 +196,12 @@ export function OrderPage(): React.JSX.Element {
   // opciones» (Momento 1 de `docs/diseno/propuesta.html`).
   // ---------------------------------------------------------------------
   function handleSelectProduct(product: CatalogProductOut, options?: { withOptions: boolean }) {
-    if (options?.withOptions || productNeedsOptions(product, hasFeature("pos.modifiers"))) {
+    if (options?.withOptions) {
       setItemTarget({ product })
+      return
+    }
+    if (productNeedsOptions(product, hasFeature("pos.modifiers"))) {
+      setItemTarget({ product, required: true })
       return
     }
     enqueueQuickAdd(product)
@@ -190,7 +232,7 @@ export function OrderPage(): React.JSX.Element {
             newIdempotencyKey(),
           )
       saveOrder(updated)
-      if (pin !== undefined) authorizerFlow.close()
+      if (pin !== undefined) settled()
     } catch (err) {
       handleError(err, { pin, retry: (retryPin) => enqueueQuickAdd(product, retryPin) })
     }
@@ -209,7 +251,7 @@ export function OrderPage(): React.JSX.Element {
         authorizer_pin: pin,
       })
       saveOrder(updated)
-      if (pin !== undefined) authorizerFlow.close()
+      if (pin !== undefined) settled()
     } catch (err) {
       // Con la cuenta presentada el servidor pide PIN (`BILL_PRESENTED_NEEDS_AUTH`),
       // igual que al agregar: `handleError` abre el mismo diálogo.
@@ -267,8 +309,9 @@ export function OrderPage(): React.JSX.Element {
           : await voidOrder(order.id, { expected_version: order.version ?? 0, reason, note, authorizer_pin: pin })
       saveOrder(updated)
       setVoidTarget(null)
-      authorizerFlow.close()
+      settled()
     } catch (err) {
+      if (pin === undefined && voidNeedsAuthorizer(voidTarget, order)) setAuthorizerReason(`${VOID_NEEDS_PIN_TEXT}.`)
       handleError(err, {
         pin,
         retry: (retryPin) => void handleVoidConfirm(reason, note, retryPin),
@@ -327,7 +370,7 @@ export function OrderPage(): React.JSX.Element {
       })
       saveOrder(updated)
       setDiscountTarget(null)
-      authorizerFlow.close()
+      settled()
     } catch (err) {
       handleError(err, {
         pin,
@@ -340,16 +383,30 @@ export function OrderPage(): React.JSX.Element {
   }
 
   // ---------------------------------------------------------------------
-  // Enviar a cocina.
+  // Enviar a cocina. Con la confirmación grande que pedía la auditoría en
+  // la tablet («Mesa 4 · 5 ítems enviados») y, en una mesa, de vuelta al
+  // mapa: el mesero ya no tiene nada que hacer acá. «Enviar y quedarme»
+  // para seguir cargando (la bebida que falta, la ronda de postres).
   // ---------------------------------------------------------------------
-  async function handleSend() {
+  async function handleSend(opts: { stay: boolean }) {
     if (!order) return
+    const sentUnits = unsentUnits
     setSendPending(true)
     try {
       const updated = await sendOrder(order.id, { expected_version: order.version ?? 0 }, newIdempotencyKey())
       saveOrder(updated)
+      setError(null)
+      toast.success(`${orderTitle} · ${sentUnits} ${sentUnits === 1 ? "ítem enviado" : "ítems enviados"}`, {
+        // Grande a propósito: se lee de reojo, con la tablet en la mano y
+        // caminando de vuelta al salón.
+        className: "py-5! text-lg!",
+        classNames: { title: "text-lg! font-bold!" },
+        duration: 4000,
+      })
+      void queryClient.invalidateQueries({ queryKey: TABLES_STATUS_QUERY_KEY })
+      if (!opts.stay && backToTables) navigate("/pos/mesas")
     } catch (err) {
-      handleError(err, { retry: () => void handleSend() })
+      handleError(err, { retry: () => void handleSend(opts) })
     } finally {
       setSendPending(false)
     }
@@ -389,8 +446,16 @@ export function OrderPage(): React.JSX.Element {
   }
 
   const tablesLabel = (order.tables ?? []).map((t) => t.number).join(", ")
+  const isTableOrder = order.channel === "dine_in" && tablesLabel !== ""
+  // El título es la mesa, que es como el mesero la piensa («Mesa 2 · 2
+  // comensales»); el número de comanda queda de segunda línea.
+  const orderTitle = isTableOrder
+    ? `Mesa ${tablesLabel}`
+    : `${order.channel ? CHANNEL_LABEL[order.channel] : "Comanda"} #${order.id}`
+  const titleParts = [orderTitle]
+  if (order.covers) titleParts.push(`${order.covers} ${order.covers === 1 ? "comensal" : "comensales"}`)
   const subtitleParts: string[] = []
-  if (order.channel === "dine_in" && tablesLabel) subtitleParts.push(`Mesa ${tablesLabel}`)
+  if (isTableOrder) subtitleParts.push(`Comanda #${order.id}`)
   if (order.channel === "takeout" && order.takeout?.customer_name) subtitleParts.push(order.takeout.customer_name)
   if (order.channel === "staff_meal" && order.consumed_by?.name) subtitleParts.push(order.consumed_by.name)
   // Domicilio y plataforma (pedido 2c): dirección/teléfono/domiciliario, o
@@ -404,16 +469,24 @@ export function OrderPage(): React.JSX.Element {
     if (order.platform.name) subtitleParts.push(order.platform.name)
     if (order.platform.external_id) subtitleParts.push(`Pedido ${order.platform.external_id}`)
   }
-  if (order.covers) subtitleParts.push(`${order.covers} comensales`)
+
+  // Después de enviar (o de pedir la cuenta) una mesa vuelve al mapa; el
+  // mostrador y los demás canales se quedan: lo que sigue es cobrar.
+  const backToTables = order.channel === "dine_in" && hasFeature("pos.tables")
+  const canSend = isOrderOpenish && hasFeature("kitchen.view")
+  const sendIsPrimary = canSend && unsentUnits > 0
+  // Quien no cobra no recorre el cobro entero para fallar al final: «Pedir
+  // cuenta» presenta la precuenta y deja la mesa «Por cobrar» para la caja.
+  // Misma regla que la caja (`puedeManejarCaja`); el backend decide igual.
+  const canCharge = puedeManejarCaja(me?.employee, null)
+  const asksForBill = !canCharge && hasFeature("pos.pre_bill")
 
   return (
     <div className="space-y-6 pb-28">
       <header className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h1 className="text-lg font-semibold">
-              {order.channel ? CHANNEL_LABEL[order.channel] : "Comanda"} · #{order.id}
-            </h1>
+            <h1 className="text-xl font-bold">{titleParts.join(" · ")}</h1>
             {subtitleParts.length > 0 ? <p className="text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p> : null}
           </div>
           <div className="flex items-center gap-2">
@@ -479,21 +552,6 @@ export function OrderPage(): React.JSX.Element {
               onDiscount={(item) => setDiscountTarget({ scope: "item", item })}
               onServed={(item) => void handleServed(item)}
             />
-            {/* La acción principal de la comanda: abajo del pedido, a lo ancho y
-                en añil. Dice cuántas unidades salen — con ruido, la confirmación
-                es el número. */}
-            {isOrderOpenish && hasFeature("kitchen.view") ? (
-              <Button
-                type="button"
-                size="lg"
-                className="h-14 w-full text-base font-bold"
-                disabled={sendPending || unsentUnits === 0}
-                onClick={() => void handleSend()}
-              >
-                <Send className="size-5" aria-hidden="true" />
-                {sendPending ? "Enviando…" : `Enviar a cocina · ${unsentUnits} ${unsentUnits === 1 ? "ítem" : "ítems"}`}
-              </Button>
-            ) : null}
           </section>
 
           {hasFeature("pos.courses") && coursesInOrder.length > 0 ? (
@@ -563,24 +621,64 @@ export function OrderPage(): React.JSX.Element {
 
       {isOrderOpenish ? (
         <div className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-2 border-t bg-background p-3" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}>
-          <Button type="button" variant="ghost" className="h-11" onClick={() => setVoidTarget({ scope: "order" })}>
+          <Button type="button" variant="ghost" className="h-14 sm:mr-auto" onClick={() => setVoidTarget({ scope: "order" })}>
             Anular comanda
           </Button>
-          {hasFeature("pos.pre_bill") ? (
-            <Button type="button" variant="outline" className="h-11" disabled={preBillPending} onClick={() => void handlePresentBill()}>
-              {preBillPending ? "Presentando…" : "Presentar cuenta"}
+          {/* Una sola acción en añil por pantalla, y siempre a la vista en la
+              barra fija: mientras haya algo sin enviar es «Enviar a cocina ·
+              N» (antes quedaba debajo del pedido, tapada por esta barra en la
+              tablet vertical); cuando ya salió todo, la cuenta. */}
+          {sendIsPrimary ? (
+            <>
+              {backToTables ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-14 px-5 text-base"
+                  disabled={sendPending}
+                  onClick={() => void handleSend({ stay: true })}
+                >
+                  Enviar y quedarme
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                className="h-14 px-6 text-base font-bold"
+                disabled={sendPending}
+                onClick={() => void handleSend({ stay: false })}
+              >
+                <Send className="size-5" aria-hidden="true" />
+                {sendPending ? "Enviando…" : `Enviar a cocina · ${unsentUnits} ${unsentUnits === 1 ? "ítem" : "ítems"}`}
+              </Button>
+            </>
+          ) : asksForBill ? (
+            <Button
+              type="button"
+              className="h-14 px-6 text-base font-semibold"
+              disabled={preBillPending}
+              onClick={() => void handlePresentBill()}
+            >
+              <ReceiptText className="size-5" aria-hidden="true" />
+              {preBillPending ? "Pidiendo…" : "Pedir cuenta"}
             </Button>
-          ) : null}
-          {/* Una sola acción en añil por pantalla: mientras haya algo sin
-              enviar, esa es «Enviar a cocina» y cobrar queda secundario. */}
-          <Button
-            type="button"
-            variant={unsentUnits > 0 && hasFeature("kitchen.view") ? "outline" : "default"}
-            className="h-11 px-6 text-base font-semibold"
-            onClick={() => navigate(`/pos/cobro/${order.id}`)}
-          >
-            {order.channel === "counter" ? "Cobrar" : "Cuenta / Cobrar"}
-          </Button>
+          ) : (
+            <>
+              {hasFeature("pos.pre_bill") ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-14 px-5 text-base"
+                  disabled={preBillPending}
+                  onClick={() => void handlePresentBill()}
+                >
+                  {preBillPending ? "Presentando…" : "Presentar cuenta"}
+                </Button>
+              ) : null}
+              <Button type="button" className="h-14 px-6 text-base font-semibold" onClick={() => navigate(`/pos/cobro/${order.id}`)}>
+                {order.channel === "counter" ? "Cobrar" : "Cuenta / Cobrar"}
+              </Button>
+            </>
+          )}
         </div>
       ) : null}
 
@@ -591,6 +689,8 @@ export function OrderPage(): React.JSX.Element {
         combo={itemTarget?.combo}
         channel={order.channel ?? "counter"}
         pending={itemPending}
+        seatCount={order.covers ?? null}
+        autoAddOnRequired={itemTarget?.required === true}
         onConfirm={(itemIn) => void handleAddItem(itemIn)}
       />
 
@@ -599,6 +699,7 @@ export function OrderPage(): React.JSX.Element {
         onOpenChange={(open) => !open && setVoidTarget(null)}
         title={voidTarget?.scope === "order" ? "Anular comanda" : `Anular ${voidTarget?.scope === "item" ? (voidTarget.item.name ?? "ítem") : ""}`}
         pending={voidPending}
+        needsAuthorizer={voidNeedsAuthorizer(voidTarget, order)}
         onConfirm={(reason, note) => void handleVoidConfirm(reason, note)}
       />
 
@@ -623,15 +724,27 @@ export function OrderPage(): React.JSX.Element {
         onOpenChange={(open) => !open && setPreBill(null)}
         pending={preBillPending}
         onReprint={() => void handlePresentBill()}
+        onDone={
+          backToTables
+            ? () => {
+                setPreBill(null)
+                navigate("/pos/mesas")
+              }
+            : undefined
+        }
       />
 
       <AuthorizerDialog
         open={authorizerFlow.open}
-        onOpenChange={(open) => !open && authorizerFlow.close()}
+        onOpenChange={(open) => {
+          if (open) return
+          authorizerFlow.close()
+          setAuthorizerReason(null)
+        }}
         onSubmit={authorizerFlow.submitPin}
         pending={authorizerFlow.pending}
         errorMessage={authorizerFlow.pinError}
-        reason="Esta acción supera el límite y necesita autorización de supervisor o administrador."
+        reason={authorizerReason ?? "Esta acción supera el límite y necesita autorización de supervisor o administrador."}
       />
     </div>
   )

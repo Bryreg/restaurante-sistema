@@ -6,12 +6,13 @@
  * `AdminLayout.tsx` conocen Mesas, Comanda, Cocina y Admin → Pedidos.
  */
 
-import { ChefHat, LayoutGrid, ShoppingBag } from "lucide-react"
+import { ChefHat, LayoutGrid, PlusCircle, ShoppingBag } from "lucide-react"
 import { createElement } from "react"
 import type { RouteObject } from "react-router-dom"
 
 import type { NavItem } from "@/app/nav"
 
+import { CounterSalePage } from "./CounterSalePage"
 import { KitchenPage } from "./KitchenPage"
 import { NewOrderPage } from "./NewOrderPage"
 import { OrderPage } from "./OrderPage"
@@ -20,6 +21,7 @@ import { TablesPage } from "./TablesPage"
 
 const posRoutes: RouteObject[] = [
   { path: "mesas", element: createElement(TablesPage) },
+  { path: "mostrador", element: createElement(CounterSalePage) },
   { path: "comanda/nueva", element: createElement(NewOrderPage) },
   { path: "comanda/:orderId", element: createElement(OrderPage) },
   { path: "cocina", element: createElement(KitchenPage) },
@@ -30,11 +32,15 @@ const adminRoutes: RouteObject[] = [{ path: "pedidos", element: createElement(Or
 const adminNav: NavItem[] = [{ to: "/admin/pedidos", label: "Pedidos" }]
 
 // «Mostrador» y no «Comanda»: la barra nombra el lugar donde se atiende
-// (propuesta § navegación), igual que «Mesas». La vista mínima de cocina va
-// en el tramo de cocina, después de lo de caja (`buildPosNav`).
+// (propuesta § navegación), igual que «Mesas». Un toque abre la venta de
+// mostrador directo (`CounterSalePage`); los demás canales (para llevar,
+// domicilio, plataforma, consumo de personal) viven en «Nuevo pedido». La
+// vista mínima de cocina va en el tramo de cocina, después de lo de caja
+// (`buildPosNav`).
 const posNav: NavItem[] = [
   { to: "/pos/mesas", label: "Mesas", icon: LayoutGrid, feature: "pos.tables" },
-  { to: "/pos/comanda/nueva", label: "Mostrador", icon: ShoppingBag },
+  { to: "/pos/mostrador", label: "Mostrador", icon: ShoppingBag, feature: "pos.counter" },
+  { to: "/pos/comanda/nueva", label: "Nuevo pedido", icon: PlusCircle },
   // Con el KDS encendido, la vista mínima se va de la barra (y su ruta
   // redirige al KDS, `KitchenPage`): eran dos pantallas de cocina, una con
   // los códigos de estación crudos.

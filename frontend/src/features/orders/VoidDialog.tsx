@@ -1,13 +1,14 @@
+import { ShieldCheck } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import type { VoidReason } from "@/api/orders"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { cn } from "@/lib/utils"
 
-import { VOID_REASON_LABEL } from "./lib"
+import { VOID_NEEDS_PIN_TEXT, VOID_REASON_LABEL } from "./lib"
 
 export interface VoidDialogProps {
   open: boolean
@@ -16,9 +17,20 @@ export interface VoidDialogProps {
   onConfirm: (reason: VoidReason, note: string | undefined) => void
   pending?: boolean
   errorMessage?: string | null
+  /**
+   * Lo que se anula ya salió a cocina: el servidor va a pedir el PIN de un
+   * supervisor. Se dice ANTES de elegir el motivo, con el texto exacto, para
+   * que el mesero lo llame de una vez y no se entere por un error rojo.
+   */
+  needsAuthorizer?: boolean
 }
 
-/** Motivo tipado (+ nota obligatoria si `other`) — reutilizado por anular ítem y anular comanda. */
+
+/**
+ * Motivo tipado (+ nota obligatoria si `other`) — reutilizado por anular ítem
+ * y anular comanda. Los motivos son botones de 56 px, no una lista
+ * desplegable: en la tablet se eligen de un toque.
+ */
 export function VoidDialog({
   open,
   onOpenChange,
@@ -26,6 +38,7 @@ export function VoidDialog({
   onConfirm,
   pending = false,
   errorMessage = null,
+  needsAuthorizer = false,
 }: VoidDialogProps): React.JSX.Element {
   const [reason, setReason] = useState<VoidReason | "">("")
   const [note, setNote] = useState("")
@@ -53,25 +66,44 @@ export function VoidDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
+          {needsAuthorizer ? (
+            <DialogDescription className="flex items-center gap-2 font-medium text-foreground">
+              <ShieldCheck className="size-4 shrink-0" aria-hidden="true" />
+              {VOID_NEEDS_PIN_TEXT}
+            </DialogDescription>
+          ) : null}
         </DialogHeader>
         <div className="space-y-4">
-          <div className="space-y-1">
-            <Label htmlFor="void-reason">Motivo</Label>
-            <Select value={reason === "" ? undefined : reason} onValueChange={(value) => setReason(value as VoidReason)}>
-              <SelectTrigger id="void-reason" className="h-11 w-full">
-                <SelectValue placeholder="Elegí un motivo" />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(VOID_REASON_LABEL).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
+          <div className="space-y-2">
+            <p className="text-sm font-medium" id="void-reason-label">
+              Motivo
+            </p>
+            <div role="radiogroup" aria-label="Elegí un motivo" className="grid grid-cols-2 gap-2">
+              {Object.entries(VOID_REASON_LABEL).map(([value, label]) => {
+                const active = reason === value
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={cn(
+                      "min-h-14 rounded-lg border px-3 py-2 text-left text-base font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
+                      active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted",
+                    )}
+                    onClick={() => {
+                      setReason(value as VoidReason)
+                      setLocalError(null)
+                    }}
+                  >
                     {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                  </button>
+                )
+              })}
+            </div>
           </div>
           <div className="space-y-1">
             <Label htmlFor="void-note">Nota {reason === "other" ? "(obligatoria)" : "(opcional)"}</Label>
@@ -84,7 +116,7 @@ export function VoidDialog({
           ) : null}
         </div>
         <DialogFooter>
-          <Button type="button" variant="destructive" className="h-11" disabled={pending} onClick={handleConfirm}>
+          <Button type="button" variant="destructive" className="h-14 px-6 text-base" disabled={pending} onClick={handleConfirm}>
             {pending ? "Anulando…" : "Anular"}
           </Button>
         </DialogFooter>

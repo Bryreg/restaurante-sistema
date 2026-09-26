@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Route, Routes } from "react-router-dom"
 
+import type { Me } from "@/api/auth"
 import { ApiError } from "@/api/client"
 import type { OrderOut } from "@/api/orders"
 import { renderWithProviders } from "@/test/utils"
@@ -20,6 +21,8 @@ const {
   getCatalogMock,
   fireCourseMock,
   markServedMock,
+  presentBillMock,
+  toastSuccessMock,
 } = vi.hoisted(() => ({
   getOrderMock: vi.fn(),
   voidItemMock: vi.fn(),
@@ -30,7 +33,14 @@ const {
   getCatalogMock: vi.fn(),
   fireCourseMock: vi.fn(),
   markServedMock: vi.fn(),
+  presentBillMock: vi.fn(),
+  toastSuccessMock: vi.fn(),
 }))
+
+vi.mock("sonner", async () => {
+  const actual = await vi.importActual<typeof import("sonner")>("sonner")
+  return { ...actual, toast: Object.assign(vi.fn(), actual.toast, { success: toastSuccessMock }) }
+})
 
 vi.mock("@/api/orders", async () => {
   const actual = await vi.importActual<typeof import("@/api/orders")>("@/api/orders")
@@ -44,6 +54,7 @@ vi.mock("@/api/orders", async () => {
     listFavorites: listFavoritesMock,
     fireCourse: fireCourseMock,
     markServed: markServedMock,
+    presentBill: presentBillMock,
   }
 })
 
@@ -58,17 +69,28 @@ beforeEach(() => {
   addItemsMock.mockReset()
   patchItemMock.mockReset()
   sendOrderMock.mockReset()
+  presentBillMock.mockReset()
+  toastSuccessMock.mockReset()
+  voidItemMock.mockReset()
   getCatalogMock.mockResolvedValue(buildCatalog())
 })
 
 /** `OrderPage` sólo resuelve `useParams()` dentro de una ruta real. */
-function renderOrderPage(orderId: number, features: Record<string, boolean>) {
+function renderOrderPage(orderId: number, features: Record<string, boolean>, meOverrides: Partial<Me> = {}) {
   return renderWithProviders(
     <Routes>
       <Route path="/pos/comanda/:orderId" element={<OrderPage />} />
+      <Route path="/pos/mesas" element={<p>Mapa de mesas</p>} />
+      <Route path="/pos/cobro/:orderId" element={<p>Pantalla de cobro</p>} />
     </Routes>,
-    { me: deviceMe(features), route: `/pos/comanda/${orderId}` },
+    { me: deviceMe(features, meOverrides), route: `/pos/comanda/${orderId}` },
   )
+}
+
+/** Abre el panel de acciones de una línea del pedido (tocar la línea). */
+async function openLine(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  await user.click(await screen.findByRole("button", { name }))
+  return screen.findByRole("dialog")
 }
 
 describe("OrderPage", () => {
@@ -99,11 +121,11 @@ describe("OrderPage", () => {
     renderOrderPage(501, {})
 
     await waitFor(() => expect(screen.getByText(/limonada de coco/i)).toBeInTheDocument())
-    await user.click(screen.getByRole("button", { name: /^anular limonada de coco$/i }))
+    const sheet = await openLine(user, /limonada de coco: acciones/i)
+    await user.click(within(sheet).getByRole("button", { name: /^anular limonada de coco$/i }))
 
-    const dialog = await screen.findByRole("dialog")
-    await user.click(within(dialog).getByRole("combobox"))
-    await user.click(await screen.findByRole("option", { name: "El cliente cambió de opinión" }))
+    const dialog = await screen.findByRole("dialog", { name: /anular limonada de coco/i })
+    await user.click(within(dialog).getByRole("radio", { name: "El cliente cambió de opinión" }))
     await user.click(within(dialog).getByRole("button", { name: /^anular$/i }))
 
     await waitFor(() =>
@@ -157,7 +179,8 @@ describe("OrderPage", () => {
     const user = userEvent.setup()
     renderOrderPage(501, {})
 
-    await user.click(await screen.findByRole("button", { name: /^sumar una unidad de limonada de coco$/i }))
+    const sheet = await openLine(user, /limonada de coco: acciones/i)
+    await user.click(within(sheet).getByRole("button", { name: /^sumar una unidad de limonada de coco$/i }))
     expect(await screen.findByRole("group", { name: /pin de supervisor o administrador/i })).toBeInTheDocument()
     for (const digit of ["1", "2", "3", "4"]) {
       await user.click(screen.getByRole("button", { name: `Dígito ${digit}` }))
@@ -296,11 +319,66 @@ describe("OrderPage", () => {
       expect(await screen.findByRole("button", { name: "Enviar a cocina · 1 ítem" })).toBeEnabled()
     })
 
-    it("deshabilitado cuando no hay nada sin enviar", async () => {
+    it("sin nada sin enviar, la barra fija vuelve a ofrecer la cuenta en ese lugar", async () => {
       getOrderMock.mockResolvedValue(buildOrder({ items: [buildOrderItem({ status: "sent", round_no: 1 })] }))
-      renderOrderPage(501, { "kitchen.view": true })
+      renderOrderPage(501, { "kitchen.view": true }, { employee: { id: 2, name: "Ana", role: "operator", can_charge: true } })
 
-      expect(await screen.findByRole("button", { name: "Enviar a cocina · 0 ítems" })).toBeDisabled()
+      expect(await screen.findByRole("button", { name: "Cuenta / Cobrar" })).toBeEnabled()
+      expect(screen.queryByRole("button", { name: /enviar a cocina/i })).not.toBeInTheDocument()
+    })
+
+    it("mientras hay algo sin enviar, «Enviar a cocina» ocupa el lugar de la cuenta en la barra", async () => {
+      getOrderMock.mockResolvedValue(buildOrder())
+      renderOrderPage(501, { "kitchen.view": true }, { employee: { id: 2, name: "Ana", role: "operator", can_charge: true } })
+
+      expect(await screen.findByRole("button", { name: "Enviar a cocina · 1 ítem" })).toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: "Cuenta / Cobrar" })).not.toBeInTheDocument()
+    })
+
+    it("al enviar confirma en grande («Mesa 5 · 2 ítems enviados») y vuelve al mapa de mesas", async () => {
+      getOrderMock.mockResolvedValue(buildOrder({ items: [buildOrderItem({ qty: 2 })] }))
+      sendOrderMock.mockResolvedValue(buildOrder({ version: 2, items: [buildOrderItem({ qty: 2, status: "sent", round_no: 1 })] }))
+
+      const user = userEvent.setup()
+      renderOrderPage(501, { "kitchen.view": true, "pos.tables": true })
+
+      await user.click(await screen.findByRole("button", { name: "Enviar a cocina · 2 ítems" }))
+
+      await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith("Mesa 5 · 2 ítems enviados", expect.anything()))
+      expect(await screen.findByText("Mapa de mesas")).toBeInTheDocument()
+    })
+
+    it("«Enviar y quedarme» envía, confirma y se queda en la comanda", async () => {
+      getOrderMock.mockResolvedValue(buildOrder())
+      sendOrderMock.mockResolvedValue(buildOrder({ version: 2, items: [buildOrderItem({ status: "sent", round_no: 1 })] }))
+
+      const user = userEvent.setup()
+      renderOrderPage(501, { "kitchen.view": true, "pos.tables": true })
+
+      await user.click(await screen.findByRole("button", { name: "Enviar y quedarme" }))
+
+      await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith("Mesa 5 · 1 ítem enviado", expect.anything()))
+      expect(sendOrderMock).toHaveBeenCalledTimes(1)
+      expect(screen.queryByText("Mapa de mesas")).not.toBeInTheDocument()
+    })
+
+    it("el cargo de domicilio no cuenta como plato para enviar ni se ofrece para marchar", async () => {
+      getOrderMock.mockResolvedValue(
+        buildOrder({
+          channel: "delivery",
+          tables: [],
+          delivery: { address: "Calle 10 # 20-30", phone: "3001234567", courier: { id: 9, name: "Luis" } },
+          items: [
+            buildOrderItem({ id: 1, qty: 2 }),
+            buildOrderItem({ id: 2, product_id: 99, name: "Domicilio", course: "main", station: null, is_delivery_fee: true }),
+          ],
+        }),
+      )
+      renderOrderPage(501, { "kitchen.view": true, "pos.courses": true })
+
+      expect(await screen.findByRole("button", { name: "Enviar a cocina · 2 ítems" })).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /marchar bebida/i })).toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: /marchar fuerte/i })).not.toBeInTheDocument()
     })
   })
 
@@ -409,5 +487,81 @@ describe("OrderPage", () => {
     await waitFor(() => expect(markServedMock).toHaveBeenCalledTimes(1))
     // En la comanda ya sólo quedaba un listo (Ajiaco): se sirve ése.
     expect(markServedMock).toHaveBeenCalledWith(501, 12, expect.any(String))
+  })
+})
+
+describe("OrderPage · encabezado, cuenta y anulación", () => {
+  it("el título es la mesa y sus comensales; el número de comanda queda de segunda línea", async () => {
+    getOrderMock.mockResolvedValue(buildOrder({ covers: 2 }))
+    renderOrderPage(501, {})
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Mesa 5 · 2 comensales" })).toBeInTheDocument()
+    expect(screen.getByText(/comanda #501/i)).toBeInTheDocument()
+  })
+
+  it("quien no cobra ve «Pedir cuenta»: presenta la precuenta y ofrece volver a Mesas", async () => {
+    getOrderMock.mockResolvedValue(buildOrder({ items: [buildOrderItem({ status: "sent", round_no: 1 })] }))
+    presentBillMock.mockResolvedValue({
+      order_id: 501,
+      version: 2,
+      legend: "Leyenda del servidor",
+      lines: [{ description: "Limonada de coco", qty: 1, unit_price: 8000, gross: 8000, discount: 0, net: 8000 }],
+      subtotal: 8000,
+      discount_total: 0,
+      tax_lines: [],
+      tax_total: 593,
+      total: 8000,
+      tip: null,
+      bill_presented_at: "2026-09-15T19:00:00Z",
+      bill_print_count: 1,
+    })
+
+    const user = userEvent.setup()
+    renderOrderPage(501, { "kitchen.view": true, "pos.pre_bill": true, "pos.tables": true })
+
+    expect(screen.queryByRole("button", { name: /cuenta \/ cobrar/i })).not.toBeInTheDocument()
+    await user.click(await screen.findByRole("button", { name: "Pedir cuenta" }))
+
+    await waitFor(() => expect(presentBillMock).toHaveBeenCalledTimes(1))
+    const dialog = await screen.findByRole("dialog", { name: /precuenta/i })
+    expect(within(dialog).getByRole("button", { name: "Reimprimir" })).toBeInTheDocument()
+    await user.click(within(dialog).getByRole("button", { name: "Listo · ir a Mesas" }))
+    expect(await screen.findByText("Mapa de mesas")).toBeInTheDocument()
+  })
+
+  it("quien cobra sigue viendo «Cuenta / Cobrar»", async () => {
+    getOrderMock.mockResolvedValue(buildOrder({ items: [buildOrderItem({ status: "sent", round_no: 1 })] }))
+    renderOrderPage(501, { "pos.pre_bill": true }, { employee: { id: 7, name: "Caja", role: "operator", can_charge: true } })
+
+    expect(await screen.findByRole("button", { name: "Cuenta / Cobrar" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Pedir cuenta" })).not.toBeInTheDocument()
+  })
+
+  it("anular lo ya enviado avisa que necesita PIN y, autorizado, borra el aviso rojo", async () => {
+    const sent = buildOrderItem({ status: "sent", round_no: 1 })
+    getOrderMock.mockResolvedValue(buildOrder({ items: [sent] }))
+    voidItemMock
+      .mockRejectedValueOnce(new ApiError(400, "AUTHORIZATION_REQUIRED", "Anular un ítem enviado necesita autorización"))
+      .mockResolvedValueOnce(buildOrder({ version: 2, items: [{ ...sent, status: "voided" }] }))
+
+    const user = userEvent.setup()
+    renderOrderPage(501, {})
+
+    const sheet = await openLine(user, /limonada de coco: acciones/i)
+    await user.click(within(sheet).getByRole("button", { name: /^anular limonada de coco$/i }))
+    const dialog = await screen.findByRole("dialog", { name: /anular limonada de coco/i })
+    expect(within(dialog).getByText("Anular lo ya enviado necesita PIN de supervisor")).toBeInTheDocument()
+    await user.click(within(dialog).getByRole("radio", { name: "Error de cocina" }))
+    await user.click(within(dialog).getByRole("button", { name: /^anular$/i }))
+
+    expect(await screen.findByText(/necesita autorización/i)).toBeInTheDocument()
+    expect(await screen.findByRole("group", { name: /pin de supervisor o administrador/i })).toBeInTheDocument()
+    for (const digit of ["1", "2", "3", "4"]) {
+      await user.click(screen.getByRole("button", { name: `Dígito ${digit}` }))
+    }
+
+    await waitFor(() => expect(voidItemMock).toHaveBeenCalledTimes(2))
+    expect(voidItemMock.mock.calls[1][2]).toMatchObject({ reason: "kitchen_error", authorizer_pin: "1234" })
+    await waitFor(() => expect(screen.queryByText(/necesita autorización/i)).not.toBeInTheDocument())
   })
 })

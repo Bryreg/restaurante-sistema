@@ -33,6 +33,13 @@ export const VOID_REASON_LABEL: Record<string, string> = {
   other: "Otro motivo",
 }
 
+/**
+ * El aviso de anular lo que ya salió a cocina: el servidor pide el PIN de un
+ * supervisor (`AUTHORIZATION_REQUIRED`). Mismo texto en el diálogo del
+ * motivo y en el del PIN.
+ */
+export const VOID_NEEDS_PIN_TEXT = "Anular lo ya enviado necesita PIN de supervisor"
+
 export const COURTESY_REASON_LABEL: Record<string, string> = {
   complaint: "Queja del cliente",
   promo_owner: "Promoción del dueño",
@@ -187,11 +194,52 @@ export function unsentQtyByProduct(items: { product_id?: number | null; combo_id
   return { products, combos }
 }
 
-/** Cuántas unidades salen con «Enviar a cocina»: la suma de `qty` pendiente. */
-export function unsentItemCount(items: { qty?: number; status?: string }[]): number {
+/**
+ * ¿La línea es un plato (algo que cocina o el bar prepara y se «marcha»)?
+ * El cargo de domicilio no: es plata, viaja sin estación y el servidor lo
+ * marca `is_delivery_fee`.
+ */
+export function isDishLine(item: { is_delivery_fee?: boolean }): boolean {
+  return item.is_delivery_fee !== true
+}
+
+/**
+ * Cuántas unidades salen con «Enviar a cocina»: la suma de `qty` pendiente,
+ * sin el cargo de domicilio (sale con la ronda pero no es un plato: contarlo
+ * dejaba «Enviar a cocina · 1» en un domicilio vacío).
+ */
+export function unsentItemCount(items: { qty?: number; status?: string; is_delivery_fee?: boolean }[]): number {
   let units = 0
-  for (const item of items) if (item.status === "pending") units += item.qty ?? 1
+  for (const item of items) if (item.status === "pending" && isDishLine(item)) units += item.qty ?? 1
   return units
+}
+
+/**
+ * Notas rápidas de un plato: un toque en vez del teclado. Hoy no hay dónde
+ * configurarlas por sede (no hay columna para eso y no se abre una
+ * migración por una lista de textos), así que viven acá: una lista por
+ * curso del plato y la de siempre para el resto. El teclado queda para
+ * «Otra nota».
+ */
+export const DEFAULT_QUICK_NOTES: readonly string[] = ["Sin cebolla", "Sin sal", "Aparte", "Para llevar"]
+
+const QUICK_NOTES_BY_COURSE: Record<string, readonly string[]> = {
+  beverage: ["Sin hielo", "Sin azúcar", "Al clima", "Para llevar"],
+  dessert: ["Sin azúcar", "Aparte", "Para compartir", "Para llevar"],
+}
+
+export function quickNotesFor(course: string | null | undefined): readonly string[] {
+  return (course ? QUICK_NOTES_BY_COURSE[course] : undefined) ?? DEFAULT_QUICK_NOTES
+}
+
+/** Iniciales de una persona para la tarjeta de mesa: «Ana María» → «AM». */
+export function initials(name: string | null | undefined): string {
+  if (!name) return ""
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  return parts
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("")
 }
 
 /**
