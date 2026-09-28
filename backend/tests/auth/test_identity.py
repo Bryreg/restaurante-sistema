@@ -58,12 +58,17 @@ def test_identify_five_failures_locks_pin(
     device_client: TestClient, employees: dict[str, Employee]
 ) -> None:
     operator = employees["operator"]
-    for _ in range(4):
+    for attempt in range(4):
         resp = device_client.post(
             "/api/v1/auth/device/identify", json={"employee_id": operator.id, "pin": "0000"}
         )
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "PIN_INVALID"
+        # «Quién opera» muestra el mensaje tal cual: cuántos intentos quedan
+        # lo cuenta el servidor, nunca la pantalla.
+        remaining = 4 - attempt
+        word = "intento" if remaining == 1 else "intentos"
+        assert resp.json()["error"]["message"] == f"PIN incorrecto · te quedan {remaining} {word}"
 
     fifth = device_client.post(
         "/api/v1/auth/device/identify", json={"employee_id": operator.id, "pin": "0000"}

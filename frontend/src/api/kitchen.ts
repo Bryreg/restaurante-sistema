@@ -77,6 +77,11 @@ export function listKitchenRounds(station?: string): Promise<KitchenRoundOut[]> 
   return api<KitchenRoundOut[]>("/kitchen/rounds", { query: { station } })
 }
 
+/** `GET /kitchen/stations` (`kitchen.kds`) — las estaciones que la sede configuró, en su orden, para la barra del KDS. Sólo nombres. */
+export function listKitchenStations(): Promise<string[]> {
+  return api<string[]>("/kitchen/stations")
+}
+
 // ---------------------------------------------------------------------------
 // KDS completo (`kitchen.kds`): bump / unbump / expedición.
 // ---------------------------------------------------------------------------

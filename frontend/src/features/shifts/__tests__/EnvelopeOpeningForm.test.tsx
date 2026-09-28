@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -80,13 +80,17 @@ describe("EnvelopeOpeningForm — el cuadre de apertura por sobres", () => {
     await user.click(screen.getByRole("button", { name: "Contar el sobre" }));
     // Contando, todavía sin el monto esperado.
     expect(screen.queryByText("$ 74.000")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Sellar el conteo" }));
+    // Rótulo del handoff (pantalla 2): «Sellar sobre», antes «Sellar el conteo».
+    await user.click(screen.getByRole("button", { name: "Sellar sobre" }));
 
     await waitFor(() => expect(sealMock).toHaveBeenCalledTimes(1));
     expect(sealMock.mock.calls[0]?.[0]).toMatchObject({ envelopes: [{ shift_id: 12, counted: { total: 0 } }] });
 
     expect(await screen.findByText("$ 74.000")).toBeInTheDocument();
-    expect(screen.getByText(/Contó Ana/)).toBeInTheDocument();
+    // Quién contó sale dos veces: en la fila del sobre y en «Ver diferencias».
+    expect(screen.getAllByText(/Contó Ana/).length).toBeGreaterThan(0);
+    // La pastilla del sobre aparece sólo después de sellar, con lo del servidor.
+    expect(screen.getByText("Faltan $ 74.000")).toBeInTheDocument();
 
     await screen.findByRole("radio", { name: /ana, operador/i });
     const abrir = screen.getByRole("button", { name: "Abrir turno" });
@@ -114,5 +118,52 @@ describe("EnvelopeOpeningForm — el cuadre de apertura por sobres", () => {
     await waitFor(() => expect(openShiftMock).toHaveBeenCalledTimes(1));
     expect(openShiftMock.mock.calls[0]?.[0]).toMatchObject({ cash_responsible_id: 7 });
     expect(openShiftMock.mock.calls[0]?.[0]?.opening_count_id).toBeUndefined();
+  });
+});
+
+describe("EnvelopeOpeningForm — el handoff (pantalla 2)", () => {
+  it("pasos arriba, contar sobre por sobre y la pastilla sólo después de sellar, con lo del servidor", async () => {
+    sealMock.mockResolvedValue({
+      ...REVEAL,
+      envelopes: [
+        { shift_id: 11, business_date: "2026-09-21", expected: 50_000, counted: 50_000, difference: 0 },
+        { shift_id: 12, business_date: "2026-09-22", expected: 74_000, counted: 72_000, difference: -2_000 },
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<EnvelopeOpeningForm info={INFO} />, { me: ME });
+
+    const pasos = screen.getByRole("list", { name: "Pasos de la apertura" });
+    expect(within(pasos).getByText("Elegir sobres").closest("li")).toHaveAttribute("aria-current", "step");
+
+    for (const b of screen.getAllByRole("button", { name: /^Sobre del / })) await user.click(b);
+    await user.click(screen.getByRole("button", { name: "Contar los 2 sobres" }));
+    expect(within(pasos).getByText("Contar y sellar").closest("li")).toHaveAttribute("aria-current", "step");
+    expect(screen.getByRole("heading", { name: /Contando: sobre del/ })).toBeInTheDocument();
+    // Contando: el sobre en curso dice «Contando», nunca un monto.
+    const sobres = screen.getAllByRole("button", { name: /^Sobre del / });
+    expect(sobres[0]).toHaveTextContent("Contando");
+    expect(sobres[1]).toHaveTextContent("Por contar");
+    for (const b of sobres) expect(b).not.toHaveTextContent("$");
+
+    await user.click(screen.getByRole("button", { name: "Siguiente sobre" }));
+    expect(screen.getAllByRole("button", { name: /^Sobre del / })[0]).toHaveTextContent("Contado");
+    await user.click(screen.getByRole("button", { name: "Sellar los 2 sobres" }));
+
+    await waitFor(() => expect(sealMock).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Faltan $ 2.000")).toBeInTheDocument();
+    expect(screen.getByText(/Cuadra · \$ 0/)).toBeInTheDocument();
+    expect(within(pasos).getByText("Ver diferencias").closest("li")).toHaveAttribute("aria-current", "step");
+  });
+
+  it("la base de respaldo va aparte: tarjeta punteada y «Contar base» sólo con la función encendida", () => {
+    const { unmount } = renderWithProviders(<EnvelopeOpeningForm info={INFO} />, { me: ME });
+    expect(screen.getByRole("heading", { name: "Base de respaldo" })).toBeInTheDocument();
+    expect(screen.getByText(/no entra al cuadre del turno/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Contar base" })).toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(<EnvelopeOpeningForm info={INFO} />, { me: { ...ME, features: { "money.deposits": true } } });
+    expect(screen.queryByRole("button", { name: "Contar base" })).not.toBeInTheDocument();
   });
 });
