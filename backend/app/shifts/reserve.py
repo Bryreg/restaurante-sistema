@@ -31,6 +31,7 @@ dos. La matemática vive acá y en `compute_breakdown`, nunca en el frontend.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -65,10 +66,19 @@ REVERSE_ACTION = "reserve_reverse"
 # ---------------------------------------------------------------------------
 
 
-def _live_sum(db: Session, *, kind: CashReserveMovementKind, shift_id: int | None = None, store_id: int | None = None) -> int:
+def _live_sum(
+    db: Session,
+    *,
+    kind: CashReserveMovementKind,
+    shift_id: int | None = None,
+    store_id: int | None = None,
+    as_of: datetime | None = None,
+) -> int:
     stmt = select(func.coalesce(func.sum(CashReserveMovement.amount), 0)).where(
         CashReserveMovement.kind == kind, CashReserveMovement.reversed_at.is_(None)
     )
+    if as_of is not None:
+        stmt = stmt.where(CashReserveMovement.at <= as_of)
     if shift_id is not None:
         stmt = stmt.where(CashReserveMovement.shift_id == shift_id)
     if store_id is not None:
@@ -76,11 +86,12 @@ def _live_sum(db: Session, *, kind: CashReserveMovementKind, shift_id: int | Non
     return int(db.execute(stmt).scalar_one())
 
 
-def loan_outstanding(db: Session, shift_id: int) -> int:
+def loan_outstanding(db: Session, shift_id: int, *, as_of: datetime | None = None) -> int:
     """Lo que el cajón de este turno le debe a la base: tomado − devuelto
-    (sin los reversados). Es el sumando `reserve_loan` del esperado."""
-    return _live_sum(db, kind=CashReserveMovementKind.TAKE, shift_id=shift_id) - _live_sum(
-        db, kind=CashReserveMovementKind.RETURN, shift_id=shift_id
+    (sin los reversados). Es el sumando `reserve_loan` del esperado. Con
+    `as_of`, lo que debía en ese instante."""
+    return _live_sum(db, kind=CashReserveMovementKind.TAKE, shift_id=shift_id, as_of=as_of) - _live_sum(
+        db, kind=CashReserveMovementKind.RETURN, shift_id=shift_id, as_of=as_of
     )
 
 

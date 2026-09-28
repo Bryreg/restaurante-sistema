@@ -105,7 +105,7 @@ pantalla nueva no se cuelga a mano del router.
 `channels` 13/7 · `recipes` 12/10 · `expenses` 11/7 · `fiscal` 8/6 ·
 `kitchen` 6/3 · `payments` 6/2 · `customers` 5/5 · `notifications` 9/4 ·
 `reports` 4/0 · `analytics` 4/0 · `refunds` 2/3 · `audit` 1/1.
-Alembic va por `0031`, **113 tablas de dominio**. Todo bajo `/api/v1`.
+Alembic va por `0032`, **113 tablas de dominio**. Todo bajo `/api/v1`.
 
 `analytics` y `reports` **no tienen modelos a propósito**: son derivados. Si tu
 dominio puede serlo, que lo sea («derivar en vez de almacenar», §6.1).
@@ -294,6 +294,19 @@ asistencia ni roster: en la tablet sólo autoriza.
   (`panel.shift_activity`: alguien de caja con asistencia abierta, o
   comandas del día sin turno); sin actividad la sede está cerrada: semáforo
   gris y `TodayOut.store_closed`. Mismo criterio en el panel y en Hoy.
+- **Series «barra + raya»** (`app/reports/series.py`, esquemas en
+  `series_schemas.py`): cada dato viaja con su raya y con `outside` (el
+  lado malo lo decide el servidor). Informes las trae en `series`
+  (`daily_sales`, `category_margin`, `stores_week`, `peak_hours`); Hoy, en
+  `stores[].bullets`; la ficha de turno, en `cash_by_hour` (el esperado por
+  hora es `compute_breakdown(shift, as_of=...)`, vía
+  `shifts.hooks.expected_cash_at`: **no hay otra fórmula**); la ficha de
+  insumo, en `stock_by_day`. Las rayas que son decisión del dueño viven en
+  Ajustes › Ventas (`margin_target_pct`, `long_table_minutes`,
+  `late_ticket_minutes`, `orders_per_waiter`, 0032); el umbral de retiro es
+  `cash_pickup_threshold`. En el frontend se dibujan con
+  `components/charts/BarrasConReferencia` (columnas, filas y
+  `BulletReferencia`) y `HorarioGantt`.
 - `GET /admin/shifts?include_open=true` suma los turnos abiertos de
   cualquier fecha: Dinero › Operacional lo usa para que un turno abandonado
   de otro día no se esconda por su fecha.

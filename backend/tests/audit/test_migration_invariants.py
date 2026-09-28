@@ -524,6 +524,15 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     (`push_vapid_keys`). `notifications` gana una columna (`pushed_at`). Se
     mueven los dos postes; las dos igualdades siguen exactas y los dos
     nombres entran enumerados abajo.
+
+    **Re-apuntado con los supuestos del panel** (`0032_panel_assumptions`):
+    la cabeza pasa a **`0032`** y el conteo **sigue en 113**. Motivo
+    declarado: el rediseño «barra + raya» del panel dibuja cada dato contra
+    una raya, y cuatro de esas rayas son decisiones del dueño (margen meta,
+    mesa larga, tiquete demorado, comandas por mesero) que no pueden vivir
+    quemadas en el código: son cuatro columnas de `store_sales_settings`,
+    ninguna tabla. Se mueve sólo el poste de la cabeza; la igualdad sigue
+    exacta.
     """
     from sqlalchemy import text
 
@@ -535,12 +544,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0031", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0031: 0027 → 0028 (asistencia separada del turno de caja) "
+    assert version == "0032", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0032: 0027 → 0028 (asistencia separada del turno de caja) "
         "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo) "
-        "→ 0031 (avisos al celular). "
+        "→ 0031 (avisos al celular) → 0032 (supuestos del panel). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030 y 0031"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031 y 0032"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -649,9 +658,10 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # sigue 107. `0028` suma la asistencia del día (`attendance_entries`),
     # separada del turno de caja: 108. `0029` (apertura por sobres y base de
     # respaldo) suma tres: 111. `0030` agrega columnas, no tablas. `0031`
-    # (avisos al celular) suma dos: **113**.
+    # (avisos al celular) suma dos: **113**. `0032` (supuestos del panel)
+    # agrega columnas, no tablas: sigue **113**.
     assert len(tablas) == 113, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; `0031` lo deja en 113 "
+        f"el esquema quedó con {len(tablas)} tablas de dominio; `0031` lo deja en 113 y `0032` no lo mueve "
         f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón "
         f"+ 5 de la rutina del turno + 7 del conteo por área + 1 de asistencia "
         f"+ 3 de la apertura por sobres y la base de respaldo + 2 de los avisos al celular). "

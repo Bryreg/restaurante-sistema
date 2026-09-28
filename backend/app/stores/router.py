@@ -37,6 +37,7 @@ from app.stores.schemas import (
     FiscalOut,
     OrganizationOut,
     OrganizationUpdateIn,
+    PANEL_ASSUMPTION_FIELDS,
     ProfileSetIn,
     RotatePinIn,
     SalesSettingsIn,
@@ -141,6 +142,10 @@ def _sales_settings_out(row: StoreSalesSettings) -> SalesSettingsOut:
         stations=list(row.stations),
         course_target_minutes=dict(row.course_target_minutes),
         invoice_threshold_uvt=row.invoice_threshold_uvt,
+        margin_target_pct=row.margin_target_pct,
+        long_table_minutes=row.long_table_minutes,
+        late_ticket_minutes=row.late_ticket_minutes,
+        orders_per_waiter=row.orders_per_waiter,
     )
 
 
@@ -653,6 +658,8 @@ def put_sales_settings_route(
     data = body.model_dump()
     data["payment_methods"] = [dict(m) for m in data["payment_methods"]]
     for field, value in data.items():
+        if value is None and field in PANEL_ASSUMPTION_FIELDS:
+            continue
         setattr(row, field, value)
     row.updated_at = clock.now_utc()
     db.flush()

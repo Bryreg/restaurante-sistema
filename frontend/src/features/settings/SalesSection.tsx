@@ -40,6 +40,10 @@ function cambiosDeVentas(guardado: SalesSettings, actual: SalesSettings): Pendin
     { key: "discount_limit_pct", field: "Límite de descuento", sufijo: " %", leaks: "Cambia Salón › Comanda › Descuento" },
     { key: "discount_daily_limit_pct", field: "Límite diario de descuento", sufijo: " %", leaks: "Cambia Salón › Comanda › Descuento" },
     { key: "courtesy_shift_limit", field: "Cortesías por turno", sufijo: "", leaks: "Cambia Salón › Comanda › Cortesía" },
+    { key: "margin_target_pct", field: "Margen meta", sufijo: " %", leaks: "Cambia la raya de Informes › Margen" },
+    { key: "long_table_minutes", field: "Mesa larga", sufijo: " min", leaks: "Cambia la raya de Hoy › Salón" },
+    { key: "late_ticket_minutes", field: "Tiquete demorado", sufijo: " min", leaks: "Cambia la raya de Hoy › Cocina" },
+    { key: "orders_per_waiter", field: "Comandas por mesero", sufijo: "", leaks: "Cambia la raya de Informes › Horas pico" },
   ];
   for (const { key, field, sufijo, leaks } of numeros) {
     const antes = guardado[key] as number;
@@ -250,6 +254,99 @@ export function SalesSection({ storeId }: { storeId: number | null }): React.JSX
               className="h-11"
               value={values.courtesy_shift_limit}
               onChange={(e) => patch({ courtesy_shift_limit: Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+      </FormSection>
+
+      {/* Las rayas de «barra + raya» que no son un hecho sino una decisión del
+          dueño. El umbral de retiro, que también es raya, vive en Caja. */}
+      <FormSection
+        title="Los supuestos del panel"
+        governs="Las rayas contra las que el panel compara cada dato. No frenan nada en el salón: deciden cuándo una barra se pinta en ámbar o en rojo en Hoy e Informes."
+        reading={
+          <>
+            Una categoría con menos de{" "}
+            <b className="font-bold text-foreground tabular-nums">{values.margin_target_pct} %</b> de margen sale
+            bajo la meta. Una mesa abierta más de{" "}
+            <b className="font-bold text-foreground tabular-nums">{values.long_table_minutes} min</b> es mesa
+            larga, y un tiquete con más de{" "}
+            <b className="font-bold text-foreground tabular-nums">{values.late_ticket_minutes} min</b> en cocina
+            está demorado. Cada mesero alcanza a atender{" "}
+            <b className="font-bold text-foreground tabular-nums">{values.orders_per_waiter}</b> comandas por hora.
+          </>
+        }
+        doesNotDo="Cambiar un supuesto no toca ninguna venta ni ningún turno: sólo mueve la raya del gráfico. El umbral de retiro está en Caja."
+      >
+        <FormField
+          label="Margen meta por categoría (%)"
+          help="La raya de «¿Qué categoría deja menos plata?» en Informes. Una categoría con margen bruto menor queda en ámbar."
+          scope={{ affects: [{ screen: "Informes › Margen", verb: "Pone la raya de" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={0}
+              max={100}
+              className="h-11"
+              value={values.margin_target_pct}
+              onChange={(e) => patch({ margin_target_pct: Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+
+        <FormField
+          label="Mesa larga (minutos)"
+          help="Desde cuántos minutos abierta una mesa se pinta en rojo en Hoy › Salón."
+          scope={{ affects: [{ screen: "Hoy › Salón", verb: "Pone la raya de" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={1}
+              className="h-11"
+              value={values.long_table_minutes}
+              onChange={(e) => patch({ long_table_minutes: Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+
+        <FormField
+          label="Tiquete demorado (minutos)"
+          help="Desde cuántos minutos en cocina un tiquete se pinta en rojo en Hoy › Cocina. El semáforo del KDS sigue usando el tiempo objetivo de cada curso."
+          scope={{ affects: [{ screen: "Hoy › Cocina", verb: "Pone la raya de" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={1}
+              className="h-11"
+              value={values.late_ticket_minutes}
+              onChange={(e) => patch({ late_ticket_minutes: Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+
+        <FormField
+          label="Comandas por hora que atiende un mesero"
+          help="La capacidad del salón en Informes › Horas pico es meseros en turno por este número. Las horas que la pasan salen en ámbar."
+          scope={{ affects: [{ screen: "Informes › Horas pico", verb: "Pone la raya de" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={1}
+              className="h-11"
+              value={values.orders_per_waiter}
+              onChange={(e) => patch({ orders_per_waiter: Number(e.target.value) })}
             />
           )}
         </FormField>

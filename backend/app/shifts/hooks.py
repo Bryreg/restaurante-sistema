@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Select, select
@@ -220,7 +221,7 @@ class SalesTotals:
     delivery_pending_couriers: int = 0
 
 
-def get_sales_totals(db: Session, shift_id: int) -> SalesTotals:
+def get_sales_totals(db: Session, shift_id: int, *, as_of: datetime | None = None) -> SalesTotals:
     """Totales de venta y propina por medio para el turno `shift_id`, leyendo
     `app.payments.models.Payment` (protegido con `find_spec`: sin el módulo
     de pagos devuelve ceros, no falla). `compute_breakdown` sigue leyendo
@@ -267,9 +268,11 @@ def get_sales_totals(db: Session, shift_id: int) -> SalesTotals:
     columns = [payment_model.method, payment_model.amount, payment_model.tip_amount]
     if courier_col is not None and settlement_col is not None:
         columns += [courier_col, settlement_col]
-    rows = db.execute(
-        select(*columns).where(payment_model.shift_id == shift_id, payment_model.voided_at.is_(None))
-    ).all()
+    stmt = select(*columns).where(payment_model.shift_id == shift_id, payment_model.voided_at.is_(None))
+    if as_of is not None:
+        # `compute_breakdown(as_of=...)`: sólo lo cobrado hasta ese instante.
+        stmt = stmt.where(payment_model.at <= as_of)
+    rows = db.execute(stmt).all()
 
     for row in rows:
         method, amount, tip_amount = row[0], row[1], row[2]
@@ -884,3 +887,37 @@ def reserve_of_shift(db: Session, shift_id: int) -> tuple[list[Any], int]:
     from app.shifts import reserve
 
     return reserve.list_movements(db, shift_id=shift_id), reserve.loan_outstanding(db, shift_id)
+
+
+# ---------------------------------------------------------------------------
+# «Efectivo en caja» por hora (panel «barra + raya», 0032)
+# ---------------------------------------------------------------------------
+
+
+def expected_cash_at(db: Session, shift: Shift, instants: list[datetime]) -> list[int]:
+    """El esperado del cajón en cada instante: **la misma** fórmula de
+    `service.compute_breakdown`, leída con `as_of`. No hay una segunda
+    matemática del esperado; el panel sólo elige los instantes."""
+    from app.shifts import service
+
+    return [int(service.compute_breakdown(db, shift, as_of=at)["expected"]) for at in instants]
+
+
+@dataclass(frozen=True)
+class PickupRow:
+    """Un retiro vivo del cajón (los reversados no salieron)."""
+
+    pickup_id: int
+    amount: int
+    at: datetime
+
+
+def live_pickups(db: Session, shift_id: int) -> list[PickupRow]:
+    from app.shifts.models import CashPickup
+
+    rows = db.execute(
+        select(CashPickup.id, CashPickup.amount, CashPickup.at)
+        .where(CashPickup.shift_id == shift_id, CashPickup.reversed_at.is_(None))
+        .order_by(CashPickup.at, CashPickup.id)
+    ).all()
+    return [PickupRow(pickup_id=int(i), amount=int(a), at=at) for i, a, at in rows]
