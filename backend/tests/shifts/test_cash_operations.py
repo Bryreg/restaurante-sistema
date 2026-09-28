@@ -60,6 +60,49 @@ def test_cash_swap_not_zero_is_rejected(device_client, open_shift, db: Session) 
     assert resp.json()["error"]["code"] == "SWAP_NOT_ZERO"
 
 
+def test_cash_swap_preview_sums_both_sides_without_touching_the_drawer(
+    device_client, open_shift, db: Session
+) -> None:
+    """La hoja «Cambio» del salón muestra «Entra $ 100.000 · sale $ 100.000 ·
+    cuadra» con la suma del SERVIDOR (el frontend no suma plata)."""
+    open_shift()
+    shift = _open(db)
+    before = service.compute_breakdown(db, shift)["expected"]
+
+    resp = device_client.post(
+        "/api/v1/cash-swaps/preview",
+        json={
+            "in": [{"value": 100000, "count": 1}],
+            "out": [{"value": 50000, "count": 1}, {"value": 20000, "count": 2}, {"value": 10000, "count": 1}],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"in_total": 100000, "out_total": 100000, "balanced": True}
+
+    resp = device_client.post(
+        "/api/v1/cash-swaps/preview",
+        json={"in": [{"value": 100000, "count": 1}], "out": [{"value": 50000, "count": 1}]},
+    )
+    assert resp.json() == {"in_total": 100000, "out_total": 50000, "balanced": False}
+
+    # Nada tecleado no «cuadra»: cero contra cero no es un cambio.
+    resp = device_client.post("/api/v1/cash-swaps/preview", json={"in": [], "out": []})
+    assert resp.json()["balanced"] is False
+
+    db.refresh(shift)
+    assert service.compute_breakdown(db, shift)["expected"] == before
+
+
+def test_cash_swap_preview_rejects_a_denomination_that_does_not_exist(device_client, open_shift) -> None:
+    open_shift()
+    resp = device_client.post(
+        "/api/v1/cash-swaps/preview",
+        json={"in": [{"value": 30000, "count": 1}], "out": []},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "DENOMINATION_INVALID"
+
+
 def test_pickup_lowers_expected_and_snapshots_it(device_client, employees, open_shift, db: Session) -> None:
     open_shift()
     shift = _open(db)

@@ -15,6 +15,15 @@ export function elapsedLabel(fromIso: string | null | undefined, now: Date = new
   return elapsedFromSeconds(totalSeconds)
 }
 
+/** «72 min»: los minutos corridos, sin pasar a horas (la tarjeta de mesa del handoff). */
+export function elapsedMinutesLabel(fromIso: string | null | undefined, now: Date = new Date()): string {
+  if (!fromIso) return "—"
+  const from = new Date(fromIso)
+  if (Number.isNaN(from.getTime())) return "—"
+  const totalSeconds = Math.max(0, Math.floor((now.getTime() - from.getTime()) / 1000))
+  return `${Math.floor(totalSeconds / 60)} min`
+}
+
 export function elapsedFromSeconds(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60)
   if (minutes < 60) return `${minutes} min`
@@ -232,6 +241,28 @@ export function quickNotesFor(course: string | null | undefined): readonly strin
   return (course ? QUICK_NOTES_BY_COURSE[course] : undefined) ?? DEFAULT_QUICK_NOTES
 }
 
+/**
+ * La nota de una línea es un solo texto (`note`); las notas rápidas viven
+ * adentro separadas por « · » («Sin cebolla · Aparte»), que es como la lee la
+ * cocina en el tiquete. Sólo texto: nada de esto toca cantidades ni plata.
+ */
+const NOTE_SEPARATOR = " · "
+
+export function splitNote(note: string | null | undefined): string[] {
+  if (!note) return []
+  return note
+    .split(NOTE_SEPARATOR)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+/** Pone la nota rápida si no estaba, o la saca si estaba. `""` = sin nota. */
+export function toggleNote(note: string | null | undefined, value: string): string {
+  const parts = splitNote(note)
+  const next = parts.includes(value) ? parts.filter((part) => part !== value) : [...parts, value]
+  return next.join(NOTE_SEPARATOR)
+}
+
 /** Iniciales de una persona para la tarjeta de mesa: «Ana María» → «AM». */
 export function initials(name: string | null | undefined): string {
   if (!name) return ""
@@ -288,16 +319,25 @@ export function findMergeableLine<
     discount?: number | null
     courtesy?: unknown
   },
->(items: T[], product: { id: number; default_course?: string | null }): T | undefined {
+>(
+  items: T[],
+  product: { id: number; default_course?: string | null },
+  // El asiento y el curso elegidos en la comanda (handoff `PosComanda`): la
+  // unidad se suma sólo a la línea del MISMO asiento y curso. Sin elegir, los
+  // de siempre: sin asiento y en el curso por defecto del plato.
+  target: { seat?: number | null; course?: string | null } = {},
+): T | undefined {
   const defaultCourse = product.default_course || "main"
+  const course = target.course || defaultCourse
+  const seat = target.seat ?? null
   return items.find(
     (item) =>
       item.status === "pending" &&
       item.product_id === product.id &&
       (item.modifiers ?? []).length === 0 &&
       !item.note &&
-      (item.seat === null || item.seat === undefined) &&
-      (item.course ?? defaultCourse) === defaultCourse &&
+      (item.seat ?? null) === seat &&
+      (item.course ?? defaultCourse) === course &&
       !item.discount &&
       !item.courtesy,
   )

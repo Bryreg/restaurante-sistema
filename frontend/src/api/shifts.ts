@@ -399,6 +399,25 @@ export function createCashSwap(shiftId: number, body: CashSwapIn): Promise<CashS
   return api<CashSwapResult>(`/shifts/${shiftId}/cash-swaps`, { method: "POST", body });
 }
 
+export interface CashSwapPreviewIn {
+  in: { value: number; count: number }[];
+  out: { value: number; count: number }[];
+}
+
+export interface CashSwapPreviewOut {
+  in_total: number;
+  out_total: number;
+  balanced: boolean;
+}
+
+/**
+ * `POST /cash-swaps/preview` — el cuadre de la hoja «Cambio» mientras se
+ * arma: la suma la hace el servidor (la misma de `cash-swaps`), sin escribir.
+ */
+export function previewCashSwap(body: CashSwapPreviewIn): Promise<CashSwapPreviewOut> {
+  return api<CashSwapPreviewOut>("/cash-swaps/preview", { method: "POST", body });
+}
+
 // ---------------------------------------------------------------------------
 // Retiros — cash.pickups
 // ---------------------------------------------------------------------------

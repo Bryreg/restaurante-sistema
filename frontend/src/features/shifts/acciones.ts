@@ -77,7 +77,7 @@ export const ACCIONES: readonly Accion[] = [
   {
     clave: "cambio",
     label: "Cambio",
-    descripcion: "Cambiar billetes por sencilla",
+    descripcion: "Un billete grande por sencillo. El total de la caja no cambia.",
     icono: Coins,
     flag: "cash.swaps",
   },

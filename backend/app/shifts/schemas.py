@@ -340,6 +340,25 @@ class CashSwapOut(BaseModel):
     at: datetime
 
 
+class CashSwapPreviewIn(BaseModel):
+    """Lo que la hoja «Cambio» lleva tecleado: sólo denominaciones, sin
+    totales — los totales los suma el servidor (`POST /cash-swaps/preview`)."""
+
+    out: list[DenominationIn] = Field(alias="out")
+    in_: list[DenominationIn] = Field(alias="in")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class CashSwapPreviewOut(BaseModel):
+    """«Entra $ 100.000 · sale $ 100.000 · cuadra»: la misma suma que valida
+    `create_cash_swap`, antes de registrar. No toca el cajón ni el esperado."""
+
+    in_total: int
+    out_total: int
+    balanced: bool
+
+
 # ---------------------------------------------------------------------------
 # Retiros
 # ---------------------------------------------------------------------------

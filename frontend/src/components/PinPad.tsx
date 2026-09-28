@@ -13,6 +13,18 @@ export interface PinPadProps {
   disabled?: boolean;
   /** Mensaje del servidor (p. ej. `PIN_LOCKED`) mostrado tal cual llegó. */
   errorMessage?: string | null;
+  /**
+   * Retener el PIN completo en vez de mandarlo solo: el cobro (`PosCobro`)
+   * junta el PIN con el pago y confirma con su propio botón «Cobrar $ X».
+   * Con `true`, `onSubmit` no se llama al completar ni se limpian los puntos;
+   * la pantalla lee el valor con `onChange` y, para empezar de cero, vuelve a
+   * montar el teclado (`key`).
+   */
+  holdValue?: boolean;
+  /** Cada cambio del valor tecleado (sólo lo usa `holdValue`). */
+  onChange?: (pin: string) => void;
+  /** Rótulo visible a la izquierda de los puntos (p. ej. «PIN de quien cobra»). */
+  heading?: React.ReactNode;
 }
 
 const ROWS: readonly (readonly string[])[] = [
@@ -27,7 +39,16 @@ const ROWS: readonly (readonly string[])[] = [
  * progreso sin exponer el PIN a un lector de pantalla dígito por dígito de
  * forma redundante con la pantalla.
  */
-export function PinPad({ length = 4, label, onSubmit, disabled = false, errorMessage = null }: PinPadProps) {
+export function PinPad({
+  length = 4,
+  label,
+  onSubmit,
+  disabled = false,
+  errorMessage = null,
+  holdValue = false,
+  onChange,
+  heading,
+}: PinPadProps) {
   const [value, setValue] = useState("");
   const statusId = useId();
   const errorId = useId();
@@ -49,10 +70,13 @@ export function PinPad({ length = 4, label, onSubmit, disabled = false, errorMes
   // nunca dentro del actualizador de `setValue`, para no disparar `onSubmit`
   // más de una vez si React re-invoca el actualizador (StrictMode).
   useEffect(() => {
-    if (value.length < length) return;
+    onChange?.(value);
+    if (holdValue || value.length < length) return;
     onSubmit(value);
     setValue("");
-  }, [value, length, onSubmit]);
+    // `onChange` no entra: una función nueva en cada render no es un cambio del PIN.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, length, onSubmit, holdValue]);
 
   useEffect(() => {
     // El atajo de teclado escucha en `window` para que no haga falta enfocar
@@ -98,17 +122,30 @@ export function PinPad({ length = 4, label, onSubmit, disabled = false, errorMes
 
   return (
     <div className="flex flex-col items-center gap-4" role="group" aria-label={label}>
-      <div className="flex gap-3" aria-hidden="true">
-        {Array.from({ length }).map((_, index) => (
-          <span
-            key={index}
-            className={cn(
-              "size-4 rounded-full border-2 border-foreground/40",
-              index < value.length && "border-foreground bg-foreground",
-            )}
-          />
-        ))}
-      </div>
+      {(() => {
+        const puntos = (
+          <div className={cn("flex", heading ? "shrink-0 gap-2" : "gap-3")} aria-hidden="true">
+            {Array.from({ length }).map((_, index) => (
+              <span
+                key={index}
+                className={cn(
+                  "rounded-full border-2 border-foreground/40",
+                  heading ? "size-3.5" : "size-4",
+                  index < value.length && "border-foreground bg-foreground",
+                )}
+              />
+            ))}
+          </div>
+        );
+        return heading ? (
+          <div className="flex w-full items-center justify-between gap-2">
+            <span className="text-[14px] font-semibold">{heading}</span>
+            {puntos}
+          </div>
+        ) : (
+          puntos
+        );
+      })()}
       <p id={statusId} className="sr-only" role="status" aria-live="polite">
         {value.length} de {length} dígitos ingresados
       </p>

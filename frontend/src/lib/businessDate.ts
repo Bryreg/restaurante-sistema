@@ -43,6 +43,20 @@ export function formatBusinessDate(value: string | null | undefined): string {
   return `${weekday} ${String(d).padStart(2, "0")} ${month} ${y}`;
 }
 
+/**
+ * "2026-09-27" → "Sáb 27 sep": la fecha corta de la cabecera del salón
+ * (`PosBarra`), sin año — el año se sobreentiende en la tablet del día. Mismo
+ * cálculo de calendario que `formatBusinessDate`.
+ */
+export function formatBusinessDateShort(value: string | null | undefined): string {
+  if (!value) return "—";
+  const { y, m, d } = parseBusinessDate(value);
+  const anchor = new Date(Date.UTC(y, m - 1, d));
+  const weekday = WEEKDAY_ABBR[anchor.getUTCDay()] ?? "";
+  const month = MONTH_ABBR[anchor.getUTCMonth()];
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${d} ${month}`;
+}
+
 const INSTANT_FORMATTER = new Intl.DateTimeFormat("es-CO", {
   timeZone: "America/Bogota",
   day: "2-digit",

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest"
 
-import { findMergeableLine, groupByCourse, nextRoundNo, productNeedsOptions, unsentItemCount, unsentQtyByProduct } from "../lib"
+import {
+  findMergeableLine,
+  groupByCourse,
+  nextRoundNo,
+  productNeedsOptions,
+  splitNote,
+  toggleNote,
+  unsentItemCount,
+  unsentQtyByProduct,
+} from "../lib"
 import { buildCatalogProduct, buildOrderItem } from "./fixtures"
 
 describe("conteos de la ronda sin enviar (unidades, nunca plata)", () => {
@@ -57,6 +66,26 @@ describe("toque rápido", () => {
     ]) {
       expect(findMergeableLine([buildOrderItem({ product_id: 10, ...override })], product)).toBeUndefined()
     }
+  })
+
+  it("con asiento y curso elegidos suma sólo a la línea de ese asiento y curso", () => {
+    const product = buildCatalogProduct({ id: 10, default_course: "beverage" })
+    const plain = buildOrderItem({ id: 9, product_id: 10 })
+    const seat2Dessert = buildOrderItem({ id: 11, product_id: 10, seat: 2, course: "dessert" })
+    expect(findMergeableLine([plain, seat2Dessert], product, { seat: 2, course: "dessert" })).toBe(seat2Dessert)
+    expect(findMergeableLine([plain], product, { seat: 2, course: null })).toBeUndefined()
+    expect(findMergeableLine([plain, seat2Dessert], product, { seat: null, course: null })).toBe(plain)
+  })
+})
+
+describe("notas rápidas en la nota del ítem", () => {
+  it("toggleNote pone y saca una nota sin tocar las demás; splitNote las separa", () => {
+    expect(toggleNote(null, "Sin cebolla")).toBe("Sin cebolla")
+    expect(toggleNote("Sin cebolla", "Aparte")).toBe("Sin cebolla · Aparte")
+    expect(toggleNote("Sin cebolla · Aparte", "Sin cebolla")).toBe("Aparte")
+    expect(toggleNote("Aparte", "Aparte")).toBe("")
+    expect(splitNote("Sin cebolla · Aparte")).toEqual(["Sin cebolla", "Aparte"])
+    expect(splitNote("")).toEqual([])
   })
 })
 

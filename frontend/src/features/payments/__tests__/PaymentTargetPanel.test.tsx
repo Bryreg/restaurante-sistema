@@ -15,7 +15,11 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const { listDevicePaymentMethods } = await import("@/api/payments");
 
 describe("PaymentTargetPanel — A-10 (la venta discriminada, y el total que hay que cobrar)", () => {
-  it("sin propina no agrega una línea de total redundante: «Venta» YA es lo que se cobra", async () => {
+  // Motivo del cambio de rótulos: el handoff (`PosCobro`) llama «Consumo» a
+  // la venta y «Propina (no es venta)» a la propina, en un libro con doble
+  // raya; el total grande dice siempre «Total a cobrar». Lo que se prueba es
+  // lo mismo: venta y propina discriminadas, y el total que hay que cobrar.
+  it("sin propina, el libro no inventa una línea de propina: el consumo ES lo que se cobra", async () => {
     vi.mocked(listDevicePaymentMethods).mockResolvedValue([
       { code: "cash", label: "Efectivo", dian_code: "10", requires_reference: false },
     ]);
@@ -34,10 +38,10 @@ describe("PaymentTargetPanel — A-10 (la venta discriminada, y el total que hay
       />,
     );
 
-    expect(await screen.findByText("Venta")).toBeInTheDocument();
-    expect(screen.getByText(/\$\s?50\.000/)).toBeInTheDocument();
-    expect(screen.queryByText(/total a cobrar/i)).not.toBeInTheDocument();
-    expect(screen.queryByText("Propina")).not.toBeInTheDocument();
+    expect(await screen.findByText("Consumo")).toBeInTheDocument();
+    expect(screen.getAllByText(/\$\s?50\.000/).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/total a cobrar/i)).toBeInTheDocument();
+    expect(screen.queryByText("Propina (no es venta)")).not.toBeInTheDocument();
   });
 
   it("con propina aceptada muestra el total a cobrar, que es el número que el mesero necesita", async () => {
@@ -63,14 +67,14 @@ describe("PaymentTargetPanel — A-10 (la venta discriminada, y el total que hay
     );
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /sí, \$\s?7\.870/i }));
+    await user.click(await screen.findByRole("button", { name: /10 % sugerida \$\s?7\.870/i }));
 
     // Venta y propina siguen discriminadas (la propina va aparte de la venta
     // y del impuesto), pero el total existe: sin él, el mesero suma de cabeza
     // delante del cliente. 85.000 + 7.870.
-    expect(await screen.findByText("Venta")).toBeInTheDocument();
-    expect(screen.getByText("Propina")).toBeInTheDocument();
-    expect(screen.getByText("Total a cobrar")).toBeInTheDocument();
+    expect(await screen.findByText("Consumo")).toBeInTheDocument();
+    expect(screen.getByText("Propina (no es venta)")).toBeInTheDocument();
+    expect(await screen.findByText("Total a cobrar")).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?92\.870/).length).toBeGreaterThan(0);
   });
 
