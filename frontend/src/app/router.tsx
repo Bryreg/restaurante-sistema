@@ -14,6 +14,7 @@ import { fiscalFeature } from "@/features/fiscal";
 import FeaturesPage from "@/features/features/FeaturesPage";
 import { inventoryFeature } from "@/features/inventory";
 import { kitchenFeature } from "@/features/kitchen";
+import AvisoPage from "@/features/notifications/AvisoPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import { ordersFeature } from "@/features/orders";
 import { payrollFeature } from "@/features/payroll";
@@ -109,6 +110,9 @@ const routes: RouteObject[] = [
       { path: "settings", element: <SettingsPage /> },
       { path: "audit", element: <AuditPage /> },
       { path: "notifications", element: <NotificationsPage /> },
+      // El aviso abierto desde la notificación del celular (o desde la
+      // campana). La URL la arma `backend/app/notifications/push.py`.
+      { path: "avisos/:id", element: <AvisoPage /> },
       ...reportsFeature.adminRoutes,
       ...shiftsFeature.adminRoutes,
       ...catalogFeature.adminRoutes,

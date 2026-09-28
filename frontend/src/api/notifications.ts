@@ -8,6 +8,8 @@ export type NotificationLevel = "info" | "warning" | "critical";
 
 export interface Notification {
   id: number;
+  /** La sede del aviso (la vista del aviso la nombra). */
+  store_id?: number | null;
   type: string;
   level: NotificationLevel;
   title: string;
@@ -23,6 +25,12 @@ export function listNotifications(
   return api<Notification[]>("/admin/notifications", {
     query: { store_id: params.storeId ?? undefined, unread_only: params.unreadOnly ?? undefined },
   });
+}
+
+/** `GET /admin/notifications/{id}` — un aviso solo: la vista «Aviso desde la
+ * notificación» (`/admin/avisos/:id`), a donde lleva tocar el aviso en el celular. */
+export function getNotification(notificationId: number): Promise<Notification> {
+  return api<Notification>(`/admin/notifications/${notificationId}`);
 }
 
 export function markNotificationRead(notificationId: number): Promise<Notification> {

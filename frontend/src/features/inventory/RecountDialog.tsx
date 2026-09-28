@@ -35,14 +35,34 @@ export function RecountDialog({
   storeId,
   triggerVariant = "default",
   onCreated,
+  open: openProp,
+  onOpenChange,
+  ingredientId,
+  showTrigger = true,
 }: {
   storeId: number
   triggerVariant?: "default" | "outline"
   onCreated?: () => void
+  /**
+   * Controlado desde afuera: el «⋯» de una fila de Stock («Pedir
+   * recuento») lo abre para ESE insumo. Con `ingredientId`, al cargar las
+   * áreas se elige la primera que lo cuenta y se lo deja marcado; quien pide
+   * puede sumar otros o cambiar de área.
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  ingredientId?: number
+  showTrigger?: boolean
 }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
+  const [openState, setOpenState] = useState(false)
+  const open = openProp ?? openState
+  function setOpen(next: boolean): void {
+    if (openProp === undefined) setOpenState(next)
+    onOpenChange?.(next)
+  }
   const [areaId, setAreaId] = useState<number | null>(null)
   const [chosen, setChosen] = useState<number[]>([])
+  const [preelegido, setPreelegido] = useState(false)
   const [note, setNote] = useState("")
   const keyRef = useRef(newIdempotencyKey())
   const queryClient = useQueryClient()
@@ -54,6 +74,17 @@ export function RecountDialog({
   })
   const areas = (areasQuery.data ?? []).filter((a) => a.active && a.items.length > 0)
   const area = areas.find((a) => a.id === areaId) ?? null
+
+  // El insumo de la fila, elegido una sola vez cuando llegan las áreas (y no
+  // en cada render: si quien pide lo desmarca, queda desmarcado).
+  if (ingredientId !== undefined && !preelegido && areasQuery.isSuccess) {
+    const suya = areas.find((a) => a.items.some((item) => item.ingredient_id === ingredientId))
+    setPreelegido(true)
+    if (suya) {
+      setAreaId(suya.id)
+      setChosen([ingredientId])
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -90,7 +121,9 @@ export function RecountDialog({
         if (!next) mutation.reset()
       }}
     >
-      <DialogTrigger render={<Button variant={triggerVariant} size="sm" />}>Pedir recuento</DialogTrigger>
+      {showTrigger ? (
+        <DialogTrigger render={<Button variant={triggerVariant} size="sm" />}>Pedir recuento</DialogTrigger>
+      ) : null}
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Pedir un recuento sorpresa</DialogTitle>

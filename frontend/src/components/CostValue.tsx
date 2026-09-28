@@ -31,12 +31,37 @@ export const COST_SOURCE_LABEL: Record<CostSource, string> = {
 export function CostValue({
   cost,
   costSource,
+  variant = "badge",
   className,
 }: {
   cost: string | number | null
   costSource: CostSource
+  /**
+   * `"badge"` (de siempre) lleva el origen en una insignia. `"celda"` es la
+   * forma de la tabla densa (handoff, pantalla 12): «Sin costo» **rayado**
+   * (`.sin-dato`, el mismo rayado de todo «sin dato»: no saber no es ni
+   * verde ni rojo) y el origen en texto chico al lado de la cifra, sin
+   * insignia, para que la fila no pase de 34 px. El origen sigue a la vista:
+   * un costo nunca viaja sin decir de dónde sale.
+   */
+  variant?: "badge" | "celda"
   className?: string
 }): React.JSX.Element {
+  if (variant === "celda") {
+    if (cost === null || costSource === "none") {
+      return (
+        <span className={className} title="Origen: ninguno. No es $ 0: falta la factura o el costo estimado.">
+          <span className="sin-dato px-2 py-0.5">Sin costo</span>
+        </span>
+      )
+    }
+    return (
+      <span className={className}>
+        <span className="tabular-nums">{formatCOPDecimal(cost)}</span>{" "}
+        <span className="text-[0.7rem] text-muted-foreground">{COST_SOURCE_LABEL[costSource]}</span>
+      </span>
+    )
+  }
   if (cost === null || costSource === "none") {
     return (
       <span className={className}>

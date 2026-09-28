@@ -324,7 +324,10 @@ def test_a_critical_notice_goes_out_after_commit_encrypted_for_each_phone(
     assert headers["TTL"] and headers["Urgency"] == "high"
     message = phone.decrypt(body)
     assert message["title"] == "Turno sin cerrar"
-    assert message["url"] == "/admin/hoy"
+    # Antes: "/admin/hoy". Cambio intencional (handoff «Aviso desde la
+    # notificación»): tocar el aviso abre SU vista, marcada como abierta desde
+    # una notificación; sin `push_url` no hay `destino` y la vista usa el del tipo.
+    assert message["url"] == f"/admin/avisos/{row.id}?desde=notificacion"
     assert message["notification_id"] == row.id
 
 
@@ -495,3 +498,50 @@ def test_every_push_route_says_feature_disabled_with_the_feature_off(
 def test_a_device_session_never_reaches_the_push_routes(device_client: TestClient, push_service: FakePushService) -> None:
     assert device_client.get(f"{API}/admin/push/public-key").status_code == 401
     assert device_client.post(f"{API}/admin/push/test").status_code == 401
+
+
+def test_the_notice_opens_its_own_view_and_carries_the_screen_that_resolves_it(
+    db: Session, org: Organization, store: Store, employees: dict[str, Employee], push_service: FakePushService
+) -> None:
+    phone = Browser(endpoint=FCM + "owner")
+    _admin_sub(db, org, employees, phone)
+
+    row = _critical(
+        db, org, store, type="area_count_shortage", title="Faltante grande en el conteo",
+        dedupe_key="area_count_shortage:9", push_url="/admin/inventario?tab=por-area",
+    )
+    assert row is not None
+    db.commit()
+    message = phone.decrypt(push_service.calls[0][2])
+    assert message["url"] == (
+        f"/admin/avisos/{row.id}?desde=notificacion&destino=%2Fadmin%2Finventario%3Ftab%3Dpor-area"
+    )
+
+
+def test_a_single_notice_is_read_by_id_and_another_organization_gets_404(
+    admin_client: TestClient, db: Session, org: Organization, store: Store
+) -> None:
+    row = _critical(db, org, store)
+    assert row is not None
+    db.commit()
+
+    got = admin_client.get(f"{API}/admin/notifications/{row.id}")
+    assert got.status_code == 200
+    body = got.json()
+    assert body["id"] == row.id and body["store_id"] == store.id and body["level"] == "critical"
+    assert body["read_at"] is None
+
+    from app.core import clock as core_clock
+
+    now = core_clock.now_utc()
+    other = Organization(name="Otra", profile="full", created_at=now, updated_at=now)
+    db.add(other)
+    db.flush()
+    # Directo a la tabla: lo que se prueba es la puerta de lectura, no `notify`.
+    foreign = Notification(
+        organization_id=other.id, store_id=store.id, type="pin_locked", level="warning",
+        title="Ajena", body="De otra organización", created_at=now,
+    )
+    db.add(foreign)
+    db.commit()
+    assert admin_client.get(f"{API}/admin/notifications/{foreign.id}").status_code == 404
