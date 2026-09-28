@@ -94,12 +94,23 @@ def main() -> None:
 
     print(f"demo_run: simulando {args.days} días…", flush=True)
     sim = demo.Demo(days=args.days, seed=args.seed)
+    # En producción la cookie de sesión es `Secure`: el cliente en proceso
+    # tiene que hablar por https para que la guarde y la devuelva.
+    from fastapi.testclient import TestClient
+
+    from app.main import app as asgi_app
+
+    sim.admin.c = TestClient(asgi_app, base_url="https://testserver")  # type: ignore[attr-defined]
+    sim.pos.c = TestClient(asgi_app, base_url="https://testserver")  # type: ignore[attr-defined]
     _set_opening_mode("fixed_base")
     try:
         sim.login()
         _close_abandoned(sim)
         sim.run()
     except Exception as exc:  # el resumen se imprime igual
+        import traceback
+
+        traceback.print_exc()
         sim.issues.append(f"El simulador se detuvo: {exc!r}")
     finally:
         clock.set_clock(None)
