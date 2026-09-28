@@ -77,6 +77,8 @@ DOMAINS: list[str] = [
     # La rutina del turno en el POS (2026-09-25): solicitudes y novedades.
     "requests",
     "novelties",
+    # Estado de la carga única de la demo (`app/ops/demo_once.py`).
+    "ops",
 ]
 
 
