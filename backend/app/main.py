@@ -137,3 +137,9 @@ def _mount_frontend(app: FastAPI, frontend_dist: Path | None = None) -> None:
 
 
 app = create_app()
+
+# Carga única de la demo en el despliegue (ver `app/ops/demo_once.py`): no
+# hace nada sin el marcador en el repo y las claves en el entorno.
+from app.ops import demo_once  # noqa: E402
+
+demo_once.maybe_launch()
