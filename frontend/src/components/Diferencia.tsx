@@ -36,7 +36,7 @@ export function Diferencia({
   className,
 }: DiferenciaProps): React.JSX.Element {
   if (valor === null || valor === undefined) {
-    return <SinDato motivo={motivoSinDato} className={className} />
+    return <SinDato motivo={motivoSinDato} className={className} rayado />
   }
   if (valor === 0) {
     return <span className={cn("font-medium whitespace-nowrap text-success tabular-nums", className)}>= $ 0 cuadra</span>

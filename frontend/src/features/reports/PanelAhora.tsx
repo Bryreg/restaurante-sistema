@@ -115,16 +115,23 @@ export function Semaforo({
   onPick: (id: number) => void
   celular?: boolean
 }): React.JSX.Element {
+  // Una fila de tarjetas iguales (captura 08a): con cuatro sedes, cuatro
+  // columnas; con una, la tarjeta ocupa la fila entera y sus razones van en
+  // renglón, en vez de quedar como una cajita suelta a la izquierda.
+  const sola = !celular && stores.length === 1
   return (
     <ul
       aria-label="Todas las sedes ahora"
-      className={cn("grid gap-2.5", celular ? "grid-cols-2 gap-2" : "sm:grid-cols-2 xl:grid-cols-4")}
+      className={cn(
+        "grid",
+        celular ? "grid-cols-2 gap-2" : "gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]",
+      )}
     >
       {stores.map((s) => {
         const activa = s.store_id === activeStoreId
         const lineas = razones(s)
         return (
-          <li key={s.store_id} className="min-w-0">
+          <li key={s.store_id} className={cn("min-w-0", celular && stores.length === 1 && "col-span-2")}>
             <button
               type="button"
               onClick={() => onPick(s.store_id)}
@@ -135,7 +142,9 @@ export function Semaforo({
                 "hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                 celular ? "min-h-[72px] px-2.5 py-2" : "px-3.5 py-3",
                 LIGHT_EDGE[s.light],
-                activa && "border-foreground shadow-[0_0_0_1px_var(--foreground)]",
+                // El anillo dice cuál de varias es la activa; con una sola
+                // no elige nada y sólo sumaba un marco negro.
+                activa && stores.length > 1 && "border-foreground shadow-[0_0_0_1px_var(--foreground)]",
               )}
             >
               <span className="flex w-full min-w-0 items-center gap-2">
@@ -145,17 +154,19 @@ export function Semaforo({
                   {LIGHT_WORD[s.light]}
                 </span>
               </span>
-              {(celular ? lineas.slice(0, 1) : lineas.slice(0, 2)).map((r) => (
-                <span
-                  key={r}
-                  className={cn(
-                    "text-muted-foreground",
-                    celular ? "line-clamp-2 text-xs leading-snug" : "text-[13px] leading-snug",
-                  )}
-                >
-                  {r}
-                </span>
-              ))}
+              <span className={cn("flex min-w-0 flex-col gap-1.5", sola && "sm:flex-row sm:flex-wrap sm:gap-x-6")}>
+                {(celular ? lineas.slice(0, 1) : lineas.slice(0, sola ? 3 : 2)).map((r) => (
+                  <span
+                    key={r}
+                    className={cn(
+                      "text-muted-foreground",
+                      celular ? "line-clamp-2 text-xs leading-snug" : "text-[13px] leading-snug",
+                    )}
+                  >
+                    {r}
+                  </span>
+                ))}
+              </span>
             </button>
           </li>
         )
@@ -318,9 +329,18 @@ function Caja({ panel, orders }: { panel: StorePanelOut; orders: number | undefi
     >
       {sales ? (
         <div className="mt-1 flex flex-col gap-2">
+          {sales.value === 0 && (sales.reference ?? 0) === 0 ? (
+            // Nada vendido y nada contra qué comparar: una barra vacía con la
+            // raya pegada al borde no dice nada; se dice en una línea.
+            <p className="text-[13px] text-muted-foreground">
+              {sales.reference === 0
+                ? `Todavía no hay ventas hoy; el ${diaDe(b?.reference_business_date)} a esta hora tampoco había.`
+                : "Todavía no hay ventas hoy."}
+            </p>
+          ) : (
           <RenglonBullet
             etiqueta="Ventas netas hoy"
-            cifra={sales.value != null ? formatCOP(sales.value) : "Sin dato"}
+            cifra={sales.value != null ? formatCOP(sales.value) : "—"}
             fuera={sales.outside}
             pie={
               sales.reference != null
@@ -342,10 +362,11 @@ function Caja({ panel, orders }: { panel: StorePanelOut; orders: number | undefi
               className="h-3.5 rounded-[3px]"
             />
           </RenglonBullet>
+          )}
           {b?.cash ? (
             <RenglonBullet
               etiqueta="Efectivo en caja"
-              cifra={b.cash.value != null ? formatCOP(b.cash.value) : "Sin dato"}
+              cifra={b.cash.value != null ? formatCOP(b.cash.value) : "—"}
               fuera={b.cash.outside}
               pie={
                 b.cash.reference != null
@@ -423,7 +444,7 @@ function QuienTrabaja({ panel }: { panel: StorePanelOut }): React.JSX.Element {
       cifraNota={present.length === 1 ? "persona con entrada" : "con entrada hoy"}
       enlace={{ to: "/admin/nomina?tab=horas", label: "Asistencia" }}
     >
-      {serieOk(serie) ? (
+      {serieOk(serie) && serie.points.some((p) => (p.value ?? 0) > 0) ? (
         <div className="mt-1 flex flex-col gap-[3px]">
           <span className="text-xs font-semibold">Personas en turno por hora · lo claro es lo que viene</span>
           <SerieMini
@@ -436,9 +457,9 @@ function QuienTrabaja({ panel }: { panel: StorePanelOut }): React.JSX.Element {
         </div>
       ) : null}
       {present.length === 0 ? (
-        <SinDato motivo={reason} forma="linea">
-          Nadie en turno
-        </SinDato>
+        // Nadie con entrada es un hecho (0 personas), no un dato que falte:
+        // se dice en una línea, sin trama ni gráfico vacío.
+        <p className="text-[13px] text-muted-foreground">{reason ?? "Nadie marcó entrada hoy."}</p>
       ) : (
         <ul className="flex flex-wrap gap-x-2 gap-y-0.5 text-[13px]">
           {present.map((p) => (
@@ -535,6 +556,9 @@ function Conteos({ panel }: { panel: StorePanelOut }): React.JSX.Element {
   )
 }
 
+/** Un tiquete con más de un día abierto no es «lento»: es de otro día. */
+const MINUTOS_DIA = 24 * 60
+
 /** «1 hora», «90 min»: el rótulo de la raya de minutos. */
 function rotuloMinutos(min: number | null | undefined): string | undefined {
   if (min == null) return undefined
@@ -621,7 +645,11 @@ function Cocina({ panel }: { panel: StorePanelOut }): React.JSX.Element {
         </div>
       ) : null}
       <p className="text-[13px] text-muted-foreground">
-        {k.oldest_late_minutes !== null ? `El más viejo lleva ${formatDuracion(k.oldest_late_minutes)}.` : "Nada atrasado."}
+        {k.oldest_late_minutes === null
+          ? "Nada atrasado."
+          : k.oldest_late_minutes >= MINUTOS_DIA
+            ? "El más viejo es de otro día: revisalo en Pedidos, no es de este servicio."
+            : `El más viejo lleva ${formatDuracion(k.oldest_late_minutes)}.`}
       </p>
     </Bloque>
   )
@@ -739,7 +767,7 @@ function AhoraCelular({ panel, orders }: { panel: StorePanelOut; orders: number 
           Ventas netas de hoy · {panel.store_name}
         </span>
         <b className="text-[34px] leading-none font-extrabold tracking-tight tabular-nums">
-          {sales?.value != null ? formatCOP(sales.value) : "Sin dato"}
+          {sales?.value != null ? formatCOP(sales.value) : <span className="text-muted-foreground">—</span>}
         </b>
         <span className="text-xs text-muted-foreground">
           {[

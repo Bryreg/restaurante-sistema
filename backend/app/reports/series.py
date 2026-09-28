@@ -82,6 +82,9 @@ STOCK_PROJECTED_DAYS = 7
 DAILY_MAX_DAYS = 62
 #: Más horas que esto de un turno abierto no se dibujan (turno abandonado).
 CASH_MAX_HOURS = 30
+#: Un día con menos comandas que esto (el de la semana o su raya) no sostiene
+#: un porcentaje: el punto sale con `low_base` y no cuenta como «por encima».
+DAILY_LOW_BASE_ORDERS = 5
 
 _WEEKDAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 _WEEKDAY_SHORT = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
@@ -121,6 +124,11 @@ def hour_label(hour: int) -> str:
 def day_label(d: date) -> str:
     """«sáb 20» — día de la semana corto y número."""
     return f"{_WEEKDAY_SHORT[d.weekday()]} {d.day}"
+
+
+def date_label(d: date) -> str:
+    """«mié 16 sep» — la fecha como la lee el dueño, nunca `2026-09-16`."""
+    return f"{_WEEKDAY_SHORT[d.weekday()]} {d.day} {_MONTH_SHORT[d.month - 1]}"
 
 
 def _bogota_instant(
@@ -182,21 +190,30 @@ def daily_sales(
         group_by="business_date",
     )
     by_day = {r.key: r.net for r in rows}
+    orders_by_day = {r.key: r.orders or 0 for r in rows}
     points: list[SeriesPointOut] = []
     days_ref = days_above = 0
     best: tuple[int, str] | None = None
     day = date_from
     while day <= date_to:
         key = day.isoformat()
+        ref_key = (day - timedelta(days=7)).isoformat()
         value = by_day.get(key)
-        reference = by_day.get((day - timedelta(days=7)).isoformat())
+        reference = by_day.get(ref_key)
         delta = service._delta_bp(value, reference)
         outside = value is not None and reference is not None and value < reference
-        if value is not None and reference is not None:
+        # Un día contra otro de 2 comandas no es una comparación: el punto se
+        # dibuja igual, pero no suma a «N de M días por encima» ni compite
+        # por «el mejor». Un día sin raya (la semana anterior no vendió) no
+        # es un día «por encima»: no tiene contra qué.
+        low_base = delta is not None and (
+            min(orders_by_day.get(key, 0), orders_by_day.get(ref_key, 0)) < DAILY_LOW_BASE_ORDERS
+        )
+        if value is not None and reference is not None and reference > 0 and not low_base:
             days_ref += 1
             if value >= reference:
                 days_above += 1
-        if delta is not None and (best is None or delta > best[0]):
+        if delta is not None and delta > 0 and not low_base and (best is None or delta > best[0]):
             best = (delta, key)
         points.append(
             SeriesPointOut(
@@ -207,6 +224,7 @@ def daily_sales(
                 delta_bp=delta,
                 outside=outside,
                 now=day == today,
+                low_base=low_base,
             )
         )
         day += timedelta(days=1)
@@ -579,11 +597,29 @@ def cash_by_hour(db: Session, *, shift: Shift, store: Store) -> CashByHourSeries
                 pickups=in_hour,
             )
         )
+    truncated_reason: str | None = None
+    if truncated:
+        # Un turno abandonado de días dibujaba treinta columnas iguales: el
+        # cajón no se movió en todas esas horas. Se dibuja hasta la última
+        # hora en que la plata se movió (más una, para que se vea que quedó
+        # quieta) y se dice en palabras dónde se cortó.
+        last_move = 0
+        for i in range(1, len(points)):
+            if points[i].value != points[i - 1].value or points[i].pickups:
+                last_move = i
+        keep = min(len(points), last_move + 2)
+        points = points[:keep]
+        opened_label = date_label(tz.to_bogota(opened_at).date())
+        truncated_reason = (
+            f"El turno sigue abierto desde el {opened_label}. La plata del cajón no se "
+            f"mueve desde las {points[last_move].label}: el dibujo se corta ahí."
+        )
     return CashByHourSeriesOut(
         reference=threshold,
         points=points,
         hours_over=sum(1 for p in points if p.outside),
         truncated=truncated,
+        truncated_reason=truncated_reason,
     )
 
 

@@ -27,6 +27,7 @@ import { HeadlineFigure, PageHeader, type DenseColumn } from "@/components/admin
 import { Cargando } from "@/components/Cargando"
 import { BarrasConReferencia, HorarioGantt, type FilaHorario, type RenglonResumen } from "@/components/charts"
 import { Diferencia } from "@/components/Diferencia"
+import { SinDato } from "@/components/SinDato"
 import { EmptyState } from "@/components/EmptyState"
 import { StatTile } from "@/components/StatTile"
 import { Button } from "@/components/ui/button"
@@ -367,9 +368,15 @@ function PasosDeCaja({ r, s }: { r: ShiftRecordOut; s: ShiftSummary }): React.JS
                 </span>
               </span>
               {/* La cifra grande sólo cuando hay cifra: un «sin dato» va en su tamaño. */}
-              <span className={p.diferencia === null || p.diferencia === undefined ? "text-sm" : "text-xl"}>
-                <Diferencia valor={p.diferencia} motivoSinDato={p.motivoSinDato} />
-              </span>
+              {/* La cifra grande sólo cuando hay cifra; sin ella, una frase apagada
+                  (la trama de la celda de tabla, a tarjeta ancha, se veía rota). */}
+              {p.diferencia === null || p.diferencia === undefined ? (
+                <SinDato motivo={p.motivoSinDato} className="text-[13px]" />
+              ) : (
+                <span className="text-xl">
+                  <Diferencia valor={p.diferencia} motivoSinDato={p.motivoSinDato} />
+                </span>
+              )}
               {p.pie}
             </div>
             {i < pasos.length - 1 ? (
@@ -419,15 +426,16 @@ function EfectivoEnCaja({ serie }: { serie: CashByHourSeriesOut }): React.JSX.El
     })
   }
   if (serie.truncated) {
-    resumen.push({ titulo: "La serie se cortó", detalle: "El turno lleva demasiadas horas abierto para dibujarlo entero.", tono: "muted" })
+    resumen.push({
+      titulo: "La serie se cortó",
+      detalle: serie.truncated_reason ?? "El turno lleva demasiadas horas abierto para dibujarlo entero.",
+      tono: "muted",
+    })
   }
   return (
     <PreguntaFicha titulo="Efectivo en caja">
       {!serie.available ? (
-        <p className="text-sm text-muted-foreground">
-          <span className="sin-dato mr-2 px-2 py-0.5">Sin dato</span>
-          {serie.reason ?? "No se pudo leer el efectivo por hora."}
-        </p>
+        <p className="sin-dato sin-dato--calmo text-sm">{serie.reason ?? "No se pudo leer el efectivo por hora."}</p>
       ) : (
         <BarrasConReferencia
           pregunta="¿Cuándo hubo más efectivo del que debía?"

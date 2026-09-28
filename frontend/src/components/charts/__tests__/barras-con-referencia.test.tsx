@@ -136,13 +136,16 @@ describe("BarrasConReferencia — columnas", () => {
     expect(b.className).toContain("ring-2")
   })
 
-  it("un null es un hueco rayado que se lee «sin dato», nunca una barra de 0", () => {
+  it("un null es un hueco (marca apagada al pie, sin trama) que se lee «sin dato», nunca una barra de 0", () => {
     const { container } = renderRouter(
       <BarrasConReferencia pregunta="Ventas" puntos={DIAS} malo="debajo" leyenda={LEYENDA_VENTAS} formato={formatCOP} />,
     )
     const lunes = container.querySelectorAll('[data-slot="columnas"] > *')[2]!
     expect(lunes.querySelector("[data-hueco]")).not.toBeNull()
     expect(lunes.querySelector("[data-barra]")).toBeNull()
+    // Pulido del panel: el hueco ya no llena la columna con trama.
+    expect(lunes.querySelector("[data-hueco]")!.className).not.toContain("sin-dato")
+    expect(lunes.querySelector("[data-hueco]")!.className).not.toContain("h-full")
     expect(container.querySelector("ul.sr-only")).toHaveTextContent("lun 22: sin dato")
   })
 
@@ -535,5 +538,52 @@ describe("Extensiones para las fichas del panel", () => {
     expect(leyenda).toHaveTextContent("Lo que trabajó")
     expect(leyenda).not.toHaveTextContent("Turno programado")
     expect(leyenda).not.toHaveTextContent("Llegó tarde")
+  })
+})
+
+describe("BarrasConReferencia — datos flojos (pulido del panel)", () => {
+  it("con `vacio` va la pregunta y una línea: ni eje, ni leyenda, ni resumen de cosas que no pasaron", () => {
+    const { container } = renderRouter(
+      <BarrasConReferencia
+        pregunta="¿Vendí más o menos que la semana pasada?"
+        puntos={DIAS.map((d) => ({ ...d, valor: 0 }))}
+        malo="debajo"
+        leyenda={LEYENDA_VENTAS}
+        formato={formatCOP}
+        vacio="Todavía no hay ventas en estos siete días."
+      />,
+    )
+    expect(screen.getByRole("heading", { name: "¿Vendí más o menos que la semana pasada?" })).toBeInTheDocument()
+    expect(screen.getByText("Todavía no hay ventas en estos siete días.")).toBeInTheDocument()
+    expect(container.querySelector('[data-slot="columnas"]')).toBeNull()
+    expect(container.querySelector('[data-slot="leyenda"]')).toBeNull()
+  })
+
+  it("con `cifra: \"\"` (poca base, sin variación) no se escribe ni la flecha sola", () => {
+    const { container } = renderRouter(
+      <BarrasConReferencia
+        pregunta="Ventas"
+        puntos={[{ key: "mie", etiqueta: "mié 23", valor: 0, referencia: 105_555, cifra: "" }]}
+        malo="debajo"
+        flechas
+        leyenda={LEYENDA_VENTAS}
+        formato={formatCOP}
+      />,
+    )
+    const cifra = container.querySelector<HTMLElement>("[data-cifra]")!
+    expect(cifra.textContent).toBe("")
+  })
+
+  it("con pocos puntos la columna no se estira a lo ancho del gráfico", () => {
+    const { container } = renderRouter(
+      <BarrasConReferencia
+        pregunta="Efectivo"
+        puntos={[{ key: "9", etiqueta: "9 a. m.", valor: 200_000 }]}
+        malo="encima"
+        leyenda={LEYENDA_VENTAS}
+        formato={formatCOP}
+      />,
+    )
+    expect(barra(container, 0).className).toContain("max-w-24")
   })
 })

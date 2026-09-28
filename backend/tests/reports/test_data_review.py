@@ -294,6 +294,10 @@ def test_sales_total_carries_the_previous_period_of_the_same_length(
         "avg_ticket_delta_bp": 10_000,
         "partial": True,
         "null_reason": None,
+        # Campo nuevo (pulido del panel): una comanda contra una no es una
+        # tendencia. El «+100 %» sigue siendo el mismo; la pantalla lo
+        # escribe apagado porque el servidor marca la base como chica.
+        "low_base": True,
     }
 
     # Un día sin ventas antes: neto 0 es un hecho, pero no hay divisor.

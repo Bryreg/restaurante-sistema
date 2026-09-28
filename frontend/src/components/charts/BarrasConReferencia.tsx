@@ -32,7 +32,7 @@ export interface PuntoReferencia {
   /** Identidad estable; por defecto, la etiqueta. */
   key?: string
   etiqueta: string
-  /** `null` = sin dato (se dibuja rayado y se lee «sin dato», nunca 0). */
+  /** `null` = sin dato: no se dibuja barra (una marca apagada al pie) y se lee «sin dato», nunca 0. */
   valor: number | null
   referencia?: number | null
   /** Lo que viene (proyección o programado): la barra al 35 %. */
@@ -91,6 +91,13 @@ export interface BarrasConReferenciaProps {
   claseExtra?: string
   /** Controles propios (selector de día…), a la derecha de la pregunta. */
   acciones?: ReactNode
+  /**
+   * **Gráfico vacío**: si viene, en vez del eje se dice esto, en una línea
+   * apagada debajo de la pregunta («Todavía no hay ventas esta semana»). Un
+   * eje sin barras no dice nada y se ve roto. Lo decide quien llama mirando
+   * lo que mandó el servidor (todo `null` o `0`): mirar no es calcular.
+   */
+  vacio?: string | null
   className?: string
 }
 
@@ -145,7 +152,9 @@ function resolver(
     const ref = p.referencia ?? referenciaComun ?? null
     const esFuera = estaFuera(p.valor, ref, malo, p.fuera)
     const base = p.cifra ?? (p.valor === null ? "sin dato" : formato(p.valor))
-    const conFlecha = esFuera || flechas ? flecha(p.valor, ref) : ""
+    // Con `cifra: ""` quien llama pidió no escribir nada arriba (poca base,
+    // sin variación): tampoco va la flecha sola, que se leía como un grito.
+    const conFlecha = p.cifra !== "" && (esFuera || flechas) ? flecha(p.valor, ref) : ""
     const texto = conFlecha ? `${conFlecha} ${base}` : base
     const partes = [
       `${p.etiqueta}: ${p.valor === null ? "sin dato" : formato(p.valor)}`,
@@ -286,7 +295,7 @@ function Columnas({
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       <div
-        className="grid items-end gap-1 border-b border-foreground sm:gap-2"
+        className="box-border grid items-end gap-1 border-b border-foreground pt-5 sm:gap-2"
         style={{ ...plantilla, height: alto }}
         data-slot="columnas"
       >
@@ -308,14 +317,18 @@ function Columnas({
               {p.texto}
             </span>
             {p.valor === null ? (
-              <span data-hueco="" className="sin-dato block h-full w-full rounded-t-[3px]" />
+              // Sin dato no es una barra (ni de 0 ni rayada): una marca
+              // apagada al pie dice «acá no hay», sin llenar la columna.
+              <span data-hueco="" className="block h-[3px] w-2/5 rounded-full bg-muted-foreground/35" />
             ) : (
               <span
                 data-barra=""
                 data-fuera={p.esFuera ? "" : undefined}
                 data-futuro={p.futuro ? "" : undefined}
                 data-ahora={p.ahora ? "" : undefined}
-                className={cn("block w-full rounded-t-[3px]", claseBarra(p, tono), p.futuro && "opacity-35")}
+                // Con pocos puntos (un turno cortado, una semana corta) la
+                // columna no se estira a lo ancho del gráfico: tope de 96 px.
+                className={cn("block w-full max-w-24 rounded-t-[3px]", claseBarra(p, tono), p.futuro && "opacity-35")}
                 style={{ height: `${aPct(p.valor, tope)}%` }}
               />
             )}
@@ -377,7 +390,7 @@ function Filas({
           <span className="truncate">{p.etiqueta}</span>
           <span className="relative h-[22px] rounded-[3px] bg-muted">
             {p.valor === null ? (
-              <span data-hueco="" className="sin-dato absolute inset-0 rounded-[3px]" />
+              <span data-hueco="" className="absolute inset-0 rounded-[3px]" />
             ) : (
               <span
                 data-barra=""
@@ -446,6 +459,7 @@ export function BarrasConReferencia(props: BarrasConReferenciaProps): React.JSX.
     extraVacio,
     claseExtra,
     acciones,
+    vacio,
     className,
   } = props
   const resueltos = resolver(puntos, props)
@@ -464,6 +478,12 @@ export function BarrasConReferencia(props: BarrasConReferenciaProps): React.JSX.
           <h3 className="m-0 text-[15px] leading-snug font-bold">{pregunta}</h3>
           {acciones ? <div className="flex items-center gap-2">{acciones}</div> : null}
         </div>
+        {vacio ? (
+          <p data-slot="vacio" className="m-0 text-sm text-muted-foreground">
+            {vacio}
+          </p>
+        ) : (
+          <>
         <Leyenda leyenda={leyenda} tono={tono} variante={variante} />
         {/* Lo que no enlaza se lee acá; lo que enlaza se lee en su propio enlace. */}
         <ul className="sr-only">
@@ -488,6 +508,8 @@ export function BarrasConReferencia(props: BarrasConReferenciaProps): React.JSX.
             extraVacio={extraVacio}
             claseExtra={claseExtra}
           />
+        )}
+          </>
         )}
       </div>
       {resumen && resumen.length ? <ResumenLateral rotulo={rotuloResumen} renglones={resumen} /> : null}
@@ -557,7 +579,7 @@ export function BulletReferencia({
       style={ancho === "completo" ? undefined : { width: ancho }}
     >
       {valor === null ? (
-        <span data-hueco="" className="sin-dato absolute inset-0 rounded-[2px]" />
+        <span data-hueco="" className="absolute inset-0 rounded-[2px]" />
       ) : (
         <span
           data-barra=""

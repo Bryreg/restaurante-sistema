@@ -407,6 +407,18 @@ html.oficina {
   border-radius: calc(var(--radius) - 2px);
 }
 
+/* «Sin dato» en calma. El rayado es para una celda chica («Sin costo» en
+   una tabla): llenar con él una tarjeta, un bloque o un gráfico entero hacía
+   que un día sin datos se viera roto. `null` sigue sin ser 0 —la clase
+   `.sin-dato` queda como marca—, pero se dice con un «—» apagado o una frase
+   corta en gris, sin trama, sin cursiva y sin caja. */
+.sin-dato.sin-dato--calmo {
+  background-image: none;
+  font-style: normal;
+  padding: 0;
+  border-radius: 0;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
    TINTA DE DATOS (`src/components/charts`). Paleta validada con
    `validate_palette.js` (guía de visualización): categórica clara sobre

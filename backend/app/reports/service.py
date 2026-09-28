@@ -366,6 +366,12 @@ def _signed_bp(numerator: int, denominator: int) -> int:
     return magnitude if numerator >= 0 else -magnitude
 
 
+#: Debajo de estas comandas en alguno de los dos períodos, la variación del
+#: período es de muestra chica (el mismo mínimo que la interfaz usa para
+#: «Muestra chica» en `ChartFrame`).
+PERIOD_LOW_BASE_ORDERS = 20
+
+
 def _delta_bp(current: int | None, previous: int | None) -> int | None:
     """Variación de `current` contra `previous`, en puntos básicos con signo.
     `None` sin valor anterior o con anterior `<= 0`: sin divisor no hay
@@ -722,6 +728,7 @@ def _previous_period(
             null_reason="La sede todavía no operaba en el período anterior: no hay contra qué comparar.",
         )
     _rows, prev = aggregate_sales(db, store_id=store_id, date_from=prev_from, date_to=prev_to, group_by=None)
+    low_base = min(current.orders or 0, prev.orders or 0) < PERIOD_LOW_BASE_ORDERS
     return PreviousPeriodOut(
         date_from=prev_from,
         date_to=prev_to,
@@ -733,6 +740,7 @@ def _previous_period(
         avg_ticket_delta_bp=_delta_bp(current.avg_ticket, prev.avg_ticket),
         partial=first > prev_from,
         null_reason=None,
+        low_base=low_base,
     )
 
 

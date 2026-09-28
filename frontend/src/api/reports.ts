@@ -401,6 +401,8 @@ export interface PreviousPeriodOut {
   avg_ticket_delta_bp: number | null
   partial: boolean
   null_reason: string | null
+  /** Uno de los dos períodos tiene muy pocas comandas: la variación no se grita (servidor). */
+  low_base?: boolean
 }
 
 /**
@@ -703,6 +705,8 @@ export interface SeriesPointOut {
   future: boolean
   /** «Ahora» / «hoy». */
   now: boolean
+  /** La comparación descansa en muy pocos casos: no se escribe como porcentaje (servidor). */
+  low_base?: boolean
 }
 
 export interface SeriesOut {

@@ -205,8 +205,68 @@ def test_daily_sales_compare_against_the_same_weekday_last_week(
     assert point["outside"] is True
     assert point["delta_bp"] is not None and point["delta_bp"] < 0
     assert point["now"] is True
-    assert daily["days_with_reference"] == 1 and daily["days_above"] == 0
+    # Cambio intencional (pulido del panel): una comanda contra una no
+    # sostiene un porcentaje. El punto trae su dato, su raya y su variación
+    # igual, pero sale con `low_base` y no cuenta en «N de M días por
+    # encima» (antes: `days_with_reference == 1`). El caso con base firme
+    # lo cubre `test_daily_sales_with_enough_orders_counts_the_day`.
+    assert point["low_base"] is True
+    assert daily["days_with_reference"] == 0 and daily["days_above"] == 0
+    assert daily["best_key"] is None
     assert small["document"]["id"] != big["document"]["id"]
+
+
+def _sell_many(sell: Any, product: Any, n: int, *, qty: int = 1) -> list[dict[str, Any]]:
+    return [sell(product, qty=qty) for _ in range(n)]
+
+
+def test_daily_sales_with_enough_orders_counts_the_day(
+    admin_client: TestClient,
+    device_client: TestClient,
+    open_shift: Any,
+    sell: Any,
+    main_product: Any,
+    store: Any,
+    db: Session,
+    clock: Any,
+) -> None:
+    """Cinco comandas hoy (de 2) contra cinco la semana pasada (de 1): la
+    base alcanza, el día cuenta y es «el mejor» porque creció."""
+    clock.set(datetime(2026, 9, 19, 18, 0, tzinfo=timezone.utc))
+    open_shift()
+    _sell_many(sell, main_product, 5, qty=2)
+    before = _sell_many(sell, main_product, 5, qty=1)
+    today = tz.today_business_date(store.cutoff_hour)
+    last_week = today - timedelta(days=7)
+    db.execute(
+        update(FiscalDocument)
+        .where(FiscalDocument.id.in_([b["document"]["id"] for b in before]))
+        .values(business_date=last_week)
+    )
+    db.commit()
+
+    daily = _overview(admin_client, store.id, today)["series"]["daily_sales"]
+    [point] = daily["points"]
+    assert point["low_base"] is False
+    assert point["delta_bp"] is not None and point["delta_bp"] > 0
+    assert daily["days_with_reference"] == 1 and daily["days_above"] == 1
+    assert daily["best_key"] == today.isoformat()
+
+
+def test_daily_sales_zero_against_zero_is_not_a_day_above(
+    admin_client: TestClient,
+    open_shift: Any,
+    store: Any,
+    clock: Any,
+) -> None:
+    """Un turno abierto sin ventas: el día vale 0 (es un hecho) y su raya
+    también. «0 ≥ 0» no es «por encima»: no hay contra qué."""
+    clock.set(datetime(2026, 9, 19, 18, 0, tzinfo=timezone.utc))
+    open_shift()
+    today = tz.today_business_date(store.cutoff_hour)
+    daily = _overview(admin_client, store.id, today)["series"]["daily_sales"]
+    assert daily["days_above"] == 0
+    assert daily["best_key"] is None
 
 
 def test_daily_sales_without_last_week_is_null_not_zero(
@@ -544,6 +604,42 @@ def test_cash_by_hour_is_compute_breakdown_read_hour_by_hour_with_pickups_marked
     ]
     assert [p["outside"] for p in cash["points"]] == [False, True, False, False]
     assert cash["hours_over"] == 1
+
+
+def test_cash_by_hour_of_an_abandoned_shift_stops_where_the_cash_stopped_moving(
+    admin_client: TestClient,
+    device_client: TestClient,
+    open_shift: Any,
+    sell: Any,
+    main_product: Any,
+    store: Any,
+    clock: Any,
+    identify: Any,
+    employees: Any,
+) -> None:
+    """Un turno abierto hace tres días dibujaba treinta columnas iguales.
+    La serie se corta en la última hora con movimiento más una, y dice en
+    palabras desde cuándo está abierto y dónde se cortó."""
+    clock.set(datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc))  # 7:00 a. m.
+    shift = open_shift()
+    clock.set(datetime(2026, 9, 19, 13, 10, tzinfo=timezone.utc))  # 8:10
+    identify(device_client, employees["cashier"])
+    sell(main_product, qty=1)
+    clock.set(datetime(2026, 9, 22, 15, 0, tzinfo=timezone.utc))  # tres días después
+
+    cash = admin_client.get(f"{API}/admin/records/shift/{shift['id']}").json()["cash_by_hour"]
+    assert cash["truncated"] is True
+    assert [p["label"] for p in cash["points"]] == ["7 a. m.", "8 a. m.", "9 a. m."]
+    # La última columna es la hora quieta que sigue al último movimiento.
+    assert cash["points"][2]["value"] == cash["points"][1]["value"]
+    reason = cash["truncated_reason"]
+    assert "sáb 19 sep" in reason and "8 a. m." in reason
+    assert "2026-09-19" not in reason
+
+    # El semáforo dice la fecha como la lee el dueño, nunca en ISO.
+    reasons = [r["text"] for r in _panel_store(admin_client, store.id)["reasons"]]
+    stale = [t for t in reasons if t.startswith("Turno abandonado")]
+    assert stale and "sáb 19 sep" in stale[0] and "2026-09-19" not in stale[0]
 
 
 # ---------------------------------------------------------------------------

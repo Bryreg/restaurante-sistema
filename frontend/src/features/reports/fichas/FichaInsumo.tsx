@@ -91,13 +91,12 @@ function CuandoSeAcaba({ serie, unidad }: { serie: StockByDaySeriesOut; unidad: 
       tono: "data",
     })
   }
+  // Mirar si algún día quedó en positivo es comparar, no calcular.
+  const sinStock = serie.points.every((p) => p.qty === null || Number(p.qty) <= 0)
   return (
     <PreguntaFicha titulo="¿Cuándo se me acaba?">
       {!serie.available ? (
-        <p className="text-sm text-muted-foreground">
-          <span className="sin-dato mr-2 px-2 py-0.5">Sin dato</span>
-          {serie.reason ?? "No se pudo leer el stock por día."}
-        </p>
+        <p className="sin-dato sin-dato--calmo text-sm">{serie.reason ?? "No se pudo leer el stock por día."}</p>
       ) : (
         <>
           <BarrasConReferencia
@@ -120,10 +119,19 @@ function CuandoSeAcaba({ serie, unidad }: { serie: StockByDaySeriesOut; unidad: 
             }))}
             rotuloResumen="Lo que conviene"
             resumen={resumen}
+            // El libro en negativo (o en cero) todos los días: no hay barra
+            // que dibujar, y una fila de ▼ sobre un eje vacío no decía nada.
+            vacio={
+              sinStock
+                ? "El libro no tiene stock positivo en ninguno de estos días: no hay barras que dibujar. Un conteo lo corrige."
+                : null
+            }
           />
-          <p className="text-xs text-muted-foreground">
-            Las barras claras son la proyección: lo que viene si se consume igual que los últimos 14 días.
-          </p>
+          {sinStock ? null : (
+            <p className="text-xs text-muted-foreground">
+              Las barras claras son la proyección: lo que viene si se consume igual que los últimos 14 días.
+            </p>
+          )}
         </>
       )}
     </PreguntaFicha>

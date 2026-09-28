@@ -34,7 +34,17 @@ export interface HeadlineFigureProps {
    */
   belowTheLine?: { label: string; value: string }
   /** La comparación contra el mismo día de la semana pasada **a la misma hora**. */
-  comparison?: { label: string; delta: string; detail?: string }
+  comparison?: {
+    label: string
+    delta: string
+    detail?: string
+    /**
+     * `"apagada"`: no hay variación que gritar (sin dato, o una base tan chica
+     * que el porcentaje no significa nada). El texto va en gris y en el
+     * tamaño del detalle, no como cifra.
+     */
+    tono?: "apagada"
+  }
   className?: string
 }
 
@@ -73,7 +83,7 @@ export function HeadlineFigure({
     >
       <div className="min-w-0">
         <p className="text-[0.7rem] tracking-wider text-muted-foreground uppercase">{label}</p>
-        <p className="mt-0.5 text-4xl leading-none font-bold tracking-tight whitespace-nowrap tabular-nums">
+        <p className="mt-0.5 text-4xl leading-none font-extrabold tracking-tight whitespace-nowrap tabular-nums [font-stretch:108%]">
           {value}
         </p>
         {note ? <p className="mt-1.5 text-xs text-muted-foreground">{note}</p> : null}
@@ -110,8 +120,16 @@ export function HeadlineFigure({
       {comparison ? (
         <div className="min-w-0 border-border text-xs text-muted-foreground lg:border-l lg:pl-4">
           <p>{comparison.label}</p>
-          <p className="my-0.5 text-lg font-bold text-foreground tabular-nums">{comparison.delta}</p>
-          {comparison.detail ? <p className="whitespace-nowrap tabular-nums">{comparison.detail}</p> : null}
+          <p
+            data-tono={comparison.tono}
+            className={cn(
+              "my-0.5 tabular-nums",
+              comparison.tono === "apagada" ? "text-sm font-medium text-muted-foreground" : "text-lg font-bold text-foreground",
+            )}
+          >
+            {comparison.delta}
+          </p>
+          {comparison.detail ? <p className="tabular-nums">{comparison.detail}</p> : null}
         </div>
       ) : null}
     </section>

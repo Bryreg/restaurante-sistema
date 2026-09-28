@@ -361,6 +361,8 @@ export interface CashByHourSeriesOut {
   hours_over: number
   /** La serie se cortó (turno abandonado de muchas horas). */
   truncated: boolean
+  /** Hasta dónde se dibuja y por qué, cuando la serie se cortó. */
+  truncated_reason?: string | null
 }
 
 export function getShiftRecord(shiftId: number): Promise<ShiftRecordOut> {
