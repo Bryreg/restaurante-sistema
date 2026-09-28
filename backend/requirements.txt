@@ -15,3 +15,6 @@ cryptography==46.0.7
 bcrypt==5.0.0
 python-multipart==0.0.32
 psycopg[binary]==3.3.5
+# Cliente HTTP en proceso (fastapi.testclient) para la carga única de la demo
+# en el despliegue (app/ops/demo_run.py).
+httpx==0.28.1
