@@ -22,9 +22,32 @@ import { errorMessage } from "@/lib/errors"
  * ahí dejaría que un reintento duplique el ajuste — mismo patrón que
  * `QuickProductionPage.tsx`, territorio de `frontend-recetas`).
  */
-export function AdjustmentDialog({ storeId, ingredients }: { storeId: number; ingredients: IngredientOut[] }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  const [ingredientId, setIngredientId] = useState<number | null>(null)
+export function AdjustmentDialog({
+  storeId,
+  ingredients,
+  open: openProp,
+  onOpenChange,
+  initialIngredientId = null,
+  showTrigger = true,
+}: {
+  storeId: number
+  ingredients: Pick<IngredientOut, "id" | "name">[]
+  /**
+   * Controlado desde afuera: el «⋯» de una fila de Stock («Ajustar con
+   * motivo») lo abre con el insumo ya elegido y sin su botón propio.
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  initialIngredientId?: number | null
+  showTrigger?: boolean
+}): React.JSX.Element {
+  const [openState, setOpenState] = useState(false)
+  const open = openProp ?? openState
+  function setOpen(next: boolean): void {
+    if (openProp === undefined) setOpenState(next)
+    onOpenChange?.(next)
+  }
+  const [ingredientId, setIngredientId] = useState<number | null>(initialIngredientId)
   const [qtyDelta, setQtyDelta] = useState("")
   const [reason, setReason] = useState("")
   const idempotencyKeyRef = useRef(newIdempotencyKey())
@@ -66,7 +89,7 @@ export function AdjustmentDialog({ storeId, ingredients }: { storeId: number; in
         if (!next) mutation.reset()
       }}
     >
-      <DialogTrigger render={<Button variant="outline" />}>Ajuste manual</DialogTrigger>
+      {showTrigger ? <DialogTrigger render={<Button variant="outline" />}>Ajuste manual</DialogTrigger> : null}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Ajuste manual de inventario</DialogTitle>

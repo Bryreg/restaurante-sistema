@@ -1,7 +1,8 @@
 import { screen, waitFor, within } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import userEvent from "@testing-library/user-event"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { renderWithProviders } from "@/test/utils"
+import { buildMe, renderWithProviders } from "@/test/utils"
 
 import { StockTab } from "../StockTab"
 
@@ -100,5 +101,155 @@ describe("StockTab — «negativo» y «bajo mínimo» son alertas distintas (SP
         expect.objectContaining({ storeId: 7, negative: true, belowMin: true, criticalOnly: false }),
       ),
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// La tabla densa del handoff (pantalla 12 · `AdminTabla.dc.html`).
+// ---------------------------------------------------------------------------
+
+const FILAS_HANDOFF = [
+  {
+    ingredient_id: 11,
+    name: "Pechuga de pollo",
+    base_unit: "g",
+    qty_base: "-2400",
+    min_stock: "8000",
+    below_min: true,
+    negative: true,
+    negative_since: "2026-09-26T11:00:00Z",
+    cost: "18.9",
+    cost_source: "official",
+    key_item: true,
+  },
+  {
+    ingredient_id: 12,
+    name: "Hielo",
+    base_unit: "unit",
+    qty_base: "6",
+    min_stock: "4",
+    below_min: false,
+    negative: false,
+    negative_since: null,
+    cost: null,
+    cost_source: "none",
+    key_item: false,
+  },
+  {
+    ingredient_id: 13,
+    name: "Limón tahití",
+    base_unit: "g",
+    qty_base: "6000",
+    min_stock: "5000",
+    below_min: false,
+    negative: false,
+    negative_since: null,
+    cost: "3.8",
+    cost_source: "weighted_average",
+    key_item: false,
+  },
+]
+
+describe("StockTab — la tabla densa del handoff", () => {
+  beforeEach(() => {
+    getInventoryStockMock.mockReset()
+    getInventoryStockMock.mockResolvedValue(FILAS_HANDOFF)
+  })
+
+  it("los filtros son píldoras que se mandan al servidor; «Todos» los apaga", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<StockTab storeId={3} />)
+
+    await screen.findByText("Hielo")
+    expect(screen.getByRole("button", { name: "Todos" })).toHaveAttribute("aria-pressed", "true")
+    await user.click(screen.getByRole("button", { name: "Negativos" }))
+    expect(screen.getByRole("button", { name: "Negativos" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "Todos" })).toHaveAttribute("aria-pressed", "false")
+    await waitFor(() =>
+      expect(getInventoryStockMock).toHaveBeenCalledWith(expect.objectContaining({ storeId: 3, negative: true })),
+    )
+    await user.click(screen.getByRole("button", { name: "Todos" }))
+    expect(screen.getByRole("button", { name: "Negativos" })).toHaveAttribute("aria-pressed", "false")
+  })
+
+  it("buscar por nombre encuentra sin tildes, y el recuento dice cuántas quedaron afuera", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<StockTab storeId={3} />)
+
+    await screen.findByText("Hielo")
+    await user.type(screen.getByRole("searchbox", { name: "Buscar insumo" }), "limon")
+    expect(screen.getByText("Limón tahití")).toBeInTheDocument()
+    expect(screen.queryByText("Hielo")).toBeNull()
+    const recuento = screen.getByText(/de/, { selector: "p" })
+    expect(recuento.textContent).toContain("1 de 3 insumos")
+    expect(recuento.textContent).toContain("2 no coinciden con «limon»")
+    // La búsqueda es local: al servidor nunca le llega un nombre.
+    for (const [args] of getInventoryStockMock.mock.calls) expect(args).not.toHaveProperty("name")
+  })
+
+  it("«Sin costo» va rayado (`.sin-dato`), no en $ 0; el costo que existe dice su origen", async () => {
+    renderWithProviders(<StockTab storeId={3} />)
+
+    const hielo = within((await screen.findByText("Hielo")).closest("tr") as HTMLElement)
+    expect(hielo.getByText("Sin costo").className).toContain("sin-dato")
+    const limon = within(screen.getByText("Limón tahití").closest("tr") as HTMLElement)
+    expect(limon.getByText("promedio ponderado")).toBeInTheDocument()
+  })
+
+  it("el estado lleva forma y palabra, y la franja de la fila dice la gravedad", async () => {
+    renderWithProviders(<StockTab storeId={3} />)
+
+    const pollo = (await screen.findByText("Pechuga de pollo")).closest("tr") as HTMLElement
+    expect(pollo).toHaveAttribute("data-status", "critical")
+    expect(within(pollo).getByText("Negativo").querySelector(".semaforo-red")).not.toBeNull()
+    expect(within(screen.getByText("Hielo").closest("tr") as HTMLElement).getByText("Al día")).toBeInTheDocument()
+  })
+
+  it("el «⋯» trae ficha, ajuste, libro y —con conteo por área— recuento, con la nota «Nada se borra»", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<StockTab storeId={3} />, { me: buildMe({ features: { "inventory.shift_counts": true } }) })
+
+    await user.click(await screen.findByRole("button", { name: "Acciones de Hielo" }))
+    const menu = await screen.findByRole("menu")
+    for (const accion of ["Ver ficha del insumo", "Ajustar con motivo", "Pedir recuento", "Ver libro de movimientos"]) {
+      expect(within(menu).getByRole("menuitem", { name: accion })).toBeInTheDocument()
+    }
+    expect(within(menu).getByText("Nada se borra: los ajustes quedan en el libro con motivo.")).toBeInTheDocument()
+
+    // «Ajustar con motivo» abre el ajuste de siempre (PIN y motivo), con el insumo ya elegido.
+    await user.click(within(menu).getByRole("menuitem", { name: "Ajustar con motivo" }))
+    const dialogo = await screen.findByRole("dialog")
+    expect(within(dialogo).getByText("Ajuste manual de inventario")).toBeInTheDocument()
+    expect(within(dialogo).getByText("Hielo")).toBeInTheDocument()
+  })
+
+  it("sin conteo por área no se ofrece «Pedir recuento»; sin compras no hay «Registrar compra»", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<StockTab storeId={3} />, {
+      me: buildMe({ features: { "inventory.shift_counts": false, purchases: false } }),
+    })
+
+    await user.click(await screen.findByRole("button", { name: "Acciones de Hielo" }))
+    const menu = await screen.findByRole("menu")
+    expect(within(menu).queryByRole("menuitem", { name: "Pedir recuento" })).toBeNull()
+    expect(screen.queryByRole("link", { name: "Registrar compra" })).toBeNull()
+  })
+
+  it("con compras, la acción primaria baja a la barra de la tabla", async () => {
+    renderWithProviders(<StockTab storeId={3} />, { me: buildMe({ features: { purchases: true } }) })
+
+    expect(await screen.findByRole("link", { name: "Registrar compra" })).toHaveAttribute(
+      "href",
+      "/admin/compras?tab=recepciones",
+    )
+  })
+
+  it("Stock tiene su «?», y la ranura del mini gráfico queda para `components/charts`", async () => {
+    renderWithProviders(<StockTab storeId={3} />)
+
+    await screen.findByText("Hielo")
+    expect(screen.getByRole("button", { name: "¿Qué es Stock?" })).toBeInTheDocument()
+    // Todavía sin bullet: lo enchufa el trabajo de gráficos por `DenseColumn.bullet`.
+    expect(document.querySelector('[data-slot="bullet"]')).toBeNull()
   })
 })

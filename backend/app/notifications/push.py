@@ -48,7 +48,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import jwt
 from cryptography.hazmat.primitives import hashes, serialization
@@ -76,7 +76,8 @@ PUSH_DEDUPE_MINUTES = 30
 PUSH_TIMEOUT_SECONDS = 10
 #: Cuánto guarda el servicio de push un aviso para un celular apagado.
 PUSH_TTL_SECONDS = 12 * 3600
-#: A dónde lleva tocar el aviso si el llamador no dice otra cosa.
+#: A dónde lleva tocar el aviso de prueba (no tiene vista propia: no es un
+#: aviso guardado). Los avisos reales llevan a su vista, `admin_notice_url`.
 DEFAULT_URL = "/admin/hoy"
 #: El contenido cifrado entra en un solo registro de 4096 bytes.
 _RECORD_SIZE = 4096
@@ -370,6 +371,20 @@ def _payload(*, title: str, body: str, url: str, tag: str, notification_id: int 
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
 
 
+def admin_notice_url(notification_id: int, resolve_url: str | None) -> str:
+    """A dónde lleva al administrador tocar el aviso en el celular: **la vista
+    del aviso** (`/admin/avisos/{id}`, el diseño «Aviso desde la
+    notificación»), con la marca de que se abrió desde una notificación y,
+    si el llamador de `notify` dijo qué pantalla lo resuelve (`push_url`),
+    esa pantalla como `destino`. La vista la ofrece como su acción primaria;
+    antes el aviso llevaba directo a esa pantalla y el dueño aterrizaba en
+    Dinero sin saber qué aviso lo había traído."""
+    query = "desde=notificacion"
+    if resolve_url:
+        query += "&destino=" + quote(resolve_url, safe="")
+    return f"/admin/avisos/{notification_id}?{query}"
+
+
 def _recently_pushed(db: Session, row: Notification, since: datetime) -> bool:
     stmt = select(Notification.id).where(
         Notification.organization_id == row.organization_id,
@@ -478,8 +493,7 @@ def _enqueue(db: Session, row: Notification, *, supervisor_body: str | None, url
         return 0
     subject = _subject(db, row.organization_id)
     tag = f"{row.type}:{row.dedupe_key or row.id}"
-    target = url or DEFAULT_URL
-    for_admin = _payload(title=row.title, body=row.body, url=target, tag=tag, notification_id=row.id)
+    for_admin = _payload(title=row.title, body=row.body, url=admin_notice_url(row.id, url), tag=tag, notification_id=row.id)
     for_supervisor = (
         _payload(title=row.title, body=supervisor_body, url="/pos", tag=tag, notification_id=None)
         if supervisor_body is not None

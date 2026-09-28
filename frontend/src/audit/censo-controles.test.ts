@@ -135,6 +135,15 @@
  *   rotulado «Base de respaldo». «Base fija de apertura» **no** se dio de
  *   baja: sigue en el archivo y se muestra en las sedes que abren con la
  *   base fija.
+ *
+ * **Bajas declaradas · el armazón y la tabla densa del handoff.** Un rótulo
+ * de `features/inventory/InventoryAdminPage.tsx` sale de la base, a mano.
+ * **No era un control**: era el rótulo de un dato de la franja de contexto
+ * de la cabecera, que el censo levantaba porque viajaba en un `label:`.
+ *
+ * - «Insumos activos» — la franja ahora dice «47 insumos activos», con la
+ *   cifra adelante y en negrita, como la dibuja el handoff (pantalla 12). El
+ *   dato sigue a la vista; cambió el orden de la frase.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

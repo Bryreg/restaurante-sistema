@@ -464,6 +464,18 @@ describe("AdminLayout: la barra superior de a2", () => {
     expect(within(lateral).queryByRole("combobox", { name: "Sede activa" })).toBeNull();
   });
 
+  it("las pestañas de la sección van pegadas a la barra, fuera del contenido (handoff, `AdminTop`)", async () => {
+    renderAdmin(buildMe({ features: { "inventory.perpetual": true, purchases: true } }), undefined, "/admin/compras");
+
+    const tabs = await screen.findByRole("navigation", { name: "Pantallas de Inventario" });
+    // Antes vivían adentro de `main`, con margen negativo; ahora son una
+    // franja a todo el ancho entre la barra y el contenido.
+    expect(screen.getByRole("main").contains(tabs)).toBe(false);
+    const barra = document.querySelector("header") as HTMLElement;
+    expect(barra.compareDocumentPosition(tabs)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(tabs.compareDocumentPosition(screen.getByRole("main"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
   it("con una sola sede la barra igual dice de dónde es lo que se mira", async () => {
     listStores.mockResolvedValue([{ id: 7, name: "Chapinero" }]);
     renderAdmin(buildMe());

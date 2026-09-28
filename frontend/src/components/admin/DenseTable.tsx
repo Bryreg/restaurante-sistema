@@ -1,7 +1,9 @@
-import { useState } from "react"
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
+import { useId, useState } from "react"
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, CircleHelp, Search } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+
+import { MenuDeFila } from "./MenuDeFila"
 
 /**
  * **34 px medidos.** No es una clase de Tailwind ni una variable de densidad:
@@ -76,7 +78,27 @@ export interface DenseColumn<R> {
    * cambia es que la primera lectura de la tabla son las cinco que deciden.
    */
   secondary?: boolean
+  /**
+   * **La ayuda del encabezado** (handoff, pantalla 12): un «?» de 18 px al
+   * lado del rótulo que abre, debajo del encabezado, una fila `accent` con la
+   * explicación —«Estado: Negativo es…»—. Sólo en las columnas que la
+   * necesitan; una a la vez. Es la regla 2 («la explicación va plegada»)
+   * llevada a la columna: la definición está a un toque y no en cada fila.
+   */
+  help?: React.ReactNode
+  /**
+   * **La ranura del mini gráfico** («bullet» de 90 × 10 px del lenguaje
+   * barra + raya). La tabla no dibuja el gráfico: reserva su lugar a la
+   * derecha de la cifra, con ancho fijo para que la columna no baile, y
+   * pinta lo que devuelva esta función. Lo enchufa `components/charts`
+   * (p. ej. la columna Stock de Inventario: barra = stock, raya = mínimo).
+   * Si devuelve `null` para una fila, la ranura queda vacía pero reservada.
+   */
+  bullet?: (row: R) => React.ReactNode
 }
+
+/** Ancho y alto de la ranura del mini gráfico, medidos en el handoff. */
+export const DENSE_BULLET_SIZE = { width: 90, height: 10 } as const
 
 /** La franja de estado de la primera celda: la forma del problema, sin leer. */
 export type RowStatus = "none" | "ok" | "warning" | "critical"
@@ -130,8 +152,22 @@ export interface DenseTableProps<R> {
    * verdad: mejor eso que una clase `sticky` que no pega nada.
    */
   maxBodyHeightPx?: number
+  /**
+   * **Las acciones de la fila, en «⋯»** (regla 3). Devuelve los
+   * `<DropdownMenuItem>` —con el rótulo literal adentro, para que el censo
+   * de controles los vea—. La tabla agrega la columna de ancho fijo, el
+   * botón con el nombre de la fila y la nota al pie del menú.
+   */
+  rowMenu?: (row: R) => React.ReactNode
+  /** De qué fila son las acciones: «Acciones de Aceite», no nueve veces «Acciones». */
+  rowLabel?: (row: R) => string
+  /** La nota al pie del menú. Por defecto dice que nada se borra. */
+  rowMenuNote?: React.ReactNode
   className?: string
 }
+
+/** Lo que dice el pie del menú «⋯» si el sitio de llamada no dice otra cosa. */
+export const NADA_SE_BORRA = "Nada se borra: lo que se corrige queda en el libro, con su motivo."
 
 function SortIcon({ direction }: { direction?: "asc" | "desc" | null }): React.JSX.Element {
   if (direction === "asc") return <ArrowUp className="size-3 text-primary" aria-hidden="true" />
@@ -166,12 +202,21 @@ export function DenseTable<R>({
   note,
   empty,
   maxBodyHeightPx,
+  rowMenu,
+  rowLabel,
+  rowMenuNote = NADA_SE_BORRA,
   className,
 }: DenseTableProps<R>): React.JSX.Element {
   const [todas, setTodas] = useState(false)
+  const [ayuda, setAyuda] = useState<string | null>(null)
+  const idAyuda = useId()
   const ocultas = columns.filter((column) => column.secondary).length
   const visibles = todas ? columns : columns.filter((column) => !column.secondary)
   const hayLeyenda = (legend && legend.length > 0) || Boolean(note)
+  // La ayuda abierta sólo se dibuja si su columna está a la vista: plegar
+  // «Más columnas» con la ayuda de una secundaria abierta la cierra sola.
+  const ayudaAbierta = visibles.find((column) => column.key === ayuda && column.help !== undefined)
+  const totalColumnas = visibles.length + (rowMenu ? 1 : 0)
   return (
     <section className={cn("overflow-hidden rounded-lg border bg-card", className)}>
       {bar}
@@ -203,24 +248,65 @@ export function DenseTable<R>({
                         ...KIND_STYLE[kind],
                         ...(column.widthPx === undefined ? {} : { width: `${column.widthPx}px` }),
                       }}
-                      className="sticky top-0 z-[1] border-b-2 bg-muted px-2 text-[0.65rem] tracking-wide text-muted-foreground uppercase"
+                      className="sticky top-0 z-[1] border-b-2 bg-muted px-2 text-[0.65rem] font-semibold tracking-[0.06em] text-muted-foreground uppercase"
                     >
-                      {column.sort ? (
-                        <button
-                          type="button"
-                          onClick={column.sort.onSort}
-                          className="inline-flex items-center gap-1 font-[inherit] tracking-[inherit] uppercase hover:text-primary"
-                        >
-                          {column.header}
-                          <SortIcon direction={column.sort.direction} />
-                        </button>
-                      ) : (
-                        column.header
-                      )}
+                      <span className="inline-flex items-center gap-1">
+                        {column.sort ? (
+                          <button
+                            type="button"
+                            onClick={column.sort.onSort}
+                            className="inline-flex items-center gap-1 font-[inherit] tracking-[inherit] uppercase hover:text-primary"
+                          >
+                            {column.header}
+                            <SortIcon direction={column.sort.direction} />
+                          </button>
+                        ) : (
+                          column.header
+                        )}
+                        {column.help !== undefined ? (
+                          <button
+                            type="button"
+                            aria-label={`¿Qué es ${column.header}?`}
+                            aria-expanded={ayudaAbierta?.key === column.key}
+                            aria-controls={idAyuda}
+                            onClick={() => setAyuda((actual) => (actual === column.key ? null : column.key))}
+                            className={cn(
+                              "grid size-[18px] shrink-0 place-items-center rounded-full normal-case transition-colors",
+                              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                              ayudaAbierta?.key === column.key
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                            )}
+                          >
+                            <CircleHelp className="size-[13px]" aria-hidden="true" />
+                          </button>
+                        ) : null}
+                      </span>
                     </th>
                   )
                 })}
+                {rowMenu ? (
+                  <th
+                    scope="col"
+                    style={{ height: "30px", width: "1%" }}
+                    className="sticky top-0 z-[1] border-b-2 bg-muted px-1.5"
+                  >
+                    <span className="sr-only">Acciones</span>
+                  </th>
+                ) : null}
               </tr>
+              {/* La explicación del encabezado: una fila `accent` a todo el
+                  ancho, debajo de los rótulos y encima de los datos. */}
+              {ayudaAbierta ? (
+                <tr id={idAyuda}>
+                  <td
+                    colSpan={totalColumnas}
+                    className="border-b bg-accent px-3 py-2.5 text-[0.8125rem] whitespace-normal text-accent-foreground"
+                  >
+                    <b className="font-bold">{ayudaAbierta.header}:</b> {ayudaAbierta.help}
+                  </td>
+                </tr>
+              ) : null}
             </thead>
             <tbody>
               {rows.map((row) => {
@@ -251,10 +337,33 @@ export function DenseTable<R>({
                             i === 0 && cn("border-l-[3px]", STATUS_STRIPE[status]),
                           )}
                         >
-                          {column.cell(row)}
+                          {column.bullet ? (
+                            <span className="flex w-full items-center justify-end gap-2.5">
+                              <span>{column.cell(row)}</span>
+                              <span
+                                data-slot="bullet"
+                                className="relative shrink-0"
+                                style={{
+                                  width: `${DENSE_BULLET_SIZE.width}px`,
+                                  height: `${DENSE_BULLET_SIZE.height}px`,
+                                }}
+                              >
+                                {column.bullet(row)}
+                              </span>
+                            </span>
+                          ) : (
+                            column.cell(row)
+                          )}
                         </td>
                       )
                     })}
+                    {rowMenu ? (
+                      <td style={{ ...DATA_CELL_STYLE, width: "1%" }} className="px-1.5 text-right align-middle">
+                        <MenuDeFila nombre={rowLabel?.(row) ?? rowKey(row)} nota={rowMenuNote}>
+                          {rowMenu(row)}
+                        </MenuDeFila>
+                      </td>
+                    ) : null}
                   </tr>
                 )
               })}
@@ -278,7 +387,7 @@ export function DenseTable<R>({
               type="button"
               aria-pressed={todas}
               onClick={() => setTodas((v) => !v)}
-              className="rounded-md px-1.5 py-1 font-medium text-primary hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="rounded-md px-1.5 py-1 font-semibold text-primary hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               {todas ? "Menos columnas" : `Más columnas (${ocultas})`}
             </button>
@@ -287,12 +396,16 @@ export function DenseTable<R>({
               distinciones que importan —negativo ≠ bajo mínimo, sin costo ≠
               $ 0— pero se lee una vez, no cada vez que se abre la tabla. */}
           {hayLeyenda ? (
-            <details className="min-w-0 flex-1 basis-full sm:basis-auto">
-              <summary className="cursor-pointer rounded-md px-1.5 py-1 font-medium select-none hover:text-foreground">
+            <details className="group min-w-0 flex-1 basis-full sm:basis-auto">
+              <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md px-1.5 py-1 font-semibold select-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [&::-webkit-details-marker]:hidden">
+                <ChevronRight
+                  className="size-[13px] shrink-0 transition-transform group-open:rotate-90"
+                  aria-hidden="true"
+                />
                 Cómo leer esta tabla
               </summary>
               {legend && legend.length > 0 ? (
-                <dl className="grid gap-x-5 gap-y-1 px-1.5 pt-1 pb-1.5 sm:grid-cols-2 xl:grid-cols-3">
+                <dl className="grid gap-x-5 gap-y-1.5 px-1.5 pt-1 pb-2 sm:grid-cols-2 xl:grid-cols-3">
                   {legend.map((entry) => (
                     <div key={entry.term} className="min-w-0">
                       <dt className="inline font-bold text-foreground">{entry.term}</dt>{" "}
@@ -355,6 +468,91 @@ export function DenseTableBar({
       </p>
       {children ? <div className="ml-auto flex flex-wrap items-center gap-2">{children}</div> : null}
     </div>
+  )
+}
+
+/**
+ * **(b') La palabra del estado, con su forma.** La franja de 3 px de la
+ * primera celda dice «hay algo» sin leer; esto dice qué, con el semáforo por
+ * forma (■ crítico, ▲ atención, ● al día) y el texto. Nunca sólo color.
+ */
+export function RowStatusLabel({
+  status,
+  children,
+}: {
+  status: Exclude<RowStatus, "none">
+  children: React.ReactNode
+}): React.JSX.Element {
+  const [forma, tinta] =
+    status === "critical"
+      ? (["semaforo-red", "text-destructive"] as const)
+      : status === "warning"
+        ? (["semaforo-amber", "text-warning"] as const)
+        : (["semaforo-green", "text-success"] as const)
+  return (
+    <span data-status={status} className={cn("inline-flex items-center gap-1.5 text-xs font-bold", tinta)}>
+      <span className={cn("semaforo", forma)} aria-hidden="true" />
+      {children}
+    </span>
+  )
+}
+
+/**
+ * **Un filtro de la barra, en píldora** (handoff, pantalla 12). Un botón que
+ * se prende y se apaga (`aria-pressed`): la píldora llena en tinta es la que
+ * está puesta. Vive en la barra de su tabla y no en la cabecera de pantalla:
+ * lo que filtra una tabla se lee donde está la tabla (patrón 1).
+ */
+export function FilterPill({
+  pressed,
+  onClick,
+  children,
+}: {
+  pressed: boolean
+  onClick: () => void
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={cn(
+        "h-[30px] shrink-0 rounded-full border px-2.5 text-xs font-semibold transition-colors",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:outline-none",
+        pressed
+          ? "border-foreground bg-foreground text-background"
+          : "border-border bg-card text-foreground hover:bg-accent hover:text-accent-foreground",
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+/** El buscador de la barra: 30 px de alto, 200 de ancho, lupa adentro. */
+export function DenseTableSearch({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string
+  onChange: (value: string) => void
+  /** «Buscar insumo». Es también su nombre accesible. */
+  placeholder: string
+}): React.JSX.Element {
+  return (
+    <span className="relative inline-flex h-[30px] w-full items-center sm:w-[200px]">
+      <Search className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground" aria-hidden="true" />
+      <input
+        type="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="h-full w-full rounded-md border border-input bg-card pr-2 pl-7 text-[0.8125rem] placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      />
+    </span>
   )
 }
 

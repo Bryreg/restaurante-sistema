@@ -1,13 +1,18 @@
 import { useQuery } from "@tanstack/react-query"
+import { FileText, History, RotateCcw, SlidersHorizontal } from "lucide-react"
 import { useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 
+import { useSession } from "@/app/session"
 import { getInventoryStock, inventoryStockCsvUrl, type StockRowOut } from "@/api/inventory"
 import {
   DenseTable,
   DenseTableBar,
+  DenseTableSearch,
   FilterEmptyState,
+  FilterPill,
   OriginBar,
+  RowStatusLabel,
   TimeAgo,
   type DenseColumn,
   type LegendEntry,
@@ -16,12 +21,15 @@ import {
 import { CostValue } from "@/components/CostValue"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { EmptyState } from "@/components/EmptyState"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
+import { buttonVariants } from "@/components/ui/button"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { errorMessage } from "@/lib/errors"
 import { formatCantidad } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { fichaInsumoHref } from "@/features/reports/fichas/rutas"
+
+import { AdjustmentDialog } from "./AdjustmentDialog"
+import { RecountDialog } from "./RecountDialog"
 
 const UNIT_LABEL: Record<string, string> = { g: "g", ml: "ml", unit: "unidad" }
 
@@ -44,7 +52,8 @@ function unit(row: StockRowOut): string {
  *   del plato. Falta registrar.
  *
  * El color va por el token de estado (`warning` / `destructive`), nunca por
- * un color crudo, y **nunca es la única señal**: la palabra la dice también.
+ * un color crudo, y **nunca es la única señal**: la forma (■ ▲ ●) y la
+ * palabra lo dicen también.
  */
 function statusOf(row: StockRowOut): RowStatus {
   if (row.negative) return "critical"
@@ -59,17 +68,9 @@ function StatusCell({ row }: { row: StockRowOut }): React.JSX.Element {
   // `negative` implica `below_min` (el mínimo siempre es > 0), así que se
   // dice UNA sola cosa por fila: el estado más grave. Decir las dos sería
   // ruido, no una alerta nueva.
-  const [label, dot] = row.negative
-    ? (["Negativo", "bg-destructive"] as const)
-    : row.below_min
-      ? (["Bajo mínimo", "bg-warning"] as const)
-      : (["Al día", "bg-success"] as const)
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className={cn("size-1.5 shrink-0 rounded-full", dot)} aria-hidden="true" />
-      {label}
-    </span>
-  )
+  if (row.negative) return <RowStatusLabel status="critical">Negativo</RowStatusLabel>
+  if (row.below_min) return <RowStatusLabel status="warning">Bajo mínimo</RowStatusLabel>
+  return <RowStatusLabel status="ok">Al día</RowStatusLabel>
 }
 
 /**
@@ -117,12 +118,31 @@ const FILTER_WORD = {
   negative: "negativos",
 } as const
 
+/** La búsqueda por nombre: sin tildes ni mayúsculas, «limon» encuentra «Limón». */
+function normalizar(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim()
+}
+
 /**
- * Admin → Inventario → Stock (SPEC-NEGOCIO §5.2 / §9.3): saldo teórico por
- * insumo, filtros por críticos/bajo mínimo/negativos — la MISMA combinación
- * AND que aplica el servidor (`backend/app/inventory/service.py
- * stock_rows`), nunca una intersección calculada acá. El costo siempre con
- * su origen; ningún saldo se deriva en el cliente.
+ * Admin → Inventario → Stock (SPEC-NEGOCIO §5.2 / §9.3), con la tabla densa
+ * del handoff (pantalla 12): barra con recuento, filtros en píldora y la
+ * acción primaria; cinco columnas y «Más columnas»; «?» por encabezado;
+ * franja de estado con forma y palabra; «Sin costo» rayado; «⋯» por fila.
+ *
+ * Los filtros son la MISMA combinación AND que aplica el servidor
+ * (`backend/app/inventory/service.py stock_rows`), nunca una intersección
+ * calculada acá. La búsqueda por nombre sí es local: no filtra datos del
+ * negocio, sólo encuentra una fila entre las que ya llegaron. El costo
+ * siempre con su origen; ningún saldo se deriva en el cliente.
+ *
+ * **La columna Stock deja lista la ranura del mini gráfico** (barra = stock,
+ * raya = mínimo) pero no lo dibuja: lo enchufa `components/charts` por
+ * `DenseColumn.bullet` cuando exista (y cuando el servidor mande el tope, que
+ * el cliente no calcula).
  */
 export function StockTab({
   storeId,
@@ -138,15 +158,20 @@ export function StockTab({
   /** Limpia también la query de la URL cuando se toma la salida (patrón 6). */
   onDropArrival?: () => void
 }): React.JSX.Element {
+  const { hasFeature } = useSession()
+  const navigate = useNavigate()
   const [criticalOnly, setCriticalOnly] = useState(initialCriticalOnly)
   const [belowMin, setBelowMin] = useState(initialBelowMin)
   const [negative, setNegative] = useState(initialNegative)
+  const [busqueda, setBusqueda] = useState("")
+  const [ajustar, setAjustar] = useState<StockRowOut | null>(null)
+  const [recontar, setRecontar] = useState<StockRowOut | null>(null)
 
   /**
    * Se llegó acá **desde un enlace con filtro** —una tarjeta o un aviso de
    * Hoy—, no tocando la pestaña. Se congela en el primer render a propósito:
    * la barra de procedencia cuenta de dónde venís, y eso no deja de ser
-   * cierto porque después toques una casilla.
+   * cierto porque después toques un filtro.
    */
   const [arrivedFiltered] = useState(initialCriticalOnly || initialBelowMin || initialNegative)
   const [arrivalDropped, setArrivalDropped] = useState(false)
@@ -170,8 +195,13 @@ export function StockTab({
       }),
   })
 
-  const rows = query.data ?? []
+  const filtradas = query.data ?? []
+  const buscado = normalizar(busqueda)
+  const rows = buscado === "" ? filtradas : filtradas.filter((row) => normalizar(row.name).includes(buscado))
   const total = totalQuery.data?.length
+  // Cuántas están en alerta: un recuento de filas que el servidor ya marcó
+  // (`below_min`), no una cifra derivada.
+  const enAlerta = totalQuery.data?.filter((row) => row.below_min).length
 
   const applied: string[] = [
     ...(criticalOnly ? [FILTER_WORD.criticalOnly] : []),
@@ -191,6 +221,12 @@ export function StockTab({
     setNegative(false)
     setArrivalDropped(true)
     onDropArrival?.()
+  }
+
+  function verTodos(): void {
+    setCriticalOnly(false)
+    setBelowMin(false)
+    setNegative(false)
   }
 
   const columns: readonly DenseColumn<StockRowOut>[] = [
@@ -214,12 +250,13 @@ export function StockTab({
     },
     {
       key: "qty",
-      header: "Stock teórico",
+      header: "Stock",
       kind: "number",
-      // El saldo negativo es lo único que se tiñe en la columna de cantidad:
-      // es el dato que la fila vino a denunciar.
+      help: "Lo que dice el sistema ahora: último conteo más entradas menos salidas. Es teórico: sale de restarle a las compras lo que las recetas dicen que se gastó.",
+      // El saldo que no llega es lo único que se remarca en la columna de
+      // cantidad: rojo si es negativo, negrita si está bajo mínimo.
       cell: (row) => (
-        <span className={cn(row.negative && "font-bold text-destructive")}>
+        <span className={cn(row.negative && "font-bold text-destructive", !row.negative && row.below_min && "font-bold")}>
           {formatCantidad(row.qty_base, unit(row))}
         </span>
       ),
@@ -228,16 +265,27 @@ export function StockTab({
       key: "min",
       header: "Mínimo",
       kind: "number",
+      help: "Debajo de esto el insumo queda «bajo mínimo» y Reposición lo sugiere en la próxima compra. Se cambia en la ficha del insumo.",
       cell: (row) => formatCantidad(row.min_stock, unit(row)),
     },
     {
       key: "status",
       header: "Estado",
+      help: "Negativo: el sistema descontó más de lo que había (falta registrar una compra o una receta está mal). Bajo mínimo es otra cosa: hay, pero poco.",
       cell: (row) => <StatusCell row={row} />,
     },
     {
+      key: "cost",
+      header: "Costo por unidad",
+      kind: "number",
+      help: "Costo por unidad de uso, con su origen (oficial, promedio ponderado, estimado…). «Sin costo» no es $ 0: falta la factura.",
+      // `CostValue` dice «Sin costo» rayado y nunca «$ 0»: la distinción vive
+      // en el componente compartido, y la leyenda del pie la explica.
+      cell: (row) => <CostValue cost={row.cost} costSource={row.cost_source} variant="celda" />,
+    },
+    {
       key: "since",
-      header: "Desde",
+      header: "Negativo desde",
       kind: "secondary",
       // Detrás de «Más columnas» (regla 3): el estado ya dice si es
       // negativo; desde cuándo es el segundo vistazo.
@@ -247,14 +295,6 @@ export function StockTab({
       // minuto que a nadie le importa (`docs/PATRONES-ADMIN.md`, el defecto
       // medido de a1).
       cell: (row) => <TimeAgo iso={row.negative_since} />,
-    },
-    {
-      key: "cost",
-      header: "Costo por unidad",
-      kind: "number",
-      // `CostValue` ya dice «Sin costo» y nunca «$ 0»: la distinción vive en
-      // el componente compartido, y la leyenda del pie la explica.
-      cell: (row) => <CostValue cost={row.cost} costSource={row.cost_source} />,
     },
   ]
 
@@ -269,34 +309,19 @@ export function StockTab({
     )
   }
 
-  const filters = (
-    <>
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="stock-critical"
-          checked={criticalOnly}
-          onCheckedChange={(v) => setCriticalOnly(v === true)}
-        />
-        <Label htmlFor="stock-critical">Sólo críticos</Label>
-      </div>
-      <div className="flex items-center gap-2">
-        <Checkbox id="stock-below-min" checked={belowMin} onCheckedChange={(v) => setBelowMin(v === true)} />
-        <Label htmlFor="stock-below-min">Bajo mínimo</Label>
-      </div>
-      <div className="flex items-center gap-2">
-        <Checkbox id="stock-negative" checked={negative} onCheckedChange={(v) => setNegative(v === true)} />
-        <Label htmlFor="stock-negative">Negativos</Label>
-      </div>
-      <CsvExportButton
-        href={inventoryStockCsvUrl({
-          storeId,
-          criticalOnly,
-          belowMin,
-          negative,
-        })}
-      />
-    </>
-  )
+  const hidden = query.isLoading
+    ? "contando…"
+    : [
+        ...(total !== undefined && total > filtradas.length
+          ? [
+              `${total - filtradas.length} ocultos por ${applied.length === 1 ? `el filtro «${applied[0]}»` : "los filtros"}`,
+            ]
+          : []),
+        ...(filtradas.length > rows.length ? [`${filtradas.length - rows.length} no coinciden con «${busqueda.trim()}»`] : []),
+        ...(applied.length === 0 && buscado === "" && enAlerta !== undefined && enAlerta > 0
+          ? [`${enAlerta} en alerta`]
+          : []),
+      ].join(" · ") || undefined
 
   return (
     <div className="space-y-3">
@@ -317,30 +342,77 @@ export function StockTab({
         columns={columns}
         rows={rows}
         rowKey={(row) => String(row.ingredient_id)}
+        rowLabel={(row) => row.name}
         rowStatus={statusOf}
         legend={LEGEND}
+        rowMenuNote="Nada se borra: los ajustes quedan en el libro con motivo."
+        rowMenu={(row) => (
+          <>
+            <DropdownMenuItem onClick={() => void navigate(fichaInsumoHref(row.ingredient_id))}>
+              <FileText className="text-muted-foreground" aria-hidden="true" />
+              Ver ficha del insumo
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setAjustar(row)}>
+              <SlidersHorizontal className="text-muted-foreground" aria-hidden="true" />
+              Ajustar con motivo
+            </DropdownMenuItem>
+            {hasFeature("inventory.shift_counts") ? (
+              <DropdownMenuItem onClick={() => setRecontar(row)}>
+                <RotateCcw className="text-muted-foreground" aria-hidden="true" />
+                Pedir recuento
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuItem
+              onClick={() => void navigate(`/admin/inventario?tab=movimientos&insumo=${row.ingredient_id}`)}
+            >
+              <History className="text-muted-foreground" aria-hidden="true" />
+              Ver libro de movimientos
+            </DropdownMenuItem>
+          </>
+        )}
         bar={
-          <DenseTableBar
-            shown={rows.length}
-            total={total ?? rows.length}
-            noun="insumos activos"
-            hidden={
-              query.isLoading
-                ? "contando…"
-                : total !== undefined && total > rows.length
-                  ? `${total - rows.length} ocultos por ${applied.length === 1 ? `el filtro «${applied[0]}»` : "los filtros"}`
-                  : undefined
-            }
-          >
-            {filters}
+          <DenseTableBar shown={rows.length} total={total ?? filtradas.length} noun="insumos" hidden={hidden}>
+            {/* Los filtros del servidor, en píldora. «Todos» es la salida:
+                apaga los tres de una. Se combinan como en el servidor (Y). */}
+            <FilterPill pressed={applied.length === 0} onClick={verTodos}>
+              Todos
+            </FilterPill>
+            <FilterPill pressed={belowMin} onClick={() => setBelowMin((v) => !v)}>
+              Bajo mínimo
+            </FilterPill>
+            <FilterPill pressed={negative} onClick={() => setNegative((v) => !v)}>
+              Negativos
+            </FilterPill>
+            <FilterPill pressed={criticalOnly} onClick={() => setCriticalOnly((v) => !v)}>
+              Sólo críticos
+            </FilterPill>
+            <DenseTableSearch value={busqueda} onChange={setBusqueda} placeholder="Buscar insumo" />
+            <CsvExportButton
+              href={inventoryStockCsvUrl({
+                storeId,
+                criticalOnly,
+                belowMin,
+                negative,
+              })}
+            />
+            {/* La acción primaria de la pestaña baja a la barra de su tabla
+                (patrón 2). Detrás de su flag: sin compras no hay a dónde ir. */}
+            {hasFeature("purchases") ? (
+              <Link
+                to="/admin/compras?tab=recepciones"
+                className={cn(buttonVariants({ size: "sm" }), "h-[30px] min-h-0 px-3 text-[0.8125rem] font-semibold")}
+              >
+                Registrar compra
+              </Link>
+            ) : null}
           </DenseTableBar>
         }
         note={
           <>
             <b>Ámbar y rojo no son dos grados de lo mismo</b>: ámbar es que falta comprar, rojo es que falta
             registrar. Un saldo negativo se explica con un movimiento —una compra que no se registró, una
-            merma que no se cargó— o se corrige con un ajuste manual desde Movimientos, que pide PIN de
-            administrador y deja el motivo. <b>El ajuste no borra la deuda: la explica.</b>
+            merma que no se cargó— o se corrige con un ajuste manual («⋯» › Ajustar con motivo), que pide PIN
+            de administrador y deja el motivo. <b>El ajuste no borra la deuda: la explica.</b>
           </>
         }
         empty={
@@ -351,6 +423,11 @@ export function StockTab({
               onRemove={dropFilter}
               totalWithoutFilters={total}
             />
+          ) : buscado !== "" ? (
+            <EmptyState
+              title={`Ningún insumo se llama «${busqueda.trim()}»`}
+              description="La búsqueda mira sólo el nombre. Borrala para ver todos."
+            />
           ) : (
             <EmptyState
               title="Todavía no hay insumos"
@@ -359,6 +436,34 @@ export function StockTab({
           )
         }
       />
+
+      {/* Los diálogos del «⋯», montados sólo cuando una fila los pide: cada
+          vez arrancan con el insumo de esa fila y nada de la anterior. */}
+      {ajustar ? (
+        <AdjustmentDialog
+          key={`ajustar-${ajustar.ingredient_id}`}
+          storeId={storeId}
+          ingredients={(totalQuery.data ?? filtradas).map((row) => ({ id: row.ingredient_id, name: row.name }))}
+          initialIngredientId={ajustar.ingredient_id}
+          open
+          onOpenChange={(open) => {
+            if (!open) setAjustar(null)
+          }}
+          showTrigger={false}
+        />
+      ) : null}
+      {recontar ? (
+        <RecountDialog
+          key={`recontar-${recontar.ingredient_id}`}
+          storeId={storeId}
+          ingredientId={recontar.ingredient_id}
+          open
+          onOpenChange={(open) => {
+            if (!open) setRecontar(null)
+          }}
+          showTrigger={false}
+        />
+      ) : null}
     </div>
   )
 }
