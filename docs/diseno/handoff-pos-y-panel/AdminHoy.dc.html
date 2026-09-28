@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="display:flex;min-height:100%;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:16px">
+  <dc-import name="AdminRail" activo="Hoy" style="width:222px;flex:none" hint-size="222px,100%"></dc-import>
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <dc-import name="AdminTop" seccion="Hoy" tab="Hoy" hint-size="100%,93px"></dc-import>
+    <main style="padding:20px 24px 32px;display:flex;flex-direction:column;gap:18px">
+      <header style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px"><h1 style="margin:0;font-size:24px;font-weight:700;font-stretch:108%">Hoy</h1><button onClick="{{ toggleQue }}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:0;border-radius:6px;background:transparent;color:var(--muted-foreground);font:inherit;font-size:12px;cursor:pointer"><i class="icon-circle-help" style="font-size:14px"></i>¿Qué es esto?</button></div>
+        <sc-if value="{{ que }}"><p style="margin:0;max-width:68ch;font-size:14px;color:var(--muted-foreground)">¿Cómo van las sedes ahora mismo y qué necesita una decisión tuya? Cada cifra lleva a su ficha.</p></sc-if>
+        <p style="margin:0;display:flex;gap:16px;font-size:12px;color:var(--muted-foreground);align-items:center"><span style="display:inline-flex;gap:6px;align-items:center"><i class="icon-refresh-cw" style="font-size:13px"></i>Se actualiza sola cada 30 s · <b style="color:var(--foreground)">hace 14 s</b></span><span style="width:1px;height:14px;background:var(--border)"></span><span style="display:inline-flex;gap:6px;align-items:center"><i class="icon-clock" style="font-size:13px"></i>Día operativo sáb 27 sep · corte <b style="color:var(--foreground)">3:00 a. m.</b></span><span style="width:1px;height:14px;background:var(--border)"></span><span>Servicio de almuerzo en curso</span></p>
+      </header>
+
+      <section style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+        <sc-for list="{{ sedes }}" as="s" hint-placeholder-count="4">
+          <a href="#" style="display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:8px;border:1px solid {{ s.borde }};border-left:4px solid {{ s.color }};background:var(--card);text-decoration:none;color:var(--foreground);box-shadow:{{ s.anillo }}">
+            <span style="display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;flex:none;background:{{ s.color }};border-radius:{{ s.radio }};clip-path:{{ s.clip }}"></span><b style="font-size:16px">{{ s.nombre }}</b><span style="margin-left:auto;font-size:12px;font-weight:700;color:{{ s.colorTxt }}">{{ s.estado }}</span></span>
+            <sc-for list="{{ s.razones }}" as="r"><span style="font-size:13px;color:var(--muted-foreground);line-height:1.35">{{ r }}</span></sc-for>
+          </a>
+        </sc-for>
+      </section>
+
+      <sc-if value="{{ varA }}" hint-placeholder-val="{{ true }}">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:18px;align-items:start">
+          <section style="display:flex;flex-direction:column;gap:10px">
+            <h2 style="margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600">Ahora en Chapinero · 12:53 p. m.</h2>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+              <sc-for list="{{ bloques }}" as="b" hint-placeholder-count="5">
+                <div style="display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:8px;border:1px solid {{ b.borde }};border-left:3px solid {{ b.franja }};background:{{ b.fondo }};grid-column:{{ b.span }}">
+                  <span style="display:flex;align-items:center;gap:6px;font-size:14px;color:var(--muted-foreground)"><i class="{{ b.icono }}" style="font-size:16px"></i>{{ b.titulo }}<span style="margin-left:auto;font-size:12px;font-weight:700;color:{{ b.estadoColor }}">{{ b.estado }}</span></span>
+                  <a href="#" style="font-size:26px;font-weight:600;color:var(--foreground);text-decoration:none;line-height:1.1">{{ b.cifra }} <span style="font-size:14px;font-weight:400;color:var(--muted-foreground)">{{ b.cifraNota }}</span></a>
+                  <sc-if value="{{ b.esBarras }}"><div style="display:flex;flex-direction:column;gap:3px;margin-top:4px"><span style="font-size:12px;font-weight:600;color:var(--foreground)">{{ b.vizPregunta }}</span><div style="position:relative;display:flex;align-items:flex-end;gap:3px;height:{{ b.vizAlto }};border-bottom:1px solid var(--foreground)"><sc-for list="{{ b.barras }}" as="p"><span title="{{ p.titulo }}" style="flex:1;height:{{ p.h }};background:{{ p.c }};opacity:{{ p.op }};border-radius:2px 2px 0 0;min-height:2px"></span></sc-for><sc-if value="{{ b.raya }}"><span style="position:absolute;left:0;right:0;bottom:{{ b.raya }};border-top:2px dashed var(--foreground)"></span><span style="position:absolute;right:0;bottom:{{ b.raya }};font-size:10px;font-weight:700;background:var(--card);padding:0 3px;transform:translateY(-100%)">{{ b.rayaTxt }}</span></sc-if></div><div style="position:relative;height:13px;font-size:10px;color:var(--muted-foreground)"><sc-for list="{{ b.etiquetas }}" as="e"><span style="position:absolute;left:{{ e.x }};transform:translateX({{ e.tx }});white-space:nowrap">{{ e.t }}</span></sc-for></div></div></sc-if><sc-if value="{{ b.esBullet }}"><div style="display:flex;flex-direction:column;gap:8px;margin-top:4px"><sc-for list="{{ b.bullets }}" as="u"><div style="display:flex;flex-direction:column;gap:3px"><span style="display:flex;justify-content:space-between;gap:8px;font-size:12px"><span style="color:var(--muted-foreground)">{{ u.t }}</span><b style="color:{{ u.vc }}">{{ u.v }}</b></span><span style="position:relative;height:14px;background:var(--muted);border-radius:3px"><span style="position:absolute;left:0;top:0;bottom:0;width:{{ u.w }};background:{{ u.c }};border-radius:3px"></span><sc-if value="{{ u.raya }}"><span style="position:absolute;top:-3px;bottom:-3px;left:{{ u.raya }};border-left:3px solid var(--foreground)"></span></sc-if></span><sc-if value="{{ u.rayaTxt }}"><span style="font-size:11px;color:var(--muted-foreground)">{{ u.rayaTxt }}</span></sc-if></div></sc-for></div></sc-if>
+                  <sc-for list="{{ b.lineas }}" as="l"><span style="font-size:13px;color:var(--muted-foreground);display:flex;gap:6px;align-items:baseline"><span style="color:{{ l.color }};font-weight:{{ l.peso }}">{{ l.t }}</span></span></sc-for>
+                  <a href="#" style="margin-top:2px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none">{{ b.link }} →</a>
+                </div>
+              </sc-for>
+            </div>
+          </section>
+          <aside style="border-radius:8px;border:1px solid var(--border);background:var(--card);position:sticky;top:16px">
+            <div style="display:flex;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border)"><h2 style="margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600">Requiere tu atención</h2><b style="margin-left:auto;font-size:14px">{{ pendientes }}</b></div>
+            <sc-for list="{{ avisos }}" as="a" hint-placeholder-count="5">
+              <div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;padding:12px;border-top:1px solid var(--border);border-left:3px solid {{ a.borde }}">
+                <i class="{{ a.icono }}" style="font-size:16px;margin-top:2px;color:{{ a.iconoColor }}"></i>
+                <div style="display:flex;flex-direction:column;gap:6px;min-width:0">
+                  <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><b style="font-size:14px;line-height:1.3">{{ a.titulo }}</b><b style="font-size:14px;white-space:nowrap">{{ a.monto }}</b></div>
+                  <span style="font-size:12px;line-height:1.5;color:var(--muted-foreground)">{{ a.detalle }}</span>
+                  <sc-if value="{{ a.foto }}"><div onClick="{{ a.verFoto }}" style="height:{{ a.fotoAlto }};border-radius:6px;border:1px solid var(--border);background:repeating-linear-gradient(135deg,var(--muted) 0 8px,var(--card) 8px 16px);display:grid;place-items:center;cursor:zoom-in"><span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted-foreground);background:var(--card);padding:2px 6px;border-radius:4px">foto del comprobante · Bancolombia</span></div></sc-if>
+                  <sc-if value="{{ a.abierto }}">
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      <button onClick="{{ a.accion1 }}" style="height:32px;padding:0 12px;border-radius:6px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:13px;font-weight:600;cursor:pointer">{{ a.b1 }}</button>
+                      <sc-if value="{{ a.b2 }}"><button onClick="{{ a.accion2 }}" style="height:32px;padding:0 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--foreground);font:inherit;font-size:13px;font-weight:600;cursor:pointer">{{ a.b2 }}</button></sc-if>
+                      <a href="#" style="align-self:center;margin-left:auto;font-size:12px;color:var(--primary);text-decoration:none">{{ a.link }}</a>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ a.resuelto }}"><div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:{{ a.resColor }}"><i class="{{ a.resIcono }}" style="font-size:14px"></i>{{ a.resTxt }}<button onClick="{{ a.reversar }}" style="margin-left:auto;border:0;background:transparent;color:var(--primary);font:inherit;font-size:12px;cursor:pointer">Reversar con motivo</button></div></sc-if>
+                </div>
+              </div>
+            </sc-for>
+            <p style="margin:0;padding:8px 12px;border-top:1px solid var(--border);font-size:12px;color:var(--muted-foreground);text-align:right">Ordenados por gravedad · lo resuelto queda en el historial</p>
+          </aside>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ varB }}" hint-placeholder-val="{{ false }}">
+        <section style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px">
+          <sc-for list="{{ bloques }}" as="b" hint-placeholder-count="5">
+            <a href="#" style="display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:8px;border:1px solid {{ b.borde }};border-top:3px solid {{ b.franja }};background:{{ b.fondo }};text-decoration:none;color:var(--foreground)">
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted-foreground)"><i class="{{ b.icono }}" style="font-size:15px"></i>{{ b.titulo }}</span>
+              <b style="font-size:22px;font-weight:600;line-height:1.15">{{ b.cifra }}</b>
+              <span style="font-size:12px;color:var(--muted-foreground)">{{ b.cifraNota }}</span>
+              <span style="font-size:12px;font-weight:700;color:{{ b.estadoColor }}">{{ b.corto }}</span><sc-if value="{{ b.esBarras }}"><div style="display:flex;flex-direction:column;gap:3px;margin-top:4px"><span style="font-size:12px;font-weight:600;color:var(--foreground)">{{ b.vizPregunta }}</span><div style="position:relative;display:flex;align-items:flex-end;gap:3px;height:{{ b.vizAlto }};border-bottom:1px solid var(--foreground)"><sc-for list="{{ b.barras }}" as="p"><span title="{{ p.titulo }}" style="flex:1;height:{{ p.h }};background:{{ p.c }};opacity:{{ p.op }};border-radius:2px 2px 0 0;min-height:2px"></span></sc-for><sc-if value="{{ b.raya }}"><span style="position:absolute;left:0;right:0;bottom:{{ b.raya }};border-top:2px dashed var(--foreground)"></span><span style="position:absolute;right:0;bottom:{{ b.raya }};font-size:10px;font-weight:700;background:var(--card);padding:0 3px;transform:translateY(-100%)">{{ b.rayaTxt }}</span></sc-if></div><div style="position:relative;height:13px;font-size:10px;color:var(--muted-foreground)"><sc-for list="{{ b.etiquetas }}" as="e"><span style="position:absolute;left:{{ e.x }};transform:translateX({{ e.tx }});white-space:nowrap">{{ e.t }}</span></sc-for></div></div></sc-if><sc-if value="{{ b.esBullet }}"><div style="display:flex;flex-direction:column;gap:8px;margin-top:4px"><sc-for list="{{ b.bullets }}" as="u"><div style="display:flex;flex-direction:column;gap:3px"><span style="display:flex;justify-content:space-between;gap:8px;font-size:12px"><span style="color:var(--muted-foreground)">{{ u.t }}</span><b style="color:{{ u.vc }}">{{ u.v }}</b></span><span style="position:relative;height:14px;background:var(--muted);border-radius:3px"><span style="position:absolute;left:0;top:0;bottom:0;width:{{ u.w }};background:{{ u.c }};border-radius:3px"></span><sc-if value="{{ u.raya }}"><span style="position:absolute;top:-3px;bottom:-3px;left:{{ u.raya }};border-left:3px solid var(--foreground)"></span></sc-if></span><sc-if value="{{ u.rayaTxt }}"><span style="font-size:11px;color:var(--muted-foreground)">{{ u.rayaTxt }}</span></sc-if></div></sc-for></div></sc-if>
+            </a>
+          </sc-for>
+        </section>
+        <section style="border-radius:8px;border:1px solid var(--border);background:var(--card)">
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border)"><h2 style="margin:0;font-size:18px;font-weight:700">Requiere tu atención</h2><span style="font-size:13px;color:var(--muted-foreground)">{{ pendientes }} por resolver · se resuelven acá mismo</span></div>
+          <sc-for list="{{ avisos }}" as="a" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:28px minmax(0,1fr) 160px 330px;gap:14px;align-items:center;padding:12px 14px;border-top:1px solid var(--border);border-left:3px solid {{ a.borde }}">
+              <i class="{{ a.icono }}" style="font-size:18px;color:{{ a.iconoColor }}"></i>
+              <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><b style="font-size:15px">{{ a.titulo }}</b><span style="font-size:13px;color:var(--muted-foreground)">{{ a.detalle }}</span></div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b style="font-size:16px">{{ a.monto }}</b><sc-if value="{{ a.foto }}"><div onClick="{{ a.verFoto }}" style="width:120px;height:44px;border-radius:6px;border:1px solid var(--border);background:repeating-linear-gradient(135deg,var(--muted) 0 6px,var(--card) 6px 12px);display:grid;place-items:center;cursor:zoom-in"><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted-foreground)">comprobante</span></div></sc-if></div>
+              <div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
+                <sc-if value="{{ a.abierto }}">
+                  <sc-if value="{{ a.b2 }}"><button onClick="{{ a.accion2 }}" style="height:34px;padding:0 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--foreground);font:inherit;font-size:13px;font-weight:600;cursor:pointer">{{ a.b2 }}</button></sc-if>
+                  <button onClick="{{ a.accion1 }}" style="height:34px;padding:0 12px;border-radius:6px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:13px;font-weight:600;cursor:pointer">{{ a.b1 }}</button>
+                </sc-if>
+                <sc-if value="{{ a.resuelto }}"><span style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:{{ a.resColor }}"><i class="{{ a.resIcono }}" style="font-size:15px"></i>{{ a.resTxt }}</span><button onClick="{{ a.reversar }}" style="border:0;background:transparent;color:var(--primary);font:inherit;font-size:12px;cursor:pointer">Reversar</button></sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </section>
+      </sc-if>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1100},&quot;variante&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;A&quot;,&quot;B&quot;],&quot;default&quot;:&quot;A&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { que: false, res: {}, foto: false };
+  renderVals() {
+    const s = this.state, varB = this.props.variante === "B";
+    const TONO = { verde: ["var(--success)", "50%", "none", "En orden"], ambar: ["var(--warning)", "0", "polygon(50% 0,100% 100%,0 100%)", "Atención"], rojo: ["var(--destructive)", "1px", "none", "Crítico"], gris: ["var(--input)", "2px", "none", "Cerrado"] };
+    const sedes = [["Chapinero", "ambar", ["Conteo de bar incompleto: 3 de 8", "Retiro sugerido sin hacer"]], ["Usaquén", "verde", ["Caja abierta 7:10 a. m.", "Conteos completos · 0 atrasados"]], ["Cedritos", "rojo", ["Turno de anoche sin cerrar", "2 platos con más de 20 min"]], ["Salitre", "gris", ["Abre hoy a las 5:00 p. m."]]].map(([nombre, t, razones]) => ({ nombre, razones,
+      color: TONO[t][0], radio: TONO[t][1], clip: TONO[t][2], estado: TONO[t][3], colorTxt: t === "gris" ? "var(--muted-foreground)" : TONO[t][0],
+      borde: nombre === "Chapinero" ? "var(--foreground)" : "var(--border)", anillo: nombre === "Chapinero" ? "0 0 0 1px var(--foreground)" : "none" }));
+    const tint = (t) => t === "warning" ? ["var(--warning)", "color-mix(in oklab, var(--warning) 45%, var(--border))", "color-mix(in oklab, var(--warning) 8%, var(--card))"] : t === "critical" ? ["var(--destructive)", "color-mix(in oklab, var(--destructive) 30%, var(--border))", "color-mix(in oklab, var(--destructive) 5%, var(--card))"] : ["var(--border)", "var(--border)", "var(--card)"];
+    const L = (t, c, p) => ({ t, color: c || "var(--muted-foreground)", peso: p || 400 });
+    const fmt = (n) => "$ " + n.toLocaleString("es-CO").replace(/,/g, ".");
+    const barrasDe = (vals, o = {}) => { const mx = Math.max(...vals, o.raya || 0) * 1.12; return { esBarras: true, esBullet: false, vizAlto: o.alto || "64px", raya: o.raya ? (o.raya / mx * 100) + "%" : "", rayaTxt: o.rayaTxt || "", etiquetas: (o.etiquetas || []).map((t, j, arr) => ({ t, x: ((j + 0.5) / arr.length * 100) + "%", tx: j === 0 ? "-25%" : j === arr.length - 1 ? "-75%" : "-50%" })).filter(e => e.t), vizPregunta: o.pregunta,
+      barras: vals.map((v, j) => ({ h: (v / mx * 100) + "%", titulo: (o.titulos ? o.titulos[j] + ": " : "") + v + (o.unidad || ""), op: o.ahora !== undefined && j > o.ahora ? 0.35 : 1,
+        c: o.ahora === j ? "var(--foreground)" : (o.raya && v > o.raya ? (o.sobre || "var(--warning)") : "var(--data-1)") })) }; };
+    const bulletsDe = (rows) => ({ esBarras: false, esBullet: true, bullets: rows.map(([t, v, max, raya, over, rayaTxt]) => ({ t, v: typeof v === "number" && v > 999 ? fmt(v) : v, w: ((typeof v === "number" ? v : 0) / max * 100) + "%", raya: raya ? (raya / max * 100) + "%" : "", c: over ? "var(--warning)" : "var(--data-1)", vc: over ? "var(--warning)" : "var(--foreground)", rayaTxt: rayaTxt || "" })) });
+    const bloques = [
+      { titulo: "Caja", icono: "icon-banknote", tono: "warning", estado: "▲ Retiro sugerido", corto: "▲ Retiro sugerido", cifra: "$ 2.635.648", cifraNota: "ventas netas · 38 comandas", span: "span 2",
+        ...bulletsDe([["Ventas netas hoy", 2635648, 3000000, 2498000, false, "Raya: sáb 20 a esta hora, $ 2.498.000 · ▲ +5,5 %"], ["Efectivo en caja", 1412000, 1600000, 1200000, true, "Raya: umbral de retiro $ 1.200.000 · lo pasa por $ 212.000"]]),
+        lineas: [L("Abierta 7:02 a. m. · responsable Kevin Ruiz · apertura con 1 sobre con faltante de $ 2.000")], link: "Ficha del turno" },
+      { titulo: "Quién trabaja", icono: "icon-users", tono: "warning", estado: "▲ 1 llegada tarde", corto: "▲ 1 llegada tarde", cifra: "6", cifraNota: "con entrada hoy",
+        ...barrasDe([1, 3, 5, 6, 6, 6, 6, 6, 5, 5, 6, 7, 7, 7, 6, 4, 2], { pregunta: "Personas en turno por hora · lo claro es lo programado", ahora: 6, etiquetas: ["6 a. m.", "", "", "", "", "", "ahora", "", "", "", "", "", "", "", "", "", "10 p. m."], unidad: " personas" }),
+        lineas: [L("Camilo Rojas entró 7:08 a. m. · 8 min tarde", "var(--warning)", 600)], link: "Asistencia" },
+      { titulo: "Conteos de apertura", icono: "icon-clipboard-list", tono: "warning", estado: "▲ Faltan 7", corto: "▲ Faltan 7", cifra: "9 de 16", cifraNota: "artículos contados",
+        ...bulletsDe([["Cocina · Andrés Mejía", "6 de 8", 8, 0, false], ["Bar · Camilo Rojas", "3 de 8", 8, 0, true]]),
+        lineas: [], link: "Conteos" },
+      { titulo: "Salón", icono: "icon-layout-grid", tono: "critical", estado: "■ 3 sin enviar", corto: "■ 3 ítems sin enviar", cifra: "8", cifraNota: "mesas abiertas · 27 comensales",
+        ...barrasDe([38, 72, 12, 25, 51, 5, 44, 20], { pregunta: "Minutos que lleva cada mesa abierta", raya: 60, rayaTxt: "1 hora", etiquetas: ["M2", "M3", "M4", "M6", "M8", "M9", "M11", "B1"], titulos: ["Mesa 2", "Mesa 3", "Mesa 4", "Mesa 6", "Mesa 8", "Mesa 9", "Mesa 11", "Barra 1"], unidad: " min" }),
+        lineas: [L("3 ítems sin enviar en mesas 4 y 9", "var(--destructive)", 600)], link: "Pedidos abiertos" },
+      { titulo: "Cocina", icono: "icon-chef-hat", tono: "critical", estado: "■ 2 atrasados", corto: "■ 2 atrasados", cifra: "8", cifraNota: "tiquetes en preparación",
+        ...barrasDe([26, 21, 16, 12, 9, 6, 4, 2], { pregunta: "Minutos de cada tiquete", raya: 20, rayaTxt: "20 min", sobre: "var(--destructive)", etiquetas: ["M11", "D", "M6", "M4", "M2", "M9", "B1", "Mo"], titulos: ["Mesa 11", "Domicilio Cl 63", "Mesa 6", "Mesa 4", "Mesa 2", "Mesa 9", "Barra 1", "Mostrador"], unidad: " min" }),
+        lineas: [], link: "Tiquetes" },
+    ].map(b => { const [f, bo, fo] = tint(b.tono); return { ...b, franja: f, borde: bo, fondo: fo, estadoColor: f, span: varB ? "auto" : (b.span || "auto") }; });
+    const SEV = { c: ["var(--destructive)", "icon-circle-alert"], w: ["var(--warning)", "icon-circle-alert"], n: ["var(--input)", "icon-circle-alert"] };
+    const avisos = [
+      { k: "cons", sev: "c", titulo: "Consignación del vie 26 sep por confirmar", monto: "$ 1.240.000", detalle: "El sobre cuadró al abrir (contó Kevin, 7:09 a. m.). Falta confirmar que el banco lo recibió.", foto: true, b1: "Confirmar consignación", b2: "No coincide", link: "Ficha del turno", ok: "Confirmada por ti · 12:55 p. m.", no: "Marcada como novedad · se pidió el comprobante a Kevin" },
+      { k: "cedr", sev: "c", titulo: "Turno de anoche sin cerrar · Cedritos", monto: "", detalle: "Nadie contó la caja al cierre. Mientras siga abierto, las ventas de hoy se mezclan con las de ayer.", b1: "Cerrar turno abandonado", link: "Ficha del turno", ok: "Cerrado por ti · pendiente conteo a ciegas mañana" },
+      { k: "senc", sev: "w", titulo: "Kevin pide sencillo", monto: "$ 200.000", detalle: "20 billetes de $ 10.000 · pedido a las 12:31 p. m. desde la cinta de caja.", b1: "Aprobar", b2: "Rechazar", link: "", ok: "Aprobada · Kevin la recibe en la tablet", no: "Rechazada con motivo" },
+      { k: "base", sev: "w", titulo: "Préstamo de la base sin devolver", monto: "$ 100.000", detalle: "Kevin lo tomó a las 11:20 a. m. para dar cambio. Lleva 1 h 33 min.", b1: "Pedir devolución", link: "Ficha del turno", ok: "Aviso enviado a la tablet de caja" },
+      { k: "nov", sev: "w", titulo: "Novedad: faltan $ 2.000 en el sobre del jue 25 sep", monto: "−$ 2.000", detalle: "Contó Kevin a las 7:05 a. m. Esperado $ 980.000 · contado $ 978.000.", b1: "Revisar novedad", link: "Ficha de Kevin", ok: "Revisada · queda en la ficha de Kevin" },
+      { k: "jhon", sev: "n", titulo: "Jhon Pérez no marcó salida ayer", monto: "", detalle: "Entró a las 4:10 p. m. El turno de Cedritos cerró la tablet a las 11:02 p. m.", b1: "Marcar salida 11:00 p. m.", link: "Ficha de Jhon", ok: "Salida marcada por ti con motivo" },
+    ].map(a => { const r = s.res[a.k]; const set = (v) => () => this.setState(st => ({ res: { ...st.res, [a.k]: v } }));
+      return { ...a, borde: SEV[a.sev][0], icono: SEV[a.sev][1], iconoColor: SEV[a.sev][0], b2: a.b2 || "", abierto: !r, resuelto: !!r,
+        resTxt: r === "no" ? a.no : a.ok, resColor: r === "no" ? "var(--warning)" : "var(--success)", resIcono: r === "no" ? "icon-flag" : "icon-circle-check",
+        accion1: set("ok"), accion2: set("no"), reversar: set(undefined), verFoto: () => this.setState({ foto: !s.foto }), fotoAlto: s.foto ? "220px" : "84px" }; });
+    return { sedes, bloques, avisos, varA: !varB, varB, que: s.que, toggleQue: () => this.setState({ que: !s.que }), pendientes: avisos.filter(a => a.abierto).length };
+  }
+}
+</script>
+</body>
+</html>

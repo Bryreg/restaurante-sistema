@@ -23,9 +23,14 @@
  */
 export { ConsequenceZone, type ConsequenceAction, type ConsequenceLevel, type ConsequenceZoneProps } from "./ConsequenceZone"
 export {
+  DENSE_BULLET_SIZE,
   DENSE_ROW_HEIGHT_PX,
   DenseTable,
   DenseTableBar,
+  DenseTableSearch,
+  FilterPill,
+  NADA_SE_BORRA,
+  RowStatusLabel,
   type DenseCellKind,
   type DenseColumn,
   type DenseTableBarProps,

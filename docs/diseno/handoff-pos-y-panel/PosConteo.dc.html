@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="width:100%;height:100%;display:flex;flex-direction:column;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;overflow:hidden">
+  <dc-import name="PosBarra" persona="Camilo Rojas" rol="bar" activo="Conteo" contexto="Chapinero · Sáb 27 sep · Entrada 7:08 a. m. · área: Bar" hint-size="100%,150px"></dc-import>
+
+  <div style="padding:14px 16px 8px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <h1 style="margin:0;font-size:26px;font-weight:800;font-stretch:108%">Conteo de apertura</h1>
+      <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;background:color-mix(in oklab, var(--warning) 20%, var(--card));border:1px solid var(--warning);font-size:14px;font-weight:700"><i class="icon-lock" style="font-size:15px"></i>Obligatorio para abrir el bar</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="flex:1;height:10px;border-radius:999px;background:var(--muted);overflow:hidden"><div style="height:100%;width:{{ progreso }};background:var(--foreground);border-radius:999px"></div></div>
+      <b style="font-size:17px;white-space:nowrap">{{ hechosTxt }}</b>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:4px;border-radius:14px;background:var(--muted)">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+        <button onClick="{{ t.elegir }}" style="height:56px;border-radius:10px;border:0;background:{{ t.fondo }};color:var(--foreground);font:inherit;font-size:17px;font-weight:{{ t.peso }};cursor:pointer;box-shadow:{{ t.sombra }};display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1">{{ t.t }}<span style="font-size:13px;font-weight:500;color:var(--muted-foreground)">{{ t.sub }}</span></button>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="flex:1;min-height:0;overflow:auto;padding:4px 16px;display:flex;flex-direction:column;gap:8px">
+    <sc-for list="{{ items }}" as="i" hint-placeholder-count="8">
+      <div style="border-radius:12px;border:{{ i.borde }};background:var(--card);display:flex;flex-direction:column">
+        <div onClick="{{ i.abrir }}" style="display:flex;align-items:center;gap:12px;min-height:64px;padding:6px 14px;cursor:pointer">
+          <i class="{{ i.icono }}" style="font-size:22px;color:{{ i.iconoColor }}"></i>
+          <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+            <b style="font-size:18px">{{ i.nombre }}</b>
+            <span style="font-size:14px;color:var(--muted-foreground)">{{ i.unidad }} · {{ i.area }}</span>
+          </div>
+          <span style="font-size:15px;font-weight:600;color:{{ i.estadoColor }};display:inline-flex;align-items:center;gap:6px">{{ i.estado }}</span>
+          <i class="icon-chevron-down" style="font-size:20px;color:var(--muted-foreground)"></i>
+        </div>
+        <sc-if value="{{ i.abierto }}">
+          <div style="display:flex;flex-direction:column;gap:12px;padding:4px 14px 14px;border-top:1px dashed var(--border)">
+            <div style="display:flex;align-items:center;gap:12px;padding-top:10px">
+              <span style="width:170px;font-size:16px;font-weight:600">{{ i.enterasLabel }}</span>
+              <button onClick="{{ menos }}" style="width:64px;height:64px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);display:grid;place-items:center;cursor:pointer"><i class="icon-minus" style="font-size:24px"></i></button>
+              <b style="width:80px;text-align:center;font-size:36px">{{ enteras }}</b>
+              <button onClick="{{ mas }}" style="width:64px;height:64px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);display:grid;place-items:center;cursor:pointer"><i class="icon-plus" style="font-size:24px"></i></button>
+            </div>
+            <sc-if value="{{ i.botella }}">
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <span style="font-size:16px;font-weight:600">Décimas de la abierta <span style="font-weight:500;color:var(--muted-foreground)">· cuánto le queda, de 0 a 9</span></span>
+                <div style="display:grid;grid-template-columns:repeat(10,1fr);gap:6px">
+                  <sc-for list="{{ decimas }}" as="d" hint-placeholder-count="10">
+                    <button onClick="{{ d.elegir }}" style="height:64px;border-radius:10px;border:1px solid {{ d.borde }};background:{{ d.fondo }};color:{{ d.txt }};font:inherit;font-size:20px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:6px;gap:4px;position:relative;overflow:hidden"><span style="position:absolute;left:0;right:0;bottom:0;height:{{ d.nivel }};background:{{ d.nivelColor }}"></span><span style="position:relative">{{ d.t }}</span></button>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+            <div style="display:flex;gap:8px">
+              <button onClick="{{ cancelar }}" style="height:60px;padding:0 20px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:17px;font-weight:600;cursor:pointer">Cancelar</button>
+              <button onClick="{{ guardar }}" style="flex:1;height:60px;border-radius:12px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:18px;font-weight:700;cursor:pointer">Guardar conteo</button>
+            </div>
+            <span style="font-size:14px;color:var(--muted-foreground)">Al guardar, la cantidad deja de mostrarse. Queda tu nombre y la hora.</span>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+
+  <footer style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--border);background:var(--card)">
+    <div style="flex:1;display:flex;flex-direction:column"><b style="font-size:18px">{{ faltanTxt }}</b><span style="font-size:14px;color:var(--muted-foreground)">Cocina lo cuenta Andrés · 6 de 8 hechos</span></div>
+    <button style="height:64px;padding:0 26px;border-radius:12px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:18px;font-weight:700;opacity:{{ opTerminar }};cursor:pointer">Terminar conteo del bar</button>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:820,&quot;height&quot;:1180}}">
+class Component extends DCLogic {
+  state = {
+    tab: "mi", abierto: "ron", enteras: 2, decima: 4,
+    items: [
+      { k: "agua", nombre: "Aguardiente Antioqueño", unidad: "Botella 750 ml", area: "Bar", botella: true, por: "Kevin", hora: "7:10" },
+      { k: "ron", nombre: "Ron Viejo de Caldas", unidad: "Botella 750 ml", area: "Bar", botella: true },
+      { k: "wh", nombre: "Whisky Old Parr", unidad: "Botella 750 ml", area: "Bar", botella: true, por: "Camilo", hora: "7:12" },
+      { k: "vino", nombre: "Vino tinto de la casa", unidad: "Botella 750 ml", area: "Bar", botella: true },
+      { k: "club", nombre: "Club Colombia", unidad: "Unidad 330 ml", area: "Bar", botella: false, por: "Camilo", hora: "7:13" },
+      { k: "gas", nombre: "Gaseosa", unidad: "Unidad 400 ml", area: "Bar", botella: false },
+      { k: "coco", nombre: "Crema de coco", unidad: "Lata 425 g", area: "Bar", botella: false },
+      { k: "hielo", nombre: "Hielo", unidad: "Bolsa 5 kg", area: "Bar", botella: false },
+      { k: "pech", nombre: "Pechuga de pollo", unidad: "Kilo", area: "Cocina", botella: false, por: "Andrés", hora: "6:58" },
+      { k: "arroz", nombre: "Arroz", unidad: "Bulto 25 kg", area: "Cocina", botella: false, por: "Andrés", hora: "7:01" },
+      { k: "aceite", nombre: "Aceite", unidad: "Galón 3.000 ml", area: "Cocina", botella: true },
+      { k: "papa", nombre: "Papa criolla", unidad: "Kilo", area: "Cocina", botella: false, por: "Andrés", hora: "7:03" },
+    ],
+  };
+  renderVals() {
+    const s = this.state;
+    const filtro = { mi: i => i.area === "Bar", bar: i => i.area === "Bar", cocina: i => i.area === "Cocina", todo: () => true }[s.tab];
+    const bar = s.items.filter(i => i.area === "Bar"), hechosBar = bar.filter(i => i.por).length;
+    const items = s.items.filter(filtro).map(i => {
+      const ab = s.abierto === i.k;
+      return { ...i, abierto: ab,
+        estado: i.por ? `Contado por ${i.por} · ${i.hora}` : "Por contar",
+        estadoColor: i.por ? "var(--success)" : "var(--warning)",
+        icono: i.por ? "icon-circle-check" : "icon-circle-dashed", iconoColor: i.por ? "var(--success)" : "var(--muted-foreground)",
+        borde: ab ? "2px solid var(--primary)" : "1px solid var(--border)",
+        enterasLabel: i.botella ? "Enteras (cerradas)" : "Unidades",
+        abrir: () => this.setState({ abierto: ab ? null : i.k, enteras: 0, decima: 0 }) };
+    });
+    const tabs = [["mi", "Mi área", "Bar"], ["bar", "Bar", `${hechosBar}/${bar.length}`], ["cocina", "Cocina", "2/4"], ["todo", "Todo", `${s.items.filter(i => i.por).length}/${s.items.length}`]].map(([k, t, sub]) => {
+      const on = s.tab === k; return { t, sub, fondo: on ? "var(--card)" : "transparent", peso: on ? 800 : 600, sombra: on ? "0 1px 3px rgb(0 0 0 / 18%)" : "none", elegir: () => this.setState({ tab: k }) }; });
+    const faltan = bar.length - hechosBar;
+    return {
+      items, tabs, enteras: s.enteras,
+      progreso: `${Math.round(hechosBar / bar.length * 100)}%`,
+      hechosTxt: `${hechosBar} de ${bar.length} contados`,
+      faltanTxt: faltan ? `Faltan ${faltan} artículos del bar` : "Bar contado completo",
+      opTerminar: faltan ? 0.45 : 1,
+      menos: () => this.setState({ enteras: Math.max(0, s.enteras - 1) }),
+      mas: () => this.setState({ enteras: s.enteras + 1 }),
+      decimas: [0,1,2,3,4,5,6,7,8,9].map(d => { const on = s.decima === d; return { t: d, borde: on ? "var(--foreground)" : "var(--border)", fondo: on ? "var(--foreground)" : "var(--background)", txt: on ? "var(--background)" : "var(--foreground)",
+        nivel: `${d * 10}%`, nivelColor: on ? "color-mix(in oklab, var(--background) 25%, transparent)" : "color-mix(in oklab, var(--primary) 16%, transparent)", elegir: () => this.setState({ decima: d }) }; }),
+      cancelar: () => this.setState({ abierto: null }),
+      guardar: () => this.setState(st => ({ items: st.items.map(i => i.k === st.abierto ? { ...i, por: "Camilo", hora: "7:14" } : i), abierto: null })),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="display:flex;min-height:100%;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:16px">
+  <dc-import name="AdminRail" activo="Caja" style="width:222px;flex:none" hint-size="222px,100%"></dc-import>
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <dc-import name="AdminTop" seccion="Caja" tab="Dinero" hint-size="100%,93px"></dc-import>
+    <main style="padding:16px 24px 32px;display:flex;flex-direction:column;gap:18px">
+      <a href="#" style="font-size:13px;color:var(--primary);text-decoration:none;display:inline-flex;gap:6px;align-items:center"><i class="icon-arrow-left" style="font-size:14px"></i>Volver a Hoy › Requiere tu atención</a>
+      <header style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;align-items:center;gap:10px"><h1 style="margin:0;font-size:24px;font-weight:700;font-stretch:108%">Turno del viernes 26 sep</h1><span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;background:color-mix(in oklab, var(--destructive) 12%, var(--card));color:var(--destructive)">▼ Cerró con faltante de $ 4.000</span></div>
+          <p style="margin:0;display:flex;gap:14px;font-size:12px;color:var(--muted-foreground);align-items:center;flex-wrap:wrap"><span>Chapinero</span><span style="width:1px;height:14px;background:var(--border)"></span><span>Abrió <b style="color:var(--foreground)">7:01 a. m.</b> · <a href="#" style="color:var(--primary);text-decoration:none">Kevin Ruiz</a></span><span style="width:1px;height:14px;background:var(--border)"></span><span>Cerró <b style="color:var(--foreground)">10:48 p. m.</b> · <a href="#" style="color:var(--primary);text-decoration:none">Diana Pérez</a></span><span style="width:1px;height:14px;background:var(--border)"></span><span>1 relevo · 6 personas</span></p>
+        </div>
+        <div style="display:flex;gap:6px"><button style="height:34px;padding:0 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--foreground);font:inherit;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center"><i class="icon-download" style="font-size:14px"></i>Exportar CSV</button><button style="height:34px;padding:0 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--foreground);font:inherit;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center"><i class="icon-history" style="font-size:14px"></i>Historial del turno</button></div>
+      </header>
+
+      <section style="display:grid;grid-template-columns:max-content 380px 200px;gap:20px;align-items:center;padding:16px;border-radius:8px;border:1px solid var(--border);background:var(--card)">
+        <div><p style="margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground)">Ventas netas del turno</p><p style="margin:2px 0 0;font-size:40px;font-weight:700;letter-spacing:-0.02em;line-height:1;font-stretch:110%">$ 6.912.000</p><p style="margin:6px 0 0;font-size:12px;color:var(--muted-foreground)">164 comandas pagadas · 15 h 47 min de servicio</p></div>
+        <dl style="margin:0;border-left:1px solid var(--border);padding-left:16px">
+          <div style="display:flex;font-size:14px;padding:2px 0"><dt style="color:var(--muted-foreground)">Cobrado en caja y medios</dt><dd style="margin:0 0 0 auto">$ 7.464.960</dd></div>
+          <div style="display:flex;font-size:14px;padding:2px 0"><dt style="color:var(--muted-foreground)">Impuesto al consumo 8 %</dt><dd style="margin:0 0 0 auto;color:var(--muted-foreground)">−$ 552.960</dd></div>
+          <div style="display:flex;font-size:14px;font-weight:700;padding-top:6px;margin-top:4px;border-top:3px double color-mix(in oklab, var(--foreground) 60%, transparent)"><dt>Ventas netas</dt><dd style="margin:0 0 0 auto">$ 6.912.000</dd></div>
+          <div style="display:flex;font-size:12px;padding-top:6px;margin-top:8px;border-top:1px dashed var(--input);color:var(--muted-foreground)"><dt>Propinas · pasan a los meseros, no son venta</dt><dd style="margin:0 0 0 auto;font-weight:700;color:var(--foreground)">$ 598.300</dd></div>
+        </dl>
+        <div style="border-left:1px solid var(--border);padding-left:16px;font-size:12px;color:var(--muted-foreground)"><p style="margin:0">Contra vie 19 sep</p><p style="margin:2px 0;font-size:18px;font-weight:700;color:var(--foreground)">▲ +6,4 %</p><p style="margin:0">$ 6.496.000</p></div>
+      </section>
+
+      <section style="display:flex;flex-direction:column;gap:8px">
+        <h2 style="margin:0;font-size:18px;font-weight:700">¿Cuadró en cada paso?</h2>
+        <div style="display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:10px;align-items:stretch">
+          <sc-for list="{{ pasos }}" as="p" hint-placeholder-count="3">
+            <a href="#" style="display:flex;flex-direction:column;gap:4px;padding:14px;border-radius:8px;border:1px solid var(--border);border-top:3px solid {{ p.c }};background:var(--card);text-decoration:none;color:var(--foreground)">
+              <span style="font-size:12px;color:var(--muted-foreground)">{{ p.cuando }}</span>
+              <b style="font-size:16px">{{ p.t }}</b>
+              <span style="font-size:13px;color:var(--muted-foreground)">{{ p.quien }}</span>
+              <span style="display:flex;gap:14px;font-size:13px;margin-top:4px"><span>Esperado <b>{{ p.esp }}</b></span><span>Contado <b>{{ p.cont }}</b></span></span>
+              <b style="font-size:20px;color:{{ p.c }}">{{ p.dif }}</b>
+            </a>
+            <sc-if value="{{ p.flecha }}"><span style="align-self:center;color:var(--muted-foreground)"><i class="icon-arrow-right" style="font-size:20px"></i></span></sc-if>
+          </sc-for>
+        </div>
+        <span style="font-size:13px;color:var(--muted-foreground)">Cada conteo fue a ciegas: quien contó no vio el esperado. El faltante del cierre quedó como novedad; se corrige con motivo, no se borra.</span>
+      </section>
+
+      <section style="display:flex;flex-direction:column;gap:8px">
+        <h2 style="margin:0;font-size:18px;font-weight:700">Efectivo en caja</h2>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 280px;border-radius:8px;border:1px solid var(--border);background:var(--card)">
+          <div style="padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0">
+            <b style="font-size:15px">¿Cuándo hubo más efectivo del que debía?</b>
+            <div style="display:flex;gap:16px;font-size:12px;color:var(--muted-foreground);flex-wrap:wrap"><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:12px;height:12px;border-radius:2px;background:var(--data-1)"></span>Efectivo en caja a esa hora</span><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:12px;height:12px;border-radius:2px;background:var(--warning)"></span>Por encima del umbral</span><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:16px;border-top:3px solid var(--foreground)"></span>Umbral de retiro $ 1.200.000</span></div>
+            <div style="position:relative;display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:6px;height:190px;align-items:end;border-bottom:1px solid var(--foreground)">
+              <span style="position:absolute;left:0;right:0;bottom:{{ umbral }};border-top:3px solid var(--foreground);z-index:1"></span>
+              <sc-for list="{{ efectivo }}" as="p" hint-placeholder-count="16">
+                <div title="{{ p.titulo }}" style="height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center">
+                  <span style="width:100%;height:{{ p.alto }};background:{{ p.c }};border-radius:3px 3px 0 0"></span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:6px;font-size:11px;text-align:center;color:var(--muted-foreground)"><sc-for list="{{ efectivo }}" as="p" hint-placeholder-count="16"><span>{{ p.h }}</span></sc-for></div>
+            <div style="display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:6px;font-size:11px;text-align:center"><sc-for list="{{ efectivo }}" as="p" hint-placeholder-count="16"><span style="font-weight:700;color:var(--primary);white-space:nowrap">{{ p.retiro }}</span></sc-for></div>
+          </div>
+          <aside style="border-left:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:12px"><span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600">Lo que dice el día</span><sc-for list="{{ efectivoResumen }}" as="r" hint-placeholder-count="2"><div style="display:flex;gap:10px;align-items:flex-start"><span style="width:4px;align-self:stretch;border-radius:2px;background:{{ r.c }}"></span><div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:14px">{{ r.t }}</b><span style="font-size:13px;color:var(--muted-foreground);line-height:1.4">{{ r.d }}</span></div></div></sc-for></aside>
+        </div>
+      </section>
+
+      <section style="display:flex;flex-direction:column;gap:8px">
+        <h2 style="margin:0;font-size:18px;font-weight:700">Quién trabajó</h2>
+        <div style="padding:16px;border-radius:8px;border:1px solid var(--border);background:var(--card);display:flex;flex-direction:column;gap:6px">
+          <div style="display:grid;grid-template-columns:150px minmax(0,1fr) 70px;gap:10px;font-size:11px;color:var(--muted-foreground)"><span></span><span style="position:relative;height:14px"><sc-for list="{{ ejeHoras }}" as="e"><span style="position:absolute;left:{{ e.x }};transform:translateX(-50%)">{{ e.t }}</span></sc-for></span><span></span></div>
+          <sc-for list="{{ gantt }}" as="g" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:150px minmax(0,1fr) 70px;gap:10px;align-items:center;height:30px">
+              <span style="font-size:14px;display:flex;flex-direction:column;line-height:1.1"><a href="#" style="color:var(--primary);text-decoration:none">{{ g.n }}</a><span style="font-size:11px;color:var(--muted-foreground)">{{ g.p }}</span></span>
+              <span style="position:relative;height:18px;background:repeating-linear-gradient(90deg,transparent 0,transparent calc(100% / 18 - 1px),var(--border) calc(100% / 18 - 1px),var(--border) calc(100% / 18))">
+                <span title="{{ g.titulo }}" style="position:absolute;top:0;bottom:0;left:{{ g.x }};width:{{ g.w }};background:{{ g.c }};border-radius:4px"></span>
+                <span style="position:absolute;top:-8px;bottom:-8px;left:{{ relevoX }};border-left:2px dashed var(--foreground)"></span>
+              </span>
+              <b style="font-size:13px;text-align:right">{{ g.horas }}</b>
+            </div>
+          </sc-for>
+          <span style="font-size:12px;color:var(--muted-foreground);display:flex;gap:6px;align-items:center"><span style="width:0;height:14px;border-left:2px dashed var(--foreground)"></span>Relevo de caja 3:05 p. m. · Kevin entrega a Diana</span>
+        </div>
+      </section>
+
+      <section style="display:flex;flex-direction:column;gap:8px">
+        <button onClick="{{ toggleDetalle }}" style="align-self:flex-start;height:36px;padding:0 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--foreground);font:inherit;font-size:14px;font-weight:600;display:inline-flex;gap:8px;align-items:center;cursor:pointer"><i class="{{ detalleIcono }}" style="font-size:16px"></i>{{ detalleTxt }}</button>
+        <sc-if value="{{ detalle }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start">
+        <sc-for list="{{ secciones }}" as="s" hint-placeholder-count="8">
+          <section style="display:flex;flex-direction:column;gap:6px;grid-column:{{ s.span }}">
+            <div style="display:flex;align-items:baseline;gap:10px"><h2 style="margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600">{{ s.titulo }}</h2><span style="font-size:13px;color:var(--foreground)">{{ s.dice }}</span></div>
+            <div style="border-radius:8px;border:1px solid var(--border);background:var(--card);overflow-x:auto">
+              <div style="padding:6px 12px;background:var(--muted);border-bottom:1px solid var(--border);font-size:12px;color:var(--muted-foreground)"><b style="color:var(--foreground)">{{ s.n }}</b> {{ s.sustantivo }}</div>
+              <table style="width:100%;border-collapse:collapse;font-size:14px">
+                <thead><tr><sc-for list="{{ s.cols }}" as="c"><th style="height:30px;padding:0 8px;text-align:{{ c.al }};font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600;background:var(--muted);border-bottom:2px solid var(--border);white-space:nowrap">{{ c.h }}</th></sc-for></tr></thead>
+                <tbody>
+                  <sc-for list="{{ s.filas }}" as="f">
+                    <tr style="height:34px;border-bottom:1px solid var(--border)">
+                      <sc-for list="{{ f.celdas }}" as="c"><td style="padding:0 8px;white-space:nowrap;text-align:{{ c.al }};font-weight:{{ c.peso }};color:{{ c.color }};border-left:{{ c.franja }}"><sc-if value="{{ c.link }}"><a href="#" style="color:var(--primary);text-decoration:none">{{ c.t }}</a></sc-if><sc-if value="{{ c.plano }}">{{ c.t }}</sc-if></td></sc-for>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </sc-for>
+      </div>
+        </sc-if>
+      </section>
+
+
+
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1400}}">
+class Component extends DCLogic {
+  state = { detalle: false };
+  renderVals() {
+    const C = (t, o = {}) => ({ t, al: o.r ? "right" : "left", peso: o.b ? 700 : 400, color: o.c || "var(--foreground)", link: !!o.l, plano: !o.l, franja: o.f || "none" });
+    const H = (h, r) => ({ h, al: r ? "right" : "left" });
+    const ok = "var(--success)", bad = "var(--destructive)", mut = "var(--muted-foreground)";
+    const sec = (titulo, dice, sustantivo, cols, filas, span) => ({ titulo, dice, sustantivo, n: filas.length, cols, span: span || "auto",
+      filas: filas.map(celdas => ({ celdas })) });
+    const secciones = [
+      sec("Apertura por sobres", "Cuadró", "sobre abierto", [H("Sobre"), H("Contó"), H("Hora"), H("Esperado", 1), H("Contado", 1), H("Diferencia", 1)],
+        [[C("mié 24 sep", { b: 1, f: "3px solid " + ok }), C("Kevin Ruiz", { l: 1 }), C("7:04 a. m.", { c: mut }), C("$ 980.000", { r: 1 }), C("$ 980.000", { r: 1 }), C("Cuadra · $ 0", { r: 1, c: ok, b: 1 })]]),
+      sec("Retiros", "$ 1.800.000 a caja fuerte", "retiros", [H("Hora"), H("Quién"), H("Destino"), H("Monto", 1)],
+        [[C("1:40 p. m."), C("Kevin Ruiz", { l: 1 }), C("Caja fuerte · R-0331", { l: 1 }), C("$ 800.000", { r: 1 })], [C("7:15 p. m."), C("Diana Pérez", { l: 1 }), C("Caja fuerte · R-0332", { l: 1 }), C("$ 1.000.000", { r: 1 })]]),
+      sec("Gastos e ingresos de caja", "−$ 62.000 neto", "movimientos", [H("Hora"), H("Tipo"), H("Concepto"), H("Quién"), H("Monto", 1)],
+        [[C("9:12 a. m."), C("Gasto"), C("Hielo · 3 bolsas · con foto", { l: 1 }), C("Kevin Ruiz", { l: 1 }), C("−$ 18.000", { r: 1 })], [C("11:40 a. m."), C("Gasto"), C("Gas propano · con foto", { l: 1 }), C("Kevin Ruiz", { l: 1 }), C("−$ 64.000", { r: 1 })], [C("4:20 p. m."), C("Ingreso"), C("Venta de reciclaje"), C("Diana Pérez", { l: 1 }), C("+$ 20.000", { r: 1 })]]),
+      sec("Base de respaldo", "Tomada y devuelta", "movimientos de base", [H("Hora"), H("Movimiento"), H("Quién"), H("Estado"), H("Monto", 1)],
+        [[C("6:10 p. m.", { f: "3px solid " + ok }), C("Préstamo para cambio"), C("Diana Pérez", { l: 1 }), C("Devuelto 9:30 p. m.", { c: ok, b: 1 }), C("$ 100.000", { r: 1 })]]),
+      sec("Relevos", "Cuadró al entregar", "relevo", [H("Hora"), H("Entrega"), H("Recibe"), H("Conteo"), H("Diferencia", 1)],
+        [[C("3:05 p. m."), C("Kevin Ruiz", { l: 1 }), C("Diana Pérez", { l: 1 }), C("A ciegas, los dos"), C("Cuadra · $ 0", { r: 1, c: ok, b: 1 })]]),
+      sec("Anulaciones, descuentos y cortesías", "−$ 62.650 · todas autorizadas", "correcciones", [H("Hora"), H("Mesa"), H("Qué"), H("Motivo"), H("Autorizó"), H("Monto", 1)],
+        [[C("1:18 p. m."), C("Mesa 6", { l: 1 }), C("Anulación · Churrasco 300 g"), C("Cliente cambió el pedido", { c: mut }), C("Diana Pérez", { l: 1 }), C("−$ 42.000", { r: 1 })], [C("2:02 p. m."), C("Mesa 2", { l: 1 }), C("Descuento 10 %"), C("Cliente frecuente", { c: mut }), C("Diana Pérez", { l: 1 }), C("−$ 8.650", { r: 1 })], [C("8:40 p. m."), C("Mesa 11", { l: 1 }), C("Cortesía · Tres leches"), C("Cumpleaños", { c: mut }), C("Diana Pérez", { l: 1 }), C("−$ 12.000", { r: 1 })]], "span 2"),
+      sec("Conteos por área", "Diferencia a costo −$ 17.800", "áreas", [H("Área"), H("Contó"), H("Hora"), H("Artículos", 1), H("Diferencia a costo", 1)],
+        [[C("Cocina", { b: 1, f: "3px solid var(--warning)" }), C("Andrés Mejía", { l: 1 }), C("6:52 a. m.", { c: mut }), C("8 de 8", { r: 1 }), C("−$ 6.200", { r: 1 })], [C("Bar", { b: 1, f: "3px solid var(--warning)" }), C("Camilo Rojas", { l: 1 }), C("7:14 a. m.", { c: mut }), C("8 de 8", { r: 1 }), C("Ron Viejo de Caldas −0,2 · −$ 11.600", { r: 1, l: 1 })]]),
+      sec("Asistencia", "6 personas · 50 h 35 min", "personas", [H("Persona"), H("Puesto"), H("Entrada"), H("Salida"), H("Horas", 1)],
+        [[C("Kevin Ruiz", { l: 1 }), C("Caja"), C("7:00 a. m."), C("3:10 p. m."), C("8 h 10", { r: 1 })], [C("Diana Pérez", { l: 1 }), C("Supervisora"), C("2:55 p. m."), C("11:05 p. m."), C("8 h 10", { r: 1 })], [C("Laura Gómez", { l: 1 }), C("Salón"), C("10:50 a. m."), C("7:30 p. m."), C("8 h 40", { r: 1 })], [C("Yuli Cárdenas", { l: 1 }), C("Salón"), C("2:00 p. m."), C("10:40 p. m."), C("8 h 40", { r: 1 })], [C("Andrés Mejía", { l: 1 }), C("Cocina"), C("6:30 a. m."), C("3:30 p. m."), C("9 h 00", { r: 1 })], [C("Camilo Rojas", { l: 1 }), C("Bar"), C("7:05 a. m."), C("3:00 p. m."), C("7 h 55", { r: 1 })]]),
+    ];
+
+    const fmt = (n) => "$ " + n.toLocaleString("es-CO").replace(/,/g, ".");
+    const ef = [300, 360, 480, 650, 890, 1150, 1420, 780, 930, 1040, 1150, 1330, 560, 1180, 2150, 3080].map(v => v * 1000);
+    const U = 1200000, mxE = Math.max(...ef) * 1.08;
+    const hl = (hn) => (hn > 12 ? hn - 12 : hn) + (hn >= 12 ? " p. m." : " a. m.");
+    const efectivo = ef.map((v, j) => ({ h: hl(7 + j), alto: (v / mxE * 100) + "%", c: v > U ? "var(--warning)" : "var(--data-1)", titulo: hl(7 + j) + ": " + fmt(v), retiro: j === 7 ? "↓ $ 800.000" : j === 12 ? "↓ $ 1.000.000" : "" }));
+    const efectivoResumen = [
+      { t: "Al mediodía y a las 6 p. m. se retiró a tiempo", d: "Pasó el umbral y en menos de una hora salió a caja fuerte.", c: "var(--success)" },
+      { t: "Desde las 9 p. m. no se retiró", d: "Cerró con $ 3.082.500 en caja, 2,6 veces el umbral. La cinta de caja sugirió el retiro a las 9:12 p. m.", c: "var(--warning)" },
+    ];
+    const X0 = 6, X1 = 24, px = (hh, mm) => ((hh + mm / 60 - X0) / (X1 - X0) * 100);
+    const g = [["Kevin Ruiz", "Caja", 7, 0, 15, 10, "8 h 10"], ["Diana Pérez", "Supervisora", 14, 55, 23, 5, "8 h 10"], ["Laura Gómez", "Salón", 10, 50, 19, 30, "8 h 40"], ["Yuli Cárdenas", "Salón", 14, 0, 22, 40, "8 h 40"], ["Andrés Mejía", "Cocina", 6, 30, 15, 30, "9 h 00"], ["Camilo Rojas", "Bar", 7, 5, 15, 0, "7 h 55"]];
+    const gantt = g.map(([n, p, h1, m1, h2, m2, horas]) => ({ n, p, horas, x: px(h1, m1) + "%", w: (px(h2, m2) - px(h1, m1)) + "%", c: "var(--data-1)", titulo: n + ": " + hl(h1) .replace(/^(\d+)/, (x) => x) + " a " + hl(h2) }));
+    const pasos = [
+      { cuando: "Apertura · 7:04 a. m.", t: "Sobre del mié 24 sep", quien: "Contó Kevin Ruiz", esp: "$ 980.000", cont: "$ 980.000", dif: "Cuadra · $ 0", c: "var(--success)", flecha: true },
+      { cuando: "Relevo · 3:05 p. m.", t: "Kevin entrega a Diana", quien: "Contaron los dos", esp: "$ 1.034.000", cont: "$ 1.034.000", dif: "Cuadra · $ 0", c: "var(--success)", flecha: true },
+      { cuando: "Cierre · 10:48 p. m.", t: "Cierre de caja", quien: "Contó Diana Pérez", esp: "$ 3.082.500", cont: "$ 3.078.500", dif: "▼ −$ 4.000", c: "var(--destructive)", flecha: false },
+    ];
+    const extra = { pasos, efectivo, efectivoResumen, umbral: (U / mxE * 100) + "%", gantt, relevoX: px(15, 5) + "%",
+      ejeHoras: [6, 9, 12, 15, 18, 21, 24].map(hh => ({ t: hh === 24 ? "12 a. m." : hl(hh), x: ((hh - X0) / (X1 - X0) * 100) + "%" })),
+      detalle: this.state.detalle, detalleTxt: this.state.detalle ? "Ocultar el detalle" : "Ver el detalle del turno · 8 listas, 22 registros", detalleIcono: this.state.detalle ? "icon-chevron-up" : "icon-chevron-down",
+      toggleDetalle: () => this.setState({ detalle: !this.state.detalle }) };
+    return { secciones, ...extra };
+  }
+}
+</script>
+</body>
+</html>

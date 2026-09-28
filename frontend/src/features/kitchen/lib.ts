@@ -188,6 +188,51 @@ export function writeKdsPrefs(patch: Partial<KdsScreenPrefs>): void {
  * la barrera (`current_operator` responde `IDENTIFY_REQUIRED`); esto sólo
  * evita un viaje que ya se sabe que va a rebotar.
  */
+// ---------------------------------------------------------------------------
+// La grilla del KDS (handoff POS, pantalla 6): tiquetes en columnas,
+// ordenados por demora. Sólo ordena y reparte lo que llegó; la demora
+// (`elapsed_seconds`) y el semáforo son del servidor.
+// ---------------------------------------------------------------------------
+
+/**
+ * Reparte en `columnas` por turno (0, 1, 2… y vuelta), para que la primera
+ * fila de la pantalla sea la de los más demorados y cada columna crezca
+ * hacia abajo sin huecos.
+ */
+export function repartirEnColumnas<T>(items: readonly T[], columnas: number): T[][] {
+  const n = Math.max(1, Math.floor(columnas))
+  const out: T[][] = Array.from({ length: n }, () => [])
+  items.forEach((item, i) => out[i % n]!.push(item))
+  return out
+}
+
+/** Cuántas columnas de al menos `minimo` px entran en `ancho` (entre 1 y `maximo`). */
+export function columnasQueEntran(ancho: number, minimo = 300, gap = 16, maximo = 5): number {
+  if (!Number.isFinite(ancho) || ancho <= 0) return 1
+  return Math.max(1, Math.min(maximo, Math.floor((ancho + gap) / (minimo + gap))))
+}
+
+/**
+ * Las estaciones de la barra: primero las que la sede configuró, en su
+ * orden (sin «none», que es «sin estación»); después las que aparecieron en
+ * los tiquetes y no están configuradas; y la elegida, aunque hoy no tenga
+ * nada, para poder verla y volver a «Todas».
+ */
+export function estacionesDeLaBarra(
+  configuradas: readonly string[] | undefined,
+  vistas: Iterable<string>,
+  actual?: string,
+): string[] {
+  const out: string[] = []
+  for (const s of configuradas ?? []) if (s && s !== "none" && !out.includes(s)) out.push(s)
+  const extra = Array.from(new Set(vistas))
+    .filter((s) => s && s !== "none" && !out.includes(s))
+    .sort()
+  out.push(...extra)
+  if (actual !== undefined && !out.includes(actual)) out.push(actual)
+  return out
+}
+
 export function hasActivePerson(
   employee: { id: number } | null | undefined,
   expiresAt: string | null | undefined,

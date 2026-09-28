@@ -1,4 +1,5 @@
 import { Globo, RenglonGlobo } from "./base"
+import { ResumenLateral, type RenglonResumen } from "./BarrasConReferencia"
 import {
   CLASE_LIENZO,
   HALO,
@@ -18,6 +19,10 @@ export interface ScatterPunto {
   y: number
   /** Lleva etiqueta directa y marca más grande. */
   resaltar?: boolean
+  /** Texto chico al lado del nombre (variante `mix`): el margen ya formateado. */
+  detalle?: string
+  /** El punto está en el grupo que hay que revisar (lo decide el backend): va en ámbar. */
+  alerta?: boolean
 }
 
 export interface Eje {
@@ -35,6 +40,17 @@ export interface QuadrantScatterProps {
   cuadrantes: [string, string, string, string]
   alto?: number
   resumen?: string
+  /**
+   * `mix` («Mix de platos» del rediseño): promedios punteados, puntos de
+   * 14 px con borde del color de la tarjeta, nombre y detalle al lado de
+   * cada punto, y el cuadrante de `cuadranteAlerta` rotulado en ámbar con ▲.
+   */
+  variante?: "clasico" | "mix"
+  /** Índice (en el orden de `cuadrantes`) del cuadrante «▲ Revisar». */
+  cuadranteAlerta?: 0 | 1 | 2 | 3
+  /** Resumen lateral de 280 px: qué hacer con cada grupo. */
+  resumenLateral?: RenglonResumen[]
+  rotuloResumen?: string
 }
 
 const MARGEN_SUP = 34
@@ -64,7 +80,15 @@ export function QuadrantScatter({
   cuadrantes,
   alto = 260,
   resumen,
+  variante = "clasico",
+  cuadranteAlerta,
+  resumenLateral,
+  rotuloResumen,
 }: QuadrantScatterProps): React.JSX.Element {
+  const mix = variante === "mix"
+  const nombreCuadrante = (i: number) =>
+    i === cuadranteAlerta && !cuadrantes[i]!.startsWith("▲") ? `▲ ${cuadrantes[i]}` : cuadrantes[i]!
+  const rotuloDe = (p: ScatterPunto) => (mix && p.detalle ? `${p.etiqueta} ${p.detalle}` : p.etiqueta)
   const [ref, ancho] = useAncho<HTMLDivElement>()
   const { activo, setActivo, onKeyDown, soltar } = useRecorrido(puntos.length)
 
@@ -90,7 +114,9 @@ export function QuadrantScatter({
 
   // Etiquetas directas: resaltados primero, después extremos (máx./mín. de cada eje).
   const candidatos: number[] = []
-  puntos.forEach((p, i) => p.resaltar && candidatos.push(i))
+  // En `mix` todo punto lleva su nombre al lado (el orden sigue siendo la
+  // prioridad cuando dos chocan).
+  puntos.forEach((p, i) => (p.resaltar || mix) && candidatos.push(i))
   if (puntos.length) {
     const idx = (f: (a: ScatterPunto, b: ScatterPunto) => boolean) =>
       puntos.reduce((m, p, i) => (f(p, puntos[m]!) ? i : m), 0)
@@ -99,17 +125,17 @@ export function QuadrantScatter({
   }
   const ocupadas: Caja[] = [
     // Los nombres de cuadrante en las esquinas.
-    { x: x0, y: y0, w: anchoTexto(cuadrantes[1]), h: 16 },
-    { x: x1 - anchoTexto(cuadrantes[0]), y: y0, w: anchoTexto(cuadrantes[0]), h: 16 },
-    { x: x0, y: y1 - 16, w: anchoTexto(cuadrantes[2]), h: 16 },
-    { x: x1 - anchoTexto(cuadrantes[3]), y: y1 - 16, w: anchoTexto(cuadrantes[3]), h: 16 },
+    { x: x0, y: y0, w: anchoTexto(nombreCuadrante(1)), h: 16 },
+    { x: x1 - anchoTexto(nombreCuadrante(0)), y: y0, w: anchoTexto(nombreCuadrante(0)), h: 16 },
+    { x: x0, y: y1 - 16, w: anchoTexto(nombreCuadrante(2)), h: 16 },
+    { x: x1 - anchoTexto(nombreCuadrante(3)), y: y1 - 16, w: anchoTexto(nombreCuadrante(3)), h: 16 },
   ]
   const rotulos: { i: number; x: number; y: number; ancla: "start" | "end" }[] = []
   for (const i of candidatos) {
     const p = puntos[i]!
     const px = sx(p.x)
     const py = sy(p.y)
-    const w = anchoTexto(p.etiqueta)
+    const w = anchoTexto(rotuloDe(p))
     const derecha = px + 8 + w <= ancho - 2
     const caja: Caja = derecha ? { x: px + 8, y: py - 8, w, h: 16 } : { x: px - 8 - w, y: py - 8, w, h: 16 }
     if (caja.x < 0) continue
@@ -128,7 +154,17 @@ export function QuadrantScatter({
     resumen ??
     `Dispersión de ${puntos.length} elementos: ${ejeX.titulo} contra ${ejeY.titulo}. ${cuadrantes
       .map((c, i) => `${c}: ${cuenta[i]}`)
-      .join("; ")}. El detalle está en la tabla.`
+      .join("; ")}.${
+      mix && puntos.some((p) => p.alerta)
+        ? ` A revisar: ${puntos
+            .filter((p) => p.alerta)
+            .map((p) => rotuloDe(p))
+            .join(", ")}.`
+        : ""
+    } El detalle está en la tabla.`
+  // Promedios punteados en `mix`; guiones en la forma clásica.
+  const trazoUmbral = mix ? "1 3" : "4 3"
+  const colorPunto = (p: ScatterPunto) => (mix ? (p.alerta ? "var(--warning)" : "var(--data-1)") : "var(--data-ink)")
 
   const activoP = activo !== null ? puntos[activo] : undefined
   const alto1 = y1 + BANDA_X
@@ -137,7 +173,7 @@ export function QuadrantScatter({
   const wUx = anchoTexto(umbralX.etiqueta)
   const anclaUx = ux + wUx / 2 > ancho - 2 ? "end" : ux - wUx / 2 < 2 ? "start" : "middle"
 
-  return (
+  const lienzo = (
     <div
       ref={ref}
       role="img"
@@ -146,6 +182,7 @@ export function QuadrantScatter({
       onKeyDown={onKeyDown}
       onBlur={soltar}
       className={CLASE_LIENZO}
+      data-variante={variante}
     >
       <svg width="100%" height={alto1} viewBox={`0 0 ${ancho} ${alto1}`} aria-hidden="true" className="block overflow-visible">
         <text x={x0 - margenIzq} y={12} fontSize={TEXTO_PX} fontWeight={500} fill={TINTA.secundario}>
@@ -178,13 +215,13 @@ export function QuadrantScatter({
 
         {/* Umbrales rotulados. */}
         <g data-umbral="x">
-          <line x1={ux} x2={ux} y1={y0 - 4} y2={y1} stroke="var(--data-muted)" strokeWidth={1} strokeDasharray="4 3" />
+          <line x1={ux} x2={ux} y1={y0 - 4} y2={y1} stroke="var(--data-muted)" strokeWidth={mix ? 1.5 : 1} strokeDasharray={trazoUmbral} strokeLinecap="round" />
           <text x={ux} y={y0 - 8} textAnchor={anclaUx} fontSize={TEXTO_PX} fill={TINTA.secundario} {...HALO}>
             {umbralX.etiqueta}
           </text>
         </g>
         <g data-umbral="y">
-          <line x1={x0} x2={x1} y1={uy} y2={uy} stroke="var(--data-muted)" strokeWidth={1} strokeDasharray="4 3" />
+          <line x1={x0} x2={x1} y1={uy} y2={uy} stroke="var(--data-muted)" strokeWidth={mix ? 1.5 : 1} strokeDasharray={trazoUmbral} strokeLinecap="round" />
           <text x={x1} y={uy - 4} textAnchor="end" fontSize={TEXTO_PX} fill={TINTA.secundario} {...HALO}>
             {umbralY.etiqueta}
           </text>
@@ -192,33 +229,55 @@ export function QuadrantScatter({
 
         {/* Nombres de los cuadrantes, en sus esquinas. */}
         <g fontSize={TEXTO_PX} fontWeight={600} fill={TINTA.secundario} {...HALO} data-cuadrantes="">
-          <text x={x1 - 2} y={y0 + 12} textAnchor="end">
-            {cuadrantes[0]}
-          </text>
-          <text x={x0 + 4} y={y0 + 12}>
-            {cuadrantes[1]}
-          </text>
-          <text x={x0 + 4} y={y1 - 5}>
-            {cuadrantes[2]}
-          </text>
-          <text x={x1 - 2} y={y1 - 5} textAnchor="end">
-            {cuadrantes[3]}
-          </text>
+          {[
+            { x: x1 - 2, y: y0 + 12, ancla: "end" as const },
+            { x: x0 + 4, y: y0 + 12, ancla: "start" as const },
+            { x: x0 + 4, y: y1 - 5, ancla: "start" as const },
+            { x: x1 - 2, y: y1 - 5, ancla: "end" as const },
+          ].map((c, i) => (
+            <text
+              key={i}
+              x={c.x}
+              y={c.y}
+              textAnchor={c.ancla}
+              data-cuadrante={i}
+              data-alerta={i === cuadranteAlerta ? "" : undefined}
+              fill={i === cuadranteAlerta ? "var(--warning)" : undefined}
+            >
+              {nombreCuadrante(i)}
+            </text>
+          ))}
         </g>
 
-        {puntos.map((p, i) => (
-          <circle
-            key={p.key}
-            data-punto={p.key}
-            cx={sx(p.x)}
-            cy={sy(p.y)}
-            r={p.resaltar ? 6 : 4.5}
-            fill="var(--data-ink)"
-            fillOpacity={activo !== null && activo !== i ? 0.55 : 1}
-            stroke={activo === i ? TINTA.texto : TINTA.superficie}
-            strokeWidth={2}
-          />
-        ))}
+        {puntos.map((p, i) =>
+          mix ? (
+            // 14 px, borde del color de la tarjeta y un anillo fino del color del punto.
+            <g key={p.key} data-punto={p.key} data-alerta={p.alerta ? "" : undefined}>
+              <circle cx={sx(p.x)} cy={sy(p.y)} r={8} fill="none" stroke={colorPunto(p)} strokeWidth={1} />
+              <circle
+                cx={sx(p.x)}
+                cy={sy(p.y)}
+                r={6}
+                fill={colorPunto(p)}
+                fillOpacity={activo !== null && activo !== i ? 0.55 : 1}
+                stroke={activo === i ? TINTA.texto : TINTA.superficie}
+                strokeWidth={2}
+              />
+            </g>
+          ) : (
+            <circle
+              key={p.key}
+              data-punto={p.key}
+              cx={sx(p.x)}
+              cy={sy(p.y)}
+              r={p.resaltar ? 6 : 4.5}
+              fill="var(--data-ink)"
+              fillOpacity={activo !== null && activo !== i ? 0.55 : 1}
+              stroke={activo === i ? TINTA.texto : TINTA.superficie}
+              strokeWidth={2}
+            />
+          ),
+        )}
 
         {rotulos.map((r) => (
           <text
@@ -229,11 +288,16 @@ export function QuadrantScatter({
             dy="0.32em"
             textAnchor={r.ancla}
             fontSize={TEXTO_PX}
-            fontWeight={puntos[r.i]!.resaltar ? 600 : 400}
+            fontWeight={puntos[r.i]!.resaltar || mix ? 600 : 400}
             fill={TINTA.texto}
             {...HALO}
           >
             {puntos[r.i]!.etiqueta}
+            {mix && puntos[r.i]!.detalle ? (
+              <tspan fontWeight={400} fill={TINTA.secundario}>
+                {` ${puntos[r.i]!.detalle}`}
+              </tspan>
+            ) : null}
           </text>
         ))}
 
@@ -256,8 +320,19 @@ export function QuadrantScatter({
           <div className="mb-0.5 font-medium">{activoP.etiqueta}</div>
           <RenglonGlobo valor={ejeX.formato(activoP.x)} etiqueta={ejeX.titulo} />
           <RenglonGlobo valor={ejeY.formato(activoP.y)} etiqueta={ejeY.titulo} />
+          {mix && activoP.alerta && cuadranteAlerta !== undefined ? (
+            <div className="mt-0.5 font-semibold text-warning">{nombreCuadrante(cuadranteAlerta)}</div>
+          ) : null}
         </Globo>
       ) : null}
+    </div>
+  )
+
+  if (!resumenLateral || resumenLateral.length === 0) return lienzo
+  return (
+    <div className="flex min-w-0 flex-col md:flex-row" data-slot="cuadrante-con-resumen">
+      <div className="min-w-0 flex-1">{lienzo}</div>
+      <ResumenLateral rotulo={rotuloResumen} renglones={resumenLateral} />
     </div>
   )
 }

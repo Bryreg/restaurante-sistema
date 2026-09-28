@@ -24,6 +24,23 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from app.reports.series_schemas import OverviewSeriesOut
+
+# Espejo de los literales de `series_schemas` (`BadSide`, `SeriesUnit`) para
+# que `frontend/src/audit/api-literal-types.test.ts`, que lee los
+# `schemas.py`, los cruce contra `SeriesBadSide`/`SeriesUnit` de
+# `src/api/reports.ts`. `tests/reports/test_series.py` exige que el espejo y
+# el original digan lo mismo.
+SeriesBadSideLiteral = Literal["above", "below"]
+SeriesUnitLiteral = Literal["cop", "count", "people", "minutes", "bp"]
+# Lo mismo para las secciones del celular (`SectionTone`, `SectionChart`,
+# `SectionKey` de `src/api/panel.ts`); `tests/reports/test_sections.py`
+# exige que el espejo diga lo mismo que el original.
+SectionToneLiteral = Literal["ok", "warning", "critical", "muted"]
+SectionChartLiteral = Literal["columns", "diverging", "dual"]
+SectionKeyLiteral = Literal["caja", "equipo", "informes"]
+DishMixGroupLiteral = Literal["keep", "promote", "reprice", "review"]
+
 GroupBy = Literal["business_date", "shift", "method", "channel", "employee", "hour", "zone", "product", "category"]
 
 
@@ -634,6 +651,9 @@ class ReportsOverviewOut(BaseModel):
     cost: CostSectionOut
     # Sólo con `scope="all"`; `None` por sede.
     by_store: list[StoreRowOut] | None
+    # Las series «barra + raya» de Informes (`app.reports.series`): cada dato
+    # con su raya ya calculada.
+    series: OverviewSeriesOut | None = None
 
 
 # Los literales del panel viven acá (y no en `panel_schemas`) para que

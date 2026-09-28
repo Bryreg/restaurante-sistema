@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -9,6 +9,7 @@ import { buildKdsRound, buildPrintJob, deviceMe } from "./fixtures"
 
 const {
   listKitchenRoundsMock,
+  listKitchenStationsMock,
   listPrintJobsMock,
   bumpItemMock,
   unbumpItemMock,
@@ -16,6 +17,7 @@ const {
   registerPrintJobMock,
 } = vi.hoisted(() => ({
   listKitchenRoundsMock: vi.fn(),
+  listKitchenStationsMock: vi.fn(),
   listPrintJobsMock: vi.fn(),
   bumpItemMock: vi.fn(),
   unbumpItemMock: vi.fn(),
@@ -32,6 +34,7 @@ vi.mock("@/api/auth", async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  listKitchenStationsMock.mockResolvedValue([])
   try {
     localStorage.clear()
   } catch {
@@ -44,6 +47,7 @@ vi.mock("@/api/kitchen", async () => {
   return {
     ...actual,
     listKitchenRounds: listKitchenRoundsMock,
+    listKitchenStations: listKitchenStationsMock,
     listPrintJobs: listPrintJobsMock,
     bumpItem: bumpItemMock,
     unbumpItem: unbumpItemMock,
@@ -374,5 +378,97 @@ describe("KdsPage", () => {
     expect(container.querySelector(".kds-completa")).not.toBeNull()
     expect(JSON.parse(localStorage.getItem("cocina-pantalla") ?? "{}").fullscreen).toBe(true)
     expect(screen.getByRole("button", { name: "Salir de pantalla completa" })).toBeInTheDocument()
+  })
+})
+
+describe("KdsPage — la pizarra del handoff", () => {
+  function ronda(order_id: number, mesa: string, elapsed: number, semaphore: "green" | "amber" | "red", station = "hot_kitchen") {
+    return buildKdsRound({
+      order_id,
+      tables: [mesa],
+      elapsed_seconds: elapsed,
+      items: [
+        {
+          item_id: order_id * 10,
+          name: `Plato ${mesa}`,
+          qty: 1,
+          course: "main",
+          station,
+          status: "sent",
+          elapsed_seconds: elapsed,
+          target_minutes: 18,
+          semaphore,
+        },
+      ],
+    })
+  }
+
+  it("la barra trae las estaciones configuradas (sin «none») con sus conteos, y el resumen ■ ▲ ● del servidor", async () => {
+    listKitchenStationsMock.mockResolvedValue(["hot_kitchen", "cold_kitchen", "desserts", "none"])
+    listKitchenRoundsMock.mockResolvedValue([
+      ronda(1, "11", 1560, "red"),
+      ronda(2, "6", 960, "amber"),
+      ronda(3, "9", 360, "green", "cold_kitchen"),
+    ])
+    listPrintJobsMock.mockResolvedValue([])
+
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    await screen.findByText("Plato 11")
+    const estaciones = screen.getByRole("radiogroup", { name: "Estación" })
+    expect(within(estaciones).getByRole("button", { name: "Todas" })).toHaveTextContent("3")
+    expect(within(estaciones).getByRole("button", { name: "Cocina caliente" })).toHaveTextContent("2")
+    expect(within(estaciones).getByRole("button", { name: "Cocina fría" })).toHaveTextContent("1")
+    // Configurada aunque hoy no tenga tiquetes; «none» no es una estación.
+    expect(within(estaciones).getByRole("button", { name: "Postres" })).toHaveTextContent("0")
+    expect(within(estaciones).queryByRole("button", { name: /sin estación/i })).not.toBeInTheDocument()
+
+    expect(screen.getByText("1 demorados")).toBeInTheDocument()
+    expect(screen.getByText("1 por vencer")).toBeInTheDocument()
+    expect(screen.getByText("1 a tiempo")).toBeInTheDocument()
+  })
+
+  it("ordena los tiquetes por demora y pinta la cabecera con el semáforo del servidor", async () => {
+    listKitchenRoundsMock.mockResolvedValue([
+      ronda(3, "9", 360, "green"),
+      ronda(1, "11", 1560, "red"),
+      ronda(2, "6", 960, "amber"),
+    ])
+    listPrintJobsMock.mockResolvedValue([])
+
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    await screen.findByText("Plato 11")
+    const tiquetes = screen.getAllByRole("article")
+    expect(tiquetes.map((t) => t.getAttribute("aria-label"))).toEqual([
+      "Comanda #1, Mesa 11",
+      "Comanda #2, Mesa 6",
+      "Comanda #3, Mesa 9",
+    ])
+    expect(within(tiquetes[0]!).getByText("26 min")).toBeInTheDocument()
+    expect(tiquetes[0]!.querySelector("header")).toHaveClass("bg-destructive")
+    expect(tiquetes[1]!.querySelector("header")).toHaveClass("bg-warning")
+    expect(tiquetes[2]!.querySelector("header")).toHaveClass("bg-success")
+  })
+
+  it("«Listo» va en contorno y, ya listo, lleno con el plato tachado", async () => {
+    listKitchenRoundsMock.mockResolvedValue([
+      buildKdsRound({
+        items: [
+          { item_id: 1, name: "Posta", qty: 1, course: "main", station: "hot_kitchen", status: "ready", elapsed_seconds: 60, semaphore: "green" },
+          { item_id: 2, name: "Arroz", qty: 2, course: "main", station: "hot_kitchen", status: "sent", elapsed_seconds: 60, semaphore: "green" },
+        ],
+      }),
+    ])
+    listPrintJobsMock.mockResolvedValue([])
+
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    const hecho = await screen.findByRole("button", { name: "Deshacer listo: Posta" })
+    const falta = screen.getByRole("button", { name: "Marcar listo: Arroz" })
+    expect(hecho).toHaveClass("bg-success")
+    expect(falta).toHaveClass("bg-transparent")
+    expect(screen.getByText("Posta")).toHaveClass("line-through")
+    expect(screen.getByText("Arroz")).not.toHaveClass("line-through")
   })
 })

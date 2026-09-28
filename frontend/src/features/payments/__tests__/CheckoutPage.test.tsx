@@ -28,6 +28,7 @@ vi.mock("@/api/payments", async () => {
     payOrder: vi.fn(),
     listDevicePaymentMethods: vi.fn(),
     getTenderSuggestions: vi.fn().mockResolvedValue({ amount: 0, exact: 0, suggestions: [] }),
+    previewChange: vi.fn().mockResolvedValue({ splits: [{ change: 0, short_by: null }], change_total: 0 }),
   };
 });
 
@@ -98,13 +99,14 @@ describe("CheckoutPage", () => {
     expect(await screen.findByText("NO ES FACTURA — documento informativo")).toBeInTheDocument();
     expect(screen.getByText(/¿desea incluir servicio voluntario del 10%\?/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /sí, \$\s?4\.630/i }));
+    await user.click(screen.getByRole("button", { name: /10 % sugerida \$\s?4\.630/i }));
     // La venta y la propina se discriminan (propina separada de la venta y
     // del impuesto, regla dura), Y se muestra lo que hay que cobrar: sin ese
-    // número el mesero suma de cabeza frente al cliente.
-    expect(await screen.findByText("Venta")).toBeInTheDocument();
+    // número el mesero suma de cabeza frente al cliente. Rótulos del handoff
+    // (`PosCobro`): «Consumo» y «Propina (no es venta)».
+    expect(await screen.findByText("Consumo", { selector: "dt" })).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?50\.000/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Propina")).toBeInTheDocument();
+    expect(screen.getByText("Propina (no es venta)")).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?4\.630/).length).toBeGreaterThan(0);
     expect(screen.getByText("Total a cobrar")).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?54\.630/).length).toBeGreaterThan(0);
@@ -126,6 +128,7 @@ describe("CheckoutPage", () => {
 
     await screen.findByText("Pagos");
     expect(screen.queryByRole("button", { name: "Partes iguales" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dividir la cuenta" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Por ítems" })).not.toBeInTheDocument();
   });
 
@@ -164,17 +167,24 @@ describe("CheckoutPage", () => {
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": false });
 
     await screen.findByText("Pagos");
-    // El monto llega puesto: el cajero sólo teclea su PIN.
+    // El monto llega puesto: el cajero toca lo recibido, teclea su PIN y
+    // confirma con «Cobrar $ X» (handoff `PosCobro`: el botón se habilita
+    // sólo con el pago completo y el PIN; el PIN ya no cobra solo).
     await screen.findByText("Completo");
+    await user.click(within(screen.getByRole("group", { name: "Recibido en un toque" })).getByRole("button", { name: "Exacto" }));
+    await screen.findByText(/falta tu pin/i);
 
     await user.keyboard("1234");
+    const cobrar = screen.getByRole("button", { name: /^cobrar \$\s?50\.000$/i });
+    await waitFor(() => expect(cobrar).toBeEnabled());
+    await user.click(cobrar);
 
     await waitFor(() => expect(payOrder).toHaveBeenCalledTimes(1));
     const [orderId, body, idempotencyKey] = vi.mocked(payOrder).mock.calls[0];
     expect(orderId).toBe(42);
     expect(body.pin).toBe("1234");
     expect(body.expected_version).toBe(3);
-    expect(body.splits).toEqual([{ method: "cash", amount: 50000, tendered: undefined, reference: undefined }]);
+    expect(body.splits).toEqual([{ method: "cash", amount: 50000, tendered: 50000, reference: undefined }]);
     expect(typeof idempotencyKey).toBe("string");
 
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
@@ -201,11 +211,13 @@ describe("CheckoutPage", () => {
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": false });
 
     await screen.findByText("Pagos");
-    // Con persona activa el cierre dice quién cobra («Cobra Ana: tecleá tu
-    // PIN»): el texto cambió, la condición que se espera es la misma.
-    await screen.findByText(/tecleá tu pin/i);
+    await user.click(within(screen.getByRole("group", { name: "Recibido en un toque" })).getByRole("button", { name: "Exacto" }));
+    // El texto de ayuda pide el PIN (handoff `PosCobro`: «Falta tu PIN para
+    // confirmar»): la condición que se espera es la misma.
+    await screen.findByText(/falta tu pin/i);
 
     await user.keyboard("1234");
+    await user.click(screen.getByRole("button", { name: /^cobrar \$/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/la comanda cambió en otra tablet/i);
     await waitFor(() => {
@@ -262,8 +274,9 @@ describe("CheckoutPage — cuenta dividida por ítems: partes como filas numerad
     const rows = await filas();
     expect(rows).toHaveLength(4);
     expect(rows[0]).toHaveTextContent(/Parte 1/);
-    expect(rows[0]).toHaveTextContent(/Cobrada/);
-    expect(rows[2]).toHaveTextContent(/Parte 3.*Sigue.*\$\s?41\.800/);
+    // Estados del handoff (`PosCobro` B): Pagada / Cobrando / Pendiente.
+    expect(rows[0]).toHaveTextContent(/Pagada/);
+    expect(rows[2]).toHaveTextContent(/Parte 3.*Cobrando.*\$\s?41\.800/);
     expect(rows[2]).toHaveAttribute("aria-current", "step");
     expect(rows[3]).toHaveTextContent(/Parte 4.*Pendiente.*\$\s?43\.600/);
     // El nombre de fábrica no se repite; uno puesto a mano, sí.
@@ -275,23 +288,22 @@ describe("CheckoutPage — cuenta dividida por ítems: partes como filas numerad
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true });
 
     const rows = await filas();
-    await waitFor(() => expect(rows[0]).toHaveTextContent(/Cobrada · Tarjeta/));
+    await waitFor(() => expect(rows[0]).toHaveTextContent(/Pagada.*Tarjeta/));
     expect(rows[0]).not.toHaveTextContent(/con factura/);
     await waitFor(() => expect(rows[1]).toHaveTextContent(/Efectivo · con factura/));
     expect(getDocument).toHaveBeenCalledWith(901);
     expect(getDocument).toHaveBeenCalledWith(902);
   });
 
-  it("el botón principal repite la parte y el monto, y recién ahí abre el cobro de esa parte", async () => {
-    const user = userEvent.setup();
+  // Motivo del cambio: el handoff (`PosCobro` B) cobra la parte que sigue
+  // directo en la columna derecha —«Parte 3 de 4 · a cobrar» y «Cobrar
+  // $ 41.800»—, sin el paso intermedio «Cobrar parte N». La parte y el monto
+  // (del servidor) siguen nombrados en la acción principal.
+  it("la parte que sigue se cobra a la derecha, con su número y su monto del servidor", async () => {
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true });
 
-    const cobrar = await screen.findByRole("button", { name: /^Cobrar parte 3 · \$\s?41\.800$/ });
-    expect(screen.queryByText("Pagos")).not.toBeInTheDocument();
-
-    await user.click(cobrar);
-
-    expect(await screen.findByText("Pagos")).toBeInTheDocument();
+    expect(await screen.findByText("Parte 3 de 4 · a cobrar")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Cobrar \$\s?41\.800$/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Cobrar parte/ })).not.toBeInTheDocument();
   });
 
@@ -302,7 +314,8 @@ describe("CheckoutPage — cuenta dividida por ítems: partes como filas numerad
     const rows = await filas();
     await user.click(within(rows[3]).getByRole("button"));
 
-    expect(await screen.findByRole("button", { name: /^Cobrar parte 4 · \$\s?43\.600$/ })).toBeInTheDocument();
+    expect(await screen.findByText("Parte 4 de 4 · a cobrar")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Cobrar \$\s?43\.600$/ })).toBeInTheDocument();
     expect((await filas())[3]).toHaveAttribute("aria-current", "step");
   });
 
@@ -324,6 +337,9 @@ describe("CheckoutPage — partes iguales", () => {
     const user = userEvent.setup();
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true });
 
+    // Handoff `PosCobro`: la cuenta entera no muestra el selector; se entra con
+    // «Dividir la cuenta» y ahí están los modos.
+    await user.click(await screen.findByRole("button", { name: "Dividir la cuenta" }));
     await user.click(await screen.findByRole("button", { name: "Partes iguales" }));
     // El número de partes es una fila de botones: tocar «3» ya divide (sin
     // un segundo botón «Calcular partes» compitiendo como principal).
@@ -358,10 +374,13 @@ describe("CheckoutPage — partes iguales con propina", () => {
     const user = userEvent.setup();
     renderCheckout({ "pos.pre_bill": false, "pos.tips": true, "pos.split_bill": true });
 
+    // Handoff `PosCobro`: la cuenta entera no muestra el selector; se entra con
+    // «Dividir la cuenta» y ahí están los modos.
+    await user.click(await screen.findByRole("button", { name: "Dividir la cuenta" }));
     await user.click(await screen.findByRole("button", { name: "Partes iguales" }));
     // Sin propina respondida no se ofrece dividir.
     expect(screen.queryByRole("group", { name: "Partes" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /sí, \$\s?4\.630/i }));
+    await user.click(screen.getByRole("button", { name: /10 % sugerida \$\s?4\.630/i }));
 
     await user.click(within(screen.getByRole("group", { name: "Partes" })).getByRole("button", { name: "2" }));
     expect(splitBill).toHaveBeenCalledWith(42, { expected_version: 3, mode: "equal", parts: 2, tip_amount: 4630 });
@@ -375,5 +394,77 @@ describe("CheckoutPage — partes iguales con propina", () => {
     expect(screen.queryByText(/faltan/i)).not.toBeInTheDocument();
     // Cada parte elige su medio con botones.
     expect(screen.getAllByRole("radiogroup")).toHaveLength(2);
+  });
+});
+
+describe("CheckoutPage — dividida por asiento (handoff PosCobro B)", () => {
+  it("«Por asiento» arma las partes con el asiento de cada plato y los montos los pone el servidor", async () => {
+    const base = buildOrder();
+    const plato = base.items![0]!;
+    vi.mocked(getOrder)
+      .mockReset()
+      .mockResolvedValue(
+        buildOrder({
+          items: [
+            { ...plato, id: 100, name: "Ajiaco", seat: 1 },
+            { ...plato, id: 101, name: "Bandeja paisa", seat: 2 },
+            { ...plato, id: 102, name: "Obleas", seat: 1 },
+          ],
+        }),
+      );
+    vi.mocked(listDevicePaymentMethods).mockReset().mockResolvedValue(DEVICE_PAYMENT_METHODS);
+    const partes: SubAccountOut[] = [
+      {
+        id: 7,
+        seq: 1,
+        label: "Asiento 1",
+        seat: 1,
+        status: "open",
+        items: [
+          { item_id: 100, name: "Ajiaco" },
+          { item_id: 102, name: "Obleas" },
+        ],
+        totals: { total: 37001 },
+        tip: { suggested_amount: 2961 },
+        document_id: null,
+      },
+      {
+        id: 8,
+        seq: 2,
+        label: "Asiento 2",
+        seat: 2,
+        status: "open",
+        items: [{ item_id: 101, name: "Bandeja paisa" }],
+        totals: { total: 46002 },
+        tip: null,
+        document_id: null,
+      },
+    ];
+    vi.mocked(splitBill).mockReset().mockResolvedValue({ mode: "items", sub_accounts: partes });
+    // Antes de dividir no hay sub-cuentas; después, las que armó el servidor.
+    vi.mocked(listSubAccounts).mockReset().mockResolvedValueOnce([]).mockResolvedValue(partes);
+    const user = userEvent.setup();
+    renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": true, "pos.seats": true });
+
+    await user.click(await screen.findByRole("button", { name: "Dividir la cuenta" }));
+    // Con asientos, dividir arranca por asiento.
+    expect(await screen.findByRole("button", { name: "Por asiento" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(await screen.findByRole("button", { name: "Dividir por asiento" }));
+
+    expect(splitBill).toHaveBeenCalledWith(42, {
+      expected_version: 3,
+      mode: "items",
+      groups: [
+        { label: "Asiento 1", seat: 1, item_ids: [100, 102] },
+        { label: "Asiento 2", seat: 2, item_ids: [101] },
+      ],
+    });
+    const lista = await screen.findByRole("list", { name: "Partes de la cuenta" });
+    const rows = within(lista).getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent(/Parte 1 · Asiento 1.*Cobrando.*Ajiaco, Obleas/);
+    // Montos y propina sugerida de cada parte, tal cual del servidor.
+    expect(rows[0]).toHaveTextContent(/Propina sugerida \$\s?2\.961.*\$\s?37\.001/);
+    expect(rows[1]).toHaveTextContent(/Parte 2 · Asiento 2.*Pendiente.*\$\s?46\.002/);
+    expect(await screen.findByText("Parte 1 de 2 · a cobrar")).toBeInTheDocument();
   });
 });

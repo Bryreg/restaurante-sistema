@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Me } from "@/api/auth";
 import { ApiError } from "@/api/client";
+import { usePosTarea } from "@/app/posTarea";
 import type { SessionContextValue } from "@/app/session";
 import { renderWithProviders } from "@/test/utils";
 
@@ -142,12 +143,16 @@ describe("PosLayout — la barra del salón la decide quién se identificó", ()
     expect(new Set(rotulos).size).toBe(rotulos.length);
   });
 
-  it("los botones de la barra son objetivos de salón (min-h-14, ≥ 56 px)", async () => {
+  it("los botones de la barra son objetivos de salón (56 px)", async () => {
     renderLayout({ "pos.tables": true }, undefined, CAJERA);
 
     await rotulosDeLaBarra();
+    // Motivo del cambio: el handoff `PosBarra` fija los ítems en 56 px
+    // exactos (`min-h-[56px]`); `min-h-14` con la raíz de 17 px del salón
+    // daba 59,5 px. La regla que se prueba —ninguno por debajo de 56— es la
+    // misma.
     for (const link of within(screen.getByRole("navigation", { name: "Secciones del salón" })).getAllByRole("link")) {
-      expect(link.className).toMatch(/\bmin-h-14\b/);
+      expect(link.className).toMatch(/\bmin-h-(14|\[56px\])(?=\s|$)/);
     }
   });
 
@@ -312,6 +317,39 @@ describe("PosLayout — inicio por rol: la barra según el puesto", () => {
     renderLayout(TODO_ENCENDIDO, undefined, { ...SUPERVISOR, puesto: "salon" });
 
     expect(await rotulosDeLaBarra()).toHaveLength(7);
+  });
+});
+
+function PantallaDeCobro(): React.JSX.Element {
+  usePosTarea({ titulo: "Cobro · Mesa 4", sinSecciones: true, aLoAncho: true });
+  return <div>cobro</div>;
+}
+
+describe("PosLayout — la cabecera unificada (handoff PosBarra)", () => {
+  it("avatar con iniciales, nombre · puesto y el turno como subtítulo, en una sola fila", async () => {
+    renderLayout({ "pos.tables": true }, undefined, { ...CAJERA, puesto: "caja" });
+
+    const cabecera = (await screen.findByText("Luz Marina")).closest("header") as HTMLElement;
+    expect(within(cabecera).getByText("LM")).toBeInTheDocument();
+    expect(within(cabecera).getByText("· Caja")).toBeInTheDocument();
+    // `ShiftStatusStrip` va DENTRO de la cabecera, como subtítulo.
+    expect(within(cabecera).getByTestId("shift-status-strip")).toBeInTheDocument();
+    expect(cabecera.className).toMatch(/min-h-\[76px\]/);
+    expect(within(cabecera).getByRole("button", { name: /cambiar de persona/i }).className).toMatch(/h-\[56px\]/);
+  });
+
+  it("la pantalla pone la pastilla de su tarea y puede esconder la barra de secciones", async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/pos" element={<PosLayout />}>
+          <Route index element={<PantallaDeCobro />} />
+        </Route>
+      </Routes>,
+      { route: "/pos", me: deviceMe({ "pos.tables": true }, CAJERA) },
+    );
+
+    expect(await screen.findByText("Cobro · Mesa 4")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Secciones del salón" })).not.toBeInTheDocument();
   });
 });
 

@@ -42,6 +42,8 @@ from app.shifts.schemas import (
     CashPickupOut,
     CashPickupReverseIn,
     CashSwapIn,
+    CashSwapPreviewIn,
+    CashSwapPreviewOut,
     CashSwapOut,
     CloseConfirmIn,
     CloseConfirmOut,
@@ -605,6 +607,23 @@ def post_cash_swap(
     shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
     swap = service.create_cash_swap(db, actor=actor, shift=shift, payload=payload)
     return CashSwapOut(id=swap.id, amount=swap.amount, at=swap.at)
+
+
+@router.post("/cash-swaps/preview")
+def post_cash_swap_preview(
+    payload: CashSwapPreviewIn,
+    actor: Actor = Depends(current_device),
+    _feature: None = Depends(features.require_feature("cash.swaps")),
+) -> CashSwapPreviewOut:
+    """El cuadre de la hoja «Cambio» mientras se arma («Entra $ 100.000 ·
+    sale $ 100.000 · cuadra»). Sólo lectura: no toca el turno ni el cajón,
+    así que no lleva `Idempotency-Key`.
+
+    Pide el DISPOSITIVO y no la persona, igual que `change-preview`: se
+    consulta a cada toque y no debe renovar ni vencer la sesión de nadie. No
+    revela ningún saldo: suma lo que la persona tecleó."""
+    del actor
+    return service.preview_cash_swap(payload)
 
 
 # ---------------------------------------------------------------------------

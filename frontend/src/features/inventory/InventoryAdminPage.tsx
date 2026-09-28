@@ -149,9 +149,22 @@ export function InventoryAdminPage(): React.JSX.Element {
       <PageHeader
         name="Inventario"
         question="Qué tengo, qué me falta y qué me está mintiendo. El stock es teórico: sale de restarle a las compras lo que las recetas dicen que se gastó."
-        context={
-          ingredientsQuery.isSuccess ? [{ label: "Insumos activos", value: ingredients.length }] : undefined
-        }
+        context={[
+          ...(ingredientsQuery.isSuccess
+            ? [
+                {
+                  label: (
+                    <>
+                      <b className="font-bold text-foreground tabular-nums">{ingredients.length}</b> insumos
+                      activos
+                    </>
+                  ),
+                },
+              ]
+            : []),
+          // Handoff, pantalla 12: la franja dice también quién ve los costos.
+          { label: "Costos visibles solo para administración" },
+        ]}
       />
       <Tabs value={tab} onValueChange={cambiarPestana}>
         <TabsList className="h-auto flex-wrap">
@@ -195,7 +208,12 @@ export function InventoryAdminPage(): React.JSX.Element {
           />
         </TabsContent>
         <TabsContent value="movimientos" className="pt-4">
-          <MovementsWasteTab storeId={activeStoreId} ingredients={ingredients} />
+          <MovementsWasteTab
+            storeId={activeStoreId}
+            ingredients={ingredients}
+            // «Ver libro de movimientos» desde el «⋯» de una fila de Stock.
+            initialIngredientId={Number(searchParams.get("insumo")) || null}
+          />
         </TabsContent>
         {countsEnabled ? (
           <TabsContent value="conteos" className="pt-4">

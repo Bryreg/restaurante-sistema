@@ -9,7 +9,7 @@
  * mismas funciones que Hoy, Dinero, Ventas e Informes.
  */
 import { api } from "@/api/client"
-import type { SalesBucketOut } from "@/api/reports"
+import type { SalesBucketOut, SeriesBadSide, SeriesOut, SeriesPointOut, SeriesUnit } from "@/api/reports"
 
 /** Espejo de `PanelLevelLiteral` (`app/reports/schemas.py`). */
 export type PanelLevel = "critical" | "warning" | "info"
@@ -118,6 +118,47 @@ export interface StorePanelOut {
   salon: PanelSalonOut
   kitchen: PanelKitchenOut
   pending: PanelPendingOut
+  /** Los bullets «barra + raya» de los bloques de Hoy. */
+  bullets?: PanelBulletsOut | null
+}
+
+/** Un bullet de 90 × 10: el dato, su raya y si quedó del lado malo (lo decide el servidor). */
+export interface BulletOut {
+  value: number | null
+  reference: number | null
+  bad_side: SeriesBadSide
+  outside: boolean
+  /** Variación contra la raya, en puntos básicos con signo. */
+  delta_bp: number | null
+  /** Lo que pasa de la raya (positivo), cuando la pasa. */
+  over_by: number | null
+  /** Por qué no hay dato o raya. */
+  reason: string | null
+}
+
+export interface AreaProgressOut {
+  area_id: number
+  area_name: string
+  counted: number | null
+  total: number | null
+  /** Va atrasado: la apertura es obligatoria y falta. */
+  behind: boolean
+}
+
+export interface PanelBulletsOut {
+  /** Ventas netas de hoy contra el mismo día de la semana pasada a esta hora. */
+  sales: BulletOut
+  reference_business_date: string | null
+  /** Efectivo esperado contra el umbral de retiro; `null` sin turno. */
+  cash: BulletOut | null
+  /** Personas en turno por hora, 6 a. m.–12 a. m.; lo que viene va `future`. */
+  staff_by_hour: SeriesOut
+  area_progress: AreaProgressOut[]
+  /** Minutos de cada mesa abierta contra «mesa larga» (Ajustes). */
+  tables: SeriesOut
+  /** Minutos de cada tiquete contra «tiquete demorado» (Ajustes). */
+  tickets: SeriesOut
+  generated_at: string
 }
 
 export interface PanelOut {
@@ -128,6 +169,61 @@ export interface PanelOut {
 
 export function getPanel(storeId: number | "all"): Promise<PanelOut> {
   return api<PanelOut>("/admin/panel", { query: { store_id: storeId } })
+}
+
+// ---------------------------------------------------------------------------
+// Celular: Caja, Equipo e Informes (`GET /admin/panel/sections`). Espejo de
+// `SectionOut` en `backend/app/reports/series_schemas.py`. Cada tarjeta
+// trae su cifra, su estado en palabras, su serie «barra + raya» y sus
+// excepciones: la pantalla sólo formatea `value` según `unit`.
+// ---------------------------------------------------------------------------
+
+/** Cómo está una tarjeta o un renglón. Espejo de `SectionToneLiteral`. */
+export type SectionTone = "ok" | "warning" | "critical" | "muted"
+/** Qué dibujo pide la serie. Espejo de `SectionChartLiteral`. */
+export type SectionChart = "columns" | "diverging" | "dual"
+/** Espejo de `SectionKeyLiteral`. */
+export type SectionKey = "caja" | "equipo" | "informes"
+
+export interface SectionRowOut {
+  key: string
+  label: string
+  /** `null`: el renglón no tiene cifra y dice `note`. */
+  value: number | null
+  unit: SeriesUnit
+  note: string | null
+  tone: SectionTone
+}
+
+export interface SectionCardOut {
+  key: string
+  available: boolean
+  reason: string | null
+  unit: SeriesUnit
+  /** `null` = sin dato (nunca 0). */
+  value: number | null
+  /** «de cuántos» («2 de 4»). */
+  of: number | null
+  /** La cifra cuando no es un número (una sede, una franja). */
+  value_text: string | null
+  tone: SectionTone
+  status: string | null
+  note: string | null
+  chart: SectionChart
+  series: SeriesOut
+  rows: SectionRowOut[]
+}
+
+export interface SectionOut {
+  section: SectionKey
+  scope: "all" | "store"
+  store_ids: number[]
+  generated_at: string
+  cards: SectionCardOut[]
+}
+
+export function getPanelSection(section: SectionKey, storeId: number | "all"): Promise<SectionOut> {
+  return api<SectionOut>("/admin/panel/sections", { query: { section, store_id: storeId } })
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +279,8 @@ export interface RecordAttendanceOut {
   out_at: string | null
   /** `open`, `closed` o `review` (salida olvidada). */
   status: string
+  /** Minutos trabajados, restadas las pausas (motor de nómina). `null` sin salida. */
+  worked_minutes?: number | null
 }
 
 export interface RecordEnvelopeOut {
@@ -197,6 +295,8 @@ export interface RecordOpeningCountOut {
   envelopes: RecordEnvelopeOut[]
   expected_total: number
   counted_total: number
+  /** Contado − esperado de la apertura entera (negativo = faltante). Ausente en un backend viejo. */
+  difference_total?: number
   counted_by: string
   counted_at: string
 }
@@ -241,6 +341,26 @@ export interface ShiftRecordOut {
   novelties: RecordNoveltyOut[]
   area_counts: RecordAreaCountOut[]
   attendance: RecordAttendanceOut[]
+  /** «¿Cuándo hubo más efectivo del que debía?»: esperado por hora contra el umbral de retiro. */
+  cash_by_hour?: CashByHourSeriesOut | null
+}
+
+export interface CashHourPointOut extends SeriesPointOut {
+  /** Los retiros de esa hora, en pesos. */
+  pickups: number[]
+}
+
+export interface CashByHourSeriesOut {
+  available: boolean
+  reason: string | null
+  unit: "cop"
+  bad_side: SeriesBadSide
+  /** El umbral de retiro de la sede. */
+  reference: number | null
+  points: CashHourPointOut[]
+  hours_over: number
+  /** La serie se cortó (turno abandonado de muchas horas). */
+  truncated: boolean
 }
 
 export function getShiftRecord(shiftId: number): Promise<ShiftRecordOut> {
@@ -306,6 +426,31 @@ export interface IngredientRecordOut {
   stock: string | null
   by_cause: IngredientCauseTotalOut[]
   area_counts: IngredientCountLineOut[]
+  /** «¿Cuándo se me acaba?»: stock al cierre, 14 días + 7 proyectados, contra el mínimo. */
+  stock_by_day?: StockByDaySeriesOut | null
+}
+
+/** Cantidades en texto decimal de la unidad base, como el resto de la API. */
+export interface StockDayPointOut {
+  key: string
+  label: string
+  business_date: string
+  qty: string | null
+  outside: boolean
+  future: boolean
+  now: boolean
+}
+
+export interface StockByDaySeriesOut {
+  available: boolean
+  reason: string | null
+  bad_side: SeriesBadSide
+  base_unit: string
+  min_stock: string
+  daily_use: string | null
+  points: StockDayPointOut[]
+  below_min_on: string | null
+  runs_out_on: string | null
 }
 
 export function getIngredientRecord(ingredientId: number, range: RecordRange = {}): Promise<IngredientRecordOut> {

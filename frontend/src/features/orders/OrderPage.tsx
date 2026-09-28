@@ -1,8 +1,9 @@
-import { CheckCheck, ReceiptText, Send } from "lucide-react"
+import { ArrowLeft, CheckCheck, Clock, ReceiptText, Send } from "lucide-react"
 import { useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import { usePosTarea } from "@/app/posTarea"
 import { puedeManejarCaja } from "@/app/puesto"
 import { useSession } from "@/app/session"
 import type { CatalogComboOut, CatalogProductOut } from "@/api/catalog"
@@ -31,9 +32,13 @@ import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 import { formatInstant } from "@/lib/businessDate"
+import { cn } from "@/lib/utils"
 
 import { AuthorizerDialog } from "./AuthorizerDialog"
 import { CatalogPanel } from "./CatalogPanel"
@@ -55,11 +60,12 @@ import {
 import {
   CHANNEL_LABEL,
   courseLabel,
+  elapsedLabel,
   findMergeableLine,
   isDishLine,
-  nextRoundNo,
   ORDER_STATUS_LABEL,
   productNeedsOptions,
+  toggleNote,
   unsentItemCount,
   unsentQtyByProduct,
   VOID_NEEDS_PIN_TEXT,
@@ -85,6 +91,18 @@ function voidNeedsAuthorizer(target: VoidTarget | null, order: OrderOut | undefi
   if (order.bill_presented_at) return true
   if (target.scope === "item") return target.item.status !== "pending"
   return (order.items ?? []).some((item) => item.status !== "pending" && item.status !== "voided")
+}
+
+/** Los cursos que se eligen en la comanda (handoff `PosComanda`: Entrada · Fuerte · Postre). */
+const CHOOSABLE_COURSES = ["starter", "main", "dessert"] as const
+
+/** Botón de «elegir uno» de 56 px (asiento, curso): el elegido en `foreground` lleno. */
+function segmentClass(selected: boolean, size: string): string {
+  return cn(
+    "h-[56px] min-w-0 flex-1 rounded-lg border font-bold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+    size,
+    selected ? "border-foreground bg-foreground text-background" : "border-border bg-background text-foreground hover:bg-muted",
+  )
 }
 
 export function OrderPage(): React.JSX.Element {
@@ -123,6 +141,17 @@ export function OrderPage(): React.JSX.Element {
   // misma `expected_version` y el segundo rebota con `STALE_VERSION` — un
   // plato perdido en el peor minuto del turno.
   const quickAddQueue = useRef<Promise<void>>(Promise.resolve())
+  // Asiento y curso elegidos para lo que se toque en la carta; `null` =
+  // «Todos» / el curso por defecto del plato.
+  const [chosenSeat, setChosenSeat] = useState<number | null>(null)
+  const [chosenCourse, setChosenCourse] = useState<string | null>(null)
+  // La línea sin enviar elegida: muestra sus notas rápidas.
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
+  const [otherNoteItem, setOtherNoteItem] = useState<OrderItemOut | null>(null)
+  const [otherNoteText, setOtherNoteText] = useState("")
+  // La comanda maneja su alto: carta y pedido se desplazan por dentro y el
+  // pie con «Enviar a cocina» queda fijo.
+  usePosTarea({ aLoAncho: true })
 
   function saveOrder(updated: NonNullable<typeof order>) {
     if (orderId !== null) queryClient.setQueryData(orderQueryKey(orderId), updated)
@@ -167,6 +196,8 @@ export function OrderPage(): React.JSX.Element {
   }
   const firedCourses = new Map((order.courses_fired ?? []).map((fire) => [fire.course, fire]))
   const isOrderOpenish = order.status === "open" || order.status === "to_pay"
+  const seatsOn = hasFeature("pos.seats") && (order.covers ?? 0) > 0
+  const coursesOn = hasFeature("pos.courses")
 
   // ---------------------------------------------------------------------
   // Agregar ítem.
@@ -222,16 +253,25 @@ export function OrderPage(): React.JSX.Element {
     // de cantidad no revisa ni el cupo ni el PIN, así que va una línea nueva
     // por `addItems`, que sí los revisa.
     const canMerge = (product.daily_remaining === null || product.daily_remaining === undefined) && !current.bill_presented_at
-    const mergeable = canMerge ? findMergeableLine(current.items ?? [], product) : undefined
+    const target = { seat: seatsOn ? chosenSeat : null, course: coursesOn ? chosenCourse : null }
+    const mergeable = canMerge ? findMergeableLine(current.items ?? [], product, target) : undefined
+    const itemIn: OrderItemIn = { product_id: product.id, qty: 1 }
+    if (target.seat !== null) itemIn.seat = target.seat
+    if (target.course !== null) itemIn.course = target.course
     try {
       const updated = mergeable
         ? await patchItem(current.id, mergeable.id, { expected_version: current.version ?? 0, qty: (mergeable.qty ?? 1) + 1 })
         : await addItems(
             current.id,
-            { expected_version: current.version ?? 0, items: [{ product_id: product.id, qty: 1 }], authorizer_pin: pin },
+            { expected_version: current.version ?? 0, items: [itemIn], authorizer_pin: pin },
             newIdempotencyKey(),
           )
       saveOrder(updated)
+      // La línea que acaba de recibir el plato queda elegida: sus notas
+      // rápidas («Sin cebolla») están a un toque.
+      const known = new Set((current.items ?? []).map((item) => item.id))
+      const added = mergeable ?? (updated.items ?? []).find((item) => !known.has(item.id))
+      if (added) setSelectedItemId(added.id)
       if (pin !== undefined) settled()
     } catch (err) {
       handleError(err, { pin, retry: (retryPin) => enqueueQuickAdd(product, retryPin) })
@@ -256,6 +296,27 @@ export function OrderPage(): React.JSX.Element {
       // Con la cuenta presentada el servidor pide PIN (`BILL_PRESENTED_NEEDS_AUTH`),
       // igual que al agregar: `handleError` abre el mismo diálogo.
       handleError(err, { pin, retry: (retryPin) => void handleQtyChange(item, nextQty, retryPin) })
+    } finally {
+      setBusyItemId(null)
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Nota de una línea sin enviar (notas rápidas u «Otra nota…»).
+  // ---------------------------------------------------------------------
+  async function handleNoteChange(item: OrderItemOut, note: string, pin?: string) {
+    if (!order) return
+    setBusyItemId(item.id)
+    try {
+      const updated = await patchItem(order.id, item.id, {
+        expected_version: order.version ?? 0,
+        note,
+        authorizer_pin: pin,
+      })
+      saveOrder(updated)
+      if (pin !== undefined) settled()
+    } catch (err) {
+      handleError(err, { pin, retry: (retryPin) => void handleNoteChange(item, note, retryPin) })
     } finally {
       setBusyItemId(null)
     }
@@ -480,37 +541,61 @@ export function OrderPage(): React.JSX.Element {
   // Misma regla que la caja (`puedeManejarCaja`); el backend decide igual.
   const canCharge = puedeManejarCaja(me?.employee, null)
   const asksForBill = !canCharge && hasFeature("pos.pre_bill")
+  // Asiento y curso de lo que se toca en la carta (handoff `PosComanda`):
+  // sólo con sus funciones encendidas; el asiento, además, con comensales.
+  const seatOptions = seatsOn ? Array.from({ length: order.covers ?? 0 }, (_, index) => index + 1) : []
+  const selectedLine = items.find((item) => item.id === selectedItemId && item.status === "pending") ?? null
 
   return (
-    <div className="space-y-6 pb-28">
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-bold">{titleParts.join(" · ")}</h1>
-            {subtitleParts.length > 0 ? <p className="text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p> : null}
-          </div>
-          <div className="flex items-center gap-2">
-            {order.status ? <Badge variant="outline">{ORDER_STATUS_LABEL[order.status] ?? order.status}</Badge> : null}
-            {order.bill_presented_at ? (
-              <Badge variant="secondary">Cuenta presentada · {formatInstant(order.bill_presented_at)}</Badge>
-            ) : null}
-          </div>
-        </div>
-        {order.note ? <p className="text-sm text-muted-foreground">Nota: {order.note}</p> : null}
-      </header>
+    <div className={isOrderOpenish ? "flex min-h-0 flex-1 flex-col" : "flex min-h-0 flex-1 flex-col overflow-y-auto"}>
+      <div
+        className={
+          isOrderOpenish
+            ? "min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(0,1fr)_470px] lg:overflow-hidden"
+            : "flex-1"
+        }
+      >
+        <section className="flex flex-col gap-3 px-4 py-3 lg:min-h-0 lg:overflow-y-auto">
+          <header className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-3">
+              {backToTables ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-[56px] gap-1.5 rounded-lg px-3.5 text-[16px] font-semibold [&_svg]:size-5"
+                  onClick={() => navigate("/pos/mesas")}
+                >
+                  <ArrowLeft aria-hidden="true" />
+                  Mesas
+                </Button>
+              ) : null}
+              <h1 className="text-[28px] leading-tight font-extrabold">{titleParts.join(" · ")}</h1>
+              {order.opened_at && isOrderOpenish ? (
+                <span className="ml-auto inline-flex items-center gap-1.5 text-[15px] text-muted-foreground">
+                  <Clock className="size-4" aria-hidden="true" />
+                  abierta hace {elapsedLabel(order.opened_at)}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-[14px] text-muted-foreground">
+              {subtitleParts.length > 0 ? <span>{subtitleParts.join(" · ")}</span> : null}
+              {order.status && order.status !== "open" ? (
+                <Badge variant="outline">{ORDER_STATUS_LABEL[order.status] ?? order.status}</Badge>
+              ) : null}
+              {order.bill_presented_at ? (
+                <Badge variant="secondary">Cuenta presentada · {formatInstant(order.bill_presented_at)}</Badge>
+              ) : null}
+              {order.note ? <span>Nota: {order.note}</span> : null}
+            </div>
+          </header>
 
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+          {error ? (
+            <p role="alert" className="text-[15px] text-destructive">
+              {error}
+            </p>
+          ) : null}
 
-      {/* Momento 1 de `docs/diseno/propuesta.html`: en la tablet apaisada, la
-          carta a la izquierda y el pedido a la derecha; en angosto, apilados. */}
-      <div className={isOrderOpenish ? "space-y-6 lg:grid lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] lg:items-start lg:gap-6 lg:space-y-0" : "space-y-6"}>
-        {isOrderOpenish ? (
-          <section className="space-y-3">
-            <h2 className="text-sm font-medium text-muted-foreground">Agregar a la comanda</h2>
+          {isOrderOpenish ? (
             <CatalogPanel
               channel={order.channel ?? "counter"}
               unsentQty={unsentQty}
@@ -518,30 +603,74 @@ export function OrderPage(): React.JSX.Element {
               onSelectProduct={handleSelectProduct}
               onSelectCombo={(combo) => setItemTarget({ combo })}
             />
-          </section>
-        ) : null}
+          ) : null}
+        </section>
 
-        <div className="space-y-6">
-          <section className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-medium text-muted-foreground">Pedido</h2>
-              {readyItems.length > 0 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-11"
-                  disabled={servingAll}
-                  onClick={() => void handleServeAll(readyItems)}
-                >
-                  <CheckCheck className="size-4" aria-hidden="true" />
-                  {servingAll ? "Marcando…" : `Marcar todo servido · ${readyItems.length}`}
-                </Button>
+        <aside
+          aria-label="Pedido"
+          className="flex flex-col border-t bg-card lg:min-h-0 lg:border-t-0 lg:border-l"
+        >
+          {isOrderOpenish && (seatOptions.length > 0 || coursesOn) ? (
+            <div className="flex flex-col gap-2 border-b px-3.5 py-3">
+              {seatOptions.length > 0 ? (
+                <div className="flex items-center gap-2" role="group" aria-label="Asiento">
+                  <span className="w-[58px] shrink-0 text-[14px] font-semibold text-muted-foreground">Asiento</span>
+                  {[...seatOptions, null].map((seat) => (
+                    <button
+                      key={seat ?? "todos"}
+                      type="button"
+                      aria-pressed={chosenSeat === seat}
+                      className={segmentClass(chosenSeat === seat, "text-[17px]")}
+                      onClick={() => setChosenSeat(seat)}
+                    >
+                      {seat ?? "Todos"}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {coursesOn ? (
+                <div className="flex items-center gap-2" role="group" aria-label="Curso">
+                  <span className="w-[58px] shrink-0 text-[14px] font-semibold text-muted-foreground">Curso</span>
+                  {CHOOSABLE_COURSES.map((course) => (
+                    <button
+                      key={course}
+                      type="button"
+                      aria-pressed={chosenCourse === course}
+                      className={segmentClass(chosenCourse === course, "text-[16px]")}
+                      // Tocar el elegido lo suelta: el plato vuelve a su curso por defecto.
+                      onClick={() => setChosenCourse((current) => (current === course ? null : course))}
+                    >
+                      {courseLabel(course)}
+                    </button>
+                  ))}
+                </div>
               ) : null}
             </div>
+          ) : null}
+
+          <div className="flex flex-col gap-2 px-2.5 py-1.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+            {readyItems.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-[56px] self-end text-[15px]"
+                disabled={servingAll}
+                onClick={() => void handleServeAll(readyItems)}
+              >
+                <CheckCheck className="size-4" aria-hidden="true" />
+                {servingAll ? "Marcando…" : `Marcar todo servido · ${readyItems.length}`}
+              </Button>
+            ) : null}
             <OrderItemsList
               items={items}
               busyItemId={busyItemId}
-              nextRoundNo={nextRoundNo(order.rounds, items)}
+              selectedItemId={selectedLine?.id ?? null}
+              onSelect={(item) => setSelectedItemId((current) => (current === item.id ? null : item.id))}
+              onToggleNote={(item, note) => void handleNoteChange(item, toggleNote(item.note, note))}
+              onOtherNote={(item) => {
+                setOtherNoteText("")
+                setOtherNoteItem(item)
+              }}
               onIncrement={(item) => void handleQtyChange(item, (item.qty ?? 1) + 1)}
               onDecrement={(item) => void handleQtyChange(item, (item.qty ?? 1) - 1)}
               onVoid={(item) => setVoidTarget({ scope: "item", item })}
@@ -552,89 +681,96 @@ export function OrderPage(): React.JSX.Element {
               onDiscount={(item) => setDiscountTarget({ scope: "item", item })}
               onServed={(item) => void handleServed(item)}
             />
-          </section>
 
-          {hasFeature("pos.courses") && coursesInOrder.length > 0 ? (
-            <section className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground">Marchar</h2>
-              <ul className="flex flex-wrap gap-2">
-                {coursesInOrder.map((course) => {
-                  const fired = firedCourses.get(course)
-                  return (
-                    <li key={course}>
-                      {fired ? (
-                        <Badge variant="secondary" className="h-11 items-center px-3 text-sm">
-                          {courseLabel(course)} marchado · {formatInstant(fired.fired_at)}
-                        </Badge>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-11"
-                          disabled={firingCourse === course || !isOrderOpenish}
-                          onClick={() => void handleFireCourse(course)}
-                        >
-                          {firingCourse === course ? "Marchando…" : `Marchar ${courseLabel(course)}`}
-                        </Button>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            </section>
-          ) : null}
+            {hasFeature("pos.courses") && coursesInOrder.length > 0 ? (
+              <section className="flex flex-col gap-2 px-1 pt-2" aria-label="Marchar">
+                <h2 className="text-[13px] font-bold tracking-[0.06em] text-muted-foreground uppercase">Marchar</h2>
+                <ul className="flex flex-wrap gap-2">
+                  {coursesInOrder.map((course) => {
+                    const fired = firedCourses.get(course)
+                    return (
+                      <li key={course}>
+                        {fired ? (
+                          <Badge variant="secondary" className="h-11 items-center px-3 text-sm">
+                            {courseLabel(course)} marchado · {formatInstant(fired.fired_at)}
+                          </Badge>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-[56px] text-[15px]"
+                            disabled={firingCourse === course || !isOrderOpenish}
+                            onClick={() => void handleFireCourse(course)}
+                          >
+                            {firingCourse === course ? "Marchando…" : `Marchar ${courseLabel(course)}`}
+                          </Button>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            ) : null}
 
-          <section className="space-y-2 rounded-lg border p-4">
-            <h2 className="text-sm font-medium text-muted-foreground">Totales</h2>
-            <dl className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Subtotal</dt>
-                <dd className="tabular-nums">{formatCOP(order.totals?.subtotal)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Descuentos</dt>
-                <dd className="tabular-nums">{formatCOP(order.totals?.discount_total)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Impuesto</dt>
-                <dd className="tabular-nums">{formatCOP(order.totals?.tax_total)}</dd>
-              </div>
-              <div className="flex justify-between text-base font-semibold">
-                <dt>Total</dt>
-                <dd className="tabular-nums">{formatCOP(order.totals?.total)}</dd>
-              </div>
-              {order.tip ? (
-                <div className="flex justify-between text-muted-foreground">
-                  <dt>Propina sugerida ({order.tip.suggested_pct}%)</dt>
-                  <dd className="tabular-nums">{formatCOP(order.tip.suggested_amount)}</dd>
-                </div>
-              ) : null}
-            </dl>
             {hasFeature("pos.discounts") && isOrderOpenish ? (
-              <Button type="button" variant="outline" className="h-11" onClick={() => setDiscountTarget({ scope: "order" })}>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-11 self-start text-[15px]"
+                onClick={() => setDiscountTarget({ scope: "order" })}
+              >
                 Descuento de la comanda
               </Button>
             ) : null}
-          </section>
-        </div>
+            {isOrderOpenish ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-11 self-start text-[15px] text-destructive"
+                onClick={() => setVoidTarget({ scope: "order" })}
+              >
+                Anular comanda
+              </Button>
+            ) : null}
+          </div>
+        </aside>
       </div>
 
       {isOrderOpenish ? (
-        <div className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-end gap-2 border-t bg-background p-3" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}>
-          <Button type="button" variant="ghost" className="h-14 sm:mr-auto" onClick={() => setVoidTarget({ scope: "order" })}>
-            Anular comanda
-          </Button>
-          {/* Una sola acción en añil por pantalla, y siempre a la vista en la
-              barra fija: mientras haya algo sin enviar es «Enviar a cocina ·
-              N» (antes quedaba debajo del pedido, tapada por esta barra en la
-              tablet vertical); cuando ya salió todo, la cuenta. */}
+        <footer
+          className="flex flex-wrap items-center gap-2.5 border-t bg-card px-3.5 py-2.5"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.625rem)" }}
+        >
+          {asksForBill ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-[64px] gap-2 rounded-lg px-[18px] text-[17px] font-bold [&_svg]:size-5"
+              disabled={preBillPending}
+              onClick={() => void handlePresentBill()}
+            >
+              <ReceiptText aria-hidden="true" />
+              {preBillPending ? "Pidiendo…" : "Pedir cuenta"}
+            </Button>
+          ) : null}
+          <div className="ml-2 flex flex-col">
+            <span className="text-[14px] text-muted-foreground">{isTableOrder ? "Total mesa" : "Total"}</span>
+            <b className="text-[24px] leading-tight tabular-nums">{formatCOP(order.totals?.total)}</b>
+          </div>
+          {/* Las acciones de enviar/cobrar van juntas a la derecha; en la
+              tablet vertical bajan a su propio renglón, a lo ancho. */}
+          <div className="ml-auto flex gap-2.5 max-lg:w-full max-lg:[&>*]:flex-1">
+          {/* Una sola acción en añil por pantalla, y siempre a la vista en el
+              pie fijo: mientras haya algo sin enviar es «Enviar a cocina · N»;
+              cuando ya salió todo, la cuenta (o nada, para quien no cobra:
+              «Pedir cuenta» ya está a la izquierda). */}
           {sendIsPrimary ? (
             <>
               {backToTables ? (
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-14 px-5 text-base"
+                  className="h-[64px] rounded-lg px-5 text-[17px] font-bold"
                   disabled={sendPending}
                   onClick={() => void handleSend({ stay: true })}
                 >
@@ -643,44 +779,70 @@ export function OrderPage(): React.JSX.Element {
               ) : null}
               <Button
                 type="button"
-                className="h-14 px-6 text-base font-bold"
+                className="h-[64px] gap-2.5 rounded-lg px-[26px] text-[19px] font-extrabold [&_svg]:size-[22px]"
                 disabled={sendPending}
                 onClick={() => void handleSend({ stay: false })}
               >
-                <Send className="size-5" aria-hidden="true" />
+                <Send aria-hidden="true" />
                 {sendPending ? "Enviando…" : `Enviar a cocina · ${unsentUnits} ${unsentUnits === 1 ? "ítem" : "ítems"}`}
               </Button>
             </>
-          ) : asksForBill ? (
-            <Button
-              type="button"
-              className="h-14 px-6 text-base font-semibold"
-              disabled={preBillPending}
-              onClick={() => void handlePresentBill()}
-            >
-              <ReceiptText className="size-5" aria-hidden="true" />
-              {preBillPending ? "Pidiendo…" : "Pedir cuenta"}
-            </Button>
-          ) : (
+          ) : asksForBill ? null : (
             <>
               {hasFeature("pos.pre_bill") ? (
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-14 px-5 text-base"
+                  className="h-[64px] rounded-lg px-5 text-[17px] font-bold"
                   disabled={preBillPending}
                   onClick={() => void handlePresentBill()}
                 >
                   {preBillPending ? "Presentando…" : "Presentar cuenta"}
                 </Button>
               ) : null}
-              <Button type="button" className="h-14 px-6 text-base font-semibold" onClick={() => navigate(`/pos/cobro/${order.id}`)}>
+              <Button
+                type="button"
+                className="h-[64px] rounded-lg px-[26px] text-[19px] font-extrabold"
+                onClick={() => navigate(`/pos/cobro/${order.id}`)}
+              >
                 {order.channel === "counter" ? "Cobrar" : "Cuenta / Cobrar"}
               </Button>
             </>
           )}
-        </div>
+          </div>
+        </footer>
       ) : null}
+
+      <Dialog open={otherNoteItem !== null} onOpenChange={(open) => !open && setOtherNoteItem(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nota para {otherNoteItem?.name ?? "el plato"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label htmlFor="other-note">Otra nota</Label>
+            <Textarea
+              id="other-note"
+              value={otherNoteText}
+              maxLength={120}
+              onChange={(event) => setOtherNoteText(event.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              className="h-[56px] px-5 text-[16px]"
+              disabled={otherNoteText.trim() === "" || otherNoteItem === null}
+              onClick={() => {
+                if (!otherNoteItem) return
+                void handleNoteChange(otherNoteItem, toggleNote(otherNoteItem.note, otherNoteText.trim()))
+                setOtherNoteItem(null)
+              }}
+            >
+              Guardar nota
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ItemDialog
         open={itemTarget !== null}

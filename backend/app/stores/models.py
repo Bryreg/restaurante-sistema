@@ -149,6 +149,19 @@ class StoreSalesSettings(Base):
     # umbral (en UVT) y el cliente está identificado (pedido 1b-2,
     # `app.fiscal.service.resolve_document_type_for_payment`). Default 5 UVT.
     invoice_threshold_uvt: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    # Los supuestos del panel del dueño (0032): las rayas de referencia de
+    # «barra + raya» que no son un hecho sino una decisión del dueño. Viven
+    # acá, por sede, para que el panel no tenga cifras quemadas. El umbral de
+    # retiro NO está acá: es `StoreCashSettings.cash_pickup_threshold`.
+    # Margen bruto meta por categoría, en por ciento entero (65 = 65 %).
+    margin_target_pct: Mapped[int] = mapped_column(Integer, nullable=False, default=65, server_default="65")
+    # Una mesa abierta más de esto es «mesa larga» (minutos).
+    long_table_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, server_default="60")
+    # Un tiquete de cocina con más de esto está demorado (minutos).
+    late_ticket_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=20, server_default="20")
+    # Cuántas comandas por hora alcanza a atender un mesero: la capacidad
+    # del salón es meseros en turno × esto.
+    orders_per_waiter: Mapped[int] = mapped_column(Integer, nullable=False, default=7, server_default="7")
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 

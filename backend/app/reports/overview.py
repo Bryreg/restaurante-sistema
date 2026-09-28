@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.core import features
 from app.core.modules import find_spec_safe
 from app.orders import money
-from app.reports import service
+from app.reports import series, service
 from app.reports.schemas import (
     CategoryRefOut,
     CostSectionOut,
@@ -249,4 +249,15 @@ def reports_overview(
             by_category=by_category,
         ),
         by_store=_by_store(db, stores=stores, date_from=date_from, date_to=date_to) if all_stores else None,
+        series=series.overview_series(
+            db,
+            stores=stores,
+            all_stores=all_stores,
+            scope=scope,
+            date_from=date_from,
+            date_to=date_to,
+            by_category=by_category,
+            total=total,
+            product_rows=product_rows,
+        ),
     )

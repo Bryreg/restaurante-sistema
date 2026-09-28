@@ -1,9 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
   Banknote,
   BookOpen,
   CalendarDays,
+  ChevronLeft,
   CircleAlert,
   Ellipsis,
   LogOut,
@@ -15,7 +16,7 @@ import {
   Store,
   Users,
 } from "lucide-react";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -23,6 +24,7 @@ import { logout } from "@/api/auth";
 import { getToday } from "@/api/reports";
 
 import { NotificationBell } from "@/features/notifications/NotificationBell";
+import { useAvisosSinLeer } from "@/features/notifications/useAvisos";
 import { analyticsFeature } from "@/features/analytics";
 import { bankingFeature } from "@/features/banking";
 import { catalogFeature } from "@/features/catalog";
@@ -35,9 +37,10 @@ import { payrollFeature } from "@/features/payroll";
 import { purchasesFeature } from "@/features/purchases";
 import { recipesFeature } from "@/features/recipes";
 import { reportsFeature } from "@/features/reports";
+import { RUTA_CELULAR } from "@/features/reports/movil/rutas";
 import { shiftsFeature } from "@/features/shifts";
 import { RailItemContent, railItemClass } from "@/components/admin/RailItem";
-import { Button } from "@/components/ui/button";
+import { formatTimeAgo } from "@/components/admin/TimeAgo";
 import {
   Select,
   SelectContent,
@@ -45,17 +48,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 import type { NavItem } from "./nav";
+import { useEsCelular } from "./celular";
 import { useDensity } from "./density";
 import { useSession } from "./session";
 import { StoreSelectionProvider, useStoreSelection } from "./storeContext";
@@ -399,11 +397,15 @@ function SidebarNav({
         if (!destino) return null;
         const { total, dice } = recuentoDe(pantallas, counts);
         const nombre = dice.length > 0 ? `${seccion}, ${dice.join(", ")}` : seccion;
-        const enEsta = seccion === seccionActiva;
+        // En el cajón del celular, Equipo abre su pantalla del celular
+        // (handoff, `MovilSecciones`): la de escritorio no entra en 390 px.
+        // Caja e Informes ya tienen su entrada en la barra inferior.
+        const celular = touch && seccion === "Equipo" ? RUTA_CELULAR.equipo : undefined;
+        const enEsta = seccion === seccionActiva || (celular !== undefined && pathname === celular);
         return (
           <Link
             key={seccion}
-            to={destino.to}
+            to={celular ?? destino.to}
             onClick={onNavigate}
             title={seccion}
             aria-label={nombre}
@@ -437,7 +439,7 @@ function PestanasDeSeccion({
   const pantallas = pantallasDe(items, seccion);
   if (pantallas.length < 2) return null;
   return (
-    <nav aria-label={`Pantallas de ${seccion}`} className="-mt-1 mb-5 overflow-x-auto border-b">
+    <nav aria-label={`Pantallas de ${seccion}`} className="mt-1 shrink-0 overflow-x-auto border-b px-3.5 md:px-6">
       <ul className="flex min-w-max gap-1">
         {pantallas.map((item) => {
           const fila = filaDe(item);
@@ -525,17 +527,21 @@ function Identidad(): React.JSX.Element {
  * hueco vacío hacía que la barra dijera de quién es el escritorio pero no de
  * dónde.
  */
-function StoreSwitcher(): React.JSX.Element | null {
+function StoreSwitcher({ celular = false }: { celular?: boolean } = {}): React.JSX.Element | null {
   const { hasFeature, me } = useSession();
   const { stores, activeStoreId, setActiveStoreId } = useStoreSelection();
+
+  // En el celular (handoff, `AdminMovil`) la pastilla mide 34 px, redondeada
+  // a 8, y dice sólo el nombre: el ancho de 390 px no alcanza para «Sede».
+  const alto = celular ? "h-[34px] rounded-lg" : "h-8 rounded-md";
 
   if (!hasFeature("multi_store") || stores.length <= 1) {
     const sola = stores.find((s) => s.id === activeStoreId)?.name ?? me?.store?.name;
     if (!sola) return null;
     return (
-      <p className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-input bg-card px-2.5 text-sm">
+      <p className={cn("flex min-w-0 shrink items-center gap-1.5 border border-input bg-card px-2.5 text-sm", alto)}>
         <Store className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="text-muted-foreground">Sede</span>
+        {celular ? null : <span className="text-muted-foreground">Sede</span>}
         <b className="truncate font-bold">{sola}</b>
       </p>
     );
@@ -546,9 +552,9 @@ function StoreSwitcher(): React.JSX.Element | null {
       value={activeStoreId ? String(activeStoreId) : undefined}
       onValueChange={(next) => setActiveStoreId(Number(next))}
     >
-      <SelectTrigger className="h-8 w-auto shrink-0 gap-1.5 bg-card" aria-label="Sede activa">
+      <SelectTrigger className={cn("w-auto min-w-0 shrink gap-1.5 bg-card font-bold", alto)} aria-label="Sede activa">
         <Store className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="text-muted-foreground">Sede</span>
+        {celular ? null : <span className="font-normal text-muted-foreground">Sede</span>}
         <SelectValue placeholder="Elegí una sede" />
       </SelectTrigger>
       <SelectContent>
@@ -653,31 +659,137 @@ function LogoutButton({
  * En el móvil la misma barra lleva además el botón del cajón: es una sola
  * franja en las dos superficies, no una para cada una.
  */
-function TopBar({
-  storeId,
-  menu,
-}: {
-  storeId: number | null;
-  menu?: React.ReactNode;
-}): React.JSX.Element {
-  const { me } = useSession();
-  const rol = me?.user?.role;
-  const persona = me?.user?.name;
+function TopBar({ storeId }: { storeId: number | null }): React.JSX.Element {
   return (
     <header className="sticky top-0 z-20 flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b bg-muted px-3 py-1.5">
-      {menu}
       <StoreSwitcher />
-      {persona ? (
-        <p className="min-w-0 truncate text-xs text-muted-foreground">
-          {persona}
-          {rol ? ` · ${ROL_EN_PALABRAS[rol] ?? rol}` : null}
-        </p>
-      ) : null}
+      <PersonaYRol />
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
-        <NotificationBell storeId={storeId} />
+        {/* «Avisos» con su recuento (handoff, `AdminTop`): la palabra a la
+            vista, no una campana muda. */}
+        <NotificationBell storeId={storeId} variant="barra" />
         <ThemeToggle />
         <LogoutButton />
       </div>
+    </header>
+  );
+}
+
+/** «Óscar Restrepo · administrador». */
+function PersonaYRol({ className }: { className?: string }): React.JSX.Element | null {
+  const { me } = useSession();
+  const rol = me?.user?.role;
+  const persona = me?.user?.name;
+  if (!persona) return null;
+  return (
+    <p className={cn("min-w-0 truncate text-xs text-muted-foreground", className)}>
+      {persona}
+      {rol ? ` · ${ROL_EN_PALABRAS[rol] ?? rol}` : null}
+    </p>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// La frescura del celular: «hace 14 s» (handoff, `AdminMovil`).
+// ---------------------------------------------------------------------------
+
+/**
+ * Cuándo llegó por última vez un dato del servidor **a esta pantalla**: el
+ * `dataUpdatedAt` más reciente entre las consultas que alguien está mirando
+ * (con observadores). No es la hora del reloj ni la de la última pestaña
+ * abierta: si la pantalla dejó de refrescarse, el número crece y lo dice.
+ */
+function useUltimoDato(): number | null {
+  const queryClient = useQueryClient();
+  const [ultimo, setUltimo] = useState<number | null>(null);
+  useEffect(() => {
+    const cache = queryClient.getQueryCache();
+    const medir = () => {
+      let max = 0;
+      for (const q of cache.getAll()) {
+        if (q.getObserversCount() > 0 && q.state.dataUpdatedAt > max) max = q.state.dataUpdatedAt;
+      }
+      setUltimo(max > 0 ? max : null);
+    };
+    medir();
+    return cache.subscribe(medir);
+  }, [queryClient]);
+  return ultimo;
+}
+
+/** El reloj que hace crecer «hace N s». Sólo corre montado (en el celular). */
+function useAhora(cadaMs: number): number {
+  const [ahora, setAhora] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setAhora(Date.now()), cadaMs);
+    return () => window.clearInterval(id);
+  }, [cadaMs]);
+  return ahora;
+}
+
+/** «hace 14 s» debajo del minuto; de ahí en adelante, lo de `TimeAgo`. */
+export function formatFrescura(desdeMs: number, ahoraMs: number): string {
+  const segundos = Math.max(0, Math.floor((ahoraMs - desdeMs) / 1000));
+  if (segundos < 60) return `hace ${segundos} s`;
+  return formatTimeAgo(new Date(desdeMs).toISOString(), new Date(ahoraMs));
+}
+
+function Frescura(): React.JSX.Element | null {
+  const ultimo = useUltimoDato();
+  const ahora = useAhora(1000);
+  if (ultimo === null) return null;
+  return (
+    <span
+      className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums"
+      title={`Último dato del servidor: ${new Date(ultimo).toLocaleTimeString("es-CO")}`}
+    >
+      {formatFrescura(ultimo, ahora)}
+    </span>
+  );
+}
+
+/**
+ * **La barra superior del celular** (handoff, `AdminMovil`): 52 px con el
+ * menú (☰, 44 × 44), la sede y la frescura. Persona, tema y salida bajan al
+ * cajón de «Más»: en 390 px la barra del escritorio no entra, y lo que no
+ * entra no se achica —se muda—.
+ *
+ * En la vista de un aviso, el ☰ se vuelve «‹ Avisos»: se llegó desde una
+ * notificación y la salida natural es la lista, no el cajón.
+ */
+function BarraSuperiorCelular({
+  onMenu,
+  menuAbierto,
+  enAviso,
+}: {
+  onMenu: () => void;
+  menuAbierto: boolean;
+  enAviso: boolean;
+}): React.JSX.Element {
+  return (
+    <header className="sticky top-0 z-20 flex min-h-[52px] shrink-0 items-center gap-2 border-b bg-muted px-2.5 py-1">
+      {enAviso ? (
+        <Link
+          to={`/admin/hoy#${ANCLA_AVISOS}`}
+          className="inline-flex h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-[0.9375rem] font-semibold text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <ChevronLeft className="size-[22px]" aria-hidden="true" />
+          Avisos
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={onMenu}
+          aria-label="Abrir menú"
+          aria-haspopup="dialog"
+          aria-expanded={menuAbierto}
+          className="grid size-11 shrink-0 place-items-center rounded-lg text-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <Menu className="size-[22px]" aria-hidden="true" />
+        </button>
+      )}
+      <StoreSwitcher celular />
+      <Frescura />
     </header>
   );
 }
@@ -708,7 +820,11 @@ function RailContenido({
           alcance mientras el cajón está abierto. En el escritorio el cajón
           no existe y la salida vive una sola vez, en la barra. */}
       {touch ? (
-        <div className="mt-auto flex shrink-0 flex-col border-t pt-1.5">
+        <div className="mt-auto flex shrink-0 flex-col gap-0.5 border-t pt-1.5">
+          {/* En el celular la barra de arriba sólo lleva menú, sede y
+              frescura: quién sos, el tema y la salida viven acá. */}
+          <PersonaYRol className="px-2 pb-1" />
+          <ThemeToggle variant="rail" touch />
           <LogoutButton variant="rail" touch />
         </div>
       ) : null}
@@ -721,31 +837,8 @@ function RailContenido({
 // «Celular del dueño» y Momento 5).
 // ---------------------------------------------------------------------------
 
-/** El mismo corte que `md:` de Tailwind: por debajo de 768 px es el celular. */
-const CONSULTA_CELULAR = "(max-width: 767.98px)";
-
-function suscribirCelular(avisar: () => void): () => void {
-  if (typeof window.matchMedia !== "function") return () => {};
-  const consulta = window.matchMedia(CONSULTA_CELULAR);
-  consulta.addEventListener("change", avisar);
-  return () => consulta.removeEventListener("change", avisar);
-}
-
-function esCelular(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia(CONSULTA_CELULAR).matches;
-}
-
-/**
- * **La barra inferior se monta sólo en el celular**, no se esconde con CSS
- * nada más. Con `md:hidden` solo, el escritorio llevaría en el árbol una
- * segunda «Hoy» y una segunda «Ventas» invisibles, y cada `getByRole("link",
- * { name: "Hoy" })` de las pruebas —y cada lector de pantalla que no respete
- * `display` de algún ancestro— vería dos. Sin `matchMedia` (jsdom) es
- * escritorio: nada cambia.
- */
-function useEsCelular(): boolean {
-  return useSyncExternalStore(suscribirCelular, esCelular, () => false);
-}
+// `useEsCelular` vive en `app/celular.ts`: la usan también Hoy y las
+// pantallas móviles de Caja, Equipo e Informes.
 
 /**
  * «Avisos» no tiene pantalla propia, y es a propósito que no lleve a
@@ -780,18 +873,23 @@ function claseDestino(activo: boolean): string {
  * cajón de siempre, con las ocho secciones.
  *
  * Los flags siguen mandando: la barra se arma **desde `items`**, que ya pasó
- * por `buildNav(hasFeature)`. Informes y Caja llevan a la primera pantalla
- * encendida de su sección, igual que el rail; una sección sin ninguna
- * encendida no está acá —la barra tiene un destino menos, no un hueco—.
+ * por `buildNav(hasFeature)`. Informes y Caja llevan a sus pantallas del
+ * celular (handoff, `MovilSecciones`, variante A: cuatro preguntas por
+ * sección), que a su vez llevan a las del escritorio; una sección sin
+ * ninguna pantalla encendida no está acá —la barra tiene un destino menos,
+ * no un hueco—.
  */
 function BarraInferior({
   items,
   onMas,
   masAbierto,
+  sinLeer,
 }: {
   items: NavItem[];
   onMas: () => void;
   masAbierto: boolean;
+  /** Avisos sin leer: la insignia roja de «Avisos». `undefined` = no se sabe. */
+  sinLeer?: number;
 }): React.JSX.Element {
   const { pathname, search, hash } = useLocation();
   const hoy = items.find((item) => item.to === "/admin/hoy");
@@ -799,8 +897,16 @@ function BarraInferior({
   const caja = pantallasDe(items, "Caja")[0];
   const activa = pantallaActiva(items, pathname, search);
   const seccionActiva = activa ? filaDe(activa).seccion : undefined;
-  const enAvisos = pathname === "/admin/hoy" && hash === `#${ANCLA_AVISOS}`;
+  // La vista de un aviso (abierta desde la notificación) es de «Avisos».
+  const enAvisos =
+    (pathname === "/admin/hoy" && hash === `#${ANCLA_AVISOS}`) || pathname.startsWith("/admin/avisos/");
   const enHoy = pathname === "/admin/hoy" && !enAvisos;
+  // Informes y Caja llevan a sus pantallas del celular (handoff,
+  // `MovilSecciones`, variante A); la sección sigue mandando: sin ninguna
+  // pantalla encendida, no hay entrada. Equipo vive en «Más».
+  const enInformes = seccionActiva === "Informes" || pathname === RUTA_CELULAR.informes;
+  const enCaja = seccionActiva === "Caja" || pathname === RUTA_CELULAR.caja;
+  const enMas = pathname === RUTA_CELULAR.equipo;
 
   return (
     <nav
@@ -823,10 +929,10 @@ function BarraInferior({
         {informes ? (
           <li>
             <Link
-              to={informes.to}
+              to={RUTA_CELULAR.informes}
               title={filaDe(informes).title}
-              aria-current={seccionActiva === "Informes" ? "page" : undefined}
-              className={claseDestino(seccionActiva === "Informes")}
+              aria-current={enInformes ? "page" : undefined}
+              className={claseDestino(enInformes)}
             >
               <BarChart3 className="size-5" aria-hidden="true" />
               Informes
@@ -836,10 +942,10 @@ function BarraInferior({
         {caja ? (
           <li>
             <Link
-              to={caja.to}
+              to={RUTA_CELULAR.caja}
               title={filaDe(caja).title}
-              aria-current={seccionActiva === "Caja" ? "page" : undefined}
-              className={claseDestino(seccionActiva === "Caja")}
+              aria-current={enCaja ? "page" : undefined}
+              className={claseDestino(enCaja)}
             >
               <Banknote className="size-5" aria-hidden="true" />
               Caja
@@ -852,10 +958,21 @@ function BarraInferior({
               to={`${hoy.to}#${ANCLA_AVISOS}`}
               title="Hoy › Requiere tu atención"
               aria-current={enAvisos ? "location" : undefined}
-              className={claseDestino(enAvisos)}
+              className={cn(claseDestino(enAvisos), "relative")}
             >
               <CircleAlert className="size-5" aria-hidden="true" />
               Avisos
+              {sinLeer != null && sinLeer > 0 ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-1.5 left-[calc(50%+6px)] grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground tabular-nums"
+                  >
+                    {sinLeer}
+                  </span>
+                  <span className="sr-only">, {sinLeer} sin leer</span>
+                </>
+              ) : null}
             </Link>
           </li>
         ) : null}
@@ -866,7 +983,7 @@ function BarraInferior({
             aria-haspopup="dialog"
             aria-expanded={masAbierto}
             title="Todas las secciones"
-            className={cn(claseDestino(false), "w-full")}
+            className={cn(claseDestino(enMas), "w-full")}
           >
             <Ellipsis className="size-5" aria-hidden="true" />
             Más
@@ -882,10 +999,12 @@ function AdminChrome(): React.JSX.Element {
   useDensity("oficina");
   const { hasFeature, me } = useSession();
   const { activeStoreId } = useStoreSelection();
+  const { pathname } = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const items = buildNav(hasFeature);
   const counts = useRecuentos(activeStoreId);
   const celular = useEsCelular();
+  const enAviso = pathname.startsWith("/admin/avisos/");
 
   return (
     <div className="oficina flex min-h-screen bg-background text-foreground">
@@ -904,57 +1023,65 @@ function AdminChrome(): React.JSX.Element {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar
-          storeId={activeStoreId}
-          menu={
-            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-              <SheetTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="md:hidden"
-                    aria-label="Abrir menú"
-                  />
-                }
-              >
-                <Menu className="size-5" aria-hidden="true" />
-              </SheetTrigger>
-              <SheetContent side="left" className="flex w-[17rem] flex-col p-2">
-                <SheetHeader className="p-0">
-                  <SheetTitle className="sr-only">
-                    {me?.organization?.name ?? "Restaurante Sistema"}
-                  </SheetTitle>
-                </SheetHeader>
-                <RailContenido
-                  items={items}
-                  counts={counts}
-                  onNavigate={() => setMobileOpen(false)}
-                  touch
-                />
-              </SheetContent>
-            </Sheet>
-          }
-        />
+        {celular ? (
+          <BarraSuperiorCelular
+            onMenu={() => setMobileOpen(true)}
+            menuAbierto={mobileOpen}
+            enAviso={enAviso}
+          />
+        ) : (
+          <TopBar storeId={activeStoreId} />
+        )}
+        {/* Las pestañas de la sección van pegadas a la barra y a todo el
+            ancho, con su filete de lado a lado (handoff, `AdminTop`: 40 px,
+            subrayado de 2 px en `primary`); el contenido arranca debajo. */}
+        <PestanasDeSeccion items={items} counts={counts} />
         {/* Con la barra inferior, el pie del contenido sube lo que ella mide
             (56 px + la raya de inicio del teléfono) y un poco de aire: el
             último renglón de la pantalla nunca queda tapado. */}
         <main
           className={cn(
-            "min-w-0 flex-1 p-4 md:p-6",
-            celular && "pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-6",
+            "min-w-0 flex-1 px-3.5 pt-3.5 pb-6 md:px-6 md:pt-4 md:pb-10",
+            celular && "pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-10",
           )}
         >
-          <PestanasDeSeccion items={items} counts={counts} />
           <Outlet />
         </main>
       </div>
+      {/* El cajón: «Más» de la barra inferior y ☰ de la barra de arriba lo
+          abren. Es el mismo rail, con objetivos táctiles de 44 px. */}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent side="left" className="flex w-[17rem] flex-col p-2">
+          <SheetHeader className="p-0">
+            <SheetTitle className="sr-only">{me?.organization?.name ?? "Restaurante Sistema"}</SheetTitle>
+          </SheetHeader>
+          <RailContenido items={items} counts={counts} onNavigate={() => setMobileOpen(false)} touch />
+        </SheetContent>
+      </Sheet>
       {celular ? (
-        <BarraInferior items={items} onMas={() => setMobileOpen(true)} masAbierto={mobileOpen} />
+        <BarraInferiorConAvisos
+          storeId={activeStoreId}
+          items={items}
+          onMas={() => setMobileOpen(true)}
+          masAbierto={mobileOpen}
+        />
       ) : null}
     </div>
   );
+}
+
+/** La barra inferior con su recuento de avisos (la misma consulta que la campana). */
+function BarraInferiorConAvisos({
+  storeId,
+  ...props
+}: {
+  storeId: number | null;
+  items: NavItem[];
+  onMas: () => void;
+  masAbierto: boolean;
+}): React.JSX.Element {
+  const sinLeer = useAvisosSinLeer(storeId);
+  return <BarraInferior {...props} sinLeer={sinLeer} />;
 }
 
 /** Sidebar armado desde `NavItem[]` propios + `shiftsFeature`/`catalogFeature`. */

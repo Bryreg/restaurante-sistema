@@ -1,5 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildMe, renderWithProviders } from "@/test/utils";
@@ -50,6 +51,27 @@ describe("NotificationBell", () => {
     await userEvent.click(await screen.findByRole("button", { name: /Notificaciones/ }));
     await userEvent.click(await screen.findByRole("menuitem", { name: /Diferencia de caja/ }));
     await waitFor(() => expect(markNotificationRead).toHaveBeenCalledWith(7));
+  });
+
+  // Handoff (`AdminTop`): en la barra superior es «Avisos» con su recuento,
+  // no una campana muda; y cada aviso abre su vista.
+  it("en la barra dice «Avisos» con el recuento, y su nombre empieza por lo que se ve", async () => {
+    renderWithProviders(<NotificationBell storeId={1} variant="barra" />, { me: buildMe() });
+    const boton = await screen.findByRole("button", { name: "Avisos, 1 sin leer" });
+    expect(boton).toHaveTextContent("Avisos1");
+  });
+
+  it("tocar un aviso abre su vista (`/admin/avisos/:id`)", async () => {
+    renderWithProviders(
+      <Routes>
+        <Route path="/admin/hoy" element={<NotificationBell storeId={1} variant="barra" />} />
+        <Route path="/admin/avisos/:id" element={<p>vista del aviso</p>} />
+      </Routes>,
+      { me: buildMe(), route: "/admin/hoy" },
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /Avisos/ }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Diferencia de caja/ }));
+    expect(await screen.findByText("vista del aviso")).toBeInTheDocument();
   });
 });
 

@@ -241,7 +241,12 @@ def device_identify(
                 code="PIN_LOCKED",
                 message=f"PIN bloqueado por {settings.PIN_LOCK_MINUTES} minutos tras varios intentos fallidos",
             )
-        raise AppError(code="PIN_INVALID", message="PIN incorrecto; intentá de nuevo")
+        # «Quién opera» muestra el mensaje tal cual llega: cuántos intentos
+        # quedan antes del bloqueo lo sabe sólo el servidor (el contador vive
+        # en `verify_pin`), así que lo dice acá y no lo cuenta la pantalla.
+        remaining = max(0, settings.PIN_LOCK_ATTEMPTS - employee.failed_pin_attempts)
+        word = "intento" if remaining == 1 else "intentos"
+        raise AppError(code="PIN_INVALID", message=f"PIN incorrecto · te quedan {remaining} {word}")
 
     now = clock.now_utc()
     session.employee_id = employee.id

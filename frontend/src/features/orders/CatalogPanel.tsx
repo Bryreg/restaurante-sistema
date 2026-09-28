@@ -47,7 +47,7 @@ function UnsentBadge({ qty }: { qty: number }) {
     <span
       aria-hidden="true"
       data-slot="unsent-badge"
-      className="absolute top-2 right-2 grid h-6 min-w-6 place-items-center rounded-full bg-primary px-1.5 text-xs font-extrabold tabular-nums text-primary-foreground"
+      className="absolute top-2.5 right-2.5 grid size-7 place-items-center rounded-full bg-primary text-[14px] font-extrabold tabular-nums text-primary-foreground"
     >
       {qty}
     </span>
@@ -65,18 +65,20 @@ function unsentSuffix(qty: number): string {
  * `PRODUCT_UNAVAILABLE`).
  */
 const CARD_CLASS =
-  "relative flex min-h-[74px] min-w-0 flex-col items-start justify-between gap-1 rounded-xl border bg-card p-3 pr-9 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:bg-muted disabled:cursor-not-allowed disabled:hover:bg-card"
+  // Handoff `PosComanda`: 92 px de alto, relleno 12 × 14, radio 12, borde
+  // `border` sobre `card`; el nombre en 18/700 y el precio en 16.
+  "relative flex min-h-[92px] min-w-0 flex-col items-start justify-between gap-1.5 rounded-lg border bg-card px-3.5 py-3 pr-10 text-left transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:bg-muted disabled:cursor-not-allowed disabled:hover:bg-card"
 // El rayado es `background-image`: el `hover:bg-*` de la tarjeta sólo mueve
 // el color de fondo, así que no lo tapa.
 /**
- * La fila de categorías: 56 px de alto por pestaña. En angosto se desliza de
- * costado (nunca se parte en dos renglones que empujan la carta hacia
- * abajo); desde `lg` —la tablet apaisada— es una columna de 11rem.
+ * La fila de categorías (handoff `PosComanda`): botones de 56 px, 16/700, en
+ * una fila que se parte en dos si hace falta; la elegida en `foreground`
+ * lleno. Es la misma fila en vertical y en apaisado: la carta queda debajo.
  */
 const TAB_LIST_CLASS =
-  "w-full max-w-full gap-2 bg-transparent p-0 group-data-horizontal/tabs:h-auto group-data-horizontal/tabs:overflow-x-auto lg:w-44 lg:shrink-0 lg:flex-col lg:items-stretch lg:overflow-visible"
+  "w-full max-w-full flex-wrap justify-start gap-2 bg-transparent p-0 group-data-horizontal/tabs:h-auto"
 const TAB_TRIGGER_CLASS =
-  "h-14 min-h-14 flex-none rounded-lg border border-border bg-background px-4 text-base font-semibold text-foreground data-active:border-primary data-active:bg-primary data-active:text-primary-foreground dark:text-foreground dark:data-active:border-primary dark:data-active:bg-primary dark:data-active:text-primary-foreground lg:w-full lg:justify-start lg:whitespace-normal lg:text-left"
+  "h-[56px] min-h-[56px] flex-none rounded-lg border border-border bg-background px-4 text-[16px] font-bold text-foreground data-active:border-foreground data-active:bg-foreground data-active:text-background dark:text-foreground dark:data-active:border-foreground dark:data-active:bg-foreground dark:data-active:text-background"
 const SOLD_OUT_CLASS ="opacity-60 bg-[repeating-linear-gradient(135deg,transparent_0_8px,var(--muted)_8px_10px)]"
 
 /** Cuánto hay que dejar el dedo sobre un plato para abrir sus opciones. */
@@ -168,8 +170,8 @@ function ProductButton({
       className={cn(CARD_CLASS, soldOut && SOLD_OUT_CLASS)}
     >
       <UnsentBadge qty={unsentQty} />
-      <span className={cn("text-[15px] leading-tight font-semibold", soldOut && "line-through")}>{product.name}</span>
-      <span className="flex w-full flex-wrap items-center justify-between gap-1 text-sm text-muted-foreground">
+      <span className={cn("text-[18px] leading-[1.15] font-bold", soldOut && "line-through")}>{product.name}</span>
+      <span className="flex w-full flex-wrap items-center justify-between gap-1 text-[16px] text-muted-foreground">
         <span className="tabular-nums">
           {soldOut ? <span className="font-semibold">Agotado</span> : null}
           {soldOut ? " · " : null}
@@ -193,8 +195,8 @@ function ComboButton({ combo, unsentQty, onSelect }: { combo: CatalogComboOut; u
       className={cn(CARD_CLASS, !combo.active_now && SOLD_OUT_CLASS)}
     >
       <UnsentBadge qty={unsentQty} />
-      <span className="text-[15px] leading-tight font-semibold">{combo.name}</span>
-      <span className="flex w-full flex-wrap items-center justify-between gap-1 text-sm text-muted-foreground">
+      <span className="text-[18px] leading-[1.15] font-bold">{combo.name}</span>
+      <span className="flex w-full flex-wrap items-center justify-between gap-1 text-[16px] text-muted-foreground">
         <span className="tabular-nums">{formatCOP(combo.price)}</span>
         <Badge variant={combo.active_now ? "default" : "outline"}>
           {combo.active_now ? "Disponible ahora" : "Fuera de horario"}
@@ -264,7 +266,7 @@ export function CatalogPanel({
 
   function renderProducts(list: CatalogProductOut[]) {
     return (
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
         {list.map((product) => (
           <ProductButton
             key={product.id}
@@ -297,7 +299,7 @@ export function CatalogPanel({
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input
-            className="h-11 min-h-[var(--control-min-h)] pl-9"
+            className="h-[56px] rounded-lg pl-9 text-[16px]"
             placeholder="Buscar en la carta…"
             aria-label="Buscar producto"
             value={search}
@@ -309,7 +311,7 @@ export function CatalogPanel({
             type="button"
             variant={withOptions ? "secondary" : "outline"}
             aria-pressed={withOptions}
-            className="h-11 px-4"
+            className="h-[56px] rounded-lg px-4 text-[16px] font-semibold"
             onClick={() => setWithOptions((on) => !on)}
           >
             <SlidersHorizontal aria-hidden="true" />
@@ -318,7 +320,7 @@ export function CatalogPanel({
         ) : null}
       </div>
       {quickAdd ? (
-        <p className="text-sm text-muted-foreground" aria-live="polite">
+        <p className="sr-only" aria-live="polite">
           {withOptions
             ? "El próximo plato abre sus opciones: nota, curso, asiento y adiciones."
             : "Un toque suma el plato. Si el plato pide algo (término, acompañante), se pregunta antes."}
@@ -330,7 +332,7 @@ export function CatalogPanel({
           <EmptyState title="Ningún producto coincide con la búsqueda" />
         ) : renderProducts(searchResults)
       ) : (
-        <Tabs value={tab} onValueChange={(value) => setChosenTab(String(value))} className="gap-3 lg:flex-row! lg:items-start">
+        <Tabs value={tab} onValueChange={(value) => setChosenTab(String(value))} className="gap-3">
           {/* Pestañas de 56 px (antes 27): en vertical, una fila que se
               desliza de costado; en la tablet apaisada, una columna al lado
               de los platos, que es donde el pulgar llega sin tapar la carta. */}
@@ -352,7 +354,7 @@ export function CatalogPanel({
 
           {showDailyMenuTab ? (
             <TabsContent value="daily_menu" className="min-w-0">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {activeCombos.map((combo) => (
                   <ComboButton
                     key={combo.id}

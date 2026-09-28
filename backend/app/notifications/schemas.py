@@ -8,6 +8,9 @@ from pydantic import BaseModel, Field
 
 class NotificationOut(BaseModel):
     id: int
+    #: La sede del aviso: la vista del aviso la nombra («Crítico · Caja ·
+    #: Chapinero») porque se puede abrir desde el celular con otra sede elegida.
+    store_id: int | None = None
     type: str
     level: str
     title: str

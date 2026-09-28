@@ -37,7 +37,7 @@ from app.core.money import format_cop
 from app.core.quantity import format_qty_base
 from app.orders import service as orders_service
 from app.orders.models import Order, OrderDiscount, OrderItem, OrderStatus
-from app.reports import service
+from app.reports import series, service
 from app.reports.panel_schemas import (
     EmployeeRecordOut,
     IngredientCauseTotalOut,
@@ -126,6 +126,14 @@ def current_cash(db: Session, store: Store) -> PanelCashOut | None:
     )
 
 
+def _worked_minutes(entry: Any) -> int | None:
+    """La duración de una jornada cerrada con el motor de nómina (import
+    tardío: `payroll` lee a su vez los hooks de `reports`)."""
+    from app.payroll import hooks as payroll_hooks
+
+    return payroll_hooks.worked_minutes(entry)
+
+
 def _roster_attendance(db: Session, entries: list[ShiftRoster], shifts: dict[int, Shift]) -> list[RecordAttendanceOut]:
     """El roster del turno: la asistencia proyectada sobre su ventana (desde
     0028 el roster lo alimenta la asistencia; el administrador no entra)."""
@@ -147,6 +155,7 @@ def _roster_attendance(db: Session, entries: list[ShiftRoster], shifts: dict[int
                 in_at=e.in_at,
                 out_at=e.out_at,
                 status="closed" if e.out_at is not None else "open",
+                worked_minutes=_worked_minutes(e),
             )
         )
     return out
@@ -221,8 +230,8 @@ def shift_activity(db: Session, store: Store) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _area_counts(db: Session, store: Store) -> PanelAreaCountsOut:
-    tray = service._area_counts_tray(db, store)
+def _area_counts(db: Session, store: Store, tray: dict[str, Any] | None = None) -> PanelAreaCountsOut:
+    tray = tray if tray is not None else service._area_counts_tray(db, store)
     areas = tray["area_counts_areas"]
     return PanelAreaCountsOut(
         enabled=bool(tray["area_counts_enabled"]),
@@ -386,7 +395,8 @@ def _light(reasons: list[PanelReasonOut], *, closed: bool) -> PanelLight:
 
 def store_panel(db: Session, store: Store, *, now: datetime) -> StorePanelOut:
     cash = current_cash(db, store)
-    area = _area_counts(db, store)
+    tray = service._area_counts_tray(db, store)
+    area = _area_counts(db, store, tray)
     salon = _salon(db, store, now)
     kitchen = _kitchen(db, store)
     pending = _pending(db, store)
@@ -406,6 +416,13 @@ def store_panel(db: Session, store: Store, *, now: datetime) -> StorePanelOut:
         salon=salon,
         kitchen=kitchen,
         pending=pending,
+        bullets=series.panel_bullets(
+            db,
+            store,
+            now=now,
+            expected_cash=cash.expected_cash if cash is not None else None,
+            areas=list(tray["area_counts_areas"]),
+        ),
     )
 
 
@@ -588,6 +605,7 @@ def shift_record(db: Session, *, shift: Shift) -> ShiftRecordOut:
             ],
             expected_total=opening.expected_total,
             counted_total=opening.counted_total,
+            difference_total=opening.counted_total - opening.expected_total,
             counted_by=opening.counted_by_employee_name,
             counted_at=opening.created_at,
         )
@@ -631,6 +649,7 @@ def shift_record(db: Session, *, shift: Shift) -> ShiftRecordOut:
         novelties=novelties,
         area_counts=area_counts,
         attendance=_roster_attendance(db, roster, {shift.id: shift}),
+        cash_by_hour=series.cash_by_hour(db, shift=shift, store=store),
     )
 
 
@@ -684,6 +703,7 @@ def employee_record(
             in_at=row.in_at,
             out_at=row.out_at,
             status=row.status,
+            worked_minutes=_worked_minutes(row),
         )
         for row in reversed(
             shifts_hooks.attendance_rows(db, store_id=store.id, date_from=frm, date_to=to, employee_id=employee.id)
@@ -775,6 +795,7 @@ def ingredient_record(
             )
             for line, c in lines
         ],
+        stock_by_day=series.stock_by_day(db, ingredient=ingredient, store=store),
     )
 
 

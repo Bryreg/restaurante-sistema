@@ -19,6 +19,15 @@ interface NoticeBase {
    * lleva (nunca «$ 0»). El orden lo decide quien arma `notices`.
    */
   amount?: React.ReactNode
+  /**
+   * Lo que se resuelve **en el mismo lugar** (handoff, `AdminHoy` variante
+   * A): «Confirmar consignación / No coincide», «Aprobar / Rechazar», la
+   * foto del comprobante, y una vez resuelto el rastro «✓ Confirmada por ti
+   * · 12:55 p. m.» con «Reversar con motivo». Va debajo de la consecuencia y
+   * antes del destino. Quien llama arma los controles; el riel sólo les da
+   * lugar.
+   */
+  actions?: React.ReactNode
 }
 
 /**
@@ -121,6 +130,7 @@ function NoticeItem({ notice, className }: { notice: Notice; className?: string 
         {notice.consequence ? (
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{notice.consequence}</p>
         ) : null}
+        {notice.actions ? <div className="mt-2 flex flex-col gap-2">{notice.actions}</div> : null}
         {notice.link ? <FilterLink {...notice.link} className="mt-1.5" /> : null}
       </div>
     </li>

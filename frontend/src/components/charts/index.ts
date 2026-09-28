@@ -24,8 +24,17 @@
  * 6. Concentración (varianza por insumo) → `Pareto`: barras más la línea de
  *    acumulado como marca 0–100 % con la guía del 80 %.
  * 7. Dos medidas por elemento con umbrales (ingeniería de menú) →
- *    `QuadrantScatter`, una sola tinta. Una serie en el tiempo contra una
- *    regla (salud sostenida por ventana) → `ThresholdDots`.
+ *    `QuadrantScatter`, una sola tinta (`variante="mix"` para el «Mix de
+ *    platos» del panel: promedios punteados y «▲ Revisar» en ámbar). Una
+ *    serie en el tiempo contra una regla (salud sostenida por ventana) →
+ *    `ThresholdDots`.
+ * 8. Un dato contra su referencia (semana anterior, meta, mínimo, umbral,
+ *    capacidad) → `BarrasConReferencia` («barra + raya», columnas en el
+ *    tiempo o filas por categoría) y `BulletReferencia`, el mini de 90 × 10
+ *    para celdas y bloques de Hoy. La barra va en ámbar del lado malo de la
+ *    raya, con ▲/▼ y texto.
+ * 9. Quién estuvo y cuándo (asistencia de un turno, 12 días de una
+ *    persona) → `HorarioGantt`.
  *
  * REGLAS QUE ESTAS PIEZAS YA CUMPLEN (y que quien las usa no debe romper):
  * · Ninguna calcula plata ni porcentajes: reciben cifras del backend y sólo
@@ -59,3 +68,17 @@ export { ThresholdDots } from "./ThresholdDots"
 export type { ThresholdDotsProps, ThresholdPunto } from "./ThresholdDots"
 export { Medidor } from "./Medidor"
 export type { MedidorProps } from "./Medidor"
+export { BarrasConReferencia, BulletReferencia, ResumenLateral } from "./BarrasConReferencia"
+export { estaFuera, etiquetaHora, minutosBogota } from "./referencia"
+export type {
+  BarrasConReferenciaProps,
+  BulletReferenciaProps,
+  LadoMalo,
+  LeyendaReferencia,
+  PuntoReferencia,
+  RenglonResumen,
+  TonoMalo,
+  TonoResumen,
+} from "./BarrasConReferencia"
+export { HorarioGantt } from "./HorarioGantt"
+export type { FilaHorario, HorarioGanttProps, MarcaRelevo, TramoHorario } from "./HorarioGantt"

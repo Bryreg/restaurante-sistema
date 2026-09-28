@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="display:flex;flex-direction:column;font-family:'Archivo',system-ui,sans-serif;color:var(--foreground);font-variant-numeric:tabular-nums">
+  <header style="display:flex;align-items:center;gap:8px;min-height:48px;padding:6px 12px;box-sizing:border-box;background:var(--muted);border-bottom:1px solid var(--border)">
+    <div style="display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:6px;border:1px solid var(--input);background:var(--card);font-size:14px"><i class="icon-store" style="font-size:16px;color:var(--muted-foreground)"></i><span style="color:var(--muted-foreground)">Sede</span><b>{{ sede }}</b><i class="icon-chevron-down" style="font-size:14px;color:var(--muted-foreground)"></i></div>
+    <span style="font-size:12px;color:var(--muted-foreground)">Óscar Restrepo · administrador</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:2px">
+      <button style="position:relative;height:32px;padding:0 10px;display:inline-flex;align-items:center;gap:6px;border:0;border-radius:6px;background:transparent;color:var(--muted-foreground);font:inherit;font-size:14px;cursor:pointer"><i class="icon-bell" style="font-size:16px"></i>Avisos<span style="min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--destructive);color:var(--destructive-foreground);font-size:11px;font-weight:700;display:grid;place-items:center">6</span></button>
+      <button style="height:32px;width:32px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:var(--muted-foreground);cursor:pointer"><i class="{{ temaIcono }}" style="font-size:16px"></i></button>
+      <button style="height:32px;padding:0 10px;display:inline-flex;align-items:center;gap:6px;border:0;border-radius:6px;background:transparent;color:var(--muted-foreground);font:inherit;font-size:14px;cursor:pointer"><i class="icon-log-out" style="font-size:16px"></i>Salir</button>
+    </div>
+  </header>
+  <sc-if value="{{ conTabs }}" hint-placeholder-val="{{ true }}">
+    <nav style="display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border);margin-top:4px">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+        <a href="#" style="display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px;margin-bottom:-1px;border-bottom:2px solid {{ t.borde }};font-size:14px;font-weight:500;text-decoration:none;color:{{ t.color }}">{{ t.label }}<span style="font-size:12px;font-weight:400;color:var(--muted-foreground)">{{ t.n }}</span></a>
+      </sc-for>
+    </nav>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1218,&quot;height&quot;:100},&quot;seccion&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Hoy&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;tab&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Hoy&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;sede&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Chapinero&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;oscuro&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  TABS = {
+    Hoy: [["Hoy"],["Pedidos",8]], Informes: [["Informes"],["Ventas"],["Ingeniería de menú"],["Clientes"],["Documentos"],["Notas"]],
+    Caja: [["Dinero"],["Banco"],["Devoluciones",1]], Inventario: [["Inventario",3],["Compras",2],["Varianza y salud"],["Reposición"]],
+    Carta: [["Carta"],["Preparaciones"]], Equipo: [["Turnos"],["Nómina"],["Propinas"]], Ajustes: [["Configuración"],["Funciones"],["Notificaciones"],["Rangos"],["Historial"]],
+  };
+  renderVals() {
+    const seccion = this.props.seccion ?? "Hoy", tab = this.props.tab ?? seccion;
+    const list = this.TABS[seccion] || [];
+    return {
+      sede: this.props.sede ?? "Chapinero",
+      temaIcono: this.props.oscuro ? "icon-sun" : "icon-moon",
+      conTabs: list.length > 1,
+      tabs: list.map(([label, n]) => ({ label, n: n || "", borde: label === tab ? "var(--primary)" : "transparent", color: label === tab ? "var(--foreground)" : "var(--muted-foreground)" })),
+    };
+  }
+}
+</script>
+</body>
+</html>

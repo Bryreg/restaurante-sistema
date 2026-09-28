@@ -123,12 +123,17 @@ describe("OrderItemsList", () => {
     expect(screen.getByText(/se fue sin pagar/i)).toBeInTheDocument()
   })
 
-  it("separa lo enviado de la ronda sin enviar y agrupa cada ronda por curso", () => {
+  // Motivo del cambio: el handoff (`PosComanda`) agrupa el pedido en «Sin
+  // enviar · N» (lo que todavía cambia) y «Ya en cocina», y el curso viaja en
+  // la etiqueta de cada línea («A2 · Fuerte») en vez de un rótulo de grupo.
+  // Lo que se prueba es lo mismo: lo enviado y lo sin enviar no se mezclan, y
+  // el monto es el `net` del servidor.
+  it("separa lo ya en cocina de lo sin enviar, con asiento y curso en la línea", () => {
     renderWithProviders(
       <OrderItemsList
         items={[
           buildOrderItem({ id: 1, name: "Sopa de guineo", course: "starter", status: "sent", round_no: 1 }),
-          buildOrderItem({ id: 2, name: "Bandeja paisa", course: "main", qty: 2, net: 76000 }),
+          buildOrderItem({ id: 2, name: "Bandeja paisa", course: "main", seat: 2, qty: 2, net: 76000 }),
           buildOrderItem({ id: 3, name: "Limonada de coco", course: "beverage", qty: 3, net: 27000 }),
         ]}
         nextRoundNo={2}
@@ -141,20 +146,47 @@ describe("OrderItemsList", () => {
       { me: deviceMe({}) },
     )
 
-    const sent = screen.getByRole("region", { name: "Ronda 1 · enviada" })
+    const sent = screen.getByRole("region", { name: "Ya en cocina" })
     expect(within(sent).getByText("Sopa de guineo")).toBeInTheDocument()
-    expect(within(sent).getByText("Entradas")).toBeInTheDocument()
+    expect(within(sent).getByText("En preparación")).toBeInTheDocument()
     expect(within(sent).queryByText("Bandeja paisa")).not.toBeInTheDocument()
 
-    const unsent = screen.getByRole("region", { name: "Ronda 2 · sin enviar" })
+    // N es la suma de unidades sin enviar (2 + 3), no de plata.
+    const unsent = screen.getByRole("region", { name: "Sin enviar · 5" })
     expect(within(unsent).queryByText("Sopa de guineo")).not.toBeInTheDocument()
-    // Rótulos de curso en orden de salida: bebidas antes que fuertes.
-    const labels = within(unsent).getAllByText(/^(Bebidas|Fuertes)$/).map((el) => el.textContent)
-    expect(labels).toEqual(["Bebidas", "Fuertes"])
     const bandeja = within(unsent).getByText("Bandeja paisa").closest("li") as HTMLElement
     expect(within(bandeja).getByText("2×")).toBeInTheDocument()
+    expect(within(bandeja).getByText("A2 · Fuerte")).toBeInTheDocument()
     // El monto de la línea es el `net` del backend, tal cual.
     expect(within(bandeja).getByText(/76\.000/)).toBeInTheDocument()
+  })
+
+  it("la línea elegida muestra las notas rápidas en 56 px y tocar una la pone o la saca", async () => {
+    const onToggleNote = vi.fn()
+    const user = userEvent.setup()
+    renderWithProviders(
+      <OrderItemsList
+        items={[buildOrderItem({ id: 2, name: "Bandeja paisa", course: "main", note: "Sin cebolla" })]}
+        selectedItemId={2}
+        onSelect={noop}
+        onToggleNote={onToggleNote}
+        onIncrement={noop}
+        onDecrement={noop}
+        onVoid={noop}
+        onCourtesy={noop}
+        onDiscount={noop}
+      />,
+      { me: deviceMe({}) },
+    )
+
+    const notas = screen.getByRole("group", { name: "Notas rápidas de Bandeja paisa" })
+    const sinCebolla = within(notas).getByRole("button", { name: "Sin cebolla" })
+    expect(sinCebolla).toHaveAttribute("aria-pressed", "true")
+    expect(sinCebolla.className).toMatch(/h-\[56px\]/)
+    await user.click(within(notas).getByRole("button", { name: "Aparte" }))
+    expect(onToggleNote).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }), "Aparte")
+    // La nota se lee como en el tiquete de cocina.
+    expect(screen.getByText("Sin cebolla", { selector: ".tiquete-modificadores" })).toBeInTheDocument()
   })
 
   it("los modificadores, las opciones del combo y la nota van en línea, debajo del nombre", () => {
@@ -188,7 +220,9 @@ describe("OrderItemsList", () => {
 
     const pechuga = screen.getByText("Pechuga a la plancha").closest("li") as HTMLElement
     expect(within(pechuga).getByText("+ papa criolla, sin cebolla")).toBeInTheDocument()
-    expect(within(pechuga).getByText("Nota: bien asada")).toBeInTheDocument()
+    // Motivo del cambio: la nota va en el amarillo del tiquete de cocina
+    // (handoff `PosComanda`), sin el prefijo «Nota:».
+    expect(within(pechuga).getByText("bien asada")).toBeInTheDocument()
     const combo = screen.getByText("Menú ejecutivo").closest("li") as HTMLElement
     expect(within(combo).getByText("Pollo")).toBeInTheDocument()
     // En línea: ningún diálogo aparte para leerlos.

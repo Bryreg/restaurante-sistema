@@ -36,6 +36,7 @@ router = APIRouter()
 def _notification_out(row: Notification) -> NotificationOut:
     return NotificationOut(
         id=row.id,
+        store_id=row.store_id,
         type=row.type,
         level=row.level,
         title=row.title,
@@ -70,6 +71,19 @@ def list_notifications(
     if wants_csv(request):
         return csv_response([o.model_dump() for o in out], "notifications.csv")
     return out
+
+
+@router.get("/admin/notifications/{notification_id}")
+def get_notification(
+    notification_id: int, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> NotificationOut:
+    """Un aviso solo: lo que abre la vista «Aviso desde la notificación»
+    (`/admin/avisos/{id}`), que es a donde lleva tocar el aviso en el
+    celular. De otra organización es `404`, igual que al marcarlo leído."""
+    row = db.get(Notification, notification_id)
+    if row is None or row.organization_id != actor.organization_id:
+        raise NotFoundError("La notificación no existe")
+    return _notification_out(row)
 
 
 @router.post("/admin/notifications/{notification_id}/read")

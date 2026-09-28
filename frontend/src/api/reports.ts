@@ -673,6 +673,155 @@ export interface ReportsOverviewOut {
   cost: CostSectionOut
   /** Sólo con «Todas las sedes»; `null` por sede. */
   by_store: StoreRowOut[] | null
+  /** Las series «barra + raya» de Informes, con dato y raya ya calculados. */
+  series?: OverviewSeriesOut | null
+}
+
+// ---------------------------------------------------------------------------
+// Series «barra + raya» (`app/reports/series_schemas.py`). Cada punto trae el
+// dato, su raya y de qué lado quedó (`outside`): la pantalla no compara ni
+// calcula, sólo pinta (`components/charts/BarrasConReferencia`).
+// ---------------------------------------------------------------------------
+
+/** De qué lado de la raya está lo malo: `above` = pasarla, `below` = no llegar. */
+export type SeriesBadSide = "above" | "below"
+/** En qué unidad viaja `value`/`reference`. `bp` = puntos básicos (10.000 = 100 %). */
+export type SeriesUnit = "cop" | "count" | "people" | "minutes" | "bp"
+
+export interface SeriesPointOut {
+  key: string
+  label: string
+  /** `null` = sin dato (nunca 0). */
+  value: number | null
+  /** La raya de este punto; `null` = sin raya (puede haber una común en la serie). */
+  reference: number | null
+  /** Variación contra la raya, en puntos básicos con signo; `null` sin raya o raya ≤ 0. */
+  delta_bp: number | null
+  /** Quedó del lado malo de su raya (lo decide el servidor). */
+  outside: boolean
+  /** Lo que viene (proyección o programado): al 35 %. */
+  future: boolean
+  /** «Ahora» / «hoy». */
+  now: boolean
+}
+
+export interface SeriesOut {
+  available: boolean
+  reason: string | null
+  unit: SeriesUnit
+  bad_side: SeriesBadSide
+  /** Raya común (meta, umbral, límite). */
+  reference: number | null
+  points: SeriesPointOut[]
+}
+
+export interface DailySalesSeriesOut extends SeriesOut {
+  days_with_reference: number
+  days_above: number
+  /** El día que más creció contra su mismo día de la semana anterior. */
+  best_key: string | null
+}
+
+export interface CategoryMarginPointOut extends SeriesPointOut {
+  net: number
+  gross_margin: number | null
+  costed_pct: number | null
+  /** Margen del período anterior, en puntos básicos. */
+  previous_bp: number | null
+  /** Cambio contra el período anterior, en puntos básicos (100 = 1 punto). */
+  delta_points_bp: number | null
+  /** Cuánto le falta para la meta (positivo), si está debajo. */
+  gap_bp: number | null
+}
+
+export interface CategoryMarginSeriesOut {
+  available: boolean
+  reason: string | null
+  unit: "bp"
+  bad_side: SeriesBadSide
+  /** La meta de margen de la sede (Ajustes › Ventas), en puntos básicos. */
+  reference: number | null
+  total_bp: number | null
+  points: CategoryMarginPointOut[]
+}
+
+export interface StoreWeekPointOut extends SeriesPointOut {
+  store_id: number
+  avg_ticket: number | null
+  /** Margen bruto de la sede en el período, en puntos básicos; `null` sin costo. */
+  margin_bp?: number | null
+}
+
+export interface StoresWeekSeriesOut {
+  available: boolean
+  reason: string | null
+  unit: "cop"
+  bad_side: SeriesBadSide
+  points: StoreWeekPointOut[]
+}
+
+export interface PeakHourPointOut extends SeriesPointOut {
+  /** Meseros en turno a la media hora (promedio de los días). */
+  waiters: number | null
+}
+
+export interface PeakHoursViewOut {
+  /** `"avg"` o el día de la semana (`"mon"`…`"sun"`). */
+  key: string
+  /** «Promedio», «sáb»… */
+  label: string
+  /** Días operados que entran al promedio. */
+  days: number
+  points: PeakHourPointOut[]
+}
+
+export interface PeakHoursSeriesOut {
+  available: boolean
+  reason: string | null
+  unit: "count"
+  bad_side: SeriesBadSide
+  /** Comandas por mesero de Ajustes; `null` si las sedes difieren. */
+  orders_per_waiter: number | null
+  views: PeakHoursViewOut[]
+}
+
+/**
+ * El grupo de un plato en el «Mix de platos», decidido por el servidor contra
+ * los promedios: `keep` venden y dejan, `promote` dejan pero venden poco,
+ * `reprice` venden pero dejan poco, `review` venden poco y dejan poco.
+ */
+export type DishMixGroup = "keep" | "promote" | "reprice" | "review"
+
+export interface DishMixPointOut {
+  key: string
+  label: string
+  units: number
+  /** Margen bruto sobre la venta neta del plato, en puntos básicos. */
+  margin_bp: number
+  net: number
+  group: DishMixGroup
+}
+
+export interface DishMixSeriesOut {
+  available: boolean
+  reason: string | null
+  /** Promedio simple de unidades de los platos ubicados. */
+  avg_units: number | null
+  /** Promedio simple de margen, en puntos básicos. */
+  avg_margin_bp: number | null
+  points: DishMixPointOut[]
+  /** Platos vendidos sin costo: no se pueden ubicar. */
+  without_cost: number
+}
+
+export interface OverviewSeriesOut {
+  daily_sales: DailySalesSeriesOut
+  category_margin: CategoryMarginSeriesOut
+  /** Sólo con «Todas las sedes». */
+  stores_week: StoresWeekSeriesOut | null
+  peak_hours: PeakHoursSeriesOut
+  /** «¿Qué platos venden y dejan plata?». Ausente en un backend viejo. */
+  dish_mix?: DishMixSeriesOut | null
 }
 
 export interface ReportsOverviewQuery {

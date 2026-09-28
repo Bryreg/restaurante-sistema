@@ -22,9 +22,12 @@ import { WasteAdminTab } from "./WasteAdminTab"
 export function MovementsWasteTab({
   storeId,
   ingredients,
+  initialIngredientId = null,
 }: {
   storeId: number
   ingredients: IngredientOut[]
+  /** El insumo con el que abre el libro (`?insumo=ID`). */
+  initialIngredientId?: number | null
 }): React.JSX.Element {
   const { hasFeature } = useSession()
   const wasteEnabled = hasFeature("inventory.waste")
@@ -38,7 +41,7 @@ export function MovementsWasteTab({
         <div className="mb-2 flex justify-end">
           <AdjustmentDialog storeId={storeId} ingredients={ingredients} />
         </div>
-        <MovementsPanel ingredients={ingredients} />
+        <MovementsPanel ingredients={ingredients} initialIngredientId={initialIngredientId} />
       </GroupLabel>
 
       <GroupLabel label="Mermas" says="una de esas causas: lo que se perdió, con responsable y foto">

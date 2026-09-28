@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="display:flex;min-height:100%;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:16px">
+  <dc-import name="AdminRail" activo="Inventario" style="width:222px;flex:none" hint-size="222px,100%"></dc-import>
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <dc-import name="AdminTop" seccion="Inventario" tab="Inventario" hint-size="100%,93px"></dc-import>
+    <main style="padding:16px 24px 40px;display:flex;flex-direction:column;gap:14px">
+      <header style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px"><h1 style="margin:0;font-size:24px;font-weight:700;font-stretch:108%">Inventario</h1><span style="font-size:12px;color:var(--muted-foreground);display:inline-flex;gap:4px;align-items:center"><i class="icon-circle-help" style="font-size:14px"></i>¿Qué es esto?</span></div>
+        <p style="margin:0;display:flex;gap:14px;font-size:12px;color:var(--muted-foreground);align-items:center"><span><b style="color:var(--foreground)">47</b> insumos activos · 6 inactivos</span><span style="width:1px;height:14px;background:var(--border)"></span><span>Último conteo completo · <b style="color:var(--foreground)">hoy 7:14 a. m.</b></span><span style="width:1px;height:14px;background:var(--border)"></span><span>Costos visibles solo para administración</span></p>
+      </header>
+
+      <section style="border-radius:8px;border:1px solid var(--border);background:var(--card);overflow:visible;position:relative">
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--muted);border-bottom:1px solid var(--border);border-radius:8px 8px 0 0">
+          <p style="margin:0;font-size:12px;color:var(--muted-foreground)"><b style="color:var(--foreground)">{{ shown }}</b> de <b style="color:var(--foreground)">47</b> insumos · {{ ocultos }}</p>
+          <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+            <sc-for list="{{ filtros }}" as="f"><button onClick="{{ f.elegir }}" style="height:30px;padding:0 10px;border-radius:999px;border:1px solid {{ f.borde }};background:{{ f.fondo }};color:{{ f.txt }};font:inherit;font-size:12px;font-weight:600;cursor:pointer">{{ f.t }}</button></sc-for>
+            <div style="height:30px;width:200px;border-radius:6px;border:1px solid var(--input);background:var(--card);display:flex;align-items:center;gap:6px;padding:0 8px;font-size:13px;color:var(--muted-foreground)"><i class="icon-search" style="font-size:14px"></i>Buscar insumo</div>
+            <button style="height:30px;padding:0 12px;border-radius:6px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:13px;font-weight:600">Registrar compra</button>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:14.4px">
+          <thead>
+            <tr>
+              <sc-for list="{{ cols }}" as="c">
+                <th style="height:30px;padding:0 8px;text-align:{{ c.al }};font-size:10.4px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600;background:var(--muted);border-bottom:2px solid var(--border);white-space:nowrap;width:{{ c.w }}">
+                  <span style="display:inline-flex;align-items:center;gap:4px">{{ c.h }}<sc-if value="{{ c.q }}"><button onClick="{{ c.toggle }}" aria-label="¿Qué es esto?" style="width:18px;height:18px;border-radius:999px;border:0;background:{{ c.qFondo }};color:{{ c.qTxt }};display:grid;place-items:center;cursor:pointer;padding:0"><i class="icon-circle-help" style="font-size:13px"></i></button></sc-if></span>
+                </th>
+              </sc-for>
+            </tr>
+            <sc-if value="{{ explica }}">
+              <tr><td colspan="{{ nCols }}" style="padding:10px 12px;background:var(--accent);color:var(--accent-foreground);font-size:13px;border-bottom:1px solid var(--border)"><b>{{ explica.h }}:</b> {{ explica.t }}</td></tr>
+            </sc-if>
+          </thead>
+          <tbody>
+            <sc-for list="{{ filas }}" as="f" hint-placeholder-count="9">
+              <tr style="height:34px;border-bottom:1px solid var(--border);position:relative">
+                <sc-for list="{{ f.celdas }}" as="c"><td style="padding:0 8px;white-space:nowrap;text-align:{{ c.al }};font-weight:{{ c.peso }};color:{{ c.color }};border-left:{{ c.franja }}">
+                  <sc-if value="{{ c.link }}"><a href="#" style="color:var(--primary);text-decoration:none">{{ c.t }}</a></sc-if>
+                  <sc-if value="{{ c.chip }}"><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:{{ c.chipColor }}"><span style="width:8px;height:8px;background:{{ c.chipColor }};border-radius:{{ c.forma }};clip-path:{{ c.clip }}"></span>{{ c.t }}</span></sc-if>
+                  <sc-if value="{{ c.rayado }}"><span style="padding:2px 8px;border-radius:4px;font-style:italic;color:var(--muted-foreground);background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in oklab, var(--muted-foreground) 22%, transparent) 6px 8px)">{{ c.t }}</span></sc-if>
+                  <sc-if value="{{ c.plano }}">{{ c.t }}</sc-if>
+                  <sc-if value="{{ c.bullet }}"><span style="display:inline-flex;align-items:center;gap:10px;justify-content:flex-end;width:100%"><span style="font-weight:{{ c.peso }};color:{{ c.color }}">{{ c.t }}</span><span title="{{ c.titulo }}" style="position:relative;width:90px;height:10px;border-radius:2px;background:var(--muted);flex:none"><span style="position:absolute;left:0;top:0;bottom:0;width:{{ c.w }};background:{{ c.bc }};border-radius:2px"></span><span style="position:absolute;top:-3px;bottom:-3px;left:{{ c.raya }};border-left:2px solid var(--foreground)"></span></span></span></sc-if>
+                </td></sc-for>
+                <td style="width:1%;padding:0 6px;text-align:right;position:relative">
+                  <button onClick="{{ f.menu }}" aria-label="Acciones de la fila" style="width:28px;height:28px;border-radius:6px;border:0;background:{{ f.menuFondo }};color:var(--muted-foreground);display:grid;place-items:center;cursor:pointer"><i class="icon-ellipsis" style="font-size:16px"></i></button>
+                  <sc-if value="{{ f.menuAbierto }}">
+                    <div style="position:absolute;right:6px;top:32px;z-index:5;width:230px;padding:4px;border-radius:8px;border:1px solid var(--border);background:var(--card);box-shadow:0 10px 28px rgb(0 0 0 / 18%);text-align:left">
+                      <sc-for list="{{ menuItems }}" as="m"><button style="width:100%;height:32px;display:flex;align-items:center;gap:8px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--foreground);font:inherit;font-size:13px;cursor:pointer"><i class="{{ m.i }}" style="font-size:15px;color:var(--muted-foreground)"></i>{{ m.t }}</button></sc-for>
+                      <p style="margin:4px 8px 4px;font-size:11px;color:var(--muted-foreground)">Nada se borra: los ajustes quedan en el libro con motivo.</p>
+                    </div>
+                  </sc-if>
+                </td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+        <div style="display:flex;gap:16px;align-items:center;padding:6px 12px;border-top:1px solid var(--border);font-size:12px;color:var(--muted-foreground)">
+          <button onClick="{{ toggleMas }}" style="border:0;background:transparent;color:var(--primary);font:inherit;font-size:12px;font-weight:600;padding:4px 6px;border-radius:6px;cursor:pointer">{{ masTxt }}</button>
+          <button onClick="{{ toggleLeyenda }}" style="border:0;background:transparent;color:var(--muted-foreground);font:inherit;font-size:12px;font-weight:600;padding:4px 6px;cursor:pointer;display:inline-flex;gap:4px;align-items:center"><i class="icon-chevron-right" style="font-size:13px"></i>Cómo leer esta tabla</button>
+        </div>
+        <sc-if value="{{ leyenda }}"><dl style="margin:0;padding:4px 18px 12px;display:grid;grid-template-columns:repeat(3,1fr);gap:6px 20px;font-size:12px;color:var(--muted-foreground)"><div><dt style="display:inline;font-weight:700;color:var(--foreground)">Negativo</dt> — se vendió más de lo que había: falta una compra o una receta está mal.</div><div><dt style="display:inline;font-weight:700;color:var(--foreground)">Bajo mínimo</dt> — hay, pero menos del mínimo. No es lo mismo que negativo.</div><div><dt style="display:inline;font-weight:700;color:var(--foreground)">Sin costo</dt> — falta la factura. No es $ 0.</div></dl></sc-if>
+      </section>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  state = { mas: false, q: "e", menu: 1, leyenda: false, filtro: "Todos" };
+  COLS = [
+    { k: "n", h: "Insumo" }, { k: "s", h: "Stock", r: 1, q: "Lo que dice el sistema ahora: último conteo más entradas menos salidas. La barra lo compara con el mínimo (la raya): si no llega a la raya, hay que pedir." },
+    { k: "m", h: "Mínimo", r: 1, q: "Debajo de esto, Reposición lo sugiere en la próxima compra." },
+    { k: "e", h: "Estado", q: "Negativo: el sistema vendió más de lo que había (falta registrar una compra o una receta está mal). Bajo mínimo es otra cosa: hay, pero poco." },
+    { k: "c", h: "Costo promedio", r: 1, q: "Promedio ponderado de las compras. «Sin costo» no es $ 0: falta la factura." },
+    { k: "a", h: "Área", sec: 1 }, { k: "u", h: "Último conteo", sec: 1, q: "Quién contó y cuándo. La cantidad contada se ve en la ficha del insumo." },
+    { k: "p", h: "Proveedor", sec: 1 }, { k: "v", h: "Valor en stock", r: 1, sec: 1 },
+  ];
+  ROWS = [
+    ["Pechuga de pollo", "−2,4 kg", "8 kg", "neg", "$ 18.900 /kg", "Cocina", "Andrés · 6:58 a. m.", "Avícola El Rosal", "—"],
+    ["Ron Viejo de Caldas 750 ml", "3,8 bot.", "4 bot.", "bajo", "$ 49.000", "Bar", "Camilo · vie 7:14 a. m.", "Licores del Valle", "$ 186.200"],
+    ["Aceite", "2,1 gal.", "3 gal.", "bajo", "$ 42.500", "Cocina", "Andrés · vie 6:52 a. m.", "Distribuidora Andina", "$ 89.250"],
+    ["Aguardiente Antioqueño 750 ml", "14,3 bot.", "6 bot.", "ok", "$ 58.000", "Bar", "Kevin · 7:10 a. m.", "Licores del Valle", "$ 829.400"],
+    ["Arroz", "1,5 bultos", "1 bulto", "ok", "$ 96.000", "Cocina", "Andrés · 7:01 a. m.", "Distribuidora Andina", "$ 144.000"],
+    ["Papa criolla", "18 kg", "10 kg", "ok", "$ 4.200 /kg", "Cocina", "Andrés · 7:03 a. m.", "Corabastos · Don Luis", "$ 75.600"],
+    ["Hielo", "6 bolsas", "4 bolsas", "ok", "sin", "Bar", "Camilo · vie 7:14 a. m.", "Hielo Polar", "—"],
+    ["Club Colombia 330 ml", "86 u.", "48 u.", "ok", "$ 2.950", "Bar", "Camilo · 7:13 a. m.", "Bavaria", "$ 253.700"],
+    ["Limón tahití", "6 kg", "5 kg", "ok", "$ 3.800 /kg", "Bar", "Camilo · vie 7:14 a. m.", "Corabastos · Don Luis", "$ 22.800"],
+  ];
+  NUM = [[-2.4, 8], [3.8, 4], [2.1, 3], [14.3, 6], [1.5, 1], [18, 10], [6, 4], [86, 48], [6, 5]];
+  renderVals() {
+    const s = this.state;
+    const cols = this.COLS.filter(c => s.mas || !c.sec);
+    const EST = { neg: ["Negativo", "var(--destructive)", "1px", "none", "3px solid var(--destructive)"], bajo: ["Bajo mínimo", "var(--warning)", "0", "polygon(50% 0,100% 100%,0 100%)", "3px solid var(--warning)"], ok: ["Al día", "var(--success)", "50%", "none", "3px solid transparent"] };
+    const rows = this.ROWS.filter(r => s.filtro === "Todos" || (s.filtro === "En alerta" ? r[3] !== "ok" : r[5] === s.filtro));
+    const filas = rows.map((r, ri) => {
+      const idx = this.ROWS.indexOf(r);
+      const celdas = cols.map((c, i) => {
+        const v = r[this.COLS.indexOf(c)];
+        const base = { t: v, al: c.r ? "right" : "left", peso: 400, color: "var(--foreground)", link: false, chip: false, rayado: false, plano: false, bullet: false, franja: i === 0 ? EST[r[3]][4] : "none" };
+        if (c.k === "n") return { ...base, link: true, peso: 700 };
+        if (c.k === "e") { const e = EST[r[3]]; return { ...base, t: e[0], chip: true, chipColor: e[1], forma: e[2], clip: e[3] }; }
+        if (c.k === "c" && v === "sin") return { ...base, t: "Sin costo", rayado: true };
+        if (c.k === "s") { const [sv, mv] = this.NUM[idx]; const tope = mv * 2.5; const w = Math.max(0, Math.min(sv, tope)) / tope * 100; return { ...base, bullet: true, w: w + "%", raya: (mv / tope * 100) + "%", bc: r[3] === "neg" ? "var(--destructive)" : r[3] === "bajo" ? "var(--warning)" : "var(--data-1)", color: r[3] === "neg" ? "var(--destructive)" : "var(--foreground)", peso: r[3] === "ok" ? 400 : 700, titulo: "Stock " + v + " · mínimo " + r[2] }; }
+        if (c.k === "u") return { ...base, plano: true, color: "var(--muted-foreground)" };
+        return { ...base, plano: true };
+      });
+      const abierto = s.menu === idx;
+      return { celdas, menuAbierto: abierto, menuFondo: abierto ? "var(--muted)" : "transparent", menu: () => this.setState({ menu: abierto ? null : idx }) };
+    });
+    const qc = this.COLS.find(c => c.k === s.q && cols.includes(c));
+    return {
+      cols: cols.map(c => ({ h: c.h, al: c.r ? "right" : "left", w: "auto", q: !!c.q, qFondo: s.q === c.k ? "var(--primary)" : "transparent", qTxt: s.q === c.k ? "var(--primary-foreground)" : "var(--muted-foreground)", toggle: () => this.setState({ q: s.q === c.k ? null : c.k }) })).concat([{ h: "", al: "right", w: "1%", q: false }]),
+      nCols: cols.length + 1,
+      explica: qc ? { h: qc.h, t: qc.q } : null,
+      filas, shown: rows.length,
+      ocultos: s.filtro === "Todos" ? "los 38 al día van en la página siguiente" : "filtrado por " + s.filtro.toLowerCase(),
+      filtros: ["Todos", "En alerta", "Cocina", "Bar"].map(t => { const on = s.filtro === t; return { t, borde: on ? "var(--foreground)" : "var(--border)", fondo: on ? "var(--foreground)" : "var(--card)", txt: on ? "var(--background)" : "var(--foreground)", elegir: () => this.setState({ filtro: t, menu: null }) }; }),
+      masTxt: s.mas ? "Menos columnas" : "Más columnas (4)",
+      toggleMas: () => this.setState({ mas: !s.mas }),
+      leyenda: s.leyenda, toggleLeyenda: () => this.setState({ leyenda: !s.leyenda }),
+      menuItems: [["Ver ficha del insumo", "icon-file-text"], ["Ajustar con motivo", "icon-sliders-horizontal"], ["Pedir recuento", "icon-rotate-ccw"], ["Ver libro de movimientos", "icon-history"]].map(([t, i]) => ({ t, i })),
+    };
+  }
+}
+</script>
+</body>
+</html>

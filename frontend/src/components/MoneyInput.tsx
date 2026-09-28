@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { formatCOP, parseCOP } from "@/lib/money";
+import { cn } from "@/lib/utils";
 
 export interface MoneyInputProps {
   id?: string;
@@ -12,6 +13,8 @@ export interface MoneyInputProps {
   "aria-label"?: string;
   "aria-describedby"?: string;
   "aria-invalid"?: boolean;
+  /** Clases extra (p. ej. la cifra grande de «Recibido» en el cobro). */
+  className?: string;
 }
 
 /**
@@ -26,6 +29,7 @@ export function MoneyInput({
   onChange,
   disabled = false,
   placeholder = "$ 0",
+  className,
   ...aria
 }: MoneyInputProps): React.JSX.Element {
   const [text, setText] = useState(value === null ? "" : String(value));
@@ -56,7 +60,7 @@ export function MoneyInput({
       id={id}
       type="text"
       inputMode="numeric"
-      className="h-11"
+      className={cn("h-11", className)}
       disabled={disabled}
       placeholder={placeholder}
       value={focused ? text : value === null ? "" : formatCOP(value)}

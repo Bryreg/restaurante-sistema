@@ -32,6 +32,7 @@ import {
   type UnavailableProductOut,
   type UncostedProductOut,
 } from "@/api/reports"
+import { useEsCelular } from "@/app/celular"
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import {
@@ -82,7 +83,8 @@ import { RequestsTray } from "@/features/requests"
 
 import { Definiciones, Plegable, type Definicion } from "./Plegable"
 import { fichaTurnoHref } from "./fichas/rutas"
-import { PanelAhora } from "./PanelAhora"
+import { avisoConEnlace, useAccionables } from "./hoy/Atencion"
+import { AhoraSede, SemaforoSedes, usePanelAhora } from "./PanelAhora"
 
 /** El ancla de la bandeja: solicitudes y novedades que el salón le dejó al dueño. */
 const ANCLA_BANDEJA = "bandeja"
@@ -792,6 +794,29 @@ function sortAttention(items: AttentionItem[]): AttentionItem[] {
  */
 function toNotice(item: AttentionItem): Notice {
   const link: FilterLinkProps = { to: item.to, screen: item.screen, tab: item.tab, filter: item.filter }
+  // Los dos que no se resuelven en el riel llevan su botón a la ficha que
+  // los resuelve (handoff, `AdminHoy`): el cierre administrativo de un
+  // turno abandonado pide su propio flujo, y la base de respaldo no tiene
+  // todavía cómo avisarle a la tablet de caja.
+  const ir =
+    item.key === "shift-stale"
+      ? "Cerrar turno abandonado"
+      : item.key === "reserve-loans" && item.to !== "/admin/dinero"
+        ? "Ver el préstamo en el turno"
+        : null
+  if (ir) {
+    return avisoConEnlace(
+      {
+        id: item.key,
+        severity: SEVERITY_OF_TONE[item.tone],
+        title: item.title,
+        consequence: item.body,
+        amount:
+          item.amount === null || item.amount === undefined ? undefined : (item.amountText ?? formatCOP(item.amount)),
+      } as Notice,
+      { to: item.to, label: ir },
+    )
+  }
   // **Todos con la misma forma**: título, por qué duele, destino. Lo que
   // dice la gravedad es el riel de color del `NoticeRail`, no la forma del
   // aviso (`admin/a2`, `.av` / `.av.crit` / `.av.warn`). Antes el no crítico
@@ -808,24 +833,50 @@ function toNotice(item: AttentionItem): Notice {
   }
 }
 
-/** Cuántos avisos se ven de entrada en el riel (mapa de pantallas: «como máximo 5»). */
+/** Cuántos avisos se ven de entrada en el riel (mapa de pantallas: «como máximo 5»; en el celular, 3). */
 const VISIBLE_NOTICES = 5
+const VISIBLE_NOTICES_CELULAR = 3
+
+const SEVERITY_RANK: Record<NoticeSeverity, number> = { critical: 0, warning: 1, whenever: 2 }
 
 /**
- * «Requiere tu atención» con **cinco avisos a la vista** y el resto detrás
- * de un solo «Ver n más» (mapa de pantallas aprobado para Hoy). El corte lo
- * hace el riel (`limit`), en cualquier ancho, y sus recuentos —el total del
- * encabezado y el de cada gravedad— siguen diciendo cuántos hay de verdad,
- * no cuántos se ven. La cola «para cuando puedas» no cuenta: el riel ya la
- * pliega.
+ * «Requiere tu atención»: un riel fijo de 420 px a la derecha (handoff,
+ * `AdminHoy` variante A) con **las acciones en el mismo lugar** —confirmar
+ * una consignación mirando la foto, aprobar o rechazar un sencillo, revisar
+ * una novedad, marcar una salida— y, una vez resuelto, el rastro con
+ * «Reversar con motivo» (`hoy/Atencion.tsx`). Los demás avisos siguen con
+ * su destino nombrado en palabras.
+ *
+ * Cinco a la vista y el resto detrás de un solo «Ver n más» (tres en el
+ * celular); los recuentos —el total del encabezado y el de cada gravedad—
+ * dicen cuántos hay de verdad, no cuántos se ven.
  */
-function AttentionRail({ attention }: { attention: AttentionItem[] }): React.JSX.Element {
+function AttentionRail({
+  attention,
+  today,
+  storeId,
+  celular,
+}: {
+  attention: AttentionItem[]
+  today: TodayOut
+  storeId: number
+  celular: boolean
+}): React.JSX.Element {
+  const { panel } = usePanelAhora()
+  const accionables = useAccionables({ storeId, today, salidas: panel?.staff.pending_review })
+  const agregados = attention.filter((a) => !accionables.reemplaza.has(a.key))
   // Una vez por clase de aviso, aunque haya dos del mismo tipo.
   const porQue = [
     ...new Map(
-      attention.flatMap((a) => (a.why ? [[a.why.term, { term: a.why.term, meaning: a.why.text }] as const] : [])),
+      agregados.flatMap((a) => (a.why ? [[a.why.term, { term: a.why.term, meaning: a.why.text }] as const] : [])),
     ).values(),
   ]
+  // Por gravedad; dentro de la misma, primero lo que se resuelve acá. El
+  // orden de cada lista ya viene decidido (`sortAttention`, el servidor).
+  const notices = [...accionables.notices, ...agregados.map(toNotice)]
+    .map((n, i) => ({ n, i }))
+    .sort((a, b) => SEVERITY_RANK[a.n.severity] - SEVERITY_RANK[b.n.severity] || a.i - b.i)
+    .map(({ n }) => n)
 
   // El `sticky` del escritorio pasa del riel a este envoltorio: pegado sólo
   // el riel, al bajar se montaba encima del plegable, que quedaba en su
@@ -842,9 +893,9 @@ function AttentionRail({ attention }: { attention: AttentionItem[] }): React.JSX
       <NoticeRail
         title="Requiere tu atención"
         className="static"
-        limit={VISIBLE_NOTICES}
-        // `sortAttention` deja los urgentes primero, en el orden del riel.
-        notices={attention.map(toNotice)}
+        limit={celular ? VISIBLE_NOTICES_CELULAR : VISIBLE_NOTICES}
+        notices={notices}
+        footNote="Ordenados por gravedad · lo resuelto queda en el historial"
         empty={
           <AllClearEmptyState
             title="Todo al día"
@@ -1216,6 +1267,7 @@ export function TodayPage(): React.JSX.Element {
   const { activeStoreId, loading: storeLoading } = useStoreSelection()
   const { me } = useSession()
   const cutoffHour = me?.store?.cutoff_hour
+  const celular = useEsCelular()
 
   const query = useQuery({
     queryKey: ["admin-today", activeStoreId],
@@ -1313,25 +1365,30 @@ export function TodayPage(): React.JSX.Element {
   const tipsByMethod = today.tips_by_method ?? []
 
   return (
-    // **El riel va al lado de todo, no debajo de la banda.** Es la primera
-    // de las cuatro diferencias que el dueño nombró mirando `a2`: ahí el
-    // riel arranca a la altura de la banda de cifra y ocupa la columna
-    // derecha entera (`.hoy{grid-template-columns:minmax(0,1fr) 336px}`, con
-    // la banda **adentro** de `.hoy-col`). Acá la banda estaba afuera de la
-    // grilla, así que el riel empezaba 140 px más abajo y la esquina
-    // superior derecha —el lugar de la pantalla que más mira— quedaba vacía.
-    <div className="space-y-5">
+    // **Variante A del handoff** (`AdminHoy`): el semáforo de las sedes a
+    // todo el ancho; debajo, a la izquierda «Ahora» —cinco bloques con barra
+    // + raya— y a la derecha «Requiere tu atención», un riel fijo de 420 px
+    // con las acciones en el mismo lugar. Lo que ya estaba en Hoy —la cifra
+    // con su libro, las ocho tarjetas, las ventas por hora, las comandas
+    // abiertas, los conteos, la bandeja— sigue debajo de «Ahora»: ningún
+    // control se perdió, se movió. En el celular (captura 13a) va primero la
+    // venta y los bloques en corto, después los tres primeros avisos, y el
+    // resto del día plegado.
+    <div className="space-y-4">
       <PageHeader
         name="Hoy"
-        question="Cómo va el día en curso y qué quedó pendiente de resolver."
+        question="¿Cómo van las sedes ahora mismo y qué necesita una decisión tuya? Cada cifra lleva a su ficha."
         context={[
-          // Franja de datos cortos (regla 2): «Actualizado hace 14 s». Que se
-          // refresca sola y el instante exacto van al `title`.
           {
-            label: "Actualizado",
+            label: "Se actualiza sola cada 30 s ·",
             value: <TimeAgo iso={updatedIso} />,
-            title: "Se actualiza sola cada 30 s ·" + " " + formatInstant(updatedIso),
+            title: formatInstant(updatedIso),
             icon: RefreshCw,
+          },
+          {
+            label: "Día operativo",
+            value: formatBusinessDate(today.business_date),
+            icon: CalendarDays,
           },
           ...(cutoffHour !== null && cutoffHour !== undefined
             ? [
@@ -1343,33 +1400,13 @@ export function TodayPage(): React.JSX.Element {
                 },
               ]
             : []),
-          // «Quedan N comandas abiertas» salió de acá: lo dice la tarjeta
-          // «Comandas abiertas», que además lleva a Pedidos.
         ]}
         actions={
-          <>
-            {/* § 3 de las diferencias nombradas: el período, arriba a la
-                derecha y con ícono de calendario, no perdido en la franja de
-                contexto. En `a2` es un `.selector`; acá es una **pastilla
-                que no se toca**, con la misma métrica y el mismo ícono: esta
-                pantalla es, por definición, el día en curso, y un botón que
-                abre un calendario sería comportamiento nuevo —elegir otra
-                fecha— y no la apariencia que se pidió. El día completo,
-                fecha por fecha, es lo que contesta Ventas, y ahí sí va un
-                enlace de verdad. */}
-            <p
-              title="Día operativo"
-              className="inline-flex h-8 items-center gap-2 rounded-md border border-input bg-card px-2.5 text-sm font-bold whitespace-nowrap"
-            >
-              <CalendarDays className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              {formatBusinessDate(today.business_date)}
-            </p>
-            {/* `title` con el mismo texto que se ve, a propósito: el censo de
-                controles lee el código y **no ve un rótulo que viene
-                después de un `<svg>`** dentro de un `Button render={<Link/>}`.
-                Escrito también en el atributo, el control queda en la red.
-                `nativeButton={false}`: acá el disparador es un `<a>`, y sin
-                eso Base UI avisa por consola en cada dibujo. */}
+          // `title` con el mismo texto que se ve, a propósito: el censo de
+          // controles lee el código y **no ve un rótulo que viene después de
+          // un `<svg>`** dentro de un `Button render={<Link/>}`.
+          // `nativeButton={false}`: el disparador es un `<a>`.
+          celular ? undefined : (
             <Button
               variant="outline"
               size="sm"
@@ -1380,86 +1417,75 @@ export function TodayPage(): React.JSX.Element {
               <BarChart3 className="size-4 shrink-0" aria-hidden="true" />
               Ver el día completo
             </Button>
-          </>
+          )
         }
       />
 
-      {/* **La portada** (panel de control): con varias sedes, todas en un
-          semáforo; de la sede activa, qué pasa ahora —caja, quién trabaja,
-          conteos, salón, cocina—. Cada bloque lleva a su detalle. */}
-      <PanelAhora />
+      {/* El semáforo por sede: tocar una la vuelve la sede activa. */}
+      <SemaforoSedes />
 
       {/* **Un solo nivel de grilla, en el orden en que se lee en el
-          celular** (`docs/diseno/propuesta.html`, Momento 5): primero la
-          respuesta —la cifra rectora—, después lo que exige actuar, y los
-          indicadores al final. Antes el riel iba último en el código y en el
-          celular quedaba abajo de todo, después de la tabla de comandas.
-          Ahora el orden del código es el de lectura —el foco y el lector de
-          pantalla lo siguen— y el escritorio no cambia: desde `xl` el riel
-          se va a la columna derecha y ocupa todas las filas
-          (`[grid-row:1/-1]`). La última fila es `1fr` para que, si el riel
-          mide más que la columna izquierda, lo que sobra caiga debajo del
-          último bloque y no repartido entre los bloques. */}
-      <div
-        className={cn(
-          "grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]",
-          tipsByMethod.length > 0 ? "xl:grid-rows-[repeat(4,auto)_1fr]" : "xl:grid-rows-[repeat(3,auto)_1fr]",
-        )}
-      >
-        {/* § 4 · La plata nunca es un número suelto: es una resta, y se
-            compara contra el mismo día de la semana pasada a la misma hora
-            (`comparison`, del servidor: acá no se calcula). */}
-        {beforeFirstSale && yesterday ? (
-          <HeadlineFigure
-            className={CIFRA_VENTA}
-            label="Todavía no hay ventas hoy · ayer cerró en"
-            value={formatCOP(yesterday.net)}
-            note={[
-              formatFechaCorta(yesterday.business_date),
-              `${yesterday.orders} ${yesterday.orders === 1 ? "comanda pagada" : "comandas pagadas"}`,
-              yesterday.avg_ticket !== null ? `ticket promedio ${formatCOP(yesterday.avg_ticket)}` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-            ledger={{
-              rows: [
-                { label: "Cobrado hoy", value: formatCOP(today.gross) },
-                { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
-              ],
-              total: { label: "Ventas netas de hoy", value: formatCOP(today.net) },
-            }}
-            comparison={comparison}
-          />
-        ) : (
-          // Sin nota al pie: las comandas pagadas son la primera tarjeta de
-          // abajo, y que el día sigue abierto lo dicen la fecha y «a esta hora».
-          <HeadlineFigure
-            className={CIFRA_VENTA}
-            label="Ventas netas de hoy"
-            value={formatCOP(today.net)}
-            ledger={{
-              rows: [
-                { label: "Ventas cobradas", value: formatCOP(today.gross) },
-                { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
-              ],
-              total: { label: "Ventas netas", value: formatCOP(today.net) },
-            }}
-            comparison={comparison}
-          />
-        )}
-
-        {/* § 7 · Una columna pegada a la derecha, siempre visible, con
-            encabezado de gravedad y recuento. Lo urgente no queda nunca
-            bajo el pliegue. En el celular va justo debajo de la cifra, y
-            ahí deja de ser `sticky`: pegado arriba taparía los indicadores
-            al bajar. Este envoltorio se estira por toda la columna para
-            que el `sticky` del escritorio tenga por dónde correr; el ancla
-            de «Avisos» la lleva, adentro, el bloque que se pega
-            (`AttentionRail`). */}
-        <div className="min-w-0 xl:col-start-2 xl:[grid-row:1/-1] xl:self-stretch">
-          <AttentionRail attention={attention} />
+          celular**: primero «Ahora» (la venta y los bloques), después la
+          cifra con su libro, después lo que exige actuar, y el resto del
+          día al final. El foco y el lector de pantalla siguen ese orden; en
+          el escritorio el riel se va a la columna derecha y ocupa todas las
+          filas (`[grid-row:1/-1]`). */}
+      <div className="grid items-start gap-[18px] xl:grid-cols-[minmax(0,1fr)_420px] xl:grid-rows-[auto_auto_1fr]">
+        <div className="min-w-0 xl:col-start-1">
+          <AhoraSede />
         </div>
 
+        {celular ? null : (
+          <section aria-label="El día hasta ahora" className="min-w-0 xl:col-start-1">
+            {/* § 4 · La plata nunca es un número suelto: es una resta, y se
+                compara contra el mismo día de la semana pasada a la misma hora
+                (`comparison`, del servidor: acá no se calcula). */}
+            {beforeFirstSale && yesterday ? (
+              <HeadlineFigure
+                className={CIFRA_VENTA}
+                label="Todavía no hay ventas hoy · ayer cerró en"
+                value={formatCOP(yesterday.net)}
+                note={[
+                  formatFechaCorta(yesterday.business_date),
+                  `${yesterday.orders} ${yesterday.orders === 1 ? "comanda pagada" : "comandas pagadas"}`,
+                  yesterday.avg_ticket !== null ? `ticket promedio ${formatCOP(yesterday.avg_ticket)}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                ledger={{
+                  rows: [
+                    { label: "Cobrado hoy", value: formatCOP(today.gross) },
+                    { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
+                  ],
+                  total: { label: "Ventas netas de hoy", value: formatCOP(today.net) },
+                }}
+                comparison={comparison}
+              />
+            ) : (
+              // Sin nota al pie: las comandas pagadas son la primera tarjeta de
+              // abajo, y que el día sigue abierto lo dicen la fecha y «a esta hora».
+              <HeadlineFigure
+                className={CIFRA_VENTA}
+                label="Ventas netas de hoy"
+                value={formatCOP(today.net)}
+                ledger={{
+                  rows: [
+                    { label: "Ventas cobradas", value: formatCOP(today.gross) },
+                    { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
+                  ],
+                  total: { label: "Ventas netas", value: formatCOP(today.net) },
+                }}
+                comparison={comparison}
+              />
+            )}
+          </section>
+        )}
+
+        <div className="min-w-0 xl:col-start-2 xl:[grid-row:1/-1] xl:self-stretch">
+          <AttentionRail attention={attention} today={today} storeId={activeStoreId} celular={celular} />
+        </div>
+
+        <DetalleDelDia celular={celular}>
         {/* **Las ocho tarjetas en una sola grilla**, que es como `a2` las
             dibuja (`.kpis`, ocho `.kpi` en dos filas de cuatro) y lo que
             su propio catálogo de patrones pide: «En Hoy, ocho».
@@ -1626,8 +1652,26 @@ export function TodayPage(): React.JSX.Element {
             </div>
           </section>
         ) : null}
+        </DetalleDelDia>
       </div>
     </div>
+  )
+}
+
+/**
+ * Lo que Hoy ya mostraba, debajo de «Ahora»: en el escritorio a la vista;
+ * en el celular, plegado en «Ver el detalle del día» (la captura 13a
+ * termina en los tres primeros avisos).
+ */
+function DetalleDelDia({ celular, children }: { celular: boolean; children: React.ReactNode }): React.JSX.Element {
+  if (!celular) return <div className="flex min-w-0 flex-col gap-5 xl:col-start-1">{children}</div>
+  return (
+    <details className="group min-w-0 rounded-lg border bg-card">
+      <summary className="flex min-h-11 cursor-pointer items-center px-3.5 text-sm font-bold text-primary select-none">
+        Ver el detalle del día
+      </summary>
+      <div className="flex min-w-0 flex-col gap-5 border-t p-3">{children}</div>
+    </details>
   )
 }
 

@@ -627,6 +627,55 @@ def reject(db: Session, *, actor: Actor, request: StaffRequest, payload: RejectI
     return request
 
 
+def reopen(db: Session, *, actor: Actor, request: StaffRequest, payload: RejectIn) -> StaffRequest:
+    """«Reversar con motivo» una aprobación o un rechazo: la solicitud vuelve
+    a quedar pendiente en la bandeja. Sólo mientras nadie actuó sobre lo
+    resuelto —comprado o recibido ya no se reversa acá—. Nada se borra: la
+    resolución anterior (quién, cuándo, cuánto y por qué) queda entera en la
+    auditoría, con el motivo de la reversa."""
+    reason = _clean_text(payload.reason)
+    if reason is None:
+        raise AppError("REASON_REQUIRED", "Escribí el motivo de la reversa: queda en el historial de la solicitud")
+    status = _status_value(request.status)
+    if status not in (StaffRequestStatus.APPROVED.value, StaffRequestStatus.REJECTED.value):
+        raise ConflictError(
+            "Sólo una solicitud aprobada o rechazada, y sin comprar ni recibir, se puede reversar; recargá la bandeja",
+            code="REQUEST_STATUS_CONFLICT",
+        )
+    lines = _lines_of(db, [request.id]).get(request.id, [])
+    before = {
+        **_snapshot(request),
+        "resolved_by_employee_id": request.resolved_by_employee_id,
+        "resolved_by_employee_name": request.resolved_by_employee_name,
+        "resolved_at": request.resolved_at.isoformat() if request.resolved_at else None,
+        "approved_denominations": request.approved_denominations,
+        "lines": {line.id: line.qty_approved for line in lines} or None,
+    }
+    for line in lines:
+        line.qty_approved = None
+    request.status = StaffRequestStatus.PENDING
+    request.approved_denominations = None
+    request.approved_total = None
+    request.resolved_by_employee_id = None
+    request.resolved_by_employee_name = None
+    request.resolved_at = None
+    request.resolution_note = None
+    db.flush()
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=request.organization_id,
+        store_id=request.store_id,
+        entity="staff_request",
+        entity_id=request.id,
+        action="reopen",
+        before=before,
+        after=_snapshot(request),
+        reason=reason,
+    )
+    return request
+
+
 def mark_bought(db: Session, *, actor: Actor | None, request: StaffRequest, note: str | None) -> StaffRequest:
     if request.kind != StaffRequestKind.SUPPLY.value:
         raise AppError("VALIDATION_ERROR", "Sólo un pedido de insumos se marca comprado")

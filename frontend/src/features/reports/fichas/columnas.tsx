@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 import type { RecordAttendanceOut, RecordDiscountOut, RecordVoidOut } from "@/api/panel"
 import type { DenseColumn } from "@/components/admin"
 import { formatBusinessDate, formatInstant } from "@/lib/businessDate"
+import { formatDuracion } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
 import { COURTESY_REASON_LABEL, DISCOUNT_REASON_LABEL, VOID_REASON_LABEL } from "@/features/orders/lib"
@@ -73,6 +74,14 @@ export function attendanceColumns(por: "persona" | "turno"): readonly DenseColum
       key: "status",
       header: "Estado",
       cell: (a) => ATTENDANCE_STATUS[a.status] ?? a.status,
+    },
+    {
+      // La duración la calcula el servidor con el motor de nómina (resta
+      // las pausas). Sin salida no hay duración: «—», nunca «0 min».
+      key: "hours",
+      header: "Horas",
+      kind: "number",
+      cell: (a) => (a.worked_minutes === null || a.worked_minutes === undefined ? "—" : formatDuracion(a.worked_minutes)),
     },
   ]
 }

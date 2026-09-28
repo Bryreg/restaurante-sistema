@@ -238,8 +238,11 @@ export function formatRangoCorto(from: string, to: string): string {
   return m1 === m2 ? `${d1} al ${d2} ${m2}` : `${d1} ${m1} al ${d2} ${m2}`
 }
 
-/** El período de «Informes»: tres atajos y un rango a mano. */
-export type Periodo = "hoy" | "semana" | "mes" | "rango"
+/**
+ * El período de «Informes»: los últimos 7 días cerrados (el de entrada, sin
+ * hoy porque el día sigue abierto), tres atajos y un rango a mano.
+ */
+export type Periodo = "ultimos7" | "hoy" | "semana" | "mes" | "rango"
 
 /** Calendario puro sobre fechas ISO (`Date.UTC`), nunca plata. */
 function isoMenosDias(iso: string, dias: number): string {
@@ -257,7 +260,55 @@ function lunesDe(iso: string): string {
 }
 
 export function rangoDePeriodo(periodo: Exclude<Periodo, "rango">, hoy: string): { from: string; to: string } {
+  if (periodo === "ultimos7") return { from: isoMenosDias(hoy, 7), to: isoMenosDias(hoy, 1) }
   if (periodo === "hoy") return { from: hoy, to: hoy }
   if (periodo === "semana") return { from: lunesDe(hoy), to: hoy }
   return { from: `${hoy.slice(0, 8)}01`, to: hoy }
+}
+
+/**
+ * «sáb 20 – vie 26 sep» / «dom 28 sep – sáb 4 oct»: un período con el día de
+ * la semana en las dos puntas, para la franja de contexto de Informes.
+ */
+export function formatRangoConDia(from: string, to: string): string {
+  const a = formatFechaCorta(from).split(" ")
+  const b = formatFechaCorta(to).split(" ")
+  if (a.length < 3 || b.length < 3) return `${from} – ${to}`
+  if (from === to) return b.join(" ")
+  return a[2] === b[2] ? `${a[0]} ${a[1]} – ${b.join(" ")}` : `${a.join(" ")} – ${b.join(" ")}`
+}
+
+const COMPACTO = new Intl.NumberFormat("es-CO", { notation: "compact", maximumFractionDigits: 1 })
+
+/** «17,9 M» debajo de una columna de ventas: la misma cifra, escrita corta. */
+export function formatCompacto(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—"
+  return COMPACTO.format(value)
+}
+
+/**
+ * Una variación en puntos básicos escrita con su signo y sin decimales:
+ * «+5 %», «−2 %», «0 %». La flecha la pone quien la dibuja
+ * (`BarrasConReferencia`), para no escribirla dos veces.
+ */
+export function formatPctConSigno(bp: number | null | undefined, decimales = 0): string | null {
+  if (bp === null || bp === undefined || Number.isNaN(bp)) return null
+  if (bp > 0) return `+${formatPct(bp, decimales)}`
+  if (bp < 0) return `−${formatPct(-bp, decimales)}`
+  return formatPct(0, decimales)
+}
+
+/** Puntos de margen (100 bp = 1 punto) escritos «8 pts»: cambio de unidad, no cuenta. */
+export function formatPuntos(bp: number, decimales?: number): string {
+  // Menos de un punto se escribe con un decimal: «0,2 pts», nunca «0 pts».
+  const d = decimales ?? (Math.abs(bp) < 100 ? 1 : 0)
+  const texto = formatPct(bp, d).replace(/\s*%$/, "")
+  return `${texto} pts`
+}
+
+/** «KR» para «Kevin Ruiz»: las iniciales del avatar (sólo texto). */
+export function iniciales(nombre: string): string {
+  const partes = nombre.trim().split(/\s+/).filter(Boolean)
+  const letras = partes.length === 1 ? partes[0]!.slice(0, 2) : `${partes[0]![0]}${partes[partes.length - 1]![0]}`
+  return letras.toLocaleUpperCase("es-CO")
 }

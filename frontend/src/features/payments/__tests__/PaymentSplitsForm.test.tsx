@@ -190,11 +190,15 @@ describe("PaymentSplitsForm — el vuelto antes de cobrar", () => {
     renderForm();
     await screen.findByText("Pagos");
     const user = userEvent.setup();
+    // Motivo del cambio: los «+billete» quedaron detrás de «Sumar billetes»
+    // (el handoff `PosCobro` deja a la vista sólo «Exacto» y los billetes
+    // siguientes), y el vuelto va en la caja «Vuelto» de arriba.
+    await user.click(screen.getByRole("button", { name: "Sumar billetes" }));
     await user.click(screen.getByRole("button", { name: "+$ 100.000" }));
 
     await waitFor(() => expect(previewChange).toHaveBeenCalledWith([{ amount: 50000, tendered: 100000 }]));
-    expect(await screen.findByText("Vuelto a entregar")).toBeInTheDocument();
-    expect(screen.getAllByText("$ 7.777").length).toBeGreaterThan(0);
+    expect(await screen.findByText("$ 7.777")).toBeInTheDocument();
+    expect(screen.getByText("Vuelto")).toBeInTheDocument();
     // Un billete, una consulta: se pregunta cuando se deja de teclear.
     expect(previewChange).toHaveBeenCalledTimes(1);
   });
@@ -211,13 +215,18 @@ describe("PaymentSplitsForm — el vuelto antes de cobrar", () => {
     renderForm();
     await screen.findByText("Pagos");
     const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Sumar billetes" }));
     await user.click(screen.getByRole("button", { name: "+$ 20.000" }));
 
-    expect(await screen.findByText(/lo recibido no alcanza: faltan \$ 30\.000/i)).toBeInTheDocument();
-    expect(screen.queryByText("Vuelto a entregar")).not.toBeInTheDocument();
+    // Motivo del cambio: con un solo pago, lo que falta va en la caja roja
+    // «Falta recibir» de arriba (handoff `PosCobro`), con la cifra del servidor.
+    expect(await screen.findByText("Falta recibir")).toBeInTheDocument();
+    expect(screen.getByText("$ 30.000")).toBeInTheDocument();
+    expect(screen.queryByText("Vuelto")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^cobrar/i })).toBeDisabled();
   });
 
-  it("«Vuelto a entregar» espera a que el pago esté completo", async () => {
+  it("el vuelto espera a que el pago esté completo", async () => {
     vi.mocked(listDevicePaymentMethods).mockResolvedValue([
       { code: "cash", label: "Efectivo", dian_code: "10", requires_reference: false },
     ]);
@@ -229,11 +238,13 @@ describe("PaymentSplitsForm — el vuelto antes de cobrar", () => {
     // Monto a medias (faltan $30.000) y recibido de sobra para ese monto.
     await user.clear(monto);
     await user.type(monto, "20000");
+    await user.click(screen.getByRole("button", { name: "Sumar billetes" }));
     await user.click(screen.getByRole("button", { name: "+$ 50.000" }));
 
     await waitFor(() => expect(previewChange).toHaveBeenCalledWith([{ amount: 20000, tendered: 50000 }]));
     expect(await screen.findByText(/faltan \$\s?30\.000/i)).toBeInTheDocument();
-    expect(screen.queryByText("Vuelto a entregar")).not.toBeInTheDocument();
+    // La caja dice «Vuelto —»: con montos a medio teclear no hay vuelto que decir.
+    expect(screen.queryByText("$ 1.234")).not.toBeInTheDocument();
   });
 });
 
@@ -258,7 +269,8 @@ describe("PaymentSplitsForm — lo recibido en un toque", () => {
 
     await user.click(within(atajos).getByRole("button", { name: "$ 62.222" }));
     expect(screen.getByLabelText<HTMLInputElement>("Recibido").value).toBe("$ 62.222");
-    // Los billetes que se suman siguen ahí, como segunda opción.
+    // Los billetes que se suman siguen ahí, como segunda opción (plegados).
+    await user.click(screen.getByRole("button", { name: "Sumar billetes" }));
     expect(screen.getByRole("button", { name: "+$ 1.000" })).toBeInTheDocument();
   });
 
@@ -272,5 +284,56 @@ describe("PaymentSplitsForm — lo recibido en un toque", () => {
     );
     expect(await screen.findByRole("group", { name: "PIN propio para cobrar" })).toBeInTheDocument();
     expect(await screen.findByText("Ana")).toBeInTheDocument();
+  });
+});
+
+describe("PaymentSplitsForm — «Cobrar $ X» (handoff PosCobro)", () => {
+  it("se habilita sólo con el pago completo, lo recibido y el PIN; cobra con ese PIN", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue([
+      { code: "cash", label: "Efectivo", dian_code: "10", requires_reference: false },
+    ]);
+    vi.mocked(previewChange).mockResolvedValue({ splits: [{ change: 0, short_by: null }], change_total: 0 });
+    const { payOrder } = await import("@/api/payments");
+    vi.mocked(payOrder).mockReset().mockResolvedValue({ document: { id: 1 } } as never);
+    const user = userEvent.setup();
+    renderForm();
+
+    const cobrar = await screen.findByRole("button", { name: "Cobrar $ 50.000" });
+    expect(cobrar).toBeDisabled();
+    expect(screen.getByText("Tocá cuánto te entregó el cliente.")).toBeInTheDocument();
+
+    await user.click(within(screen.getByRole("group", { name: "Recibido en un toque" })).getByRole("button", { name: "Exacto" }));
+    expect(await screen.findByText("Falta tu PIN para confirmar.")).toBeInTheDocument();
+    expect(cobrar).toBeDisabled();
+
+    for (const digit of ["1", "2", "3", "4"]) {
+      await user.click(screen.getByRole("button", { name: `Dígito ${digit}` }));
+    }
+    // El PIN completo no cobra solo: espera el toque en «Cobrar».
+    expect(payOrder).not.toHaveBeenCalled();
+    await waitFor(() => expect(cobrar).toBeEnabled());
+    await user.click(cobrar);
+
+    await waitFor(() => expect(payOrder).toHaveBeenCalledTimes(1));
+    const [, body] = vi.mocked(payOrder).mock.calls[0]!;
+    expect(body.pin).toBe("1234");
+    expect(body.splits).toEqual([{ method: "cash", amount: 50000, tendered: 50000, reference: undefined }]);
+  });
+
+  it("con un medio que no es efectivo, lo recibido es el total y el vuelto «No aplica»", async () => {
+    vi.mocked(listDevicePaymentMethods).mockResolvedValue([
+      { code: "cash", label: "Efectivo", dian_code: "10", requires_reference: false },
+      { code: "card", label: "Tarjeta", dian_code: "48", requires_reference: false },
+    ]);
+    const user = userEvent.setup();
+    renderForm();
+
+    await screen.findByText("Pagos");
+    await user.click(screen.getByRole("radio", { name: "Tarjeta" }));
+
+    expect(screen.getByText("No aplica")).toBeInTheDocument();
+    expect(screen.getByText("Recibido · Tarjeta")).toBeInTheDocument();
+    // Los montos rápidos son de efectivo: con tarjeta no se tocan.
+    expect(within(screen.getByRole("group", { name: "Recibido en un toque" })).getByRole("button", { name: "Exacto" })).toBeDisabled();
   });
 });

@@ -158,10 +158,24 @@ class SalesSettingsIn(BaseModel):
     # nombra la acción correctiva (AGENTS.md). El valor coincide con el de la
     # columna (`StoreSalesSettings.invoice_threshold_uvt`).
     invoice_threshold_uvt: int = Field(default=5, ge=1)
+    # Los supuestos del panel (0032). Opcionales al guardar: sin ellos la
+    # sede conserva los que tenía (un cliente escrito antes de estos campos
+    # no los vuelve al default sin querer).
+    margin_target_pct: int | None = Field(default=None, ge=0, le=100)
+    long_table_minutes: int | None = Field(default=None, ge=1, le=1440)
+    late_ticket_minutes: int | None = Field(default=None, ge=1, le=1440)
+    orders_per_waiter: int | None = Field(default=None, ge=1, le=100)
+
+
+#: Los campos de `SalesSettingsIn` que se conservan cuando llegan vacíos.
+PANEL_ASSUMPTION_FIELDS = ("margin_target_pct", "long_table_minutes", "late_ticket_minutes", "orders_per_waiter")
 
 
 class SalesSettingsOut(SalesSettingsIn):
-    pass
+    margin_target_pct: int = 65
+    long_table_minutes: int = 60
+    late_ticket_minutes: int = 20
+    orders_per_waiter: int = 7
 
 
 class UvtEntry(BaseModel):

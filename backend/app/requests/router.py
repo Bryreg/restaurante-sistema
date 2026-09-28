@@ -249,6 +249,30 @@ def post_reject(
     )
 
 
+@router.post("/admin/requests/{request_id}/reopen")
+def post_reopen(
+    request_id: int,
+    payload: RejectIn,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> StaffRequestOut:
+    """«Reversar con motivo» una aprobación o un rechazo: vuelve a pendiente."""
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = service.get_for_admin(db, actor=actor, request_id=request_id)
+        return 200, _one(db, service.reopen(db, actor=actor, request=row, payload=payload))
+
+    return _idempotent(  # type: ignore[return-value]
+        db,
+        organization_id=actor.organization_id,
+        scope=f"requests.reopen.{request_id}",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+
+
 @router.post("/admin/requests/{request_id}/mark-bought")
 def post_mark_bought(
     request_id: int,

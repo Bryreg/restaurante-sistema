@@ -314,3 +314,41 @@ def test_la_funcion_viene_encendida_en_los_tres_perfiles() -> None:
     from app.core.features import FEATURE_BY_KEY
 
     assert FEATURE_BY_KEY["pos.novelties"].defaults == {"basic": True, "standard": True, "full": True}
+
+
+def test_el_admin_reversa_con_motivo_una_novedad_resuelta_y_queda_el_rastro(
+    device_client: TestClient,
+    identify: Callable[..., Any],
+    employees: dict[str, Employee],
+    admin_client: TestClient,
+    store: Store,
+    db: Session,
+) -> None:
+    identify(device_client, employees["operator"])
+    novelty = _post(device_client).json()
+    params = {"store_id": store.id}
+    abierta = admin_client.post(
+        f"{API}/admin/novelties/{novelty['id']}/reopen", params=params, json={"note": "no"}, headers=_idem()
+    )
+    assert abierta.status_code == 409  # sigue abierta: no hay resolución que reversar
+    admin_client.post(
+        f"{API}/admin/novelties/{novelty['id']}/resolve", params=params, json={"note": "Revisada"}, headers=_idem()
+    )
+    sin_motivo = admin_client.post(
+        f"{API}/admin/novelties/{novelty['id']}/reopen", params=params, json={"note": "  "}, headers=_idem()
+    )
+    assert sin_motivo.status_code == 400
+
+    resp = admin_client.post(
+        f"{API}/admin/novelties/{novelty['id']}/reopen",
+        params=params,
+        json={"note": "La marqué sin llamar al técnico"},
+        headers=_idem(),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["open"] is True and resp.json()["resolved_at"] is None
+    assert [n["id"] for n in admin_client.get(f"{API}/admin/novelties", params=params).json()] == [novelty["id"]]
+    ultimo = db.execute(select(AuditLog).where(AuditLog.entity == "novelty").order_by(AuditLog.id.desc())).scalars().first()
+    assert ultimo is not None and ultimo.action == "reopen"
+    assert ultimo.reason == "La marqué sin llamar al técnico"
+    assert ultimo.before["resolution_note"] == "Revisada"  # type: ignore[index]

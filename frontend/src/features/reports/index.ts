@@ -18,6 +18,7 @@ import { FichaInsumo } from "./fichas/FichaInsumo"
 import { FichaPersona } from "./fichas/FichaPersona"
 import { FichaTurno } from "./fichas/FichaTurno"
 import { InformesPage } from "./InformesPage"
+import { CajaMovil, EquipoMovil, InformesMovil } from "./movil/SeccionMovil"
 import { SalesPage } from "./SalesPage"
 import { TodayPage } from "./TodayPage"
 
@@ -31,6 +32,13 @@ const adminRoutes: RouteObject[] = [
   { path: "dinero/turno/:shiftId", element: createElement(FichaTurno) },
   { path: "personal/persona/:employeeId", element: createElement(FichaPersona) },
   { path: "inventario/insumo/:ingredientId", element: createElement(FichaInsumo) },
+  // Caja, Equipo e Informes del celular (handoff, `MovilSecciones`
+  // variante A). No son entradas del rail: las abre la barra inferior del
+  // celular (`app/AdminLayout.tsx`, `RUTA_CELULAR`); en el escritorio mandan
+  // a la pantalla de la sección.
+  { path: "celular/caja", element: createElement(CajaMovil) },
+  { path: "celular/equipo", element: createElement(EquipoMovil) },
+  { path: "celular/informes", element: createElement(InformesMovil) },
 ]
 
 const adminNav: NavItem[] = [

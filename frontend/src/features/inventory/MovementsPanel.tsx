@@ -68,8 +68,15 @@ const LEGEND: readonly LegendEntry[] = [
  * un campo de texto libre (AGENTS.md § "la causa no se infiere de un
  * texto").
  */
-export function MovementsPanel({ ingredients }: { ingredients: IngredientOut[] }): React.JSX.Element {
-  const [ingredientId, setIngredientId] = useState<number | null>(ingredients[0]?.id ?? null)
+export function MovementsPanel({
+  ingredients,
+  initialIngredientId = null,
+}: {
+  ingredients: IngredientOut[]
+  /** `?insumo=ID`: «Ver libro de movimientos» desde el «⋯» de una fila de Stock. */
+  initialIngredientId?: number | null
+}): React.JSX.Element {
+  const [ingredientId, setIngredientId] = useState<number | null>(initialIngredientId ?? ingredients[0]?.id ?? null)
   const [from, setFrom] = useState(daysAgoLocal(30))
   const [to, setTo] = useState(todayLocal())
   const [cause, setCause] = useState<MovementCause | "all">("all")

@@ -415,7 +415,6 @@
  "features/inventory/InventoryAdminPage.tsx": [
   "Conteos",
   "Insumos",
-  "Insumos activos",
   "Lotes",
   "Movimientos y mermas",
   "Salud del control",

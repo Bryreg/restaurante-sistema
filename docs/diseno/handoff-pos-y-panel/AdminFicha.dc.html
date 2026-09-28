@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="display:flex;min-height:100%;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;font-size:16px">
+  <dc-import name="AdminRail" activo="{{ rail }}" style="width:222px;flex:none" hint-size="222px,100%"></dc-import>
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <dc-import name="AdminTop" seccion="{{ rail }}" tab="{{ tab }}" hint-size="100%,93px"></dc-import>
+    <main style="padding:16px 24px 32px;display:flex;flex-direction:column;gap:18px">
+      <a href="#" style="font-size:13px;color:var(--primary);text-decoration:none;display:inline-flex;gap:6px;align-items:center"><i class="icon-arrow-left" style="font-size:14px"></i>{{ origen }}</a>
+      <header style="display:flex;align-items:center;gap:14px">
+        <span style="width:56px;height:56px;border-radius:{{ avatarRadio }};background:var(--secondary);display:grid;place-items:center;font-size:20px;font-weight:800;flex:none"><i class="{{ avatarIcono }}" style="font-size:24px"></i>{{ avatarTxt }}</span>
+        <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+          <h1 style="margin:0;font-size:24px;font-weight:700;font-stretch:108%">{{ nombre }}</h1>
+          <p style="margin:0;display:flex;gap:14px;font-size:12px;color:var(--muted-foreground);align-items:center;flex-wrap:wrap"><sc-for list="{{ contexto }}" as="c"><span style="display:inline-flex;gap:14px;align-items:center"><span>{{ c }}</span><span style="width:1px;height:14px;background:var(--border)"></span></span></sc-for></p>
+        </div>
+        <sc-for list="{{ acciones }}" as="a"><button style="height:34px;padding:0 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--foreground);font:inherit;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center"><i class="{{ a.icono }}" style="font-size:14px"></i>{{ a.t }}</button></sc-for>
+      </header>
+
+      <section style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
+        <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="4">
+          <a href="#" style="display:flex;flex-direction:column;gap:4px;padding:14px;border-radius:8px;border:1px solid {{ t.borde }};border-left:3px solid {{ t.franja }};background:{{ t.fondo }};text-decoration:none;color:var(--foreground)">
+            <span style="font-size:14px;color:var(--muted-foreground)">{{ t.label }}</span>
+            <span style="font-size:24px;font-weight:600;color:{{ t.color }}">{{ t.valor }}</span>
+            <span style="font-size:12px;color:var(--muted-foreground)">{{ t.hint }}</span>
+          </a>
+        </sc-for>
+      </section>
+
+      <sc-if value="{{ esPersona }}" hint-placeholder-val="{{ true }}">
+        <section style="display:flex;flex-direction:column;gap:8px">
+          <h2 style="margin:0;font-size:18px;font-weight:700">¿Llega y sale a su hora?</h2>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 280px;border-radius:8px;border:1px solid var(--border);background:var(--card)">
+            <div style="padding:16px;display:flex;flex-direction:column;gap:6px;min-width:0">
+              <div style="display:flex;gap:16px;font-size:12px;color:var(--muted-foreground);flex-wrap:wrap"><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:12px;height:12px;border-radius:2px;background:var(--data-1)"></span>Lo que trabajó</span><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:12px;height:12px;border-radius:2px;background:var(--warning)"></span>Llegó tarde</span><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:14px;height:12px;border:2px dashed var(--foreground);border-radius:2px;box-sizing:border-box"></span>Turno programado 7:00 a. m. a 3:00 p. m.</span></div>
+              <div style="display:grid;grid-template-columns:90px minmax(0,1fr) 64px;gap:10px;font-size:11px;color:var(--muted-foreground)"><span></span><span style="position:relative;height:14px"><sc-for list="{{ ejeP }}" as="e"><span style="position:absolute;left:{{ e.x }};transform:translateX(-50%)">{{ e.t }}</span></sc-for></span><span></span></div>
+              <sc-for list="{{ asist }}" as="a" hint-placeholder-count="10">
+                <div style="display:grid;grid-template-columns:90px minmax(0,1fr) 64px;gap:10px;align-items:center;height:24px">
+                  <span style="font-size:13px;color:var(--muted-foreground)">{{ a.d }}</span>
+                  <span style="position:relative;height:16px">
+                    <span style="position:absolute;top:-3px;bottom:-3px;left:{{ progX }};width:{{ progW }};border:2px dashed color-mix(in oklab, var(--foreground) 45%, transparent);border-radius:4px;box-sizing:border-box"></span>
+                    <sc-if value="{{ a.trabajo }}"><span title="{{ a.titulo }}" style="position:absolute;top:2px;bottom:2px;left:{{ a.x }};width:{{ a.w }};background:var(--data-1);border-radius:3px"></span><sc-if value="{{ a.tarde }}"><span style="position:absolute;top:2px;bottom:2px;left:{{ progX }};width:{{ a.tarde }};background:var(--warning);border-radius:3px 0 0 3px"></span></sc-if></sc-if>
+                    <sc-if value="{{ a.libre }}"><span style="position:absolute;left:{{ progX }};top:0;font-size:12px;color:var(--muted-foreground);padding-left:8px">{{ a.libre }}</span></sc-if>
+                  </span>
+                  <b style="font-size:12px;text-align:right;color:{{ a.hc }}">{{ a.horas }}</b>
+                </div>
+              </sc-for>
+            </div>
+            <aside style="border-left:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:12px"><span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600">Últimas dos semanas</span><sc-for list="{{ asistResumen }}" as="r"><div style="display:flex;gap:10px"><span style="width:4px;align-self:stretch;border-radius:2px;background:{{ r.c }}"></span><div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:14px">{{ r.t }}</b><span style="font-size:13px;color:var(--muted-foreground);line-height:1.4">{{ r.d }}</span></div></div></sc-for></aside>
+          </div>
+        </section>
+      </sc-if>
+      <sc-if value="{{ esInsumo }}" hint-placeholder-val="{{ false }}">
+        <section style="display:flex;flex-direction:column;gap:8px">
+          <h2 style="margin:0;font-size:18px;font-weight:700">¿Cuándo se me acaba?</h2>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) 280px;border-radius:8px;border:1px solid var(--border);background:var(--card)">
+            <div style="padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0">
+              <div style="display:flex;gap:16px;font-size:12px;color:var(--muted-foreground);flex-wrap:wrap"><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:12px;height:12px;border-radius:2px;background:var(--data-1)"></span>Botellas al cierre de cada día</span><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:12px;height:12px;border-radius:2px;background:var(--data-1);opacity:.35"></span>Lo que viene si se vende igual</span><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:12px;height:12px;border-radius:2px;background:var(--warning)"></span>Bajo el mínimo</span><span style="display:inline-flex;gap:6px;align-items:center"><span style="width:16px;border-top:3px solid var(--foreground)"></span>Mínimo: 6 botellas</span></div>
+              <div style="position:relative;display:grid;grid-template-columns:repeat(21,minmax(0,1fr));gap:4px;height:170px;align-items:end;border-bottom:1px solid var(--foreground)">
+                <span style="position:absolute;left:0;right:0;bottom:{{ minimo }};border-top:3px solid var(--foreground);z-index:1"></span>
+                <sc-for list="{{ stockDias }}" as="p" hint-placeholder-count="21"><span title="{{ p.titulo }}" style="height:{{ p.alto }};background:{{ p.c }};opacity:{{ p.op }};border-radius:2px 2px 0 0;box-shadow:{{ p.hoy }}"></span></sc-for>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(21,minmax(0,1fr));gap:4px;font-size:10px;text-align:center;color:var(--muted-foreground)"><sc-for list="{{ stockDias }}" as="p" hint-placeholder-count="21"><span style="font-weight:{{ p.peso }};color:{{ p.lc }}">{{ p.l }}</span></sc-for></div>
+            </div>
+            <aside style="border-left:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:12px"><span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600">Lo que conviene</span><sc-for list="{{ stockResumen }}" as="r"><div style="display:flex;gap:10px"><span style="width:4px;align-self:stretch;border-radius:2px;background:{{ r.c }}"></span><div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:14px">{{ r.t }}</b><span style="font-size:13px;color:var(--muted-foreground);line-height:1.4">{{ r.d }}</span></div></div></sc-for></aside>
+          </div>
+        </section>
+      </sc-if>
+
+      <sc-if value="{{ conCausas }}" hint-placeholder-val="{{ false }}">
+        <section style="display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;align-items:baseline;gap:10px"><h2 style="margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600">Entradas y salidas por causa · semana 21–27 sep</h2><span style="font-size:13px">Neto +9,7 botellas</span></div>
+          <div style="border-radius:8px;border:1px solid var(--border);background:var(--card);padding:10px 14px;display:flex;flex-direction:column;gap:6px">
+            <sc-for list="{{ causas }}" as="c">
+              <div style="display:grid;grid-template-columns:200px 1fr 1fr 120px;align-items:center;gap:0;height:30px;font-size:14px">
+                <a href="#" style="color:var(--primary);text-decoration:none">{{ c.t }}</a>
+                <div style="display:flex;justify-content:flex-end;border-right:1px solid var(--foreground);height:100%;align-items:center"><span style="height:16px;width:{{ c.neg }};background:var(--diverge-falta, #C4302B);border-radius:2px 0 0 2px"></span></div>
+                <div style="display:flex;height:100%;align-items:center"><span style="height:16px;width:{{ c.pos }};background:var(--data-1);border-radius:0 2px 2px 0"></span></div>
+                <b style="text-align:right">{{ c.v }}</b>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </sc-if>
+
+      <button onClick="{{ toggleDetalle }}" style="align-self:flex-start;height:36px;padding:0 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--foreground);font:inherit;font-size:14px;font-weight:600;display:inline-flex;gap:8px;align-items:center;cursor:pointer"><i class="{{ detalleIcono }}" style="font-size:16px"></i>{{ detalleTxt }}</button>
+      <sc-if value="{{ detalle }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:start">
+        <sc-for list="{{ secciones }}" as="s" hint-placeholder-count="4">
+          <section style="display:flex;flex-direction:column;gap:6px;grid-column:{{ s.span }}">
+            <div style="display:flex;align-items:baseline;gap:10px"><h2 style="margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600">{{ s.titulo }}</h2><span style="font-size:13px">{{ s.dice }}</span></div>
+            <div style="border-radius:8px;border:1px solid var(--border);background:var(--card);overflow-x:auto">
+              <div style="padding:6px 12px;background:var(--muted);border-bottom:1px solid var(--border);font-size:12px;color:var(--muted-foreground)"><b style="color:var(--foreground)">{{ s.n }}</b> {{ s.sustantivo }}</div>
+              <table style="width:100%;border-collapse:collapse;font-size:14px">
+                <thead><tr><sc-for list="{{ s.cols }}" as="c"><th style="height:30px;padding:0 8px;text-align:{{ c.al }};font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);font-weight:600;background:var(--muted);border-bottom:2px solid var(--border);white-space:nowrap">{{ c.h }}</th></sc-for></tr></thead>
+                <tbody>
+                  <sc-for list="{{ s.filas }}" as="f">
+                    <tr style="height:34px;border-bottom:1px solid var(--border)">
+                      <sc-for list="{{ f.celdas }}" as="c"><td style="padding:0 8px;white-space:nowrap;text-align:{{ c.al }};font-weight:{{ c.peso }};color:{{ c.color }};border-left:{{ c.franja }}"><sc-if value="{{ c.link }}"><a href="#" style="color:var(--primary);text-decoration:none">{{ c.t }}</a></sc-if><sc-if value="{{ c.plano }}">{{ c.t }}</sc-if></td></sc-for>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </sc-for>
+      </div>
+      </sc-if>
+
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1100},&quot;tipo&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;persona&quot;,&quot;insumo&quot;],&quot;default&quot;:&quot;persona&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { detalle: false };
+  extra(insumo) {
+    const d = { detalle: this.state.detalle, detalleIcono: this.state.detalle ? "icon-chevron-up" : "icon-chevron-down", detalleTxt: this.state.detalle ? "Ocultar el detalle" : (insumo ? "Ver conteos y libro de movimientos" : "Ver sobres, asistencia, caja y correcciones"), toggleDetalle: () => this.setState({ detalle: !this.state.detalle }), esPersona: !insumo, esInsumo: insumo };
+    const X0 = 5, X1 = 17, px = (hh, mm) => ((hh + mm / 60 - X0) / (X1 - X0) * 100);
+    const hl = (hn) => (hn > 12 ? hn - 12 : hn) + (hn >= 12 ? " p. m." : " a. m.");
+    const dias = [["sáb 27", 7, 2, null, null], ["vie 26", 7, 0, 15, 10], ["jue 25", 7, 5, 15, 0], ["mié 24", "Descanso"], ["mar 23", 6, 58, 15, 2], ["lun 22", 7, 1, 15, 5], ["dom 21", "Descanso"], ["sáb 20", 7, 18, 15, 20], ["vie 19", 6, 55, 15, 0], ["jue 18", 7, 0, 15, 4], ["mié 17", 7, 3, 15, 1], ["mar 16", 6, 59, 15, 0]];
+    d.progX = px(7, 0) + "%"; d.progW = (px(15, 0) - px(7, 0)) + "%";
+    d.ejeP = [5, 7, 9, 11, 13, 15, 17].map(hh => ({ t: hl(hh), x: ((hh - X0) / (X1 - X0) * 100) + "%" }));
+    d.asist = dias.map(([dd, h1, m1, h2, m2]) => { if (typeof h1 === "string") return { d: dd, trabajo: false, libre: h1, horas: "—", hc: "var(--muted-foreground)" };
+      const enCurso = h2 === null; const fin = enCurso ? [12, 55] : [h2, m2]; const tardeMin = (h1 - 7) * 60 + m1;
+      const mins = (fin[0] * 60 + fin[1]) - (h1 * 60 + m1);
+      return { d: dd, trabajo: true, libre: "", x: px(h1, m1) + "%", w: (px(fin[0], fin[1]) - px(h1, m1)) + "%", tarde: tardeMin > 5 ? (px(h1, m1) - px(7, 0)) + "%" : "", titulo: dd + ": " + h1 + ":" + String(m1).padStart(2, "0") + " a " + (enCurso ? "en turno" : fin[0] + ":" + String(fin[1]).padStart(2, "0")), horas: enCurso ? "en turno" : Math.floor(mins / 60) + " h " + String(mins % 60).padStart(2, "0"), hc: tardeMin > 5 ? "var(--warning)" : "var(--foreground)" }; });
+    d.asistResumen = [{ t: "1 llegada tarde en 12 días", d: "sáb 20 sep: entró 7:18 a. m. Todas las demás, antes de las 7:05.", c: "var(--warning)" }, { t: "Nunca olvidó marcar salida", d: "Promedio 8 h 04 por turno. Hoy va desde las 7:02 a. m.", c: "var(--success)" }];
+    const st = [10.9, 10.3, 9.6, 8.9, 8.2, 7.6, 7.0, 6.6, 6.2, 5.8, 5.4, 5.0, 14.7, 14.3];
+    const proy = [13.6, 12.8, 12.1, 11.4, 10.6, 9.9, 9.1];
+    const lab = ["14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "hoy", "28", "29", "30", "1 oct", "2", "3", "4"];
+    const all = [...st, ...proy], mx = 18;
+    d.minimo = (6 / mx * 100) + "%";
+    d.stockDias = all.map((v, j) => ({ alto: (v / mx * 100) + "%", c: v < 6 ? "var(--warning)" : "var(--data-1)", op: j > 13 ? 0.35 : 1, hoy: j === 13 ? "0 0 0 2px var(--foreground)" : "none", titulo: (j === 13 ? "Hoy" : lab[j] + " sep") + ": " + v.toFixed(1).replace(".", ",") + " botellas", l: j % 2 === 0 || j === 13 ? lab[j] : "", peso: j === 13 ? 700 : 400, lc: j === 13 ? "var(--foreground)" : "var(--muted-foreground)" }));
+    d.stockResumen = [{ t: "Alcanza hasta el jue 9 oct", d: "Con la salida de 5,1 botellas por semana, baja del mínimo el jue 9 oct.", c: "var(--success)" }, { t: "Estuvo 3 días bajo el mínimo", d: "Del 23 al 25 sep, hasta la compra del vie 26. El pedido salió tarde.", c: "var(--warning)" }, { t: "Pedido sugerido: lun 6 oct", d: "12 botellas a Licores del Valle, como la última compra.", c: "var(--data-1)" }];
+    return d;
+  }
+  renderVals() {
+    const insumo = this.props.tipo === "insumo";
+    const C = (t, o = {}) => ({ t, al: o.r ? "right" : "left", peso: o.b ? 700 : 400, color: o.c || "var(--foreground)", link: !!o.l, plano: !o.l, franja: o.f || "none" });
+    const H = (h, r) => ({ h, al: r ? "right" : "left" });
+    const ok = "var(--success)", bad = "var(--destructive)", warn = "var(--warning)", mut = "var(--muted-foreground)";
+    const sec = (titulo, dice, sustantivo, cols, filas, span) => ({ titulo, dice, sustantivo, n: filas.length, cols, span: span || "auto", filas: filas.map(celdas => ({ celdas })) });
+    const tile = (label, valor, hint, tono) => { const m = { warning: [warn, "color-mix(in oklab, var(--warning) 45%, var(--border))", "color-mix(in oklab, var(--warning) 8%, var(--card))", warn], critical: [bad, "color-mix(in oklab, var(--destructive) 30%, var(--border))", "color-mix(in oklab, var(--destructive) 5%, var(--card))", bad] }[tono] || ["var(--border)", "var(--border)", "var(--card)", "var(--foreground)"];
+      return { label, valor, hint, franja: m[0], borde: m[1], fondo: m[2], color: m[3] }; };
+    const ex = this.extra(insumo);
+    if (!insumo) return { ...ex,
+      rail: "Equipo", tab: "Turnos", origen: "Volver a Hoy › Requiere tu atención", nombre: "Kevin Ruiz", avatarTxt: "KR", avatarIcono: "", avatarRadio: "999px",
+      contexto: ["Caja · Chapinero", "Desde feb 2024", "PIN activo · 4 dígitos", "Hoy: entrada 7:02 a. m."],
+      acciones: [{ t: "Editar datos", icono: "icon-pencil" }, { t: "Cambiar PIN", icono: "icon-key-round" }],
+      tiles: [tile("Horas esta quincena", "78 h 20", "11 turnos · 16–27 sep"), tile("Diferencias de caja · 30 días", "−$ 2.000", "1 novedad abierta · sobre del jue 25 sep", "warning"), tile("Base prestada sin devolver", "$ 100.000", "Hoy 11:20 a. m. · para cambio", "warning"), tile("Retiros hechos · 30 días", "14", "$ 11.400.000 a caja fuerte")],
+      causas: [], conCausas: false,
+      secciones: [
+        sec("Sobres y conteos", "1 con faltante", "registros", [H("Día"), H("Qué"), H("Hora"), H("Resultado", 1)],
+          [[C("sáb 27 sep", { f: "3px solid " + bad }), C("Sobre del jue 25 sep", { l: 1 }), C("7:05 a. m.", { c: mut }), C("▼ −$ 2.000 · novedad", { r: 1, c: bad, b: 1, l: 0 })], [C("sáb 27 sep", { f: "3px solid " + ok }), C("Sobre del vie 26 sep", { l: 1 }), C("7:09 a. m.", { c: mut }), C("Cuadra · $ 0", { r: 1, c: ok, b: 1 })], [C("sáb 27 sep"), C("Conteo bar · Aguardiente Antioqueño", { l: 1 }), C("7:10 a. m.", { c: mut }), C("−0,3 botella", { r: 1 })], [C("vie 26 sep", { f: "3px solid " + ok }), C("Sobre del mié 24 sep", { l: 1 }), C("7:04 a. m.", { c: mut }), C("Cuadra · $ 0", { r: 1, c: ok, b: 1 })]]),
+        sec("Asistencia", "Últimos 6 días", "días", [H("Día"), H("Entrada"), H("Salida"), H("Horas", 1)],
+          [[C("sáb 27 sep"), C("7:02 a. m."), C("En turno", { c: ok, b: 1 }), C("—", { r: 1, c: mut })], [C("vie 26 sep"), C("7:00 a. m."), C("3:10 p. m."), C("8 h 10", { r: 1 })], [C("jue 25 sep"), C("7:05 a. m."), C("3:00 p. m."), C("7 h 55", { r: 1 })], [C("mié 24 sep"), C("Descanso", { c: mut }), C(""), C("—", { r: 1, c: mut })], [C("mar 23 sep"), C("6:58 a. m."), C("3:02 p. m."), C("8 h 04", { r: 1 })], [C("lun 22 sep"), C("7:01 a. m."), C("3:05 p. m."), C("8 h 04", { r: 1 })]]),
+        sec("Caja", "Retiros, relevos y base", "movimientos", [H("Día"), H("Hora"), H("Movimiento"), H("Turno"), H("Monto", 1)],
+          [[C("sáb 27 sep", { f: "3px solid " + warn }), C("11:20 a. m."), C("Préstamo de la base · sin devolver", { c: warn, b: 1 }), C("Turno de hoy", { l: 1 }), C("$ 100.000", { r: 1 })], [C("vie 26 sep"), C("3:05 p. m."), C("Relevo a Diana Pérez · cuadra"), C("Turno vie 26 sep", { l: 1 }), C("$ 0", { r: 1 })], [C("vie 26 sep"), C("1:40 p. m."), C("Retiro R-0331"), C("Turno vie 26 sep", { l: 1 }), C("$ 800.000", { r: 1 })], [C("vie 26 sep"), C("11:40 a. m."), C("Gasto · Gas propano"), C("Turno vie 26 sep", { l: 1 }), C("−$ 64.000", { r: 1 })]], "span 2"),
+        sec("Correcciones", "Nada se borra: se corrige con motivo", "correcciones", [H("Día"), H("Qué cambió"), H("Motivo"), H("Quién"), H("Diferencia", 1)],
+          [[C("lun 22 sep"), C("Gasto Hielo: $ 18.000 → $ 16.000"), C("La factura decía $ 16.000", { c: mut }), C("Óscar Restrepo", { l: 1 }), C("+$ 2.000", { r: 1 })]], "span 2"),
+      ],
+    };
+    return { ...ex,
+      rail: "Inventario", tab: "Inventario", origen: "Volver a Inventario › Stock", nombre: "Aguardiente Antioqueño 750 ml", avatarTxt: "", avatarIcono: "icon-wine", avatarRadio: "8px",
+      contexto: ["Bar · Chapinero", "Botella 750 ml · se cuenta en décimas", "Proveedor Licores del Valle", "Último conteo: Kevin · sáb 27 sep 7:10 a. m."],
+      acciones: [{ t: "Ajustar con motivo", icono: "icon-sliders-horizontal" }, { t: "Pedir recuento", icono: "icon-rotate-ccw" }],
+      tiles: [tile("Stock", "14,3 botellas", "Mínimo 6 · alcanza para ~19 días"), tile("Costo promedio", "$ 58.000", "por botella · última compra $ 57.500"), tile("Salida semanal", "5,1 botellas", "ventas y cortesías · promedio 4 semanas"), tile("Diferencia de conteo · semana", "−0,5 botella", "−$ 29.000 a costo · 2 conteos con faltante", "warning")],
+      conCausas: true,
+      causas: [["Compras", "+24,0", 0, 100], ["Ventas", "−12,6", 52, 0], ["Cortesías", "−0,4", 2, 0], ["Merma · rotura", "−1,0", 4, 0], ["Ajuste de conteo", "−0,3", 1.5, 0]].map(([t, v, n, p]) => ({ t, v, neg: n + "%", pos: p + "%" })),
+      secciones: [
+        sec("Conteos", "Quién contó y qué dio", "conteos", [H("Día"), H("Contó"), H("Hora"), H("Teórico", 1), H("Contado", 1), H("Diferencia", 1)],
+          [[C("sáb 27 sep", { f: "3px solid " + warn }), C("Kevin Ruiz", { l: 1 }), C("7:10 a. m.", { c: mut }), C("14,7", { r: 1 }), C("14,4", { r: 1 }), C("−0,3 · −$ 17.400", { r: 1, c: warn, b: 1 })], [C("vie 26 sep", { f: "3px solid " + ok }), C("Camilo Rojas", { l: 1 }), C("7:14 a. m.", { c: mut }), C("5,0", { r: 1 }), C("5,0", { r: 1 }), C("Cuadra", { r: 1, c: ok, b: 1 })], [C("jue 25 sep", { f: "3px solid " + warn }), C("Camilo Rojas", { l: 1 }), C("7:12 a. m.", { c: mut }), C("5,6", { r: 1 }), C("5,4", { r: 1 }), C("−0,2 · −$ 11.600", { r: 1, c: warn, b: 1 })]]),
+        sec("Libro de movimientos", "Cada cambio de stock, con su causa", "movimientos", [H("Fecha"), H("Causa"), H("Quién"), H("Referencia"), H("Cantidad", 1), H("Saldo", 1)],
+          [[C("sáb 27 · 12:40 p. m."), C("Venta · 2 tragos"), C("Laura Gómez", { l: 1 }), C("Mesa 11 · #0139", { l: 1 }), C("−0,1", { r: 1 }), C("14,3", { r: 1, b: 1 })], [C("sáb 27 · 7:10 a. m."), C("Ajuste de conteo"), C("Kevin Ruiz", { l: 1 }), C("Conteo de apertura", { l: 1 }), C("−0,3", { r: 1 }), C("14,4", { r: 1, b: 1 })], [C("vie 26 · 10:12 p. m."), C("Merma · rotura"), C("Diana Pérez", { l: 1 }), C("Foto · motivo", { l: 1 }), C("−1,0", { r: 1 }), C("14,7", { r: 1, b: 1 })], [C("vie 26 · 9:30 p. m."), C("Venta · botella"), C("Yuli Cárdenas", { l: 1 }), C("Mesa 6 · #0128", { l: 1 }), C("−1,0", { r: 1 }), C("15,7", { r: 1, b: 1 })], [C("vie 26 · 3:30 p. m."), C("Compra"), C("Diana Pérez", { l: 1 }), C("Recepción FV-2291", { l: 1 }), C("+12,0", { r: 1 }), C("16,7", { r: 1, b: 1 })]], "span 2"),
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

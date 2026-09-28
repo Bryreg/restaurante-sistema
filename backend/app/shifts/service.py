@@ -57,6 +57,8 @@ from app.shifts.schemas import (
     CashMovementIn,
     CashPickupIn,
     CashSwapIn,
+    CashSwapPreviewIn,
+    CashSwapPreviewOut,
     CloseCountIn,
     HandoverIn,
     OpenShiftIn,
@@ -212,25 +214,25 @@ def _has_other_open_shift_same_day(db: Session, shift: Shift) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _sum_movements(db: Session, shift_id: int, kind: CashMovementKind) -> int:
-    total = db.execute(
-        select(func.coalesce(func.sum(CashMovement.amount), 0)).where(
-            CashMovement.shift_id == shift_id, CashMovement.kind == kind
-        )
-    ).scalar_one()
-    return int(total)
+def _sum_movements(db: Session, shift_id: int, kind: CashMovementKind, as_of: datetime | None = None) -> int:
+    stmt = select(func.coalesce(func.sum(CashMovement.amount), 0)).where(
+        CashMovement.shift_id == shift_id, CashMovement.kind == kind
+    )
+    if as_of is not None:
+        stmt = stmt.where(CashMovement.at <= as_of)
+    return int(db.execute(stmt).scalar_one())
 
 
-def _sum_pickups(db: Session, shift_id: int) -> int:
-    total = db.execute(
-        select(func.coalesce(func.sum(CashPickup.amount), 0)).where(
-            CashPickup.shift_id == shift_id, CashPickup.reversed_at.is_(None)
-        )
-    ).scalar_one()
-    return int(total)
+def _sum_pickups(db: Session, shift_id: int, as_of: datetime | None = None) -> int:
+    stmt = select(func.coalesce(func.sum(CashPickup.amount), 0)).where(
+        CashPickup.shift_id == shift_id, CashPickup.reversed_at.is_(None)
+    )
+    if as_of is not None:
+        stmt = stmt.where(CashPickup.at <= as_of)
+    return int(db.execute(stmt).scalar_one())
 
 
-def compute_breakdown(db: Session, shift: Shift) -> dict[str, int]:
+def compute_breakdown(db: Session, shift: Shift, *, as_of: datetime | None = None) -> dict[str, int]:
     """`expected = base + cash_sales + incomes − expenses − pickups − deposits`.
 
     **`deposits` (2026-09-24)**: lo consignado **desde el cajón** de este
@@ -271,14 +273,22 @@ def compute_breakdown(db: Session, shift: Shift) -> dict[str, int]:
       sede que todavía no está en el cajón, y por eso NO se suma a
       `expected`. Sumarlo sería una segunda matemática del esperado y
       además mentiría: el billete no está.
+
+    **`as_of` (panel «barra + raya», 0032)**: la MISMA fórmula leída hasta un
+    instante — cada sumando cuenta sólo lo registrado hasta `as_of`. Es lo
+    que dibuja «Efectivo en caja» por hora en la ficha del turno sin una
+    segunda matemática del esperado. Sesgo declarado: una reversa (retiro,
+    préstamo o consignación reversados) se aplica desde el principio —lo
+    reversado fue un error, y leerlo «como estaba» a esa hora dibujaría una
+    plata que nunca salió—. Sin `as_of`, exactamente lo de siempre.
     """
 
-    sales = hooks.get_sales_totals(db, shift.id)
-    incomes = _sum_movements(db, shift.id, CashMovementKind.INCOME)
-    expenses = _sum_movements(db, shift.id, CashMovementKind.EXPENSE)
-    pickups = _sum_pickups(db, shift.id)
-    deposits = banking_hooks.drawer_deposits(db, shift.id)
-    reserve_loan = reserve.loan_outstanding(db, shift.id)
+    sales = hooks.get_sales_totals(db, shift.id, as_of=as_of)
+    incomes = _sum_movements(db, shift.id, CashMovementKind.INCOME, as_of)
+    expenses = _sum_movements(db, shift.id, CashMovementKind.EXPENSE, as_of)
+    pickups = _sum_pickups(db, shift.id, as_of)
+    deposits = banking_hooks.drawer_deposits(db, shift.id, as_of=as_of)
+    reserve_loan = reserve.loan_outstanding(db, shift.id, as_of=as_of)
     base = shift.opening_cash_total
     expected = base + sales.cash + incomes - expenses - pickups - deposits + reserve_loan
     return {
@@ -1315,6 +1325,21 @@ def create_cash_movement(
 # ---------------------------------------------------------------------------
 # POST /shifts/{id}/cash-swaps
 # ---------------------------------------------------------------------------
+
+
+def preview_cash_swap(payload: CashSwapPreviewIn) -> CashSwapPreviewOut:
+    """El cuadre del cambio antes de registrarlo: cuánto entra, cuánto sale y
+    si es neto cero. La misma validación de denominaciones y la misma suma
+    que `create_cash_swap` (una sola matemática, acá), sin escribir nada."""
+    out_denoms = _to_denominations(payload.out)
+    in_denoms = _to_denominations(payload.in_)
+    out_total = money.validate_denominations(out_denoms, money.sum_denominations(out_denoms))
+    in_total = money.validate_denominations(in_denoms, money.sum_denominations(in_denoms))
+    return CashSwapPreviewOut(
+        in_total=in_total,
+        out_total=out_total,
+        balanced=in_total == out_total and in_total > 0,
+    )
 
 
 def create_cash_swap(db: Session, *, actor: Actor, shift: Shift, payload: CashSwapIn) -> CashSwap:

@@ -164,6 +164,15 @@ export function rejectRequest(requestId: number, reason: string): Promise<StaffR
   })
 }
 
+/** «Reversar con motivo» una aprobación o un rechazo: vuelve a pendiente. */
+export function reopenRequest(requestId: number, reason: string): Promise<StaffRequest> {
+  return api<StaffRequest>(`/admin/requests/${requestId}/reopen`, {
+    method: "POST",
+    body: { reason },
+    idempotencyKey: newIdempotencyKey(),
+  })
+}
+
 export function markRequestBought(requestId: number, note: string | null = null): Promise<StaffRequest> {
   return api<StaffRequest>(`/admin/requests/${requestId}/mark-bought`, {
     method: "POST",

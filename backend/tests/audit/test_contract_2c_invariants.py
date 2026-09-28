@@ -496,11 +496,18 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       suscritos (`push_subscriptions`, que nunca se borran) y las claves
       VAPID de cada organización (`push_vapid_keys`). Se mueven los dos
       postes; las dos igualdades siguen exactas.
+    - Con **`0032_panel_assumptions`** la cadena llega a `"0032"` y el
+      conteo **sigue en 113**. Motivo declarado: los supuestos del panel
+      «barra + raya» (margen meta, mesa larga, tiquete demorado, comandas
+      por mesero) son decisiones del dueño y viven en Ajustes: cuatro
+      columnas de `store_sales_settings`, ninguna tabla. Se mueve sólo el
+      poste de la cabeza.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0031"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0031 "
-        "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030 y avisos al celular 0031)"
+    assert 'version == "0032"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0032 "
+        "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031 "
+        "y supuestos del panel 0032)"
     )
     assert "len(tablas) == 113" in fuente, (
         "el conteo de tablas sigue en un número viejo: 0031 lo deja en 113 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2)"

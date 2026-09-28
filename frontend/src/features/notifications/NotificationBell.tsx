@@ -1,7 +1,8 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
-import { listNotifications, markNotificationRead } from "@/api/notifications";
+import { markNotificationRead } from "@/api/notifications";
 import { railItemClass } from "@/components/admin/RailItem";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
+
+import { avisoHref } from "./avisos";
+import { useNotificaciones } from "./useAvisos";
 
 export interface NotificationBellProps {
   storeId: number | null;
@@ -24,8 +29,10 @@ export interface NotificationBellProps {
    * de la lateral del admin: la campana bajó ahí cuando la barra superior
    * dejó de existir (`docs/PATRONES-ADMIN.md` § 1), que es lo que la propia
    * pantalla de Notificaciones ya decía —«la campana de la lateral»—.
+   * `"barra"` es el botón de la barra superior del handoff (`AdminTop`):
+   * campana, la palabra «Avisos» y el recuento en rojo.
    */
-  variant?: "icon" | "rail";
+  variant?: "icon" | "rail" | "barra";
   /** En el cajón del móvil la fila necesita el objetivo táctil. */
   touch?: boolean;
 }
@@ -37,11 +44,8 @@ export function NotificationBell({
   touch = false,
 }: NotificationBellProps): React.JSX.Element {
   const queryClient = useQueryClient();
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["admin-notifications", storeId],
-    queryFn: () => listNotifications({ storeId }),
-    refetchInterval: 30_000,
-  });
+  const navigate = useNavigate();
+  const { data, isLoading, isError, error } = useNotificaciones(storeId);
 
   const notifications = data ?? [];
   const unreadCount = notifications.filter((n) => n.read_at === null).length;
@@ -51,8 +55,36 @@ export function NotificationBell({
     await queryClient.invalidateQueries({ queryKey: ["admin-notifications", storeId] });
   }
 
+  const trigger =
+    variant === "barra" ? (
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 min-h-0 gap-1.5 px-2.5 font-normal text-muted-foreground"
+            // El nombre empieza por lo que se ve («Avisos»): quien dicta por
+            // voz nombra lo que lee (WCAG 2.5.3).
+            aria-label={unreadCount > 0 ? `Avisos, ${unreadCount} sin leer` : "Avisos"}
+          />
+        }
+      >
+        <Bell className="size-4 shrink-0" aria-hidden="true" />
+        Avisos
+        {unreadCount > 0 ? (
+          <span
+            aria-hidden="true"
+            className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-[5px] text-[11px] font-bold text-destructive-foreground tabular-nums"
+          >
+            {unreadCount}
+          </span>
+        ) : null}
+      </DropdownMenuTrigger>
+    ) : null;
+
   return (
     <DropdownMenu>
+      {trigger ?? (
       <DropdownMenuTrigger
         render={
           <Button
@@ -80,6 +112,7 @@ export function NotificationBell({
           </Badge>
         ) : null}
       </DropdownMenuTrigger>
+      )}
       <DropdownMenuContent align="end" className="w-80">
         {/* `DropdownMenuLabel` es un `Menu.GroupLabel` de Base UI: fuera de un
             `Menu.Group` lanza «MenuGroupContext is missing» y tumbaba la app
@@ -98,10 +131,12 @@ export function NotificationBell({
           notifications.slice(0, 8).map((n) => (
             <DropdownMenuItem
               key={n.id}
-              className="flex flex-col items-start gap-0.5 whitespace-normal"
+              className={cn("flex flex-col items-start gap-0.5 whitespace-normal", n.read_at === null && "font-medium")}
               // Base UI no tiene `onSelect` (eso es de Radix): el aviso nunca se marcaba leído.
+              // Tocarlo, además, abre su vista: detalle, a dónde se resuelve y su rastro.
               onClick={() => {
                 if (n.read_at === null) void handleMarkRead(n.id);
+                void navigate(avisoHref(n.id));
               }}
             >
               <span className="text-sm font-medium">{n.title}</span>

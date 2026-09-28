@@ -153,6 +153,11 @@ class StockRowOut(BaseModel):
     cost: str | None
     cost_source: CostSourceLiteral
     key_item: bool
+    # El tope del mini gráfico de la columna Stock («barra + raya» del panel,
+    # `docs/diseno/handoff-pos-y-panel/README.md`): mínimo × 2,5 en la unidad
+    # base, redondeado half-up. Lo manda el servidor para que la pantalla no
+    # derive una escala de negocio; no viaja en el CSV.
+    bullet_max: str | None = None
 
 
 # ---------------------------------------------------------------------------

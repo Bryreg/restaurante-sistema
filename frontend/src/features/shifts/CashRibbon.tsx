@@ -34,9 +34,12 @@ import { ShiftActionSheet } from "./ShiftActionSheet";
 
 const SOLICITUDES_POLL_MS = 15_000;
 
-/** Botón de la cinta: 56 px de alto (`h-14`), ícono + rótulo en una línea. */
+/**
+ * Botón de la cinta (handoff `PosMesas`): 56 px exactos, radio de 14 px,
+ * borde `input`, 16 px / 600, ícono de 20 px + rótulo en una línea.
+ */
 const BOTON_CINTA =
-  "relative h-14 shrink-0 gap-2 rounded-xl px-4 text-base font-semibold whitespace-nowrap focus-visible:ring-2 focus-visible:ring-ring";
+  "relative h-[56px] shrink-0 gap-2 rounded-[14px] border-input px-4 text-[16px] font-semibold whitespace-nowrap focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-5";
 
 /**
  * **La cinta de caja** de Mesas (pedido del dueño, 2026-09-26, a imagen del
@@ -139,8 +142,8 @@ export function CashRibbon(): React.JSX.Element | null {
 
   return (
     <>
-      <nav aria-label="Acciones de caja" className="-mx-2 overflow-x-auto overscroll-x-contain">
-        <div className="flex w-max min-w-full items-center gap-2 px-2 py-2">
+      <nav aria-label="Acciones de caja" className="overflow-x-auto overscroll-x-contain border-b">
+        <div className="flex w-max min-w-full items-center gap-2 px-3 py-2.5">
           {principales.map((accion) => (
             <BotonCinta
               key={accion.clave}
@@ -203,8 +206,8 @@ function Contador({ valor, enLinea = false }: { valor: number; enLinea?: boolean
     <span
       aria-hidden="true"
       className={cn(
-        "grid h-6 min-w-6 place-items-center rounded-full bg-destructive px-1.5 text-xs font-bold text-destructive-foreground",
-        !enLinea && "absolute -top-1.5 -right-1.5",
+        "grid h-6 min-w-6 place-items-center rounded-full bg-destructive px-1.5 text-[13px] font-bold text-destructive-foreground",
+        !enLinea && "absolute -top-[7px] -right-[7px]",
       )}
     >
       {valor > 9 ? "9+" : valor}
@@ -255,7 +258,7 @@ function BotonMomento({
       <span
         className={cn(
           BOTON_CINTA,
-          "inline-flex items-center rounded-xl border border-dashed border-border text-muted-foreground",
+          "inline-flex items-center border border-dashed border-border text-muted-foreground",
         )}
         data-testid="momento-vacio"
       >

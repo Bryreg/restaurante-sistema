@@ -174,6 +174,30 @@ def resolve_novelty(db: Session, *, store: Store, actor: Actor, novelty_id: int,
     return row
 
 
+def reopen_novelty(db: Session, *, store: Store, actor: Actor, novelty_id: int, data: NoveltyResolveIn) -> tuple[Novelty, dict[str, Any]]:
+    """«Reversar con motivo» la resolución de una novedad: vuelve a quedar
+    abierta. Devuelve la fila y cómo estaba resuelta (quién, cuándo, con qué
+    nota), que la auditoría guarda entera: nada se borra."""
+    row = novelty_or_404(db, store=store, novelty_id=novelty_id)
+    reason = data.note.strip()
+    if not reason:
+        raise AppError(code="REASON_REQUIRED", message="Escribí el motivo de la reversa: queda en el historial de la novedad")
+    if row.resolved_at is None:
+        raise AppError(code="NOVELTY_NOT_RESOLVED", message="Esta novedad sigue abierta: no hay resolución que reversar", status=409)
+    before = {
+        "resolved_at": row.resolved_at.isoformat(),
+        "resolved_by_employee_id": row.resolved_by_employee_id,
+        "resolved_by_employee_name": row.resolved_by_employee_name,
+        "resolution_note": row.resolution_note,
+    }
+    row.resolved_at = None
+    row.resolved_by_employee_id = None
+    row.resolved_by_employee_name = None
+    row.resolution_note = None
+    db.flush()
+    return row, before
+
+
 # Lecturas para otros dominios (`hooks.py` las publica).
 
 

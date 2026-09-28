@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="width:100%;height:100%;display:flex;flex-direction:column;background:#121A17;color:#EEF2EF;font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;overflow:hidden">
+  <header style="display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid #2E3C35">
+    <div style="display:flex;flex-direction:column;margin-right:8px"><b style="font-size:26px;font-stretch:90%">Cocina</b><span style="font-size:15px;color:#A9B6AF">Chapinero · sáb 27 sep</span></div>
+    <sc-for list="{{ estaciones }}" as="e" hint-placeholder-count="5">
+      <button onClick="{{ e.elegir }}" style="height:56px;padding:0 20px;border-radius:12px;border:1px solid {{ e.borde }};background:{{ e.fondo }};color:{{ e.txt }};font:inherit;font-size:18px;font-weight:700;cursor:pointer;display:inline-flex;gap:8px;align-items:center">{{ e.t }}<span style="font-size:15px;opacity:.75">{{ e.n }}</span></button>
+    </sc-for>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:18px;font-size:17px;font-weight:600">
+      <span style="display:inline-flex;align-items:center;gap:8px;color:#FF8F88"><span style="width:14px;height:14px;background:currentColor;border-radius:1px"></span>{{ resumen.rojo }} demorados</span>
+      <span style="display:inline-flex;align-items:center;gap:8px;color:#F0B458"><span style="width:15px;height:14px;background:currentColor;clip-path:polygon(50% 0,100% 100%,0 100%)"></span>{{ resumen.ambar }} por vencer</span>
+      <span style="display:inline-flex;align-items:center;gap:8px;color:#5CCFB9"><span style="width:14px;height:14px;background:currentColor;border-radius:50%"></span>{{ resumen.verde }} a tiempo</span>
+    </div>
+    <b style="font-size:30px;margin-left:10px">12:53 p. m.</b>
+    <button onClick="{{ toggleCompleta }}" style="height:56px;padding:0 18px;border-radius:12px;border:1px solid #3A4841;background:#1B2622;color:#EEF2EF;font:inherit;font-size:17px;font-weight:600;cursor:pointer;display:inline-flex;gap:8px;align-items:center"><i class="{{ completaIcono }}" style="font-size:22px"></i>{{ completaTxt }}</button>
+  </header>
+
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;padding:16px 20px;align-items:start">
+    <sc-for list="{{ columnas }}" as="col" hint-placeholder-count="5">
+      <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+        <sc-for list="{{ col.tiquetes }}" as="t" hint-placeholder-count="2">
+          <article style="background:#F2EEE3;color:#1A1A17;border-radius:4px 4px 12px 12px;box-shadow:0 1px 0 rgb(0 0 0 / 35%);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:{{ t.cabeza }};color:#FFFFFF">
+              <span style="width:18px;height:18px;flex:none;background:#FFFFFF;border-radius:{{ t.formaRadio }};clip-path:{{ t.formaClip }}"></span>
+              <b style="font-size:{{ tam.destino }};font-weight:800;font-stretch:72%;line-height:1.05;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.destino }}</b>
+              <b style="font-size:{{ tam.destino }};font-weight:800;line-height:1.05">{{ t.min }} min</b>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 14px;border-bottom:2px dashed #BDB6A6;font-size:15px;color:#5C574C"><span>{{ t.quien }}</span><span style="font-family:'IBM Plex Mono',monospace">{{ t.num }}</span></div>
+            <sc-for list="{{ t.items }}" as="i" hint-placeholder-count="2">
+              <div style="display:flex;flex-direction:column;gap:6px;padding:10px 14px;border-top:1px dashed #CFC7B5;opacity:{{ i.op }}">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <b style="font-size:{{ tam.plato }};font-weight:800;font-stretch:72%;min-width:34px">{{ i.q }}×</b>
+                  <b style="flex:1;font-size:{{ tam.plato }};font-weight:700;font-stretch:72%;line-height:1.15;text-decoration:{{ i.tachado }}">{{ i.plato }}</b>
+                  <button onClick="{{ i.marcar }}" style="height:56px;min-width:96px;padding:0 12px;border-radius:10px;border:2px solid #0F7A6A;background:{{ i.btnFondo }};color:{{ i.btnTxt }};font:inherit;font-size:17px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px"><i class="icon-check" style="font-size:20px"></i>{{ i.btn }}</button>
+                </div>
+                <sc-if value="{{ i.mods }}"><div style="background:#FFE27A;color:#1A1A17;border-left:4px solid #C99A00;border-radius:3px;padding:4px 8px;font-size:17px;font-weight:700">{{ i.mods }}</div></sc-if>
+                <sc-if value="{{ i.alergia }}"><div style="background:#FDE3E1;color:#7A0F0B;border:2px solid #C4302B;border-radius:3px;padding:5px 8px;font-size:17px;font-weight:800;display:flex;align-items:center;gap:8px"><i class="icon-triangle-alert" style="font-size:20px"></i>ALERGIA: {{ i.alergia }}</div></sc-if>
+              </div>
+            </sc-for>
+          </article>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1920,&quot;height&quot;:1080}}">
+class Component extends DCLogic {
+  state = { est: "Todas", listos: { "0-0": true }, completa: false };
+  T = [
+    ["Mesa 11", 26, "Laura · 5 comensales", "#0139", [[1,"Posta cartagenera","Caliente"],[2,"Arroz con pollo","Caliente","Sin arveja"]]],
+    ["Domicilio · Cl 63 #9-40", 21, "Mostrador · Rappi", "#0141", [[2,"Bandeja paisa","Caliente","Huevo aparte"],[1,"Ajiaco santafereño","Caliente","Crema y alcaparras aparte"]]],
+    ["Mesa 6", 16, "Yuli · 6 comensales", "#0142", [[2,"Churrasco 300 g","Caliente","Término medio · sin chimichurri"],[1,"Mojarra frita","Caliente","", "mariscos · freír en aceite aparte"],[3,"Sancocho de gallina","Caliente"]]],
+    ["Mesa 4", 12, "Laura · 3 comensales", "#0143", [[1,"Bandeja paisa","Caliente","Sin cebolla"],[1,"Churrasco 300 g","Caliente","Término medio"],[1,"Obleas","Postres"]]],
+    ["Mesa 9", 6, "Yuli · 2 comensales", "#0145", [[1,"Patacón con hogao","Fría","", "lácteos"],[1,"Ceviche de camarón","Fría"]]],
+    ["Barra 1", 4, "Camilo · 1 comensal", "#0146", [[3,"Empanadas ×3","Caliente","Ají aparte"]]],
+    ["Mostrador", 2, "Para llevar · Diana", "#0147", [[1,"Pechuga a la plancha","Caliente","Ensalada aparte"],[1,"Arroz con leche","Postres"]]],
+    ["Mesa 2", 9, "Laura · 4 comensales", "#0144", [[4,"Tres leches","Postres"]]],
+  ];
+  renderVals() {
+    const s = this.state;
+    const tono = (m) => m >= 20 ? { cabeza: "#C4302B", formaRadio: "1px", formaClip: "none", k: "rojo" } : m >= 10 ? { cabeza: "#9A6412", formaRadio: "0", formaClip: "polygon(50% 0,100% 100%,0 100%)", k: "ambar" } : { cabeza: "#0F7A6A", formaRadio: "50%", formaClip: "none", k: "verde" };
+    const resumen = { rojo: 0, ambar: 0, verde: 0 };
+    const cuentaEst = { Todas: 0, Caliente: 0, "Fría": 0, Postres: 0 };
+    const tiq = this.T.map(([destino, min, quien, num, items], ti) => {
+      const tn = tono(min);
+      const its = items.map(([q, plato, est, mods, alergia], ii) => {
+        const k = `${ti}-${ii}`, listo = !!s.listos[k];
+        return { q, plato, est, mods: mods || "", alergia: alergia || "", op: listo ? 0.55 : 1, tachado: listo ? "line-through" : "none",
+          btn: listo ? "Listo ✓" : "Listo", btnFondo: listo ? "#0F7A6A" : "transparent", btnTxt: listo ? "#FFFFFF" : "#0F7A6A",
+          marcar: () => this.setState(st => ({ listos: { ...st.listos, [k]: !st.listos[k] } })) };
+      }).filter(i => s.est === "Todas" || i.est === s.est);
+      return { destino, min, quien, num, ...tn, items: its };
+    }).filter(t => t.items.length);
+    tiq.forEach(t => resumen[t.k]++);
+    this.T.forEach(t => { cuentaEst.Todas++; const set = new Set(t[4].map(i => i[2])); set.forEach(e => cuentaEst[e]++); });
+    tiq.sort((a, b) => b.min - a.min);
+    const columnas = [0,1,2,3,4].map(c => ({ tiquetes: tiq.filter((_, i) => i % 5 === c) }));
+    return {
+      columnas, resumen,
+      estaciones: ["Todas", "Caliente", "Fría", "Postres"].map(t => { const on = s.est === t; return { t, n: cuentaEst[t], borde: on ? "#EEF2EF" : "#3A4841", fondo: on ? "#EEF2EF" : "#1B2622", txt: on ? "#121A17" : "#EEF2EF", elegir: () => this.setState({ est: t }) }; }),
+      tam: s.completa ? { destino: "32px", plato: "24px" } : { destino: "27px", plato: "21px" },
+      completaTxt: s.completa ? "Salir de pantalla completa" : "Pantalla completa", completaIcono: s.completa ? "icon-minimize" : "icon-maximize",
+      toggleCompleta: () => this.setState({ completa: !s.completa }),
+    };
+  }
+}
+</script>
+</body>
+</html>

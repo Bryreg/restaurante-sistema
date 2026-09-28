@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="width:100%;height:100%;display:flex;flex-direction:column;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;overflow:hidden;position:relative">
+  <dc-import name="PosBarra" persona="Kevin Ruiz" rol="caja" titulo="Cobro · Mesa 4" con-nav="{{ false }}" hint-size="100%,77px"></dc-import>
+
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:440px minmax(0,1fr)">
+    <section style="border-right:1px solid var(--border);background:var(--card);display:flex;flex-direction:column;min-height:0">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)">
+        <button style="height:56px;display:inline-flex;align-items:center;gap:6px;padding:0 14px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:16px;font-weight:600;cursor:pointer"><i class="icon-arrow-left" style="font-size:20px"></i>Comanda</button>
+        <div style="display:flex;flex-direction:column"><b style="font-size:20px">Mesa 4 · 3 comensales</b><span style="font-size:14px;color:var(--muted-foreground)">Atendió Laura Gómez · 12:41 p. m.</span></div>
+      </div>
+
+      <sc-if value="{{ entera }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1;min-height:0;overflow:hidden;padding:10px 16px;display:flex;flex-direction:column">
+          <sc-for list="{{ lineas }}" as="l" hint-placeholder-count="5">
+            <div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px dashed var(--border);font-size:16px"><b style="min-width:24px">{{ l.q }}×</b><span style="flex:1">{{ l.n }}</span><span>{{ l.p }}</span></div>
+          </sc-for>
+          <div style="display:flex;justify-content:space-between;padding:10px 0 2px;font-size:17px;font-weight:700"><span>Consumo</span><span>$ 125.000</span></div>
+          <div style="font-size:13px;color:var(--muted-foreground)">Incluye impuesto al consumo 8 % · $ 9.259</div>
+          <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">
+            <b style="font-size:16px">Propina voluntaria <span style="font-weight:500;color:var(--muted-foreground)">· la decide el cliente</span></b>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+              <sc-for list="{{ propinas }}" as="p" hint-placeholder-count="3">
+                <button onClick="{{ p.elegir }}" style="height:64px;border-radius:12px;border:2px solid {{ p.borde }};background:{{ p.fondo }};color:var(--foreground);font:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer"><b style="font-size:16px">{{ p.t }}</b><span style="font-size:14px;color:var(--muted-foreground)">{{ p.v }}</span></button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="margin-top:auto;display:flex;flex-direction:column;border-top:3px double color-mix(in oklab, var(--foreground) 60%, transparent);padding-top:8px">
+            <div style="display:flex;justify-content:space-between;font-size:15px;color:var(--muted-foreground)"><span>Consumo</span><span>$ 125.000</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:15px;color:var(--muted-foreground)"><span>Propina (no es venta)</span><span>{{ propinaTxt }}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:800;padding-top:4px"><span>Total</span><span>{{ totalTxt }}</span></div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ dividida }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;min-height:0;overflow:hidden;padding:12px 16px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:6px">
+            <button style="flex:1;height:56px;border-radius:12px;border:0;background:var(--foreground);color:var(--background);font:inherit;font-size:15px;font-weight:700">Por asiento</button>
+            <button style="flex:1;height:56px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:15px;font-weight:700">Partes iguales</button>
+            <button style="flex:1;height:56px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:15px;font-weight:700">Por plato</button>
+          </div>
+          <sc-for list="{{ partes }}" as="p" hint-placeholder-count="3">
+            <div style="display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:12px;border:2px solid {{ p.borde }};background:{{ p.fondo }}">
+              <div style="display:flex;align-items:center;gap:8px">
+                <b style="font-size:17px;flex:1">{{ p.t }}</b>
+                <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:13px;font-weight:700;background:{{ p.chipFondo }};color:{{ p.chipTxt }}"><i class="{{ p.icono }}" style="font-size:14px"></i>{{ p.estado }}</span>
+              </div>
+              <div style="font-size:14px;color:var(--muted-foreground)">{{ p.platos }}</div>
+              <div style="display:flex;justify-content:space-between;font-size:15px"><span style="color:var(--muted-foreground)">{{ p.detalle }}</span><b style="font-size:18px">{{ p.total }}</b></div>
+              <div style="font-size:14px;display:flex;align-items:center;gap:6px"><i class="{{ p.medioIcono }}" style="font-size:16px"></i>{{ p.medio }}</div>
+            </div>
+          </sc-for>
+          <div style="margin-top:auto;border-top:3px double color-mix(in oklab, var(--foreground) 60%, transparent);padding-top:8px;display:flex;flex-direction:column;gap:2px">
+            <div style="display:flex;justify-content:space-between;font-size:15px;color:var(--muted-foreground)"><span>Propina $ 10.000 repartida por consumo</span><span>3 partes</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:15px;color:var(--muted-foreground)"><span>Cobrado</span><span>$ 39.960</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:800"><span>Queda por cobrar</span><span>$ 95.040</span></div>
+          </div>
+        </div>
+      </sc-if>
+    </section>
+
+    <section style="display:flex;flex-direction:column;gap:12px;padding:14px 18px;min-height:0">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px">
+        <div style="display:flex;flex-direction:column">
+          <span style="font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-foreground)">{{ rotuloTotal }}</span>
+          <b style="font-size:60px;line-height:1;font-stretch:108%;letter-spacing:-0.02em">{{ totalTxt }}</b>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:230px;padding:10px 14px;border-radius:12px;background:{{ estado.fondo }};border:1px solid {{ estado.borde }}">
+          <span style="font-size:14px;color:var(--muted-foreground)">{{ estado.rotulo }}</span>
+          <b style="font-size:30px;color:{{ estado.color }}">{{ estado.valor }}</b>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
+        <sc-for list="{{ medios }}" as="m" hint-placeholder-count="5">
+          <button onClick="{{ m.elegir }}" style="height:64px;border-radius:12px;border:2px solid {{ m.borde }};background:{{ m.fondo }};color:{{ m.txt }};font:inherit;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer"><i class="{{ m.icono }}" style="font-size:20px"></i>{{ m.t }}</button>
+        </sc-for>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;opacity:{{ opMontos }}">
+        <sc-for list="{{ montos }}" as="m" hint-placeholder-count="4">
+          <button onClick="{{ m.elegir }}" style="height:64px;border-radius:12px;border:2px solid {{ m.borde }};background:{{ m.fondo }};color:var(--foreground);font:inherit;font-size:19px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1"><span style="font-size:13px;font-weight:600;color:var(--muted-foreground)">{{ m.rot }}</span>{{ m.t }}</button>
+        </sc-for>
+      </div>
+
+      <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 256px;gap:16px">
+        <div style="display:flex;flex-direction:column;gap:10px;justify-content:flex-end">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:var(--card)"><span style="font-size:16px;color:var(--muted-foreground)">Recibido · {{ medioSel }}</span><b style="font-size:26px">{{ recibidoTxt }}</b></div>
+          <sc-if value="{{ hecho }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:color-mix(in oklab, var(--success) 14%, var(--card));border:1px solid var(--success)"><i class="icon-circle-check" style="font-size:26px;color:var(--success)"></i><b style="font-size:18px">{{ hechoTxt }}</b></div>
+          </sc-if>
+          <button onClick="{{ cobrar }}" style="height:72px;border-radius:14px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:22px;font-weight:800;cursor:pointer;opacity:{{ opCobrar }};display:inline-flex;align-items:center;justify-content:center;gap:10px"><i class="icon-check" style="font-size:26px"></i>{{ cobrarTxt }}</button>
+          <span style="font-size:14px;color:var(--muted-foreground);text-align:center">{{ ayuda }}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:14px;border:1px solid var(--border);background:var(--card)">
+          <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:14px;font-weight:600">PIN de quien cobra</span><span style="display:flex;gap:8px"><sc-for list="{{ puntos }}" as="d" hint-placeholder-count="4"><span style="width:14px;height:14px;border-radius:999px;border:2px solid var(--foreground);box-sizing:border-box;background:{{ d.f }}"></span></sc-for></span></div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+            <sc-for list="{{ teclas }}" as="k" hint-placeholder-count="12">
+              <button onClick="{{ k.press }}" style="height:56px;border-radius:10px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:22px;font-weight:600;cursor:pointer;visibility:{{ k.vis }};display:grid;place-items:center"><i class="{{ k.icono }}" style="font-size:22px"></i>{{ k.t }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:800},&quot;dividida&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { medio: "Efectivo", recibido: null, pin: "", hecho: false, propina: 10000 };
+  fmt(n) { return "$ " + n.toLocaleString("es-CO").replace(/,/g, "."); }
+  renderVals() {
+    const s = this.state;
+    const div = this.props.dividida === true || this.props.dividida === "true";
+    const total = div ? 49680 : 125000 + s.propina;
+    const efectivo = s.medio === "Efectivo";
+    const recibido = efectivo ? s.recibido : total;
+    const completo = recibido !== null && recibido >= total;
+    const puede = completo && s.pin.length === 4 && !s.hecho;
+    const quick = div ? [49680, 50000, 60000, 100000] : [total, 140000, 150000, 200000].filter((v, i) => i === 0 || v > total);
+    let estado;
+    if (!efectivo) estado = { rotulo: "Vuelto", valor: "No aplica", color: "var(--muted-foreground)", fondo: "var(--card)", borde: "var(--border)" };
+    else if (recibido === null) estado = { rotulo: "Vuelto", valor: "—", color: "var(--muted-foreground)", fondo: "var(--card)", borde: "var(--border)" };
+    else if (!completo) estado = { rotulo: "Falta recibir", valor: this.fmt(total - recibido), color: "var(--destructive)", fondo: "color-mix(in oklab, var(--destructive) 10%, var(--card))", borde: "var(--destructive)" };
+    else estado = { rotulo: "Vuelto", valor: this.fmt(recibido - total), color: "var(--foreground)", fondo: "color-mix(in oklab, var(--success) 14%, var(--card))", borde: "var(--success)" };
+    const sel = (on) => ({ borde: on ? "var(--primary)" : "var(--border)", fondo: on ? "var(--accent)" : "var(--card)" });
+    const keys = ["1","2","3","4","5","6","7","8","9","","0","del"];
+    const tone = { ok: ["color-mix(in oklab, var(--success) 16%, var(--card))", "var(--success)", "icon-circle-check"], now: ["var(--accent)", "var(--accent-foreground)", "icon-hand-coins"], wait: ["var(--muted)", "var(--muted-foreground)", "icon-clock"] };
+    const partes = [
+      ["Parte 1 · Asiento 1", "Ajiaco santafereño, Obleas", "$ 37.000 + propina $ 2.960", "$ 39.960", "Nequi", "icon-smartphone", "Pagada", "ok"],
+      ["Parte 2 · Asiento 2", "Bandeja paisa, Limonada de coco", "$ 46.000 + propina $ 3.680", "$ 49.680", "Efectivo", "icon-banknote", "Cobrando", "now"],
+      ["Parte 3 · Asiento 3", "Churrasco 300 g", "$ 42.000 + propina $ 3.360", "$ 45.360", "Tarjeta", "icon-credit-card", "Pendiente", "wait"],
+    ].map(([t, platos, detalle, tot, medio, medioIcono, est, k]) => ({ t, platos, detalle, total: tot, medio, medioIcono, estado: est,
+      chipFondo: tone[k][0], chipTxt: tone[k][1], icono: tone[k][2], borde: k === "now" ? "var(--primary)" : "var(--border)", fondo: k === "now" ? "var(--accent)" : "var(--background)" }));
+    return {
+      entera: !div, dividida: div, partes,
+      rotuloTotal: div ? "Parte 2 de 3 · a cobrar" : "Total a cobrar",
+      lineas: [["1","Ajiaco santafereño","$ 28.000"],["1","Bandeja paisa","$ 34.000"],["1","Churrasco 300 g","$ 42.000"],["1","Limonada de coco","$ 12.000"],["1","Obleas","$ 9.000"]].map(([q, n, p]) => ({ q, n, p })),
+      propinas: [["10 % sugerida", 12500], ["Otra", 10000], ["Sin propina", 0]].map(([t, v]) => ({ t, v: this.fmt(v), ...sel(s.propina === v), elegir: () => this.setState({ propina: v, recibido: null, hecho: false }) })),
+      propinaTxt: this.fmt(s.propina), totalTxt: this.fmt(total), estado,
+      medios: [["Efectivo","icon-banknote"],["Tarjeta","icon-credit-card"],["Nequi","icon-smartphone"],["Daviplata","icon-smartphone"],["Transferencia","icon-landmark"]].map(([t, icono]) => {
+        const on = s.medio === t; return { t, icono, borde: on ? "var(--primary)" : "var(--border)", fondo: on ? "var(--primary)" : "var(--card)", txt: on ? "var(--primary-foreground)" : "var(--foreground)", elegir: () => this.setState({ medio: t, recibido: null, hecho: false }) }; }),
+      montos: quick.map((v, i) => ({ rot: i === 0 ? "Exacto" : "Recibe", t: this.fmt(v), ...sel(efectivo && s.recibido === v), elegir: () => efectivo && this.setState({ recibido: v, hecho: false }) })),
+      opMontos: efectivo ? 1 : 0.45,
+      medioSel: s.medio, recibidoTxt: recibido === null ? "—" : this.fmt(recibido),
+      puntos: [0,1,2,3].map(i => ({ f: i < s.pin.length ? "var(--foreground)" : "transparent" })),
+      teclas: keys.map(k => ({ t: k === "del" ? "" : k, icono: k === "del" ? "icon-delete" : "", vis: k === "" ? "hidden" : "visible",
+        press: () => { if (!k) return; this.setState(st => ({ pin: k === "del" ? st.pin.slice(0, -1) : (st.pin + k).slice(0, 4) })); } })),
+      opCobrar: puede ? 1 : 0.45,
+      cobrarTxt: `Cobrar ${this.fmt(total)}`,
+      ayuda: !completo ? (efectivo ? "Tocá cuánto te entregó el cliente." : "El datáfono o la app confirman el monto exacto.") : s.pin.length < 4 ? "Falta tu PIN para confirmar." : "Listo para cobrar.",
+      cobrar: () => puede && this.setState({ hecho: true }),
+      hecho: s.hecho,
+      hechoTxt: div ? "Parte 2 cobrada · sigue la parte 3" : `Cobrado · entregá ${estado.valor === "No aplica" ? "el comprobante" : "vuelto de " + estado.valor}`,
+    };
+  }
+}
+</script>
+</body>
+</html>
