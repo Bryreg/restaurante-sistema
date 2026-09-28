@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="width:100%;height:100%;display:flex;flex-direction:column;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;overflow:hidden">
+  <dc-import name="PosBarra" persona="Laura Gómez" rol="salon" activo="Mesas" contexto="Chapinero · Sáb 27 sep · Entrada 6:48 a. m. · tus mesas: 2, 4, 11" hint-size="100%,150px"></dc-import>
+
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 470px">
+    <section style="display:flex;flex-direction:column;gap:12px;padding:12px 16px;min-height:0">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button style="height:56px;display:inline-flex;align-items:center;gap:6px;padding:0 14px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:16px;font-weight:600;cursor:pointer"><i class="icon-arrow-left" style="font-size:20px"></i>Mesas</button>
+        <h1 style="margin:0;font-size:28px;font-weight:800;font-stretch:108%">Mesa 4 · 3 comensales</h1>
+        <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:15px;color:var(--muted-foreground)"><i class="icon-clock" style="font-size:16px"></i>abierta hace 12 min</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <sc-for list="{{ categorias }}" as="c" hint-placeholder-count="6">
+          <button onClick="{{ c.elegir }}" style="height:56px;padding:0 16px;border-radius:12px;border:1px solid {{ c.borde }};background:{{ c.fondo }};color:{{ c.txt }};font:inherit;font-size:16px;font-weight:700;cursor:pointer">{{ c.nombre }}</button>
+        </sc-for>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-content:start">
+        <sc-for list="{{ platos }}" as="p" hint-placeholder-count="6">
+          <button onClick="{{ p.agregar }}" style="min-height:92px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--foreground);font:inherit;text-align:left;cursor:pointer;position:relative">
+            <b style="font-size:18px;line-height:1.15;padding-right:28px">{{ p.nombre }}</b>
+            <span style="font-size:16px;color:var(--muted-foreground)">{{ p.precio }}</span>
+            <sc-if value="{{ p.enPedido }}"><span style="position:absolute;top:10px;right:10px;min-width:28px;height:28px;border-radius:999px;background:var(--primary);color:var(--primary-foreground);font-size:14px;font-weight:800;display:grid;place-items:center">{{ p.enPedido }}</span></sc-if>
+          </button>
+        </sc-for>
+      </div>
+    </section>
+
+    <aside style="border-left:1px solid var(--border);background:var(--card);display:flex;flex-direction:column;min-height:0">
+      <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px;font-weight:600;color:var(--muted-foreground);width:58px">Asiento</span>
+          <sc-for list="{{ asientos }}" as="a" hint-placeholder-count="4">
+            <button onClick="{{ a.elegir }}" style="flex:1;height:56px;border-radius:12px;border:1px solid {{ a.borde }};background:{{ a.fondo }};color:{{ a.txt }};font:inherit;font-size:17px;font-weight:700;cursor:pointer">{{ a.t }}</button>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:14px;font-weight:600;color:var(--muted-foreground);width:58px">Curso</span>
+          <sc-for list="{{ cursos }}" as="a" hint-placeholder-count="3">
+            <button onClick="{{ a.elegir }}" style="flex:1;height:56px;border-radius:12px;border:1px solid {{ a.borde }};background:{{ a.fondo }};color:{{ a.txt }};font:inherit;font-size:16px;font-weight:700;cursor:pointer">{{ a.t }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="flex:1;min-height:0;overflow:auto;padding:6px 10px;display:flex;flex-direction:column">
+        <div style="font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--destructive);padding:6px 4px;display:flex;align-items:center;gap:6px"><i class="icon-send"></i>{{ pendLabel }}</div>
+        <sc-for list="{{ pendientes }}" as="l" hint-placeholder-count="3">
+          <div onClick="{{ l.elegir }}" style="display:flex;flex-direction:column;gap:6px;padding:8px 8px;border-radius:10px;background:{{ l.fondo }};cursor:pointer">
+            <div style="display:flex;align-items:center;gap:10px">
+              <b style="font-size:18px;min-width:26px">{{ l.q }}×</b>
+              <span style="flex:1;font-size:17px;font-weight:600">{{ l.nombre }}</span>
+              <span style="font-size:13px;padding:2px 8px;border-radius:6px;background:var(--secondary)">{{ l.tag }}</span>
+              <span style="font-size:16px;min-width:78px;text-align:right">{{ l.precio }}</span>
+            </div>
+            <sc-if value="{{ l.notas }}"><div style="margin-left:36px;font-size:14px;font-weight:700;padding:2px 8px;border-radius:4px;background:#FFE27A;color:#1A1A17;border-left:4px solid #C99A00;align-self:flex-start">{{ l.notas }}</div></sc-if>
+            <sc-if value="{{ l.sel }}">
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-left:36px">
+                <sc-for list="{{ notasRapidas }}" as="n">
+                  <button onClick="{{ n.toggle }}" style="height:56px;padding:0 14px;border-radius:12px;border:1px solid {{ n.borde }};background:{{ n.fondo }};color:{{ n.txt }};font:inherit;font-size:15px;font-weight:600;cursor:pointer">{{ n.t }}</button>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+        <div style="font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);padding:12px 4px 6px;display:flex;align-items:center;gap:6px"><i class="icon-chef-hat"></i>Ya en cocina</div>
+        <sc-for list="{{ enviados }}" as="l" hint-placeholder-count="1">
+          <div style="display:flex;align-items:center;gap:10px;padding:8px;color:var(--muted-foreground)">
+            <b style="font-size:17px;min-width:26px">{{ l.q }}×</b>
+            <span style="flex:1;font-size:16px">{{ l.nombre }}</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:700;padding:3px 9px;border-radius:999px;background:{{ l.chipFondo }};color:{{ l.chipTxt }}"><i class="{{ l.icono }}" style="font-size:14px"></i>{{ l.estado }}</span>
+            <span style="font-size:15px;min-width:78px;text-align:right">{{ l.precio }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </aside>
+  </div>
+
+  <footer style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border);background:var(--card)">
+    <sc-if value="{{ pideCuenta }}" hint-placeholder-val="{{ true }}">
+      <button style="height:64px;display:inline-flex;align-items:center;gap:8px;padding:0 18px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:17px;font-weight:700;cursor:pointer"><i class="icon-receipt" style="font-size:20px"></i>Pedir cuenta</button>
+    </sc-if>
+    <div style="display:flex;flex-direction:column;margin-left:8px"><span style="font-size:14px;color:var(--muted-foreground)">Total mesa</span><b style="font-size:24px">{{ total }}</b></div>
+    <span style="flex:1;font-size:15px;color:var(--muted-foreground);text-align:right">{{ aviso }}</span>
+    <button onClick="{{ enviarQuedarme }}" style="height:64px;padding:0 20px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:17px;font-weight:700;cursor:pointer">Enviar y quedarme</button>
+    <button onClick="{{ enviar }}" style="height:64px;display:inline-flex;align-items:center;gap:10px;padding:0 26px;border-radius:12px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:19px;font-weight:800;cursor:pointer;opacity:{{ opEnviar }}"><i class="icon-send" style="font-size:22px"></i>Enviar a cocina · {{ nItems }}</button>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:800},&quot;cobra&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  CARTA = {
+    "Entradas": [["Empanadas ×3", 9000], ["Patacón con hogao", 12000], ["Chicharrón con arepa", 16000], ["Aborrajados", 11000], ["Arepa de choclo", 8000], ["Ceviche de camarón", 22000]],
+    "Sopas": [["Ajiaco santafereño", 28000], ["Sancocho de gallina", 26000], ["Mondongo", 24000], ["Crema de ahuyama", 14000]],
+    "Platos fuertes": [["Bandeja paisa", 34000], ["Churrasco 300 g", 42000], ["Mojarra frita", 38000], ["Pechuga a la plancha", 29000], ["Sobrebarriga en salsa", 32000], ["Posta cartagenera", 36000], ["Arroz con pollo", 25000], ["Cazuela de mariscos", 44000], ["Lomo de cerdo", 31000]],
+    "Bebidas": [["Limonada de coco", 12000], ["Jugo de lulo", 8000], ["Aguapanela con limón", 5000], ["Club Colombia", 8000], ["Gaseosa", 5000], ["Agua", 4000]],
+    "Postres": [["Tres leches", 12000], ["Obleas", 9000], ["Arroz con leche", 8000]],
+    "Adiciones": [["Arepa", 3000], ["Aguacate", 5000], ["Porción de arroz", 4000], ["Huevo", 2500]],
+  };
+  NOTAS = ["Sin cebolla", "Aparte", "Término medio", "Bien asado", "Sin hielo", "Sin sal", "Para llevar", "Otra nota…"];
+  state = {
+    cat: "Platos fuertes", asiento: "2", curso: "Fuerte", sel: 1, aviso: "",
+    lineas: [
+      { id: 1, nombre: "Ajiaco santafereño", q: 1, precio: 28000, asiento: "1", curso: "Entrada", notas: [], enviado: true, estado: "listo" },
+      { id: 5, nombre: "Limonada de coco", q: 1, precio: 12000, asiento: "3", curso: "Entrada", notas: [], enviado: true, estado: "prep" },
+      { id: 2, nombre: "Bandeja paisa", q: 1, precio: 34000, asiento: "2", curso: "Fuerte", notas: ["Sin cebolla"], enviado: false },
+      { id: 3, nombre: "Churrasco 300 g", q: 1, precio: 42000, asiento: "3", curso: "Fuerte", notas: ["Término medio"], enviado: false },
+      { id: 4, nombre: "Obleas", q: 1, precio: 9000, asiento: "1", curso: "Postre", notas: [], enviado: false },
+    ],
+  };
+  fmt(n) { return "$ " + n.toLocaleString("es-CO").replace(/,/g, "."); }
+  agregar(nombre, precio) {
+    this.setState(s => {
+      const ex = s.lineas.find(l => !l.enviado && l.nombre === nombre && l.asiento === s.asiento && l.curso === s.curso);
+      if (ex) return { lineas: s.lineas.map(l => l === ex ? { ...l, q: l.q + 1 } : l), sel: ex.id };
+      const id = Date.now();
+      return { lineas: [...s.lineas, { id, nombre, q: 1, precio, asiento: s.asiento, curso: s.curso, notas: [], enviado: false }], sel: id };
+    });
+  }
+  enviar(quedarme) {
+    this.setState(s => ({ lineas: s.lineas.map(l => l.enviado ? l : { ...l, enviado: true, estado: "prep" }), sel: null,
+      aviso: quedarme ? "Enviado a cocina. Seguís en la mesa 4." : "Enviado a cocina · volviendo a Mesas…" }));
+  }
+  renderVals() {
+    const s = this.state;
+    const btn = (on) => ({ borde: on ? "var(--foreground)" : "var(--border)", fondo: on ? "var(--foreground)" : "var(--background)", txt: on ? "var(--background)" : "var(--foreground)" });
+    const pend = s.lineas.filter(l => !l.enviado), env = s.lineas.filter(l => l.enviado);
+    const nItems = pend.reduce((a, l) => a + l.q, 0);
+    const lineaSel = s.lineas.find(l => l.id === s.sel);
+    const conteo = {}; s.lineas.forEach(l => { conteo[l.nombre] = (conteo[l.nombre] || 0) + l.q; });
+    return {
+      categorias: Object.keys(this.CARTA).map(n => ({ nombre: n, ...btn(n === s.cat), elegir: () => this.setState({ cat: n }) })),
+      platos: this.CARTA[s.cat].map(([nombre, precio]) => ({ nombre, precio: this.fmt(precio), enPedido: conteo[nombre] || 0, agregar: () => this.agregar(nombre, precio) })),
+      asientos: ["1", "2", "3", "Todos"].map(t => ({ t, ...btn(t === s.asiento), elegir: () => this.setState({ asiento: t }) })),
+      cursos: ["Entrada", "Fuerte", "Postre"].map(t => ({ t, ...btn(t === s.curso), elegir: () => this.setState({ curso: t }) })),
+      pendLabel: nItems ? `Sin enviar · ${nItems}` : "Nada sin enviar",
+      pendientes: pend.map(l => ({ ...l, precio: this.fmt(l.precio * l.q), tag: `A${l.asiento === "Todos" ? "·T" : l.asiento} · ${l.curso}`, notas: l.notas.join(" · "),
+        sel: l.id === s.sel, fondo: l.id === s.sel ? "var(--accent)" : "transparent", elegir: () => this.setState({ sel: l.id }) })),
+      notasRapidas: this.NOTAS.map(t => { const on = lineaSel && lineaSel.notas.includes(t); return { t, borde: on ? "#C99A00" : "var(--border)", fondo: on ? "#FFE27A" : "var(--background)", txt: on ? "#1A1A17" : "var(--foreground)",
+        toggle: (e) => { e && e.stopPropagation && e.stopPropagation(); if (!lineaSel || t === "Otra nota…") return; this.setState(st => ({ lineas: st.lineas.map(l => l.id !== lineaSel.id ? l : { ...l, notas: l.notas.includes(t) ? l.notas.filter(x => x !== t) : [...l.notas, t] }) })); } }; }),
+      enviados: env.map(l => ({ ...l, precio: this.fmt(l.precio * l.q), estado: l.estado === "listo" ? "Listo" : "En preparación", icono: l.estado === "listo" ? "icon-bell-ring" : "icon-flame",
+        chipFondo: l.estado === "listo" ? "var(--success)" : "var(--secondary)", chipTxt: l.estado === "listo" ? "var(--success-foreground)" : "var(--foreground)" })),
+      total: this.fmt(s.lineas.reduce((a, l) => a + l.precio * l.q, 0)),
+      nItems: `${nItems} ${nItems === 1 ? "ítem" : "ítems"}`, opEnviar: nItems ? 1 : 0.5,
+      aviso: s.aviso, pideCuenta: (this.props.cobra ?? false) !== true,
+      enviar: () => this.enviar(false), enviarQuedarme: () => this.enviar(true),
+    };
+  }
+}
+</script>
+</body>
+</html>

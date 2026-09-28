@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="width:100%;height:100%;display:flex;flex-direction:column;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;overflow:hidden;position:relative">
+  <div style="height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font-size:15px;font-weight:600;flex:none"><span>12:55</span><span style="display:flex;gap:6px;align-items:center"><i class="icon-signal" style="font-size:15px"></i><i class="icon-wifi" style="font-size:15px"></i><i class="icon-battery-full" style="font-size:18px"></i></span></div>
+  <header style="display:flex;align-items:center;gap:8px;min-height:52px;padding:4px 10px;background:var(--muted);border-bottom:1px solid var(--border);flex:none">
+    <button aria-label="Abrir menú" style="width:44px;height:44px;border:0;border-radius:8px;background:transparent;color:var(--foreground);display:grid;place-items:center"><i class="icon-menu" style="font-size:22px"></i></button>
+    <div style="display:flex;align-items:center;gap:6px;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--input);background:var(--card);font-size:14px"><i class="icon-store" style="font-size:15px;color:var(--muted-foreground)"></i><b>Todas las sedes</b><i class="icon-chevron-down" style="font-size:14px;color:var(--muted-foreground)"></i></div>
+    <span style="margin-left:auto;font-size:12px;color:var(--muted-foreground)">hace 14 s</span>
+  </header>
+
+  <main style="flex:1;min-height:0;overflow:auto;padding:14px 14px 96px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:baseline;gap:10px"><h1 style="margin:0;font-size:26px;font-weight:800;font-stretch:108%">{{ titulo }}</h1><span style="font-size:13px;color:var(--muted-foreground)">Hoy · sáb 27 sep · 12:55 p. m.</span></div>
+
+    <sc-if value="{{ varA }}" hint-placeholder-val="{{ true }}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <sc-for list="{{ metricas }}" as="m" hint-placeholder-count="4">
+          <button onClick="{{ m.elegir }}" style="display:flex;flex-direction:column;gap:3px;min-height:112px;padding:10px;border-radius:10px;border:{{ m.bordeSel }};background:{{ m.fondo }};color:var(--foreground);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box">
+            <span style="font-size:12px;color:var(--muted-foreground)">{{ m.corto }}</span>
+            <b style="font-size:22px;line-height:1.1;font-stretch:104%">{{ m.valor }}</b>
+            <span style="font-size:11px;font-weight:700;color:{{ m.tonoColor }};display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:{{ m.tonoColor }};border-radius:{{ m.forma }};clip-path:{{ m.clip }}"></span>{{ m.estado }}</span>
+            <span style="display:flex;align-items:flex-end;gap:2px;height:26px;margin-top:auto;width:100%">
+              <sc-for list="{{ m.mini }}" as="p"><span style="flex:1;height:{{ p.h }};background:{{ p.c }};border-radius:1px;min-height:2px"></span></sc-for>
+            </span>
+          </button>
+        </sc-for>
+      </div>
+      <section style="display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:10px;border:1px solid var(--border);border-top:3px solid {{ sel.tonoColor }};background:var(--card)">
+        <b style="font-size:16px;line-height:1.3">{{ sel.pregunta }}</b>
+        <div style="display:flex;flex-direction:column;gap:2px"><b style="font-size:32px;font-stretch:108%;letter-spacing:-0.01em;line-height:1">{{ sel.valor }}</b><span style="font-size:13px;color:var(--muted-foreground);line-height:1.4">{{ sel.nota }}</span></div>
+        <div style="position:relative;display:flex;gap:3px;height:120px;align-items:stretch">
+          <sc-for list="{{ sel.serie }}" as="p">
+            <span style="flex:1;display:flex;flex-direction:column;position:relative">
+              <sc-if value="{{ p.ant }}"><span style="position:absolute;left:-2px;right:-2px;bottom:{{ p.ant }};border-top:3px solid var(--foreground);z-index:1"></span></sc-if>
+              <span style="height:{{ sel.arriba }};display:flex;align-items:flex-end;gap:1px"><span style="flex:1.3;height:{{ p.h }};background:{{ p.c }};opacity:{{ p.op }};border-radius:2px 2px 0 0"></span></span>
+              <span style="height:{{ sel.abajo }};border-top:{{ sel.cero }};display:flex;align-items:flex-start"><span style="flex:1;height:{{ p.d }};background:var(--diverge-falta, #C4302B);border-radius:0 0 2px 2px"></span></span>
+            </span>
+          </sc-for>
+          <sc-if value="{{ sel.umbral }}"><span style="position:absolute;left:0;right:0;bottom:{{ sel.umbral }};border-top:2px dashed var(--foreground);opacity:.6"></span><span style="position:absolute;right:0;bottom:{{ sel.umbral }};transform:translateY(-100%);font-size:10px;font-weight:700;background:var(--card);padding:0 4px">{{ sel.umbralTxt }}</span></sc-if>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted-foreground);margin-top:-4px"><sc-for list="{{ sel.ejes }}" as="e"><span>{{ e }}</span></sc-for></div>
+        <sc-if value="{{ sel.leyenda }}"><div style="display:flex;gap:12px;font-size:11px;color:var(--muted-foreground)"><sc-for list="{{ sel.leyenda }}" as="l"><span style="display:inline-flex;gap:5px;align-items:center"><span style="width:10px;height:10px;border-radius:2px;background:{{ l.c }};opacity:{{ l.op }}"></span>{{ l.t }}</span></sc-for></div></sc-if>
+        <div style="display:flex;flex-direction:column;border-top:1px solid var(--border)">
+          <sc-for list="{{ sel.filas }}" as="f"><a href="#" style="min-height:44px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);text-decoration:none;color:var(--foreground);font-size:14px"><span style="width:4px;align-self:stretch;margin:8px 0;border-radius:2px;background:{{ f.c }}"></span><span style="flex:1;line-height:1.3">{{ f.t }}</span><b style="white-space:nowrap">{{ f.v }}</b><i class="icon-chevron-right" style="font-size:16px;color:var(--muted-foreground)"></i></a></sc-for>
+        </div>
+        <button style="height:48px;border-radius:10px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:15px;font-weight:700">{{ sel.accion }}</button>
+      </section>
+    </sc-if>
+
+    <sc-if value="{{ varB }}" hint-placeholder-val="{{ false }}">
+      <sc-for list="{{ metricas }}" as="m" hint-placeholder-count="4">
+        <a href="#" style="display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);border-left:4px solid {{ m.tonoColor }};background:var(--card);text-decoration:none;color:var(--foreground)">
+          <span style="font-size:14px;font-weight:700;line-height:1.3;display:flex;gap:8px;align-items:flex-start"><span style="flex:1">{{ m.pregunta }}</span><i class="icon-chevron-right" style="font-size:18px;color:var(--muted-foreground)"></i></span>
+          <span style="display:flex;align-items:flex-end;gap:12px">
+            <span style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1"><b style="font-size:28px;line-height:1;font-stretch:108%;letter-spacing:-0.01em">{{ m.valor }}</b><span style="font-size:12px;font-weight:700;color:{{ m.tonoColor }};display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:{{ m.tonoColor }};border-radius:{{ m.forma }};clip-path:{{ m.clip }}"></span>{{ m.estado }}</span></span>
+            <span style="width:150px;flex:none;display:flex;flex-direction:column;gap:2px"><span style="display:flex;align-items:flex-end;gap:2px;height:44px"><sc-for list="{{ m.mini }}" as="p"><span style="flex:1;height:{{ p.h }};background:{{ p.c }};border-radius:1px;min-height:2px"></span></sc-for></span><span style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted-foreground)"><span>{{ m.ejeIni }}</span><span>{{ m.ejeFin }}</span></span></span>
+          </span>
+          <span style="font-size:12px;color:var(--muted-foreground);line-height:1.4">{{ m.nota }}</span>
+          <sc-if value="{{ m.excepcion }}"><span style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:var(--muted);font-size:13px"><span style="width:4px;height:18px;border-radius:2px;background:{{ m.tonoColor }}"></span><span style="flex:1">{{ m.excepcion }}</span></span></sc-if>
+        </a>
+      </sc-for>
+    </sc-if>
+  </main>
+
+  <nav style="position:absolute;left:0;right:0;bottom:0;border-top:1px solid var(--border);background:var(--muted);padding-bottom:22px;display:grid;grid-template-columns:repeat(5,1fr)">
+    <sc-for list="{{ barra }}" as="t" hint-placeholder-count="5">
+      <a href="#" style="min-height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:12px;font-weight:500;text-decoration:none;color:{{ t.color }};box-shadow:{{ t.raya }}"><i class="{{ t.i }}" style="font-size:20px"></i>{{ t.t }}</a>
+    </sc-for>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844},&quot;seccion&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;caja&quot;,&quot;equipo&quot;,&quot;informes&quot;],&quot;default&quot;:&quot;caja&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;variante&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;A&quot;,&quot;B&quot;],&quot;default&quot;:&quot;A&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { sel: 0 };
+  DATA = {
+    caja: { titulo: "Caja", activo: "Caja", m: [
+      { corto: "Cuadre de ayer", pregunta: "¿Cuadraron los turnos de ayer?", valor: "2 de 4", estado: "▼ 1 faltante · 1 sin cerrar", tono: "c", nota: "Diferencia total de cierre por día, todas las sedes. Arriba sobra, abajo falta.", tipo: "div",
+        serie: [0, 0, -2, 0, 0, 1, 0, 0, -3, 0, 0, -2, 0, -4], ejes: ["14 sep", "20 sep", "ayer"], ejeIni: "14 sep", ejeFin: "ayer",
+        filas: [["Chapinero · cerró Diana Pérez", "▼ −$ 4.000", "c"], ["Cedritos · nadie cerró", "Sin cierre", "c"], ["Usaquén · cerró Paula Ríos", "Cuadra", "ok"], ["Salitre · cerró Iván Soto", "Cuadra", "ok"]], excepcion: "Chapinero ▼ −$ 4.000 · Cedritos sin cerrar", accion: "Ver turnos de ayer" },
+      { corto: "Consignaciones", pregunta: "¿Qué consignaciones faltan por confirmar?", valor: "$ 1.240.000", estado: "▲ 1 por confirmar", tono: "w", nota: "Consignaciones pendientes por día. Hoy: la del sobre del vie 26 sep de Chapinero, con foto.", tipo: "bar",
+        serie: [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1], ejes: ["14 sep", "20 sep", "hoy"], ejeIni: "14 sep", ejeFin: "hoy",
+        filas: [["Chapinero · sobre vie 26 sep · 11:05 a. m.", "$ 1.240.000", "w"]], excepcion: "Chapinero · sobre vie 26 sep · consignado 11:05 a. m.", accion: "Confirmar con la foto" },
+      { corto: "Retiros hoy", pregunta: "¿Cuánto salió en retiros hoy?", valor: "$ 600.000", estado: "▲ Chapinero tiene uno sugerido", tono: "w", nota: "Retiros a caja fuerte por día, en millones. La barra de hoy sigue creciendo.", tipo: "bar", enCurso: true,
+        serie: [2.4, 1.1, 0.9, 1.2, 1.4, 1.6, 3.1, 0.6], ejes: ["sáb 20", "mié 24", "hoy"], ejeIni: "sáb 20", ejeFin: "hoy",
+        filas: [["Usaquén · Paula Ríos · 11:30 a. m.", "$ 600.000", "n"], ["Chapinero · efectivo sobre el umbral", "Sugerido", "w"]], excepcion: "Chapinero: el efectivo pasa el umbral y no ha retirado", accion: "Ver retiros" },
+      { corto: "Gastos de caja", pregunta: "¿Cuánto se gastó de la caja hoy?", valor: "$ 73.000", estado: "● 3 gastos, todos con foto", tono: "ok", nota: "Gastos pagados con plata de la caja, por día, en miles.", tipo: "bar", enCurso: true,
+        serie: [96, 54, 62, 48, 70, 81, 128, 73], ejes: ["sáb 20", "mié 24", "hoy"], ejeIni: "sáb 20", ejeFin: "hoy",
+        filas: [["Usaquén · Gas propano · 8:40 a. m.", "$ 45.000", "n"], ["Chapinero · Hielo · 9:05 a. m.", "$ 16.000", "n"], ["Chapinero · Domicilio de insumos · 10:40 a. m.", "$ 12.000", "n"]], excepcion: "", accion: "Ver gastos" },
+    ] },
+    equipo: { titulo: "Equipo", activo: "Más", m: [
+      { corto: "En turno ahora", pregunta: "¿Quién trabaja hoy?", valor: "15", estado: "● 4 entran a las 4:30 p. m.", tono: "ok", nota: "Personas en turno por hora, todas las sedes. Lo que viene sale más claro: es lo programado.", tipo: "bar", ahora: 7,
+        serie: [2, 8, 12, 14, 15, 15, 15, 15, 12, 11, 15, 19, 19, 19, 17, 12, 6], ejes: ["6 a. m.", "1 p. m.", "10 p. m."], ejeIni: "6 a. m.", ejeFin: "10 p. m.",
+        filas: [["Chapinero", "6", "ok"], ["Usaquén", "5", "ok"], ["Cedritos", "4", "ok"], ["Salitre · entran 4:30 p. m.", "0 de 4", "n"]], excepcion: "", accion: "Ver asistencia de hoy" },
+      { corto: "Llegadas tarde", pregunta: "¿Quién llegó tarde hoy?", valor: "2", estado: "▲ 30 min en total", tono: "w", nota: "Llegadas tarde por día, últimos 14 días.", tipo: "bar",
+        serie: [1, 0, 2, 1, 0, 0, 3, 1, 0, 1, 2, 0, 1, 2], ejes: ["14 sep", "20 sep", "hoy"], ejeIni: "14 sep", ejeFin: "hoy",
+        filas: [["Paula Ríos · Usaquén · entró 7:22 a. m.", "+22 min", "w"], ["Camilo Rojas · Chapinero · entró 7:08 a. m.", "+8 min", "w"]], excepcion: "Paula Ríos +22 min · Camilo Rojas +8 min", accion: "Ver llegadas" },
+      { corto: "Salidas olvidadas", pregunta: "¿Quién no marcó salida?", valor: "1", estado: "▲ Jhon Pérez · ayer", tono: "w", nota: "Salidas sin marcar por día. Cada una deja las horas de nómina sin cerrar.", tipo: "bar",
+        serie: [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1], ejes: ["14 sep", "20 sep", "ayer"], ejeIni: "14 sep", ejeFin: "ayer",
+        filas: [["Jhon Pérez · Cedritos · entró 4:10 p. m.", "Sin salida", "w"]], excepcion: "Jhon Pérez · Cedritos · entró ayer 4:10 p. m.", accion: "Marcar salida con motivo" },
+      { corto: "Horas de la semana", pregunta: "¿Cómo van las horas de la semana?", valor: "486 h", estado: "● de 520 programadas", tono: "ok", nota: "Horas trabajadas por día contra las programadas (gris).", tipo: "dual", enCurso: true,
+        serie: [78, 72, 64, 66, 70, 84, 52], prev: [80, 72, 66, 66, 72, 84, 80], ejes: ["dom 21", "mié 24", "hoy"], ejeIni: "dom 21", ejeFin: "hoy",
+        filas: [["Chapinero", "178 h", "n"], ["Usaquén", "152 h", "n"], ["Cedritos", "118 h", "n"], ["Salitre", "38 h", "n"]], excepcion: "", accion: "Ver horas por persona" },
+    ] },
+    informes: { titulo: "Informes", activo: "Informes", m: [
+      { corto: "Ventas hoy", pregunta: "¿Vendo más o menos que la semana pasada?", valor: "$ 6.941.000", estado: "▲ +5,5 % vs sáb 20", tono: "ok", nota: "Ventas netas acumuladas hasta las 12:55 p. m. El sáb 20 a esta hora iba en $ 6.582.000.", tipo: "dual",
+        serie: [0.2, 0.6, 1.3, 2.4, 3.9, 5.6, 6.9], prev: [0.2, 0.5, 1.2, 2.3, 3.7, 5.3, 6.6], ejes: ["7 a. m.", "10 a. m.", "ahora"], ejeIni: "7 a. m.", ejeFin: "ahora",
+        filas: [["Chapinero", "$ 2.635.648", "ok"], ["Usaquén", "$ 2.412.000", "ok"], ["Cedritos", "$ 1.893.352", "w"], ["Salitre · abre 5:00 p. m.", "—", "n"]], excepcion: "", accion: "Ver el día completo", leyenda: 1 },
+      { corto: "Mejor sede", pregunta: "¿Qué sede va mejor hoy?", valor: "Usaquén", estado: "▲ +9,2 % vs sáb 20", tono: "ok", nota: "Cambio contra el sáb 20 a la misma hora. Salitre abre a las 5:00 p. m.", tipo: "div",
+        serie: [9.2, 5.5, -3.1], ejes: ["Usaquén", "Chapinero", "Cedritos"], ejeIni: "Usaquén", ejeFin: "Cedritos",
+        filas: [["Usaquén", "▲ +9,2 %", "ok"], ["Chapinero", "▲ +5,5 %", "ok"], ["Cedritos", "▼ −3,1 %", "c"]], excepcion: "Cedritos va ▼ −3,1 %: tiene el turno de anoche abierto", accion: "Comparar sedes" },
+      { corto: "Carga por persona", pregunta: "¿A qué horas necesito más gente?", valor: "12 a 2 p. m.", estado: "▲ 9,4 comandas por mesero", tono: "w", nota: "Comandas por persona de salón en cada hora, hoy y lo que viene según el sábado pasado. Lo sano es hasta 7.", tipo: "bar", umbral: 7, ahora: 6,
+        serie: [2, 3, 5, 8, 9.4, 9.1, 6, 3, 2, 4, 6, 7.5, 8, 6], ejes: ["9 a. m.", "3 p. m.", "10 p. m."], ejeIni: "9 a. m.", ejeFin: "10 p. m.",
+        filas: [["12 a 2 p. m. · falta 1 mesero en Chapinero", "9,4", "w"], ["8 a 9 p. m. · viene justo", "8,0", "w"], ["3 a 6 p. m. · sobra gente", "2,5", "n"]], excepcion: "12 a 2 p. m. y 8 a 9 p. m. pasan de 7 por mesero", accion: "Ver horas pico de la semana" },
+      { corto: "Comandas hoy", pregunta: "¿Cuántas comandas llevamos?", valor: "161", estado: "▲ +4 % · ticket $ 43.100", tono: "ok", nota: "Comandas pagadas por hora, todas las sedes.", tipo: "bar",
+        serie: [3, 9, 18, 26, 38, 41, 26], ejes: ["7 a. m.", "10 a. m.", "ahora"], ejeIni: "7 a. m.", ejeFin: "ahora",
+        filas: [["En mesa", "112", "n"], ["Mostrador", "31", "n"], ["Domicilio", "18", "n"]], excepcion: "", accion: "Ver ventas" },
+    ] },
+  };
+  renderVals() {
+    const sec = this.DATA[this.props.seccion ?? "caja"] || this.DATA.caja;
+    const varB = this.props.variante === "B";
+    const T = { ok: ["var(--success)", "50%", "none"], w: ["var(--warning)", "0", "polygon(50% 0,100% 100%,0 100%)"], c: ["var(--destructive)", "1px", "none"], n: ["var(--input)", "2px", "none"] };
+    const build = (m, i) => {
+      const t = T[m.tono];
+      const vals = m.serie, max = Math.max(...vals.map(Math.abs), ...(m.prev || []), m.umbral || 0) || 1;
+      const div = m.tipo === "div";
+      const pos = Math.max(...vals, 0) || 1, neg = Math.abs(Math.min(...vals, 0)) || 1;
+      const futuro = (j) => m.ahora !== undefined && j > m.ahora;
+      const color = (v, j) => (m.enCurso && j === vals.length - 1) || (m.ahora !== undefined && j === m.ahora) ? "var(--foreground)" : (m.umbral && v > m.umbral ? "var(--warning)" : "var(--data-1)");
+      const serie = vals.map((v, j) => div
+        ? { h: v > 0 ? (v / Math.max(pos, neg) * 100) + "%" : "0%", d: v < 0 ? (-v / Math.max(pos, neg) * 100) + "%" : "0%", c: "var(--data-1)", op: 1, ant: "" }
+        : { h: (v / max * 100) + "%", d: "0%", c: m.prev && v < m.prev[j] && !(m.enCurso && j === vals.length - 1) ? "var(--warning)" : color(v, j), op: futuro(j) ? 0.35 : 1, ant: m.prev ? (m.prev[j] / max * 100) + "%" : "" });
+      const mini = vals.map((v, j) => ({ h: (Math.abs(v) / (div ? Math.max(pos, neg) : max) * 100) + "%", c: div && v < 0 ? "var(--diverge-falta, #C4302B)" : futuro(j) ? "color-mix(in oklab, var(--data-1) 35%, var(--card))" : color(v, j) }));
+      const on = i === this.state.sel;
+      return { ...m, tonoColor: t[0], forma: t[1], clip: t[2], serie, mini,
+        arriba: div ? "50%" : "100%", abajo: div ? "50%" : "0%", cero: div ? "1px solid var(--foreground)" : "0",
+        umbral: m.umbral ? (m.umbral / max * 100) + "%" : "", umbralTxt: m.umbral ? `lo sano: ${m.umbral}` : "",
+        leyenda: m.leyenda ? [{ t: "Hoy", c: "var(--data-1)", op: 1 }, { t: "Raya: sáb 20 a la misma hora", c: "var(--foreground)", op: 1 }] : (m.tipo === "dual" ? [{ t: "Trabajadas", c: "var(--data-1)", op: 1 }, { t: "Menos de lo programado", c: "var(--warning)", op: 1 }, { t: "Raya: programadas", c: "var(--foreground)", op: 1 }] : null),
+        filas: m.filas.map(([ft, v, c]) => ({ t: ft, v, c: T[c][0] })),
+        bordeSel: on ? "2px solid var(--foreground)" : "1px solid var(--border)", fondo: on ? "var(--card)" : "var(--card)",
+        elegir: () => this.setState({ sel: i }) };
+    };
+    const metricas = sec.m.map(build);
+    const barra = [["Hoy", "icon-calendar-days"], ["Informes", "icon-chart-column"], ["Caja", "icon-banknote"], ["Avisos", "icon-circle-alert"], ["Más", "icon-ellipsis"]].map(([t, i]) => { const on = t === sec.activo; return { t, i, color: on ? "var(--primary)" : "var(--muted-foreground)", raya: on ? "inset 0 2px 0 0 var(--primary)" : "none" }; });
+    return { titulo: sec.titulo, metricas, sel: metricas[this.state.sel] || metricas[0], varA: !varB, varB, barra };
+  }
+}
+</script>
+</body>
+</html>

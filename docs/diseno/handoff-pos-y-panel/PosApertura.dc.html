@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="width:100%;height:100%;display:flex;flex-direction:column;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;overflow:hidden">
+  <dc-import name="PosBarra" persona="Kevin Ruiz" rol="caja" titulo="Apertura de caja" contexto="Chapinero · Sáb 27 sep · Entrada 7:02 a. m. · abrís la caja" con-nav="{{ false }}" hint-size="100%,77px"></dc-import>
+
+  <div style="flex:1;overflow:hidden;padding:20px;display:flex;flex-direction:column;gap:18px">
+    <div style="display:flex;gap:8px">
+      <sc-for list="{{ pasos }}" as="p" hint-placeholder-count="3">
+        <div style="flex:1;display:flex;align-items:center;gap:10px;min-height:52px;padding:0 14px;border-radius:12px;border:{{ p.borde }};background:{{ p.fondo }};font-size:16px;font-weight:600">
+          <span style="width:28px;height:28px;border-radius:999px;display:grid;place-items:center;font-size:14px;font-weight:800;background:{{ p.num }};color:{{ p.numTxt }}">{{ p.n }}</span>{{ p.t }}
+        </div>
+      </sc-for>
+    </div>
+
+    <section style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between">
+        <h2 style="margin:0;font-size:22px;font-weight:800;font-stretch:108%">Consignaciones pendientes</h2>
+        <span style="font-size:15px;color:var(--muted-foreground)">Solo fecha · el monto lo ves después de sellar</span>
+      </div>
+      <sc-for list="{{ sobres }}" as="s" hint-placeholder-count="3">
+        <div onClick="{{ s.elegir }}" style="display:flex;align-items:center;gap:14px;min-height:64px;padding:8px 14px;border-radius:12px;border:{{ s.borde }};background:var(--card);cursor:pointer">
+          <span style="width:32px;height:32px;border-radius:8px;display:grid;place-items:center;border:2px solid var(--foreground);background:{{ s.check }};color:var(--background);flex:none"><i class="icon-check" style="font-size:20px"></i></span>
+          <i class="icon-mail" style="font-size:24px;color:var(--muted-foreground)"></i>
+          <div style="flex:1;display:flex;flex-direction:column">
+            <span style="font-size:18px;font-weight:700">{{ s.fecha }}</span>
+            <span style="font-size:14px;color:var(--muted-foreground)">{{ s.sub }}</span>
+          </div>
+          <span style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:15px;font-weight:700;background:{{ s.chipFondo }};color:{{ s.chipTxt }}"><i class="{{ s.icono }}" style="font-size:16px"></i>{{ s.estado }}</span>
+        </div>
+      </sc-for>
+    </section>
+
+    <section style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:14px;border:2px solid var(--primary);background:var(--card)">
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <h2 style="margin:0;font-size:22px;font-weight:800;font-stretch:108%">Contando: sobre del viernes 26 sep</h2>
+        <span style="font-size:15px;color:var(--muted-foreground)">empezá por el billete grande</span>
+      </div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 232px;gap:14px">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:15px;font-weight:600;color:var(--muted-foreground);display:flex;gap:6px;align-items:center"><i class="icon-banknote"></i>Billetes</div>
+          <sc-for list="{{ billetes }}" as="d" hint-placeholder-count="6">
+            <div style="display:flex;gap:6px">
+              <button onClick="{{ d.menos }}" aria-label="Quitar uno" style="width:56px;height:56px;border-radius:10px;border:1px solid var(--border);background:var(--background);color:var(--foreground);cursor:pointer;display:grid;place-items:center"><i class="icon-minus" style="font-size:20px"></i></button>
+              <button onClick="{{ d.elegir }}" style="flex:1;height:56px;border-radius:10px;border:1px solid {{ d.borde }};background:{{ d.fondo }};color:{{ d.txt }};font:inherit;display:flex;align-items:center;justify-content:space-between;padding:0 12px;cursor:pointer">
+                <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.1"><b style="font-size:17px">{{ d.label }}</b><span style="font-size:13px;opacity:.8">{{ d.sub }}</span></span>
+                <b style="font-size:26px">{{ d.n }}</b>
+              </button>
+              <button onClick="{{ d.mas }}" aria-label="Sumar uno" style="width:56px;height:56px;border-radius:10px;border:1px solid var(--border);background:var(--background);color:var(--foreground);cursor:pointer;display:grid;place-items:center"><i class="icon-plus" style="font-size:20px"></i></button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:15px;font-weight:600;color:var(--muted-foreground);display:flex;gap:6px;align-items:center"><i class="icon-coins"></i>Monedas</div>
+          <sc-for list="{{ monedas }}" as="d" hint-placeholder-count="5">
+            <div style="display:flex;gap:6px">
+              <button onClick="{{ d.menos }}" aria-label="Quitar una" style="width:56px;height:56px;border-radius:10px;border:1px solid var(--border);background:var(--background);color:var(--foreground);cursor:pointer;display:grid;place-items:center"><i class="icon-minus" style="font-size:20px"></i></button>
+              <button onClick="{{ d.elegir }}" style="flex:1;height:56px;border-radius:10px;border:1px solid {{ d.borde }};background:{{ d.fondo }};color:{{ d.txt }};font:inherit;display:flex;align-items:center;justify-content:space-between;padding:0 12px;cursor:pointer">
+                <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.1"><b style="font-size:17px">{{ d.label }}</b><span style="font-size:13px;opacity:.8">{{ d.sub }}</span></span>
+                <b style="font-size:26px">{{ d.n }}</b>
+              </button>
+              <button onClick="{{ d.mas }}" aria-label="Sumar una" style="width:56px;height:56px;border-radius:10px;border:1px solid var(--border);background:var(--background);color:var(--foreground);cursor:pointer;display:grid;place-items:center"><i class="icon-plus" style="font-size:20px"></i></button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="padding:8px 12px;border-radius:10px;background:var(--muted);font-size:15px;color:var(--muted-foreground)">Contando <b style="color:var(--foreground)">{{ activaLabel }}</b>: <b style="font-size:20px;color:var(--foreground)">{{ activaN }}</b></div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+            <sc-for list="{{ teclas }}" as="k" hint-placeholder-count="12">
+              <button onClick="{{ k.press }}" style="height:64px;border-radius:10px;border:1px solid {{ k.borde }};background:{{ k.fondo }};color:{{ k.txt }};font:inherit;font-size:24px;font-weight:600;cursor:pointer;display:grid;place-items:center"><i class="{{ k.icono }}" style="font-size:24px"></i>{{ k.t }}</button>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px;align-items:stretch;margin-top:auto">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;align-items:baseline;gap:10px;padding:12px 14px;border-top:2px solid var(--foreground);background:var(--muted)">
+            <span style="font-size:15px;color:var(--muted-foreground)">Total contado</span>
+            <span style="font-size:13px;padding:2px 8px;border-radius:999px;background:var(--card);border:1px solid var(--border)">{{ piezas }}</span>
+            <b style="margin-left:auto;font-size:28px">{{ total }}</b>
+          </div>
+          <span style="font-size:14px;color:var(--muted-foreground)">La diferencia de este sobre aparece al sellarlo, no antes.</span>
+        </div>
+        <button onClick="{{ sellar }}" style="height:64px;border-radius:12px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:19px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:10px"><i class="icon-lock" style="font-size:22px"></i>{{ sellarLabel }}</button>
+      </div>
+    </section>
+
+    <section style="display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;border:1px dashed var(--input)">
+      <i class="icon-vault" style="font-size:26px;color:var(--muted-foreground)"></i>
+      <div style="flex:1;display:flex;flex-direction:column">
+        <b style="font-size:17px">Base de respaldo</b>
+        <span style="font-size:14px;color:var(--muted-foreground)">Va aparte y no entra al cuadre del turno. Se cuenta, se sella y se guarda.</span>
+      </div>
+      <button style="height:56px;padding:0 18px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--foreground);font:inherit;font-size:16px;font-weight:600;cursor:pointer">Contar base</button>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:820,&quot;height&quot;:1180}}">
+class Component extends DCLogic {
+  state = { counts: { 50000: 12, 20000: 18, 10000: 14, 5000: 9 }, activa: 2000, fresh: true, sellado: false, sel: { v: true, j: true, m: false } };
+  B = [100000, 50000, 20000, 10000, 5000, 2000];
+  M = [1000, 500, 200, 100, 50];
+  fmt(n) { return "$ " + n.toLocaleString("es-CO").replace(/,/g, "."); }
+  set(v, n) { this.setState(s => ({ counts: { ...s.counts, [v]: Math.max(0, Math.min(9999, n)) } })); }
+  press(k) {
+    const s = this.state, v = s.activa, cur = s.counts[v] || 0;
+    if (k === "del") { this.set(v, Math.floor(cur / 10)); this.setState({ fresh: false }); return; }
+    if (k === "next") { const o = [...this.B, ...this.M]; const i = o.indexOf(v); this.setState({ activa: o[Math.min(i + 1, o.length - 1)], fresh: true }); return; }
+    const base = s.fresh ? 0 : cur; this.set(v, base * 10 + Number(k)); this.setState({ fresh: false });
+  }
+  renderVals() {
+    const s = this.state;
+    const total = Object.entries(s.counts).reduce((a, [v, n]) => a + v * n, 0);
+    const piezas = Object.values(s.counts).reduce((a, n) => a + n, 0);
+    const row = (v) => {
+      const n = s.counts[v] || 0, on = v === s.activa;
+      return { label: this.fmt(v), n: n || "–", sub: n ? this.fmt(v * n) : " ",
+        fondo: on ? "var(--foreground)" : "var(--card)", txt: on ? "var(--background)" : "var(--foreground)",
+        borde: on ? "var(--foreground)" : "var(--border)",
+        elegir: () => this.setState({ activa: v, fresh: true }), menos: () => this.set(v, n - 1), mas: () => this.set(v, n + 1) };
+    };
+    const esperado = 1240000, dif = total - esperado;
+    const difTxt = dif === 0 ? "Cuadra · $ 0" : dif < 0 ? `▼ Faltan ${this.fmt(-dif)}` : `▲ Sobran ${this.fmt(dif)}`;
+    const difTono = dif === 0 ? "success" : dif < 0 ? "destructive" : "warning";
+    const sobres = [
+      { k: "j", fecha: "Sobre del jueves 25 sep", sub: "Contó Kevin · 7:05 a. m.", estado: "▼ Faltan $ 2.000", icono: "icon-lock", tono: "destructive" },
+      { k: "v", fecha: "Sobre del viernes 26 sep", sub: s.sellado ? "Contó Kevin · 7:09 a. m." : "Abierto · contando ahora", estado: s.sellado ? difTxt : "Contando", icono: s.sellado ? "icon-lock" : "icon-hand-coins", tono: s.sellado ? difTono : "primary" },
+      { k: "m", fecha: "Sobre del miércoles 24 sep", sub: "No lo elegiste para hoy", estado: "Por contar", icono: "icon-mail", tono: "muted" },
+    ].map(o => {
+      const on = s.sel[o.k];
+      const chip = { destructive: ["color-mix(in oklab, var(--destructive) 14%, var(--card))", "var(--destructive)"], success: ["color-mix(in oklab, var(--success) 14%, var(--card))", "var(--success)"], warning: ["color-mix(in oklab, var(--warning) 18%, var(--card))", "var(--warning)"], primary: ["var(--accent)", "var(--accent-foreground)"], muted: ["var(--muted)", "var(--muted-foreground)"] }[o.tono];
+      return { ...o, chipFondo: chip[0], chipTxt: chip[1], check: on ? "var(--foreground)" : "transparent",
+        borde: o.k === "v" && !s.sellado ? "2px solid var(--primary)" : "1px solid var(--border)",
+        elegir: () => this.setState(st => ({ sel: { ...st.sel, [o.k]: !st.sel[o.k] } })) };
+    });
+    const pasos = [["1", "Elegir sobres", "hecho"], ["2", "Contar y sellar", "ahora"], ["3", "Ver diferencias", "luego"]].map(([n, t, e]) => ({ n: e === "hecho" ? "✓" : n, t,
+      borde: e === "ahora" ? "2px solid var(--primary)" : "1px solid var(--border)", fondo: e === "ahora" ? "var(--accent)" : "var(--card)",
+      num: e === "luego" ? "var(--muted)" : e === "hecho" ? "var(--success)" : "var(--primary)", numTxt: e === "luego" ? "var(--muted-foreground)" : "var(--primary-foreground)" }));
+    const keys = ["1","2","3","4","5","6","7","8","9","del","0","next"];
+    return {
+      pasos, sobres, billetes: this.B.map(row), monedas: this.M.map(row),
+      activaLabel: this.fmt(s.activa), activaN: s.counts[s.activa] || 0,
+      total: this.fmt(total), piezas: `${piezas} piezas`,
+      sellarLabel: s.sellado ? "Sellado · seguir con el turno" : "Sellar sobre",
+      sellar: () => this.setState({ sellado: true }),
+      teclas: keys.map(k => ({ t: /\d/.test(k) ? k : "", icono: k === "del" ? "icon-delete" : k === "next" ? "icon-chevron-right" : "",
+        fondo: k === "next" ? "var(--foreground)" : "var(--background)", txt: k === "next" ? "var(--background)" : "var(--foreground)",
+        borde: k === "next" ? "var(--foreground)" : "var(--border)", press: () => this.press(k) })),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="width:100%;height:100%;display:flex;flex-direction:column;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;position:relative;overflow:hidden">
+  <header style="display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--border)">
+    <div style="display:flex;flex-direction:column;gap:2px;flex:1">
+      <div style="font-size:20px;font-weight:800;font-stretch:108%">Restaurante Sistema</div>
+      <div style="font-size:15px;color:var(--muted-foreground)">Chapinero · Sábado 27 de septiembre</div>
+    </div>
+    <div style="font-size:22px;font-weight:700">6:58 a. m.</div>
+    <button aria-label="Más opciones" style="width:56px;height:56px;display:grid;place-items:center;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--foreground);cursor:pointer" onClick="{{ toggleMenu }}"><i class="icon-ellipsis" style="font-size:24px"></i></button>
+  </header>
+
+  <div style="flex:1;display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:0;min-height:0">
+    <section style="padding:24px 24px 24px 28px;display:flex;flex-direction:column;gap:16px;min-height:0">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <h1 style="margin:0;font-size:30px;font-weight:800;font-stretch:108%;letter-spacing:-0.01em">¿Quién opera?</h1>
+        <span style="font-size:16px;color:var(--muted-foreground)">Equipo en turno hoy · tocá tu nombre</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
+        <sc-for list="{{ equipo }}" as="p" hint-placeholder-count="6">
+          <button onClick="{{ p.elegir }}" style="display:flex;align-items:center;gap:14px;min-height:112px;padding:14px 16px;border-radius:14px;border:{{ p.borde }};background:{{ p.fondo }};color:var(--foreground);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box">
+            <span style="width:60px;height:60px;border-radius:999px;display:grid;place-items:center;font-size:22px;font-weight:800;flex:none;background:{{ p.circulo }};color:{{ p.circuloTxt }}">{{ p.ini }}</span>
+            <span style="display:flex;flex-direction:column;gap:3px;min-width:0">
+              <span style="font-size:19px;font-weight:700;line-height:1.15">{{ p.nombre }}</span>
+              <span style="font-size:15px;color:var(--muted-foreground)">{{ p.rol }}</span>
+              <span style="font-size:14px;font-weight:600;display:inline-flex;align-items:center;gap:5px;color:{{ p.estadoColor }}"><i class="{{ p.estadoIcono }}" style="font-size:15px"></i>{{ p.estado }}</span>
+            </span>
+          </button>
+        </sc-for>
+        <button style="display:flex;align-items:center;gap:14px;min-height:112px;padding:14px 16px;border-radius:14px;border:2px dashed var(--input);background:transparent;color:var(--foreground);font:inherit;text-align:left;cursor:pointer">
+          <span style="width:60px;height:60px;border-radius:999px;display:grid;place-items:center;flex:none;border:2px dashed var(--input)"><i class="icon-user-plus" style="font-size:24px"></i></span>
+          <span style="display:flex;flex-direction:column;gap:3px"><span style="font-size:19px;font-weight:700">Otra persona</span><span style="font-size:15px;color:var(--muted-foreground)">No está en el turno de hoy</span></span>
+        </button>
+      </div>
+      <p style="margin:auto 0 0;font-size:15px;color:var(--muted-foreground);display:flex;align-items:center;gap:8px"><i class="icon-info" style="font-size:18px"></i>El primer PIN del día marca tu entrada. Cocina puede mirar tiquetes sin identificarse.</p>
+    </section>
+
+    <aside style="border-left:1px solid var(--border);background:var(--card);padding:24px 28px;display:flex;flex-direction:column;align-items:center;gap:16px">
+      <sc-if value="{{ pidiendo }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center">
+          <div style="font-size:24px;font-weight:800">{{ sel.nombre }}</div>
+          <div style="font-size:16px;color:var(--muted-foreground)">{{ sel.rol }} · PIN de 4 dígitos</div>
+        </div>
+        <div style="display:flex;gap:16px;height:24px;align-items:center">
+          <sc-for list="{{ puntos }}" as="d" hint-placeholder-count="4">
+            <span style="width:20px;height:20px;border-radius:999px;box-sizing:border-box;border:2px solid var(--foreground);background:{{ d.fondo }}"></span>
+          </sc-for>
+        </div>
+        <div style="min-height:22px;font-size:15px;font-weight:600;color:var(--destructive);display:flex;align-items:center;gap:6px">{{ error }}</div>
+        <div style="display:grid;grid-template-columns:repeat(3,96px);gap:12px">
+          <sc-for list="{{ teclas }}" as="k" hint-placeholder-count="12">
+            <button onClick="{{ k.press }}" aria-label="{{ k.aria }}" style="height:72px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:28px;font-weight:600;cursor:pointer;visibility:{{ k.vis }};display:grid;place-items:center"><i class="{{ k.icono }}" style="font-size:26px"></i>{{ k.t }}</button>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ listo }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center">
+          <span style="width:80px;height:80px;border-radius:999px;display:grid;place-items:center;background:var(--success);color:var(--success-foreground)"><i class="icon-check" style="font-size:40px"></i></span>
+          <div style="font-size:28px;font-weight:800">Entrada 7:02 a. m.</div>
+          <div style="font-size:17px;color:var(--muted-foreground);max-width:320px">Hola, {{ sel.corto }}. Quedó marcada tu entrada. Seguís a {{ sel.destino }}.</div>
+          <button style="height:64px;width:100%;margin-top:12px;border-radius:12px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:19px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px">Ir a {{ sel.destino }}<i class="icon-arrow-right" style="font-size:22px"></i></button>
+          <button onClick="{{ reiniciar }}" style="height:56px;width:100%;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--foreground);font:inherit;font-size:17px;font-weight:600;cursor:pointer">No soy yo</button>
+        </div>
+      </sc-if>
+    </aside>
+  </div>
+
+  <sc-if value="{{ menu }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;top:80px;right:20px;width:320px;background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 12px 32px rgb(0 0 0 / 18%);padding:6px;display:flex;flex-direction:column">
+      <button style="min-height:56px;display:flex;align-items:center;gap:12px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--foreground);font:inherit;font-size:17px;text-align:left;cursor:pointer"><i class="icon-shield-check" style="font-size:22px"></i>Entrar como administrador</button>
+      <button style="min-height:56px;display:flex;align-items:center;gap:12px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--foreground);font:inherit;font-size:17px;text-align:left;cursor:pointer"><i class="icon-door-open" style="font-size:22px"></i>Marcar salida</button>
+      <button style="min-height:56px;display:flex;align-items:center;gap:12px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--foreground);font:inherit;font-size:17px;text-align:left;cursor:pointer"><i class="icon-moon" style="font-size:22px"></i>Pantalla oscura</button>
+      <div style="height:1px;background:var(--border);margin:4px 8px"></div>
+      <button style="min-height:56px;display:flex;align-items:center;gap:12px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--muted-foreground);font:inherit;font-size:16px;text-align:left;cursor:pointer"><i class="icon-log-out" style="font-size:20px"></i>Desactivar este dispositivo</button>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:800},&quot;menuAbierto&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { sel: 0, pin: "", listo: false, error: "", menu: null };
+  EQUIPO = [
+    { nombre: "Kevin Ruiz", rol: "Caja", entrada: null, destino: "Apertura de caja" },
+    { nombre: "Laura Gómez", rol: "Salón", entrada: "6:48 a. m.", destino: "Mesas" },
+    { nombre: "Yuli Cárdenas", rol: "Salón", entrada: "6:55 a. m.", destino: "Mesas" },
+    { nombre: "Andrés Mejía", rol: "Cocina", entrada: "6:30 a. m.", destino: "Conteo de cocina" },
+    { nombre: "Camilo Rojas", rol: "Bar", entrada: null, destino: "Conteo de bar" },
+    { nombre: "Diana Pérez", rol: "Supervisora", entrada: "6:40 a. m.", destino: "Mesas" },
+  ];
+  press(t) {
+    if (this.state.listo) return;
+    if (t === "del") return this.setState(s => ({ pin: s.pin.slice(0, -1), error: "" }));
+    const pin = this.state.pin + t;
+    if (pin.length < 4) return this.setState({ pin, error: "" });
+    if (pin === "0000") return this.setState({ pin: "", error: "PIN incorrecto · te quedan 4 intentos" });
+    this.setState({ pin, listo: true });
+  }
+  renderVals() {
+    const s = this.state;
+    const menu = s.menu ?? (this.props.menuAbierto === true || this.props.menuAbierto === "true");
+    const equipo = this.EQUIPO.map((p, i) => {
+      const on = i === s.sel;
+      return {
+        ...p,
+        ini: p.nombre.split(" ").map(w => w[0]).join(""),
+        estado: p.entrada ? `Entrada ${p.entrada}` : "Sin entrada hoy",
+        estadoIcono: p.entrada ? "icon-circle-check" : "icon-clock",
+        estadoColor: p.entrada ? "var(--success)" : "var(--muted-foreground)",
+        borde: on ? "3px solid var(--primary)" : "1px solid var(--border)",
+        fondo: on ? "var(--accent)" : "var(--card)",
+        circulo: on ? "var(--primary)" : "var(--secondary)",
+        circuloTxt: on ? "var(--primary-foreground)" : "var(--foreground)",
+        elegir: () => this.setState({ sel: i, pin: "", listo: false, error: "" }),
+      };
+    });
+    const sel = this.EQUIPO[s.sel];
+    const keys = ["1","2","3","4","5","6","7","8","9","","0","del"];
+    return {
+      equipo,
+      sel: { ...sel, corto: sel.nombre.split(" ")[0] },
+      pidiendo: !s.listo, listo: s.listo, error: s.error, menu,
+      toggleMenu: () => this.setState({ menu: !menu }),
+      reiniciar: () => this.setState({ pin: "", listo: false }),
+      puntos: [0,1,2,3].map(i => ({ fondo: i < s.pin.length ? "var(--foreground)" : "transparent" })),
+      teclas: keys.map(k => ({
+        t: k === "del" ? "" : k, icono: k === "del" ? "icon-delete" : "",
+        aria: k === "del" ? "Borrar último dígito" : `Dígito ${k}`,
+        vis: k === "" ? "hidden" : "visible",
+        press: () => k && this.press(k),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

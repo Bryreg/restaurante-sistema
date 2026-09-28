@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="width:100%;height:100%;display:flex;flex-direction:column;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums;overflow:hidden;position:relative">
+  <dc-import name="PosBarra" persona="Kevin Ruiz" rol="caja" activo="Mesas" hint-size="100%,150px"></dc-import>
+
+  <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);overflow:hidden">
+    <sc-for list="{{ cinta }}" as="c" hint-placeholder-count="5">
+      <button onClick="{{ c.abrir }}" style="position:relative;height:56px;display:inline-flex;align-items:center;gap:8px;padding:0 16px;border-radius:14px;border:{{ c.borde }};background:{{ c.fondo }};color:var(--foreground);font:inherit;font-size:16px;font-weight:600;white-space:nowrap;cursor:pointer;flex:none"><i class="{{ c.icono }}" style="font-size:20px"></i>{{ c.label }}<sc-if value="{{ c.n }}"><span style="position:absolute;top:-7px;right:-7px;min-width:24px;height:24px;padding:0 6px;border-radius:999px;background:var(--destructive);color:var(--destructive-foreground);font-size:13px;font-weight:700;display:grid;place-items:center">{{ c.n }}</span></sc-if></button>
+    </sc-for>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px 4px;flex-wrap:wrap">
+    <h1 style="margin:0;font-size:26px;font-weight:800;font-stretch:108%">Mesas</h1>
+    <div style="display:flex;gap:14px;font-size:14px;color:var(--muted-foreground);flex:1;flex-wrap:wrap">
+      <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:14px;height:14px;border-radius:4px;border:2px solid var(--border);background:var(--card)"></span>Libre {{ cuenta.libre }}</span>
+      <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:14px;height:14px;border-radius:4px;border:2px solid color-mix(in oklab, var(--primary) 45%, transparent);background:color-mix(in oklab, var(--primary) 12%, var(--card))"></span>Ocupada {{ cuenta.ocupada }}</span>
+      <span style="display:inline-flex;align-items:center;gap:6px"><span style="width:14px;height:14px;border-radius:4px;border:2px solid var(--warning);background:color-mix(in oklab, var(--warning) 22%, var(--card))"></span>Por cobrar {{ cuenta.cobrar }}</span>
+    </div>
+    <button onClick="{{ toggleMias }}" style="height:56px;display:inline-flex;align-items:center;gap:8px;padding:0 16px;border-radius:12px;border:1px solid {{ mias.borde }};background:{{ mias.fondo }};color:{{ mias.txt }};font:inherit;font-size:16px;font-weight:600;cursor:pointer"><i class="icon-user-round" style="font-size:20px"></i>Mis mesas</button>
+    <button style="height:56px;display:inline-flex;align-items:center;gap:8px;padding:0 16px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:16px;font-weight:600;cursor:pointer"><i class="icon-move" style="font-size:20px"></i>Mover / unir</button>
+  </div>
+
+  <sc-if value="{{ conPestanas }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;gap:8px;padding:8px 16px 0">
+      <sc-for list="{{ pestanas }}" as="p" hint-placeholder-count="4">
+        <button onClick="{{ p.elegir }}" style="height:56px;padding:0 18px;border-radius:12px;border:0;background:{{ p.fondo }};color:{{ p.txt }};font:inherit;font-size:17px;font-weight:700;cursor:pointer;display:inline-flex;gap:8px;align-items:center">{{ p.nombre }}<span style="font-size:14px;font-weight:500;opacity:.8">{{ p.n }}</span></button>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="flex:1;min-height:0;overflow:auto;padding:8px 16px 16px;display:flex;flex-direction:column;gap:14px">
+    <sc-for list="{{ zonas }}" as="z" hint-placeholder-count="3">
+      <section style="display:flex;flex-direction:column;gap:8px">
+        <h2 style="margin:0;font-size:15px;font-weight:700;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.06em">{{ z.nombre }}</h2>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax({{ minCol }},1fr));gap:10px">
+          <sc-for list="{{ z.mesas }}" as="m" hint-placeholder-count="4">
+            <button style="display:flex;flex-direction:column;gap:6px;min-height:{{ altoTarjeta }};padding:12px;border-radius:12px;border:2px solid {{ m.borde }};background:{{ m.fondo }};color:var(--foreground);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box">
+              <span style="display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%">
+                <b style="font-size:21px;font-stretch:90%">{{ m.nombre }}</b>
+                <sc-if value="{{ m.ini }}"><span title="{{ m.mesero }}" style="width:34px;height:34px;border-radius:999px;display:grid;place-items:center;font-size:13px;font-weight:800;border:1px solid color-mix(in oklab, var(--foreground) 30%, transparent);background:var(--background)">{{ m.ini }}</span></sc-if>
+              </span>
+              <span style="display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:700;color:{{ m.estadoColor }}"><i class="{{ m.icono }}" style="font-size:16px"></i>{{ m.estado }}</span>
+              <sc-if value="{{ m.abierta }}">
+                <span style="display:flex;justify-content:space-between;font-size:15px;width:100%"><span style="display:inline-flex;align-items:center;gap:4px"><i class="icon-users" style="font-size:15px"></i>{{ m.com }} · {{ m.min }} min</span><b>{{ m.total }}</b></span>
+              </sc-if>
+              <sc-if value="{{ m.libre }}"><span style="font-size:14px;color:var(--muted-foreground)">{{ m.puestos }} puestos</span></sc-if>
+              <span style="display:flex;gap:6px;flex-wrap:wrap;margin-top:auto">
+                <sc-if value="{{ m.listos }}"><span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;background:var(--success);color:var(--success-foreground);font-size:13px;font-weight:700"><i class="icon-bell-ring" style="font-size:14px"></i>{{ m.listos }}</span></sc-if>
+                <sc-if value="{{ m.sinEnviar }}"><span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;background:var(--destructive);color:var(--destructive-foreground);font-size:13px;font-weight:700"><i class="icon-send" style="font-size:14px"></i>{{ m.sinEnviar }}</span></sc-if>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </section>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ hojaAbierta }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ cerrar }}" style="position:absolute;inset:0;background:rgb(10 16 13 / 45%)"></div>
+    <aside style="position:absolute;top:0;right:0;bottom:0;width:480px;max-width:100%;background:var(--card);border-left:1px solid var(--border);box-shadow:-12px 0 32px rgb(0 0 0 / 20%);display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--border)">
+        <button onClick="{{ cerrar }}" style="height:56px;display:inline-flex;align-items:center;gap:6px;padding:0 14px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:16px;font-weight:600;cursor:pointer"><i class="icon-arrow-left" style="font-size:20px"></i>Mesas</button>
+        <h2 style="margin:0;font-size:22px;font-weight:800">Cambio</h2>
+      </div>
+      <div style="flex:1;overflow:hidden;padding:16px;display:flex;flex-direction:column;gap:16px">
+        <p style="margin:0;font-size:16px;color:var(--muted-foreground)">Un billete grande por sencillo. El total de la caja no cambia.</p>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <b style="font-size:16px;display:flex;align-items:center;gap:6px"><i class="icon-arrow-down-to-line" style="font-size:18px"></i>Entra a la caja</b>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+            <sc-for list="{{ entra }}" as="d" hint-placeholder-count="3">
+              <button style="height:64px;border-radius:12px;border:2px solid {{ d.borde }};background:{{ d.fondo }};color:var(--foreground);font:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer"><b style="font-size:18px">{{ d.label }}</b><span style="font-size:13px;color:var(--muted-foreground)">{{ d.n }}</span></button>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <b style="font-size:16px;display:flex;align-items:center;gap:6px"><i class="icon-arrow-up-from-line" style="font-size:18px"></i>Sale de la caja</b>
+          <sc-for list="{{ sale }}" as="d" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;gap:8px">
+              <button style="width:56px;height:56px;border-radius:10px;border:1px solid var(--border);background:var(--background);color:var(--foreground);display:grid;place-items:center"><i class="icon-minus" style="font-size:20px"></i></button>
+              <div style="flex:1;height:56px;border-radius:10px;border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 14px"><b style="font-size:17px">{{ d.label }}</b><b style="font-size:24px">{{ d.n }}</b></div>
+              <button style="width:56px;height:56px;border-radius:10px;border:1px solid var(--border);background:var(--background);color:var(--foreground);display:grid;place-items:center"><i class="icon-plus" style="font-size:20px"></i></button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:color-mix(in oklab, var(--success) 12%, var(--card));border:1px solid var(--success)">
+          <i class="icon-circle-check" style="font-size:22px;color:var(--success)"></i>
+          <span style="font-size:16px;font-weight:600">Entra $ 100.000 · sale $ 100.000 · cuadra</span>
+        </div>
+      </div>
+      <div style="padding:12px;border-top:1px solid var(--border)">
+        <button style="width:100%;height:64px;border-radius:12px;border:0;background:var(--primary);color:var(--primary-foreground);font:inherit;font-size:18px;font-weight:700;cursor:pointer">Registrar cambio</button>
+      </div>
+    </aside>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:820,&quot;height&quot;:1180},&quot;variante&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;A&quot;,&quot;B&quot;],&quot;default&quot;:&quot;A&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;hoja&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;&quot;,&quot;cambio&quot;],&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { mias: false, hoja: undefined, zona: null };
+  ZONAS = [
+    ["Salón", [
+      ["Mesa 1","free",4], ["Mesa 2","occ",4,"Laura Gómez",4,38,86500,2,0], ["Mesa 3","pay",2,"Yuli Cárdenas",2,72,64000,0,0],
+      ["Mesa 4","occ",4,"Laura Gómez",3,12,135000,0,2], ["Mesa 5","free",2], ["Mesa 6","occ",6,"Yuli Cárdenas",6,25,212400,1,0],
+      ["Mesa 7","free",4], ["Mesa 8","pay",4,"Kevin Ruiz",4,51,148000,0,0]]],
+    ["Terraza", [["Mesa 9","occ",4,"Yuli Cárdenas",2,5,18000,0,1], ["Mesa 10","free",4], ["Mesa 11","occ",6,"Laura Gómez",5,44,97000,0,0], ["Mesa 12","free",2]]],
+    ["Barra", [["Barra 1","occ",1,"Kevin Ruiz",1,20,42000,0,0], ["Barra 2","free",1], ["Barra 3","free",1]]],
+  ];
+  fmt(n) { return "$ " + n.toLocaleString("es-CO").replace(/,/g, "."); }
+  renderVals() {
+    const s = this.state, p = this.props;
+    const variante = p.variante ?? "A";
+    const hoja = s.hoja !== undefined ? s.hoja : (p.hoja || null);
+    const cuenta = { libre: 0, ocupada: 0, cobrar: 0 };
+    const ST = {
+      free: { estado: "Libre", icono: "icon-circle", borde: "var(--border)", fondo: "var(--card)", color: "var(--muted-foreground)" },
+      occ: { estado: "Ocupada", icono: "icon-utensils", borde: "color-mix(in oklab, var(--primary) 45%, transparent)", fondo: "color-mix(in oklab, var(--primary) 12%, var(--card))", color: "var(--accent-foreground)" },
+      pay: { estado: "Por cobrar", icono: "icon-receipt", borde: "var(--warning)", fondo: "color-mix(in oklab, var(--warning) 22%, var(--card))", color: "var(--foreground)" },
+    };
+    const zonasAll = this.ZONAS.map(([nombre, ms]) => ({ nombre, mesas: ms.map(([n, st, pu, mesero, com, min, tot, listos, sin]) => {
+      cuenta[st === "free" ? "libre" : st === "occ" ? "ocupada" : "cobrar"]++;
+      return { nombre: n, st, ...ST[st], mesero, ini: mesero ? mesero.split(" ").map(w => w[0]).join("") : "",
+        abierta: st !== "free", libre: st === "free", puestos: pu, com, min, total: tot ? this.fmt(tot) : "",
+        listos: listos ? `${listos} ${listos === 1 ? "listo" : "listos"}` : "", sinEnviar: sin ? `${sin} sin enviar` : "" };
+    }) }));
+    let zonas = zonasAll.map(z => ({ ...z, mesas: z.mesas.filter(m => !s.mias || m.libre || m.mesero === "Kevin Ruiz") }));
+    const zonaSel = s.zona ?? (variante === "B" ? "Salón" : "Todas");
+    if (variante === "B" && zonaSel !== "Todas") zonas = zonas.filter(z => z.nombre === zonaSel);
+    const cinta = [
+      { k: "domicilios", label: "Domicilios", icono: "icon-bike", n: 2 },
+      { k: "cambio", label: "Cambio", icono: "icon-coins" },
+      { k: "movs", label: "Gasto / Ingreso", icono: "icon-arrow-up-down" },
+      { k: "retiro", label: "Retiro sugerido", icono: "icon-bell-ring", momento: true },
+      { k: "mas", label: "Más", icono: "icon-ellipsis" },
+    ].map(c => ({ ...c, n: c.n || 0,
+      borde: c.momento ? "2px solid var(--warning)" : "1px solid var(--input)",
+      fondo: c.momento ? "color-mix(in oklab, var(--warning) 20%, var(--card))" : "var(--background)",
+      abrir: () => this.setState({ hoja: c.k === "cambio" ? "cambio" : null }) }));
+    const pestanas = ["Todas", "Salón", "Terraza", "Barra"].map(n => ({ nombre: n,
+      n: n === "Todas" ? 15 : zonasAll.find(z => z.nombre === n).mesas.length,
+      fondo: zonaSel === n ? "var(--foreground)" : "var(--secondary)", txt: zonaSel === n ? "var(--background)" : "var(--foreground)",
+      elegir: () => this.setState({ zona: n }) }));
+    return {
+      cinta, cuenta, zonas, pestanas, conPestanas: variante === "B",
+      altoTarjeta: variante === "B" ? "112px" : "128px",
+      minCol: variante === "B" ? "140px" : "180px",
+      mias: { borde: s.mias ? "var(--primary)" : "var(--border)", fondo: s.mias ? "var(--primary)" : "var(--background)", txt: s.mias ? "var(--primary-foreground)" : "var(--foreground)" },
+      toggleMias: () => this.setState({ mias: !s.mias }),
+      hojaAbierta: hoja === "cambio",
+      cerrar: () => this.setState({ hoja: null }),
+      entra: [["$ 100.000", "1 billete", true], ["$ 50.000", "", false], ["$ 20.000", "", false]].map(([label, n, on]) => ({ label, n: n || "—", borde: on ? "var(--primary)" : "var(--border)", fondo: on ? "var(--accent)" : "var(--background)" })),
+      sale: [["$ 50.000", 1], ["$ 20.000", 2], ["$ 10.000", 1]].map(([label, n]) => ({ label, n })),
+    };
+  }
+}
+</script>
+</body>
+</html>

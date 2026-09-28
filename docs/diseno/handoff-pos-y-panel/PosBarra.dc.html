@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css"></helmet>
+<div style="display:flex;flex-direction:column;background:var(--background);color:var(--foreground);font-family:'Archivo',system-ui,sans-serif;font-variant-numeric:tabular-nums">
+  <header style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border);min-height:76px;box-sizing:border-box">
+    <div style="width:48px;height:48px;border-radius:999px;background:var(--secondary);display:grid;place-items:center;font-weight:800;font-size:17px;flex:none">{{ iniciales }}</div>
+    <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
+      <div style="font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ persona }} <span style="font-weight:500;color:var(--muted-foreground)">· {{ rolLabel }}</span></div>
+      <div style="font-size:14px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ contexto }}</div>
+    </div>
+    <sc-if value="{{ titulo }}" hint-placeholder-val="{{ false }}">
+      <div style="font-size:15px;font-weight:600;padding:6px 12px;border-radius:999px;background:var(--accent);color:var(--accent-foreground);white-space:nowrap">{{ titulo }}</div>
+    </sc-if>
+    <button style="height:56px;display:inline-flex;align-items:center;gap:8px;padding:0 16px;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font:inherit;font-size:16px;font-weight:600;white-space:nowrap;cursor:pointer"><i class="icon-users" style="font-size:20px"></i>Cambiar de persona</button>
+    <button aria-label="Más opciones" style="width:56px;height:56px;display:grid;place-items:center;border-radius:12px;border:1px solid var(--border);background:var(--background);color:var(--muted-foreground);cursor:pointer"><i class="icon-ellipsis" style="font-size:22px"></i></button>
+  </header>
+  <sc-if value="{{ conNav }}" hint-placeholder-val="{{ true }}">
+    <nav style="display:flex;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);overflow:hidden">
+      <sc-for list="{{ items }}" as="it" hint-placeholder-count="3">
+        <div style="display:flex;align-items:center;gap:8px;min-height:56px;padding:0 18px;border-radius:12px;font-size:17px;font-weight:{{ it.peso }};white-space:nowrap;background:{{ it.fondo }};color:{{ it.color }}"><i class="{{ it.icono }}" style="font-size:20px"></i>{{ it.label }}<sc-if value="{{ it.n }}"><span style="min-width:24px;height:24px;padding:0 6px;border-radius:999px;background:var(--destructive);color:var(--destructive-foreground);font-size:13px;font-weight:700;display:grid;place-items:center">{{ it.n }}</span></sc-if></div>
+      </sc-for>
+    </nav>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:150},&quot;persona&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Kevin Ruiz&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;rol&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;caja&quot;,&quot;salon&quot;,&quot;cocina&quot;,&quot;bar&quot;,&quot;supervisor&quot;],&quot;default&quot;:&quot;caja&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;activo&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Mesas&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;titulo&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;contexto&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;conNav&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const p = this.props;
+    const rol = p.rol ?? "caja";
+    const persona = p.persona ?? "Kevin Ruiz";
+    const ROL = { caja: "Caja", salon: "Salón", cocina: "Cocina", bar: "Bar", supervisor: "Supervisor" };
+    const NAV = {
+      caja: [["Mesas","icon-layout-grid"],["Mostrador","icon-store"],["Domicilios","icon-bike"],["Turno","icon-wallet"]],
+      salon: [["Mesas","icon-layout-grid"],["Mostrador","icon-store"],["Turno","icon-wallet"]],
+      bar: [["Mesas","icon-layout-grid"],["Conteo","icon-clipboard-list"],["Turno","icon-wallet"]],
+      cocina: [["Tiquetes","icon-chef-hat"],["Conteo","icon-clipboard-list"],["Producción","icon-flame"],["Turno","icon-wallet"]],
+      supervisor: [["Mesas","icon-layout-grid"],["Mostrador","icon-store"],["Turno","icon-wallet"],["Tiquetes","icon-chef-hat"]],
+    };
+    const activo = p.activo ?? "Mesas";
+    const items = (NAV[rol] || NAV.caja).map(([label, icono]) => {
+      const on = label === activo;
+      return { label, icono, n: label === "Domicilios" ? 2 : 0,
+        fondo: on ? "var(--accent)" : "transparent",
+        color: on ? "var(--accent-foreground)" : "var(--muted-foreground)",
+        peso: on ? 700 : 500 };
+    });
+    return {
+      persona,
+      iniciales: persona.split(" ").map(w => w[0]).slice(0, 2).join(""),
+      rolLabel: ROL[rol] || rol,
+      contexto: p.contexto ?? "Chapinero · Sáb 27 sep · Turno abierto · caja: Kevin Ruiz",
+      titulo: p.titulo ?? "",
+      conNav: p.conNav !== false && p.conNav !== "false",
+      items,
+    };
+  }
+}
+</script>
+</body>
+</html>

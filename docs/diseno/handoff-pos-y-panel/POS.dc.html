@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css">
+<style>body{margin:0;background:#DDE2DB}a{color:#3D4FE0}a:hover{color:#2F3DB8}button{-webkit-tap-highlight-color:transparent}</style>
+</helmet>
+<section id="t1" style="padding:64px 72px 120px;font-family:'Archivo',system-ui,sans-serif;color:#17231E;display:flex;flex-direction:column;gap:72px">
+  <header style="display:flex;flex-direction:column;gap:10px;max-width:1100px">
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:15px;color:#46544D">Tanda 1 · POS de la tablet · Restaurante Sistema · Chapinero</span>
+    <h1 style="margin:0;font-size:56px;font-weight:800;font-stretch:108%;letter-spacing:-0.02em">Salón: siete pantallas</h1>
+    <p style="margin:0;font-size:20px;line-height:1.5;color:#46544D;text-wrap:pretty">Paleta «Un solo libro, dos mesas» del repositorio: salón claro por defecto y pizarra oscura por tablet; la cocina siempre en pizarra. Añil solo para actuar; verde, ámbar y rojo solo para estado, siempre con texto o forma. Objetivos táctiles de 56 px o más. Interactivos: PIN (1a, 1b), apertura por sobres (1c), mesas y hoja lateral (1e–1h), comanda (1i), cobro (1k–1n), KDS (1o) y conteo (1p).</p>
+  </header>
+
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;align-items:baseline;gap:16px"><b style="font-size:34px">1 · Quién opera</b><span style="font-size:18px;color:#46544D">Horizontal 1280 × 800. Equipo en turno primero, PIN al lado; el primer PIN del día marca la entrada. 1b muestra el menú «⋯».</span></div>
+    <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:flex-start">
+      <div id="1a" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1a · claro</span>
+        <div style="width:1280px;height:800px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#F7F8F5;--foreground:#101814;--card:#FFFFFF;--primary:#3D4FE0;--primary-foreground:#FFFFFF;--secondary:#E6EBE4;--muted:#E6EBE4;--muted-foreground:#3E4B45;--accent:#E3E6FB;--accent-foreground:#2F3DB8;--destructive:#C4302B;--destructive-foreground:#FFFFFF;--success:#0F7A6A;--success-foreground:#FFFFFF;--warning:#9A6412;--warning-foreground:#FFFFFF;--border:#C9D1C8;--input:#B3BDB2"><dc-import name="PosQuienOpera" style="width:1280px;height:800px" hint-size="1280px,800px"></dc-import></div></div>
+      <div id="1b" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1b · oscuro · menú abierto</span>
+        <div style="width:1280px;height:800px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#121A17;--foreground:#EEF2EF;--card:#1B2622;--primary:#8D9BFF;--primary-foreground:#10163F;--secondary:#26332D;--muted:#26332D;--muted-foreground:#A9B6AF;--accent:#2C3A60;--accent-foreground:#D4DAFF;--destructive:#FF8F88;--destructive-foreground:#2A0C0A;--success:#5CCFB9;--success-foreground:#06231E;--warning:#F0B458;--warning-foreground:#2A1A03;--border:#2E3C35;--input:#3A4841"><dc-import name="PosQuienOpera" menu-abierto="{{ true }}" style="width:1280px;height:800px" hint-size="1280px,800px"></dc-import></div></div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;align-items:baseline;gap:16px"><b style="font-size:34px">2 · Apertura de caja por sobres</b><span style="font-size:18px;color:#46544D">Vertical 820 × 1180. Sobres por fecha, conteo con teclado de billetes y monedas; la diferencia aparece solo al sellar. La base va aparte.</span></div>
+    <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:flex-start">
+      <div id="1c" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1c · claro</span>
+        <div style="width:820px;height:1180px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#F7F8F5;--foreground:#101814;--card:#FFFFFF;--primary:#3D4FE0;--primary-foreground:#FFFFFF;--secondary:#E6EBE4;--muted:#E6EBE4;--muted-foreground:#3E4B45;--accent:#E3E6FB;--accent-foreground:#2F3DB8;--destructive:#C4302B;--destructive-foreground:#FFFFFF;--success:#0F7A6A;--success-foreground:#FFFFFF;--warning:#9A6412;--warning-foreground:#FFFFFF;--border:#C9D1C8;--input:#B3BDB2"><dc-import name="PosApertura" style="width:820px;height:1180px" hint-size="820px,1180px"></dc-import></div></div>
+      <div id="1d" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1d · oscuro</span>
+        <div style="width:820px;height:1180px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#121A17;--foreground:#EEF2EF;--card:#1B2622;--primary:#8D9BFF;--primary-foreground:#10163F;--secondary:#26332D;--muted:#26332D;--muted-foreground:#A9B6AF;--accent:#2C3A60;--accent-foreground:#D4DAFF;--destructive:#FF8F88;--destructive-foreground:#2A0C0A;--success:#5CCFB9;--success-foreground:#06231E;--warning:#F0B458;--warning-foreground:#2A1A03;--border:#2E3C35;--input:#3A4841"><dc-import name="PosApertura" style="width:820px;height:1180px" hint-size="820px,1180px"></dc-import></div></div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;align-items:baseline;gap:16px"><b style="font-size:34px">3 · Mesas del cajero</b><span style="font-size:18px;color:#46544D">Dos variantes. A: vertical, zonas en secciones. B: horizontal, zonas en pestañas, con la hoja «Cambio» abierta encima. Tocá la cinta para abrir o cerrar la hoja.</span></div>
+    <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:flex-start">
+      <div id="1e" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1e · variante A · claro</span>
+        <div style="width:820px;height:1180px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#F7F8F5;--foreground:#101814;--card:#FFFFFF;--primary:#3D4FE0;--primary-foreground:#FFFFFF;--secondary:#E6EBE4;--muted:#E6EBE4;--muted-foreground:#3E4B45;--accent:#E3E6FB;--accent-foreground:#2F3DB8;--destructive:#C4302B;--destructive-foreground:#FFFFFF;--success:#0F7A6A;--success-foreground:#FFFFFF;--warning:#9A6412;--warning-foreground:#FFFFFF;--border:#C9D1C8;--input:#B3BDB2"><dc-import name="PosMesas" variante="A" style="width:820px;height:1180px" hint-size="820px,1180px"></dc-import></div></div>
+      <div id="1f" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1f · variante A · oscuro</span>
+        <div style="width:820px;height:1180px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#121A17;--foreground:#EEF2EF;--card:#1B2622;--primary:#8D9BFF;--primary-foreground:#10163F;--secondary:#26332D;--muted:#26332D;--muted-foreground:#A9B6AF;--accent:#2C3A60;--accent-foreground:#D4DAFF;--destructive:#FF8F88;--destructive-foreground:#2A0C0A;--success:#5CCFB9;--success-foreground:#06231E;--warning:#F0B458;--warning-foreground:#2A1A03;--border:#2E3C35;--input:#3A4841"><dc-import name="PosMesas" variante="A" style="width:820px;height:1180px" hint-size="820px,1180px"></dc-import></div></div>
+    </div>
+    <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:flex-start">
+      <div id="1g" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1g · variante B · claro · hoja Cambio</span>
+        <div style="width:1280px;height:800px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#F7F8F5;--foreground:#101814;--card:#FFFFFF;--primary:#3D4FE0;--primary-foreground:#FFFFFF;--secondary:#E6EBE4;--muted:#E6EBE4;--muted-foreground:#3E4B45;--accent:#E3E6FB;--accent-foreground:#2F3DB8;--destructive:#C4302B;--destructive-foreground:#FFFFFF;--success:#0F7A6A;--success-foreground:#FFFFFF;--warning:#9A6412;--warning-foreground:#FFFFFF;--border:#C9D1C8;--input:#B3BDB2"><dc-import name="PosMesas" variante="B" hoja="cambio" style="width:1280px;height:800px" hint-size="1280px,800px"></dc-import></div></div>
+      <div id="1h" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1h · variante B · oscuro</span>
+        <div style="width:1280px;height:800px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#121A17;--foreground:#EEF2EF;--card:#1B2622;--primary:#8D9BFF;--primary-foreground:#10163F;--secondary:#26332D;--muted:#26332D;--muted-foreground:#A9B6AF;--accent:#2C3A60;--accent-foreground:#D4DAFF;--destructive:#FF8F88;--destructive-foreground:#2A0C0A;--success:#5CCFB9;--success-foreground:#06231E;--warning:#F0B458;--warning-foreground:#2A1A03;--border:#2E3C35;--input:#3A4841"><dc-import name="PosMesas" variante="B" style="width:1280px;height:800px" hint-size="1280px,800px"></dc-import></div></div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;align-items:baseline;gap:16px"><b style="font-size:34px">4 · Comanda del mesero</b><span style="font-size:18px;color:#46544D">Horizontal. Tocá un plato para sumarlo al asiento y curso elegidos; tocá una línea para sus notas rápidas. Laura no cobra: ve «Pedir cuenta».</span></div>
+    <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:flex-start">
+      <div id="1i" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1i · claro</span>
+        <div style="width:1280px;height:800px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#F7F8F5;--foreground:#101814;--card:#FFFFFF;--primary:#3D4FE0;--primary-foreground:#FFFFFF;--secondary:#E6EBE4;--muted:#E6EBE4;--muted-foreground:#3E4B45;--accent:#E3E6FB;--accent-foreground:#2F3DB8;--destructive:#C4302B;--destructive-foreground:#FFFFFF;--success:#0F7A6A;--success-foreground:#FFFFFF;--warning:#9A6412;--warning-foreground:#FFFFFF;--border:#C9D1C8;--input:#B3BDB2"><dc-import name="PosComanda" style="width:1280px;height:800px" hint-size="1280px,800px"></dc-import></div></div>
+      <div id="1j" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1j · oscuro</span>
+        <div style="width:1280px;height:800px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#121A17;--foreground:#EEF2EF;--card:#1B2622;--primary:#8D9BFF;--primary-foreground:#10163F;--secondary:#26332D;--muted:#26332D;--muted-foreground:#A9B6AF;--accent:#2C3A60;--accent-foreground:#D4DAFF;--destructive:#FF8F88;--destructive-foreground:#2A0C0A;--success:#5CCFB9;--success-foreground:#06231E;--warning:#F0B458;--warning-foreground:#2A1A03;--border:#2E3C35;--input:#3A4841"><dc-import name="PosComanda" style="width:1280px;height:800px" hint-size="1280px,800px"></dc-import></div></div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;align-items:baseline;gap:16px"><b style="font-size:34px">5 · Cobro</b><span style="font-size:18px;color:#46544D">Dos columnas, total grande, montos rápidos, PIN siempre visible. El vuelto aparece solo con el pago completo. A: cuenta entera. B: cuenta dividida por asiento con la propina repartida.</span></div>
+    <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:flex-start">
+      <div id="1k" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1k · A · claro</span>
+        <div style="width:1280px;height:800px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#F7F8F5;--foreground:#101814;--card:#FFFFFF;--primary:#3D4FE0;--primary-foreground:#FFFFFF;--secondary:#E6EBE4;--muted:#E6EBE4;--muted-foreground:#3E4B45;--accent:#E3E6FB;--accent-foreground:#2F3DB8;--destructive:#C4302B;--destructive-foreground:#FFFFFF;--success:#0F7A6A;--success-foreground:#FFFFFF;--warning:#9A6412;--warning-foreground:#FFFFFF;--border:#C9D1C8;--input:#B3BDB2"><dc-import name="PosCobro" style="width:1280px;height:800px" hint-size="1280px,800px"></dc-import></div></div>
+      <div id="1l" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1l · A · oscuro</span>
+        <div style="width:1280px;height:800px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#121A17;--foreground:#EEF2EF;--card:#1B2622;--primary:#8D9BFF;--primary-foreground:#10163F;--secondary:#26332D;--muted:#26332D;--muted-foreground:#A9B6AF;--accent:#2C3A60;--accent-foreground:#D4DAFF;--destructive:#FF8F88;--destructive-foreground:#2A0C0A;--success:#5CCFB9;--success-foreground:#06231E;--warning:#F0B458;--warning-foreground:#2A1A03;--border:#2E3C35;--input:#3A4841"><dc-import name="PosCobro" style="width:1280px;height:800px" hint-size="1280px,800px"></dc-import></div></div>
+    </div>
+    <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:flex-start">
+      <div id="1m" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1m · B dividida · claro</span>
+        <div style="width:1280px;height:800px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#F7F8F5;--foreground:#101814;--card:#FFFFFF;--primary:#3D4FE0;--primary-foreground:#FFFFFF;--secondary:#E6EBE4;--muted:#E6EBE4;--muted-foreground:#3E4B45;--accent:#E3E6FB;--accent-foreground:#2F3DB8;--destructive:#C4302B;--destructive-foreground:#FFFFFF;--success:#0F7A6A;--success-foreground:#FFFFFF;--warning:#9A6412;--warning-foreground:#FFFFFF;--border:#C9D1C8;--input:#B3BDB2"><dc-import name="PosCobro" dividida="{{ true }}" style="width:1280px;height:800px" hint-size="1280px,800px"></dc-import></div></div>
+      <div id="1n" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1n · B dividida · oscuro</span>
+        <div style="width:1280px;height:800px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#121A17;--foreground:#EEF2EF;--card:#1B2622;--primary:#8D9BFF;--primary-foreground:#10163F;--secondary:#26332D;--muted:#26332D;--muted-foreground:#A9B6AF;--accent:#2C3A60;--accent-foreground:#D4DAFF;--destructive:#FF8F88;--destructive-foreground:#2A0C0A;--success:#5CCFB9;--success-foreground:#06231E;--warning:#F0B458;--warning-foreground:#2A1A03;--border:#2E3C35;--input:#3A4841"><dc-import name="PosCobro" dividida="{{ true }}" style="width:1280px;height:800px" hint-size="1280px,800px"></dc-import></div></div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;align-items:baseline;gap:16px"><b style="font-size:34px">6 · Pantalla de cocina (KDS)</b><span style="font-size:18px;color:#46544D">1920 × 1080, siempre en pizarra (regla del repo: pantalla fija, mirada de lejos). Cabecera por demora con forma ● ▲ ■, modificadores en amarillo, alergias en rojo con ícono. Filtrá por estación y marcá «Listo».</span></div>
+    <div id="1o" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1o · pizarra</span>
+      <div style="width:1920px;height:1080px;border:12px solid #0E1411;border-radius:20px;overflow:hidden"><dc-import name="PosKds" style="width:1920px;height:1080px" hint-size="1920px,1080px"></dc-import></div></div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:20px">
+    <div style="display:flex;align-items:baseline;gap:16px"><b style="font-size:34px">7 · Conteo de bar y cocina</b><span style="font-size:18px;color:#46544D">Obligatorio al abrir. Enteras más décimas de la botella abierta; al guardar solo queda quién y a qué hora, nunca la cantidad.</span></div>
+    <div style="display:flex;gap:48px;flex-wrap:wrap;align-items:flex-start">
+      <div id="1p" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1p · claro</span>
+        <div style="width:820px;height:1180px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#F7F8F5;--foreground:#101814;--card:#FFFFFF;--primary:#3D4FE0;--primary-foreground:#FFFFFF;--secondary:#E6EBE4;--muted:#E6EBE4;--muted-foreground:#3E4B45;--accent:#E3E6FB;--accent-foreground:#2F3DB8;--destructive:#C4302B;--destructive-foreground:#FFFFFF;--success:#0F7A6A;--success-foreground:#FFFFFF;--warning:#9A6412;--warning-foreground:#FFFFFF;--border:#C9D1C8;--input:#B3BDB2"><dc-import name="PosConteo" style="width:820px;height:1180px" hint-size="820px,1180px"></dc-import></div></div>
+      <div id="1q" style="display:flex;flex-direction:column;gap:10px"><span style="align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;padding:4px 10px;border-radius:6px;background:#17231E;color:#F3F5F1">1q · oscuro</span>
+        <div style="width:820px;height:1180px;border:12px solid #0E1411;border-radius:28px;overflow:hidden;--background:#121A17;--foreground:#EEF2EF;--card:#1B2622;--primary:#8D9BFF;--primary-foreground:#10163F;--secondary:#26332D;--muted:#26332D;--muted-foreground:#A9B6AF;--accent:#2C3A60;--accent-foreground:#D4DAFF;--destructive:#FF8F88;--destructive-foreground:#2A0C0A;--success:#5CCFB9;--success-foreground:#06231E;--warning:#F0B458;--warning-foreground:#2A1A03;--border:#2E3C35;--input:#3A4841"><dc-import name="PosConteo" style="width:820px;height:1180px" hint-size="820px,1180px"></dc-import></div></div>
+    </div>
+  </div>
+</section>
+</x-dc>
+</body>
+</html>
