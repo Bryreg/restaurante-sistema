@@ -1436,15 +1436,12 @@ export function TodayPage(): React.JSX.Element {
       <SemaforoSedes />
 
       {/* **Un solo nivel de grilla, en el orden en que se lee en el
-          celular**: primero «Ahora» (la venta y los bloques), después la
-          cifra con su libro, después lo que exige actuar, y el resto del
-          día al final. El foco y el lector de pantalla siguen ese orden; en
+          celular**: en el escritorio primero la venta del día con su libro
+          —es lo primero que el dueño mira (pedido del dueño, 2026-09-28)—,
+          después «Ahora», lo que exige actuar y el resto del día al final. El foco y el lector de pantalla siguen ese orden; en
           el escritorio el riel se va a la columna derecha y ocupa todas las
           filas (`[grid-row:1/-1]`). */}
       <div className="grid items-start gap-[18px] xl:grid-cols-[minmax(0,1fr)_420px] xl:grid-rows-[auto_auto_1fr]">
-        <div className="min-w-0 xl:col-start-1">
-          <AhoraSede />
-        </div>
 
         {celular ? null : (
           <section aria-label="El día hasta ahora" className="min-w-0 xl:col-start-1">
@@ -1489,6 +1486,10 @@ export function TodayPage(): React.JSX.Element {
                 comparison={comparison}
               />
             )}
+
+        <div className="min-w-0 xl:col-start-1">
+          <AhoraSede />
+        </div>
           </section>
         )}
 
