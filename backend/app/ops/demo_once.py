@@ -35,6 +35,11 @@ _state: dict[str, object] = {"launched": False, "reason": "no evaluado"}
 
 
 def maybe_launch() -> None:
+    # El proceso de carga importa `app.main` para su cliente en proceso: sin
+    # esta marca, cada carga lanzaría otra al importar, en cadena.
+    if os.environ.get("DEMO_RUN_CHILD"):
+        _state["reason"] = "proceso de carga"
+        return
     if settings.ENV != "production":
         _state["reason"] = "no es producción"
         return
@@ -49,6 +54,7 @@ def maybe_launch() -> None:
     subprocess.Popen(  # noqa: S603 — comando fijo, sin entrada del usuario
         [sys.executable, "-u", "-m", "app.ops.demo_run", *MARKER.read_text().split()],
         cwd=backend_dir,
+        env={**os.environ, "DEMO_RUN_CHILD": "1"},
         stdout=log,
         stderr=subprocess.STDOUT,
         start_new_session=True,

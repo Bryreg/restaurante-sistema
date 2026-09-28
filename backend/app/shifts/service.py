@@ -1078,7 +1078,21 @@ def roster_action(db: Session, *, actor: Actor, shift: Shift, payload: RosterAct
     if payload.action == "in":
         hooks.on_employee_identified(db, store_id=shift.store_id, employee=employee)
         entry = _open_roster_entry(db, shift, employee.id)
-        assert entry is not None
+        if entry is None:
+            # El hook busca «el turno abierto de la sede»; si no lo resolvió
+            # (p. ej. la asistencia del día ya estaba cerrada), la entrada al
+            # roster de ESTE turno se hace acá: un `assert` era un 500.
+            entry = ShiftRoster(
+                organization_id=shift.organization_id,
+                store_id=shift.store_id,
+                shift_id=shift.id,
+                employee_id=employee.id,
+                employee_name=employee.name,
+                in_at=now,
+                pauses=[],
+            )
+            db.add(entry)
+            db.flush()
     elif payload.action == "out":
         entry = _open_roster_entry(db, shift, employee.id)
         if entry is None:
