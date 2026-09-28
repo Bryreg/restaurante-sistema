@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link, Navigate, useSearchParams } from "react-router-dom"
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
 
 import { inicioParaPuesto } from "@/app/puesto"
 import { useSession } from "@/app/session"
@@ -18,6 +18,7 @@ import { useConteoEncendido, useOpeningGate } from "./useOpeningGate"
 export function AreaCountPage(): React.JSX.Element {
   const { me, hasFeature } = useSession()
   const [params] = useSearchParams()
+  const navigate = useNavigate()
   const inicio = params.get("inicio") === "1"
   const encendido = useConteoEncendido()
   const gate = useOpeningGate(encendido && inicio)
@@ -36,17 +37,19 @@ export function AreaCountPage(): React.JSX.Element {
   const termino = inicio && primera === true && gate.data?.required === false
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-2xl font-semibold">Conteo por área</h2>
+    <div className="mx-auto flex max-w-[820px] flex-col gap-3">
+      {/* El título visible es el del panel («Conteo de apertura», handoff
+          POS pantalla 7); éste nombra la pantalla para lectores de pantalla. */}
+      <h1 className="sr-only">Conteo por área</h1>
       {termino ? (
-        <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 border-success/70 bg-success/5 p-4">
-          <p className="text-base font-semibold">Listo el conteo de apertura de tu área.</p>
-          <Button size="lg" className="h-12 text-base" render={<Link to={siguiente} replace />}>
+        <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-[12px] border-2 border-success/70 bg-success/5 p-4">
+          <p className="text-[17px] font-semibold">Listo el conteo de apertura de tu área.</p>
+          <Button size="lg" className="h-[56px] rounded-[12px] px-5 text-[17px]" render={<Link to={siguiente} replace />}>
             Seguir
           </Button>
         </div>
       ) : null}
-      <AreaCountPanel />
+      <AreaCountPanel onTerminar={() => navigate(siguiente, { replace: true })} />
     </div>
   )
 }

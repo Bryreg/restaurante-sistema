@@ -110,6 +110,18 @@ function fila(nombre: string): HTMLElement {
   return screen.getByText(nombre, { selector: "label, span" }).closest("li") as HTMLElement
 }
 
+/**
+ * **Movido a propósito (handoff POS, pantalla 7)**: cada artículo es una
+ * fila de 64 px que se abre al tocarla; el campo y «Guardar conteo» viven
+ * adentro. Los tests abren la fila antes de contar; las reglas de entrada
+ * son las mismas.
+ */
+async function abrir(user: ReturnType<typeof userEvent.setup>, nombre: string): Promise<HTMLElement> {
+  const li = fila(nombre)
+  await user.click(within(li).getByRole("button", { expanded: false }))
+  return li
+}
+
 describe("AreaCountPanel", () => {
   beforeEach(() => {
     for (const m of Object.values(mocks)) m.mockReset()
@@ -133,19 +145,25 @@ describe("AreaCountPanel", () => {
     renderWithProviders(<AreaCountPanel />, { me: me() })
     expect(await screen.findByText(/podés ayudar a contar cualquier área/)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Mi área/ })).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Todo" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: /^Todo/ })).toHaveAttribute("aria-pressed", "true")
     expect(screen.getByText("Carne")).toBeInTheDocument()
     expect(screen.getByText("Ron")).toBeInTheDocument()
   })
 
-  it("filtra Mi área | Bar | Cocina | Todo", async () => {
+  // Movido a propósito (handoff POS, pantalla 7): las pestañas segmentadas
+  // dicen el área en «Mi área» y «x/y» en cada área y en «Todo».
+  it("filtra Mi área | Bar | Cocina | Todo, con el avance que manda el servidor", async () => {
     const user = userEvent.setup()
     mocks.getAreaCountSheet.mockResolvedValue(sheet())
     renderWithProviders(<AreaCountPanel />, { me: me() })
 
     const grupo = await screen.findByRole("group", { name: "Qué lista ver" })
     expect(within(grupo).getByRole("button", { name: /Mi área/ })).toHaveAttribute("aria-pressed", "true")
-    expect(within(grupo).getByRole("button", { name: /Mi área/ })).toHaveTextContent("1 de 2")
+    expect(within(grupo).getByRole("button", { name: /Mi área/ })).toHaveTextContent("Bar")
+    expect(within(grupo).getByRole("button", { name: /^Bar/ })).toHaveTextContent("1/2")
+    expect(within(grupo).getByRole("button", { name: /^Todo/ })).toHaveTextContent("1/4")
+    expect(screen.getByRole("progressbar", { name: "Artículos contados" })).toHaveAttribute("aria-valuenow", "1")
+    expect(screen.getByText("1 de 2 contados")).toBeInTheDocument()
     expect(screen.getByText("Ron")).toBeInTheDocument()
     expect(screen.queryByText("Carne")).not.toBeInTheDocument()
 
@@ -153,23 +171,32 @@ describe("AreaCountPanel", () => {
     expect(screen.getByText("Carne")).toBeInTheDocument()
     expect(screen.queryByText("Ron")).not.toBeInTheDocument()
 
-    await user.click(within(grupo).getByRole("button", { name: "Todo" }))
+    await user.click(within(grupo).getByRole("button", { name: /^Todo/ }))
     expect(screen.getByText("Carne")).toBeInTheDocument()
     expect(screen.getByText("Ron")).toBeInTheDocument()
   })
 
-  it("a ciegas: quién contó y cuándo, nunca cuánto; y la apertura obligatoria en rojo", async () => {
+  // Movido a propósito (handoff POS, pantalla 7): la apertura obligatoria
+  // pasó del recuadro rojo a la pastilla ámbar «Obligatorio para abrir el
+  // bar», y «Sin contar» a «Por contar».
+  it("a ciegas: quién contó y cuándo, nunca cuánto; y la apertura obligatoria en la pastilla", async () => {
+    const user = userEvent.setup()
     mocks.getAreaCountSheet.mockResolvedValue(sheet())
     renderWithProviders(<AreaCountPanel />, { me: me() })
 
-    expect(await screen.findByText("Primero el conteo de apertura de Bar")).toBeInTheDocument()
+    expect(await screen.findByText("Obligatorio para abrir el bar")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Apertura" })).toHaveAttribute("aria-pressed", "true")
     expect(within(fila("Ron")).getByText("Contado por Ana · 7:10")).toBeInTheDocument()
-    expect(within(fila("Limón")).getByText("Sin contar")).toBeInTheDocument()
+    expect(within(fila("Limón")).getByText("Por contar")).toBeInTheDocument()
     expect(screen.queryByText(/stock|esperado|sistema/i)).not.toBeInTheDocument()
     // Lo ya contado se recuenta; lo que no, se guarda.
-    expect(within(fila("Ron")).getByRole("button", { name: "Recontar" })).toBeInTheDocument()
-    expect(within(fila("Limón")).getByRole("button", { name: "Guardar" })).toBeInTheDocument()
+    const ron = await abrir(user, "Ron")
+    expect(within(ron).getByRole("button", { name: "Guardar recuento" })).toBeInTheDocument()
+    const limon = await abrir(user, "Limón")
+    expect(within(limon).getByRole("button", { name: "Guardar conteo" })).toBeInTheDocument()
+    expect(within(limon).getByText(/Al guardar, la cantidad deja de mostrarse/)).toBeInTheDocument()
+    // Una fila abierta a la vez.
+    expect(within(fila("Ron")).queryByRole("button", { name: "Guardar recuento" })).not.toBeInTheDocument()
   })
 
   it("cada artículo se guarda solo y viaja el texto tal cual", async () => {
@@ -178,17 +205,18 @@ describe("AreaCountPanel", () => {
     mocks.postAreaCountItem.mockResolvedValue(saved(11, "Limón"))
     renderWithProviders(<AreaCountPanel />, { me: me() })
 
-    const limon = await screen.findByLabelText("Limón")
-    const guardar = within(fila("Limón")).getByRole("button", { name: "Guardar" })
+    await screen.findByText("Limón")
+    const li = await abrir(user, "Limón")
+    const guardar = within(li).getByRole("button", { name: "Guardar conteo" })
     expect(guardar).toBeDisabled()
-    await user.type(limon, "1,5")
+    await user.type(within(li).getByLabelText("Cantidad (kg)"), "1,5")
     await user.click(guardar)
     await waitFor(() => expect(mocks.postAreaCountItem).toHaveBeenCalled())
     const [body, key] = mocks.postAreaCountItem.mock.calls[0]!
     expect(body).toEqual({ area_id: 1, moment: "opening", ingredient_id: 11, qty: "1,5" })
     expect(typeof key).toBe("string")
-    // Guardado, el campo se limpia: lo tecleado no queda a la vista del siguiente.
-    await waitFor(() => expect(screen.getByLabelText("Limón")).toHaveValue(""))
+    // Guardado, la fila se cierra: lo tecleado no queda a la vista del siguiente.
+    await waitFor(() => expect(screen.queryByLabelText("Cantidad (kg)")).not.toBeInTheDocument())
   })
 
   it("se puede cambiar el momento sugerido", async () => {
@@ -198,10 +226,12 @@ describe("AreaCountPanel", () => {
     renderWithProviders(<AreaCountPanel />, { me: me() })
     await user.click(await screen.findByRole("button", { name: "Cierre" }))
     expect(screen.getByRole("button", { name: "Cierre" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("heading", { name: "Conteo de cierre" })).toBeInTheDocument()
     expect(screen.getByText(/Al cerrar cuenta quien sale/)).toBeInTheDocument()
-    expect(within(fila("Ron")).getByText("Sin contar")).toBeInTheDocument() // el cierre del ron no se contó
-    await user.type(screen.getByLabelText("Limón"), "2")
-    await user.click(within(fila("Limón")).getByRole("button", { name: "Guardar" }))
+    expect(within(fila("Ron")).getByText("Por contar")).toBeInTheDocument() // el cierre del ron no se contó
+    const li = await abrir(user, "Limón")
+    await user.type(within(li).getByLabelText("Cantidad (kg)"), "2")
+    await user.click(within(li).getByRole("button", { name: "Guardar conteo" }))
     await waitFor(() => expect(mocks.postAreaCountItem.mock.calls[0]![0].moment).toBe("closing"))
   })
 
@@ -211,13 +241,15 @@ describe("AreaCountPanel", () => {
     mocks.postAreaCountItem.mockResolvedValue(saved(10, "Ron"))
     renderWithProviders(<AreaCountPanel />, { me: me() })
 
-    await user.type(await screen.findByLabelText("Botellas enteras"), "2")
+    await screen.findByText("Ron")
+    const ron = await abrir(user, "Ron")
+    await user.type(within(ron).getByLabelText("Botellas enteras"), "2")
     for (const d of ["0", "1", "5", "9"]) {
       expect(screen.getByRole("button", { name: `${d}/10 de Ron` })).toHaveAttribute("aria-pressed", "false")
     }
-    const recontar = within(fila("Ron")).getByRole("button", { name: "Recontar" })
+    const recontar = within(ron).getByRole("button", { name: "Guardar recuento" })
     expect(recontar).toBeDisabled()
-    expect(screen.getByText(/si no hay, tocá 0/)).toBeInTheDocument()
+    expect(screen.getByText(/si no hay,\s+tocá 0/)).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "3/10 de Ron" }))
     expect(recontar).toBeEnabled()
@@ -226,23 +258,47 @@ describe("AreaCountPanel", () => {
     expect(mocks.postAreaCountItem.mock.calls[0]![0].qty).toBe("2.3")
   })
 
+  it("−/+ suman o quitan una entera a lo escrito, sin bajar de cero", async () => {
+    const user = userEvent.setup()
+    mocks.getAreaCountSheet.mockResolvedValue(sheet())
+    mocks.postAreaCountItem.mockResolvedValue(saved(10, "Ron"))
+    renderWithProviders(<AreaCountPanel />, { me: me() })
+
+    await screen.findByText("Ron")
+    const ron = await abrir(user, "Ron")
+    const enteras = within(ron).getByLabelText("Botellas enteras")
+    expect(within(ron).getByRole("button", { name: "Quitar una a Ron" })).toBeDisabled()
+    await user.click(within(ron).getByRole("button", { name: "Sumar una a Ron" }))
+    await user.click(within(ron).getByRole("button", { name: "Sumar una a Ron" }))
+    await user.click(within(ron).getByRole("button", { name: "Sumar una a Ron" }))
+    await user.click(within(ron).getByRole("button", { name: "Quitar una a Ron" }))
+    expect(enteras).toHaveValue("2")
+    await user.click(screen.getByRole("button", { name: "0/10 de Ron" }))
+    await user.click(within(ron).getByRole("button", { name: "Guardar recuento" }))
+    await waitFor(() => expect(mocks.postAreaCountItem.mock.calls[0]![0].qty).toBe("2"))
+  })
+
   it("una coma en las enteras avisa y no pega los dígitos («5,5» nunca es 55)", async () => {
     const user = userEvent.setup()
     mocks.getAreaCountSheet.mockResolvedValue(sheet())
     renderWithProviders(<AreaCountPanel />, { me: me() })
 
-    const enteras = await screen.findByLabelText("Botellas enteras")
+    await screen.findByText("Ron")
+    const ron = await abrir(user, "Ron")
+    const enteras = within(ron).getByLabelText("Botellas enteras")
     await user.type(enteras, "5,5")
     expect(enteras).toHaveValue("5,5")
     expect(enteras).toHaveAttribute("aria-invalid", "true")
-    expect(within(fila("Ron")).getByRole("alert")).toHaveTextContent(/sólo botellas enteras, sin coma/)
+    expect(within(ron).getByRole("alert")).toHaveTextContent(/sólo botellas enteras, sin coma/)
+    // Con un valor que no es entero, −/+ no inventan un número.
+    expect(within(ron).getByRole("button", { name: "Sumar una a Ron" })).toBeDisabled()
     await user.click(screen.getByRole("button", { name: "5/10 de Ron" }))
-    expect(within(fila("Ron")).getByRole("button", { name: "Recontar" })).toBeDisabled()
+    expect(within(ron).getByRole("button", { name: "Guardar recuento" })).toBeDisabled()
 
     await user.clear(enteras)
     await user.type(enteras, "5")
-    expect(within(fila("Ron")).queryByRole("alert")).not.toBeInTheDocument()
-    expect(within(fila("Ron")).getByRole("button", { name: "Recontar" })).toBeEnabled()
+    expect(within(ron).queryByRole("alert")).not.toBeInTheDocument()
+    expect(within(ron).getByRole("button", { name: "Guardar recuento" })).toBeEnabled()
   })
 
   it("el rótulo usa la unidad de compra, y lo que va por unidad no admite decimales", async () => {
@@ -263,24 +319,49 @@ describe("AreaCountPanel", () => {
     mocks.postAreaCountItem.mockResolvedValue(saved(32, "Huevos"))
     renderWithProviders(<AreaCountPanel />, { me: me() })
 
-    expect(await screen.findByLabelText("Bolsas enteras")).toBeInTheDocument()
+    await screen.findByText("Leche")
+    // La fila dice cómo se cuenta y de qué área es.
+    expect(within(fila("Aceite")).getByText("Garrafa · Bar")).toBeInTheDocument()
+    await abrir(user, "Leche")
+    expect(screen.getByLabelText("Bolsas enteras")).toBeInTheDocument()
+    await abrir(user, "Aceite")
     expect(screen.getByLabelText("Garrafas enteras")).toBeInTheDocument()
-    const huevos = screen.getByLabelText("Huevos")
+    const li = await abrir(user, "Huevos")
+    const huevos = within(li).getByLabelText("Unidades")
     await user.type(huevos, "5,5")
-    expect(within(fila("Huevos")).getByRole("alert")).toHaveTextContent("Se cuentan unidades enteras, sin decimales.")
-    expect(within(fila("Huevos")).getByRole("button", { name: "Guardar" })).toBeDisabled()
+    expect(within(li).getByRole("alert")).toHaveTextContent("Se cuentan unidades enteras, sin decimales.")
+    expect(within(li).getByRole("button", { name: "Guardar conteo" })).toBeDisabled()
     await user.clear(huevos)
     await user.type(huevos, "30")
-    await user.click(within(fila("Huevos")).getByRole("button", { name: "Guardar" }))
+    await user.click(within(li).getByRole("button", { name: "Guardar conteo" }))
     await waitFor(() => expect(mocks.postAreaCountItem).toHaveBeenCalled())
     expect(mocks.postAreaCountItem.mock.calls[0]![0]).toMatchObject({ ingredient_id: 32, qty: "30" })
+  })
+
+  it("el pie dice cuánto falta del área propia y «Terminar» se habilita cuando el servidor la da por completa", async () => {
+    const user = userEvent.setup()
+    const onTerminar = vi.fn()
+    mocks.getAreaCountSheet.mockResolvedValueOnce(sheet())
+    const { unmount } = renderWithProviders(<AreaCountPanel onTerminar={onTerminar} />, { me: me() })
+    expect(await screen.findByText("Faltan 1 artículo del bar")).toBeInTheDocument()
+    expect(screen.getByText("Cocina · 0 de 2 hechos")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Terminar conteo del bar" })).toBeDisabled()
+    unmount()
+
+    const completa = { counted: 2, total: 2, complete: true, completed_at: "2026-09-25T12:20:00Z", people: ["Ana", "Beto"] }
+    mocks.getAreaCountSheet.mockResolvedValueOnce(sheet({ opening_required: false, areas: [bar({ opening: completa }), cocina()] }))
+    renderWithProviders(<AreaCountPanel onTerminar={onTerminar} />, { me: me() })
+    expect(await screen.findByText("Bar contado completo")).toBeInTheDocument()
+    expect(screen.queryByText("Obligatorio para abrir el bar")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Terminar conteo del bar" }))
+    expect(onTerminar).toHaveBeenCalled()
   })
 
   it("el día del conteo completo lo avisa, y la lista es la que manda el servidor", async () => {
     mocks.getAreaCountSheet.mockResolvedValue(sheet({ full_count_today: true, areas: [bar({ scope: "full" }), cocina()] }))
     renderWithProviders(<AreaCountPanel />, { me: me() })
     expect(await screen.findByText(/Hoy es el conteo completo del mes/)).toBeInTheDocument()
-    expect(screen.getByText("conteo completo")).toBeInTheDocument()
+    expect(within(fila("Ron")).getByText(/conteo completo/)).toBeInTheDocument()
   })
 
   it("los recuentos pedidos van arriba y se responden aparte", async () => {

@@ -161,6 +161,17 @@ def get_kitchen_rounds(
     return out
 
 
+@router.get("/kitchen/stations")
+def get_kitchen_stations(actor: Actor = Depends(current_device), db: Session = Depends(get_db)) -> list[str]:
+    """Las estaciones que la sede configuró (Admin → Configuración → Ventas),
+    en su orden: la barra del KDS las dibuja aunque en este momento no haya
+    tiquetes de alguna. Lectura de dispositivo con persona opcional, como
+    `GET /kitchen/rounds`; sólo nombres, nada de plata ni de personas."""
+    features.assert_feature(db, actor.organization_id, actor.store_id, "kitchen.kds")
+    settings = stores_service.get_sales_settings(db, actor.store_id)  # type: ignore[arg-type]
+    return [s for s in (settings.stations or []) if isinstance(s, str) and s != ""]
+
+
 # ---------------------------------------------------------------------------
 # KDS completo (`kitchen.kds`): bump, expedición e impresión por estación.
 # ---------------------------------------------------------------------------

@@ -8,7 +8,18 @@
  */
 import { useQuery } from "@tanstack/react-query"
 
-import { listKitchenRounds, listPrintJobs } from "@/api/kitchen"
+import { listKitchenRounds, listKitchenStations, listPrintJobs } from "@/api/kitchen"
+
+/** Las estaciones configuradas de la sede (la barra del KDS): cambian poco, no se sondean. */
+export function useKdsStations(enabled: boolean) {
+  return useQuery({
+    queryKey: ["kds", "stations"] as const,
+    queryFn: listKitchenStations,
+    enabled,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+}
 
 const ROUNDS_POLL_MS = 5_000
 const PRINT_JOBS_POLL_MS = 5_000

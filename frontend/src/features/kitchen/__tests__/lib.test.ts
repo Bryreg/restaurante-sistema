@@ -4,11 +4,14 @@ import { stationLabel } from "@/lib/stations"
 
 import {
   channelLabel,
+  columnasQueEntran,
   courseLabel,
   elapsedFromSeconds,
+  estacionesDeLaBarra,
   hasActivePerson,
   mentionsAllergy,
   readKdsPrefs,
+  repartirEnColumnas,
   worstSemaphore,
   writeKdsPrefs,
 } from "../lib"
@@ -74,5 +77,28 @@ describe("features/kitchen/lib — sólo formato, nunca plata ni recálculo", ()
     expect(stationLabel("cold_kitchen")).toBe("Cocina fría")
     expect(stationLabel("bar")).toBe("Bar")
     expect(stationLabel("Parrilla")).toBe("Parrilla")
+  })
+})
+
+describe("features/kitchen/lib — la grilla de la pizarra", () => {
+  it("repartirEnColumnas va por turno: la primera fila son los primeros (los más demorados)", () => {
+    expect(repartirEnColumnas([1, 2, 3, 4, 5, 6, 7], 5)).toEqual([[1, 6], [2, 7], [3], [4], [5]])
+    expect(repartirEnColumnas([1, 2], 0)).toEqual([[1, 2]])
+  })
+
+  it("columnasQueEntran: cinco en 1920, tres en 1280, una sin medir", () => {
+    expect(columnasQueEntran(1880)).toBe(5)
+    expect(columnasQueEntran(1240)).toBe(3)
+    expect(columnasQueEntran(0)).toBe(1)
+  })
+
+  it("estacionesDeLaBarra: las configuradas en su orden, sin «none», y después las vistas y la elegida", () => {
+    expect(estacionesDeLaBarra(["hot_kitchen", "cold_kitchen", "none"], ["bar", "hot_kitchen"], "Parrilla")).toEqual([
+      "hot_kitchen",
+      "cold_kitchen",
+      "bar",
+      "Parrilla",
+    ])
+    expect(estacionesDeLaBarra(undefined, [])).toEqual([])
   })
 })
