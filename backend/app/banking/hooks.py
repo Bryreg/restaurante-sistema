@@ -20,7 +20,7 @@ nunca `app.banking.service` directo.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -91,16 +91,17 @@ def pending_shifts(db: Session, *, organization_id: int, store_id: int) -> list[
     return out
 
 
-def drawer_deposits(db: Session, shift_id: int) -> int:
+def drawer_deposits(db: Session, shift_id: int, *, as_of: datetime | None = None) -> int:
     """`Σ` de lo que se consignó **desde el cajón** de este turno (desde el
     POS) y sigue vivo: esa plata ya no está en el cajón. Una consignación
-    rechazada (reversada) deja de restar: el monto vuelve al cajón."""
-    total = db.execute(
-        select(func.coalesce(func.sum(BankDeposit.amount), 0)).where(
-            BankDeposit.from_shift_id == shift_id, BankDeposit.status == BankDepositStatus.LIVE
-        )
-    ).scalar_one()
-    return int(total)
+    rechazada (reversada) deja de restar: el monto vuelve al cajón. Con
+    `as_of`, sólo lo consignado hasta ese instante (el esperado por hora)."""
+    stmt = select(func.coalesce(func.sum(BankDeposit.amount), 0)).where(
+        BankDeposit.from_shift_id == shift_id, BankDeposit.status == BankDepositStatus.LIVE
+    )
+    if as_of is not None:
+        stmt = stmt.where(BankDeposit.deposited_at <= as_of)
+    return int(db.execute(stmt).scalar_one())
 
 
 def drawer_deposits_to(db: Session, *, shift_id: int, source_shift_id: int) -> int:

@@ -37,7 +37,7 @@ from app.core.money import format_cop
 from app.core.quantity import format_qty_base
 from app.orders import service as orders_service
 from app.orders.models import Order, OrderDiscount, OrderItem, OrderStatus
-from app.reports import service
+from app.reports import series, service
 from app.reports.panel_schemas import (
     EmployeeRecordOut,
     IngredientCauseTotalOut,
@@ -221,8 +221,8 @@ def shift_activity(db: Session, store: Store) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _area_counts(db: Session, store: Store) -> PanelAreaCountsOut:
-    tray = service._area_counts_tray(db, store)
+def _area_counts(db: Session, store: Store, tray: dict[str, Any] | None = None) -> PanelAreaCountsOut:
+    tray = tray if tray is not None else service._area_counts_tray(db, store)
     areas = tray["area_counts_areas"]
     return PanelAreaCountsOut(
         enabled=bool(tray["area_counts_enabled"]),
@@ -386,7 +386,8 @@ def _light(reasons: list[PanelReasonOut], *, closed: bool) -> PanelLight:
 
 def store_panel(db: Session, store: Store, *, now: datetime) -> StorePanelOut:
     cash = current_cash(db, store)
-    area = _area_counts(db, store)
+    tray = service._area_counts_tray(db, store)
+    area = _area_counts(db, store, tray)
     salon = _salon(db, store, now)
     kitchen = _kitchen(db, store)
     pending = _pending(db, store)
@@ -406,6 +407,13 @@ def store_panel(db: Session, store: Store, *, now: datetime) -> StorePanelOut:
         salon=salon,
         kitchen=kitchen,
         pending=pending,
+        bullets=series.panel_bullets(
+            db,
+            store,
+            now=now,
+            expected_cash=cash.expected_cash if cash is not None else None,
+            areas=list(tray["area_counts_areas"]),
+        ),
     )
 
 
@@ -631,6 +639,7 @@ def shift_record(db: Session, *, shift: Shift) -> ShiftRecordOut:
         novelties=novelties,
         area_counts=area_counts,
         attendance=_roster_attendance(db, roster, {shift.id: shift}),
+        cash_by_hour=series.cash_by_hour(db, shift=shift, store=store),
     )
 
 
@@ -775,6 +784,7 @@ def ingredient_record(
             )
             for line, c in lines
         ],
+        stock_by_day=series.stock_by_day(db, ingredient=ingredient, store=store),
     )
 
 

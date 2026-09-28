@@ -165,6 +165,16 @@ export interface SalesSettings {
   courses: string[];
   stations: string[];
   course_target_minutes: Record<string, number>;
+  /**
+   * Los supuestos del panel del dueño (0032): las rayas de «barra + raya»
+   * que son decisión del dueño. Margen meta en por ciento entero (65), mesa
+   * larga y tiquete demorado en minutos, comandas por hora que alcanza un
+   * mesero. El umbral de retiro es `CashSettings.cash_pickup_threshold`.
+   */
+  margin_target_pct: number;
+  long_table_minutes: number;
+  late_ticket_minutes: number;
+  orders_per_waiter: number;
 }
 
 export function getSalesSettings(storeId: number): Promise<SalesSettings> {

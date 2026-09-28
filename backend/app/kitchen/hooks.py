@@ -74,3 +74,53 @@ def kitchen_load(db: Session, *, store: Store) -> KitchenLoad:
     return KitchenLoad(
         enabled=True, in_kitchen=in_kitchen, late=late, very_late=very_late, oldest_late_minutes=oldest
     )
+
+
+@dataclass(frozen=True)
+class KitchenTicket:
+    """Un tiquete (ronda) que sigue en cocina: los minutos de su plato más
+    viejo todavía sin «Listo», con la misma lectura del KDS."""
+
+    round_id: int
+    order_id: int
+    channel: str
+    tables: list[str]
+    minutes: int
+
+
+def kitchen_tickets(db: Session, *, store: Store) -> list[KitchenTicket] | None:
+    """Los tiquetes abiertos de la cocina, más viejos primero. `None` con la
+    función «Cocina» apagada (no hay cola que mostrar, que no es «cero
+    tiquetes»). Mismas rondas y mismos platos que `kitchen_load`."""
+    if not features.is_enabled(db, store.organization_id, store.id, "kitchen.view"):
+        return None
+    now = clock.now_utc()
+    out: list[KitchenTicket] = []
+    for round_row, order in service.live_rounds(db, store_id=store.id):
+        items = list(
+            db.execute(
+                select(OrderItem).where(
+                    OrderItem.round_id == round_row.id,
+                    OrderItem.status.in_([OrderItemStatus.SENT, OrderItemStatus.READY]),
+                )
+            ).scalars()
+        )
+        sent = [
+            i.sent_at
+            for i in service.visible_items(order, items, now=now)
+            if i.status == OrderItemStatus.SENT and i.sent_at is not None
+        ]
+        if not sent:
+            continue
+        elapsed = int((now - min(sent)).total_seconds())
+        out.append(
+            KitchenTicket(
+                round_id=round_row.id,
+                order_id=order.id,
+                channel=getattr(order.channel, "value", str(order.channel)),
+                tables=service.tables_for_order(db, order_id=order.id),
+                minutes=elapsed // 60,
+            )
+        )
+    out.sort(key=lambda t: (-t.minutes, t.round_id))
+    return out

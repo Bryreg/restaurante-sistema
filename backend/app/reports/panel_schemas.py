@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from app.reports.schemas import PanelLevelLiteral as PanelLevel
 from app.reports.schemas import PanelLightLiteral as PanelLight
 from app.reports.schemas import SalesBucketOut
+from app.reports.series_schemas import CashByHourSeriesOut, PanelBulletsOut, StockByDaySeriesOut
 
 
 class PersonRefOut(BaseModel):
@@ -156,6 +157,8 @@ class StorePanelOut(BaseModel):
     salon: PanelSalonOut
     kitchen: PanelKitchenOut
     pending: PanelPendingOut
+    # Los bullets «barra + raya» de los bloques de Hoy (`app.reports.series`).
+    bullets: PanelBulletsOut | None = None
 
 
 class PanelOut(BaseModel):
@@ -290,6 +293,9 @@ class ShiftRecordOut(BaseModel):
     novelties: list[RecordNoveltyOut]
     area_counts: list[RecordAreaCountOut]
     attendance: list[RecordAttendanceOut]
+    # «¿Cuándo hubo más efectivo del que debía?»: el esperado por hora contra
+    # el umbral de retiro, con los retiros marcados (`app.reports.series`).
+    cash_by_hour: CashByHourSeriesOut | None = None
 
 
 class RecordShiftRowOut(BaseModel):
@@ -344,3 +350,6 @@ class IngredientRecordOut(BaseModel):
     stock: str | None
     by_cause: list[IngredientCauseTotalOut]
     area_counts: list[IngredientCountLineOut]
+    # «¿Cuándo se me acaba?»: stock al cierre, 14 días + 7 proyectados,
+    # contra el mínimo (`app.reports.series`).
+    stock_by_day: StockByDaySeriesOut | None = None
