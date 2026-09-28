@@ -14,6 +14,18 @@ export interface DivergingBarsProps {
   faltaCuando?: "negativo" | "positivo"
   /** Las palabras que acompañan al color. */
   palabras?: { falta: string; sobra: string; cero: string }
+  /**
+   * La tinta del lado que no falta. Por defecto `--diverge-sobra` (ámbar: un
+   * sobrante de caja también se mira). Las entradas de un insumo no son un
+   * problema: van en `--data-1` (handoff, ficha de insumo).
+   */
+  colorSobra?: string
+  /**
+   * Una fila por dato con el rótulo a la izquierda, las dos mitades al medio
+   * y la cifra a la derecha (handoff, «Entradas y salidas por causa»). Por
+   * defecto, rótulo y cifra arriba y la barra debajo.
+   */
+  enLinea?: boolean
   resumen?: string
 }
 
@@ -30,6 +42,8 @@ export function DivergingBars({
   formato,
   faltaCuando = "negativo",
   palabras = PALABRAS,
+  colorSobra = "var(--diverge-sobra)",
+  enLinea = false,
   resumen,
 }: DivergingBarsProps): React.JSX.Element {
   const tope = Math.max(0, ...datos.map((d) => (d.valor === null ? 0 : d.valor < 0 ? -d.valor : d.valor)))
@@ -49,6 +63,15 @@ export function DivergingBars({
   return (
     <ol role="img" aria-label={texto} className="m-0 list-none space-y-2.5 p-0">
       {datos.map((d) => {
+        if (d.valor === null && enLinea) {
+          return (
+            <li key={d.key} data-fila={d.key} className="grid min-w-0 grid-cols-[minmax(7rem,200px)_minmax(0,1fr)_minmax(4.5rem,120px)] items-center gap-3 text-sm">
+              <span className="min-w-0 truncate">{d.etiqueta}</span>
+              <div className="sin-dato h-4 w-full" data-hueco={d.key} />
+              <span className="text-right text-muted-foreground italic">{TEXTO_SIN_DATO}</span>
+            </li>
+          )
+        }
         if (d.valor === null) {
           return (
             <li key={d.key} data-fila={d.key} className="min-w-0">
@@ -68,8 +91,45 @@ export function DivergingBars({
         // positivo, y una flecha que siguiera al signo diría lo contrario.
         const flecha = cero ? "=" : falta ? "▼" : "▲"
         const palabra = cero ? palabras.cero : falta ? palabras.falta : palabras.sobra
-        const color = falta ? "var(--diverge-falta)" : "var(--diverge-sobra)"
+        const color = falta ? "var(--diverge-falta)" : colorSobra
         const mitad = tope > 0 ? ((v < 0 ? -v : v) / tope) * 50 : 0
+        const barra = cero ? null : (
+          <div
+            data-barra={falta ? "falta" : "sobra"}
+            className={v < 0 ? "absolute inset-y-0 rounded-l-[4px]" : "absolute inset-y-0 rounded-r-[4px]"}
+            style={{
+              background: color,
+              width: `calc(${mitad}% - 1px)`,
+              minWidth: 2,
+              ...(v < 0 ? { right: "calc(50% + 1px)" } : { left: "calc(50% + 1px)" }),
+            }}
+          />
+        )
+        if (enLinea) {
+          return (
+            <li
+              key={d.key}
+              data-fila={d.key}
+              className="grid min-w-0 grid-cols-[minmax(7rem,200px)_minmax(0,1fr)_minmax(4.5rem,120px)] items-center gap-3 text-sm"
+              title={`${d.etiqueta} · ${conSigno(v)} ${palabra}`}
+            >
+              <span className="min-w-0 truncate">{d.etiqueta}</span>
+              <div className="relative h-4 w-full">
+                <div className="absolute inset-y-[-7px] left-1/2 w-px -translate-x-1/2 bg-foreground" />
+                {barra}
+              </div>
+              <span className="text-right whitespace-nowrap">
+                <span aria-hidden="true" className="mr-1 text-xs">
+                  {flecha}
+                </span>
+                <b className="tabular-nums" data-cifra="">
+                  {cero ? formato(v) : conSigno(v)}
+                </b>
+                <span className="sr-only"> {palabra}</span>
+              </span>
+            </li>
+          )
+        }
         return (
           <li key={d.key} data-fila={d.key} className="min-w-0" title={`${d.etiqueta} · ${conSigno(v)} ${palabra}`}>
             <div className="flex items-baseline justify-between gap-3 text-sm">
@@ -89,18 +149,7 @@ export function DivergingBars({
                 className="absolute inset-y-[-3px] left-1/2 w-[2px] -translate-x-1/2"
                 style={{ background: "var(--diverge-mid)" }}
               />
-              {cero ? null : (
-                <div
-                  data-barra={falta ? "falta" : "sobra"}
-                  className={v < 0 ? "absolute inset-y-0 rounded-l-[4px]" : "absolute inset-y-0 rounded-r-[4px]"}
-                  style={{
-                    background: color,
-                    width: `calc(${mitad}% - 1px)`,
-                    minWidth: 2,
-                    ...(v < 0 ? { right: "calc(50% + 1px)" } : { left: "calc(50% + 1px)" }),
-                  }}
-                />
-              )}
+              {barra}
             </div>
           </li>
         )

@@ -39,6 +39,7 @@ SeriesUnitLiteral = Literal["cop", "count", "people", "minutes", "bp"]
 SectionToneLiteral = Literal["ok", "warning", "critical", "muted"]
 SectionChartLiteral = Literal["columns", "diverging", "dual"]
 SectionKeyLiteral = Literal["caja", "equipo", "informes"]
+DishMixGroupLiteral = Literal["keep", "promote", "reprice", "review"]
 
 GroupBy = Literal["business_date", "shift", "method", "channel", "employee", "hour", "zone", "product", "category"]
 

@@ -341,6 +341,20 @@ def movement_out(movement: StockMovement) -> StockMovementOut:
 # ---------------------------------------------------------------------------
 
 
+#: El tope del bullet de la columna Stock: mínimo × 2,5 (handoff del panel,
+#: pantalla 12). Como fracción entera para no pasar por `float`.
+STOCK_BULLET_MAX_NUM = 5
+STOCK_BULLET_MAX_DEN = 2
+
+
+def stock_bullet_max(min_stock: int) -> str:
+    """`min_stock × 2,5` en la unidad base, half-up, como texto decimal."""
+    quotient, remainder = divmod(min_stock * STOCK_BULLET_MAX_NUM, STOCK_BULLET_MAX_DEN)
+    if remainder * 2 >= STOCK_BULLET_MAX_DEN:
+        quotient += 1
+    return format_qty_base(quotient)
+
+
 def stock_rows(
     db: Session,
     *,
@@ -384,6 +398,7 @@ def stock_rows(
                 cost=format_cost_micros(cost_micros) if cost_micros is not None else None,
                 cost_source=cost_source.value,  # type: ignore[arg-type]
                 key_item=ingredient.key_item,
+                bullet_max=stock_bullet_max(ingredient.min_stock),
             )
         )
     return rows

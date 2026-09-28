@@ -228,6 +228,9 @@ export interface StockRowOut {
   cost: string | null
   cost_source: CostSource
   key_item: boolean
+  /** Tope del mini gráfico de la columna Stock: mínimo × 2,5, calculado en el
+   * servidor (texto decimal de la unidad base). Ausente en un backend viejo. */
+  bullet_max?: string | null
 }
 
 export interface StockQuery {

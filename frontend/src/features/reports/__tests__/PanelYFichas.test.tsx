@@ -366,11 +366,19 @@ describe("Ficha del turno", () => {
       { me: buildMe(), route: "/admin/dinero/turno/7" },
     )
 
-    expect(await screen.findByRole("heading", { name: "Turno #7" })).toBeInTheDocument()
+    // Cambio intencional (rediseño de la ficha, handoff pantalla 9): el
+    // título dice el día del turno en palabras; el número del turno pasó a
+    // la franja de contexto.
+    expect(await screen.findByRole("heading", { name: "Turno del miércoles 16 sep" })).toBeInTheDocument()
+    expect(screen.getByText("Turno #7")).toBeInTheDocument()
     expect(getShiftRecordMock).toHaveBeenCalledWith(7)
     expect(screen.getByText(/nadie lo cerró/)).toBeInTheDocument()
-    expect(screen.getByText("$ 370.370")).toBeInTheDocument()
+    // La venta neta es la cifra rectora y el total de su libro: dos veces la misma cifra, tal cual.
+    expect(screen.getAllByText("$ 370.370").length).toBeGreaterThanOrEqual(1)
+    // El esperado del cierre (abierto: el de ahora) está en el paso «Cierre».
     expect(screen.getByText("$ 480.000")).toBeInTheDocument()
+    // Las tablas viven detrás de «Ver el detalle del turno», plegado.
+    await userEvent.click(screen.getByRole("button", { name: /Ver el detalle del turno/ }))
     expect(screen.getByText("1 × Bandeja paisa")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Barra" })).toHaveAttribute("href", "/admin/inventario?tab=por-area&conteo=5")
     expect(screen.getAllByText("Salió").length).toBeGreaterThan(1)

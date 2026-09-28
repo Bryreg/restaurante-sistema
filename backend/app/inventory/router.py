@@ -244,7 +244,10 @@ def get_inventory_stock(
         db, store=store, critical_only=critical_only, below_min=below_min, negative=negative
     )
     if wants_csv(request):
-        return csv_response([r.model_dump(mode="json") for r in rows], "inventory-stock.csv")
+        # `bullet_max` es escala de dibujo del panel, no un dato del stock.
+        return csv_response(
+            [r.model_dump(mode="json", exclude={"bullet_max"}) for r in rows], "inventory-stock.csv"
+        )
     return rows
 
 

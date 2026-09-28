@@ -25,6 +25,7 @@ nueva ACÁ — nunca importa `service.py`/`models.py` directo
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -58,3 +59,20 @@ def period_payroll_cost(db: Session, *, store_id: int, date_from: date, date_to:
             return None
         total += pay.total
     return total
+
+
+def worked_minutes(entry: Any) -> int | None:
+    """Minutos trabajados de una entrada de asistencia o de roster ya
+    cerrada (`in_at`/`out_at`/`pauses`), con **el mismo** motor de jornada
+    que liquida la nómina (`service._worked_intervals`: resta las pausas).
+    `None` si la entrada no tiene salida: una jornada abierta o una salida
+    olvidada no tiene duración todavía (nunca un 0 mudo). Redondeo half-up
+    al minuto."""
+    if entry.out_at is None:
+        return None
+    seconds = sum(
+        int((end - start).total_seconds())
+        for start, end in service._worked_intervals(entry, until=entry.out_at)
+    )
+    quotient, remainder = divmod(max(seconds, 0), 60)
+    return quotient + (1 if remainder * 2 >= 60 else 0)

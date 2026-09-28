@@ -99,6 +99,9 @@ def test_the_literal_mirror_for_the_client_says_the_same_as_the_series() -> None
     assert set(get_args(schemas.SeriesUnitLiteral)) == set(
         get_args(series_schemas.SeriesUnit)
     )
+    assert set(get_args(schemas.DishMixGroupLiteral)) == set(
+        get_args(series_schemas.DishMixGroup)
+    )
 
 
 def test_panel_assumptions_live_in_settings_with_defaults_and_survive_old_clients(
@@ -314,6 +317,100 @@ def test_stores_week_only_with_all_stores(
     assert point["store_id"] == store.id
     assert point["value"] == row["net"]
     assert point["reference"] is None  # no operaba el período anterior
+    # Sin ficha técnica no hay costo: el margen de la sede es «sin dato».
+    assert point["margin_bp"] is None
+
+
+def _bucket(key: str, units: int, net: int, margin: int | None) -> Any:
+    return schemas.SalesBucketOut(
+        key=key,
+        label=f"Plato {key}",
+        gross=net,
+        net=net,
+        tax=0,
+        tips=None,
+        orders=units,
+        covers=None,
+        avg_ticket=None,
+        avg_per_cover=None,
+        theoretical_cost=None if margin is None else net - margin,
+        units=units,
+        gross_margin=margin,
+        costed_pct=100 if margin is not None else None,
+    )
+
+
+def test_dish_mix_splits_by_simple_averages_and_leaves_uncosted_out() -> None:
+    """El grupo de cada plato lo decide el servidor contra los promedios
+    simples de unidades y de margen de los platos ubicados; un plato sin
+    costo no se ubica (nunca un margen de 100 % inventado)."""
+    from app.reports import series
+
+    rows = [
+        _bucket("1", units=40, net=100_000, margin=80_000),  # vende y deja (80 %)
+        _bucket("2", units=10, net=100_000, margin=90_000),  # deja, vende poco (90 %)
+        _bucket("3", units=50, net=100_000, margin=40_000),  # vende, deja poco (40 %)
+        _bucket("4", units=4, net=100_000, margin=30_000),  # revisar (30 %)
+        _bucket("5", units=99, net=100_000, margin=None),  # sin costo
+    ]
+    mix = series.dish_mix(rows)
+    assert mix.available is True
+    assert mix.without_cost == 1
+    # (40 + 10 + 50 + 4) / 4 = 26; (8000 + 9000 + 4000 + 3000) / 4 = 6000.
+    assert mix.avg_units == 26
+    assert mix.avg_margin_bp == 6_000
+    groups = {p.key: p.group for p in mix.points}
+    assert groups == {"1": "keep", "2": "promote", "3": "reprice", "4": "review"}
+    # El más vendido primero; el margen viaja en puntos básicos.
+    assert [p.key for p in mix.points] == ["3", "1", "2", "4"]
+    assert next(p for p in mix.points if p.key == "4").margin_bp == 3_000
+
+
+def test_dish_mix_without_cost_or_sales_says_why() -> None:
+    from app.reports import series
+
+    none_costed = series.dish_mix([_bucket("1", units=3, net=10_000, margin=None)])
+    assert none_costed.available is False
+    assert none_costed.reason == series.DISH_MIX_NO_COST_REASON
+    assert none_costed.points == []
+    assert none_costed.without_cost == 1
+    nothing = series.dish_mix([])
+    assert nothing.available is False
+    assert nothing.reason == series.DISH_MIX_NO_SALES_REASON
+
+
+def test_dish_mix_travels_in_the_overview_with_the_same_margin_as_the_category(
+    admin_client: TestClient,
+    open_shift: Any,
+    sell: Any,
+    main_product: Any,
+    store: Any,
+    clock: Any,
+    set_recipe: Any,
+    ingredient_seeded: Any,
+) -> None:
+    clock.set(datetime(2026, 9, 19, 18, 0, tzinfo=timezone.utc))
+    set_recipe(
+        main_product.id,
+        [{"ingredient_id": ingredient_seeded.id, "qty": "1000", "unit": "g"}],
+    )
+    open_shift()
+    sell(main_product, qty=2)
+    today = tz.today_business_date(store.cutoff_hour)
+    body = _overview(admin_client, store.id, today)
+    mix = body["series"]["dish_mix"]
+    [point] = mix["points"]
+    [cat] = body["series"]["category_margin"]["points"]
+    assert point["key"] == str(main_product.id)
+    assert point["units"] == 2
+    # Un solo plato en su categoría: el mismo margen que la fila de la categoría.
+    assert point["margin_bp"] == cat["value"]
+    # Un solo plato es su propio promedio: vende y deja.
+    assert point["group"] == "keep"
+    assert (mix["avg_units"], mix["avg_margin_bp"]) == (2, point["margin_bp"])
+    # Con todas las sedes, la sede lleva su margen: el mismo del período.
+    [store_point] = _overview(admin_client, "all", today)["series"]["stores_week"]["points"]
+    assert store_point["margin_bp"] == body["series"]["category_margin"]["total_bp"]
 
 
 def test_peak_hours_are_dine_in_orders_against_waiters_on_shift(

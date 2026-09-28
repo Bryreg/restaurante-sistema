@@ -18,6 +18,7 @@ import {
   type LegendEntry,
   type RowStatus,
 } from "@/components/admin"
+import { BulletReferencia } from "@/components/charts"
 import { CostValue } from "@/components/CostValue"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { EmptyState } from "@/components/EmptyState"
@@ -109,6 +110,31 @@ const LEGEND: readonly LegendEntry[] = [
   },
 ]
 
+/**
+ * El mini gráfico de la columna Stock (handoff, pantalla 12): barra = stock
+ * según el libro, raya = mínimo, tope = `bullet_max` del servidor. Un
+ * negativo no tiene barra (queda la pista vacía con la raya) y su palabra
+ * la dice la columna Estado; el bullet la repite en su texto accesible.
+ * Pasar el texto decimal a número es sólo para llevarlo a píxeles.
+ */
+function StockBullet({ row }: { row: StockRowOut }): React.JSX.Element | null {
+  if (!row.bullet_max) return null
+  return (
+    <BulletReferencia
+      etiqueta={`Stock de ${row.name}`}
+      valor={Number(row.qty_base)}
+      referencia={Number(row.min_stock)}
+      maximo={Number(row.bullet_max)}
+      malo="debajo"
+      fuera={row.below_min}
+      tono={row.negative ? "destructive" : "warning"}
+      nombreRaya="mínimo"
+      textoFuera={row.negative ? "negativo: deuda de registro" : "bajo el mínimo"}
+      formato={(v) => formatCantidad(v, unit(row))}
+    />
+  )
+}
+
 /** Cómo se llama cada filtro **en palabras**, que es como lo nombran el enlace
  * de Hoy (`FilterLink`), la barra de procedencia y el vacío por filtro. Una
  * sola fuente: tres frases escritas a mano se desincronizan. */
@@ -139,10 +165,12 @@ function normalizar(texto: string): string {
  * negocio, sólo encuentra una fila entre las que ya llegaron. El costo
  * siempre con su origen; ningún saldo se deriva en el cliente.
  *
- * **La columna Stock deja lista la ranura del mini gráfico** (barra = stock,
- * raya = mínimo) pero no lo dibuja: lo enchufa `components/charts` por
- * `DenseColumn.bullet` cuando exista (y cuando el servidor mande el tope, que
- * el cliente no calcula).
+ * **La columna Stock lleva el mini gráfico** (barra = stock, raya = mínimo)
+ * en la ranura `DenseColumn.bullet`: `BulletReferencia` de
+ * `components/charts`. El tope de la escala (mínimo × 2,5) lo manda el
+ * servidor en `bullet_max`; sin él (un backend viejo) la ranura queda
+ * vacía en vez de inventar una escala. Si la barra queda del lado malo
+ * también lo decide el servidor (`below_min`), no una comparación acá.
  */
 export function StockTab({
   storeId,
@@ -259,7 +287,7 @@ export function StockTab({
         <span className={cn(row.negative && "font-bold text-destructive", !row.negative && row.below_min && "font-bold")}>
           {formatCantidad(row.qty_base, unit(row))}
         </span>
-      ),
+      ),      bullet: (row) => <StockBullet row={row} />,
     },
     {
       key: "min",

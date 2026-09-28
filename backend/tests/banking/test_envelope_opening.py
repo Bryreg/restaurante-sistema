@@ -82,6 +82,7 @@ def test_the_opening_lists_the_envelopes_by_date_and_never_their_amount(
 
 def test_sealing_reveals_the_difference_of_each_envelope_attributed_to_who_counted(
     db: Session,
+    admin_client: TestClient,
     device_client: TestClient,
     open_shift: Any,
     close_shift: Any,
@@ -119,6 +120,12 @@ def test_sealing_reveals_the_difference_of_each_envelope_attributed_to_who_count
         lunes: -5_000,
         martes: 0,
     }
+    # La ficha del turno publica la diferencia de la apertura entera (contado
+    # menos esperado): «¿Cuadró en cada paso?» no resta en el cliente.
+    record = admin_client.get(f"{API}/admin/records/shift/{abierto.json()['id']}").json()
+    assert record["opening_count"]["expected_total"] == 80_000
+    assert record["opening_count"]["counted_total"] == 75_000
+    assert record["opening_count"]["difference_total"] == -5_000
 
 
 def test_the_drawer_opens_with_the_envelopes_only_and_the_shift_deposits_only_its_sale(

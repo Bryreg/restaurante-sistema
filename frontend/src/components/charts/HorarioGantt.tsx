@@ -132,14 +132,20 @@ export function HorarioGantt({
         </li>
         {variante === "persona" ? (
           <>
-            <li className="inline-flex items-center gap-1.5">
-              <span className="inline-block h-3 w-4 rounded-[2px] border-2 border-dashed border-muted-foreground" />
-              Turno programado
-            </li>
-            <li className="inline-flex items-center gap-1.5">
-              <span className="inline-block size-3 rounded-[2px] bg-warning" />
-              Llegó tarde
-            </li>
+            {/* Sólo lo que se dibuja: sin horario programado, la leyenda no
+                promete un recuadro punteado ni una tardanza que no están. */}
+            {filas.some((f) => f.programado) ? (
+              <li className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-3 w-4 rounded-[2px] border-2 border-dashed border-muted-foreground" />
+                Turno programado
+              </li>
+            ) : null}
+            {filas.some((f) => f.tardanza) ? (
+              <li className="inline-flex items-center gap-1.5">
+                <span className="inline-block size-3 rounded-[2px] bg-warning" />
+                Llegó tarde
+              </li>
+            ) : null}
           </>
         ) : relevos.length ? (
           <li className="inline-flex items-center gap-1.5">

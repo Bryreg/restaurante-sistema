@@ -817,6 +817,9 @@ class AttendanceRow:
     out_at: Any
     on_pause: bool
     status: str
+    #: Las pausas de la entrada (`[{"start": iso, "end": iso|None}]`), para
+    #: que quien lea la jornada la reste con el motor de nómina.
+    pauses: tuple[Any, ...] = ()
 
 
 def _attendance_row(entry: Any, today: Any) -> AttendanceRow:
@@ -833,6 +836,7 @@ def _attendance_row(entry: Any, today: Any) -> AttendanceRow:
         out_at=entry.out_at,
         on_pause=bool(pauses) and pauses[-1].get("end") is None and entry.out_at is None,
         status=attendance.entry_status(entry, today),
+        pauses=tuple(pauses),
     )
 
 
