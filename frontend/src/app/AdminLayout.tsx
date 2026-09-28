@@ -16,7 +16,7 @@ import {
   Store,
   Users,
 } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -37,6 +37,7 @@ import { payrollFeature } from "@/features/payroll";
 import { purchasesFeature } from "@/features/purchases";
 import { recipesFeature } from "@/features/recipes";
 import { reportsFeature } from "@/features/reports";
+import { RUTA_CELULAR } from "@/features/reports/movil/rutas";
 import { shiftsFeature } from "@/features/shifts";
 import { RailItemContent, railItemClass } from "@/components/admin/RailItem";
 import { formatTimeAgo } from "@/components/admin/TimeAgo";
@@ -52,6 +53,7 @@ import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 import type { NavItem } from "./nav";
+import { useEsCelular } from "./celular";
 import { useDensity } from "./density";
 import { useSession } from "./session";
 import { StoreSelectionProvider, useStoreSelection } from "./storeContext";
@@ -395,11 +397,15 @@ function SidebarNav({
         if (!destino) return null;
         const { total, dice } = recuentoDe(pantallas, counts);
         const nombre = dice.length > 0 ? `${seccion}, ${dice.join(", ")}` : seccion;
-        const enEsta = seccion === seccionActiva;
+        // En el cajón del celular, Equipo abre su pantalla del celular
+        // (handoff, `MovilSecciones`): la de escritorio no entra en 390 px.
+        // Caja e Informes ya tienen su entrada en la barra inferior.
+        const celular = touch && seccion === "Equipo" ? RUTA_CELULAR.equipo : undefined;
+        const enEsta = seccion === seccionActiva || (celular !== undefined && pathname === celular);
         return (
           <Link
             key={seccion}
-            to={destino.to}
+            to={celular ?? destino.to}
             onClick={onNavigate}
             title={seccion}
             aria-label={nombre}
@@ -831,31 +837,8 @@ function RailContenido({
 // «Celular del dueño» y Momento 5).
 // ---------------------------------------------------------------------------
 
-/** El mismo corte que `md:` de Tailwind: por debajo de 768 px es el celular. */
-const CONSULTA_CELULAR = "(max-width: 767.98px)";
-
-function suscribirCelular(avisar: () => void): () => void {
-  if (typeof window.matchMedia !== "function") return () => {};
-  const consulta = window.matchMedia(CONSULTA_CELULAR);
-  consulta.addEventListener("change", avisar);
-  return () => consulta.removeEventListener("change", avisar);
-}
-
-function esCelular(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia(CONSULTA_CELULAR).matches;
-}
-
-/**
- * **La barra inferior se monta sólo en el celular**, no se esconde con CSS
- * nada más. Con `md:hidden` solo, el escritorio llevaría en el árbol una
- * segunda «Hoy» y una segunda «Ventas» invisibles, y cada `getByRole("link",
- * { name: "Hoy" })` de las pruebas —y cada lector de pantalla que no respete
- * `display` de algún ancestro— vería dos. Sin `matchMedia` (jsdom) es
- * escritorio: nada cambia.
- */
-function useEsCelular(): boolean {
-  return useSyncExternalStore(suscribirCelular, esCelular, () => false);
-}
+// `useEsCelular` vive en `app/celular.ts`: la usan también Hoy y las
+// pantallas móviles de Caja, Equipo e Informes.
 
 /**
  * «Avisos» no tiene pantalla propia, y es a propósito que no lleve a
@@ -890,9 +873,11 @@ function claseDestino(activo: boolean): string {
  * cajón de siempre, con las ocho secciones.
  *
  * Los flags siguen mandando: la barra se arma **desde `items`**, que ya pasó
- * por `buildNav(hasFeature)`. Informes y Caja llevan a la primera pantalla
- * encendida de su sección, igual que el rail; una sección sin ninguna
- * encendida no está acá —la barra tiene un destino menos, no un hueco—.
+ * por `buildNav(hasFeature)`. Informes y Caja llevan a sus pantallas del
+ * celular (handoff, `MovilSecciones`, variante A: cuatro preguntas por
+ * sección), que a su vez llevan a las del escritorio; una sección sin
+ * ninguna pantalla encendida no está acá —la barra tiene un destino menos,
+ * no un hueco—.
  */
 function BarraInferior({
   items,
@@ -916,6 +901,12 @@ function BarraInferior({
   const enAvisos =
     (pathname === "/admin/hoy" && hash === `#${ANCLA_AVISOS}`) || pathname.startsWith("/admin/avisos/");
   const enHoy = pathname === "/admin/hoy" && !enAvisos;
+  // Informes y Caja llevan a sus pantallas del celular (handoff,
+  // `MovilSecciones`, variante A); la sección sigue mandando: sin ninguna
+  // pantalla encendida, no hay entrada. Equipo vive en «Más».
+  const enInformes = seccionActiva === "Informes" || pathname === RUTA_CELULAR.informes;
+  const enCaja = seccionActiva === "Caja" || pathname === RUTA_CELULAR.caja;
+  const enMas = pathname === RUTA_CELULAR.equipo;
 
   return (
     <nav
@@ -938,10 +929,10 @@ function BarraInferior({
         {informes ? (
           <li>
             <Link
-              to={informes.to}
+              to={RUTA_CELULAR.informes}
               title={filaDe(informes).title}
-              aria-current={seccionActiva === "Informes" ? "page" : undefined}
-              className={claseDestino(seccionActiva === "Informes")}
+              aria-current={enInformes ? "page" : undefined}
+              className={claseDestino(enInformes)}
             >
               <BarChart3 className="size-5" aria-hidden="true" />
               Informes
@@ -951,10 +942,10 @@ function BarraInferior({
         {caja ? (
           <li>
             <Link
-              to={caja.to}
+              to={RUTA_CELULAR.caja}
               title={filaDe(caja).title}
-              aria-current={seccionActiva === "Caja" ? "page" : undefined}
-              className={claseDestino(seccionActiva === "Caja")}
+              aria-current={enCaja ? "page" : undefined}
+              className={claseDestino(enCaja)}
             >
               <Banknote className="size-5" aria-hidden="true" />
               Caja
@@ -992,7 +983,7 @@ function BarraInferior({
             aria-haspopup="dialog"
             aria-expanded={masAbierto}
             title="Todas las secciones"
-            className={cn(claseDestino(false), "w-full")}
+            className={cn(claseDestino(enMas), "w-full")}
           >
             <Ellipsis className="size-5" aria-hidden="true" />
             Más

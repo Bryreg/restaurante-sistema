@@ -9,7 +9,7 @@
  * mismas funciones que Hoy, Dinero, Ventas e Informes.
  */
 import { api } from "@/api/client"
-import type { SalesBucketOut, SeriesBadSide, SeriesOut, SeriesPointOut } from "@/api/reports"
+import type { SalesBucketOut, SeriesBadSide, SeriesOut, SeriesPointOut, SeriesUnit } from "@/api/reports"
 
 /** Espejo de `PanelLevelLiteral` (`app/reports/schemas.py`). */
 export type PanelLevel = "critical" | "warning" | "info"
@@ -169,6 +169,61 @@ export interface PanelOut {
 
 export function getPanel(storeId: number | "all"): Promise<PanelOut> {
   return api<PanelOut>("/admin/panel", { query: { store_id: storeId } })
+}
+
+// ---------------------------------------------------------------------------
+// Celular: Caja, Equipo e Informes (`GET /admin/panel/sections`). Espejo de
+// `SectionOut` en `backend/app/reports/series_schemas.py`. Cada tarjeta
+// trae su cifra, su estado en palabras, su serie «barra + raya» y sus
+// excepciones: la pantalla sólo formatea `value` según `unit`.
+// ---------------------------------------------------------------------------
+
+/** Cómo está una tarjeta o un renglón. Espejo de `SectionToneLiteral`. */
+export type SectionTone = "ok" | "warning" | "critical" | "muted"
+/** Qué dibujo pide la serie. Espejo de `SectionChartLiteral`. */
+export type SectionChart = "columns" | "diverging" | "dual"
+/** Espejo de `SectionKeyLiteral`. */
+export type SectionKey = "caja" | "equipo" | "informes"
+
+export interface SectionRowOut {
+  key: string
+  label: string
+  /** `null`: el renglón no tiene cifra y dice `note`. */
+  value: number | null
+  unit: SeriesUnit
+  note: string | null
+  tone: SectionTone
+}
+
+export interface SectionCardOut {
+  key: string
+  available: boolean
+  reason: string | null
+  unit: SeriesUnit
+  /** `null` = sin dato (nunca 0). */
+  value: number | null
+  /** «de cuántos» («2 de 4»). */
+  of: number | null
+  /** La cifra cuando no es un número (una sede, una franja). */
+  value_text: string | null
+  tone: SectionTone
+  status: string | null
+  note: string | null
+  chart: SectionChart
+  series: SeriesOut
+  rows: SectionRowOut[]
+}
+
+export interface SectionOut {
+  section: SectionKey
+  scope: "all" | "store"
+  store_ids: number[]
+  generated_at: string
+  cards: SectionCardOut[]
+}
+
+export function getPanelSection(section: SectionKey, storeId: number | "all"): Promise<SectionOut> {
+  return api<SectionOut>("/admin/panel/sections", { query: { section, store_id: storeId } })
 }
 
 // ---------------------------------------------------------------------------

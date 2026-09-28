@@ -245,6 +245,34 @@ def reverse_deposit(
     return DepositOut.model_validate(body)
 
 
+@router.post("/admin/deposits/{deposit_id}/unconfirm", dependencies=[Depends(require_feature("money.deposits"))])
+def unconfirm_deposit(
+    deposit_id: int,
+    payload: DepositReverseIn,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> DepositOut:
+    """Reversa la confirmación de una consignación, con motivo: vuelve a
+    quedar por confirmar. No reversa la consignación (eso es `/reverse`)."""
+    deposit = service.get_deposit_or_404(db, organization_id=actor.organization_id, deposit_id=deposit_id)
+    admin_store(db, actor, deposit.store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = service.unconfirm_deposit(db, actor=actor, deposit=deposit, reason=payload.reason)
+        return 200, _deposit_out(db, row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope="banking.deposits.unconfirm",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+    return DepositOut.model_validate(body)
+
+
 @router.post("/admin/deposits/{deposit_id}/confirm", dependencies=[Depends(require_feature("money.deposits"))])
 def confirm_deposit(
     deposit_id: int,

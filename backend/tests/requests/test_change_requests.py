@@ -160,3 +160,49 @@ def test_change_requests_need_cash_swaps(device_client, open_shift, set_feature)
     resp = _change(device_client)
     assert resp.status_code == 400
     assert resp.json()["error"]["feature"] == "cash.swaps"
+
+
+def test_an_approval_or_a_rejection_is_reversed_with_a_reason_and_goes_back_to_pending(
+    device_client, admin_client, open_shift, db: Session
+) -> None:
+    """«Reversar con motivo» desde Hoy: la solicitud vuelve a la bandeja y la
+    resolución anterior queda entera en la auditoría."""
+    from app.audit.models import AuditLog
+
+    open_shift()
+    created = _change(device_client).json()
+    approved = admin_client.post(f"{API}/admin/requests/{created['id']}/approve", json={}, headers=idem()).json()
+    assert approved["status"] == "approved"
+
+    blank = admin_client.post(f"{API}/admin/requests/{created['id']}/reopen", json={"reason": " "}, headers=idem())
+    assert blank.status_code == 400 and blank.json()["error"]["code"] == "REASON_REQUIRED"
+    reopened = admin_client.post(
+        f"{API}/admin/requests/{created['id']}/reopen", json={"reason": "Aprobé la de otra sede"}, headers=idem()
+    )
+    assert reopened.status_code == 200, reopened.text
+    body = reopened.json()
+    assert body["status"] == "pending"
+    assert body["approved_total"] is None and body["resolved_by"] is None
+    trail = (
+        db.execute(
+            select(AuditLog)
+            .where(AuditLog.entity == "staff_request", AuditLog.entity_id == created["id"])
+            .order_by(AuditLog.id)
+        )
+        .scalars()
+        .all()
+    )
+    assert trail[-1].action == "reopen" and trail[-1].reason == "Aprobé la de otra sede"
+    assert trail[-1].before["approved_total"] == 40000  # type: ignore[index]
+
+    # Pendiente otra vez: se puede rechazar, y el rechazo también se reversa.
+    rejected = admin_client.post(
+        f"{API}/admin/requests/{created['id']}/reject", json={"reason": "No hay sencillo"}, headers=idem()
+    )
+    assert rejected.json()["status"] == "rejected"
+    again = admin_client.post(f"{API}/admin/requests/{created['id']}/reopen", json={"reason": "Sí hay"}, headers=idem())
+    assert again.json()["status"] == "pending"
+
+    # Pendiente no se reversa: no hay resolución.
+    pending = admin_client.post(f"{API}/admin/requests/{created['id']}/reopen", json={"reason": "x"}, headers=idem())
+    assert pending.status_code == 409

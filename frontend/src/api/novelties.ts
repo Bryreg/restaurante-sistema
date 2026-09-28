@@ -98,3 +98,18 @@ export function resolveNoveltyAsAdmin(
     idempotencyKey,
   })
 }
+
+/** «Reversar con motivo» la resolución de una novedad: vuelve a quedar abierta. */
+export function reopenNoveltyAsAdmin(
+  storeId: number,
+  id: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<Novelty> {
+  return api<Novelty>(`/admin/novelties/${id}/reopen`, {
+    method: "POST",
+    query: { store_id: storeId },
+    body: { note: reason },
+    idempotencyKey,
+  })
+}

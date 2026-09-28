@@ -450,6 +450,43 @@ def confirm_deposit(db: Session, *, actor: Actor, deposit: BankDeposit) -> BankD
     return deposit
 
 
+def unconfirm_deposit(db: Session, *, actor: Actor, deposit: BankDeposit, reason: str) -> BankDeposit:
+    """Reversa **la confirmación** (no la consignación): el administrador la
+    confirmó por error y vuelve a quedar por confirmar. La consignación sigue
+    viva —si la plata no llegó al banco, eso es `reverse_deposit`—. Nada se
+    borra: quién la había confirmado y cuándo quedan en la auditoría, con el
+    motivo."""
+    clean = reason.strip()
+    if not clean:
+        raise AppError("REASON_REQUIRED", "Escribí el motivo: queda en el historial de la consignación", status=400)
+    if deposit.status == BankDepositStatus.REVERSED:
+        raise AppError("DEPOSIT_ALREADY_REVERSED", "Esta consignación fue rechazada o reversada: no hay confirmación que reversar", status=400)
+    if deposit.confirmed_at is None:
+        raise AppError("DEPOSIT_NOT_CONFIRMED", "Esta consignación no está confirmada: no hay confirmación que reversar", status=400)
+    before = {
+        "confirmed_at": deposit.confirmed_at.isoformat(),
+        "confirmed_by_employee_id": deposit.confirmed_by_employee_id,
+        "confirmed_by_employee_name": deposit.confirmed_by_employee_name,
+    }
+    deposit.confirmed_at = None
+    deposit.confirmed_by_employee_id = None
+    deposit.confirmed_by_employee_name = None
+    db.flush()
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=deposit.organization_id,
+        store_id=deposit.store_id,
+        entity="bank_deposit",
+        entity_id=deposit.id,
+        action="unconfirm",
+        before=before,
+        after={"confirmed_at": None},
+        reason=clean,
+    )
+    return deposit
+
+
 def list_drawer_deposits(db: Session, *, shift_id: int) -> list[BankDeposit]:
     return list(
         db.execute(select(BankDeposit).where(BankDeposit.from_shift_id == shift_id).order_by(BankDeposit.id)).scalars()

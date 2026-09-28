@@ -34,7 +34,9 @@ from app.core.quantity import format_qty_base
 from app.orders import money
 from app.orders.models import Order, OrderChannel, OrderStatus
 from app.reports import service
-from app.reports.schemas import SalesBucketOut
+from app.core.money import format_cop
+from app.core.percent import format_pct_bp
+from app.reports.schemas import HourBucketOut, SalesBucketOut
 from app.reports.series_schemas import (
     AreaProgressOut,
     BulletOut,
@@ -48,8 +50,12 @@ from app.reports.series_schemas import (
     PeakHourPointOut,
     PeakHoursSeriesOut,
     PeakHoursViewOut,
+    SectionCardOut,
+    SectionOut,
+    SectionRowOut,
     SeriesOut,
     SeriesPointOut,
+    SeriesUnit,
     StockByDaySeriesOut,
     StockDayPointOut,
     StoresWeekSeriesOut,
@@ -57,7 +63,7 @@ from app.reports.series_schemas import (
 )
 from app.shifts import hooks as shifts_hooks
 from app.stores import service as stores_service
-from app.shifts.models import Shift
+from app.shifts.models import BusinessDay, Shift, ShiftStatus
 from app.stores.models import Store, StoreSalesSettings
 
 #: Horas de «Horas pico» (11 a. m. a 10 p. m., la franja del servicio).
@@ -796,4 +802,910 @@ def panel_bullets(
         tables=_tables(db, store, now, settings.long_table_minutes),
         tickets=_tickets(db, store, settings.late_ticket_minutes),
         generated_at=now,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Celular: Caja, Equipo e Informes (handoff, `MovilSecciones` variante A)
+#
+# Cuatro tarjetas por sección; cada una trae su cifra, su estado en palabras,
+# la serie con su raya y la lista de excepciones. Igual que el resto de este
+# módulo, ninguna cifra de plata nace acá: las ventas salen de
+# `service.aggregate_sales` y `service._today_comparison` (las de Hoy); los
+# cierres, retiros y gastos se LEEN de sus filas (`Shift.difference`,
+# `CashPickup.amount`, `CashMovement.amount`), que ya escribió el dominio de
+# caja; las horas trabajadas, del motor de jornada de nómina.
+# ---------------------------------------------------------------------------
+
+#: Días de la tendencia de las tarjetas «por día» (cuadre, consignaciones,
+#: salidas olvidadas).
+SECTION_TREND_DAYS = 14
+#: Retiros y gastos: la semana anterior y hoy.
+SECTION_WEEK_DAYS = 8
+#: «Gastos de caja»: lo que se pagó con plata del cajón. El pago a un
+#: proveedor y la liquidación de domicilios tienen su propia pantalla.
+_CASH_EXPENSE_LABEL = {
+    "petty_expense": "Gasto menor",
+    "emergency_purchase": "Compra de urgencia",
+    "other_expense": "Otro gasto",
+}
+
+LATE_ARRIVALS_REASON = (
+    "No hay horario programado en el sistema: sin la hora de entrada esperada "
+    "no se puede saber quién llegó tarde."
+)
+BEST_STORE_ONE_REASON = "Con una sola sede no hay con cuál comparar."
+DEPOSITS_OFF_REASON = "La función «Consignaciones» está apagada en estas sedes."
+
+_TONE_RANK = {"critical": 0, "warning": 1, "ok": 2, "muted": 3}
+
+
+def clock_label(instant: datetime) -> str:
+    """«11:30 a. m.», hora de pared de Bogotá."""
+    local = tz.to_bogota(instant)
+    h = local.hour % 12 or 12
+    return f"{h}:{local.minute:02d} {'a. m.' if local.hour < 12 else 'p. m.'}"
+
+
+def _count_word(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def _window(end: date, days: int) -> list[date]:
+    return [end - timedelta(days=days - 1 - i) for i in range(days)]
+
+
+def _trend_label(d: date, today: date) -> str:
+    if d == today:
+        return "hoy"
+    if d == today - timedelta(days=1):
+        return "ayer"
+    return day_label(d)
+
+
+def _delta_text(delta_bp: int | None, reference_day: date | None) -> str | None:
+    """«▲ +5,5 % vs sáb 20»; `None` sin variación (nunca «0 %» inventado)."""
+    if delta_bp is None:
+        return None
+    arrow = "▲" if delta_bp >= 0 else "▼"
+    sign = "+" if delta_bp > 0 else ""
+    text = f"{arrow} {sign}{format_pct_bp(delta_bp)}"
+    return f"{text} vs {day_label(reference_day)}" if reference_day is not None else text
+
+
+def _by_tone(rows: list[SectionRowOut]) -> list[SectionRowOut]:
+    return sorted(rows, key=lambda r: _TONE_RANK[r.tone])
+
+
+def _unavailable(key: str, reason: str, unit: SeriesUnit = "count") -> SectionCardOut:
+    return SectionCardOut(
+        key=key,
+        available=False,
+        reason=reason,
+        unit=unit,
+        series=SeriesOut(available=False, reason=reason, unit=unit, bad_side="above"),
+    )
+
+
+def _day_values(
+    days: list[date], values: dict[date, int], operated: set[date], *, today: date
+) -> list[SeriesPointOut]:
+    """Una barra por día: `None` (rayado) el día que ninguna sede abrió, el
+    `0` de verdad el día que abrió y no pasó nada."""
+    return [
+        SeriesPointOut(
+            key=d.isoformat(),
+            label=_trend_label(d, today),
+            value=values.get(d, 0) if d in operated else None,
+            outside=False,
+            now=d == today,
+        )
+        for d in days
+    ]
+
+
+# ---- Caja ------------------------------------------------------------------
+
+
+def _closes_card(db: Session, stores: list[Store], today: date) -> SectionCardOut:
+    """«¿Cuadraron los turnos de ayer?»: por sede, cómo cerró ayer; la serie
+    es la diferencia de cierre (`Shift.difference`, la del cierre a ciegas)
+    sumada por día, arriba sobra y abajo falta."""
+    yesterday = today - timedelta(days=1)
+    days = _window(yesterday, SECTION_TREND_DAYS)
+    ids = [s.id for s in stores]
+    found = db.execute(
+        select(Shift, BusinessDay.business_date)
+        .join(BusinessDay, BusinessDay.id == Shift.business_day_id)
+        .where(
+            Shift.store_id.in_(ids),
+            BusinessDay.business_date >= days[0],
+            BusinessDay.business_date <= yesterday,
+            Shift.status != ShiftStatus.CANCELLED,
+        )
+        .order_by(Shift.opened_at, Shift.id)
+    ).all()
+    by_day: dict[date, int] = defaultdict(int)
+    counted_days: set[date] = set()
+    of_yesterday: dict[int, list[Shift]] = defaultdict(list)
+    for shift, business_date in found:
+        if (
+            shift.status == ShiftStatus.CLOSED
+            and not shift.closed_without_count
+            and shift.difference is not None
+        ):
+            by_day[business_date] += shift.difference
+            counted_days.add(business_date)
+        if business_date == yesterday:
+            of_yesterday[shift.store_id].append(shift)
+
+    rows: list[SectionRowOut] = []
+    squared = operated = short = over = unclosed = no_count = 0
+    for s in stores:
+        shifts = of_yesterday.get(s.id, [])
+        key = str(s.id)
+        if not shifts:
+            rows.append(SectionRowOut(key=key, label=f"{s.name} · no abrió", note="No abrió", tone="muted"))
+            continue
+        operated += 1
+        if any(x.status == ShiftStatus.OPEN for x in shifts):
+            unclosed += 1
+            rows.append(SectionRowOut(key=key, label=f"{s.name} · nadie cerró", note="Sin cierre", tone="critical"))
+            continue
+        label = f"{s.name} · cerró {shifts[-1].closed_by_employee_name or 'sin nombre'}"
+        if any(x.closed_without_count for x in shifts):
+            no_count += 1
+            rows.append(SectionRowOut(key=key, label=label, note="Sin conteo", tone="critical"))
+            continue
+        diffs = [x.difference for x in shifts if x.difference is not None]
+        if not diffs:
+            rows.append(SectionRowOut(key=key, label=label, note="Sin dato", tone="muted"))
+            continue
+        diff = sum(diffs)
+        if diff == 0:
+            squared += 1
+            rows.append(SectionRowOut(key=key, label=label, value=0, note="Cuadra", tone="ok"))
+        elif diff < 0:
+            short += 1
+            rows.append(SectionRowOut(key=key, label=label, value=diff, tone="critical"))
+        else:
+            over += 1
+            rows.append(SectionRowOut(key=key, label=label, value=diff, tone="warning"))
+
+    parts = []
+    if short:
+        parts.append(_count_word(short, "faltante", "faltantes"))
+    if over:
+        parts.append(_count_word(over, "sobrante", "sobrantes"))
+    if unclosed:
+        parts.append(f"{unclosed} sin cerrar")
+    if no_count:
+        parts.append(f"{no_count} sin conteo")
+    if operated == 0:
+        status, tone = "Ayer no abrió ninguna sede", "muted"
+    elif parts:
+        status = " · ".join(parts)
+        tone = "critical" if short or unclosed or no_count else "warning"
+    else:
+        status, tone = "Todos cuadraron", "ok"
+    points = [
+        SeriesPointOut(
+            key=d.isoformat(),
+            label=_trend_label(d, today),
+            value=by_day[d] if d in counted_days else None,
+            outside=d in counted_days and by_day[d] < 0,
+            now=d == yesterday,
+        )
+        for d in days
+    ]
+    todas = ", todas las sedes" if len(stores) > 1 else ""
+    return SectionCardOut(
+        key="closes",
+        unit="count",
+        value=squared if operated else None,
+        of=operated if operated else None,
+        tone=tone,  # type: ignore[arg-type]
+        status=status,
+        note=f"Diferencia total de cierre por día{todas}. Arriba sobra, abajo falta.",
+        chart="diverging",
+        series=SeriesOut(unit="cop", bad_side="below", reference=0, points=points),
+        rows=_by_tone(rows),
+    )
+
+
+def _deposits_card(db: Session, stores: list[Store], today: date) -> SectionCardOut:
+    """«¿Qué consignaciones faltan por confirmar?»: las hechas desde la caja
+    (con su foto) que el administrador todavía no confirmó ni rechazó."""
+    from app.banking.models import BankDeposit, BankDepositStatus
+
+    on = {
+        s.id: s.name
+        for s in stores
+        if features.is_enabled(db, s.organization_id, s.id, "money.deposits")
+    }
+    if not on:
+        return _unavailable("deposits", DEPOSITS_OFF_REASON, unit="cop")
+    pending = list(
+        db.execute(
+            select(BankDeposit)
+            .where(
+                BankDeposit.store_id.in_(list(on)),
+                BankDeposit.status == BankDepositStatus.LIVE,
+                BankDeposit.confirmed_at.is_(None),
+            )
+            .order_by(BankDeposit.deposited_at, BankDeposit.id)
+        ).scalars()
+    )
+    per_day: dict[date, int] = defaultdict(int)
+    for d in pending:
+        per_day[d.business_date] += 1
+    points = [
+        SeriesPointOut(
+            key=d.isoformat(),
+            label=_trend_label(d, today),
+            value=per_day.get(d, 0),
+            outside=per_day.get(d, 0) > 0,
+            now=d == today,
+        )
+        for d in _window(today, SECTION_TREND_DAYS)
+    ]
+    rows = [
+        SectionRowOut(
+            key=str(d.id),
+            label=(
+                f"{on[d.store_id]} · consignó {d.employee_name} · "
+                f"{day_label(d.business_date)} {clock_label(d.deposited_at)}"
+            ),
+            value=d.amount,
+            tone="warning",
+        )
+        for d in pending
+    ]
+    return SectionCardOut(
+        key="deposits",
+        unit="cop",
+        value=sum(d.amount for d in pending),
+        tone="warning" if pending else "ok",
+        status=f"{len(pending)} por confirmar" if pending else "Todo confirmado",
+        note="Consignaciones hechas desde la caja que esperan tu confirmación, por día. Cada una trae la foto del comprobante.",
+        series=SeriesOut(unit="count", bad_side="above", points=points),
+        rows=rows,
+    )
+
+
+def _pickups_card(db: Session, stores: list[Store], today: date) -> SectionCardOut:
+    """«¿Cuánto salió en retiros hoy?»: los retiros vivos (un retiro
+    reversado no salió) por día, y las sedes con el efectivo sobre el umbral
+    —la misma lectura que el semáforo de Hoy—."""
+    from app.shifts import service as shifts_service
+    from app.shifts.models import CashPickup
+
+    ids = [s.id for s in stores]
+    names = {s.id: s.name for s in stores}
+    days = _window(today, SECTION_WEEK_DAYS)
+    found = db.execute(
+        select(CashPickup, BusinessDay.business_date)
+        .join(Shift, Shift.id == CashPickup.shift_id)
+        .join(BusinessDay, BusinessDay.id == Shift.business_day_id)
+        .where(
+            CashPickup.store_id.in_(ids),
+            CashPickup.reversed_at.is_(None),
+            BusinessDay.business_date >= days[0],
+            BusinessDay.business_date <= today,
+        )
+        .order_by(CashPickup.at, CashPickup.id)
+    ).all()
+    per_day: dict[date, int] = defaultdict(int)
+    of_today: list[Any] = []
+    for pickup, business_date in found:
+        per_day[business_date] += pickup.amount
+        if business_date == today:
+            of_today.append(pickup)
+    suggested: list[Store] = []
+    for s in stores:
+        shift = shifts_service.get_current_shift(db, store=s)
+        if shift is not None and shifts_service.cash_over_threshold(db, shift, s):
+            suggested.append(s)
+    operated = service._operated_dates(db, ids, days[0], today)
+    rows = [
+        SectionRowOut(key=f"s{s.id}", label=f"{s.name} · efectivo sobre el umbral", note="Sugerido", tone="warning")
+        for s in suggested
+    ] + [
+        SectionRowOut(
+            key=str(p.id),
+            label=f"{names[p.store_id]} · {p.employee_name} · {clock_label(p.at)}",
+            value=p.amount,
+            tone="muted",
+        )
+        for p in of_today
+    ]
+    if suggested:
+        quien = ", ".join(s.name for s in suggested)
+        status = f"{quien} {'tiene' if len(suggested) == 1 else 'tienen'} uno sugerido"
+        tone = "warning"
+    elif of_today:
+        status, tone = _count_word(len(of_today), "retiro hoy", "retiros hoy"), "ok"
+    else:
+        status, tone = "Sin retiros hoy", "muted"
+    return SectionCardOut(
+        key="pickups",
+        unit="cop",
+        value=per_day.get(today, 0) if today in operated else None,
+        tone=tone,  # type: ignore[arg-type]
+        status=status,
+        note="Retiros a caja fuerte por día. La barra de hoy sigue creciendo.",
+        series=SeriesOut(
+            unit="cop", bad_side="above", points=_day_values(days, per_day, operated, today=today)
+        ),
+        rows=rows,
+    )
+
+
+def _expenses_card(db: Session, stores: list[Store], today: date) -> SectionCardOut:
+    """«¿Cuánto se gastó de la caja hoy?»: los egresos del cajón con causa
+    de gasto (`CashMovement`, causa tipada), y si traen foto."""
+    from app.shifts.models import CashMovement, CashMovementCause, CashMovementKind
+
+    ids = [s.id for s in stores]
+    names = {s.id: s.name for s in stores}
+    days = _window(today, SECTION_WEEK_DAYS)
+    causes = [CashMovementCause(c) for c in _CASH_EXPENSE_LABEL]
+    found = db.execute(
+        select(CashMovement, BusinessDay.business_date)
+        .join(Shift, Shift.id == CashMovement.shift_id)
+        .join(BusinessDay, BusinessDay.id == Shift.business_day_id)
+        .where(
+            CashMovement.store_id.in_(ids),
+            CashMovement.kind == CashMovementKind.EXPENSE,
+            CashMovement.cause.in_(causes),
+            BusinessDay.business_date >= days[0],
+            BusinessDay.business_date <= today,
+        )
+        .order_by(CashMovement.at, CashMovement.id)
+    ).all()
+    per_day: dict[date, int] = defaultdict(int)
+    of_today: list[Any] = []
+    for movement, business_date in found:
+        per_day[business_date] += movement.amount
+        if business_date == today:
+            of_today.append(movement)
+    operated = service._operated_dates(db, ids, days[0], today)
+    without_photo = sum(1 for m in of_today if not m.receipt_photo)
+    rows = [
+        SectionRowOut(
+            key=str(m.id),
+            label=(
+                f"{names[m.store_id]} · {m.note or _CASH_EXPENSE_LABEL.get(m.cause.value, 'Gasto')} · "
+                f"{clock_label(m.at)}"
+            ),
+            value=m.amount,
+            note=None if m.receipt_photo else "sin foto",
+            tone="muted" if m.receipt_photo else "warning",
+        )
+        for m in of_today
+    ]
+    if not of_today:
+        status, tone = "Sin gastos hoy", "muted"
+    elif without_photo:
+        status, tone = _count_word(without_photo, "gasto sin foto", "gastos sin foto"), "warning"
+    else:
+        n = len(of_today)
+        status = "1 gasto, con foto" if n == 1 else f"{n} gastos, todos con foto"
+        tone = "ok"
+    return SectionCardOut(
+        key="expenses",
+        unit="cop",
+        value=per_day.get(today, 0) if today in operated else None,
+        tone=tone,  # type: ignore[arg-type]
+        status=status,
+        note="Gastos pagados con plata de la caja, por día.",
+        series=SeriesOut(
+            unit="cop", bad_side="above", points=_day_values(days, per_day, operated, today=today)
+        ),
+        rows=_by_tone(rows),
+    )
+
+
+# ---- Equipo ----------------------------------------------------------------
+
+
+def _staff_now_card(db: Session, stores: list[Store], now: datetime) -> SectionCardOut:
+    """«¿Quién trabaja hoy?»: personas en turno por hora (la serie de Hoy,
+    sumada sede por sede) y quién está adentro ahora."""
+    per_store = [(s, _staff_by_hour(db, s, now), shifts_hooks.present_today(db, store_id=s.id)) for s in stores]
+    points: list[SeriesPointOut] = []
+    for i, h in enumerate(STAFF_HOURS):
+        these = [serie.points[i] for _s, serie, _p in per_store]
+        points.append(
+            SeriesPointOut(
+                key=str(h),
+                label=hour_label(h),
+                value=sum(p.value or 0 for p in these),
+                future=all(p.future for p in these),
+                now=any(p.now for p in these),
+            )
+        )
+    present = sum(len(p) for _s, _serie, p in per_store)
+    paused = sum(1 for _s, _serie, p in per_store for r in p if r.on_pause)
+    rows = [
+        SectionRowOut(key=str(s.id), label=s.name, value=len(p), unit="people", tone="ok" if p else "muted")
+        for s, _serie, p in per_store
+    ]
+    todas = ", todas las sedes" if len(stores) > 1 else ""
+    return SectionCardOut(
+        key="staff",
+        unit="people",
+        value=present,
+        tone="ok" if present else "muted",
+        status=_count_word(paused, "en pausa", "en pausa") if paused else "Nadie en pausa",
+        note=(
+            f"Personas en turno por hora{todas}. Lo que viene sale más claro: no hay horario "
+            "programado, así que se supone que quien está sigue hasta el cierre."
+        ),
+        series=SeriesOut(unit="people", bad_side="below", points=points),
+        rows=rows,
+    )
+
+
+def _forgotten_exits_card(db: Session, stores: list[Store], today: date) -> SectionCardOut:
+    """«¿Quién no marcó salida?»: las salidas olvidadas de la asistencia
+    (no suman horas hasta que se corrigen)."""
+    per_day: dict[date, int] = defaultdict(int)
+    rows: list[SectionRowOut] = []
+    for s in stores:
+        for r in shifts_hooks.attendance_pending_review(db, store_id=s.id):
+            per_day[r.business_date] += 1
+            rows.append(
+                SectionRowOut(
+                    key=str(r.entry_id),
+                    label=f"{r.employee_name} · {s.name} · entró {day_label(r.business_date)} {clock_label(r.in_at)}",
+                    unit="count",
+                    note="Sin salida",
+                    tone="warning",
+                )
+            )
+    points = [
+        SeriesPointOut(
+            key=d.isoformat(),
+            label=_trend_label(d, today),
+            value=per_day.get(d, 0),
+            outside=per_day.get(d, 0) > 0,
+            now=d == today,
+        )
+        for d in _window(today, SECTION_TREND_DAYS)
+    ]
+    n = len(rows)
+    if n == 0:
+        status = "Todas marcadas"
+    elif n == 1:
+        status = rows[0].label.split(" · ")[0]
+    else:
+        status = f"{n} por corregir"
+    return SectionCardOut(
+        key="exits",
+        unit="count",
+        value=n,
+        tone="warning" if n else "ok",
+        status=status,
+        note="Salidas sin marcar por día. Cada una deja las horas de nómina sin cerrar hasta corregirla.",
+        series=SeriesOut(unit="count", bad_side="above", points=points),
+        rows=rows,
+    )
+
+
+def _week_hours_card(db: Session, stores: list[Store], today: date, now: datetime) -> SectionCardOut:
+    """«¿Cómo van las horas de la semana?»: minutos trabajados por día según
+    la asistencia, con el mismo motor de jornada de nómina (resta las
+    pausas). Las salidas olvidadas no cuentan hasta corregirlas."""
+    from app.payroll.service import _worked_intervals
+    from app.shifts import attendance
+
+    monday = today - timedelta(days=today.weekday())
+    days = [monday + timedelta(days=i) for i in range(7)]
+    per_day: dict[date, int] = defaultdict(int)
+    per_store: dict[int, int] = defaultdict(int)
+    for s in stores:
+        store_today = attendance.business_date_now(db, s.id)
+        for entry in attendance.list_entries(db, store_id=s.id, date_from=monday, date_to=today):
+            if attendance.entry_status(entry, store_today) == "review":
+                continue
+            seconds = sum((b - a).total_seconds() for a, b in _worked_intervals(entry, until=now))
+            minutes = int(seconds // 60)
+            per_day[entry.business_date] += minutes
+            per_store[s.id] += minutes
+    points = [
+        SeriesPointOut(
+            key=d.isoformat(),
+            label=day_label(d) if d != today else "hoy",
+            value=None if d > today else per_day.get(d, 0),
+            future=d > today,
+            now=d == today,
+        )
+        for d in days
+    ]
+    total = sum(per_store.values())
+    rows = [
+        SectionRowOut(key=str(s.id), label=s.name, value=per_store.get(s.id, 0), unit="minutes", tone="muted")
+        for s in stores
+    ]
+    return SectionCardOut(
+        key="hours",
+        unit="minutes",
+        value=total,
+        tone="ok" if total else "muted",
+        status="Sin horas programadas para comparar",
+        note=(
+            "Horas trabajadas por día esta semana, según la asistencia. No hay horas programadas en el "
+            "sistema: por eso no hay raya. Las salidas olvidadas no cuentan hasta corregirlas."
+        ),
+        series=SeriesOut(unit="minutes", bad_side="below", points=points),
+        rows=rows,
+    )
+
+
+# ---- Informes --------------------------------------------------------------
+
+
+class _StoreDay:
+    """Lo de hoy de una sede: la misma lectura que `Hoy` (`today_report`)."""
+
+    def __init__(self, db: Session, store: Store, now: datetime) -> None:
+        self.store = store
+        self.today = tz.today_business_date(store.cutoff_hour)
+        docs = service._sale_documents(db, store_id=store.id, date_from=self.today, date_to=self.today)
+        _rows, total = service.aggregate_sales(
+            db, store_id=store.id, date_from=self.today, date_to=self.today, group_by=None
+        )
+        self.net = total.net
+        self.orders = total.orders
+        self.comparison, self.ref_hours = service._today_comparison(
+            db,
+            store,
+            business_date=self.today,
+            now=now,
+            net=total.net,
+            orders=total.orders,
+            first_activity=service._first_activity_date(db, store.id),
+        )
+        self.hours = service._hour_buckets(
+            docs, cutoff_hour=store.cutoff_hour, now_local_hour=tz.to_bogota(now).hour
+        )
+        self._by_hour = {b.hour: b for b in self.hours}
+        self._ref_by_hour = {b.hour: b for b in self.ref_hours}
+
+    def hour(self, h: int) -> HourBucketOut:
+        return self._by_hour[h]
+
+    def ref_hour(self, h: int) -> HourBucketOut:
+        return self._ref_by_hour[h]
+
+
+def _trimmed(points: list[SeriesPointOut]) -> list[SeriesPointOut]:
+    """Sin las horas del principio en que no pasó nada (ni hoy ni la raya)."""
+    for i, p in enumerate(points):
+        if (p.value or 0) != 0 or (p.reference or 0) != 0:
+            return points[i:]
+    return points[-1:]
+
+
+def _sales_today_card(
+    db: Session, stores: list[Store], days: list[_StoreDay], now: datetime
+) -> SectionCardOut:
+    """«¿Vendo más o menos que la semana pasada?»: ventas netas acumuladas
+    por hora contra el mismo día de la semana pasada, acumulado a la misma
+    hora (la comparación de Hoy)."""
+    ids = [s.id for s in stores]
+    today = days[0].today
+    _rows, total = service.aggregate_sales(db, store_id=ids, date_from=today, date_to=today, group_by=None)
+    refs = [d.comparison.net for d in days]
+    reference = sum(r for r in refs if r is not None) if all(r is not None for r in refs) else None
+    delta = service._delta_bp(total.net, reference)
+    ref_day = days[0].comparison.reference_business_date
+    ref_hours_ok = all(d.ref_hours for d in days)
+
+    points: list[SeriesPointOut] = []
+    cum = 0
+    ref_cum = 0
+    for bucket in days[0].hours:
+        if bucket.pending:
+            break
+        cum += sum(d.hour(bucket.hour).net for d in days)
+        ref_cum += sum(d.ref_hour(bucket.hour).net for d in days) if ref_hours_ok else 0
+        points.append(
+            SeriesPointOut(
+                key=str(bucket.hour),
+                label=hour_label(bucket.hour),
+                value=cum,
+                reference=ref_cum if ref_hours_ok else None,
+            )
+        )
+    if points:
+        # La hora en curso: la raya es la de la misma hora al minuto (la
+        # cifra de la tarjeta), no la hora entera de la semana pasada.
+        last = points[-1]
+        last.value = total.net
+        last.reference = reference
+        last.now = True
+    points = _trimmed(points)
+    for p in points:
+        p.delta_bp = service._delta_bp(p.value, p.reference)
+        p.outside = p.value is not None and p.reference is not None and p.value < p.reference
+
+    rows = [
+        SectionRowOut(
+            key=str(d.store.id),
+            label=d.store.name,
+            value=d.net,
+            tone=(
+                "warning"
+                if d.comparison.net is not None and d.net < d.comparison.net
+                else "ok" if d.net > 0 else "muted"
+            ),
+        )
+        for d in days
+    ]
+    # «12:54 p. m.» ya termina en punto: no se le pone otro.
+    note = f"Ventas netas acumuladas hasta las {clock_label(now)}"
+    if reference is not None:
+        note += f" El {day_label(ref_day)} a esta hora iba en {format_cop(reference)}."
+    else:
+        note += " " + (next((d.comparison.null_reason for d in days if d.comparison.null_reason), None) or "")
+    status = _delta_text(delta, ref_day)
+    return SectionCardOut(
+        key="sales",
+        unit="cop",
+        value=total.net,
+        tone="muted" if delta is None else "ok" if delta >= 0 else "warning",
+        status=status or "Sin comparación con la semana pasada",
+        note=note.strip(),
+        chart="dual",
+        series=SeriesOut(unit="cop", bad_side="below", points=points),
+        rows=rows,
+    )
+
+
+def _best_store_card(stores: list[Store], days: list[_StoreDay]) -> SectionCardOut:
+    """«¿Qué sede va mejor hoy?»: el cambio de cada una contra su mismo día
+    de la semana pasada a la misma hora."""
+    if len(stores) < 2:
+        return _unavailable("best_store", BEST_STORE_ONE_REASON, unit="bp")
+    ranked = sorted(days, key=lambda d: (d.comparison.delta_bp is None, -(d.comparison.delta_bp or 0)))
+    points = [
+        SeriesPointOut(
+            key=str(d.store.id),
+            label=d.store.name,
+            value=d.comparison.delta_bp,
+            outside=d.comparison.delta_bp is not None and d.comparison.delta_bp < 0,
+        )
+        for d in ranked
+    ]
+    rows = [
+        SectionRowOut(
+            key=str(d.store.id),
+            label=d.store.name,
+            value=d.comparison.delta_bp,
+            unit="bp",
+            note=None if d.comparison.delta_bp is not None else "Sin comparación",
+            tone=(
+                "muted"
+                if d.comparison.delta_bp is None
+                else "ok" if d.comparison.delta_bp >= 0 else "critical"
+            ),
+        )
+        for d in ranked
+    ]
+    best = next((d for d in ranked if d.comparison.delta_bp is not None), None)
+    ref_day = days[0].comparison.reference_business_date
+    if best is None:
+        return SectionCardOut(
+            key="best_store",
+            unit="bp",
+            tone="muted",
+            status="Ninguna sede tiene con qué comparar",
+            note=f"Cambio contra el {day_label(ref_day)} a la misma hora.",
+            chart="diverging",
+            series=SeriesOut(unit="bp", bad_side="below", reference=0, points=points),
+            rows=rows,
+        )
+    assert best.comparison.delta_bp is not None
+    return SectionCardOut(
+        key="best_store",
+        unit="bp",
+        value=best.comparison.delta_bp,
+        value_text=best.store.name,
+        tone="ok" if best.comparison.delta_bp >= 0 else "warning",
+        status=_delta_text(best.comparison.delta_bp, ref_day),
+        note=f"Cambio contra el {day_label(ref_day)} a la misma hora.",
+        chart="diverging",
+        series=SeriesOut(unit="bp", bad_side="below", reference=0, points=points),
+        rows=rows,
+    )
+
+
+def _load_card(db: Session, stores: list[Store], today: date, now: datetime) -> SectionCardOut:
+    """«¿A qué horas necesito más gente?»: comandas de salón por hora de
+    hoy contra lo que alcanzan los meseros en turno (la misma cuenta que
+    «Horas pico» de Informes). Lo que viene es lo del mismo día de la semana
+    pasada, al 35 %."""
+    ids = [s.id for s in stores]
+    ref_day = today - timedelta(days=7)
+    orders = _orders_by_day_hour(db, ids, date_from=ref_day, date_to=today)
+    opw = {s.id: _sales_settings(db, s).orders_per_waiter for s in stores}
+    waiters = {
+        s.id: _waiters_by_day_hour(db, s, date_from=today, date_to=today, hours=PEAK_HOURS) for s in stores
+    }
+    cutoff = stores[0].cutoff_hour
+    points: list[PeakHourPointOut] = []
+    for h in PEAK_HOURS:
+        start = _bogota_instant(today, h, cutoff)
+        if start > now:
+            points.append(
+                PeakHourPointOut(
+                    key=str(h), label=hour_label(h), value=orders.get((ref_day, h), 0), future=True
+                )
+            )
+            continue
+        w_total = sum(waiters[s.id].get((today, h), 0) for s in stores)
+        capacity = sum(waiters[s.id].get((today, h), 0) * opw[s.id] for s in stores)
+        value = orders.get((today, h), 0)
+        points.append(
+            PeakHourPointOut(
+                key=str(h),
+                label=hour_label(h),
+                value=value,
+                reference=capacity,
+                delta_bp=service._delta_bp(value, capacity),
+                outside=value > capacity,
+                now=start <= now < start + timedelta(hours=1),
+                waiters=w_total,
+            )
+        )
+    common = set(opw.values())
+    opw_text = f"{next(iter(common))} por mesero" if len(common) == 1 else "según cada sede"
+    over = [p for p in points if p.outside and not p.future]
+    rows = [
+        SectionRowOut(
+            key=p.key,
+            label=f"{p.label} · {_count_word(p.waiters or 0, 'mesero', 'meseros')}",
+            value=p.value,
+            unit="count",
+            tone="warning",
+        )
+        for p in over
+    ]
+    note = (
+        f"Comandas de salón por hora contra lo que alcanzan los meseros en turno ({opw_text}). "
+        f"Lo que viene, más claro, es lo del {day_label(ref_day)}."
+    )
+    series_out = SeriesOut(
+        unit="count",
+        bad_side="above",
+        points=[SeriesPointOut(**p.model_dump(exclude={"waiters"})) for p in points],
+    )
+    if not over:
+        return SectionCardOut(
+            key="load",
+            unit="count",
+            value_text="Cubierto",
+            tone="ok",
+            status=f"Ninguna hora pasó de {opw_text}",
+            note=note,
+            chart="dual",
+            series=series_out,
+            rows=rows,
+        )
+    worst = max(over, key=lambda p: (p.value or 0) - (p.reference or 0))
+    i = points.index(worst)
+    start_i = end_i = i
+    while start_i > 0 and points[start_i - 1].outside and not points[start_i - 1].future:
+        start_i -= 1
+    while end_i < len(points) - 1 and points[end_i + 1].outside and not points[end_i + 1].future:
+        end_i += 1
+    run = points[start_i : end_i + 1]
+    run_orders = sum(p.value or 0 for p in run)
+    run_waiters = sum(p.waiters or 0 for p in run)
+    first_h = PEAK_HOURS[start_i]
+    last_h = PEAK_HOURS[end_i] + 1
+    if run_waiters > 0:
+        tenths = money.round_half_up(run_orders * 10, run_waiters)
+        per = f"{tenths // 10},{tenths % 10}" if tenths % 10 else str(tenths // 10)
+        status = f"{per} comandas por mesero"
+    else:
+        status = "Sin meseros en turno"
+    return SectionCardOut(
+        key="load",
+        unit="count",
+        value=run_orders,
+        value_text=f"{hour_label(first_h)} a {hour_label(last_h)}",
+        tone="warning",
+        status=status,
+        note=note,
+        chart="dual",
+        series=series_out,
+        rows=rows,
+    )
+
+
+def _orders_today_card(
+    db: Session, stores: list[Store], days: list[_StoreDay]
+) -> SectionCardOut:
+    """«¿Cuántas comandas llevamos?»: comandas pagadas hoy, por hora, contra
+    el mismo día de la semana pasada a la misma hora, con el ticket
+    promedio de la misma agregación de Ventas."""
+    ids = [s.id for s in stores]
+    today = days[0].today
+    by_channel, total = service.aggregate_sales(
+        db, store_id=ids, date_from=today, date_to=today, group_by="channel"
+    )
+    refs = [d.comparison.orders for d in days]
+    reference = sum(r for r in refs if r is not None) if all(r is not None for r in refs) else None
+    delta = service._delta_bp(total.orders, reference)
+    points: list[SeriesPointOut] = []
+    for bucket in days[0].hours:
+        if bucket.pending:
+            break
+        points.append(
+            SeriesPointOut(
+                key=str(bucket.hour),
+                label=hour_label(bucket.hour),
+                value=sum(d.hour(bucket.hour).orders for d in days),
+            )
+        )
+    if points:
+        points[-1].now = True
+    points = _trimmed(points)
+    parts = [t for t in (_delta_text(delta, None),) if t]
+    if total.avg_ticket is not None:
+        parts.append(f"ticket {format_cop(total.avg_ticket)}")
+    rows = [
+        SectionRowOut(key=r.key, label=r.label, value=r.orders, unit="count", tone="muted")
+        for r in by_channel
+    ]
+    todas = ", todas las sedes" if len(stores) > 1 else ""
+    return SectionCardOut(
+        key="orders",
+        unit="count",
+        value=total.orders,
+        tone="muted" if delta is None else "ok" if delta >= 0 else "warning",
+        status=" · ".join(parts) if parts else "Todavía sin comandas pagadas",
+        note=f"Comandas pagadas por hora{todas}.",
+        series=SeriesOut(unit="count", bad_side="below", points=points),
+        rows=rows,
+    )
+
+
+def sections(db: Session, *, stores: list[Store], all_stores: bool, section: str) -> SectionOut:
+    """Las cuatro tarjetas de una sección del celular (`caja`, `equipo` o
+    `informes`), para una sede o para todas."""
+    now = clock.now_utc()
+    today = tz.today_business_date(stores[0].cutoff_hour)
+    cards: list[SectionCardOut]
+    if section == "caja":
+        cards = [
+            _closes_card(db, stores, today),
+            _deposits_card(db, stores, today),
+            _pickups_card(db, stores, today),
+            _expenses_card(db, stores, today),
+        ]
+    elif section == "equipo":
+        cards = [
+            _staff_now_card(db, stores, now),
+            _unavailable("late", LATE_ARRIVALS_REASON),
+            _forgotten_exits_card(db, stores, today),
+            _week_hours_card(db, stores, today, now),
+        ]
+    else:
+        days = [_StoreDay(db, s, now) for s in stores]
+        cards = [
+            _sales_today_card(db, stores, days, now),
+            _best_store_card(stores, days),
+            _load_card(db, stores, today, now),
+            _orders_today_card(db, stores, days),
+        ]
+    return SectionOut(
+        section=section,  # type: ignore[arg-type]
+        scope="all" if all_stores else "store",
+        store_ids=[s.id for s in stores],
+        generated_at=now,
+        cards=cards,
     )

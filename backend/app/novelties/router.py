@@ -193,3 +193,45 @@ def post_admin_resolve(
 ) -> JSONResponse:
     store = admin_store(db, actor, store_id)
     return _resolve(db, store=store, actor=actor, novelty_id=novelty_id, body=body, request=request)
+
+
+@router.post("/admin/novelties/{novelty_id}/reopen")
+def post_admin_reopen(
+    novelty_id: int,
+    body: NoveltyResolveIn,
+    request: Request,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(_require),
+) -> JSONResponse:
+    """«Reversar con motivo» la resolución de una novedad (la nota es el
+    motivo): vuelve a quedar abierta, y la resolución anterior queda en la
+    auditoría."""
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row, before = service.reopen_novelty(db, store=store, actor=actor, novelty_id=novelty_id, data=body)
+        out = service.novelty_out(row).model_dump(mode="json")
+        record_audit(
+            db,
+            actor=actor,
+            organization_id=store.organization_id,
+            store_id=store.id,
+            entity="novelty",
+            entity_id=row.id,
+            action="reopen",
+            before=before,
+            after=out,
+            reason=body.note.strip(),
+        )
+        return 200, out
+
+    return _idempotent(
+        db,
+        organization_id=store.organization_id,
+        scope=f"novelties.reopen.{novelty_id}",
+        request=request,
+        payload=body,
+        fn=_do,
+    )

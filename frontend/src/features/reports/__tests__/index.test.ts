@@ -16,6 +16,12 @@ describe("reportsFeature", () => {
       "dinero/turno/:shiftId",
       "personal/persona/:employeeId",
       "inventario/insumo/:ingredientId",
+      // Movida con motivo declarado (handoff, `MovilSecciones` variante A):
+      // Caja, Equipo e Informes del celular son rutas de este dominio que
+      // abre la barra inferior del celular; tampoco suman entradas al rail.
+      "celular/caja",
+      "celular/equipo",
+      "celular/informes",
     ])
 
     expect(reportsFeature.adminNav).toEqual([
