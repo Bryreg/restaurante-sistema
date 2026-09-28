@@ -348,3 +348,55 @@ def test_the_drawer_remembers_the_banks_the_store_used(
     assert again.status_code == 201, again.text
     # El último usado primero, sin repetir.
     assert device_client.get(f"{API}/deposits/drawer").json()["recent_banks"] == ["Bancolombia", "Davivienda"]
+
+
+def test_reversing_a_confirmation_leaves_the_deposit_alive_and_the_trace_in_the_audit(
+    device_client: TestClient,
+    admin_client: TestClient,
+    open_shift: Any,
+    close_shift: Any,
+    identify: Any,
+    employees: dict,
+    store: Any,
+    db: Session,
+) -> None:
+    """«Reversar con motivo» en «Requiere tu atención»: la confirmación se
+    reversa (vuelve a estar por confirmar) sin tocar la consignación, y quién
+    la había confirmado queda en el historial."""
+    from sqlalchemy import select
+
+    from app.audit.models import AuditLog
+
+    ayer = _yesterday_with_50k(open_shift, close_shift)
+    _open_with_carry(device_client, identify, employees["cashier"], counted=250_000, carried=[ayer])
+    dep = _pos_deposit(device_client, ayer, 50_000).json()
+
+    # Sin confirmar no hay qué reversar; sin motivo tampoco se acepta.
+    early = admin_client.post(f"{API}/admin/deposits/{dep['id']}/unconfirm", json={"reason": "error"}, headers=idem())
+    assert early.status_code == 400 and early.json()["error"]["code"] == "DEPOSIT_NOT_CONFIRMED"
+    assert admin_client.post(f"{API}/admin/deposits/{dep['id']}/confirm").status_code == 200
+    blank = admin_client.post(f"{API}/admin/deposits/{dep['id']}/unconfirm", json={"reason": "  "}, headers=idem())
+    assert blank.status_code in (400, 422)
+
+    back = admin_client.post(
+        f"{API}/admin/deposits/{dep['id']}/unconfirm", json={"reason": "Confirmé la equivocada"}, headers=idem()
+    )
+    assert back.status_code == 200, back.text
+    assert back.json()["needs_confirmation"] is True
+    assert back.json()["status"] == "live"
+    assert _pending(admin_client, store, ayer)["outstanding"] == 0  # la plata sigue consignada
+    today = admin_client.get(f"{API}/admin/today", params={"store_id": store.id}).json()
+    assert today["deposits_to_confirm_count"] == 1
+
+    trail = (
+        db.execute(
+            select(AuditLog)
+            .where(AuditLog.entity == "bank_deposit", AuditLog.entity_id == dep["id"])
+            .order_by(AuditLog.id)
+        )
+        .scalars()
+        .all()
+    )
+    assert [a.action for a in trail][-2:] == ["confirm", "unconfirm"]
+    assert trail[-1].reason == "Confirmé la equivocada"
+    assert trail[-1].before["confirmed_by_employee_name"]  # type: ignore[index]

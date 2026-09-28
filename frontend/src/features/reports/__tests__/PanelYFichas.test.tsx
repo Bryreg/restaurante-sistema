@@ -118,16 +118,21 @@ describe("PanelAhora (la portada)", () => {
     expect(await screen.findByText(/Turno abandonado del/)).toBeInTheDocument()
     expect(getPanelMock).toHaveBeenCalledWith(1)
     expect(screen.getByText("inactivo")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: /Turno #7/ })).toHaveAttribute("href", "/admin/dinero/turno/7")
+    // Variante A del handoff: el bloque Caja lleva a «Ficha del turno →»
+    // (antes el enlace nombraba «Dinero › Turno #7»).
+    expect(screen.getByRole("link", { name: /Ficha del turno/ })).toHaveAttribute("href", "/admin/dinero/turno/7")
     expect(screen.getByRole("link", { name: "Operador 1" })).toHaveAttribute("href", "/admin/personal/persona/3")
     // Quién trabaja: la asistencia real; la entrada del 16 es una salida olvidada.
     expect(screen.getByText(/Nadie marcó entrada hoy/)).toBeInTheDocument()
     expect(screen.getByText(/1 salida olvidada a revisar: Operador 1/)).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: /Nómina › Horas/ })).toHaveAttribute("href", "/admin/nomina?tab=horas")
+    // El bloque «Quién trabaja» lleva a «Asistencia →» (Nómina › Horas).
+    expect(screen.getByRole("link", { name: /Asistencia/ })).toHaveAttribute("href", "/admin/nomina?tab=horas")
     expect(screen.getByText(/1 préstamo de la base sin devolver/)).toBeInTheDocument()
     expect(screen.getByText(/1 área sin apertura/)).toBeInTheDocument()
     expect(screen.getByText(/2 platos atrasados/)).toBeInTheDocument()
-    expect(screen.getByText("Requiere atención")).toBeInTheDocument()
+    // Las palabras del semáforo son las del handoff: ■ Crítico, ▲ Atención,
+    // ● En orden y «Cerrado» (antes «Requiere atención», «Para revisar», «Al día»).
+    expect(screen.getByText("Crítico")).toBeInTheDocument()
   })
 
   it("quién trabaja sale de la asistencia; sin turno ni actividad la sede está cerrada, no en rojo", async () => {
@@ -163,7 +168,8 @@ describe("PanelAhora (la portada)", () => {
 
     renderWithProviders(<PanelAhora />, { me: buildMe() })
 
-    expect(await screen.findByText("1 persona con entrada")).toBeInTheDocument()
+    // La cifra va grande y la nota al lado: «1 · persona con entrada».
+    expect(await screen.findByText("persona con entrada")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Cocinero Juan" })).toHaveAttribute("href", "/admin/personal/persona/8")
     expect(screen.getAllByText("Cerrado").length).toBeGreaterThan(0)
     expect(screen.getByText(/la sede no está operando/)).toBeInTheDocument()
@@ -184,7 +190,7 @@ describe("PanelAhora (la portada)", () => {
 
     const semaforo = await screen.findByRole("list", { name: "Todas las sedes ahora" })
     expect(getPanelMock).toHaveBeenCalledWith("all")
-    expect(within(semaforo).getByText(/Al día/)).toBeInTheDocument()
+    expect(within(semaforo).getByText(/En orden/)).toBeInTheDocument()
     await userEvent.click(within(semaforo).getByRole("button", { name: /Sede Norte/ }))
     expect(storeState.setActiveStoreId).toHaveBeenCalledWith(2)
   })
@@ -246,8 +252,12 @@ describe("Hoy y el turno abierto de otro día", () => {
     expect(within(aviso).getByRole("link")).toHaveAttribute("href", "/admin/dinero/turno/7")
     expect(within(aviso).getByText(/ya no está activo/)).toBeInTheDocument()
     expect(screen.getByText("1 préstamo de la base sin devolver")).toBeInTheDocument()
-    const salidas = screen.getByText("2 salidas olvidadas a revisar").closest("li") as HTMLElement
-    expect(within(salidas).getByRole("link")).toHaveAttribute("href", "/admin/nomina?tab=horas")
+    // Con la entrada a mano (el panel la trae), la salida olvidada se
+    // corrige en el riel: un aviso por persona, con «Marcar salida» y su
+    // ficha, en lugar del recuento que llevaba a Nómina › Horas.
+    const salidas = (await screen.findByText(/^Operador 1 no marcó salida el mié 16 sep/)).closest("li") as HTMLElement
+    expect(within(salidas).getByRole("button", { name: "Marcar salida" })).toBeInTheDocument()
+    expect(within(salidas).getByRole("link", { name: /Ficha de Operador/ })).toHaveAttribute("href", "/admin/personal/persona/3")
     // La notificación del servidor no se repite al lado del aviso directo.
     expect(screen.queryByText("Turno sin cerrar")).not.toBeInTheDocument()
   })

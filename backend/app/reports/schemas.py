@@ -33,6 +33,12 @@ from app.reports.series_schemas import OverviewSeriesOut
 # el original digan lo mismo.
 SeriesBadSideLiteral = Literal["above", "below"]
 SeriesUnitLiteral = Literal["cop", "count", "people", "minutes", "bp"]
+# Lo mismo para las secciones del celular (`SectionTone`, `SectionChart`,
+# `SectionKey` de `src/api/panel.ts`); `tests/reports/test_sections.py`
+# exige que el espejo diga lo mismo que el original.
+SectionToneLiteral = Literal["ok", "warning", "critical", "muted"]
+SectionChartLiteral = Literal["columns", "diverging", "dual"]
+SectionKeyLiteral = Literal["caja", "equipo", "informes"]
 
 GroupBy = Literal["business_date", "shift", "method", "channel", "employee", "hour", "zone", "product", "category"]
 

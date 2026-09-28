@@ -128,6 +128,17 @@ export function reverseDeposit(depositId: number, data: DepositReverseIn, idempo
   })
 }
 
+/** `POST /admin/deposits/{id}/unconfirm` — «Reversar con motivo» una
+ * confirmación: la consignación sigue viva y vuelve a quedar por confirmar.
+ * Errores: `DEPOSIT_NOT_CONFIRMED`, `DEPOSIT_ALREADY_REVERSED`. */
+export function unconfirmDeposit(depositId: number, data: DepositReverseIn, idempotencyKey: string): Promise<DepositOut> {
+  return api<DepositOut>(`/admin/deposits/${depositId}/unconfirm`, {
+    method: "POST",
+    body: data,
+    idempotencyKey,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Consignar desde el POS (2026-09-24). La venta de días anteriores que
 // todavía no se consignó se queda en el cajón; quien abre marca qué días

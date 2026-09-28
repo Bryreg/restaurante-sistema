@@ -107,9 +107,11 @@ describe("AdminLayout en el celular: barra inferior", () => {
     const controles = within(barra).getAllByRole("listitem").map((li) => li.textContent);
     expect(controles).toEqual(["Hoy", "Informes", "Caja", "Avisos", "Más"]);
     expect(within(barra).getByRole("link", { name: "Hoy" })).toHaveAttribute("href", "/admin/hoy");
-    // La primera pantalla de Informes es Informes (antes, Ventas).
-    expect(within(barra).getByRole("link", { name: "Informes" })).toHaveAttribute("href", "/admin/informes");
-    expect(within(barra).getByRole("link", { name: "Caja" })).toHaveAttribute("href", "/admin/dinero");
+    // Informes y Caja llevan a sus pantallas del celular (handoff,
+    // `MovilSecciones`, variante A); antes llevaban a la primera pantalla de
+    // escritorio de la sección, que en 390 px no entra.
+    expect(within(barra).getByRole("link", { name: "Informes" })).toHaveAttribute("href", "/admin/celular/informes");
+    expect(within(barra).getByRole("link", { name: "Caja" })).toHaveAttribute("href", "/admin/celular/caja");
   });
 
   it("«Avisos» lleva a Hoy › Requiere tu atención, que es donde cada aviso enlaza a lo que lo resuelve", async () => {
@@ -132,12 +134,34 @@ describe("AdminLayout en el celular: barra inferior", () => {
     expect(within(barra).getByRole("link", { name: "Hoy" })).not.toHaveAttribute("aria-current");
   });
 
-  it("«Caja» respeta los flags: sin Dinero va a la primera pantalla encendida de la sección (Banco)", async () => {
+  it("«Caja» respeta los flags: con alguna pantalla de la sección encendida va a Caja del celular", async () => {
     stubMatchMedia(true);
     renderAdmin(buildMe({ features: { "cash.handovers": false, "money.deposits": true } }));
 
     const barra = await screen.findByRole("navigation", { name: "Accesos del celular" });
-    expect(within(barra).getByRole("link", { name: "Caja" })).toHaveAttribute("href", "/admin/banco");
+    // Sin Dinero, la sección sigue (Banco está encendido) y la entrada lleva
+    // a Caja del celular, que a su vez lleva a Banco.
+    expect(within(barra).getByRole("link", { name: "Caja" })).toHaveAttribute("href", "/admin/celular/caja");
+  });
+
+  it("parado en Caja del celular, se marca Caja; en Equipo del celular, «Más»", async () => {
+    stubMatchMedia(true);
+    renderAdmin(buildMe({ features: { "cash.handovers": true } }), "/admin/celular/caja");
+
+    const barra = await screen.findByRole("navigation", { name: "Accesos del celular" });
+    expect(within(barra).getByRole("link", { name: "Caja" })).toHaveAttribute("aria-current", "page");
+    expect(within(barra).getByRole("link", { name: "Hoy" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("en el cajón del celular, Equipo lleva a Equipo del celular", async () => {
+    stubMatchMedia(true);
+    const user = userEvent.setup();
+    renderAdmin(buildMe({ features: { payroll: true } }));
+
+    const barra = await screen.findByRole("navigation", { name: "Accesos del celular" });
+    await user.click(within(barra).getByRole("button", { name: "Más" }));
+    const cajon = await screen.findByRole("dialog");
+    expect(within(cajon).getByRole("link", { name: /^Equipo/ })).toHaveAttribute("href", "/admin/celular/equipo");
   });
 
   it("parado en una pantalla de Informes, se marca Informes", async () => {

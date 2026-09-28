@@ -243,3 +243,66 @@ class PanelBulletsOut(BaseModel):
     #: Minutos de cada tiquete en cocina contra «tiquete demorado».
     tickets: SeriesOut
     generated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Celular: Caja, Equipo e Informes (`GET /admin/panel/sections`)
+# ---------------------------------------------------------------------------
+
+#: Cómo está una tarjeta o un renglón: `ok` (en orden), `warning`
+#: (atención), `critical` (falta plata o algo sin cerrar), `muted` (sin
+#: dato o nada que decir). El color nunca va solo: la forma y el texto los
+#: pone la pantalla.
+SectionTone = Literal["ok", "warning", "critical", "muted"]
+#: Qué dibujo pide la serie: `columns` (una barra por punto), `diverging`
+#: (arriba sobra, abajo falta: el cero al medio) o `dual` (cada barra con
+#: su raya propia: hoy contra la semana pasada).
+SectionChart = Literal["columns", "diverging", "dual"]
+SectionKey = Literal["caja", "equipo", "informes"]
+
+
+class SectionRowOut(BaseModel):
+    """Un renglón de la lista de excepciones de una tarjeta (44 px)."""
+
+    key: str
+    label: str
+    #: El dato, en la unidad de `unit`. `None` = el renglón no tiene cifra y
+    #: dice `note` («Sin cierre», «Sugerido»).
+    value: int | None = None
+    unit: SeriesUnit = "cop"
+    #: La palabra que va en lugar de la cifra («Cuadra», «Sin salida»).
+    note: str | None = None
+    tone: SectionTone = "muted"
+
+
+class SectionCardOut(BaseModel):
+    """Una de las cuatro tarjetas de una sección del celular: la cifra, el
+    estado en palabras, la serie con su raya y las excepciones. Todo lo
+    decide el servidor; la pantalla sólo formatea `value` según `unit`."""
+
+    key: str
+    available: bool = True
+    reason: str | None = None
+    unit: SeriesUnit = "cop"
+    #: La cifra de la tarjeta. `None` = sin dato (nunca 0).
+    value: int | None = None
+    #: «de cuántos», cuando la cifra es un recuento («2 de 4»).
+    of: int | None = None
+    #: La cifra cuando no es un número (una sede, una franja horaria).
+    value_text: str | None = None
+    tone: SectionTone = "muted"
+    #: El estado en una línea: «1 faltante · 1 sin cerrar».
+    status: str | None = None
+    #: De qué está hecha la cifra y cómo leer el gráfico.
+    note: str | None = None
+    chart: SectionChart = "columns"
+    series: SeriesOut
+    rows: list[SectionRowOut] = []
+
+
+class SectionOut(BaseModel):
+    section: SectionKey
+    scope: Literal["all", "store"]
+    store_ids: list[int]
+    generated_at: datetime
+    cards: list[SectionCardOut]

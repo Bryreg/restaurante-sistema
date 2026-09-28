@@ -19,8 +19,10 @@ from app.core.db import get_db
 from app.core.errors import AppError
 from app.reports import overview as overview_service
 from app.reports import panel as panel_service
+from app.reports import series as series_service
 from app.reports import service
 from app.reports.panel_schemas import EmployeeRecordOut, IngredientRecordOut, PanelOut, ShiftRecordOut
+from app.reports.series_schemas import SectionKey, SectionOut
 from app.reports.schemas import AccountantReportOut, GroupBy, ReportsOverviewOut, TodayOut
 
 router = APIRouter()
@@ -169,6 +171,28 @@ def get_panel(
         raise AppError("VALIDATION_ERROR", 'store_id: tiene que ser el id de una sede o "all"', status=400)
     store = admin_store(db, actor, int(store_id))
     return panel_service.panel(db, stores=[store], all_stores=False)
+
+
+@router.get("/admin/panel/sections")
+def get_panel_sections(
+    section: SectionKey = Query(..., description="caja, equipo o informes"),
+    store_id: str = Query(..., description='Id de la sede, o "all" para todas las sedes activas de la organización'),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> SectionOut:
+    """Caja, Equipo e Informes en el celular: cuatro tarjetas por sección,
+    cada una con su cifra, su serie «barra + raya» y sus excepciones
+    (`app.reports.series.sections`). `store_id=all` junta las sedes activas
+    de la organización; un id ajeno es `404`."""
+    if store_id == "all":
+        stores = [s for s in overview_service.organization_stores(db, actor.organization_id) if s.active]
+        if not stores:
+            raise AppError("VALIDATION_ERROR", "Todavía no hay sedes activas: creá una en Configuración", status=400)
+        return series_service.sections(db, stores=stores, all_stores=True, section=section)
+    if not store_id.isdigit():
+        raise AppError("VALIDATION_ERROR", 'store_id: tiene que ser el id de una sede o "all"', status=400)
+    store = admin_store(db, actor, int(store_id))
+    return series_service.sections(db, stores=[store], all_stores=False, section=section)
 
 
 @router.get("/admin/records/shift/{shift_id}")
