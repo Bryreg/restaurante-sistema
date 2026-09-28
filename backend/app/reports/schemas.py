@@ -410,6 +410,10 @@ class PreviousPeriodOut(BaseModel):
     avg_ticket_delta_bp: int | None
     partial: bool
     null_reason: str | None
+    #: Uno de los dos períodos tiene menos de `LOW_BASE_ORDERS` comandas: la
+    #: variación existe pero es de muestra chica («+136,7 %» con 2 comandas no
+    #: es una tendencia). La pantalla la escribe apagada y dice por qué.
+    low_base: bool = False
 
 
 class SalesBucketOut(BaseModel):

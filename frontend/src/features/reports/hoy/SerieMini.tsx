@@ -121,7 +121,7 @@ export function SerieMini({
               <span key={p.key} title={lectura} className="relative flex min-w-0 flex-1 flex-col">
                 <span className="flex h-1/2 items-end">
                   {p.value === null ? (
-                    <span data-hueco="" className="sin-dato block h-1/3 w-full rounded-t-[2px] opacity-60" />
+                    <span data-hueco="" className="mx-auto block h-[2px] w-1/2 self-end rounded-full bg-muted-foreground/35" />
                   ) : (
                     <span
                       data-barra=""
@@ -144,7 +144,9 @@ export function SerieMini({
           return (
             <span key={p.key} title={lectura} className="relative flex min-w-0 flex-1 items-end">
               {p.value === null ? (
-                <span data-hueco="" className="sin-dato block h-full w-full rounded-t-[2px]" />
+                // Sin dato: ni barra de 0 ni columna rayada; una marca
+                // apagada al pie, que no se confunde con un dato.
+                <span data-hueco="" className="mx-auto block h-[2px] w-1/2 rounded-full bg-muted-foreground/35" />
               ) : (
                 <span
                   data-barra=""

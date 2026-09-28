@@ -273,7 +273,8 @@ function salidaAccionable(e: PanelPendingExitOut, storeId: number, hoy: string, 
     // el aviso agregado de siempre).
     severity: "warning",
     title: `${e.name} no marcó salida ${cuando(e.business_date, hoy)}`,
-    consequence: `Entró a las ${horaDe(e.in_at)}. Esas horas no cuentan para la nómina hasta corregir la salida.`,
+    // «a. m.» ya termina en punto: no se le suma otro («9:28 a. m..»).
+    consequence: `Entró a las ${horaDe(e.in_at).replace(/\.$/, "")}. Esas horas no cuentan para la nómina hasta corregir la salida.`,
     destino: { to: fichaPersonaHref(e.employee_id), label: `Ficha de ${e.name.split(" ")[0]}` },
     acciones: [
       {

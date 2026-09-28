@@ -114,16 +114,26 @@ export function StatTile(props: StatTileProps): React.JSX.Element {
         {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
         <p className="min-w-0 text-sm text-muted-foreground">{label}</p>
       </div>
-      {/* Sin dato se dibuja rayado (`.sin-dato`), apagado y NUNCA en rojo,
+      {/* Sin dato se dibuja apagado (`.sin-dato`, en calma) y NUNCA en rojo,
           aunque el tono sea crítico: no saber no es estar mal. El motivo va
           en el renglón de abajo, que es obligatorio por tipos. */}
+      {/* «Comensales —» (`docs/PATRONES-ADMIN.md` § 5): la raya larga,
+          apagada y del mismo tamaño que una cifra, con el motivo abajo. El
+          rayado a tarjeta llena hacía que un día flojo se viera roto. */}
       <p
         className={cn(
           "mt-1 tabular-nums",
-          isNull ? "sin-dato px-2 py-1 text-base font-normal" : cn("text-2xl font-semibold", TONE_VALUE[tone]),
+          isNull ? "sin-dato sin-dato--calmo text-2xl font-semibold" : cn("text-2xl font-semibold", TONE_VALUE[tone]),
         )}
       >
-        {isNull ? "Sin datos" : value}
+        {isNull ? (
+          <>
+            <span aria-hidden="true">—</span>
+            <span className="sr-only">Sin datos</span>
+          </>
+        ) : (
+          value
+        )}
       </p>
       {props.value === null ? (
         <p className="mt-1 text-xs text-muted-foreground">{props.nullNote}</p>

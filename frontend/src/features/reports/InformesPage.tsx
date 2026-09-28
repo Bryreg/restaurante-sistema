@@ -114,10 +114,7 @@ function Seccion({
 /** «Sin dato» con su motivo: nunca un $ 0 inventado. */
 function SinDato({ motivo }: { motivo: string }): React.JSX.Element {
   return (
-    <p className="text-sm text-muted-foreground">
-      <span className="sin-dato mr-2 px-2 py-0.5">Sin dato</span>
-      {motivo}
-    </p>
+    <p className="sin-dato sin-dato--calmo text-sm">{motivo}</p>
   )
 }
 
@@ -418,10 +415,7 @@ function DomiciliosYClientes({ data }: { data: ReportsOverviewOut }): React.JSX.
 
 function SinDatoEnLinea({ motivo }: { motivo: string }): React.JSX.Element {
   return (
-    <span className="text-muted-foreground">
-      <span className="sin-dato mr-1.5 px-1.5 py-0.5 text-xs">Sin dato</span>
-      {motivo}
-    </span>
+    <span className="sin-dato sin-dato--calmo">{motivo}</span>
   )
 }
 
@@ -694,21 +688,36 @@ function Ventas({
   const p = t.previous_period
   const ds = data.series?.daily_sales
   const delta = deltaConFlecha(p?.delta_bp)
+  // Con muy pocas comandas en alguno de los dos períodos (lo marca el
+  // servidor), «+136,7 %» o «▼ −100 %» no es una tendencia: se dice apagado.
+  const pocaBase = p?.low_base === true && p.net !== null
   const comparacion = p
     ? {
         label: contraSemana ? "Contra semana anterior" : `Contra ${formatRangoCorto(p.date_from, p.date_to)}`,
-        delta: p.net === null ? "—" : (delta ?? "—"),
-        detail: p.net === null ? (p.null_reason ?? "Sin período anterior.") : formatCOP(p.net),
+        delta: pocaBase ? "Muy pocas comandas para comparar" : p.net === null ? "—" : (delta ?? "—"),
+        detail:
+          p.net === null
+            ? (p.null_reason ?? "Sin período anterior.")
+            : pocaBase
+              ? `${contraSemana ? "La semana anterior" : "El período anterior"}: ${formatCOP(p.net)} en ${(p.orders ?? 0).toLocaleString("es-CO")} ${p.orders === 1 ? "comanda" : "comandas"}`
+              : formatCOP(p.net),
+        tono: pocaBase || p.net === null || delta === null ? ("apagada" as const) : undefined,
       }
     : undefined
+  // Un eje sin ventas ni raya firme no dice nada: la pregunta y una línea.
+  const sinVentas =
+    ds?.available === true &&
+    ds.points.every((pt) => !pt.value) &&
+    ds.points.every((pt) => !pt.reference || pt.low_base === true)
 
   const resumen: RenglonResumen[] = []
   if (ds && ds.available) {
     if (ds.days_with_reference > 0) {
       resumen.push({
         titulo: `${ds.days_above} de ${ds.days_with_reference} días por encima`,
-        detalle:
-          delta !== null && p?.net !== null
+        detalle: pocaBase
+          ? "Con tan pocas comandas, la variación del período no es una tendencia."
+          : delta !== null && p?.net !== null
             ? `${contraSemana ? "La semana" : "El período"} cerró ${delta} contra ${contraSemana ? "la anterior" : "el anterior"}.`
             : "Sin variación del período: el anterior no tiene base.",
         // Contar días del lado bueno no es una cifra de negocio: es mirar
@@ -784,11 +793,20 @@ function Ventas({
             fuera: pt.outside,
             ahora: pt.now,
             futuro: pt.future,
-            cifra: pt.value === null ? undefined : (formatPctConSigno(pt.delta_bp) ?? "—"),
+            // Sin variación (sin raya) o con poca base: arriba no se escribe
+            // nada. Un «—» encima de cada día vacío se leía como un error.
+            cifra: pt.value === null ? undefined : pt.low_base ? "" : (formatPctConSigno(pt.delta_bp) ?? ""),
             detalle: formatCompacto(pt.value),
           }))}
           rotuloResumen={contraSemana ? "La semana en una línea" : "El período en una línea"}
-          resumen={resumen}
+          resumen={sinVentas ? undefined : resumen}
+          vacio={
+            sinVentas
+              ? contraSemana
+                ? "Todavía no hay ventas en estos siete días, ni una semana anterior firme con qué compararlos."
+                : "No hay ventas en este período, ni un período anterior firme con qué compararlo."
+              : null
+          }
         />
       )}
     </Pregunta>

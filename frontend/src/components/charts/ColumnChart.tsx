@@ -1,6 +1,5 @@
-import { useId } from "react"
 
-import { Globo, Rayado, RenglonGlobo } from "./base"
+import { Globo, RenglonGlobo } from "./base"
 import {
   BARRA_MAX,
   HALO,
@@ -12,7 +11,6 @@ import {
   anchoTexto,
   barraV,
   escalaRedonda,
-  idSeguro,
   lineal,
   useAncho,
   useRecorrido,
@@ -48,7 +46,8 @@ const BANDA_X = 22
 
 /**
  * Columnas para lo ORDINAL (horas, días de la semana): eje en 0, ticks
- * redondos, `null` como hueco rayado (nunca una columna de 0).
+ * redondos, `null` como hueco: una marca apagada al pie (nunca una columna
+ * de 0, y tampoco una columna rayada que llene el eje).
  */
 export function ColumnChart({
   datos,
@@ -63,7 +62,6 @@ export function ColumnChart({
 }: ColumnChartProps): React.JSX.Element {
   const [ref, ancho] = useAncho<HTMLDivElement>()
   const { activo, setActivo, onKeyDown, soltar } = useRecorrido(datos.length)
-  const rayado = `rayado-${idSeguro(useId())}`
 
   const valores: number[] = []
   for (const d of datos) if (d.valor !== null) valores.push(d.valor)
@@ -139,9 +137,6 @@ export function ColumnChart({
             setActivo(i >= 0 && i < datos.length ? i : null)
           }}
         >
-          <defs>
-            <Rayado id={rayado} />
-          </defs>
           {escala.ticks.map((t, i) => (
             <g key={t}>
               <line x1={x0} x2={x1} y1={y(t)} y2={y(t)} stroke={t === 0 ? TINTA.base : TINTA.grilla} strokeWidth={1} />
@@ -167,12 +162,13 @@ export function ColumnChart({
                 <rect
                   key={d.key}
                   data-hueco={d.key}
-                  x={x}
-                  y={y0}
-                  width={w}
-                  height={y1 - y0}
-                  rx={2}
-                  fill={`url(#${rayado})`}
+                  x={x + w / 4}
+                  y={yCero - 3}
+                  width={w / 2}
+                  height={2}
+                  rx={1}
+                  fill="var(--muted-foreground)"
+                  fillOpacity={0.35}
                 />
               )
             }

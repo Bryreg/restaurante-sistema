@@ -426,6 +426,54 @@ describe("InformesPage", () => {
     expect(screen.getAllByText("Sin datos").length).toBeGreaterThanOrEqual(4)
   })
 
+  it("poca base (servidor: `low_base`): la variación del período no se grita y una semana sin ventas no dibuja un eje vacío", async () => {
+    // Lo que pasa en producción: la semana anterior tuvo 2 comandas y ésta ninguna.
+    const base = overview()
+    getReportsOverviewMock.mockResolvedValue(
+      overview({
+        total: {
+          ...base.total,
+          net: 0,
+          gross: 0,
+          tax: 0,
+          orders: 0,
+          previous_period: {
+            ...base.total.previous_period!,
+            net: 105_555,
+            orders: 2,
+            delta_bp: -10_000,
+            low_base: true,
+          },
+        },
+        series: series({
+          daily_sales: {
+            available: true,
+            reason: null,
+            unit: "cop",
+            bad_side: "below",
+            reference: null,
+            points: [
+              punto({ key: "2026-09-22", label: "mar 22", value: 0 }),
+              punto({ key: "2026-09-23", label: "mié 23", value: 0, reference: 105_555, delta_bp: -10_000, outside: true, low_base: true }),
+            ],
+            days_with_reference: 0,
+            days_above: 0,
+            best_key: null,
+          },
+        }),
+      }),
+    )
+    renderWithProviders(<InformesPage />, { me: buildMe() })
+
+    expect(await screen.findByText("Muy pocas comandas para comparar")).toBeInTheDocument()
+    expect(screen.getByText("La semana anterior: $ 105.555 en 2 comandas")).toBeInTheDocument()
+    expect(screen.queryByText(/▼ −100,0\s%/)).not.toBeInTheDocument()
+    const grafico = screen.getByRole("region", { name: "¿Vendí más o menos que la semana pasada?" })
+    expect(within(grafico).getByText(/Todavía no hay ventas en estos siete días/)).toBeInTheDocument()
+    expect(grafico.querySelector('[data-slot="columnas"]')).toBeNull()
+    expect(within(grafico).queryByText(/−100/)).not.toBeInTheDocument()
+  })
+
   it("con una sola sede y sin «multi_store», no hay selector de sede", async () => {
     getReportsOverviewMock.mockResolvedValue(overview())
     renderWithProviders(<InformesPage />, { me: buildMe() })

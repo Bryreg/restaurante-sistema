@@ -322,7 +322,7 @@ def _reasons(
             add(
                 "shift_stale",
                 "critical",
-                f"Turno abandonado: sigue abierto desde el {cash.business_date.isoformat()}.",
+                f"Turno abandonado: sigue abierto desde el {series.date_label(cash.business_date)}.",
             )
         if not cash.responsible.active:
             add(

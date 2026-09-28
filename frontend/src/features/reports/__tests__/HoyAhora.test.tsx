@@ -185,3 +185,67 @@ describe("Hoy · Ahora (variante A)", () => {
     expect(within(conteos).getByText("6 de 8")).toHaveClass("text-foreground")
   })
 })
+
+/**
+ * Una sede con pocos datos (lo que se ve en producción: un turno abandonado
+ * de días, comandas viejas en cocina, nadie con entrada). `null` sigue sin
+ * ser 0, pero se dice en calma: ni bloques rayados ni gráficos vacíos.
+ */
+describe("Hoy · Ahora con pocos datos", () => {
+  function flojo(): StorePanelOut {
+    const base = chapinero()
+    return {
+      ...base,
+      light: "red",
+      reasons: [{ key: "shift_stale", level: "critical", text: "Turno abandonado: sigue abierto desde el mié 16 sep." }],
+      cash: { ...base.cash!, is_stale: true, business_date: "2026-09-16", cash_over_threshold: false },
+      staff: { present: [], pending_review: [], reason: "Nadie marcó entrada hoy." },
+      area_counts: { ...base.area_counts, areas_total: 0, opening_done: 0 },
+      kitchen: { enabled: true, in_kitchen: 2, late: 2, very_late: 2, oldest_late_minutes: 17_260 },
+      bullets: {
+        ...base.bullets!,
+        sales: { value: 0, reference: 0, bad_side: "below", outside: false, delta_bp: null, over_by: null, reason: null },
+        staff_by_hour: {
+          ...base.bullets!.staff_by_hour!,
+          points: [p("6", 0), p("7", 0, { now: true }), p("8", 0, { future: true })],
+        },
+      },
+    }
+  }
+
+  beforeEach(() => {
+    getPanel.mockResolvedValue({ scope: "one", generated_at: "2026-09-27T17:53:00Z", stores: [flojo()] })
+    getToday.mockResolvedValue({ store_id: 1, business_date: "2026-09-27", orders: 0 })
+  })
+
+  it("una sola sede es una tarjeta a lo ancho, con la fecha como la lee el dueño", async () => {
+    renderWithProviders(<PanelAhora />, { me: buildMe() })
+    const semaforo = await screen.findByRole("list", { name: "Todas las sedes ahora" })
+    expect(semaforo.className).toContain("auto-fit")
+    expect(within(semaforo).getByRole("button")).toHaveTextContent("desde el mié 16 sep")
+  })
+
+  it("sin ventas ni raya: una línea, no una barra vacía con la raya pegada al borde", async () => {
+    renderWithProviders(<PanelAhora />, { me: buildMe() })
+    const caja = await screen.findByRole("region", { name: "Caja" })
+    expect(within(caja).getByText(/Todavía no hay ventas hoy; el dom 20 a esta hora tampoco había/)).toBeInTheDocument()
+    // Sólo queda el bullet del efectivo.
+    expect(within(caja).getAllByRole("img")).toHaveLength(1)
+  })
+
+  it("nadie en turno: una frase apagada y ningún gráfico de ceros ni rayado", async () => {
+    const { container } = renderWithProviders(<PanelAhora />, { me: buildMe() })
+    const gente = await screen.findByRole("region", { name: "Quién trabaja" })
+    expect(within(gente).queryByRole("img")).not.toBeInTheDocument()
+    expect(within(gente).getByText("Nadie marcó entrada hoy.")).toBeInTheDocument()
+    // En todo «Ahora» no queda una sola trama de «sin dato».
+    expect(container.querySelectorAll(".sin-dato:not(.sin-dato--calmo)")).toHaveLength(0)
+  })
+
+  it("un tiquete de otro día no se escribe en horas: se dice que no es de este servicio", async () => {
+    renderWithProviders(<PanelAhora />, { me: buildMe() })
+    const cocina = await screen.findByRole("region", { name: "Cocina" })
+    expect(within(cocina).getByText(/es de otro día/)).toBeInTheDocument()
+    expect(within(cocina).queryByText(/287 h/)).not.toBeInTheDocument()
+  })
+})

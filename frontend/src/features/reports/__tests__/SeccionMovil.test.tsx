@@ -147,7 +147,12 @@ describe("Caja en el celular", () => {
     expect(tarjetas[0]).toHaveAttribute("aria-pressed", "true")
     expect(within(tarjetas[0]!).getByText("2 de 4")).toBeInTheDocument()
     // `null` no es $ 0: sin dato, rayado.
-    expect(within(tarjetas[2]!).getByText("Sin dato")).toHaveClass("sin-dato")
+    // Cambio intencional (pulido del panel): la cifra sin dato es «—» apagado
+    // con «Sin dato» para el lector de pantalla, no un bloque rayado; la marca
+    // `.sin-dato` sigue en la cifra.
+    const sinDato = within(tarjetas[2]!).getByText("Sin dato").closest(".sin-dato")
+    expect(sinDato).not.toBeNull()
+    expect(sinDato!.textContent).toContain("—")
 
     const detalle = screen.getByRole("region", { name: "¿Cuadraron los turnos de ayer?" })
     expect(within(detalle).getByText("2 de 4")).toBeInTheDocument()
@@ -199,6 +204,33 @@ describe("Caja en el celular", () => {
     const grupo = screen.getByRole("group", { name: "Las cuatro preguntas de Equipo" })
     // Las horas se escriben en horas, no en minutos.
     expect(within(grupo).getByText("486 h")).toBeInTheDocument()
+  })
+
+  it("una serie toda vacía no dibuja un eje de marcas: dice en una línea que no hay nada que dibujar", async () => {
+    stubMatchMedia(true)
+    const vacia = [punto("2026-09-25", null), punto("2026-09-26", null, { label: "ayer" })]
+    getPanelSection.mockResolvedValue({
+      ...CAJA,
+      cards: [
+        card({
+          key: "closes",
+          value: null,
+          tone: "muted",
+          status: "Ayer no abrió ninguna sede",
+          chart: "diverging",
+          series: { available: true, reason: null, unit: "cop", bad_side: "below", reference: 0, points: vacia },
+        }),
+        ...CAJA.cards.slice(1),
+      ],
+    })
+    renderWithProviders(<CajaMovil />, { me: buildMe() })
+
+    const detalle = await screen.findByRole("region", { name: "¿Cuadraron los turnos de ayer?" })
+    expect(within(detalle).queryByRole("img")).not.toBeInTheDocument()
+    expect(within(detalle).getByText(/Nada que dibujar en estos días/)).toBeInTheDocument()
+    // La tarjeta tampoco lleva mini tendencia de huecos.
+    const grupo = screen.getByRole("group", { name: "Las cuatro preguntas de Caja" })
+    expect(within(grupo).getAllByRole("button")[0]!.querySelector('[data-slot="serie-mini"]')).toBeNull()
   })
 
   it("en el escritorio manda a la pantalla de la sección", async () => {

@@ -157,7 +157,7 @@ describe("StatTile · rótulo, cifra y de qué está hecha", () => {
     expect(screen.getByText("96 en mesa · 31 mostrador · 21 domicilio")).toBeInTheDocument()
   })
 
-  it("«sin datos» no es 0: se ve rayado, dice por qué no se sabe, y no se pinta de rojo", () => {
+  it("«sin datos» no es 0: se ve «—» apagado, dice por qué no se sabe, y no se pinta de rojo", () => {
     const { container } = dibujar(
       <StatTile
         label="Comensales"
@@ -166,8 +166,13 @@ describe("StatTile · rótulo, cifra y de qué está hecha", () => {
         tone="critical"
       />,
     )
-    const cifra = screen.getByText("Sin datos")
-    expect(cifra.className).toContain("sin-dato")
+    // Cambio intencional (pulido del panel): la cifra ya no es un bloque
+    // rayado con «Sin datos» escrito, sino «—» apagado (patrón 5, «Comensales
+    // —») con «Sin datos» para el lector de pantalla. La marca `.sin-dato`
+    // sigue en la cifra y el tono crítico sigue sin pintarla.
+    const cifra = screen.getByText("Sin datos").closest(".sin-dato") as HTMLElement
+    expect(cifra).not.toBeNull()
+    expect(cifra.textContent).toContain("—")
     // Ni siquiera con tono crítico: no saber no es estar mal.
     expect(cifra.className).not.toContain("text-destructive")
     expect(container.textContent).toContain("es que nadie lo contó")

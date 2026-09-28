@@ -467,6 +467,39 @@ describe("TodayPage", () => {
     expect(screen.queryByText(/ayer cerró en/)).not.toBeInTheDocument()
   })
 
+  it("ventas por hora sin una sola venta: la pregunta y una línea, sin eje vacío ni horas rayadas", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        orders: 0,
+        net: 0,
+        gross: 0,
+        tax: 0,
+        sales_by_hour: [
+          { hour: 6, gross: 0, net: 0, orders: 0, pending: false },
+          { hour: 7, gross: 0, net: 0, orders: 0, pending: false },
+          { hour: 8, gross: 0, net: 0, orders: 0, pending: true },
+        ],
+        sales_by_hour_reference: [],
+        comparison: {
+          reference_business_date: "2026-09-08",
+          until: "2026-09-08T12:00:00Z",
+          net: 0,
+          orders: 0,
+          delta_bp: null,
+          orders_delta_bp: null,
+          reference_operated: false,
+          null_reason: null,
+        },
+      }),
+    )
+    const { container } = renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    expect(await screen.findByText("Todavía no hay ventas hoy; el martes pasado a esta hora tampoco.")).toBeInTheDocument()
+    const bloque = container.querySelector('[data-slot="ventas-por-hora-vacio"]') as HTMLElement
+    expect(bloque.querySelector("svg")).toBeNull()
+    expect(bloque.querySelector("[data-hueco]")).toBeNull()
+  })
+
   it("ventas por hora: columnas en el orden en que llegan, una hora `pending` es hueco (no $ 0) y la semana pasada va de referencia", async () => {
     getTodayMock.mockResolvedValue(
       baseToday({

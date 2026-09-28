@@ -1122,7 +1122,7 @@ function IndicadorSinDato({
  */
 function todayComparison(
   c: TodayOut["comparison"],
-): { label: string; delta: string; detail?: string } | undefined {
+): { label: string; delta: string; detail?: string; tono?: "apagada" } | undefined {
   if (!c) return undefined
   const dia = weekdayName(c.reference_business_date)
   const label = `Contra el ${dia} pasado a esta hora`
@@ -1130,6 +1130,7 @@ function todayComparison(
     return {
       label: c.null_reason ?? `No hay datos del ${dia} pasado: no hay contra qué comparar.`,
       delta: "Sin dato",
+      tono: "apagada",
     }
   }
   const delta = formatDelta(c.delta_bp)
@@ -1139,6 +1140,7 @@ function todayComparison(
       label,
       delta: "Sin dato",
       detail: c.reference_operated === false ? "ese día no abrió" : `no había vendido: ${formatCOP(c.net)}`,
+      tono: "apagada",
     }
   }
   return { label, delta, detail: `entonces ${formatCOP(c.net)}` }
@@ -1157,11 +1159,18 @@ function HourlySales({ today }: { today: TodayOut }): React.JSX.Element {
   const c = today.comparison ?? null
   const dia = c ? weekdayName(c.reference_business_date) : null
 
-  if (hours.length === 0) {
+  // Sin una sola hora con venta, el eje vacío (y la trama de las horas que
+  // faltan) no dice nada y se ve roto: va la pregunta y una línea. Mirar si
+  // alguna hora trae venta no es calcular.
+  if (hours.every((h) => h.pending || h.net === 0)) {
     return (
-      <section className="min-w-0 rounded-lg border bg-card p-4 xl:col-start-1">
-        <h2 className="text-sm font-bold">Ventas por hora</h2>
-        <p className="mt-2 text-sm text-muted-foreground">Todavía no hay ventas hoy.</p>
+      <section className="min-w-0 rounded-lg border bg-card p-4 xl:col-start-1" data-slot="ventas-por-hora-vacio">
+        <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">Ventas por hora</h2>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          {c && c.net === 0 && dia
+            ? `Todavía no hay ventas hoy; el ${dia} pasado a esta hora tampoco.`
+            : "Todavía no hay ventas hoy."}
+        </p>
       </section>
     )
   }
@@ -1378,7 +1387,9 @@ export function TodayPage(): React.JSX.Element {
       <PageHeader
         name="Hoy"
         question="¿Cómo van las sedes ahora mismo y qué necesita una decisión tuya? Cada cifra lleva a su ficha."
-        context={[
+        // En el celular la barra de arriba ya dice «hace 14 s» (captura 13a):
+        // la franja de contexto repetía lo mismo en dos renglones.
+        context={celular ? [] : [
           {
             label: "Se actualiza sola cada 30 s ·",
             value: <TimeAgo iso={updatedIso} />,

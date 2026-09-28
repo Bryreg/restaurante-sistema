@@ -43,6 +43,10 @@ class SeriesPointOut(BaseModel):
     future: bool = False
     #: Es «ahora» / «hoy».
     now: bool = False
+    #: La comparación descansa en muy pocos casos (p. ej. un día de la semana
+    #: anterior con 2 comandas): `delta_bp` es verdad aritmética pero no dice
+    #: nada, y la pantalla no lo grita como porcentaje.
+    low_base: bool = False
 
 
 class SeriesOut(BaseModel):
@@ -203,6 +207,8 @@ class CashByHourSeriesOut(BaseModel):
     hours_over: int = 0
     #: La serie se cortó (turno abandonado de muchas horas).
     truncated: bool = False
+    #: Cuando se cortó, en palabras: hasta dónde se dibuja y por qué.
+    truncated_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------

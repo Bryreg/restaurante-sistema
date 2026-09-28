@@ -175,7 +175,12 @@ function Tarjeta({
       {cifra !== null ? (
         <b className="truncate text-[22px] leading-[1.1] font-bold tabular-nums">{cifra}</b>
       ) : (
-        <span className="sin-dato rounded px-1 text-sm font-semibold text-muted-foreground">Sin dato</span>
+        // `null` no es 0: la raya larga apagada, del tamaño de una cifra (la
+        // tarjeta rayada entera se veía rota). El lector de pantalla oye «Sin dato».
+        <b className="sin-dato sin-dato--calmo text-[22px] leading-[1.1] font-bold">
+          <span aria-hidden="true">—</span>
+          <span className="sr-only">Sin dato</span>
+        </b>
       )}
       <span className={cn("flex items-start gap-1 text-[11px] leading-snug font-bold", TONO_TEXTO[card.tone])}>
         <span className="mt-[3px]">
@@ -183,7 +188,7 @@ function Tarjeta({
         </span>
         <span className="line-clamp-2">{card.available ? card.status : card.reason}</span>
       </span>
-      {card.available && card.series.points.length > 0 ? (
+      {card.available && card.series.points.some((p) => p.value !== null) ? (
         <SerieMini
           className="mt-auto w-full"
           mini
@@ -205,6 +210,8 @@ function Detalle({ card }: { card: SectionCardOut }): React.JSX.Element {
   const diverge = card.chart === "diverging"
   const formato = formatoDe(serie.unit)
   const conPuntos = card.available && serie.points.length > 0
+  // Todo `null` o todo 0: un eje de marcas vacías no dice nada; va una línea.
+  const serieVacia = conPuntos && serie.points.every((p) => !p.value)
   return (
     <section
       aria-labelledby={`detalle-${card.key}`}
@@ -225,7 +232,11 @@ function Detalle({ card }: { card: SectionCardOut }): React.JSX.Element {
       ) : (
         <SinDato motivo={card.reason} forma="bloque" />
       )}
-      {conPuntos ? (
+      {serieVacia ? (
+        <p data-slot="serie-vacia" className="text-[13px] text-muted-foreground">
+          Nada que dibujar en estos días: la serie no tiene movimientos.
+        </p>
+      ) : conPuntos ? (
         <SerieMini
           puntos={serie.points}
           alto={120}
@@ -237,7 +248,7 @@ function Detalle({ card }: { card: SectionCardOut }): React.JSX.Element {
           resumen={`${cfg?.pregunta ?? card.key} ${serie.points.length} barras; ${serie.points.filter((p) => p.outside).length} del lado malo.`}
         />
       ) : null}
-      {conPuntos && (cfg?.leyenda || card.chart === "diverging") ? (
+      {conPuntos && !serieVacia && (cfg?.leyenda || card.chart === "diverging") ? (
         <div aria-hidden="true" className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
           {cfg?.leyenda ? (
             <>
