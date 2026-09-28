@@ -57,6 +57,8 @@ from app.shifts.schemas import (
     CashMovementIn,
     CashPickupIn,
     CashSwapIn,
+    CashSwapPreviewIn,
+    CashSwapPreviewOut,
     CloseCountIn,
     HandoverIn,
     OpenShiftIn,
@@ -1323,6 +1325,21 @@ def create_cash_movement(
 # ---------------------------------------------------------------------------
 # POST /shifts/{id}/cash-swaps
 # ---------------------------------------------------------------------------
+
+
+def preview_cash_swap(payload: CashSwapPreviewIn) -> CashSwapPreviewOut:
+    """El cuadre del cambio antes de registrarlo: cuánto entra, cuánto sale y
+    si es neto cero. La misma validación de denominaciones y la misma suma
+    que `create_cash_swap` (una sola matemática, acá), sin escribir nada."""
+    out_denoms = _to_denominations(payload.out)
+    in_denoms = _to_denominations(payload.in_)
+    out_total = money.validate_denominations(out_denoms, money.sum_denominations(out_denoms))
+    in_total = money.validate_denominations(in_denoms, money.sum_denominations(in_denoms))
+    return CashSwapPreviewOut(
+        in_total=in_total,
+        out_total=out_total,
+        balanced=in_total == out_total and in_total > 0,
+    )
 
 
 def create_cash_swap(db: Session, *, actor: Actor, shift: Shift, payload: CashSwapIn) -> CashSwap:

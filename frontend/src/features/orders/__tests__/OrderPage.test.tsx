@@ -208,6 +208,48 @@ describe("OrderPage", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     })
 
+    it("con asiento y curso elegidos, el toque suma el plato a ESE asiento y curso, y la línea queda elegida", async () => {
+      // Handoff `PosComanda`: «al tocar un plato se suma al asiento y curso
+      // elegidos». La línea igual pero sin asiento no recibe la unidad.
+      getOrderMock.mockResolvedValue(buildOrder({ version: 3, covers: 3 }))
+      addItemsMock.mockResolvedValue(
+        buildOrder({
+          version: 4,
+          covers: 3,
+          items: [buildOrderItem(), buildOrderItem({ id: 9, seat: 2, course: "dessert" })],
+        }),
+      )
+
+      const user = userEvent.setup()
+      renderOrderPage(501, { "pos.seats": true, "pos.courses": true })
+
+      await user.click(within(await screen.findByRole("group", { name: "Asiento" })).getByRole("button", { name: "2" }))
+      await user.click(within(screen.getByRole("group", { name: "Curso" })).getByRole("button", { name: "Postre" }))
+      await user.click(await screen.findByRole("tab", { name: "Bebidas" }))
+      await user.click(await screen.findByRole("button", { name: /agregar limonada de coco/i }))
+
+      await waitFor(() => expect(addItemsMock).toHaveBeenCalledTimes(1))
+      expect(addItemsMock.mock.calls[0][1].items).toEqual([{ product_id: 10, qty: 1, seat: 2, course: "dessert" }])
+      expect(patchItemMock).not.toHaveBeenCalled()
+      // La línea que recibió el plato queda elegida: sus notas rápidas a un toque.
+      expect(await screen.findByRole("group", { name: /notas rápidas de limonada de coco/i })).toBeInTheDocument()
+    })
+
+    it("una nota rápida en la línea elegida se guarda en la nota del ítem", async () => {
+      getOrderMock.mockResolvedValue(buildOrder({ version: 3 }))
+      patchItemMock.mockResolvedValue(buildOrder({ version: 4, items: [buildOrderItem({ note: "Sin hielo" })] }))
+
+      const user = userEvent.setup()
+      renderOrderPage(501, {})
+
+      await user.click(await screen.findByRole("button", { name: /elegir 1× limonada de coco/i }))
+      const notas = await screen.findByRole("group", { name: /notas rápidas de limonada de coco/i })
+      await user.click(within(notas).getByRole("button", { name: "Sin hielo" }))
+
+      await waitFor(() => expect(patchItemMock).toHaveBeenCalledTimes(1))
+      expect(patchItemMock).toHaveBeenCalledWith(501, 1, { expected_version: 3, note: "Sin hielo", authorizer_pin: undefined })
+    })
+
     it("sin una línea igual en la ronda, agrega una línea nueva de 1× por addItems", async () => {
       getOrderMock.mockResolvedValue(buildOrder({ version: 3, items: [buildOrderItem({ status: "sent", round_no: 1 })] }))
       addItemsMock.mockResolvedValue(buildOrder({ version: 4 }))
@@ -527,6 +569,15 @@ describe("OrderPage · encabezado, cuenta y anulación", () => {
     expect(within(dialog).getByRole("button", { name: "Reimprimir" })).toBeInTheDocument()
     await user.click(within(dialog).getByRole("button", { name: "Listo · ir a Mesas" }))
     expect(await screen.findByText("Mapa de mesas")).toBeInTheDocument()
+  })
+
+  it("quien no cobra tiene «Pedir cuenta» en el pie aunque quede algo sin enviar, junto al total de la mesa", async () => {
+    getOrderMock.mockResolvedValue(buildOrder())
+    renderOrderPage(501, { "kitchen.view": true, "pos.pre_bill": true, "pos.tables": true })
+
+    expect(await screen.findByRole("button", { name: "Pedir cuenta" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Enviar a cocina · 1 ítem" })).toBeInTheDocument()
+    expect(screen.getByText("Total mesa")).toBeInTheDocument()
   })
 
   it("quien cobra sigue viendo «Cuenta / Cobrar»", async () => {

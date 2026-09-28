@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Check } from "lucide-react";
+import { CircleCheck, Clock, HandCoins, Split, Wallet } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError } from "@/api/client";
@@ -13,7 +13,13 @@ import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-export type SplitBillMode = "none" | "equal" | "items";
+/**
+ * Cómo se cobra la cuenta: toda junta, por asiento (sub-cuentas armadas con
+ * el asiento de cada plato), en partes iguales o por plato (sub-cuentas
+ * armadas a mano). Por asiento y por plato terminan en las mismas
+ * sub-cuentas del servidor (`bill/split` con `mode: "items"`).
+ */
+export type SplitBillMode = "none" | "seat" | "equal" | "items";
 
 export interface SplitBillPanelProps {
   orderId: number;
@@ -23,7 +29,7 @@ export interface SplitBillPanelProps {
   mode: SplitBillMode;
   onModeChange: (mode: SplitBillMode) => void;
   onItemsResult: (result: BillSplitItemsOut) => void;
-  /** Ya hay sub-cuentas de una división por ítems (la lista la pinta `CheckoutPage`). */
+  /** Ya hay sub-cuentas de una división por asiento o por plato (la lista la pinta `CheckoutPage`). */
   hasParts?: boolean;
   /**
    * Alguna parte ya se cobró: el servidor no deja rehacer la división
@@ -32,34 +38,48 @@ export interface SplitBillPanelProps {
    * las dos cosas.
    */
   locked?: boolean;
+  /** `pos.seats` encendida y algún plato tiene asiento: se ofrece «Por asiento». */
+  seatsAvailable?: boolean;
 }
 
 const NO_GROUP = "__none__";
 
 /**
- * Clases de un botón de «elegir uno» (modo de cobro, número de partes): el
- * elegido se marca con borde y fondo, no con el color de acción. En la
- * pantalla hay UN botón principal a la vez (el que cobra o el que divide);
- * un selector pintado como principal competía con él.
+ * Botón de «elegir uno» de 56 px (modo de cobro, número de partes; handoff
+ * `PosCobro` B): el elegido en `foreground` lleno, no con el color de acción.
+ * En la pantalla hay UN botón principal a la vez («Cobrar $ X»); un
+ * selector pintado como principal competía con él.
  */
 function segmentClass(selected: boolean): string {
   return cn(
-    "min-h-11 rounded-lg border px-3 text-sm font-medium transition-colors",
-    "focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50",
-    selected
-      ? "border-foreground bg-secondary text-secondary-foreground ring-2 ring-foreground"
-      : "bg-background hover:bg-muted",
+    "h-[56px] min-w-0 rounded-lg border px-2 text-[15px] font-bold transition-colors",
+    "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
+    selected ? "border-foreground bg-foreground text-background" : "border-border bg-background hover:bg-muted",
   );
+}
+
+/** «Asiento 2» o, sin asiento, «Sin asiento»: los grupos de «Por asiento». */
+function seatGroups(items: OrderItemOut[]): { seat: number | null; items: OrderItemOut[] }[] {
+  const bySeat = new Map<number | null, OrderItemOut[]>();
+  for (const item of items) {
+    const seat = item.seat ?? null;
+    const bucket = bySeat.get(seat);
+    if (bucket) bucket.push(item);
+    else bySeat.set(seat, [item]);
+  }
+  return [...bySeat.entries()]
+    .map(([seat, list]) => ({ seat, items: list }))
+    .sort((a, b) => (a.seat ?? Number.MAX_SAFE_INTEGER) - (b.seat ?? Number.MAX_SAFE_INTEGER));
 }
 
 /**
  * División de cuenta (CONTRATO-INTERNO-1b-1.md §2.4 `POST
- * /orders/{id}/bill/split`): el modo (todo junto, partes iguales o por
- * ítems) y, por ítems, el armado de las sub-cuentas (cada una con
- * comprobante propio). Partes iguales vive en `EqualSplitPicker`, que
- * `CheckoutPage` pone DESPUÉS de la propina. Sin `pos.seats` esta pantalla
- * arma los grupos a mano; asiento automático queda declarado como gap (ver
- * entregable).
+ * /orders/{id}/bill/split`), como la dibuja el handoff (`PosCobro` B):
+ * «Todo junto · Por asiento · Partes iguales · Por plato» en botones de
+ * 56 px. Por asiento arma las sub-cuentas con el asiento que cada plato ya
+ * trae de la comanda (agrupar platos no es plata: los montos de cada parte
+ * los calcula el servidor); por plato, a mano. Partes iguales vive en
+ * `EqualSplitPicker`, que `CheckoutPage` pone DESPUÉS de la propina.
  */
 export function SplitBillPanel({
   orderId,
@@ -70,6 +90,7 @@ export function SplitBillPanel({
   onItemsResult,
   hasParts = false,
   locked = false,
+  seatsAvailable = false,
 }: SplitBillPanelProps): React.JSX.Element {
   const [groupLabels, setGroupLabels] = useState<string[]>(["Cuenta 1", "Cuenta 2"]);
   const [assignment, setAssignment] = useState<Record<number, number | null>>({});
@@ -77,15 +98,8 @@ export function SplitBillPanel({
   const [rearmando, setRearmando] = useState(false);
 
   const itemsMutation = useMutation({
-    mutationFn: () => {
-      const groups: SplitGroupIn[] = groupLabels.map((label) => ({ label, item_ids: [] }));
-      for (const item of items) {
-        const groupIndex = assignment[item.id];
-        if (groupIndex === null || groupIndex === undefined) continue;
-        groups[groupIndex]?.item_ids.push(item.id);
-      }
-      return splitBill(orderId, { expected_version: expectedVersion, mode: "items", groups });
-    },
+    mutationFn: (groups: SplitGroupIn[]) =>
+      splitBill(orderId, { expected_version: expectedVersion, mode: "items", groups }),
     onSuccess: (result) => {
       setError(null);
       setRearmando(false);
@@ -94,31 +108,66 @@ export function SplitBillPanel({
     onError: (err) => setError(errorMessage(err)),
   });
 
+  function splitByItems() {
+    const groups: SplitGroupIn[] = groupLabels.map((label) => ({ label, item_ids: [] }));
+    for (const item of items) {
+      const groupIndex = assignment[item.id];
+      if (groupIndex === null || groupIndex === undefined) continue;
+      groups[groupIndex]?.item_ids.push(item.id);
+    }
+    itemsMutation.mutate(groups);
+  }
+
+  function splitBySeat() {
+    itemsMutation.mutate(
+      seatGroups(items).map(({ seat, items: list }) =>
+        seat === null
+          ? { label: "Sin asiento", item_ids: list.map((item) => item.id) }
+          : { label: `Asiento ${seat}`, seat, item_ids: list.map((item) => item.id) },
+      ),
+    );
+  }
+
   const unassigned = items.filter((item) => assignment[item.id] === null || assignment[item.id] === undefined);
 
-  if (locked) {
+  // Cuenta entera (handoff `PosCobro` A): no hay selector, sólo la puerta a
+  // dividir. Dividida (B): los tres modos, y la vuelta a «todo junto».
+  if (mode === "none" && !locked) {
     return (
-      <p className="rounded-md border p-4 text-sm text-muted-foreground">
-        Cuenta dividida por ítems. Ya hay partes cobradas: la división no se puede cambiar.
-      </p>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-[56px] w-full text-[16px] font-semibold [&_svg]:size-5"
+        onClick={() => onModeChange(seatsAvailable ? "seat" : "equal")}
+      >
+        <Split aria-hidden="true" />
+        Dividir la cuenta
+      </Button>
     );
   }
 
   const modes: { value: SplitBillMode; label: string }[] = [
-    { value: "none", label: "Cobrar todo junto" },
+    ...(seatsAvailable ? [{ value: "seat" as const, label: "Por asiento" }] : []),
     { value: "equal", label: "Partes iguales" },
-    { value: "items", label: "Por ítems" },
+    { value: "items", label: "Por plato" },
   ];
+  const building = !locked && (mode === "items" || mode === "seat") && (!hasParts || rearmando);
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Cómo se cobra la cuenta">
+    <div className="flex flex-col gap-2.5">
+      <div
+        className="grid gap-1.5"
+        style={{ gridTemplateColumns: `repeat(${modes.length}, minmax(0, 1fr))` }}
+        role="group"
+        aria-label="Cómo se cobra la cuenta"
+      >
         {modes.map((m) => (
           <button
             key={m.value}
             type="button"
             aria-pressed={mode === m.value}
-            className={segmentClass(mode === m.value)}
+            disabled={locked}
+            className={cn(segmentClass(mode === m.value), locked && mode === m.value && "disabled:opacity-100")}
             onClick={() => onModeChange(m.value)}
           >
             {m.label}
@@ -126,27 +175,59 @@ export function SplitBillPanel({
         ))}
       </div>
 
+      {locked ? (
+        <p className="text-[14px] text-muted-foreground">Ya hay partes cobradas: la división no se puede cambiar.</p>
+      ) : (
+        <Button type="button" variant="ghost" className="h-11 self-start text-[15px]" onClick={() => onModeChange("none")}>
+          Cobrar todo junto
+        </Button>
+      )}
+
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}
 
-      {mode === "items" && hasParts && !rearmando ? (
-        <Button type="button" variant="outline" onClick={() => setRearmando(true)}>
+      {!locked && (mode === "items" || mode === "seat") && hasParts && !rearmando ? (
+        <Button type="button" variant="ghost" className="h-11 self-start text-[15px]" onClick={() => setRearmando(true)}>
           Rehacer la división
         </Button>
       ) : null}
 
-      {mode === "items" && (!hasParts || rearmando) ? (
-        <div className="space-y-4 rounded-md border p-3">
+      {building && mode === "seat" ? (
+        <div className="flex flex-col gap-2 rounded-lg border p-3">
+          <ul className="flex flex-col gap-1.5 text-[15px]">
+            {seatGroups(items).map(({ seat, items: list }) => (
+              <li key={seat ?? "sin-asiento"} className="flex gap-2">
+                <b className="w-24 shrink-0">{seat === null ? "Sin asiento" : `Asiento ${seat}`}</b>
+                <span className="text-muted-foreground">
+                  {list.map((item) => `${item.qty ?? 1}× ${item.name ?? "Ítem"}`).join(", ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-[56px] text-[16px] font-semibold"
+            disabled={itemsMutation.isPending || items.length === 0}
+            onClick={splitBySeat}
+          >
+            {itemsMutation.isPending ? "Dividiendo…" : "Dividir por asiento"}
+          </Button>
+        </div>
+      ) : null}
+
+      {building && mode === "items" ? (
+        <div className="flex flex-col gap-3 rounded-lg border p-3">
           <div className="flex flex-wrap items-end gap-2">
             {groupLabels.map((label, index) => (
               <div key={index} className="space-y-1">
                 <Label htmlFor={`group-label-${index}`}>Cuenta {index + 1}</Label>
                 <Input
                   id={`group-label-${index}`}
-                  className="h-11 w-40"
+                  className="h-11 w-36"
                   value={label}
                   onChange={(event) =>
                     setGroupLabels((prev) => prev.map((l, i) => (i === index ? event.target.value : l)))
@@ -176,7 +257,7 @@ export function SplitBillPanel({
                     setAssignment((prev) => ({ ...prev, [item.id]: value === NO_GROUP ? null : Number(value) }))
                   }
                 >
-                  <SelectTrigger className="h-11 w-48" aria-label={`Cuenta de ${item.name ?? "ítem"}`}>
+                  <SelectTrigger className="h-11 w-44" aria-label={`Cuenta de ${item.name ?? "ítem"}`}>
                     <SelectValue placeholder="Sin asignar" />
                   </SelectTrigger>
                   <SelectContent>
@@ -198,9 +279,10 @@ export function SplitBillPanel({
 
           <Button
             type="button"
-            className="h-11"
+            variant="outline"
+            className="h-[56px] text-[16px] font-semibold"
             disabled={itemsMutation.isPending || unassigned.length > 0 || items.length === 0}
-            onClick={() => itemsMutation.mutate()}
+            onClick={splitByItems}
           >
             {itemsMutation.isPending ? "Dividiendo…" : "Dividir cuenta"}
           </Button>
@@ -351,11 +433,15 @@ export interface SplitPart {
   key: number;
   /** El número que se dice en voz alta: «parte 3». */
   number: number;
-  /** Nombre de la sub-cuenta si no es el de fábrica («Cuenta 3»); si no, nada. */
+  /** Nombre de la sub-cuenta si no es el de fábrica («Cuenta 3»): «Asiento 1», «Constructora». */
   label?: string | null;
   /** Tal cual lo manda el servidor; `null`/ausente se pinta «—», nunca «$0». */
   amount: number | null | undefined;
   state: SplitPartState;
+  /** Los platos de la parte, en una línea («Ajiaco santafereño, Obleas»). */
+  dishes?: string | null;
+  /** La línea de detalle bajo los platos (p. ej. la propina sugerida de la parte, del servidor). */
+  detail?: string | null;
   /** Sólo cobradas: con qué se pagó, del comprobante (`payments[].label`). */
   paidWith?: string | null;
   /** Sólo cobradas: el comprobante salió como factura electrónica. */
@@ -369,62 +455,74 @@ export interface SplitPartsListProps {
 }
 
 const STATE_TEXT: Record<SplitPartState, string> = {
-  paid: "Cobrada",
-  active: "Sigue",
+  paid: "Pagada",
+  active: "Cobrando",
   pending: "Pendiente",
 };
 
+const STATE_ICON = { paid: CircleCheck, active: HandCoins, pending: Clock } as const;
+
+const STATE_CHIP: Record<SplitPartState, string> = {
+  paid: "bg-success/16 text-success",
+  active: "bg-accent text-accent-foreground",
+  pending: "bg-muted text-muted-foreground",
+};
+
 /**
- * Las partes de una cuenta dividida como filas numeradas («Momento 2» de
- * `docs/diseno/propuesta.html`): la cajera avanza de arriba abajo y el
- * sistema nunca pierde qué falta. Cobrada = ✓ y apagada, con el medio y la
- * marca de factura si el comprobante los trae; la que sigue, con el borde de
- * acción (añil, `primary`); el resto, pendiente. El estado va con palabra y
- * no sólo con color. Ningún monto se calcula acá: cada uno llega del
- * servidor (`per_part_due`/`per_part` o `totals.total` de la sub-cuenta).
+ * Las partes de una cuenta dividida como tarjetas (handoff `PosCobro` B):
+ * «Parte 2 · Asiento 2», el chip de estado con palabra e ícono (Pagada /
+ * Cobrando / Pendiente), los platos, el monto y, cobrada, con qué se pagó.
+ * La que se está cobrando lleva el borde de acción (`primary`) sobre
+ * `accent`; la cajera avanza de arriba abajo y el sistema nunca pierde qué
+ * falta. Ningún monto se calcula acá: cada uno llega del servidor
+ * (`per_part_due`/`per_part` o `totals.total` de la sub-cuenta).
  */
 export function SplitPartsList({ parts, onSelect }: SplitPartsListProps): React.JSX.Element {
   return (
-    <ol aria-label="Partes de la cuenta" className="space-y-2">
+    <ol aria-label="Partes de la cuenta" className="flex flex-col gap-2.5">
       {parts.map((part) => {
-        const detalle = [
-          STATE_TEXT[part.state],
-          part.label,
-          part.state === "paid" ? part.paidWith : null,
-          part.state === "paid" && part.withInvoice ? "con factura" : null,
-        ]
-          .filter(Boolean)
-          .join(" · ");
+        const Icon = STATE_ICON[part.state];
         const contenido = (
           <>
-            <span
-              className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-full text-lg font-bold tabular-nums",
-                part.state === "active" ? "bg-primary text-primary-foreground" : "bg-muted",
-              )}
-            >
-              {part.state === "paid" ? <Check className="size-5" aria-hidden="true" /> : part.number}
+            <span className="flex w-full items-center gap-2">
+              <b className="flex-1 text-[17px]">
+                Parte {part.number}
+                {part.label ? ` · ${part.label}` : ""}
+              </b>
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-2.5 py-[3px] text-[13px] font-bold",
+                  STATE_CHIP[part.state],
+                )}
+              >
+                <Icon className="size-3.5" aria-hidden="true" />
+                {STATE_TEXT[part.state]}
+              </span>
             </span>
-            <span className="min-w-0 flex-1 text-left">
-              <span className="block font-semibold">Parte {part.number}</span>
-              <span className="block truncate text-sm text-muted-foreground">{detalle}</span>
+            {part.dishes ? <span className="text-[14px] text-muted-foreground">{part.dishes}</span> : null}
+            <span className="flex w-full items-baseline justify-between gap-2 text-[15px]">
+              <span className="text-muted-foreground">{part.detail ?? ""}</span>
+              <b className="text-[18px] tabular-nums">{formatCOP(part.amount)}</b>
             </span>
-            <span className="text-xl font-bold tabular-nums" style={{ fontStretch: "115%" }}>
-              {formatCOP(part.amount)}
-            </span>
+            {part.state === "paid" && part.paidWith ? (
+              <span className="flex items-center gap-1.5 text-[14px]">
+                <Wallet className="size-4" aria-hidden="true" />
+                {part.paidWith}
+                {part.withInvoice ? " · con factura" : ""}
+              </span>
+            ) : null}
           </>
         );
         const clases = cn(
-          "flex min-h-14 w-full items-center gap-3 rounded-md border px-3 py-2",
-          part.state === "paid" && "opacity-60",
-          part.state === "active" && "border-2 border-primary bg-accent/40",
+          "flex w-full flex-col items-start gap-1.5 rounded-lg border-2 p-3 text-left",
+          part.state === "active" ? "border-primary bg-accent" : "border-border bg-background",
         );
         return (
           <li key={part.key} aria-current={part.state === "active" ? "step" : undefined}>
             {onSelect && part.state === "pending" ? (
               <button
                 type="button"
-                className={cn(clases, "transition-colors hover:bg-accent")}
+                className={cn(clases, "transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
                 onClick={() => onSelect(part.key)}
               >
                 {contenido}

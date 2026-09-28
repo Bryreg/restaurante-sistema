@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { BellRing, Link2, Move, Plus, Send, UserRound, Users } from "lucide-react"
+import { BellRing, Circle, Link2, Move, Plus, Receipt, Send, UserRound, Users, Utensils } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -13,9 +13,9 @@ import {
   type ZoneStatusOut,
 } from "@/api/orders"
 import { Cargando } from "@/components/Cargando"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { EmptyState } from "@/components/EmptyState"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -26,35 +26,141 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { usePosTarea } from "@/app/posTarea"
 import { useSession } from "@/app/session"
 import { CashRibbon } from "@/features/shifts"
 import { formatCOP } from "@/lib/money"
 import { errorMessage } from "@/lib/errors"
+import { TABLET_HORIZONTAL, useMediaQuery } from "@/lib/useMediaQuery"
 import { cn } from "@/lib/utils"
 
 import { AuthorizerDialog } from "./AuthorizerDialog"
 import { TABLES_STATUS_QUERY_KEY, useAuthorizerFlow, useTablesStatus } from "./hooks"
-import { elapsedLabel, initials } from "./lib"
+import { elapsedMinutesLabel, initials } from "./lib"
 
 type Mode = "idle" | "merge" | "move"
 
 const STATUS_LABEL: Record<string, string> = { free: "Libre", occupied: "Ocupada", to_pay: "Por cobrar" }
-const STATUS_VARIANT: Record<string, "outline" | "secondary" | "default"> = {
-  free: "outline",
-  occupied: "secondary",
-  to_pay: "default",
-}
 
 /**
- * El fondo de la tarjeta dice el estado de lejos, sin leer la insignia:
- * libre en blanco, ocupada en añil suave, por cobrar en ámbar. Tokens del
+ * El fondo de la tarjeta dice el estado de lejos (handoff `PosMesas`):
+ * libre en `card` con borde `border`; ocupada con `primary` al 12 % y borde
+ * al 45 %; por cobrar con `warning` al 22 % y borde `warning`. Tokens del
  * tema (nunca un color crudo), con el texto en `foreground` para que el
- * contraste no dependa del fondo.
+ * contraste no dependa del fondo. El estado va además con ícono y palabra.
  */
 const STATUS_CARD_CLASS: Record<string, string> = {
   free: "border-border bg-card",
-  occupied: "border-primary/40 bg-primary/10",
-  to_pay: "border-warning bg-warning/20",
+  occupied: "border-primary/45 bg-primary/12",
+  to_pay: "border-warning bg-warning/22",
+}
+
+const STATUS_ICON = { free: Circle, occupied: Utensils, to_pay: Receipt } as const
+const STATUS_TEXT_CLASS: Record<string, string> = {
+  free: "text-muted-foreground",
+  occupied: "text-accent-foreground",
+  to_pay: "text-foreground",
+}
+
+/** El cuadrito de la leyenda: la misma pareja fondo/borde que la tarjeta. */
+function Muestra({ estado }: { estado: keyof typeof STATUS_ICON }): React.JSX.Element {
+  return <span aria-hidden="true" className={cn("size-[14px] rounded-[4px] border-2", STATUS_CARD_CLASS[estado])} />
+}
+
+/** Botón de 56 px de la fila de Mesas (Mis mesas, Mover / unir). */
+const BOTON_FILA = "h-[56px] gap-2 rounded-lg px-4 text-[16px] font-semibold [&_svg]:size-5"
+
+/**
+ * La tarjeta de una mesa (handoff `PosMesas`): 128 px de alto (112 en la
+ * tablet apaisada), el nombre, las iniciales de quien la atiende en un
+ * círculo de 34 px, el estado con ícono y palabra, «3 · 12 min» y el total
+ * del servidor, y los chips «2 listos» (success) y «2 sin enviar»
+ * (destructive), que son conteos del servidor, no cuentas de la pantalla.
+ */
+function TableCard({
+  table,
+  compact,
+  selecting,
+  isSelected,
+  onClick,
+}: {
+  table: TableStatusOut
+  compact: boolean
+  selecting: boolean
+  isSelected: boolean
+  onClick: () => void
+}): React.JSX.Element {
+  // Conteo del servidor: platos que cocina marcó listos y nadie llevó
+  // todavía. Sin el campo (backend viejo) no se pinta nada.
+  const readyCount = table.ready_count ?? 0
+  const readyText = `${readyCount} ${readyCount === 1 ? "listo" : "listos"}`
+  // Lo que el mesero cargó y todavía no salió a cocina: el olvido más caro
+  // del turno, visible desde el mapa.
+  const unsentCount = table.unsent_count ?? 0
+  const unsentText = `${unsentCount} sin enviar`
+  const waiter = table.opened_by?.name ?? null
+  const status = table.status ?? "free"
+  const StatusIcon = STATUS_ICON[status] ?? Circle
+  return (
+    <button
+      type="button"
+      aria-label={`Mesa ${table.number}, ${STATUS_LABEL[status]}${
+        readyCount > 0 ? `, ${readyText} para servir` : ""
+      }${unsentCount > 0 ? `, ${unsentText}` : ""}${waiter ? `, atiende ${waiter}` : ""}`}
+      aria-pressed={selecting ? isSelected : undefined}
+      className={cn(
+        "flex flex-col items-stretch gap-1.5 rounded-lg border-2 p-3 text-left text-foreground transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
+        compact ? "min-h-[112px]" : "min-h-[128px]",
+        STATUS_CARD_CLASS[status] ?? STATUS_CARD_CLASS.free,
+        isSelected && "border-primary ring-2 ring-primary",
+      )}
+      onClick={onClick}
+    >
+      <span className="flex w-full items-center justify-between gap-1.5">
+        <b className="text-[21px] leading-tight font-bold [font-stretch:90%]">Mesa {table.number}</b>
+        {waiter ? (
+          <span
+            aria-hidden="true"
+            title={waiter}
+            className="grid size-[34px] shrink-0 place-items-center rounded-full border border-foreground/30 bg-background text-[13px] font-extrabold"
+          >
+            {initials(waiter)}
+          </span>
+        ) : null}
+      </span>
+      <span className={cn("inline-flex items-center gap-1.5 text-[14px] font-bold", STATUS_TEXT_CLASS[status])}>
+        <StatusIcon className="size-4" aria-hidden="true" />
+        {STATUS_LABEL[status]}
+      </span>
+      {status !== "free" ? (
+        <span className="flex w-full flex-wrap items-baseline justify-between gap-x-2 text-[15px]">
+          <span className="inline-flex items-center gap-1">
+            <Users className="size-[15px]" aria-hidden="true" />
+            {table.covers ?? table.seats ?? "—"} · {elapsedMinutesLabel(table.opened_at)}
+          </span>
+          <b className="tabular-nums">{formatCOP(table.total)}</b>
+        </span>
+      ) : (
+        <span className="text-[14px] text-muted-foreground">{table.seats ?? "—"} puestos</span>
+      )}
+      {readyCount > 0 || unsentCount > 0 ? (
+        <span className="mt-auto flex flex-wrap gap-1.5">
+          {readyCount > 0 ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-success px-[9px] py-[3px] text-[13px] font-bold text-success-foreground">
+              <BellRing className="size-3.5" aria-hidden="true" />
+              {readyText}
+            </span>
+          ) : null}
+          {unsentCount > 0 ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-destructive px-[9px] py-[3px] text-[13px] font-bold text-destructive-foreground">
+              <Send className="size-3.5" aria-hidden="true" />
+              {unsentText}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+    </button>
+  )
 }
 
 export function TablesPage(): React.JSX.Element {
@@ -81,6 +187,11 @@ export function TablesPage(): React.JSX.Element {
   const myId = me?.employee?.id ?? null
 
   const authorizerFlow = useAuthorizerFlow();
+  // Mesas maneja su propio alto: la cinta y la fila de arriba quedan quietas
+  // y sólo se desplaza la grilla.
+  usePosTarea({ aLoAncho: true })
+  const horizontal = useMediaQuery(TABLET_HORIZONTAL)
+  const [zonaId, setZonaId] = useState<number | "todas" | null>(null)
 
   useEffect(() => {
     if (!openTable) return
@@ -215,67 +326,115 @@ export function TablesPage(): React.JSX.Element {
   const mergeSelectable = mode === "merge" && selected.length >= 2
   const moveSelectable = mode === "move" && selected.length >= 2
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">Mesas</h1>
-        <div className="flex flex-wrap gap-2">
-          {myId !== null ? (
-            <Button
-              type="button"
-              variant={onlyMine ? "default" : "outline"}
-              className="h-14"
-              aria-pressed={onlyMine}
-              onClick={() => setOnlyMine((on) => !on)}
-            >
-              <UserRound className="size-4" aria-hidden="true" />
-              Mis mesas
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant={mode === "merge" ? "default" : "outline"}
-            className="h-11"
-            aria-pressed={mode === "merge"}
-            onClick={() => {
-              if (mode === "merge") {
-                resetMode()
-                return
-              }
-              setMode("merge")
-              setSelected([])
-            }}
-          >
-            <Link2 className="size-4" aria-hidden="true" />
-            Unir mesas
-          </Button>
-          <Button
-            type="button"
-            variant={mode === "move" ? "default" : "outline"}
-            className="h-11"
-            aria-pressed={mode === "move"}
-            onClick={() => {
-              if (mode === "move") {
-                resetMode()
-                return
-              }
-              setMode("move")
-              setSelected([])
-            }}
-          >
-            <Move className="size-4" aria-hidden="true" />
-            Mover mesa
-          </Button>
-        </div>
-      </div>
+  // Conteos de la leyenda: mesas, no plata (el estado lo manda el servidor).
+  const cuenta = { free: 0, occupied: 0, to_pay: 0 }
+  for (const zone of zones) for (const table of zone.tables ?? []) cuenta[table.status ?? "free"] += 1
+  const visibleTables = (zone: ZoneStatusOut) =>
+    (zone.tables ?? []).filter((table) => !onlyMine || table.status === "free" || table.opened_by?.id === myId)
+  // Variante B (tablet apaisada): las zonas van en pestañas, arrancando por la primera.
+  const zonaElegida = horizontal ? (zonaId ?? zones[0]?.id ?? "todas") : "todas"
+  const zonasVisibles = zonaElegida === "todas" ? zones : zones.filter((zone) => zone.id === zonaElegida)
+  const pestanas = [
+    { id: "todas" as const, name: "Todas", n: tableById.size },
+    ...zones.map((zone) => ({ id: zone.id, name: zone.name ?? "Zona", n: (zone.tables ?? []).length })),
+  ]
 
-      {/* La cinta de caja: sólo la ve quien puede manejar la caja, con turno
-          abierto; cada acción abre su hoja encima de Mesas. */}
+  function toggleMode(next: Exclude<Mode, "idle">) {
+    if (mode === next) {
+      resetMode()
+      return
+    }
+    setMode(next)
+    setSelected([])
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* La cinta de caja: una fila a lo ancho, arriba de Mesas. Sólo la ve
+          quien puede manejar la caja, con turno abierto; cada acción abre su
+          hoja encima de Mesas. */}
       <CashRibbon />
 
+      <div className="flex flex-wrap items-center gap-2.5 px-4 pt-3 pb-1">
+        <h1 className="text-[26px] leading-tight font-extrabold">Mesas</h1>
+        <p className="flex flex-1 flex-wrap gap-x-3.5 gap-y-1 text-[14px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <Muestra estado="free" />
+            Libre {cuenta.free}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Muestra estado="occupied" />
+            Ocupada {cuenta.occupied}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Muestra estado="to_pay" />
+            Por cobrar {cuenta.to_pay}
+          </span>
+        </p>
+        {myId !== null ? (
+          <Button
+            type="button"
+            variant={onlyMine ? "default" : "outline"}
+            className={BOTON_FILA}
+            aria-pressed={onlyMine}
+            onClick={() => setOnlyMine((on) => !on)}
+          >
+            <UserRound aria-hidden="true" />
+            Mis mesas
+          </Button>
+        ) : null}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            className={cn(
+              BOTON_FILA,
+              "inline-flex items-center border transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              mode === "idle"
+                ? "border-border bg-background hover:bg-muted"
+                : "border-primary bg-primary text-primary-foreground",
+            )}
+          >
+            <Move aria-hidden="true" />
+            Mover / unir
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-auto min-w-56">
+            <DropdownMenuItem className="min-h-14 gap-3 text-base" onClick={() => toggleMode("move")}>
+              <Move className="size-5" aria-hidden="true" />
+              Mover mesa
+            </DropdownMenuItem>
+            <DropdownMenuItem className="min-h-14 gap-3 text-base" onClick={() => toggleMode("merge")}>
+              <Link2 className="size-5" aria-hidden="true" />
+              Unir mesas
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {horizontal && zones.length > 1 ? (
+        <div className="flex gap-2 overflow-x-auto px-4 pt-2" role="group" aria-label="Zonas">
+          {pestanas.map((pestana) => {
+            const activa = zonaElegida === pestana.id
+            return (
+              <button
+                key={pestana.id}
+                type="button"
+                aria-pressed={activa}
+                className={cn(
+                  "inline-flex h-[56px] shrink-0 items-center gap-2 rounded-lg px-[18px] text-[17px] font-bold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  activa ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-muted",
+                )}
+                onClick={() => setZonaId(pestana.id)}
+              >
+                {pestana.name}
+                <span className="text-[14px] font-medium opacity-80">{pestana.n}</span>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+
       {mode !== "idle" ? (
-        <div className="flex flex-wrap items-center gap-3 rounded-md border border-dashed p-3 text-sm">
-          <p>
+        <div className="mx-4 mt-2 flex flex-wrap items-center gap-3 rounded-lg border-2 border-dashed border-primary/45 bg-accent/40 p-3 text-[15px]">
+          <p className="flex-1">
             {mode === "merge"
               ? "Tocá las mesas ocupadas que querés unir (2 o más)."
               : selected.length === 0
@@ -285,7 +444,7 @@ export function TablesPage(): React.JSX.Element {
           {mode === "merge" && mergeSelectable ? (
             <Button
               type="button"
-              className="h-9"
+              className="h-[56px] px-5 text-[16px] font-semibold"
               onClick={() => {
                 setMergeTarget(selected[0])
                 setMergeDialogOpen(true)
@@ -295,56 +454,51 @@ export function TablesPage(): React.JSX.Element {
             </Button>
           ) : null}
           {mode === "move" && moveSelectable ? (
-            <Button type="button" className="h-9" disabled={actionPending} onClick={() => void runMove()}>
+            <Button
+              type="button"
+              className="h-[56px] px-5 text-[16px] font-semibold"
+              disabled={actionPending}
+              onClick={() => void runMove()}
+            >
               {actionPending ? "Moviendo…" : "Confirmar traslado"}
             </Button>
           ) : null}
-          <Button type="button" variant="ghost" className="h-9" onClick={resetMode}>
+          <Button type="button" variant="outline" className="h-[56px] px-5 text-[16px]" onClick={resetMode}>
             Cancelar
           </Button>
         </div>
       ) : null}
 
       {actionError ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="px-4 pt-2 text-sm text-destructive">
           {actionError}
         </p>
       ) : null}
 
-      {tablesStatus.isLoading ? (
-        <Cargando texto="Cargando mesas…" />
-      ) : zones.length === 0 ? (
-        <EmptyState title="Esta sede todavía no tiene zonas ni mesas activas" />
-      ) : (
-        zones.map((zone) => (
-          <section key={zone.id} className="space-y-3">
-            <h2 className="text-sm font-medium text-muted-foreground">{zone.name}</h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {(zone.tables ?? []).filter((table) => !onlyMine || table.status === "free" || table.opened_by?.id === myId).map((table) => {
-                const isSelected = selected.includes(table.id)
-                // Conteo del servidor: platos que cocina marcó listos y nadie
-                // llevó todavía. Sin el campo (backend viejo) no se pinta nada.
-                const readyCount = table.ready_count ?? 0
-                const readyText = `${readyCount} ${readyCount === 1 ? "listo" : "listos"}`
-                // Lo que el mesero cargó y todavía no salió a cocina: el
-                // olvido más caro del turno, visible desde el mapa.
-                const unsentCount = table.unsent_count ?? 0
-                const unsentText = `${unsentCount} sin enviar`
-                const waiter = table.opened_by?.name ?? null
-                const status = table.status ?? "free"
-                return (
-                  <button
+      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pt-2 pb-4">
+        {tablesStatus.isLoading ? (
+          <Cargando texto="Cargando mesas…" />
+        ) : zones.length === 0 ? (
+          <EmptyState title="Esta sede todavía no tiene zonas ni mesas activas" />
+        ) : (
+          zonasVisibles.map((zone) => (
+            <section key={zone.id} className="flex flex-col gap-2">
+              <h2 className="text-[15px] font-bold tracking-[0.06em] text-muted-foreground uppercase">{zone.name}</h2>
+              <div
+                className={cn(
+                  "grid gap-2.5",
+                  horizontal
+                    ? "grid-cols-[repeat(auto-fill,minmax(140px,1fr))]"
+                    : "grid-cols-[repeat(auto-fill,minmax(180px,1fr))]",
+                )}
+              >
+                {visibleTables(zone).map((table) => (
+                  <TableCard
                     key={table.id}
-                    type="button"
-                    aria-label={`Mesa ${table.number}, ${STATUS_LABEL[status]}${
-                      readyCount > 0 ? `, ${readyText} para servir` : ""
-                    }${unsentCount > 0 ? `, ${unsentText}` : ""}${waiter ? `, atiende ${waiter}` : ""}`}
-                    aria-pressed={mode !== "idle" ? isSelected : undefined}
-                    className={cn(
-                      "flex min-h-[88px] flex-col items-start gap-1 rounded-lg border-2 p-3 text-left text-foreground transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring portrait:min-h-[132px]",
-                      STATUS_CARD_CLASS[status] ?? STATUS_CARD_CLASS.free,
-                      isSelected && "border-primary ring-2 ring-primary",
-                    )}
+                    table={table}
+                    compact={horizontal}
+                    selecting={mode !== "idle"}
+                    isSelected={selected.includes(table.id)}
                     onClick={() => {
                       if (mode !== "idle") {
                         toggleSelected(table)
@@ -356,50 +510,13 @@ export function TablesPage(): React.JSX.Element {
                         navigate(`/pos/comanda/${table.order_id}`)
                       }
                     }}
-                  >
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <span className="text-lg font-bold">Mesa {table.number}</span>
-                      <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABEL[status]}</Badge>
-                    </div>
-                    <span className="flex w-full items-center justify-between gap-2 text-sm">
-                      <span className="inline-flex items-center gap-1">
-                        <Users className="size-4" aria-hidden="true" />
-                        {table.covers ?? table.seats ?? "—"}
-                      </span>
-                      {waiter ? (
-                        <span
-                          aria-hidden="true"
-                          title={waiter}
-                          className="grid size-8 place-items-center rounded-full border border-foreground/30 bg-background text-xs font-bold"
-                        >
-                          {initials(waiter)}
-                        </span>
-                      ) : null}
-                    </span>
-                    {table.status !== "free" ? (
-                      <span className="text-sm">
-                        {elapsedLabel(table.opened_at)} · {formatCOP(table.total)}
-                      </span>
-                    ) : null}
-                    {readyCount > 0 ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-success px-2 py-0.5 text-xs font-semibold text-success-foreground">
-                        <BellRing className="size-3.5" aria-hidden="true" />
-                        {readyText}
-                      </span>
-                    ) : null}
-                    {unsentCount > 0 ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-destructive px-2 py-0.5 text-xs font-semibold text-destructive-foreground">
-                        <Send className="size-3.5" aria-hidden="true" />
-                        {unsentText}
-                      </span>
-                    ) : null}
-                  </button>
-                )
-              })}
-            </div>
-          </section>
-        ))
-      )}
+                  />
+                ))}
+              </div>
+            </section>
+          ))
+        )}
+      </div>
 
       <Dialog open={openTable !== null} onOpenChange={(next) => !next && setOpenTable(null)}>
         <DialogContent>

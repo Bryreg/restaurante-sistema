@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 
 import type { OrderOut, TipInfoOut, TotalsOut } from "@/api/orders";
 import type { PaymentOut, PaymentTipIn } from "@/api/payments";
@@ -32,17 +33,25 @@ export interface PaymentTargetPanelProps {
   beforePayments?: (tip: PaymentTipIn | null) => React.ReactNode;
   /** Cambia cuando la tabla de pagos se tiene que volver a sembrar (p. ej. partes iguales nuevas) sin perder la propina. */
   splitsKey?: string;
-  /** Ver `PaymentSplitsForm.confirmSlot`. */
-  confirmSlot?: HTMLElement | null;
+  /**
+   * Dónde va la cuenta —la propina, lo que va entre la propina y los pagos
+   * (`beforePayments`) y el libro «Consumo / Propina (no es venta) / Total»
+   * con doble raya—: la columna izquierda de 440 px del cobro (handoff
+   * `PosCobro`). Sin él, arriba de los pagos.
+   */
+  cuentaSlot?: HTMLElement | null;
+  /** El rótulo sobre el total grande («Total a cobrar», «Parte 2 de 3 · a cobrar»). */
+  rotuloTotal?: string;
 }
 
 /**
  * Junta la pregunta de propina (cuando aplica) con la tabla de pagos para UN
  * blanco de cobro — la comanda entera o una sub-cuenta de la división por
- * ítems. Con `pos.tips` encendida y el blanco tiene `tipInfo`, no se muestra
- * la tabla de pagos hasta responder la propina (el servidor exige
- * `tip.asked` — CONTRATO-INTERNO-1b-1.md §2.4). Con `pos.tips` apagada no
- * hay pregunta (checklist del pedido).
+ * ítems. Con `pos.tips` encendida y el blanco tiene `tipInfo`, no se puede
+ * cobrar hasta responder la propina (el servidor exige `tip.asked` —
+ * CONTRATO-INTERNO-1b-1.md §2.4): la tabla de pagos se ve (el handoff la
+ * quiere siempre a la vista) pero «Cobrar» queda bloqueado y dice por qué.
+ * Con `pos.tips` apagada no hay pregunta (checklist del pedido).
  *
  * **A-10** (`features/fase-1b-venta/outputs-1b-1/auditor-venta.md §3`;
  * `docs/ESTADO.md § Dónde retomar` punto 6): antes de este pedido acá se
@@ -83,7 +92,8 @@ export function PaymentTargetPanel({
   onAlreadyPaid,
   beforePayments,
   splitsKey,
-  confirmSlot,
+  cuentaSlot,
+  rotuloTotal,
 }: PaymentTargetPanelProps): React.JSX.Element {
   const [tip, setTip] = useState<PaymentTipIn | null>(null);
 
@@ -91,58 +101,59 @@ export function PaymentTargetPanel({
   const tipResolved = !showTipQuestion || tip !== null;
   const saleTotal = target.totals.total;
 
-  return (
-    <div className="space-y-3">
+  // La cuenta (propina y libro con doble raya) va en la columna de la
+  // cuenta —izquierda, 440 px— cuando la pantalla le da un lugar; si no,
+  // arriba de los pagos.
+  const cuenta = (
+    <div className="flex flex-col gap-3">
       {showTipQuestion && target.tipInfo ? (
         <TipQuestion tipInfo={target.tipInfo} value={tip} onChange={setTip} />
       ) : null}
+      {tipResolved && saleTotal != null ? beforePayments?.(tip) : null}
+      {saleTotal != null ? (
+        <dl className="flex flex-col border-t-[3px] border-double border-foreground/60 pt-2">
+          <div className="flex justify-between text-[15px] text-muted-foreground">
+            <dt>Consumo</dt>
+            <dd className="tabular-nums">{formatCOP(saleTotal)}</dd>
+          </div>
+          {showTipQuestion ? (
+            <div className="flex justify-between text-[15px] text-muted-foreground">
+              <dt>Propina (no es venta)</dt>
+              <dd className="tabular-nums">{tip ? formatCOP(tip.amount) : "—"}</dd>
+            </div>
+          ) : null}
+          <div className="flex justify-between pt-1 text-[20px] font-extrabold">
+            <dt>Total</dt>
+            <dd className="tabular-nums">{formatCOP(saleTotal + (tip?.amount ?? 0))}</dd>
+          </div>
+        </dl>
+      ) : null}
+    </div>
+  );
 
-      {!tipResolved ? (
-        <p className="text-sm text-muted-foreground">Respondé la propina para continuar con el cobro.</p>
-      ) : saleTotal == null ? (
+  return (
+    <div className="flex flex-col gap-3">
+      {cuentaSlot ? createPortal(cuenta, cuentaSlot) : cuenta}
+
+      {saleTotal == null ? (
         <p role="alert" className="text-sm text-destructive">
           No se pudo calcular el total de esta cuenta. Volvé a cargarla antes de cobrar.
         </p>
       ) : (
-        <>
-          {beforePayments?.(tip)}
-          <div className="space-y-1 rounded-md border px-3 py-2 text-sm">
-            <div className="flex justify-between">
-              <span>Venta</span>
-              <span className="tabular-nums font-medium">{formatCOP(saleTotal)}</span>
-            </div>
-            {tip && tip.amount > 0 ? (
-              <>
-                <div className="flex justify-between">
-                  <span>Propina</span>
-                  <span className="tabular-nums font-medium">{formatCOP(tip.amount)}</span>
-                </div>
-                <div className="flex items-baseline justify-between border-t pt-2">
-                  <span className="text-base font-semibold">Total a cobrar</span>
-                  <span
-                    className="text-3xl font-extrabold tabular-nums"
-                    style={{ fontStretch: "115%" }}
-                  >
-                    {formatCOP(saleTotal + tip.amount)}
-                  </span>
-                </div>
-              </>
-            ) : null}
-          </div>
-          <PaymentSplitsForm
-            key={splitsKey}
-            orderId={orderId}
-            expectedVersion={expectedVersion}
-            subAccountId={target.subAccountId}
-            totalDue={saleTotal + (tip?.amount ?? 0)}
-            tip={tipsEnabled ? tip ?? undefined : undefined}
-            initialSplits={initialSplits}
-            onPaid={onPaid}
-            onStale={onStale}
-            onAlreadyPaid={onAlreadyPaid}
-            confirmSlot={confirmSlot}
-          />
-        </>
+        <PaymentSplitsForm
+          key={splitsKey}
+          orderId={orderId}
+          expectedVersion={expectedVersion}
+          subAccountId={target.subAccountId}
+          totalDue={saleTotal + (tip?.amount ?? 0)}
+          rotuloTotal={rotuloTotal}
+          bloqueo={tipResolved ? null : "Respondé la propina para continuar con el cobro."}
+          tip={tipsEnabled ? tip ?? undefined : undefined}
+          initialSplits={initialSplits}
+          onPaid={onPaid}
+          onStale={onStale}
+          onAlreadyPaid={onAlreadyPaid}
+        />
       )}
     </div>
   );

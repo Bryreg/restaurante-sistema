@@ -58,29 +58,30 @@ export function ShiftActionSheet({
           side="right"
           showCloseButton={false}
           className={
+            // Handoff `PosMesas`: una hoja lateral de 480 px encima de la
+            // pantalla, fondo `card`. El cierre sigue a lo ancho: es un
+            // asistente de tres pasos.
             accion.clave === "cierre"
-              ? "gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-none"
-              : "gap-0 data-[side=right]:w-full data-[side=right]:sm:max-w-2xl"
+              ? "gap-0 bg-card data-[side=right]:w-full data-[side=right]:sm:max-w-none"
+              : "gap-0 bg-card data-[side=right]:w-full data-[side=right]:sm:max-w-[480px]"
           }
         >
-          <div className="flex items-center gap-3 border-b p-3">
+          <div className="flex items-center gap-2.5 border-b p-3">
             <Button
               type="button"
               variant="outline"
               size="lg"
-              className="min-h-14 gap-2 px-4 text-base"
+              className="h-[56px] gap-1.5 rounded-lg px-3.5 text-[16px] font-semibold [&_svg]:size-5"
               aria-label={volver.ariaLabel}
               onClick={onClose}
             >
-              <ArrowLeft className="size-5" aria-hidden="true" />
+              <ArrowLeft aria-hidden="true" />
               {volver.label}
             </Button>
-            <div className="min-w-0">
-              <SheetTitle className="text-xl font-semibold">{accion.label}</SheetTitle>
-              <SheetDescription>{accion.descripcion}</SheetDescription>
-            </div>
+            <SheetTitle className="min-w-0 text-[22px] leading-tight font-extrabold">{accion.label}</SheetTitle>
           </div>
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 space-y-4 overflow-y-auto p-4">
+            <SheetDescription className="text-[16px] text-muted-foreground">{accion.descripcion}</SheetDescription>
             <PanelDeAccion
               clave={accion.clave}
               shift={shift}

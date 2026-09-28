@@ -19,6 +19,18 @@ export interface PinPadProps {
    * el teclado no salte cuando llega el mensaje del servidor.
    */
   size?: "default" | "grande";
+  /**
+   * Retener el PIN completo en vez de mandarlo solo: el cobro (`PosCobro`)
+   * junta el PIN con el pago y confirma con su propio botón «Cobrar $ X».
+   * Con `true`, `onSubmit` no se llama al completar ni se limpian los puntos;
+   * la pantalla lee el valor con `onChange` y, para empezar de cero, vuelve a
+   * montar el teclado (`key`).
+   */
+  holdValue?: boolean;
+  /** Cada cambio del valor tecleado (sólo lo usa `holdValue`). */
+  onChange?: (pin: string) => void;
+  /** Rótulo visible a la izquierda de los puntos (p. ej. «PIN de quien cobra»). */
+  heading?: React.ReactNode;
 }
 
 const ROWS: readonly (readonly string[])[] = [
@@ -40,6 +52,9 @@ export function PinPad({
   disabled = false,
   errorMessage = null,
   size = "default",
+  holdValue = false,
+  onChange,
+  heading,
 }: PinPadProps) {
   const grande = size === "grande";
   const [value, setValue] = useState("");
@@ -63,10 +78,13 @@ export function PinPad({
   // nunca dentro del actualizador de `setValue`, para no disparar `onSubmit`
   // más de una vez si React re-invoca el actualizador (StrictMode).
   useEffect(() => {
-    if (value.length < length) return;
+    onChange?.(value);
+    if (holdValue || value.length < length) return;
     onSubmit(value);
     setValue("");
-  }, [value, length, onSubmit]);
+    // `onChange` no entra: una función nueva en cada render no es un cambio del PIN.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, length, onSubmit, holdValue]);
 
   useEffect(() => {
     // El atajo de teclado escucha en `window` para que no haga falta enfocar
@@ -114,18 +132,34 @@ export function PinPad({
 
   return (
     <div className="flex flex-col items-center gap-4" role="group" aria-label={label}>
-      <div className={cn("flex", grande ? "h-[24px] items-center gap-[16px]" : "gap-3")} aria-hidden="true">
-        {Array.from({ length }).map((_, index) => (
-          <span
-            key={index}
-            className={cn(
-              "rounded-full border-2",
-              grande ? "size-[20px] border-foreground" : "size-4 border-foreground/40",
-              index < value.length && "border-foreground bg-foreground",
-            )}
-          />
-        ))}
-      </div>
+      {(() => {
+        const puntos = (
+          <div
+            className={cn("flex", grande ? "h-[24px] items-center gap-[16px]" : heading ? "shrink-0 gap-2" : "gap-3")}
+            aria-hidden="true"
+          >
+            {Array.from({ length }).map((_, index) => (
+              <span
+                key={index}
+                className={cn(
+                  "rounded-full border-2",
+                  grande ? "size-[20px] border-foreground" : "border-foreground/40",
+                  !grande && (heading ? "size-3.5" : "size-4"),
+                  index < value.length && "border-foreground bg-foreground",
+                )}
+              />
+            ))}
+          </div>
+        );
+        return heading ? (
+          <div className="flex w-full items-center justify-between gap-2">
+            <span className="text-[14px] font-semibold">{heading}</span>
+            {puntos}
+          </div>
+        ) : (
+          puntos
+        );
+      })()}
       <p id={statusId} className="sr-only" role="status" aria-live="polite">
         {value.length} de {length} dígitos ingresados
       </p>
