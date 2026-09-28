@@ -43,6 +43,9 @@ from app.reports.series_schemas import (
     CategoryMarginPointOut,
     CategoryMarginSeriesOut,
     DailySalesSeriesOut,
+    DishMixGroup,
+    DishMixPointOut,
+    DishMixSeriesOut,
     OverviewSeriesOut,
     PanelBulletsOut,
     PeakHourPointOut,
@@ -306,6 +309,7 @@ def stores_week(
                 delta_bp=service._delta_bp(cur.net, prev_net),
                 outside=prev_net is not None and cur.net < prev_net,
                 avg_ticket=cur.avg_ticket,
+                margin_bp=_margin_bp(cur),
             )
         )
     points.sort(key=lambda p: (-(p.value or 0), p.label))
@@ -429,6 +433,68 @@ def peak_hours(
     return PeakHoursSeriesOut(orders_per_waiter=common_opw, views=views)
 
 
+#: Cuántos platos entran al «Mix de platos» (los de más unidades con costo).
+DISH_MIX_MAX = 12
+DISH_MIX_NO_COST_REASON = (
+    "Ningún plato vendido en el período tiene costo: sin costo no hay margen que ubicar."
+)
+DISH_MIX_NO_SALES_REASON = "No se vendió ningún plato en el período."
+
+
+def _signed_half_up(numerator: int, denominator: int) -> int:
+    """`numerator / denominator` entero, half-up sobre el valor absoluto y
+    con el signo del numerador (un margen promedio puede ser negativo)."""
+    magnitude = money.round_half_up(abs(numerator), denominator)
+    return magnitude if numerator >= 0 else -magnitude
+
+
+def dish_mix(product_rows: list[SalesBucketOut]) -> DishMixSeriesOut:
+    """Unidades contra margen de los platos más vendidos con costo. Los
+    promedios que parten los cuadrantes son simples (un plato, un voto),
+    y el grupo de cada plato lo decide acá el servidor: la pantalla no
+    compara contra el promedio."""
+    sold = [r for r in product_rows if (r.units or 0) > 0]
+    if not sold:
+        return DishMixSeriesOut(available=False, reason=DISH_MIX_NO_SALES_REASON)
+    with_margin = [(r, _margin_bp(r)) for r in sold]
+    costed = [(r, m) for r, m in with_margin if m is not None]
+    without_cost = len(sold) - len(costed)
+    if not costed:
+        return DishMixSeriesOut(
+            available=False, reason=DISH_MIX_NO_COST_REASON, without_cost=without_cost
+        )
+    costed.sort(key=lambda rm: (-(rm[0].units or 0), -rm[0].net, rm[0].label or rm[0].key))
+    top = costed[:DISH_MIX_MAX]
+    n = len(top)
+    avg_units = money.round_half_up(sum(r.units or 0 for r, _ in top), n)
+    avg_margin = _signed_half_up(sum(m for _, m in top if m is not None), n)
+    points: list[DishMixPointOut] = []
+    for r, m in top:
+        assert m is not None
+        units = r.units or 0
+        sells = units >= avg_units
+        earns = m >= avg_margin
+        group: DishMixGroup = (
+            "keep" if sells and earns else "promote" if earns else "reprice" if sells else "review"
+        )
+        points.append(
+            DishMixPointOut(
+                key=r.key,
+                label=r.label or r.key,
+                units=units,
+                margin_bp=m,
+                net=r.net,
+                group=group,
+            )
+        )
+    return DishMixSeriesOut(
+        avg_units=avg_units,
+        avg_margin_bp=avg_margin,
+        points=points,
+        without_cost=without_cost,
+    )
+
+
 def overview_series(
     db: Session,
     *,
@@ -439,6 +505,7 @@ def overview_series(
     date_to: date,
     by_category: list[SalesBucketOut],
     total: SalesBucketOut,
+    product_rows: list[SalesBucketOut] | None = None,
 ) -> OverviewSeriesOut:
     today = tz.today_business_date(stores[0].cutoff_hour)
     return OverviewSeriesOut(
@@ -458,6 +525,7 @@ def overview_series(
         if all_stores
         else None,
         peak_hours=peak_hours(db, stores=stores, date_from=date_from, date_to=date_to),
+        dish_mix=dish_mix(product_rows) if product_rows is not None else None,
     )
 
 

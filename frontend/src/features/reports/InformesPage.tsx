@@ -1,22 +1,33 @@
 import { useQuery } from "@tanstack/react-query"
-import { ArrowRight, ChevronDown, ChevronRight } from "lucide-react"
+import { ArrowRight, Calendar, ChevronDown, ChevronRight } from "lucide-react"
 import { useId, useState } from "react"
 import { Link } from "react-router-dom"
 
 import { adminListOrders, type AdminOrderListItem } from "@/api/orders"
 import {
   getReportsOverview,
+  type DishMixGroup,
   type MenuSummaryOut,
+  type PeakHoursSeriesOut,
   type PreviousPeriodOut,
   type ReportsOverviewOut,
   type SalesBucketOut,
   type StoreRowOut,
+  type StoresWeekSeriesOut,
 } from "@/api/reports"
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
-import { DenseTable, PageHeader, type DenseColumn } from "@/components/admin"
+import { DenseTable, HeadlineFigure, PageHeader, type DenseColumn } from "@/components/admin"
 import { Cargando } from "@/components/Cargando"
-import { BarList, ChartFrame, ColumnChart } from "@/components/charts"
+import {
+  BarList,
+  BarrasConReferencia,
+  ChartFrame,
+  ColumnChart,
+  QuadrantScatter,
+  ResumenLateral,
+  type RenglonResumen,
+} from "@/components/charts"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { StatTile, cifraOSinDato } from "@/components/StatTile"
@@ -32,8 +43,12 @@ import { fichaPersonaHref } from "./fichas/rutas"
 import { CHANNEL_LABEL, ORDER_STATUS_LABEL } from "@/features/orders/lib"
 
 import {
+  formatCompacto,
   formatDelta,
+  formatPctConSigno,
   formatPercentInt,
+  formatPuntos,
+  formatRangoConDia,
   formatRangoCorto,
   methodLabel,
   rangoDePeriodo,
@@ -42,18 +57,29 @@ import {
 } from "./lib"
 
 /**
- * «Informes»: todo el período en un solo scroll, número primero (el dueño lo
- * pidió mirando el Informes de café-sistema). Una sola llamada
- * (`GET /admin/reports/overview`) trae todas las secciones; esta pantalla no
- * suma ni divide plata: formatea lo que manda el servidor, elige qué filas
- * mostrar y en qué forma.
+ * «Informes» (handoff del panel, pantalla 11 · `AdminInformes.dc.html`): un
+ * solo scroll con cinco preguntas —Ventas, Margen, Mix de platos, Horas pico
+ * y Por sede—, cada una con su gráfico «barra + raya» y su resumen lateral.
+ * El selector de sede recalcula todo junto (una sola llamada a
+ * `GET /admin/reports/overview`); el período de entrada son los últimos 7
+ * días cerrados contra la semana anterior.
+ *
+ * Esta pantalla no suma ni divide plata: las series llegan con el dato, su
+ * raya y de qué lado quedó cada punto (`app/reports/series.py`). Acá sólo se
+ * formatea, se eligen filas y se escriben frases con lo que ya vino.
+ *
+ * Lo que había antes en la página (medios de pago, ventas por hora, top de
+ * productos, por persona, canal y zona, domicilios, ingeniería de menú,
+ * costo y margen, historial de comandas) no se borró: se movió a «Más del
+ * período», plegado al pie.
  */
 
 const PERIODOS: readonly { value: Periodo; label: string }[] = [
+  { value: "ultimos7", label: "Últimos 7 días" },
   { value: "hoy", label: "Hoy" },
-  { value: "semana", label: "Semana" },
-  { value: "mes", label: "Mes" },
-  { value: "rango", label: "Rango" },
+  { value: "semana", label: "Esta semana" },
+  { value: "mes", label: "Este mes" },
+  { value: "rango", label: "Rango…" },
 ]
 
 // ---------------------------------------------------------------------------
@@ -570,6 +596,571 @@ function HistorialDeComandas({
 }
 
 // ---------------------------------------------------------------------------
+// Las cinco preguntas (handoff, pantalla 11).
+// ---------------------------------------------------------------------------
+
+/** Una sección del scroll: el nombre (h2 de 18 px) y, a la derecha, sus controles. */
+function Pregunta({
+  titulo,
+  subtitulo,
+  acciones,
+  children,
+}: {
+  titulo: string
+  subtitulo?: string
+  acciones?: React.ReactNode
+  children: React.ReactNode
+}): React.JSX.Element {
+  const id = useId()
+  return (
+    <section aria-labelledby={id} className="flex min-w-0 flex-col gap-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h2 id={id} className="text-lg leading-snug font-bold">
+          {titulo}
+        </h2>
+        {subtitulo ? <span className="text-[13px] text-muted-foreground">{subtitulo}</span> : null}
+        {acciones ? <div className="ml-auto">{acciones}</div> : null}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+/**
+ * El control segmentado del handoff (fondo `muted`, la opción elegida en
+ * `card` con sombra). Es un grupo de botones con `aria-pressed`: se alcanza
+ * con el teclado y se lee como un grupo con nombre.
+ */
+function Segmentado<V extends string | number>({
+  etiqueta,
+  opciones,
+  valor,
+  onChange,
+  chico,
+}: {
+  etiqueta: string
+  opciones: readonly { value: V; label: string }[]
+  valor: V
+  onChange: (v: V) => void
+  chico?: boolean
+}): React.JSX.Element {
+  return (
+    <div role="group" aria-label={etiqueta} className="inline-flex flex-wrap gap-0.5 rounded-lg border bg-muted p-[3px]">
+      {opciones.map((o) => {
+        const activa = o.value === valor
+        return (
+          <button
+            key={String(o.value)}
+            type="button"
+            aria-pressed={activa}
+            onClick={() => onChange(o.value)}
+            className={cn(
+              "rounded-md text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              chico ? "h-7 px-2.5 text-xs" : "h-[30px] px-3 text-[13px]",
+              activa ? "bg-card font-bold shadow-sm" : "font-medium hover:bg-card/60",
+            )}
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** «▲ +4,1 %», «▼ −1,8 %», «= 0,0 %»: la variación que manda el servidor, con flecha y signo. */
+function deltaConFlecha(bp: number | null | undefined, decimales = 1): string | null {
+  const texto = formatPctConSigno(bp, decimales)
+  if (texto === null || bp === null || bp === undefined) return null
+  return `${bp > 0 ? "▲" : bp < 0 ? "▼" : "="} ${texto}`
+}
+
+/** «lun 22», «lun 22 y mar 23», «lun 22, mar 23 y jue 25». */
+function enumerar(partes: readonly string[]): string {
+  if (partes.length <= 1) return partes[0] ?? ""
+  return `${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}`
+}
+
+function Ventas({
+  data,
+  nombreSede,
+  contraSemana,
+}: {
+  data: ReportsOverviewOut
+  nombreSede: string
+  contraSemana: boolean
+}): React.JSX.Element {
+  const t = data.total
+  const p = t.previous_period
+  const ds = data.series?.daily_sales
+  const delta = deltaConFlecha(p?.delta_bp)
+  const comparacion = p
+    ? {
+        label: contraSemana ? "Contra semana anterior" : `Contra ${formatRangoCorto(p.date_from, p.date_to)}`,
+        delta: p.net === null ? "—" : (delta ?? "—"),
+        detail: p.net === null ? (p.null_reason ?? "Sin período anterior.") : formatCOP(p.net),
+      }
+    : undefined
+
+  const resumen: RenglonResumen[] = []
+  if (ds && ds.available) {
+    if (ds.days_with_reference > 0) {
+      resumen.push({
+        titulo: `${ds.days_above} de ${ds.days_with_reference} días por encima`,
+        detalle:
+          delta !== null && p?.net !== null
+            ? `${contraSemana ? "La semana" : "El período"} cerró ${delta} contra ${contraSemana ? "la anterior" : "el anterior"}.`
+            : "Sin variación del período: el anterior no tiene base.",
+        // Contar días del lado bueno no es una cifra de negocio: es mirar
+        // cuántos puntos marcó el servidor.
+        tono: ds.days_above * 2 >= ds.days_with_reference ? "success" : "warning",
+      })
+      const abajo = ds.points.filter((pt) => pt.outside).map((pt) => pt.label)
+      if (abajo.length > 0) {
+        resumen.push({
+          titulo: `${enumerar(abajo)} ${abajo.length === 1 ? "quedó abajo" : "quedaron abajo"}`,
+          detalle: "Revisá esos días en Ventas: clima, eventos o personal.",
+          tono: "warning",
+        })
+      }
+      const mejor = ds.points.find((pt) => pt.key === ds.best_key)
+      if (mejor) {
+        resumen.push({ titulo: `El mejor: ${mejor.label}`, detalle: "El que más creció contra su mismo día.", tono: "data" })
+      }
+    } else {
+      resumen.push({
+        titulo: "Sin semana anterior con qué comparar",
+        detalle: "No hubo ventas esos días: la raya aparece cuando haya una semana de historia.",
+        tono: "muted",
+      })
+    }
+  }
+
+  return (
+    <Pregunta titulo="Ventas">
+      <HeadlineFigure
+        label={`Ventas netas · ${nombreSede}`}
+        value={formatCOP(t.net)}
+        note={[
+          `${(t.orders ?? 0).toLocaleString("es-CO")} ${t.orders === 1 ? "comanda" : "comandas"}`,
+          t.avg_ticket !== null && t.avg_ticket !== undefined ? `ticket promedio ${formatCOP(t.avg_ticket)}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        ledger={{
+          rows: [
+            { label: "Cobrado en caja y medios", value: formatCOP(t.gross) },
+            { label: "Impuesto discriminado", value: formatCOP(t.tax), kind: "subtract" },
+          ],
+          total: { label: "Ventas netas", value: formatCOP(t.net) },
+        }}
+        belowTheLine={{ label: "Propinas · pasan a los meseros, no son venta", value: formatCOP(t.tips) }}
+        comparison={comparacion}
+      />
+      {!ds ? null : !ds.available ? (
+        <SinDato motivo={ds.reason ?? "No se puede comparar día por día este período."} />
+      ) : (
+        <BarrasConReferencia
+          pregunta={
+            contraSemana
+              ? "¿Vendí más o menos que la semana pasada?"
+              : "¿Vendí más o menos que el mismo día de la semana anterior?"
+          }
+          variante="columnas"
+          malo="debajo"
+          flechas
+          alto={210}
+          formato={formatCOP}
+          leyenda={{
+            barra: contraSemana ? "Esta semana" : "Ventas netas del día",
+            fuera: "Por debajo de la semana anterior",
+            raya: "El mismo día de la semana anterior",
+          }}
+          puntos={ds.points.map((pt) => ({
+            key: pt.key,
+            etiqueta: pt.label,
+            valor: pt.value,
+            referencia: pt.reference,
+            fuera: pt.outside,
+            ahora: pt.now,
+            futuro: pt.future,
+            cifra: pt.value === null ? undefined : (formatPctConSigno(pt.delta_bp) ?? "—"),
+            detalle: formatCompacto(pt.value),
+          }))}
+          rotuloResumen={contraSemana ? "La semana en una línea" : "El período en una línea"}
+          resumen={resumen}
+        />
+      )}
+    </Pregunta>
+  )
+}
+
+function Margen({ data }: { data: ReportsOverviewOut }): React.JSX.Element | null {
+  const cm = data.series?.category_margin
+  if (!cm) return null
+  const meta = cm.reference
+  const bajo = cm.points.filter((pt) => pt.outside)
+  const sobre = cm.points.filter((pt) => !pt.outside && pt.value !== null && meta !== null)
+  const resumen: RenglonResumen[] = []
+  for (const pt of bajo.slice(0, 2)) {
+    resumen.push({
+      titulo: `${pt.label}: ${formatPct(pt.value, 0)}`,
+      detalle: `Bajo la meta de ${formatPct(meta, 0)}. Revisá el costo de sus platos y su precio.`,
+      tono: "warning",
+    })
+  }
+  if (meta !== null && bajo.length === 0 && sobre.length > 0) {
+    resumen.push({
+      titulo: "Todas las categorías con costo llegan a la meta",
+      detalle: `Ninguna queda bajo ${formatPct(meta, 0)}.`,
+      tono: "success",
+    })
+  }
+  if (sobre.length > 0 && bajo.length > 0) {
+    const top = sobre.slice(0, 2).map((pt) => pt.label)
+    resumen.push({
+      titulo: `${enumerar(top)} ${top.length === 1 ? "sostiene" : "sostienen"}`,
+      detalle: "Sobre la meta: ofrecerlas en cada mesa sube el margen total.",
+      tono: "success",
+    })
+  }
+  const sinCosto = cm.points.filter((pt) => pt.value === null).map((pt) => pt.label)
+  if (sinCosto.length > 0) {
+    resumen.push({
+      titulo: `${sinCosto.length} ${sinCosto.length === 1 ? "categoría" : "categorías"} sin costo`,
+      detalle: `${enumerar(sinCosto)}: sin ficha técnica no hay margen. No es 0 %.`,
+      tono: "muted",
+    })
+  }
+
+  return (
+    <Pregunta titulo="Margen">
+      {cm.points.length === 0 ? (
+        <SinDato motivo={cm.reason ?? "No se vendió nada en el período."} />
+      ) : (
+        <>
+          <BarrasConReferencia
+            pregunta="¿Qué categoría deja menos plata?"
+            variante="filas"
+            malo="debajo"
+            maximo={10_000}
+            formato={(v) => formatPct(v, 0)}
+            referenciaComun={meta}
+            leyenda={{
+              barra: "Margen de la categoría",
+              fuera: "Bajo la meta",
+              raya: meta !== null ? `Meta: ${formatPct(meta, 0)}` : "Sin meta común",
+            }}
+            acciones={
+              <span className="flex flex-wrap items-baseline gap-x-7 gap-y-1 text-[13px] text-muted-foreground">
+                <span>
+                  Margen bruto{" "}
+                  <b className="text-xl text-foreground tabular-nums">
+                    {cm.total_bp === null ? "sin dato" : formatPct(cm.total_bp)}
+                  </b>
+                </span>
+                <span>
+                  Costo de lo vendido{" "}
+                  <b className="text-foreground tabular-nums">
+                    {data.cost.theoretical_cost === null ? "sin dato" : formatCOP(data.cost.theoretical_cost)}
+                  </b>
+                </span>
+              </span>
+            }
+            puntos={cm.points.map((pt) => ({
+              key: pt.key,
+              etiqueta: pt.label,
+              valor: pt.value,
+              referencia: pt.reference,
+              fuera: pt.outside,
+              cifra: pt.value === null ? undefined : formatPct(pt.value, 0),
+              detalle:
+                pt.outside && pt.gap_bp !== null
+                  ? `${formatPuntos(pt.gap_bp)} bajo la meta`
+                  : pt.delta_points_bp === null
+                    ? undefined
+                    : pt.delta_points_bp === 0
+                      ? "igual"
+                      : `${pt.delta_points_bp > 0 ? "▲ +" : "▼ −"}${formatPuntos(Math.abs(pt.delta_points_bp))}`,
+            }))}
+            rotuloResumen="Qué mirar"
+            resumen={resumen}
+          />
+          {cm.reason ? <p className="text-xs text-muted-foreground">{cm.reason}</p> : null}
+        </>
+      )}
+    </Pregunta>
+  )
+}
+
+const GRUPO_MIX: Record<DishMixGroup, { titulo: string; accion: string; tono: RenglonResumen["tono"] }> = {
+  keep: { titulo: "Venden y dejan", accion: "Cuidarlos: que nunca falten.", tono: "success" },
+  reprice: { titulo: "Venden, pero dejan poco", accion: "Revisar receta o precio.", tono: "data" },
+  promote: { titulo: "Dejan, pero venden poco", accion: "Que el mesero los recomiende.", tono: "data" },
+  review: { titulo: "▲ Revisar", accion: "Venden poco y dejan poco.", tono: "warning" },
+}
+
+function MixDePlatos({ data }: { data: ReportsOverviewOut }): React.JSX.Element | null {
+  const id = useId()
+  const mix = data.series?.dish_mix
+  if (!mix) return null
+  if (!mix.available || mix.avg_units === null || mix.avg_margin_bp === null) {
+    return (
+      <Pregunta titulo="Mix de platos">
+        <SinDato motivo={mix.reason ?? "No hay platos con costo en el período."} />
+      </Pregunta>
+    )
+  }
+  const resumen: RenglonResumen[] = (["keep", "reprice", "promote", "review"] as const)
+    .map((g) => ({ g, nombres: mix.points.filter((pt) => pt.group === g).map((pt) => pt.label) }))
+    .filter((x) => x.nombres.length > 0)
+    .map(({ g, nombres }) => ({
+      titulo: GRUPO_MIX[g].titulo,
+      detalle: `${enumerar(nombres)}. ${GRUPO_MIX[g].accion}`,
+      tono: GRUPO_MIX[g].tono,
+    }))
+  return (
+    <Pregunta titulo="Mix de platos">
+      <section aria-labelledby={id} className="flex min-w-0 flex-col rounded-lg border bg-card md:flex-row">
+        <div className="flex min-w-0 flex-1 flex-col gap-2 p-4">
+          <h3 id={id} className="m-0 text-[15px] leading-snug font-bold">
+            ¿Qué platos venden y dejan plata?
+          </h3>
+          <QuadrantScatter
+            variante="mix"
+            alto={300}
+            puntos={mix.points.map((pt) => ({
+              key: pt.key,
+              etiqueta: pt.label,
+              x: pt.units,
+              y: pt.margin_bp,
+              detalle: formatPct(pt.margin_bp, 0),
+              alerta: pt.group === "review",
+            }))}
+            umbralX={{ valor: mix.avg_units, etiqueta: `Promedio ${mix.avg_units.toLocaleString("es-CO")} u.` }}
+            umbralY={{ valor: mix.avg_margin_bp, etiqueta: `Promedio ${formatPct(mix.avg_margin_bp, 0)}` }}
+            ejeX={{ titulo: "Unidades vendidas · más a la derecha vende más →", formato: (v) => v.toLocaleString("es-CO") }}
+            ejeY={{ titulo: "Margen · más arriba deja más ↑", formato: (v) => formatPct(v, 0) }}
+            cuadrantes={["Venden y dejan", "Dejan, pero venden poco", "Revisar", "Venden, pero dejan poco"]}
+            cuadranteAlerta={2}
+          />
+          {mix.without_cost > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {mix.without_cost} {mix.without_cost === 1 ? "plato vendido no tiene" : "platos vendidos no tienen"} costo:
+              sin costo no hay margen que ubicar. No es 0 %.
+            </p>
+          ) : null}
+        </div>
+        <ResumenLateral rotulo="Qué hacer con cada grupo" renglones={resumen} />
+      </section>
+    </Pregunta>
+  )
+}
+
+const DIA_PLURAL: Record<string, string> = {
+  mon: "Los lunes",
+  tue: "Los martes",
+  wed: "Los miércoles",
+  thu: "Los jueves",
+  fri: "Los viernes",
+  sat: "Los sábados",
+  sun: "Los domingos",
+}
+
+function HorasPico({ serie }: { serie: PeakHoursSeriesOut }): React.JSX.Element {
+  const [dia, setDia] = useState("avg")
+  const vista = serie.views.find((v) => v.key === dia) ?? serie.views[0]
+  const opw = serie.orders_per_waiter
+  if (!serie.available || !vista) {
+    return (
+      <Pregunta titulo="Horas pico" subtitulo="¿A qué horas falta gente en el salón?">
+        <SinDato motivo={serie.reason ?? "No hay comandas de salón en el período."} />
+      </Pregunta>
+    )
+  }
+  const selector = (
+    <Segmentado
+      etiqueta="Día de la semana"
+      chico
+      opciones={serie.views.map((v) => ({ value: v.key, label: v.label }))}
+      valor={vista.key}
+      onChange={setDia}
+    />
+  )
+  // Franjas seguidas de horas que el servidor marcó como pasadas: sólo se
+  // agrupan puntos, no se calcula nada.
+  const franjas: { desde: number; hasta: number }[] = []
+  vista.points.forEach((pt, i) => {
+    if (!pt.outside) return
+    const ultima = franjas[franjas.length - 1]
+    if (ultima && ultima.hasta === i - 1) ultima.hasta = i
+    else franjas.push({ desde: i, hasta: i })
+  })
+  const resumen: RenglonResumen[] =
+    vista.days === 0
+      ? [{ titulo: "Sin días operados", detalle: "Ese día de la semana no hubo servicio en el período.", tono: "muted" }]
+      : franjas.length === 0
+        ? [
+            {
+              titulo: "El salón alcanza todas las horas",
+              detalle:
+                opw !== null
+                  ? `Ninguna hora pasa de ${opw} comandas por mesero.`
+                  : "Ninguna hora pasa lo que alcanzan los meseros en turno.",
+              tono: "success",
+            },
+          ]
+        : franjas.map(({ desde, hasta }) => {
+            const fin = vista.points[hasta + 1]?.label
+            return {
+              titulo: fin ? `De ${vista.points[desde]!.label} a ${fin}` : `Desde ${vista.points[desde]!.label}`,
+              detalle: "Llegan más comandas de las que alcanza el salón con los meseros en turno.",
+              tono: "warning" as const,
+            }
+          })
+  const nombreDia = DIA_PLURAL[vista.key] ?? vista.label
+  const rotulo =
+    vista.key === "avg" ? `Promedio de ${vista.days} ${vista.days === 1 ? "día operado" : "días operados"}` : nombreDia
+  return (
+    <Pregunta titulo="Horas pico" subtitulo="¿A qué horas falta gente en el salón?" acciones={selector}>
+      <BarrasConReferencia
+        pregunta={
+          vista.key === "avg"
+            ? "Comandas de salón por hora, promedio del período"
+            : `Comandas de salón por hora, ${nombreDia.toLowerCase()}`
+        }
+        variante="columnas"
+        malo="encima"
+        alto={200}
+        formato={(v) => v.toLocaleString("es-CO")}
+        unidadExtra="meseros"
+        leyenda={{
+          barra: "Comandas por hora",
+          fuera: "Pasan lo que el salón alcanza",
+          raya:
+            opw !== null
+              ? `Lo que alcanzan a atender los meseros en turno (${opw} por persona)`
+              : "Lo que alcanzan a atender los meseros en turno",
+        }}
+        puntos={vista.points.map((pt) => ({
+          key: pt.key,
+          etiqueta: pt.label,
+          valor: pt.value,
+          referencia: pt.reference,
+          fuera: pt.outside,
+          extra: pt.waiters === null ? undefined : String(pt.waiters),
+        }))}
+        rotuloResumen={rotulo}
+        resumen={resumen}
+      />
+    </Pregunta>
+  )
+}
+
+function PorSedeBarras({
+  serie,
+  total,
+}: {
+  serie: StoresWeekSeriesOut
+  total: SalesBucketOut | null
+}): React.JSX.Element {
+  const p = total?.previous_period
+  const deltaTotal = p && p.net !== null ? deltaConFlecha(p.delta_bp) : null
+  return (
+    <Pregunta titulo="Por sede">
+      <BarrasConReferencia
+        pregunta="¿Qué sede va mejor?"
+        variante="filas"
+        malo="debajo"
+        formato={formatCOP}
+        leyenda={{
+          barra: "Ventas netas del período",
+          fuera: "Vendió menos que el período anterior",
+          raya: "Período anterior",
+        }}
+        puntos={serie.points.map((pt) => ({
+          key: pt.key,
+          etiqueta: pt.label,
+          valor: pt.value,
+          referencia: pt.reference,
+          fuera: pt.outside,
+          cifra: pt.value === null ? undefined : formatCOP(pt.value),
+          // Del lado malo la flecha ya va en la cifra: acá sólo el signo.
+          detalle:
+            pt.delta_bp === null
+              ? "sin período anterior"
+              : pt.outside
+                ? (formatPctConSigno(pt.delta_bp, 1) ?? undefined)
+                : (deltaConFlecha(pt.delta_bp) ?? undefined),
+        }))}
+        rotuloResumen="Ticket y margen por sede"
+        resumen={serie.points.map((pt) => ({
+          titulo: pt.label,
+          detalle: `Ticket ${pt.avg_ticket === null ? "sin dato" : formatCOP(pt.avg_ticket)} · margen ${
+            pt.margin_bp === null || pt.margin_bp === undefined ? "sin dato" : formatPct(pt.margin_bp)
+          }`,
+          tono: "muted",
+        }))}
+      />
+      {total ? (
+        <p className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t-[3px] border-double border-foreground/60 px-1 pt-2 text-sm font-bold">
+          <span>Todas</span>
+          <span className="text-xs font-normal text-muted-foreground">
+            Ticket promedio{" "}
+            {total.avg_ticket === null || total.avg_ticket === undefined ? "sin dato" : formatCOP(total.avg_ticket)}
+          </span>
+          <span className="ml-auto tabular-nums">
+            {formatCOP(total.net)}
+            {deltaTotal ? ` · ${deltaTotal}` : ""}
+          </span>
+        </p>
+      ) : null}
+    </Pregunta>
+  )
+}
+
+/** Lo que había antes en Informes, intacto y plegado al pie: nada se borró. */
+function MasDelPeriodo({
+  data,
+  consolidado,
+  esAdmin,
+  storeId,
+  from,
+  to,
+}: {
+  data: ReportsOverviewOut
+  consolidado: boolean
+  esAdmin: boolean
+  storeId: number | null
+  from: string
+  to: string
+}): React.JSX.Element {
+  return (
+    <details className="group rounded-lg border bg-card">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold select-none">
+        <ChevronRight className="size-4 transition-transform group-open:rotate-90" aria-hidden="true" />
+        Más del período: medios de pago, horas, productos, personas, canales, clientes y comandas
+      </summary>
+      <div className="space-y-5 border-t p-4">
+        <Indicadores total={data.total} />
+        {data.by_store ? <PorSede rows={data.by_store} /> : null}
+        <MetodoDePago rows={data.by_method} />
+        <VentasPorHora data={data} />
+        <div className="grid gap-5 lg:grid-cols-2">
+          <TopDeProductos data={data} />
+          <PorPersona rows={data.by_employee} enlazar={!consolidado} />
+        </div>
+        <CanalYZona channels={data.by_channel} zones={data.by_zone} />
+        <DomiciliosYClientes data={data} />
+        <IngenieriaDeMenu menu={data.menu_engineering} />
+        {esAdmin ? <CostoYMargen data={data} /> : null}
+        <HistorialDeComandas storeId={storeId} from={from} to={to} />
+      </div>
+    </details>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // La pantalla.
 // ---------------------------------------------------------------------------
 
@@ -577,19 +1168,31 @@ export function InformesPage(): React.JSX.Element {
   const { stores, activeStoreId, loading: storeLoading } = useStoreSelection()
   const { me, hasFeature } = useSession()
   const hoy = todayInBogota()
-  const [periodo, setPeriodo] = useState<Periodo>("semana")
-  const [rango, setRango] = useState(() => rangoDePeriodo("semana", hoy))
-  const [todas, setTodas] = useState(false)
+  const [periodo, setPeriodo] = useState<Periodo>("ultimos7")
+  const [rango, setRango] = useState(() => rangoDePeriodo("ultimos7", hoy))
+  // La sede elegida en ESTA pantalla (el selector segmentado del handoff).
+  // `null` = la de entrada: todas si hay más de una, la activa si no.
+  const [sedeElegida, setSedeElegida] = useState<number | "all" | null>(null)
 
   const conSelector = stores.length > 1 || hasFeature("multi_store")
-  const consolidado = conSelector && todas
-  const storeParam: number | "all" | null = consolidado ? "all" : activeStoreId
+  const sede: number | "all" | null = !conSelector
+    ? activeStoreId
+    : (sedeElegida ?? (stores.length > 1 ? "all" : activeStoreId))
+  const consolidado = sede === "all"
   const { from, to } = periodo === "rango" ? rango : rangoDePeriodo(periodo, hoy)
+  const rangoValido = from !== "" && to !== "" && from <= to
 
   const query = useQuery({
-    queryKey: ["admin-reports-overview", storeParam, from, to],
-    queryFn: () => getReportsOverview({ storeId: storeParam as number | "all", from, to }),
-    enabled: storeParam !== null && from !== "" && to !== "" && from <= to,
+    queryKey: ["admin-reports-overview", sede, from, to],
+    queryFn: () => getReportsOverview({ storeId: sede as number | "all", from, to }),
+    enabled: sede !== null && rangoValido,
+  })
+  // «Por sede» compara las sedes aunque arriba haya una elegida: es la misma
+  // consulta consolidada (misma llave de caché), no una cuenta nueva.
+  const todas = useQuery({
+    queryKey: ["admin-reports-overview", "all", from, to],
+    queryFn: () => getReportsOverview({ storeId: "all", from, to }),
+    enabled: stores.length > 1 && !consolidado && rangoValido,
   })
 
   if (storeLoading) return <Cargando texto="Cargando sedes…" />
@@ -597,65 +1200,69 @@ export function InformesPage(): React.JSX.Element {
     return <p className="text-sm text-muted-foreground">Todavía no hay sedes creadas.</p>
   }
 
-  const activa = stores.find((s) => s.id === activeStoreId)?.name ?? "Sede activa"
+  const nombreDe = (id: number): string => stores.find((s) => s.id === id)?.name ?? "Sede activa"
+  const nombreSede = consolidado ? "todas las sedes" : nombreDe(sede as number)
   const data = query.data
+  const esAdmin = me?.kind === "admin"
+  const contraSemana = periodo === "ultimos7"
+  const previo = data?.total.previous_period
+  const datosSedes = consolidado ? data : todas.data
+  const serieSedes = datosSedes?.series?.stores_week
+
+  const opcionesSede: { value: number | "all"; label: string }[] = [
+    { value: "all", label: "Todas las sedes" },
+    ...stores.map((s) => ({ value: s.id, label: s.name })),
+  ]
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="mx-auto max-w-6xl space-y-[22px]">
       <PageHeader
         name="Informes"
-        question="Cómo te fue en el período: venta, cómo te pagaron, a qué hora, qué se vendió, quién vendió y por qué canal, todo en una sola página. Las cifras las calcula el servidor con la misma cuenta que Ventas."
+        question="Cómo te fue en el período, en cinco preguntas: si vendiste más que la semana pasada, qué categoría deja menos plata, qué platos venden y dejan, a qué horas falta gente y qué sede va mejor. Las cifras las calcula el servidor con la misma cuenta que Ventas."
         context={[
-          { label: "Período", value: formatRangoCorto(from, to) },
-          { label: "Sede", value: consolidado ? `Todas (${stores.length})` : activa },
+          {
+            label: periodo === "ultimos7" ? "Últimos 7 días cerrados ·" : "Período ·",
+            value: rangoValido ? formatRangoConDia(from, to) : "—",
+          },
+          ...(previo
+            ? [
+                {
+                  label: `Contra ${contraSemana ? "la semana" : "el período"} anterior · ${formatRangoConDia(previo.date_from, previo.date_to)}`,
+                },
+              ]
+            : []),
+          ...(periodo === "ultimos7" ? [{ label: "Hoy no entra: el día sigue abierto" }] : []),
         ]}
         actions={
           <>
             {conSelector ? (
-              <div role="group" aria-label="Sede" className="flex items-center gap-1">
-                <span className="mr-1 text-sm text-muted-foreground">Sede:</span>
-                {[
-                  { value: false, label: activa },
-                  { value: true, label: "Todas las sedes" },
-                ].map((o) => (
-                  <button
-                    key={String(o.value)}
-                    type="button"
-                    aria-pressed={todas === o.value}
-                    onClick={() => setTodas(o.value)}
-                    className={cn(
-                      "rounded-md border px-3 py-1 text-sm",
-                      todas === o.value
-                        ? "border-primary bg-primary text-primary-foreground font-bold"
-                        : "border-border bg-card text-foreground hover:bg-accent",
-                    )}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
+              <Segmentado
+                etiqueta="Sede"
+                opciones={opcionesSede}
+                valor={sede ?? activeStoreId}
+                onChange={(v) => setSedeElegida(v)}
+              />
             ) : null}
-            <div role="group" aria-label="Período" className="flex items-center gap-1">
-              {PERIODOS.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  aria-pressed={periodo === p.value}
-                  onClick={() => {
-                    if (p.value === "rango") setRango({ from, to })
-                    setPeriodo(p.value)
-                  }}
-                  className={cn(
-                    "rounded-full px-3 py-1 text-sm",
-                    periodo === p.value
-                      ? "bg-primary font-bold text-primary-foreground"
-                      : "bg-muted text-foreground hover:bg-accent",
-                  )}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
+            <Select
+              value={periodo}
+              onValueChange={(v) => {
+                const nuevo = (v ?? "ultimos7") as Periodo
+                if (nuevo === "rango") setRango({ from, to })
+                setPeriodo(nuevo)
+              }}
+            >
+              <SelectTrigger aria-label="Período" className="h-9 min-w-40 gap-1.5 bg-card text-[13px]">
+                <Calendar className="size-3.5 shrink-0" aria-hidden="true" />
+                <SelectValue>{(v: string) => PERIODOS.find((p) => p.value === v)?.label ?? v}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {PERIODOS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </>
         }
       >
@@ -674,20 +1281,24 @@ export function InformesPage(): React.JSX.Element {
           action={{ label: "Reintentar", onClick: () => void query.refetch() }}
         />
       ) : data ? (
-        <div className="space-y-5">
-          <Indicadores total={data.total} />
-          {data.by_store ? <PorSede rows={data.by_store} /> : null}
-          <MetodoDePago rows={data.by_method} />
-          <VentasPorHora data={data} />
-          <div className="grid gap-5 lg:grid-cols-2">
-            <TopDeProductos data={data} />
-            <PorPersona rows={data.by_employee} enlazar={!consolidado} />
-          </div>
-          <CanalYZona channels={data.by_channel} zones={data.by_zone} />
-          <DomiciliosYClientes data={data} />
-          <IngenieriaDeMenu menu={data.menu_engineering} />
-          {me?.kind === "admin" ? <CostoYMargen data={data} /> : null}
-          <HistorialDeComandas storeId={consolidado ? null : activeStoreId} from={from} to={to} />
+        <div className="space-y-[22px]">
+          <Ventas data={data} nombreSede={nombreSede} contraSemana={contraSemana} />
+          {/* Margen y mix hablan de costo: sólo el administrador (el operador
+              no recibe costos ni márgenes, AGENTS.md). */}
+          {esAdmin ? <Margen data={data} /> : null}
+          {esAdmin ? <MixDePlatos data={data} /> : null}
+          {data.series ? <HorasPico key={`${String(sede)}-${from}-${to}`} serie={data.series.peak_hours} /> : null}
+          {stores.length > 1 && serieSedes ? (
+            <PorSedeBarras serie={serieSedes} total={datosSedes?.total ?? null} />
+          ) : null}
+          <MasDelPeriodo
+            data={data}
+            consolidado={consolidado}
+            esAdmin={esAdmin}
+            storeId={consolidado ? null : (sede as number)}
+            from={from}
+            to={to}
+          />
         </div>
       ) : null}
     </div>

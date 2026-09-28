@@ -33,6 +33,7 @@ from app.reports.series_schemas import OverviewSeriesOut
 # el original digan lo mismo.
 SeriesBadSideLiteral = Literal["above", "below"]
 SeriesUnitLiteral = Literal["cop", "count", "people", "minutes", "bp"]
+DishMixGroupLiteral = Literal["keep", "promote", "reprice", "review"]
 
 GroupBy = Literal["business_date", "shift", "method", "channel", "employee", "hour", "zone", "product", "category"]
 

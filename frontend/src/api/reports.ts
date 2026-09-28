@@ -748,6 +748,8 @@ export interface CategoryMarginSeriesOut {
 export interface StoreWeekPointOut extends SeriesPointOut {
   store_id: number
   avg_ticket: number | null
+  /** Margen bruto de la sede en el período, en puntos básicos; `null` sin costo. */
+  margin_bp?: number | null
 }
 
 export interface StoresWeekSeriesOut {
@@ -783,12 +785,43 @@ export interface PeakHoursSeriesOut {
   views: PeakHoursViewOut[]
 }
 
+/**
+ * El grupo de un plato en el «Mix de platos», decidido por el servidor contra
+ * los promedios: `keep` venden y dejan, `promote` dejan pero venden poco,
+ * `reprice` venden pero dejan poco, `review` venden poco y dejan poco.
+ */
+export type DishMixGroup = "keep" | "promote" | "reprice" | "review"
+
+export interface DishMixPointOut {
+  key: string
+  label: string
+  units: number
+  /** Margen bruto sobre la venta neta del plato, en puntos básicos. */
+  margin_bp: number
+  net: number
+  group: DishMixGroup
+}
+
+export interface DishMixSeriesOut {
+  available: boolean
+  reason: string | null
+  /** Promedio simple de unidades de los platos ubicados. */
+  avg_units: number | null
+  /** Promedio simple de margen, en puntos básicos. */
+  avg_margin_bp: number | null
+  points: DishMixPointOut[]
+  /** Platos vendidos sin costo: no se pueden ubicar. */
+  without_cost: number
+}
+
 export interface OverviewSeriesOut {
   daily_sales: DailySalesSeriesOut
   category_margin: CategoryMarginSeriesOut
   /** Sólo con «Todas las sedes». */
   stores_week: StoresWeekSeriesOut | null
   peak_hours: PeakHoursSeriesOut
+  /** «¿Qué platos venden y dejan plata?». Ausente en un backend viejo. */
+  dish_mix?: DishMixSeriesOut | null
 }
 
 export interface ReportsOverviewQuery {

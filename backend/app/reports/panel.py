@@ -126,6 +126,14 @@ def current_cash(db: Session, store: Store) -> PanelCashOut | None:
     )
 
 
+def _worked_minutes(entry: Any) -> int | None:
+    """La duración de una jornada cerrada con el motor de nómina (import
+    tardío: `payroll` lee a su vez los hooks de `reports`)."""
+    from app.payroll import hooks as payroll_hooks
+
+    return payroll_hooks.worked_minutes(entry)
+
+
 def _roster_attendance(db: Session, entries: list[ShiftRoster], shifts: dict[int, Shift]) -> list[RecordAttendanceOut]:
     """El roster del turno: la asistencia proyectada sobre su ventana (desde
     0028 el roster lo alimenta la asistencia; el administrador no entra)."""
@@ -147,6 +155,7 @@ def _roster_attendance(db: Session, entries: list[ShiftRoster], shifts: dict[int
                 in_at=e.in_at,
                 out_at=e.out_at,
                 status="closed" if e.out_at is not None else "open",
+                worked_minutes=_worked_minutes(e),
             )
         )
     return out
@@ -596,6 +605,7 @@ def shift_record(db: Session, *, shift: Shift) -> ShiftRecordOut:
             ],
             expected_total=opening.expected_total,
             counted_total=opening.counted_total,
+            difference_total=opening.counted_total - opening.expected_total,
             counted_by=opening.counted_by_employee_name,
             counted_at=opening.created_at,
         )
@@ -693,6 +703,7 @@ def employee_record(
             in_at=row.in_at,
             out_at=row.out_at,
             status=row.status,
+            worked_minutes=_worked_minutes(row),
         )
         for row in reversed(
             shifts_hooks.attendance_rows(db, store_id=store.id, date_from=frm, date_to=to, employee_id=employee.id)

@@ -85,6 +85,10 @@ export interface BarrasConReferenciaProps {
   alto?: number
   /** Rótulo de la fila extra (p. ej. «meseros»). */
   unidadExtra?: string
+  /** Qué se escribe en la fila extra donde un punto no trae `extra`. «—» por defecto; `""` la deja en blanco (retiros de la ficha de turno). */
+  extraVacio?: string
+  /** Clase de la cifra de la fila extra (p. ej. los retiros en tinta de acción). */
+  claseExtra?: string
   /** Controles propios (selector de día…), a la derecha de la pregunta. */
   acciones?: ReactNode
   className?: string
@@ -266,12 +270,16 @@ function Columnas({
   tono,
   alto,
   unidadExtra,
+  extraVacio = "—",
+  claseExtra,
 }: {
   puntos: PuntoResuelto[]
   tope: number
   tono: TonoMalo
   alto: number
   unidadExtra?: string
+  extraVacio?: string
+  claseExtra?: string
 }): React.JSX.Element {
   const conExtra = puntos.some((p) => p.extra !== undefined)
   const plantilla = { gridTemplateColumns: `repeat(${Math.max(1, puntos.length)}, minmax(0, 1fr))` }
@@ -338,7 +346,7 @@ function Columnas({
         >
           {puntos.map((p) => (
             <span key={p.clave} className="flex min-w-0 flex-col gap-px">
-              <b className="text-[13px] tabular-nums">{p.extra ?? "—"}</b>
+              <b className={cn("text-[13px] tabular-nums", claseExtra)}>{p.extra ?? extraVacio}</b>
               {unidadExtra ? <span className="truncate text-[10px] text-muted-foreground">{unidadExtra}</span> : null}
             </span>
           ))}
@@ -364,7 +372,7 @@ function Filas({
           key={p.clave}
           href={p.href}
           title={p.lectura}
-          className="grid grid-cols-[minmax(5rem,7.5rem)_minmax(0,1fr)] items-center gap-x-3 gap-y-0.5 text-sm sm:grid-cols-[7.5rem_minmax(0,1fr)_9.5rem]"
+          className="grid grid-cols-[minmax(5rem,7.5rem)_minmax(0,1fr)] items-center gap-x-3 gap-y-0.5 text-sm sm:grid-cols-[7.5rem_minmax(0,1fr)_12.5rem]"
         >
           <span className="truncate">{p.etiqueta}</span>
           <span className="relative h-[22px] rounded-[3px] bg-muted">
@@ -392,7 +400,7 @@ function Filas({
               />
             ) : null}
           </span>
-          <span className="col-span-2 flex items-baseline justify-end gap-2 sm:col-span-1">
+          <span className="col-span-2 flex items-baseline justify-end gap-2 whitespace-nowrap sm:col-span-1">
             <b
               data-cifra=""
               className={cn("tabular-nums", p.esFuera ? COLOR_FUERA[tono].texto : "text-foreground")}
@@ -435,6 +443,8 @@ export function BarrasConReferencia(props: BarrasConReferenciaProps): React.JSX.
     maximo,
     alto = 200,
     unidadExtra,
+    extraVacio,
+    claseExtra,
     acciones,
     className,
   } = props
@@ -469,7 +479,15 @@ export function BarrasConReferencia(props: BarrasConReferenciaProps): React.JSX.
         {variante === "filas" ? (
           <Filas puntos={resueltos} tope={tope} tono={tono} />
         ) : (
-          <Columnas puntos={resueltos} tope={tope} tono={tono} alto={alto} unidadExtra={unidadExtra} />
+          <Columnas
+            puntos={resueltos}
+            tope={tope}
+            tono={tono}
+            alto={alto}
+            unidadExtra={unidadExtra}
+            extraVacio={extraVacio}
+            claseExtra={claseExtra}
+          />
         )}
       </div>
       {resumen && resumen.length ? <ResumenLateral rotulo={rotuloResumen} renglones={resumen} /> : null}

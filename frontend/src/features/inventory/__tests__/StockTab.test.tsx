@@ -244,12 +244,44 @@ describe("StockTab — la tabla densa del handoff", () => {
     )
   })
 
-  it("Stock tiene su «?», y la ranura del mini gráfico queda para `components/charts`", async () => {
+  it("Stock tiene su «?»; sin el tope del servidor la ranura del mini gráfico queda vacía", async () => {
     renderWithProviders(<StockTab storeId={3} />)
 
     await screen.findByText("Hielo")
     expect(screen.getByRole("button", { name: "¿Qué es Stock?" })).toBeInTheDocument()
-    // Todavía sin bullet: lo enchufa el trabajo de gráficos por `DenseColumn.bullet`.
-    expect(document.querySelector('[data-slot="bullet"]')).toBeNull()
+    // Cambio intencional: antes se exigía que no hubiera ranura (el gráfico
+    // no existía). Ahora la ranura existe y, sin `bullet_max` (un backend
+    // viejo), queda VACÍA: el cliente no inventa la escala.
+    const ranuras = document.querySelectorAll('span[data-slot="bullet"]')
+    expect(ranuras.length).toBe(3)
+    for (const ranura of ranuras) expect(ranura.querySelector('[role="img"]')).toBeNull()
+  })
+
+  it("la columna Stock lleva el bullet con el tope del servidor, la raya en el mínimo y el lado malo del servidor", async () => {
+    getInventoryStockMock.mockResolvedValue([
+      { ...FILAS_HANDOFF[0], bullet_max: "20000" },
+      { ...FILAS_HANDOFF[1], bullet_max: "10" },
+      // Bajo mínimo según el servidor: el bullet va del lado malo aunque el
+      // cliente no compare nada.
+      { ...FILAS_HANDOFF[2], qty_base: "2000", below_min: true, bullet_max: "12500" },
+    ])
+    renderWithProviders(<StockTab storeId={3} />)
+
+    const hielo = (await screen.findByText("Hielo")).closest("tr") as HTMLElement
+    const bulletHielo = within(hielo).getByRole("img")
+    expect(bulletHielo).toHaveAccessibleName("Stock de Hielo: 6 unidad · mínimo: 4 unidad")
+    // Escala: tope 10 (mínimo × 2,5, del servidor) → 6 es el 60 %, la raya en el 40 %.
+    expect((bulletHielo.querySelector("[data-barra]") as HTMLElement).style.width).toBe("60%")
+    expect((bulletHielo.querySelector("[data-raya]") as HTMLElement).style.left).toBe("40%")
+    expect(bulletHielo).not.toHaveAttribute("data-fuera")
+
+    const limon = within(screen.getByText("Limón tahití").closest("tr") as HTMLElement).getByRole("img")
+    expect(limon).toHaveAttribute("data-fuera")
+    expect(limon.getAttribute("aria-label")).toContain("bajo el mínimo")
+
+    // El negativo no tiene barra que dibujar (0 %), y su texto dice que es deuda de registro.
+    const pollo = within(screen.getByText("Pechuga de pollo").closest("tr") as HTMLElement).getByRole("img")
+    expect((pollo.querySelector("[data-barra]") as HTMLElement).style.width).toBe("0%")
+    expect(pollo.getAttribute("aria-label")).toContain("negativo: deuda de registro")
   })
 })

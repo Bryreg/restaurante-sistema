@@ -227,6 +227,10 @@ class RecordAttendanceOut(BaseModel):
     in_at: datetime
     out_at: datetime | None
     status: str
+    # Minutos trabajados (restadas las pausas) con el motor de nómina
+    # (`payroll.hooks.worked_minutes`). `None` sin salida: abierta o
+    # olvidada no tiene duración todavía.
+    worked_minutes: int | None = None
 
 
 class RecordEnvelopeOut(BaseModel):
@@ -244,6 +248,9 @@ class RecordOpeningCountOut(BaseModel):
     envelopes: list[RecordEnvelopeOut]
     expected_total: int
     counted_total: int
+    # Contado − esperado de la apertura entera (negativo = faltante), para
+    # que «¿Cuadró en cada paso?» no reste en el cliente.
+    difference_total: int = 0
     counted_by: str
     counted_at: datetime
 

@@ -90,6 +90,27 @@ def test_stock_endpoint_critical_only_filter(
     assert "No crítico" not in names
 
 
+def test_stock_endpoint_sends_bullet_max_as_min_times_two_and_a_half(
+    admin_client: TestClient, store: Store, create_ingredient: Callable[..., dict[str, Any]]
+) -> None:
+    """El tope del mini gráfico de la columna Stock lo manda el servidor
+    (mínimo × 2,5, half-up en milésimas): la pantalla no deriva la escala.
+    No viaja en el CSV: es escala de dibujo, no un dato del stock."""
+    whole = create_ingredient(name="Tope entero", min_stock="100")
+    frac = create_ingredient(name="Tope fraccionario", min_stock="0.003")
+
+    resp = admin_client.get(f"/api/v1/admin/inventory/stock?store_id={store.id}")
+    assert resp.status_code == 200, resp.text
+    by_id = {row["ingredient_id"]: row for row in resp.json()}
+    assert by_id[whole["id"]]["bullet_max"] == "250"
+    # 3 milésimas × 2,5 = 7,5 → 8 milésimas (half-up).
+    assert by_id[frac["id"]]["bullet_max"] == "0.008"
+
+    as_csv = admin_client.get(f"/api/v1/admin/inventory/stock?store_id={store.id}&format=csv")
+    assert as_csv.status_code == 200, as_csv.text
+    assert "bullet_max" not in as_csv.text.splitlines()[0]
+
+
 def test_movements_endpoint_requires_inventory_perpetual_flag(
     admin_client: TestClient,
     store: Store,

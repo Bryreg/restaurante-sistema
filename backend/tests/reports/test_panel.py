@@ -107,6 +107,8 @@ def test_staff_is_the_real_attendance_and_forgotten_exits_are_flagged(
     by_person = {a["employee_id"]: a["status"] for a in record["attendance"]}
     assert by_person[employees["operator"].id] == "open"
     assert employees["admin"].id not in by_person
+    # Una jornada abierta no tiene duración todavía: `None`, nunca 0.
+    assert {a["worked_minutes"] for a in record["attendance"]} == {None}
 
     # Al día siguiente nadie marcó salida: son salidas olvidadas, a revisar.
     clock.advance(days=1)
@@ -122,6 +124,25 @@ def test_staff_is_the_real_attendance_and_forgotten_exits_are_flagged(
         f"/api/v1/admin/records/employee/{employees['operator'].id}", params={"store_id": store.id}
     ).json()
     assert [a["status"] for a in person["attendance"]] == ["review"]
+    # La salida olvidada tampoco: no se cuenta hasta que se corrija.
+    assert [a["worked_minutes"] for a in person["attendance"]] == [None]
+
+
+def test_worked_minutes_is_the_payroll_engine_minus_pauses() -> None:
+    """La duración que publican las fichas sale del motor de jornada de
+    nómina: resta las pausas y redondea half-up al minuto."""
+    from types import SimpleNamespace
+
+    from app.payroll import hooks as payroll_hooks
+
+    entry = SimpleNamespace(
+        in_at=datetime(2026, 3, 1, 12, 0, tzinfo=timezone.utc),
+        out_at=datetime(2026, 3, 1, 20, 10, 30, tzinfo=timezone.utc),
+        pauses=[{"start": "2026-03-01T16:00:00+00:00", "end": "2026-03-01T16:30:00+00:00"}],
+    )
+    # 8 h 10 min 30 s − 30 min de pausa = 7 h 40 min 30 s → 461 min (half-up).
+    assert payroll_hooks.worked_minutes(entry) == 461
+    assert payroll_hooks.worked_minutes(SimpleNamespace(in_at=entry.in_at, out_at=None, pauses=[])) is None
 
 
 def test_abandoned_shift_from_a_previous_day_shows_everywhere(

@@ -258,5 +258,6 @@ def reports_overview(
             date_to=date_to,
             by_category=by_category,
             total=total,
+            product_rows=product_rows,
         ),
     )

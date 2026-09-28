@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import {
   BarrasConReferencia,
   BulletReferencia,
+  DivergingBars,
   HorarioGantt,
   QuadrantScatter,
   estaFuera,
@@ -463,5 +464,76 @@ describe("QuadrantScatter — variante mix («Mix de platos»)", () => {
     expect(container.querySelector('[data-umbral="x"] line')!.getAttribute("stroke-dasharray")).toBe("4 3")
     expect(container.querySelector('[data-punto="mojarra"]')!.getAttribute("fill")).toBe("var(--data-ink)")
     expect(container.querySelector('[data-slot="resumen"]')).toBeNull()
+  })
+})
+
+describe("Extensiones para las fichas del panel", () => {
+  it("la fila extra puede quedar en blanco donde no hay dato (retiros), con su propia tinta", () => {
+    render(
+      <MemoryRouter>
+        <BarrasConReferencia
+          pregunta="¿Cuándo hubo más efectivo del que debía?"
+          malo="encima"
+          referenciaComun={1_200_000}
+          formato={formatCOP}
+          leyenda={{ barra: "Efectivo", raya: "Umbral", fuera: "Por encima" }}
+          extraVacio=""
+          claseExtra="text-primary"
+          puntos={[
+            { key: "a", etiqueta: "1 p. m.", valor: 900_000, extra: "↓ $ 800.000" },
+            { key: "b", etiqueta: "2 p. m.", valor: 500_000 },
+          ]}
+        />
+      </MemoryRouter>,
+    )
+    const fila = document.querySelector('[data-slot="fila-extra"]')!
+    const cifras = [...fila.querySelectorAll("b")]
+    expect(cifras.map((b) => b.textContent)).toEqual(["↓ $ 800.000", ""])
+    expect(cifras[0]!.className).toContain("text-primary")
+  })
+
+  it("DivergingBars en línea: entradas en --data-1 si se pide, salidas en --diverge-falta, cifra con signo", () => {
+    render(
+      <DivergingBars
+        enLinea
+        colorSobra="var(--data-1)"
+        palabras={{ falta: "salida", sobra: "entrada", cero: "sin cambio" }}
+        datos={[
+          { key: "compra", etiqueta: "Compras", valor: 24 },
+          { key: "venta", etiqueta: "Ventas", valor: -12.6 },
+          { key: "conteo", etiqueta: "Ajuste", valor: null },
+        ]}
+        formato={(v) => String(v)}
+      />,
+    )
+    const compra = document.querySelector<HTMLElement>('[data-fila="compra"] [data-barra]')!
+    expect(compra.style.background).toBe("var(--data-1)")
+    const venta = document.querySelector<HTMLElement>('[data-fila="venta"] [data-barra]')!
+    expect(venta.style.background).toBe("var(--diverge-falta)")
+    expect(screen.getByText("+24")).toBeInTheDocument()
+    expect(screen.getByText("−12.6")).toBeInTheDocument()
+    expect(document.querySelector('[data-hueco="conteo"]')).not.toBeNull()
+  })
+
+  it("el sobrante sigue en --diverge-sobra por defecto (caja)", () => {
+    render(<DivergingBars datos={[{ key: "x", etiqueta: "Turno", valor: 2_000 }]} formato={formatCOP} />)
+    expect(document.querySelector<HTMLElement>("[data-barra]")!.style.background).toBe("var(--diverge-sobra)")
+  })
+
+  it("HorarioGantt persona sin programado ni tardanza no los promete en la leyenda", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <HorarioGantt
+          variante="persona"
+          filas={[
+            { key: "d", etiqueta: "sáb 27", tramos: [{ entrada: "2026-09-27T12:00:00Z", salida: "2026-09-27T20:00:00Z" }] },
+          ]}
+        />
+      </MemoryRouter>,
+    )
+    const leyenda = container.querySelector('ul[aria-hidden="true"]')!
+    expect(leyenda).toHaveTextContent("Lo que trabajó")
+    expect(leyenda).not.toHaveTextContent("Turno programado")
+    expect(leyenda).not.toHaveTextContent("Llegó tarde")
   })
 })

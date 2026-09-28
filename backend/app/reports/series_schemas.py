@@ -98,6 +98,9 @@ class CategoryMarginSeriesOut(BaseModel):
 class StoreWeekPointOut(SeriesPointOut):
     store_id: int
     avg_ticket: int | None = None
+    #: Margen bruto de la sede en el período, en puntos básicos sobre su
+    #: venta neta. `None` sin costo o sin venta (nunca un 0 % mudo).
+    margin_bp: int | None = None
 
 
 class StoresWeekSeriesOut(BaseModel):
@@ -135,11 +138,45 @@ class PeakHoursSeriesOut(BaseModel):
     views: list[PeakHoursViewOut] = []
 
 
+#: El grupo de un plato en el «Mix de platos» (cuadrante contra los
+#: promedios): `keep` venden y dejan, `promote` dejan pero venden poco,
+#: `reprice` venden pero dejan poco, `review` venden poco y dejan poco.
+DishMixGroup = Literal["keep", "promote", "reprice", "review"]
+
+
+class DishMixPointOut(BaseModel):
+    key: str
+    label: str
+    #: Unidades vendidas en el período (eje x).
+    units: int
+    #: Margen bruto sobre la venta neta del plato, en puntos básicos (eje y).
+    margin_bp: int
+    net: int
+    group: DishMixGroup
+
+
+class DishMixSeriesOut(BaseModel):
+    """«¿Qué platos venden y dejan plata?»: unidades contra margen de los
+    platos más vendidos con costo, partidos en cuatro por los promedios
+    (simples) de los dos ejes. Los platos sin costo no se ubican: se cuentan
+    en `without_cost`."""
+
+    available: bool = True
+    reason: str | None = None
+    avg_units: int | None = None
+    avg_margin_bp: int | None = None
+    points: list[DishMixPointOut] = []
+    #: Platos vendidos en el período que no tienen costo (no se pueden ubicar).
+    without_cost: int = 0
+
+
 class OverviewSeriesOut(BaseModel):
     daily_sales: DailySalesSeriesOut
     category_margin: CategoryMarginSeriesOut
     stores_week: StoresWeekSeriesOut | None = None
     peak_hours: PeakHoursSeriesOut
+    #: Mix de platos (unidades × margen). `None` en respuestas viejas.
+    dish_mix: DishMixSeriesOut | None = None
 
 
 # ---------------------------------------------------------------------------

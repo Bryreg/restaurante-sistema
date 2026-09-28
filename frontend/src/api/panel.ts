@@ -224,6 +224,8 @@ export interface RecordAttendanceOut {
   out_at: string | null
   /** `open`, `closed` o `review` (salida olvidada). */
   status: string
+  /** Minutos trabajados, restadas las pausas (motor de nómina). `null` sin salida. */
+  worked_minutes?: number | null
 }
 
 export interface RecordEnvelopeOut {
@@ -238,6 +240,8 @@ export interface RecordOpeningCountOut {
   envelopes: RecordEnvelopeOut[]
   expected_total: number
   counted_total: number
+  /** Contado − esperado de la apertura entera (negativo = faltante). Ausente en un backend viejo. */
+  difference_total?: number
   counted_by: string
   counted_at: string
 }
