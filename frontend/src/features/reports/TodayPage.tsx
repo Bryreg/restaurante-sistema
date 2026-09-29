@@ -263,7 +263,7 @@ function directAttentionItems(today: {
       ctaLabel: "Abrir Dinero",
       tone: closed ? "default" : "critical",
       screen: "Dinero",
-      tab: "Operacional",
+      tab: "Cuadres",
     })
   }
 
@@ -281,7 +281,7 @@ function directAttentionItems(today: {
       ctaLabel: "Ver el turno",
       tone: "warning",
       screen: "Dinero",
-      tab: shiftId !== undefined ? `Turno #${shiftId}` : "Operacional",
+      tab: shiftId !== undefined ? `Turno #${shiftId}` : "Cuadres",
     })
   }
 
