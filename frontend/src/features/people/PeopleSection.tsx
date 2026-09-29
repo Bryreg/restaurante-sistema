@@ -26,6 +26,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/errors";
 
 import { EmployeeFormDialog } from "./EmployeeFormDialog";
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 const ROLE_LABEL: Record<string, string> = {
   operator: "Operador",
@@ -258,6 +260,7 @@ export function PeopleSection({ storeId }: { storeId: number | null }): React.JS
                 />
                 <Label htmlFor="emp-show-inactive">Mostrar inactivos</Label>
               </div>
+              <CsvExportButton href={csvUrl("/admin/employees", showInactive ? {} : { active: true })} />
               <Button type="button" className="gap-2" onClick={() => setEditing("new")}>
                 <Plus className="size-4" aria-hidden="true" />
                 Nuevo empleado

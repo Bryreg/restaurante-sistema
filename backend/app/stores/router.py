@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
 from app.auth.deps import Actor, admin_store, current_admin, current_device
 from app.core import clock
-from app.core.csv import csv_response, wants_csv
+from app.core.csv import CsvFormat, csv_response, wants_csv
 from app.core.db import get_db
+from app.core.config import settings
 from app.core.errors import AppError, NotFoundError
 from app.core.features import FEATURE_BY_KEY, FEATURE_CATALOG, enabled_map, profile_defaults
 from app.core.security import hash_secret
@@ -37,6 +38,8 @@ from app.stores.schemas import (
     FiscalOut,
     OrganizationOut,
     OrganizationUpdateIn,
+    CONFIG_FIELDS_KEPT_WHEN_ABSENT,
+    CONFIG_FIELDS_NOT_NULL,
     PANEL_ASSUMPTION_FIELDS,
     ProfileSetIn,
     RotatePinIn,
@@ -53,6 +56,7 @@ from app.stores.schemas import (
     ZoneOut,
     ZoneUpdateIn,
 )
+from app.stores import service as stores_service
 from app.stores.service import current_fiscal, get_cash_settings, get_sales_settings
 
 router = APIRouter()
@@ -125,6 +129,7 @@ def _cash_settings_out(row: StoreCashSettings) -> CashSettingsOut:
         photo_required_on_pickup=row.photo_required_on_pickup,
         streak_alert_shifts=row.streak_alert_shifts,
         opening_mode="envelopes" if row.opening_mode == "envelopes" else "fixed_base",
+        deposit_overdue_days=row.deposit_overdue_days,
     )
 
 
@@ -146,6 +151,16 @@ def _sales_settings_out(row: StoreSalesSettings) -> SalesSettingsOut:
         long_table_minutes=row.long_table_minutes,
         late_ticket_minutes=row.late_ticket_minutes,
         orders_per_waiter=row.orders_per_waiter,
+        station_target_minutes=stores_service.station_targets(row),
+        quick_notes=stores_service.quick_notes(row),
+        employee_session_minutes=row.employee_session_minutes,
+        pin_lock_attempts=row.pin_lock_attempts,
+        pin_lock_minutes=row.pin_lock_minutes,
+        period_low_base_orders=row.period_low_base_orders,
+        daily_low_base_orders=row.daily_low_base_orders,
+        employee_session_minutes_default=settings.EMPLOYEE_SESSION_MINUTES,
+        pin_lock_attempts_default=settings.PIN_LOCK_ATTEMPTS,
+        pin_lock_minutes_default=settings.PIN_LOCK_MINUTES,
     )
 
 
@@ -217,10 +232,10 @@ def update_organization(
     return _organization_out(org)
 
 
-@router.get("/admin/features")
+@router.get("/admin/features", response_model=list[FeatureOut])
 def list_features(
-    store_id: int | None = None, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
-) -> list[FeatureOut]:
+    store_id: int | None = None, format: CsvFormat = None, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> list[FeatureOut] | Response:
     if store_id is not None:
         admin_store(db, actor, store_id)
 
@@ -273,7 +288,10 @@ def list_features(
                 available_from_phase=f.available_from_phase,
             )
         )
-    return out
+    result = out
+    if format == "csv":
+        return csv_response(result, "funciones.csv")
+    return result
 
 
 @router.put("/admin/features/{key}")
@@ -569,17 +587,20 @@ def set_fiscal(
     return _fiscal_out(row)
 
 
-@router.get("/admin/stores/{store_id}/fiscal/history")
+@router.get("/admin/stores/{store_id}/fiscal/history", response_model=list[FiscalOut])
 def fiscal_history(
-    store_id: int, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
-) -> list[FiscalOut]:
+    store_id: int, format: CsvFormat = None, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> list[FiscalOut] | Response:
     admin_store(db, actor, store_id)
     stmt = (
         select(StoreFiscalConfig)
         .where(StoreFiscalConfig.store_id == store_id)
         .order_by(StoreFiscalConfig.valid_from.desc())
     )
-    return [_fiscal_out(r) for r in db.execute(stmt).scalars().all()]
+    result = [_fiscal_out(r) for r in db.execute(stmt).scalars().all()]
+    if format == "csv":
+        return csv_response(result, "historial-fiscal.csv")
+    return result
 
 
 @router.get("/admin/stores/{store_id}/cash-settings")
@@ -616,8 +637,8 @@ def put_cash_settings_route(
     row = get_cash_settings(db, store_id)
     before = _cash_settings_out(row).model_dump()
     for field, value in body.model_dump().items():
-        if field == "opening_mode" and value is None:
-            continue  # sin el campo, la sede conserva su regla de apertura
+        if field in ("opening_mode", "deposit_overdue_days") and value is None:
+            continue  # sin el campo, la sede conserva lo que tenía
         setattr(row, field, value)
     row.updated_at = clock.now_utc()
     db.flush()
@@ -660,6 +681,11 @@ def put_sales_settings_route(
     for field, value in data.items():
         if value is None and field in PANEL_ASSUMPTION_FIELDS:
             continue
+        if field in CONFIG_FIELDS_KEPT_WHEN_ABSENT:
+            if field not in body.model_fields_set:
+                continue  # no vino en el cuerpo: la sede conserva lo que tenía
+            if value is None and field in CONFIG_FIELDS_NOT_NULL:
+                continue
         setattr(row, field, value)
     row.updated_at = clock.now_utc()
     db.flush()
@@ -677,14 +703,23 @@ def put_sales_settings_route(
     return _sales_settings_out(row)
 
 
-@router.get("/admin/uvt")
-def list_uvt(db: Session = Depends(get_db), actor: Actor = Depends(current_admin)) -> list[UvtEntry]:
+def _uvt_entries(db: Session, actor: Actor) -> list[UvtEntry]:
     stmt = (
         select(UvtValue)
         .where(UvtValue.organization_id == actor.organization_id)
         .order_by(UvtValue.year)
     )
     return [UvtEntry(year=r.year, value=r.value) for r in db.execute(stmt).scalars().all()]
+
+
+@router.get("/admin/uvt", response_model=list[UvtEntry])
+def list_uvt(
+    format: CsvFormat = None, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> list[UvtEntry] | Response:
+    result = _uvt_entries(db, actor)
+    if format == "csv":
+        return csv_response(result, "uvt.csv", headers={"value": "Valor de la UVT (pesos)"})
+    return result
 
 
 @router.put("/admin/uvt")
@@ -715,7 +750,7 @@ def put_uvt(
         before=before,
         after=after,
     )
-    return list_uvt(db, actor)
+    return _uvt_entries(db, actor)
 
 
 # ---------------------------------------------------------------------------
@@ -723,13 +758,16 @@ def put_uvt(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/zones")
+@router.get("/admin/zones", response_model=list[ZoneOut])
 def list_zones(
-    store_id: int, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
-) -> list[ZoneOut]:
+    store_id: int, format: CsvFormat = None, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> list[ZoneOut] | Response:
     admin_store(db, actor, store_id)
     stmt = select(Zone).where(Zone.store_id == store_id).order_by(Zone.sort_order, Zone.name)
-    return [_zone_out(z) for z in db.execute(stmt).scalars().all()]
+    result = [_zone_out(z) for z in db.execute(stmt).scalars().all()]
+    if format == "csv":
+        return csv_response(result, "zonas.csv")
+    return result
 
 
 @router.post("/admin/zones")
@@ -779,13 +817,16 @@ def update_zone(
     return _zone_out(zone)
 
 
-@router.get("/admin/tables")
+@router.get("/admin/tables", response_model=list[TableOut])
 def list_tables_admin(
-    store_id: int, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
-) -> list[TableOut]:
+    store_id: int, format: CsvFormat = None, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> list[TableOut] | Response:
     admin_store(db, actor, store_id)
     stmt = select(Table).where(Table.store_id == store_id).order_by(Table.number)
-    return [_table_out(t) for t in db.execute(stmt).scalars().all()]
+    result = [_table_out(t) for t in db.execute(stmt).scalars().all()]
+    if format == "csv":
+        return csv_response(result, "mesas.csv")
+    return result
 
 
 @router.post("/admin/tables")
@@ -837,6 +878,14 @@ def update_table(
         after=_table_out(table).model_dump(),
     )
     return _table_out(table)
+
+
+@router.get("/quick-notes")
+def device_quick_notes(db: Session = Depends(get_db), actor: Actor = Depends(current_device)) -> dict[str, list[str]]:
+    """Las notas rápidas del POS por curso (Ajustes › Ventas, 0035): sólo
+    textos, nada de plata ni de personas. `_default` es la lista para un
+    curso sin lista propia."""
+    return stores_service.quick_notes(get_sales_settings(db, actor.store_id))  # type: ignore[arg-type]
 
 
 @router.get("/tables")

@@ -31,6 +31,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatBusinessDate } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 function defaultValues(): FiscalConfigIn {
   return {
@@ -141,7 +143,11 @@ export function FiscalSection({ storeId }: { storeId: number | null }): React.JS
           columns={historyColumns}
           rows={history}
           rowKey={(row) => String(row.id)}
-          bar={<DenseTableBar shown={history.length} total={history.length} noun="versiones" />}
+          bar={
+            <DenseTableBar shown={history.length} total={history.length} noun="versiones">
+              <CsvExportButton href={csvUrl(`/admin/stores/${storeId}/fiscal/history`)} />
+            </DenseTableBar>
+          }
           note={
             <>
               <b className="font-bold text-foreground">Versionada, nunca editada</b> — un cambio fiscal no

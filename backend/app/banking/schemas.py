@@ -130,6 +130,14 @@ class DepositReverseIn(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class CascadeLinkOut(BaseModel):
+    """Una línea de procedencia de la cascada (decisión del dueño, 2026-09-29)."""
+
+    shift_id: int
+    business_date: date
+    amount: int
+
+
 class PendingDepositRowOut(BaseModel):
     shift_id: int
     business_date: date
@@ -139,7 +147,14 @@ class PendingDepositRowOut(BaseModel):
     to_deposit: int | None
     reason: str | None = None
     deposited: int
+    # Después de la cascada (`app.banking.hooks.store_balances`): nunca
+    # negativo. Un turno que pagó del cajón más de lo que entró queda en 0 y
+    # dice quién le tapó el hueco (`covered_by`); el que lo tapó dice a quién
+    # (`covered`). Lo que no encontró de dónde cobrarse: `uncovered_shortfall`.
     outstanding: int | None
+    covered: list[CascadeLinkOut] = []
+    covered_by: list[CascadeLinkOut] = []
+    uncovered_shortfall: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +228,10 @@ class OwnerHandOut(BaseModel):
     # hoy. `None` (los dos) si no queda plata de cierres sin consignar.
     oldest_undeposited_date: date | None = None
     oldest_undeposited_days: int | None = None
+    # Desde cuántos días sin consignar la tarjeta pasa a ámbar: el de la sede
+    # (Ajustes › Caja, `deposit_overdue_days`, 0035). Es un umbral de
+    # lectura, no una cifra de plata; antes estaba quemado en la pantalla.
+    overdue_days: int = 3
 
 
 # ---------------------------------------------------------------------------

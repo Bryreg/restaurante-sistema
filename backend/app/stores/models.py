@@ -127,6 +127,9 @@ class StoreCashSettings(Base):
     photo_required_on_close: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     photo_required_on_pickup: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     streak_alert_shifts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    # Días que la plata de un cierre puede quedarse sin consignar antes del
+    # aviso ámbar de Dinero › Plata en mano (0035).
+    deposit_overdue_days: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
@@ -162,6 +165,23 @@ class StoreSalesSettings(Base):
     # Cuántas comandas por hora alcanza a atender un mesero: la capacidad
     # del salón es meseros en turno × esto.
     orders_per_waiter: Mapped[int] = mapped_column(Integer, nullable=False, default=7, server_default="7")
+    # Configurable desde el panel (0035). Objetivo de cocina por estación
+    # (`{"bar": 5}`); `{}` o una estación ausente = el de fábrica
+    # (`app.kitchen.service.DEFAULT_STATION_TARGET_MINUTES`).
+    station_target_minutes: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict, server_default="{}"
+    )
+    # Notas rápidas del POS por curso (`{"beverage": ["Sin hielo"], "_default":
+    # [...]}`); un curso ausente usa las de fábrica.
+    quick_notes: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    # Sesión de la persona y bloqueo del PIN; `NULL` = el de la variable de
+    # entorno (`app.core.config`).
+    employee_session_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pin_lock_attempts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pin_lock_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Debajo de cuántas comandas un porcentaje de Informes es muestra chica.
+    period_low_base_orders: Mapped[int] = mapped_column(Integer, nullable=False, default=20, server_default="20")
+    daily_low_base_orders: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 

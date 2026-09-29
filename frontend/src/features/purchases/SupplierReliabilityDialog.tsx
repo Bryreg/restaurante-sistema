@@ -13,8 +13,9 @@ import { formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
 import { defaultDateRange } from "./lib"
-import { formatDeriva, MUESTRA_CHICA_RECEPCIONES, tonoDeriva, tonoRecibido, tonoTarjeta } from "./reliability"
+import { formatDeriva, tonoDeriva, tonoRecibido, tonoTarjeta, umbralesDe, type UmbralesConfiabilidad } from "./reliability"
 import { Indicador, Recepciones } from "./ReliabilityMarks"
+import { getInventoryThresholds } from "@/api/inventory"
 
 /** El `_bp` del servidor; si un doble viejo sólo trae el por ciento entero, se lee ése (misma cifra, otra unidad). */
 function bpDe(bp: number | null | undefined, pct: number | null): number | null {
@@ -22,9 +23,10 @@ function bpDe(bp: number | null | undefined, pct: number | null): number | null 
   return pct === null ? null : pct * 100
 }
 
-const INGREDIENT_COLUMNS: readonly DenseColumn<IngredientReliabilityOut>[] = [
+function ingredientColumns(u: UmbralesConfiabilidad): readonly DenseColumn<IngredientReliabilityOut>[] {
+  return [
   { key: "name", header: "Insumo", kind: "name", cell: (i) => i.name },
-  { key: "n", header: "Recepciones", kind: "number", cell: (i) => <Recepciones n={i.n_receptions} /> },
+  { key: "n", header: "Recepciones", kind: "number", cell: (i) => <Recepciones n={i.n_receptions} minimo={u.muestraChica} /> },
   {
     key: "received",
     header: "Recibido ÷ facturado",
@@ -33,7 +35,7 @@ const INGREDIENT_COLUMNS: readonly DenseColumn<IngredientReliabilityOut>[] = [
       i.received_over_invoiced_bp === null ? (
         "—"
       ) : (
-        <Indicador tono={tonoRecibido(i.received_over_invoiced_bp)}>{formatPct(i.received_over_invoiced_bp)}</Indicador>
+        <Indicador tono={tonoRecibido(i.received_over_invoiced_bp, u)}>{formatPct(i.received_over_invoiced_bp)}</Indicador>
       ),
     cellTitle: (i) => (i.received_over_invoiced_bp === null ? "Sin cantidad facturada contra qué medir" : undefined),
   },
@@ -45,7 +47,7 @@ const INGREDIENT_COLUMNS: readonly DenseColumn<IngredientReliabilityOut>[] = [
       i.price_drift_bp === null ? (
         "—"
       ) : (
-        <Indicador tono={tonoDeriva(i.price_drift_bp)}>{formatDeriva(i.price_drift_bp)}</Indicador>
+        <Indicador tono={tonoDeriva(i.price_drift_bp, u)}>{formatDeriva(i.price_drift_bp)}</Indicador>
       ),
     cellTitle: (i) =>
       i.price_drift_bp === null
@@ -53,7 +55,8 @@ const INGREDIENT_COLUMNS: readonly DenseColumn<IngredientReliabilityOut>[] = [
         : `Sobre ${i.n_price_comparisons} ${i.n_price_comparisons === 1 ? "comparación" : "comparaciones"} contra la compra anterior`,
   },
   { key: "spend", header: "Comprado", kind: "number", cell: (i) => formatCOP(i.spend) },
-]
+  ]
+}
 
 /**
  * Panel de confiabilidad de un proveedor (SPEC-NEGOCIO §5.6 / §9.3: «¿a
@@ -96,6 +99,12 @@ export function SupplierReliabilityDialog({
   }
   const [range, setRange] = useState(() => defaultDateRange(90))
 
+  const thresholdsQuery = useQuery({
+    queryKey: ["inventory", "thresholds", supplier.store_id],
+    queryFn: () => getInventoryThresholds(supplier.store_id),
+    enabled: open,
+  })
+  const u = umbralesDe(thresholdsQuery.data)
   const query = useQuery({
     queryKey: ["purchases", "suppliers", supplier.id, "reliability", range.from, range.to],
     queryFn: () => getSupplierReliability(supplier.id, range),
@@ -135,9 +144,9 @@ export function SupplierReliabilityDialog({
             />
           ) : data ? (
             <>
-              {receptions > 0 && receptions < MUESTRA_CHICA_RECEPCIONES ? (
+              {receptions > 0 && receptions < u.muestraChica ? (
                 <p className="sin-dato px-2 py-1 text-xs not-italic" data-muestra="chica">
-                  <span className="font-medium">Muestra chica: {sobre}</span> Con menos de {MUESTRA_CHICA_RECEPCIONES}{" "}
+                  <span className="font-medium">Muestra chica: {sobre}</span> Con menos de {u.muestraChica}{" "}
                   un pedido raro mueve la cifra entera: tomala como indicio, no como cifra firme.
                 </p>
               ) : null}
@@ -153,7 +162,7 @@ export function SupplierReliabilityDialog({
                 />
                 <StatTile
                   label="Recibido ÷ facturado"
-                  tone={tonoTarjeta(tonoRecibido(recibido))}
+                  tone={tonoTarjeta(tonoRecibido(recibido, u))}
                   {...(recibido === null ? { value: null as null, nullNote: sinDatos } : { value: formatPct(recibido) })}
                   hint={`Debajo de 100 % está cobrando más de lo que entrega. Mediana por insumo, pesada por plata. ${sobre}`}
                 />
@@ -164,7 +173,7 @@ export function SupplierReliabilityDialog({
                 />
                 <StatTile
                   label="Deriva de precio"
-                  tone={tonoTarjeta(tonoDeriva(deriva))}
+                  tone={tonoTarjeta(tonoDeriva(deriva, u))}
                   {...(deriva === null
                     ? {
                         value: null as null,
@@ -180,7 +189,7 @@ export function SupplierReliabilityDialog({
               {insumos.length > 0 ? (
                 <DenseTable
                   caption="Confiabilidad por insumo: de acá sale el resumen del proveedor."
-                  columns={INGREDIENT_COLUMNS}
+                  columns={ingredientColumns(u)}
                   rows={insumos}
                   rowKey={(i) => String(i.ingredient_id)}
                   maxBodyHeightPx={280}

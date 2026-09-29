@@ -9,9 +9,10 @@
  * **Propinas no es una pestaña de acá** (mapa de pantallas, regla 4): el
  * armazón ya la dibuja como pestaña de sección (`?tab=propinas`, al lado de
  * «Nómina»). Entrando por ahí no se dibuja la fila de pestañas de nómina;
- * entrando por «Nómina», la fila muestra lo que el restaurante usa —las
- * horas, que se le pasan al contador que lleva la nómina— y manda el resto a
- * «Más». Ningún `?tab=` cambió.
+ * entrando por «Nómina», la fila muestra lo que el dueño pidió ver
+ * (2026-09-29): el **horario de la semana** (`?tab=semana`, la vista por
+ * defecto), y manda el resto —Horas, Liquidaciones, Tarifas, Recargos,
+ * Propinas— a «Más». Ningún `?tab=` de antes cambió.
  */
 import { useSearchParams } from "react-router-dom"
 
@@ -27,8 +28,9 @@ import { RunsTab } from "./RunsTab"
 import { SurchargeTablesTab } from "./SurchargeTablesTab"
 import { WagesCalendarTab } from "./WagesCalendarTab"
 import { TipsTab } from "./TipsTab"
+import { WeekScheduleTab } from "./WeekScheduleTab"
 
-const ALL_TABS = ["horas", "tarifas", "recargos", "liquidaciones", "propinas"] as const
+const ALL_TABS = ["semana", "horas", "tarifas", "recargos", "liquidaciones", "propinas"] as const
 type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
@@ -45,15 +47,16 @@ export function PayrollAdminPage(): React.JSX.Element {
   const enabled = payrollEnabled || tipsEnabled
 
   const tabParam = searchParams.get("tab")
-  const requestedTab: TabValue = isTabValue(tabParam) ? tabParam : payrollEnabled ? "horas" : "propinas"
+  const requestedTab: TabValue = isTabValue(tabParam) ? tabParam : payrollEnabled ? "semana" : "propinas"
   const tabAvailable: Record<TabValue, boolean> = {
+    semana: payrollEnabled,
     horas: payrollEnabled,
     tarifas: payrollEnabled,
     recargos: payrollEnabled,
     liquidaciones: payrollEnabled,
     propinas: tipsEnabled,
   }
-  const tab: TabValue = tabAvailable[requestedTab] ? requestedTab : payrollEnabled ? "horas" : "propinas"
+  const tab: TabValue = tabAvailable[requestedTab] ? requestedTab : payrollEnabled ? "semana" : "propinas"
 
   if (storeLoading) {
     return <Cargando texto="Cargando sedes…" className="p-4" />
@@ -91,7 +94,7 @@ export function PayrollAdminPage(): React.JSX.Element {
         question={
           enPropinas
             ? "Cuánta propina le toca a cada persona del período, con el método de reparto de la sede, y a quién se le entregó."
-            : "Cuántas horas puso cada persona —lo que se le pasa al contador que lleva la nómina— y cuánto suma eso con las tarifas y los recargos vigentes."
+            : "Quién trabajó esta semana, de qué hora a qué hora cada día, y cuántas horas suma cada persona. Horas, liquidaciones, tarifas y recargos siguen en «Más»."
         }
         context={
           payrollEnabled && tipsEnabled
@@ -102,21 +105,33 @@ export function PayrollAdminPage(): React.JSX.Element {
         }
       >
       <Tabs value={tab} onValueChange={cambiarPestana}>
-        {/* Tres a la vista y el resto en «Más» (regla 4). Sin «Propinas»:
-            ya es pestaña de sección, arriba. */}
+        {/* El horario de la semana a la vista y el resto en «Más»
+            (decisión del dueño, 2026-09-29: «solo» quiere ver el horario).
+            Ninguna pestaña se borró ni cambió su `?tab=`. «Propinas» también
+            es pestaña de sección, arriba; acá va en «Más» para quien entra
+            por «Nómina». */}
         {payrollEnabled && !enPropinas ? (
           // `h-auto` solo no alcanza: la lista trae `h-8` con la variante
           // horizontal, que le gana (ver `BankingAdminPage.tsx`).
           <TabsList className="h-auto flex-wrap group-data-horizontal/tabs:h-auto">
-            <TabsTrigger value="horas">Horas</TabsTrigger>
-            <TabsTrigger value="liquidaciones">Liquidaciones</TabsTrigger>
-            <TabsTrigger value="tarifas">Tarifas y calendario</TabsTrigger>
+            <TabsTrigger value="semana">Horario de la semana</TabsTrigger>
             <MasPestanas
               value={tab}
               onValueChange={cambiarPestana}
-              items={[{ value: "recargos", label: "Tablas de recargos" }]}
+              items={[
+                { value: "horas", label: "Horas" },
+                { value: "liquidaciones", label: "Liquidaciones" },
+                { value: "tarifas", label: "Tarifas y calendario" },
+                { value: "recargos", label: "Tablas de recargos" },
+                ...(tipsEnabled ? [{ value: "propinas", label: "Propinas" }] : []),
+              ]}
             />
           </TabsList>
+        ) : null}
+        {payrollEnabled ? (
+          <TabsContent value="semana" className="pt-4">
+            <WeekScheduleTab storeId={activeStoreId} />
+          </TabsContent>
         ) : null}
         {payrollEnabled ? (
           <TabsContent value="horas" className="pt-4">

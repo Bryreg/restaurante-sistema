@@ -30,10 +30,10 @@ export function Indicador({ tono, children }: { tono: Tono; children: React.Reac
 }
 
 /** Recepciones con la marca de muestra chica. */
-export function Recepciones({ n }: { n: number }): React.JSX.Element {
-  if (n >= MUESTRA_CHICA_RECEPCIONES) return <span>{n}</span>
+export function Recepciones({ n, minimo = MUESTRA_CHICA_RECEPCIONES }: { n: number; minimo?: number }): React.JSX.Element {
+  if (n >= minimo) return <span>{n}</span>
   return (
-    <span className="whitespace-nowrap" title={`Con menos de ${MUESTRA_CHICA_RECEPCIONES} recepciones un pedido raro mueve todo`}>
+    <span className="whitespace-nowrap" title={`Con menos de ${minimo} recepciones un pedido raro mueve todo`}>
       {n} <span className="text-xs text-muted-foreground italic">muestra chica</span>
     </span>
   )

@@ -51,8 +51,11 @@ def test_range_csv_uses_from_to_headers(admin_client: Any, store: Any) -> None:
     resp = admin_client.get(f"/api/v1/admin/fiscal/ranges?store_id={store.id}&format=csv")
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("text/csv")
+    # Movido a propósito: el CSV pasó a Excel es-CO (`;`, BOM y encabezados en
+    # español, `app.core.csv`); la columna es la misma, con su nombre en español.
     header_line = resp.text.splitlines()[0]
-    assert "from" in header_line and "to" in header_line
+    assert header_line.startswith("\ufeff")
+    assert "Desde" in header_line.split(";") and "Hasta" in header_line.split(";")
 
 
 def test_range_invalid_to_before_from_is_400(admin_client: Any, store: Any) -> None:

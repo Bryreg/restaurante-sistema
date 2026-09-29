@@ -44,7 +44,7 @@ from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.fiscal import service as fiscal_service
 from app.fiscal.models import FiscalDocument, FiscalDocumentType
 from app.notifications.models import Notification
-from app.notifications.service import notify
+from app.notifications.service import notify, rule_threshold
 from app.orders import money
 from app.orders import service as orders_service
 from app.orders.models import (
@@ -55,12 +55,9 @@ from app.orders.models import (
     OrderTable,
 )
 from app.reports.schemas import (
-    AccountantRateBreakdownOut,
     AreaCountAreaTodayOut,
     AreaCountDoneTodayOut,
     AreaCountFlagOut,
-    AccountantReportOut,
-    AccountantRowOut,
     AlertOut,
     EmployeeRefOut,
     HourBucketOut,
@@ -69,6 +66,9 @@ from app.reports.schemas import (
     MethodAmountOut,
     NegativeStockAlertOut,
     OpenOrderAgeOut,
+    PaymentBucketSalesOut,
+    TodayReceptionLineOut,
+    TodayTopProductOut,
     DayCloseOut,
     PayableAlertOut,
     PrepAlertOut,
@@ -85,7 +85,7 @@ from app.banking import hooks as banking_hooks
 from app.shifts import hooks as shifts_hooks
 from app.shifts import service as shifts_service
 from app.shifts.models import BusinessDay, Shift, ShiftStatus
-from app.stores.models import Store, Table, Zone
+from app.stores.models import Store, StoreSalesSettings, Table, Zone
 
 # Documentos que representan una venta real (comprobante emitido al cobrar):
 # el documento equivalente POS, la factura y el comprobante interno (sede sin
@@ -105,12 +105,10 @@ NOTE_DOCUMENT_TYPES = (
 )
 
 # Umbrales de "comanda abierta hace demasiado" (SPEC-NEGOCIO §9.3 "Hoy":
-# "bandera > X min sin enviar / > Y min sin cobrar"). No existe todavía un
-# campo de configuración por sede para esto (`app.stores.models
-# .StoreSalesSettings` no lo declara y este territorio no toca `app.stores`):
-# quedan como default de producto, declarados en `gaps` del entregable para
-# que un pedido futuro los suba a Configuración, igual que
-# `discount_daily_limit_pct`/`courtesy_shift_limit`.
+# "bandera > X min sin enviar / > Y min sin cobrar"). Mandan los de la regla
+# de la sede (`NotificationRule.threshold` de `order_unsent_too_long` /
+# `order_unpaid_too_long`, Notificaciones › Reglas); estas constantes son el
+# default cuando la sede no guardó uno.
 UNSENT_MINUTES_THRESHOLD = 15
 UNPAID_MINUTES_THRESHOLD = 20
 
@@ -370,6 +368,19 @@ def _signed_bp(numerator: int, denominator: int) -> int:
 #: período es de muestra chica (el mismo mínimo que la interfaz usa para
 #: «Muestra chica» en `ChartFrame`).
 PERIOD_LOW_BASE_ORDERS = 20
+
+
+def low_base_orders(db: Session, scope: StoreScope, field: str, default: int) -> int:
+    """El mínimo de comandas de «muestra chica» que rige (Ajustes › Ventas ›
+    Informes, 0035): el de la sede; con varias sedes, el más alto de ellas
+    (la cifra sumada no puede ser más confiable que la de su sede más
+    exigente). Sin fila, el default."""
+    ids = [scope] if isinstance(scope, int) else list(scope)
+    values = []
+    for store_id in ids:
+        row = db.get(StoreSalesSettings, store_id)
+        values.append(int(getattr(row, field, None) or default) if row is not None else default)
+    return max(values) if values else default
 
 
 def _delta_bp(current: int | None, previous: int | None) -> int | None:
@@ -728,7 +739,9 @@ def _previous_period(
             null_reason="La sede todavía no operaba en el período anterior: no hay contra qué comparar.",
         )
     _rows, prev = aggregate_sales(db, store_id=store_id, date_from=prev_from, date_to=prev_to, group_by=None)
-    low_base = min(current.orders or 0, prev.orders or 0) < PERIOD_LOW_BASE_ORDERS
+    low_base = min(current.orders or 0, prev.orders or 0) < low_base_orders(
+        db, store_id, "period_low_base_orders", PERIOD_LOW_BASE_ORDERS
+    )
     return PreviousPeriodOut(
         date_from=prev_from,
         date_to=prev_to,
@@ -773,6 +786,8 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
             )
         ).scalars()
     )
+    unsent_limit = rule_threshold(db, store.id, "order_unsent_too_long")
+    unpaid_limit = rule_threshold(db, store.id, "order_unpaid_too_long")
     unsent_count = 0
     unpaid_count = 0
     for order in open_orders:
@@ -784,7 +799,7 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
             ).first()
             if has_pending is not None:
                 minutes = int((now - order.opened_at).total_seconds() // 60)
-                if minutes > UNSENT_MINUTES_THRESHOLD:
+                if minutes > unsent_limit:
                     unsent_count += 1
                     notify(
                         db,
@@ -800,7 +815,7 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
 
         if order.bill_presented_at is not None and order.status == OrderStatus.TO_PAY:
             minutes_bill = int((now - order.bill_presented_at).total_seconds() // 60)
-            if minutes_bill > UNPAID_MINUTES_THRESHOLD:
+            if minutes_bill > unpaid_limit:
                 unpaid_count += 1
                 notify(
                     db,
@@ -824,6 +839,8 @@ def _open_orders_out(db: Session, store: Store, now: datetime) -> list[OpenOrder
             .order_by(Order.opened_at)
         ).scalars()
     )
+    unsent_limit = rule_threshold(db, store.id, "order_unsent_too_long")
+    unpaid_limit = rule_threshold(db, store.id, "order_unpaid_too_long")
     out: list[OpenOrderAgeOut] = []
     for order in orders:
         tables = [t.number for t in db.execute(
@@ -845,12 +862,12 @@ def _open_orders_out(db: Session, store: Store, now: datetime) -> list[OpenOrder
                 ).first()
                 is not None
             )
-        unsent_flag = has_pending and minutes_since_opened > UNSENT_MINUTES_THRESHOLD
+        unsent_flag = has_pending and minutes_since_opened > unsent_limit
         unpaid_flag = (
             order.bill_presented_at is not None
             and order.status == OrderStatus.TO_PAY
             and minutes_since_bill is not None
-            and minutes_since_bill > UNPAID_MINUTES_THRESHOLD
+            and minutes_since_bill > unpaid_limit
         )
         total = orders_service.compute_order_totals(db, order).total
         out.append(
@@ -1452,6 +1469,109 @@ def _yesterday_close(db: Session, store: Store, *, business_date: date, first_ac
     )
 
 
+# ---------------------------------------------------------------------------
+# Hoy según el dueño (2026-09-29): efectivo y tarjeta, platos más vendidos y
+# entradas de mercancía con su lote. Cada bloque es una función propia para
+# que la descarga (`format=csv`) y la pantalla lean exactamente lo mismo.
+# ---------------------------------------------------------------------------
+
+#: Cuántos platos lleva Hoy en «Top productos vendidos». La descarga los trae todos.
+TOP_PRODUCTS_LIMIT = 10
+
+#: Los dos bolsillos que Hoy muestra aparte; el resto va junto en «otros medios».
+_TODAY_OWN_BUCKETS = {"cash": "cash", "card": "card"}
+
+
+def today_payment_split(
+    db: Session, *, store: Store, business_date: date
+) -> dict[str, PaymentBucketSalesOut]:
+    """Venta del día por bolsillo: `{"cash", "card", "other"}`. Las filas
+    salen de `aggregate_sales(group_by="method")` —el impuesto de cada
+    comprobante ya está prorrateado entre sus partes de pago con
+    `money.prorate`— y el bolsillo de cada medio lo decide
+    `shifts_hooks.payment_bucket`, el único clasificador de un pago. Acá
+    sólo se juntan las filas de un mismo bolsillo."""
+    rows, _total = aggregate_sales(
+        db, store_id=store.id, date_from=business_date, date_to=business_date, group_by="method"
+    )
+    sums: dict[str, list[int]] = {"cash": [0, 0, 0], "card": [0, 0, 0], "other": [0, 0, 0]}
+    for row in rows:
+        target = _TODAY_OWN_BUCKETS.get(shifts_hooks.payment_bucket(row.key, None), "other")
+        acc = sums[target]
+        acc[0] += row.net
+        acc[1] += row.gross
+        acc[2] += row.payments or 0
+    return {k: PaymentBucketSalesOut(net=v[0], gross=v[1], payments=v[2]) for k, v in sums.items()}
+
+
+def today_top_products(
+    db: Session, *, store: Store, business_date: date, limit: int | None = TOP_PRODUCTS_LIMIT
+) -> list[TodayTopProductOut]:
+    """Los platos del día por venta neta, de mayor a menor (el orden lo
+    decide `aggregate_sales`, una sola vez). `limit=None` = todos."""
+    rows, _total = aggregate_sales(
+        db, store_id=store.id, date_from=business_date, date_to=business_date, group_by="product"
+    )
+    picked = rows if limit is None else rows[:limit]
+    return [
+        TodayTopProductOut(key=r.key, label=r.label, units=r.units, net=r.net, share_bp=r.share_bp) for r in picked
+    ]
+
+
+def today_receptions(db: Session, *, store: Store, business_date: date) -> tuple[bool, list[TodayReceptionLineOut]]:
+    """`(función encendida, líneas)` de las recepciones confirmadas del día.
+    El estado del lote sale de `app.inventory.hooks.lot_statuses` (la regla
+    de Lotes) sólo con `inventory.lots` encendida."""
+    purchases = _hooks_if_enabled(db, store, module="app.purchases.hooks", feature="purchases")
+    if purchases is None:
+        return False, []
+    lines = purchases.receptions_of_day(db, store_id=store.id, business_date=business_date)
+    lots = _hooks_if_enabled(db, store, module="app.inventory.hooks", feature="inventory.lots")
+    statuses: dict[int, str] = {}
+    if lots is not None:
+        batch_ids = [int(line["stock_batch_id"]) for line in lines if line.get("stock_batch_id") is not None]
+        statuses = lots.lot_statuses(db, batch_ids=batch_ids, today=business_date)
+    out: list[TodayReceptionLineOut] = []
+    for line in lines:
+        expires_at = line["expires_at"]
+        batch_id = line.get("stock_batch_id")
+        out.append(
+            TodayReceptionLineOut(
+                reception_id=line["reception_id"],
+                line_id=line["line_id"],
+                received_at=line["received_at"],
+                supplier_name=line["supplier_name"],
+                ingredient_id=line["ingredient_id"],
+                ingredient_name=line["ingredient_name"],
+                qty=line["qty"],
+                purchase_unit=line["purchase_unit"],
+                lot_code=line["lot_code"],
+                expires_at=expires_at,
+                days_to_expiry=(expires_at - business_date).days if expires_at is not None else None,
+                lot_status=statuses.get(int(batch_id)) if batch_id is not None else None,  # type: ignore[arg-type]
+                received_by=line["received_by"],
+            )
+        )
+    return True, out
+
+
+def today_sales_by_hour(db: Session, *, store: Store) -> tuple[date, list[HourBucketOut], list[HourBucketOut]]:
+    """`(día operativo, horas de hoy, horas del mismo día de la semana
+    pasada completo)` — lo mismo que `today_report` publica en
+    `sales_by_hour`/`sales_by_hour_reference`, para la descarga."""
+    now = clock.now_utc()
+    business_date = tz.today_business_date(store.cutoff_hour)
+    documents = _sale_documents(db, store_id=store.id, date_from=business_date, date_to=business_date)
+    hours = _hour_buckets(documents, cutoff_hour=store.cutoff_hour, now_local_hour=_bogota_hour(now))
+    reference_date = business_date - timedelta(days=7)
+    first_activity = _first_activity_date(db, store.id)
+    reference: list[HourBucketOut] = []
+    if first_activity is not None and first_activity <= reference_date:
+        reference_docs = _sale_documents(db, store_id=store.id, date_from=reference_date, date_to=reference_date)
+        reference = _hour_buckets(reference_docs, cutoff_hour=store.cutoff_hour, now_local_hour=None)
+    return business_date, hours, reference
+
+
 def today_report(db: Session, *, store: Store) -> TodayOut:
     now = clock.now_utc()
     business_date = tz.today_business_date(store.cutoff_hour)
@@ -1527,6 +1647,8 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     negative_unvalued = sum(1 for n in negatives if n.amount is None)
     payables_enabled = _hooks_if_enabled(db, store, module="app.purchases.hooks", feature="purchases") is not None
     payables_overdue = _payables_overdue(db, store)
+    split = today_payment_split(db, store=store, business_date=business_date)
+    receptions_enabled, receptions = today_receptions(db, store=store, business_date=business_date)
 
     return TodayOut(
         store_id=store.id,
@@ -1573,11 +1695,18 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         current_shift=current_shift,
         store_closed=current_shift is None and not panel_service.shift_activity(db, store),
         attendance_pending_review_count=len(shifts_hooks.attendance_pending_review(db, store_id=store.id)),
+        cash_sales=split["cash"],
+        card_sales=split["card"],
+        other_payment_sales=split["other"],
+        top_products=today_top_products(db, store=store, business_date=business_date),
+        receptions_enabled=receptions_enabled,
+        receptions_today=receptions,
     )
 
 
 # ---------------------------------------------------------------------------
-# GET /admin/accountant-report
+# GET /admin/accountant-report — el período. El informe en sí vive en
+# `app.reports.accountant` (por día operativo y medio, como café-sistema).
 # ---------------------------------------------------------------------------
 
 _BIMESTER_MONTHS: dict[int, tuple[int, int]] = {1: (1, 2), 2: (3, 4), 3: (5, 6), 4: (7, 8), 5: (9, 10), 6: (11, 12)}
@@ -1603,91 +1732,6 @@ def _period_range(year: int, *, bimester: int | None, month: int | None) -> tupl
     next_year = year + 1 if last_month == 12 else year
     date_to = date(next_year, next_month, 1) - timedelta(days=1)
     return date_from, date_to, period_kind, period
-
-
-def accountant_report(
-    db: Session, *, store_id: int, year: int, bimester: int | None, month: int | None
-) -> AccountantReportOut:
-    date_from, date_to, period_kind, period = _period_range(year, bimester=bimester, month=month)
-
-    sale_docs = _sale_documents(db, store_id=store_id, date_from=date_from, date_to=date_to)
-    note_docs = list(
-        db.execute(
-            select(FiscalDocument).where(
-                FiscalDocument.store_id == store_id,
-                FiscalDocument.business_date >= date_from,
-                FiscalDocument.business_date <= date_to,
-                FiscalDocument.document_type.in_(NOTE_DOCUMENT_TYPES),
-                FiscalDocument.status == "issued",
-            )
-        ).scalars()
-    )
-
-    # (business_date, rate) -> {documents_base, documents_tax, notes_base, notes_tax}
-    by_date_rate: dict[tuple[date, int], dict[str, int]] = {}
-    docs_per_date: dict[date, int] = defaultdict(int)
-    notes_per_date: dict[date, int] = defaultdict(int)
-    tips_per_date: dict[date, int] = defaultdict(int)
-    methods_total: dict[str, int] = defaultdict(int)
-
-    for doc in sale_docs:
-        docs_per_date[doc.business_date] += 1
-        tips_per_date[doc.business_date] += doc.tip_amount
-        for line in doc.tax_lines or []:
-            key = (doc.business_date, int(line["rate"]))
-            bucket = by_date_rate.setdefault(key, {"documents_base": 0, "documents_tax": 0, "notes_base": 0, "notes_tax": 0})
-            bucket["documents_base"] += int(line["base"])
-            bucket["documents_tax"] += int(line["tax"])
-        for split in doc.payments_snapshot or []:
-            methods_total[str(split.get("method", "other"))] += int(split.get("amount", 0))
-
-    for doc in note_docs:
-        notes_per_date[doc.business_date] += 1
-        for line in doc.tax_lines or []:
-            key = (doc.business_date, int(line["rate"]))
-            bucket = by_date_rate.setdefault(key, {"documents_base": 0, "documents_tax": 0, "notes_base": 0, "notes_tax": 0})
-            bucket["notes_base"] += int(line["base"])
-            bucket["notes_tax"] += int(line["tax"])
-
-    all_dates = sorted(set(docs_per_date) | set(notes_per_date) | {d for d, _r in by_date_rate})
-    rows: list[AccountantRowOut] = []
-    documents_total_base = documents_total_tax = notes_total_base = notes_total_tax = 0
-    for business_date in all_dates:
-        by_rate = [
-            AccountantRateBreakdownOut(rate=rate, **values)
-            for (d, rate), values in sorted(by_date_rate.items())
-            if d == business_date
-        ]
-        for r in by_rate:
-            documents_total_base += r.documents_base
-            documents_total_tax += r.documents_tax
-            notes_total_base += r.notes_base
-            notes_total_tax += r.notes_tax
-        rows.append(
-            AccountantRowOut(
-                business_date=business_date,
-                documents_count=docs_per_date.get(business_date, 0),
-                notes_count=notes_per_date.get(business_date, 0),
-                tips_amount=tips_per_date.get(business_date, 0),
-                by_rate=by_rate,
-            )
-        )
-
-    return AccountantReportOut(
-        store_id=store_id,
-        year=year,
-        period_kind=period_kind,  # type: ignore[arg-type]
-        period=period,
-        date_from=date_from,
-        date_to=date_to,
-        rows=rows,
-        totals_by_method=[MethodAmountOut(method=m, amount=a) for m, a in sorted(methods_total.items())],
-        documents_total_base=documents_total_base,
-        documents_total_tax=documents_total_tax,
-        notes_total_base=notes_total_base,
-        notes_total_tax=notes_total_tax,
-        tips_total=sum(tips_per_date.values()),
-    )
 
 
 # ---------------------------------------------------------------------------

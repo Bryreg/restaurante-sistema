@@ -39,6 +39,7 @@ import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
 
 import { LocalCsvExportButton, LocalDateRangeFilter } from "./components";
+import { csvUrl } from "@/api/client";
 
 const STATUS_OPTIONS: DianStatus[] = ["pending", "sent", "validated", "rejected", "contingency"];
 
@@ -308,7 +309,15 @@ export function DocumentsPage(): React.JSX.Element {
           },
           { label: "Conservación", value: "5 años", title: "Por eso el paquete de evidencia lleva hash por documento." },
         ]}
-        actions={<LocalCsvExportButton href={fiscalDocumentsCsvUrl({ storeId: activeStoreId, status })} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <LocalCsvExportButton href={fiscalDocumentsCsvUrl({ storeId: activeStoreId, status })} />
+            <LocalCsvExportButton
+              href={csvUrl("/admin/documents", { store_id: activeStoreId })}
+              label="Exportar todos los documentos"
+            />
+          </div>
+        }
       />
 
       {query.isLoading ? (

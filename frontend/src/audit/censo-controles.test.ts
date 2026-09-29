@@ -144,6 +144,52 @@
  * - «Insumos activos» — la franja ahora dice «47 insumos activos», con la
  *   cifra adelante y en negrita, como la dibuja el handoff (pantalla 12). El
  *   dato sigue a la vista; cambió el orden de la frase.
+ *
+ * **Bajas declaradas · Hoy según el dueño (decisión del 2026-09-29).** Ocho
+ * rótulos de `features/reports/TodayPage.tsx` salen de la base, a mano y uno
+ * por uno. El dueño pidió que Hoy muestre **exactamente** la venta con su
+ * libro, ticket promedio, número de tickets, efectivo, tarjeta, ventas por
+ * hora, top productos, entradas de mercancía y «Requiere tu atención»; lo
+ * demás deja de dibujarse en Hoy. Ninguno era un botón: eran tarjetas de
+ * cifra y la tabla de comandas abiertas, y sus datos siguen en otra pantalla.
+ *
+ * - «Comandas pagadas» — se renombró: es «Número de tickets», la palabra del
+ *   dueño, con la misma cifra (`orders`).
+ * - «Comandas abiertas» y «Sin comandas abiertas» — la tabla y su vacío; las
+ *   comandas abiertas viven en la pestaña Pedidos, al lado de Hoy, y las
+ *   atascadas siguen siendo un aviso del riel.
+ * - «Efectivo esperado» — vive en Dinero › Cuadres; «Sin turno abierto»
+ *   y el turno abandonado siguen siendo avisos del riel.
+ * - «Mesas ocupadas», «Comensales», «Ticket por comensal» — en Pedidos y en
+ *   Ventas (`/admin/ventas`, «Ver el día completo»).
+ * - «Propinas de hoy» — en Nómina › Propinas y en el informe de Ventas; la
+ *   propina sigue sin ser venta y lo dice «Cómo leer estas cifras».
+ *
+ * **Bajas declaradas · Cuadres como el café (decisión del dueño, 2026-09-29).**
+ * Caja › Dinero pasa a ser UNA pantalla, «Cuadres»: una tarjeta por turno con
+ * sus cuadres, desglose, movimientos y rescates. Salen de la base, a mano,
+ * cuatro entradas enteras, y entran tres nuevas con lo que las reemplaza:
+ *
+ * - `features/shifts/admin/OperationalTab.tsx` y `HistoryTab.tsx` — se
+ *   unificaron en `CuadresScreen.tsx`. «Operacional»/«Historial» (las
+ *   pestañas de `MoneyAdminPage.tsx`) pasaron a ser los filtros «Todos»,
+ *   «Cerrados», «Abiertos» y «Desde/Hasta»; `?tab=historial` abre los
+ *   cerrados. «Reintentar» y «Sin turnos para estos filtros» siguen, ahora
+ *   en `CuadresScreen.tsx`; «No se pudieron cargar los turnos» / «…el
+ *   historial» son «No se pudieron cargar los cuadres»; «Quitar el período y
+ *   ver todo el historial» sale (el período arranca en el mes y se cambia en
+ *   el mismo filtro); «Del día» y «Ahora mismo» eran rótulos de grupo, no
+ *   controles; «Sin turnos hoy en esta sede» es el mismo vacío con filtros.
+ * - `features/shifts/admin/ShiftDetailDialog.tsx` — los rescates se mudaron a
+ *   `rescates.tsx` (la tarjeta de Cuadres y la ficha del turno usan los
+ *   mismos): «Reabrir» → «Reabrir cierre», «Cierre administrativo» →
+ *   «Cerrar turno pendiente» (los nombres del café), «Reabrir este cierre» y
+ *   «Cerrar administrativamente este turno abandonado» siguen como títulos
+ *   de la confirmación, y «Cancelar»/«Volver» siguen como botones.
+ *   «Sin eventos todavía» sale con la cronología del diálogo: los
+ *   movimientos de caja y los cuadres viven en la tarjeta.
+ * - `features/shifts/EnvelopeOpeningForm.tsx` no estaba en la base; lo
+ *   reemplaza `CashOpeningForm.tsx` (la apertura sin ciegas), que entra.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

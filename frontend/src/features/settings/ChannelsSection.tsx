@@ -27,6 +27,8 @@ import { errorMessage } from "@/lib/errors"
 // duplica la escala acá: `commission_bp` se muestra SIEMPRE con esta misma
 // función, nunca con `bp / 100` o `bp * 100` sueltos en este archivo.
 import { formatBasisPoints } from "@/features/inventory/lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /** Igual criterio que `features/settings/InventorySection.tsx` (también
  * puntos básicos): conversión de FORMATO de un campo de entrada, nunca de
@@ -323,9 +325,13 @@ export function ChannelsSection({ storeId }: { storeId: number | null }): React.
           />
         ) : (
           <>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Checkbox id="platforms-show-inactive" checked={showInactive} onCheckedChange={(v) => setShowInactive(v === true)} />
               <Label htmlFor="platforms-show-inactive">Mostrar inactivas</Label>
+              <span className="ml-auto" />
+              <CsvExportButton
+                href={csvUrl("/admin/platforms", { store_id: storeId, active: showInactive ? undefined : true })}
+              />
             </div>
 
             {query.isLoading ? (

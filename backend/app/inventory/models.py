@@ -541,6 +541,31 @@ class StoreInventorySettings(Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), primary_key=True)
     variance_yellow_threshold_bp: Mapped[int] = mapped_column(sa.Integer, default=200)
     variance_red_threshold_bp: Mapped[int] = mapped_column(sa.Integer, default=400)
+    # Configurables desde el panel (0035), con el valor que antes estaba
+    # quemado en el código como default.
+    # Compras: un precio que se aleja más de esto del promedio pide nota.
+    price_jump_pct: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=15, server_default="15")
+    # Producción: rendimiento real contra el teórico por encima de esto avisa.
+    prep_variance_alert_pct: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=15, server_default="15")
+    # Días sin conteo completo para «inventario no confiable».
+    stale_days: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=14, server_default="14")
+    # Un lote que vence dentro de estos días está «por vencer».
+    lot_expiring_window_days: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=7, server_default="7")
+    # Franja de food cost sano (en %).
+    food_cost_band_min_pct: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=28, server_default="28")
+    food_cost_band_max_pct: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=35, server_default="35")
+    # Confiabilidad de proveedores (puntos básicos: 9900 = 99 %).
+    supplier_received_warning_bp: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, default=9900, server_default="9900"
+    )
+    supplier_received_critical_bp: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, default=9500, server_default="9500"
+    )
+    supplier_drift_warning_bp: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=500, server_default="500")
+    supplier_drift_critical_bp: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, default=1000, server_default="1000"
+    )
+    supplier_min_receptions: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=5, server_default="5")
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
     __table_args__ = (
@@ -761,6 +786,11 @@ class AreaCountSettings(Base):
     # Día del mes (1–28) del conteo completo (0030): ese día la lista de
     # apertura de cada área es todo lo suyo por categoría. `NULL` = apagado.
     monthly_full_count_day: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    # Configurables desde el panel (0035): largo de la lista de un área y de
+    # un recuento, y desde qué hora (Bogotá) el POS sugiere «Cierre».
+    max_items_per_area: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=15, server_default="15")
+    max_recount_items: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=5, server_default="5")
+    suggest_closing_from_hour: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=20, server_default="20")
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
     __table_args__ = (

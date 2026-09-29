@@ -13,13 +13,13 @@ from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, admin_store, current_admin, current_device, current_operator
 from app.core import features
-from app.core.csv import csv_response, wants_csv
+from app.core.csv import CsvFormat, csv_response, sectioned_rows, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError, NotFoundError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
@@ -333,19 +333,32 @@ def get_admin_orders(
     return report
 
 
-@router.get("/admin/orders/{order_id}")
-def get_admin_order(order_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)) -> OrderOut:
+@router.get("/admin/orders/{order_id}", response_model=OrderOut)
+def get_admin_order(
+    order_id: int,
+    format: CsvFormat = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> OrderOut | Response:
     order = db.get(Order, order_id)
     if order is None or order.organization_id != actor.organization_id:
         raise NotFoundError("La comanda no existe")
     admin_store(db, actor, order.store_id)
-    return service.order_out(db, order, for_device=False)
+    result = service.order_out(db, order, for_device=False)
+    if format == "csv":
+        # Sólo los ítems: el teléfono de «para llevar» no viaja en un CSV
+        # exportable (§8.4, `test_security_invariants`).
+        return csv_response(result.items, f"comanda-{order.id}.csv")
+    return result
 
 
-@router.get("/admin/orders/{order_id}/consumption")
+@router.get("/admin/orders/{order_id}/consumption", response_model=OrderConsumptionOut)
 def get_order_consumption(
-    order_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
-) -> OrderConsumptionOut:
+    order_id: int,
+    format: CsvFormat = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> OrderConsumptionOut | Response:
     """Pedido 2b, «Reads that 2a asked for»: la corrección a §5.3 hecha
     lectura — un renglón por insumo/preparación, sumando las filas por ítem
     del libro (`app.orders.service.order_consumption`). Ruta de **admin**
@@ -369,4 +382,7 @@ def get_order_consumption(
         raise NotFoundError("La comanda no existe")
     admin_store(db, actor, order.store_id)
     features.assert_feature(db, order.organization_id, order.store_id, "inventory.perpetual")
-    return service.order_consumption(db, order=order)
+    result = service.order_consumption(db, order=order)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), f"consumo-comanda-{order.id}.csv")
+    return result

@@ -1,25 +1,24 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ShiftCashSummary } from "@/api/shifts";
 import { renderWithProviders } from "@/test/utils";
 
-import { cashSummaryHeadline, moneyTabFromParam } from "../lib";
+import { cashSummaryHeadline } from "../lib";
 import { MoneyAdminPage } from "../MoneyAdminPage";
 
 vi.mock("@/app/storeContext", () => ({
   useStoreSelection: () => ({ stores: [{ id: 1, name: "Sede Centro" }], loading: false, activeStoreId: 1, setActiveStoreId: vi.fn() }),
 }));
 
-const { listAdminShiftsMock, getAdminShiftsSummaryMock } = vi.hoisted(() => ({
-  listAdminShiftsMock: vi.fn(),
+const { listCuadresMock, getAdminShiftsSummaryMock } = vi.hoisted(() => ({
+  listCuadresMock: vi.fn(),
   getAdminShiftsSummaryMock: vi.fn(),
 }));
 
 vi.mock("@/api/shifts", async () => {
   const actual = await vi.importActual<typeof import("@/api/shifts")>("@/api/shifts");
-  return { ...actual, listAdminShifts: listAdminShiftsMock, getAdminShiftsSummary: getAdminShiftsSummaryMock };
+  return { ...actual, listCuadres: listCuadresMock, getAdminShiftsSummary: getAdminShiftsSummaryMock };
 });
 
 /** La respuesta real de la simulación (8 al 21 sep), recortada a cuatro días. */
@@ -58,40 +57,28 @@ const SUMMARY: ShiftCashSummary = {
 };
 
 beforeEach(() => {
-  listAdminShiftsMock.mockResolvedValue([]);
+  listCuadresMock.mockResolvedValue({ shifts: [], performance: [] });
   getAdminShiftsSummaryMock.mockResolvedValue(SUMMARY);
 });
 
-describe("MoneyAdminPage — la pestaña la decide la URL", () => {
-  it("?tab=historial abre Historial (el aviso de caja de Hoy enlaza ahí)", async () => {
+describe("Dinero › Cuadres — la URL elige el estado (las pestañas viejas siguen llevando a algún lado)", () => {
+  it("?tab=historial abre los cerrados (el aviso de caja de Hoy enlaza ahí)", async () => {
     renderWithProviders(<MoneyAdminPage />, { route: "/admin/dinero?tab=historial" });
-
-    expect(screen.getByRole("tab", { name: "Historial", selected: true })).toBeInTheDocument();
-    expect(await screen.findByTestId("cash-summary-headline")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Cerrados", pressed: true })).toBeInTheDocument();
+    await waitFor(() => expect(listCuadresMock).toHaveBeenCalledWith(expect.objectContaining({ storeId: 1, status: "closed" })));
   });
 
-  it("sin pestaña (o con una que no existe) abre Operacional", () => {
-    renderWithProviders(<MoneyAdminPage />, { route: "/admin/dinero?tab=cualquiera" });
-    expect(screen.getByRole("tab", { name: "Operacional", selected: true })).toBeInTheDocument();
-    expect(getAdminShiftsSummaryMock).not.toHaveBeenCalled();
-  });
-
-  it("cambiar de pestaña la deja en la URL y trae el resumen", async () => {
-    const user = userEvent.setup();
+  it("sin estado abre todos, del primer día del mes a hoy", async () => {
     renderWithProviders(<MoneyAdminPage />, { route: "/admin/dinero" });
-    await user.click(screen.getByRole("tab", { name: "Historial" }));
-    expect(screen.getByRole("tab", { name: "Historial", selected: true })).toBeInTheDocument();
-    await waitFor(() => expect(getAdminShiftsSummaryMock).toHaveBeenCalledWith({ storeId: 1, from: undefined, to: undefined }));
-  });
-
-  it("moneyTabFromParam acepta el nombre en español y el interno viejo", () => {
-    expect(moneyTabFromParam("historial")).toBe("historial");
-    expect(moneyTabFromParam("history")).toBe("historial");
-    expect(moneyTabFromParam(null)).toBe("operacional");
+    expect(screen.getByRole("button", { name: "Todos", pressed: true })).toBeInTheDocument();
+    await waitFor(() => expect(listCuadresMock).toHaveBeenCalled());
+    const filtros = listCuadresMock.mock.calls[0]![0];
+    expect(filtros.status).toBe("all");
+    expect(filtros.from).toMatch(/^\d{4}-\d{2}-01$/);
   });
 });
 
-describe("Dinero › Historial — ¿la caja cuadra? (informe #10)", () => {
+describe("Dinero › Cuadres — ¿la caja cuadra? (informe #10)", () => {
   it("el titular dice cuántos cierres con faltante y por cuánto, con las cifras del servidor", async () => {
     renderWithProviders(<MoneyAdminPage />, { route: "/admin/dinero?tab=historial" });
 

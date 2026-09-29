@@ -213,6 +213,14 @@ function cambiosPendientes(guardado: CashSettings, actual: CashSettings): Pendin
     const ahora = actual[key] as number;
     if (antes !== ahora) cambios.push({ field, from: formatCOP(antes), to: formatCOP(ahora), leaks });
   }
+  if ((guardado.deposit_overdue_days ?? 3) !== (actual.deposit_overdue_days ?? 3)) {
+    cambios.push({
+      field: "Días sin consignar antes del aviso",
+      from: `${guardado.deposit_overdue_days ?? 3} días`,
+      to: `${actual.deposit_overdue_days ?? 3} días`,
+      leaks: "Cambia Dinero › Plata en mano",
+    });
+  }
   if (guardado.streak_alert_shifts !== actual.streak_alert_shifts) {
     cambios.push({
       field: "Turnos seguidos con diferencia para alertar",
@@ -445,6 +453,25 @@ export function CashSection({ storeId }: { storeId: number | null }): React.JSX.
               className="h-11"
               value={values.streak_alert_shifts}
               onChange={(e) => patch({ streak_alert_shifts: Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+
+        <FormField
+          label="Días sin consignar antes del aviso"
+          help="Cuántos días puede quedarse fuera del banco la plata de un cierre antes de que Dinero › Plata en mano la pinte en ámbar."
+          scope={{ affects: [{ screen: "Dinero › Plata en mano", verb: "Avisa en" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={1}
+              max={60}
+              className="h-11"
+              value={values.deposit_overdue_days ?? 3}
+              onChange={(e) => patch({ deposit_overdue_days: Number(e.target.value) })}
             />
           )}
         </FormField>

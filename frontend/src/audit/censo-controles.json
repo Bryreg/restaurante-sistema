@@ -871,26 +871,18 @@
  ],
  "features/reports/TodayPage.tsx": [
   "Cargando el pulso de hoy",
-  "Comandas abiertas",
   "Comandas atascadas",
-  "Comandas pagadas",
-  "Comensales",
   "Corte del día a las",
   "Después de esta hora, lo que se venda cuenta para el día siguiente.",
   "Día operativo",
-  "Efectivo esperado",
   "Impuesto discriminado",
   "Inventario no confiable",
-  "Mesas ocupadas",
   "No se pudo cargar «Hoy»",
-  "Propinas de hoy",
   "Reintentar",
   "Requiere tu atención",
   "Se actualiza sola cada 30 s ·",
-  "Sin comandas abiertas",
   "Sin datos",
   "Sin turno abierto",
-  "Ticket por comensal",
   "Ticket promedio",
   "Todo al día",
   "Ventas cobradas",
@@ -1035,6 +1027,11 @@
   "Todavía no hay mesas",
   "Todavía no hay zonas"
  ],
+ "features/shifts/CashOpeningForm.tsx": [
+  "Causa",
+  "Contar base",
+  "Responsable de caja"
+ ],
  "features/shifts/CashRibbon.tsx": [
   "Acciones de caja",
   "Mesas"
@@ -1107,22 +1104,18 @@
   "Sin autorizaciones para estos filtros",
   "Todos"
  ],
- "features/shifts/admin/HistoryTab.tsx": [
-  "No se pudo cargar el historial",
-  "Quitar el período y ver todo el historial",
+ "features/shifts/admin/CuadresScreen.tsx": [
+  "Abiertos",
+  "Cerrados",
+  "Descargar cuadres",
+  "Descargar desempeño",
+  "Descargar movimientos",
+  "Ficha",
+  "Movimientos de caja",
+  "No se pudieron cargar los cuadres",
   "Reintentar",
-  "Sin turnos para estos filtros"
- ],
- "features/shifts/admin/MoneyAdminPage.tsx": [
-  "Historial",
-  "Operacional"
- ],
- "features/shifts/admin/OperationalTab.tsx": [
-  "Ahora mismo",
-  "Del día",
-  "No se pudieron cargar los turnos",
-  "Reintentar",
-  "Sin turnos hoy en esta sede"
+  "Sin turnos para estos filtros",
+  "Todos"
  ],
  "features/shifts/admin/PeopleAdminPage.tsx": [
   "Autorizaciones por autorizador",
@@ -1143,13 +1136,13 @@
   "Turnos",
   "Ventas y ticket promedio"
  ],
- "features/shifts/admin/ShiftDetailDialog.tsx": [
-  "Cancelar",
+ "features/shifts/admin/rescates.tsx": [
+  "Ajustar apertura",
   "Cerrar administrativamente este turno abandonado",
-  "Cierre administrativo",
-  "Reabrir",
+  "Cerrar turno pendiente",
+  "Confirmar cancelación",
+  "Reabrir cierre",
   "Reabrir este cierre",
-  "Sin eventos todavía",
   "Volver"
  ],
  "features/shifts/cinta.ts": [

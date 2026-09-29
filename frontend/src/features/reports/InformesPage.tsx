@@ -55,6 +55,8 @@ import {
   todayInBogota,
   type Periodo,
 } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /**
  * «Informes» (handoff del panel, pantalla 11 · `AdminInformes.dc.html`): un
@@ -1286,6 +1288,9 @@ export function InformesPage(): React.JSX.Element {
       >
         {periodo === "rango" ? (
           <DateRangeFilter idPrefix="informes" from={rango.from} to={rango.to} onChange={(r) => setRango(r)} />
+        ) : null}
+        {sede !== null && rangoValido ? (
+          <CsvExportButton href={csvUrl("/admin/reports/overview", { store_id: sede, from, to })} />
         ) : null}
       </PageHeader>
 

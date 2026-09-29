@@ -65,6 +65,7 @@ from app.core.security import (
     set_session_cookie,
     verify_secret,
 )
+from app.stores import service as stores_service
 from app.stores.models import Organization, Store
 
 router = APIRouter()
@@ -233,18 +234,19 @@ def device_identify(
     ):
         raise NotFoundError("El empleado no existe en esta sede")
 
-    ok = auth_service.verify_pin(db, employee, body.pin)
+    ok = auth_service.verify_pin(db, employee, body.pin, store_id=session.store_id)
     if not ok:
         now = clock.now_utc()
+        lock_attempts, lock_minutes = stores_service.pin_lock_policy(db, session.store_id)
         if employee.pin_locked_until is not None and employee.pin_locked_until > now:
             raise AppError(
                 code="PIN_LOCKED",
-                message=f"PIN bloqueado por {settings.PIN_LOCK_MINUTES} minutos tras varios intentos fallidos",
+                message=f"PIN bloqueado por {lock_minutes} minutos tras varios intentos fallidos",
             )
         # «Quién opera» muestra el mensaje tal cual llega: cuántos intentos
         # quedan antes del bloqueo lo sabe sólo el servidor (el contador vive
         # en `verify_pin`), así que lo dice acá y no lo cuenta la pantalla.
-        remaining = max(0, settings.PIN_LOCK_ATTEMPTS - employee.failed_pin_attempts)
+        remaining = max(0, lock_attempts - employee.failed_pin_attempts)
         word = "intento" if remaining == 1 else "intentos"
         raise AppError(code="PIN_INVALID", message=f"PIN incorrecto · te quedan {remaining} {word}")
 
@@ -252,7 +254,9 @@ def device_identify(
     session.employee_id = employee.id
     session.last_employee_id = employee.id
     session.employee_bound_at = now
-    session.employee_expires_at = now + timedelta(minutes=settings.EMPLOYEE_SESSION_MINUTES)
+    session.employee_expires_at = now + timedelta(
+        minutes=stores_service.employee_session_minutes(db, session.store_id)
+    )
     db.flush()
 
     # Hook cruzado: el primer PIN del día operativo marca la entrada, haya o

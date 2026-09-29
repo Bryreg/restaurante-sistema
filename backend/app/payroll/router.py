@@ -54,6 +54,9 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, admin_store, current_admin
 from app.core import hours as hours_mod
+from app.core import tz
+from app.core.csv import wants_csv
+from app.core.csv_es import csv_es_response
 from app.core.errors import AppError
 from app.core.db import get_db
 from app.core.features import require_feature
@@ -81,6 +84,7 @@ from app.payroll.schemas import (
     TipSettingsOut,
     WageRateIn,
     WageRateOut,
+    WeekScheduleOut,
 )
 from app.payroll.service import EmployeeHours
 
@@ -220,6 +224,60 @@ def get_hours(
             )
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Horario de la semana — GET /admin/payroll/week-schedule
+# ---------------------------------------------------------------------------
+
+_WEEKDAY_ES = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+_SEGMENT_STATUS_ES = {"closed": "Cerrada", "open": "En curso", "review": "Salida a revisar"}
+
+
+@router.get("/admin/payroll/week-schedule", dependencies=[Depends(require_feature("payroll"))])
+def get_week_schedule(
+    request: Request,
+    store_id: int,
+    week_of: date | None = Query(None, description="Cualquier día de la semana a mostrar (lunes a domingo); por defecto, la de hoy"),
+    format: str | None = Query(None, description='"csv" descarga la semana en CSV'),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> WeekScheduleOut | Any:
+    """El horario de la semana por persona: los tramos de entrada a salida
+    de cada día (pausas fuera) y el total de horas con el motor de nómina.
+    El administrador no está: autoriza, no opera."""
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
+    store = admin_store(db, actor, store_id)
+    result = service.week_schedule(db, store=store, week_of=week_of)
+    if wants_csv(request):
+        rows: list[dict[str, Any]] = []
+        for person in result.people:
+            for day in person.days:
+                for segment in day.segments:
+                    rows.append(
+                        {
+                            "person": person.employee_name,
+                            "day": f"{_WEEKDAY_ES[day.business_date.weekday()]} {day.business_date.isoformat()}",
+                            "in": tz.to_bogota(segment.start).strftime("%H:%M"),
+                            "out": tz.to_bogota(segment.end).strftime("%H:%M") if segment.end is not None else None,
+                            # Coma decimal: la hoja se abre con configuración de Colombia.
+                            "hours": segment.hours.replace(".", ",") if segment.hours is not None else None,
+                            "status": _SEGMENT_STATUS_ES[segment.status],
+                        }
+                    )
+        return csv_es_response(
+            rows,
+            columns=[
+                ("person", "Persona"),
+                ("day", "Día"),
+                ("in", "Entrada"),
+                ("out", "Salida"),
+                ("hours", "Horas"),
+                ("status", "Estado"),
+            ],
+            filename=f"horario-semana-{result.week_start.isoformat()}.csv",
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------

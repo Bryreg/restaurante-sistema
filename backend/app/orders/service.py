@@ -37,7 +37,7 @@ from app.core.money import format_cop
 from app.core.modules import find_spec_safe
 from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.core.tax import rate_for_code
-from app.notifications.service import notify
+from app.notifications.service import notify, rule_threshold
 from app.orders import money
 from app.orders.models import (
     CourtesyReason,
@@ -2046,12 +2046,9 @@ def _check_discount_rate_high(db: Session, *, order: Order, actor: Actor, settin
 
 
 # `void_rate_high` (1b-2, `app.notifications.service.NOTIFICATION_TYPES`):
-# no hay todavía un campo de configuración por sede para este umbral (mismo
-# caso que `UNSENT_MINUTES_THRESHOLD`/`UNPAID_MINUTES_THRESHOLD` de
-# `app.reports.service`: no existe en `StoreSalesSettings` y este territorio
-# no toca `app.stores`) — declarado como default de producto, gap en el
-# entregable para que un pedido futuro lo suba a Configuración junto con
-# `discount_daily_limit_pct`.
+# el umbral es el de la regla de la sede (Notificaciones › Reglas,
+# `NotificationRule.threshold`); esta constante es sólo el default cuando la
+# sede no guardó uno (`app.notifications.service.THRESHOLD_DEFAULTS`).
 VOID_RATE_ALERT_PCT = 10.0
 
 
@@ -2080,7 +2077,7 @@ def _check_void_rate_high(db: Session, *, order: Order, actor: Actor) -> None:
         return
     voided = _employee_shift_void_total(db, shift_id=order.shift_id, employee_id=actor.employee_id)
     pct = voided / sales * 100
-    if pct > VOID_RATE_ALERT_PCT:
+    if pct > rule_threshold(db, order.store_id, "void_rate_high"):
         notify(
             db, organization_id=order.organization_id, store_id=order.store_id, type="void_rate_high",
             # Crítico (0031): el dueño pidió que las anulaciones fuera de lo

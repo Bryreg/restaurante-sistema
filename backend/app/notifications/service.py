@@ -96,6 +96,35 @@ def _rule(db: Session, store_id: int, type: str) -> NotificationRule | None:
     return db.execute(stmt).scalars().first()
 
 
+#: Qué quiere decir `NotificationRule.threshold` en cada tipo que lo lee, y
+#: su valor cuando la sede no guardó uno. La pantalla de reglas lo muestra
+#: (`GET /admin/notification-rules` → `threshold_default`/`threshold_unit`)
+#: y cada emisor lo lee con `rule_threshold` — antes el campo se podía
+#: editar pero ningún emisor lo miraba.
+THRESHOLD_DEFAULTS: dict[str, tuple[int, str]] = {
+    # % de las ventas del turno de la persona que anuló (a precio de lista).
+    "void_rate_high": (10, "% de las ventas del turno anulado"),
+    # Minutos con ítems sin enviar a cocina / con la cuenta presentada.
+    "order_unsent_too_long": (15, "minutos sin enviar a cocina"),
+    "order_unpaid_too_long": (20, "minutos con la cuenta presentada sin cobrar"),
+    # Merma de la semana contra la anterior, en por ciento (150 = 1,5 veces).
+    "waste_spike": (150, "% de la merma de la semana anterior"),
+    # % consumido de un rango de numeración DIAN.
+    "fiscal_range_low": (80, "% del rango de numeración consumido"),
+}
+
+
+def rule_threshold(db: Session, store_id: int, type: str) -> int:
+    """El umbral de la regla de la sede para `type`; sin regla o sin umbral
+    guardado, el de `THRESHOLD_DEFAULTS`. Un umbral `<= 0` guardado no se
+    usa (dispararía siempre): vale el default."""
+    default = THRESHOLD_DEFAULTS[type][0]
+    rule = _rule(db, store_id, type)
+    if rule is None or rule.threshold is None or rule.threshold <= 0:
+        return default
+    return int(rule.threshold)
+
+
 def notify(
     db: Session,
     *,

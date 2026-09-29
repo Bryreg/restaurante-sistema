@@ -48,6 +48,8 @@ import { formatCOP } from "@/lib/money"
 
 import { Explicacion } from "@/components/admin"
 import { todayLocal } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 type Kind = "card" | "platform"
 
@@ -320,7 +322,10 @@ export function SettlementsSection({
             </p>
           </Explicacion>
         </div>
-        <RegisterDialog storeId={storeId} kind={kind} onDone={refresh} />
+        <div className="flex flex-wrap items-center gap-2">
+          <CsvExportButton href={csvUrl(`/admin/reconciliation/${kind}/settlements`, { store_id: storeId, from, to })} />
+          <RegisterDialog storeId={storeId} kind={kind} onDone={refresh} />
+        </div>
       </div>
 
       {query.isLoading ? (

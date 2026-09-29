@@ -20,6 +20,8 @@ import { fechaCortaDeInstante, formatPuntos, textoVentana } from "@/features/inv
 
 import { ComoLeer } from "./Aire"
 import { sustainedTitular } from "./titulares"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /**
  * La brecha (real − teórico, del servidor) de cada ventana entre conteos
@@ -127,6 +129,9 @@ export function SustainedHealthTab({ storeId }: { storeId: number }): React.JSX.
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <CsvExportButton href={csvUrl("/admin/control-health/sustained", { store_id: storeId })} />
+      </div>
       <ComoLeer resumen="Qué es «sostenido»">
         <p>
           «Sostenido» (D-1): la brecha de food cost real supera el umbral rojo en al menos 2 de las últimas 3 ventanas

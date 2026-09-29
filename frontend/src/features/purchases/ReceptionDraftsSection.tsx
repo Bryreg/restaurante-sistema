@@ -18,6 +18,8 @@ import { formatCantidad, formatDuracion } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 
 import { ReceptionForm } from "./ReceptionForm"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 const RECEPTION_DRAFTS_QUERY_KEY = ["purchases", "reception-drafts"] as const
 
@@ -71,9 +73,12 @@ export function ReceptionDraftsSection({
 
   return (
     <section aria-labelledby="reception-drafts-title" className="space-y-2">
-      <h2 id="reception-drafts-title" className="text-sm font-semibold">
-        Desde el POS · por completar ({drafts.length})
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="reception-drafts-title" className="text-sm font-semibold">
+          Desde el POS · por completar ({drafts.length})
+        </h2>
+        <CsvExportButton href={csvUrl("/admin/reception-drafts", { store_id: storeId })} />
+      </div>
       <p className="text-xs text-muted-foreground">
         Las registró quien estaba en el turno, sin precios. El stock no sube hasta que las completes: así entra con
         su costo real.

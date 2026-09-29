@@ -15,6 +15,8 @@ import { errorMessage } from "@/lib/errors";
 
 import { Explicacion } from "@/components/admin";
 import { fichaPersonaHref } from "@/features/reports/fichas/rutas";
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /**
  * Turnos y personal → Por persona (`GET /admin/employees/{id}/activity`):
@@ -178,7 +180,11 @@ export function PersonActivityTab(): React.JSX.Element {
                   total={shifts.length}
                   noun="turnos en el rango"
                   hidden={activityQuery.isLoading ? "contando…" : undefined}
-                />
+                >
+                  <CsvExportButton
+                    href={csvUrl(`/admin/employees/${employeeId}/activity`, { from: from || undefined, to: to || undefined })}
+                  />
+                </DenseTableBar>
               }
               empty={
                 activityQuery.isLoading ? undefined : (

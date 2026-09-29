@@ -49,50 +49,9 @@ export function formatPct(value: number | null): string {
   return value === null ? "sin datos" : `${value} %`
 }
 
-function csvEscape(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`
-  }
-  return value
-}
-
-/**
- * `GET /admin/suppliers` NO declara `format=csv` en el contrato de 2b (a
- * diferencia de `/admin/receptions` y `/admin/payables`, que sí lo hacen) —
- * hueco del contrato, declarado en el entregable. "Toda lista exporta"
- * (SPEC-NEGOCIO §9.3) igual aplica, así que esta pantalla arma el CSV en el
- * cliente a partir de filas YA TRAÍDAS: es serialización de columnas que ya
- * están en pantalla, no una matemática nueva ni un valor que el backend no
- * mandó — no confundir con derivar saldos, IVA o confiabilidad, que sí está
- * prohibido.
- */
-export function downloadSuppliersCsv(suppliers: SupplierOut[]): void {
-  const header = ["id", "name", "nit", "payment_term_days", "contact_name", "contact_phone", "invoices_required", "active"]
-  const rows = suppliers.map((s) =>
-    [
-      String(s.id),
-      s.name,
-      s.nit ?? "",
-      String(s.payment_term_days),
-      s.contact_name ?? "",
-      s.contact_phone ?? "",
-      String(s.invoices_required),
-      String(s.active),
-    ]
-      .map(csvEscape)
-      .join(","),
-  )
-  const csv = [header.join(","), ...rows].join("\n")
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = url
-  link.download = "proveedores.csv"
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
-}
+// `downloadSuppliersCsv` (el CSV de proveedores armado en el cliente) se fue:
+// `GET /admin/suppliers` ya acepta `format=csv` y el servidor arma el archivo
+// para Excel en español, igual que toda otra lista (`CsvExportButton`).
 
 export function supplierName(suppliers: SupplierOut[], supplierId: number): string {
   return suppliers.find((s) => s.id === supplierId)?.name ?? `Proveedor #${supplierId}`

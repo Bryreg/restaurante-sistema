@@ -69,7 +69,9 @@ def test_list_pending_refunds_csv(
     resp = admin_client.get(f"/api/v1/admin/pending-refunds?store_id={store.id}&format=csv")
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("text/csv")
-    assert "amount" in resp.text
+    # Movido a propósito: el CSV pasó a Excel es-CO (`;`, BOM y encabezados en
+    # español, `app.core.csv`); la columna es la misma, con su nombre en español.
+    assert "Monto" in resp.text.splitlines()[0].split(";")
 
 
 def test_settle_from_a_shift_creates_the_egress_in_that_shift_only(

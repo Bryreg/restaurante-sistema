@@ -189,13 +189,13 @@ def _reference_cost_micros(db: Session, *, store_id: int, ingredient: Ingredient
     return None
 
 
-def _guard_code(reference_micros: int | None, entered_micros: int) -> str | None:
+def _guard_code(reference_micros: int | None, entered_micros: int, price_jump_pct: int = PRICE_JUMP_PCT) -> str | None:
     if reference_micros is None or reference_micros <= 0 or entered_micros <= 0:
         return None
     if PACKAGE_GUARD_MIN_MULTIPLIER * reference_micros <= entered_micros <= PACKAGE_GUARD_MAX_MULTIPLIER * reference_micros:
         return "PRICE_LOOKS_LIKE_PACKAGE"
     diff = abs(entered_micros - reference_micros)
-    if diff * 100 > PRICE_JUMP_PCT * reference_micros:
+    if diff * 100 > price_jump_pct * reference_micros:
         return "PRICE_JUMP"
     return None
 
@@ -347,10 +347,13 @@ def _validate_reception(
     # -- Fase 1: validar TODO antes de escribir nada (ver docstring del módulo). --
     prepared: list[dict[str, Any]] = []
     guard_triggered = False
+    # El salto de precio que pide confirmación es el de la sede (Ajustes ›
+    # Inventario y compras, 0035); `PRICE_JUMP_PCT` es el default.
+    price_jump_pct = inventory_hooks.store_thresholds(db, store.id).price_jump_pct
     for idx, line in enumerate(payload.lines):
         prepared_line = _prepare_line(db, store=store, idx=idx, line=line, inc_responsible=inc_responsible)
         reference = _reference_cost_micros(db, store_id=store.id, ingredient=prepared_line["ingredient"])
-        code = _guard_code(reference, prepared_line["unit_cost_micros"])
+        code = _guard_code(reference, prepared_line["unit_cost_micros"], price_jump_pct)
         if code is not None:
             if not payload.confirm_price:
                 ingredient_name = prepared_line["ingredient"].name
@@ -362,7 +365,7 @@ def _validate_reception(
                     )
                 else:
                     message = (
-                        f'lines[{idx}]: el precio de "{ingredient_name}" se aleja más de {format_pct_bp(PRICE_JUMP_PCT * 100, decimals=0)} del promedio '
+                        f'lines[{idx}]: el precio de "{ingredient_name}" se aleja más de {format_pct_bp(price_jump_pct * 100, decimals=0)} del promedio '
                         "ponderado; si es correcto, repetí la recepción con confirm_price: true"
                     )
                 raise AppError(code=code, message=message, status=409)

@@ -41,6 +41,7 @@ def kitchen_load(db: Session, *, store: Store) -> KitchenLoad:
         return KitchenLoad(enabled=False, in_kitchen=0, late=0, very_late=0, oldest_late_minutes=None)
     settings = stores_service.get_sales_settings(db, store.id)
     course_targets = settings.course_target_minutes or {}
+    station_targets = settings.station_target_minutes or {}
     now = clock.now_utc()
     in_kitchen = late = very_late = 0
     oldest: int | None = None
@@ -62,7 +63,7 @@ def kitchen_load(db: Session, *, store: Store) -> KitchenLoad:
             in_kitchen += 1
             elapsed = int((now - item.sent_at).total_seconds())
             color = service.semaphore(
-                elapsed, service.target_minutes_for(course_targets, course=item.course, station=item.station)
+                elapsed, service.target_minutes_for(course_targets, course=item.course, station=item.station, station_targets=station_targets)
             )
             if color == "green":
                 continue

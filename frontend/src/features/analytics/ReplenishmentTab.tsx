@@ -19,6 +19,8 @@ import { formatCantidad } from "@/lib/format"
 import { UNIT_LABEL } from "@/features/inventory/lib"
 
 import { ComoLeer, CifraProtagonista } from "./Aire"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /** La unidad base del insumo; si faltara, la cantidad va sin unidad. */
 function unidad(r: ReplenishmentRowOut): string {
@@ -106,6 +108,9 @@ export function ReplenishmentTab({ storeId }: { storeId: number }): React.JSX.El
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <CsvExportButton href={csvUrl("/admin/replenishment", { store_id: storeId })} />
+      </div>
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Calculando la reposición sugerida…</p>
       ) : query.isError ? (

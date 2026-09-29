@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ShiftRecordOut, StorePanelOut } from "@/api/panel"
 import { buildMe, renderWithProviders } from "@/test/utils"
 
-import { OperationalTab } from "@/features/shifts/admin/OperationalTab"
 
 import { FichaTurno } from "../fichas/FichaTurno"
 import { PanelAhora } from "../PanelAhora"
@@ -197,7 +196,7 @@ describe("PanelAhora (la portada)", () => {
 })
 
 describe("Hoy y el turno abierto de otro día", () => {
-  it("el turno abandonado es un aviso crítico que lleva a su ficha, y la tarjeta del esperado lo dice", async () => {
+  it("el turno abandonado es un aviso crítico que lleva a su ficha (la tarjeta del esperado salió de Hoy, 2026-09-29)", async () => {
     getPanelMock.mockResolvedValue({ scope: "store", generated_at: "2026-09-26T15:00:00Z", stores: [storePanel()] })
     getTodayMock.mockResolvedValue({
       store_id: 1,
@@ -260,34 +259,6 @@ describe("Hoy y el turno abierto de otro día", () => {
     expect(within(salidas).getByRole("link", { name: /Ficha de Operador/ })).toHaveAttribute("href", "/admin/personal/persona/3")
     // La notificación del servidor no se repite al lado del aviso directo.
     expect(screen.queryByText("Turno sin cerrar")).not.toBeInTheDocument()
-  })
-})
-
-describe("Dinero › Operacional", () => {
-  it("pide también los turnos abiertos de otros días y marca abandonado e inactivo", async () => {
-    listAdminShiftsMock.mockResolvedValue([
-      {
-        id: 7,
-        business_date: "2026-09-16",
-        store_id: 1,
-        status: "open",
-        opened_at: "2026-09-16T14:00:00Z",
-        cash_responsible: { id: 3, name: "Operador 1" },
-        cash_responsible_active: false,
-        expected_cash: 480_000,
-        counted_cash: null,
-        difference: null,
-        is_stale: true,
-      },
-    ])
-
-    renderWithProviders(<OperationalTab storeId={1} />, { me: buildMe() })
-
-    expect(await screen.findByText(/Abandonado · /)).toBeInTheDocument()
-    expect(listAdminShiftsMock).toHaveBeenCalledWith(expect.objectContaining({ storeId: 1, includeOpen: true }))
-    expect(screen.getByText("inactivo")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Operador 1" })).toHaveAttribute("href", "/admin/personal/persona/3")
-    expect(screen.getByRole("link", { name: "Ficha" })).toHaveAttribute("href", "/admin/dinero/turno/7")
   })
 })
 
@@ -424,7 +395,10 @@ describe("Hoy sin turno abierto", () => {
     getPanelMock.mockResolvedValue({ scope: "store", generated_at: "2026-09-26T03:00:00Z", stores: [] })
     getTodayMock.mockResolvedValue({ ...base, store_closed: true })
     const { unmount } = renderWithProviders(<TodayPage />, { me: buildMe() })
-    expect(await screen.findByText(/la sede está cerrada: no hay turno de caja/)).toBeInTheDocument()
+    // Cambio intencional (2026-09-29): la tarjeta «Efectivo esperado» salió
+    // de Hoy; lo dice el aviso del riel, en calma: «para cuando puedas»,
+    // plegado y sin urgencia.
+    expect(await screen.findByText(/sin urgencia/)).toBeInTheDocument()
     expect(screen.queryByText(/Hay actividad sin turno de caja/)).not.toBeInTheDocument()
     unmount()
 

@@ -143,6 +143,8 @@ DEFAULT_THRESHOLD_PCT_BP = 200  # 2 %
 DEFAULT_THRESHOLD_AMOUNT = 20_000  # $ 20.000
 
 #: Artículos por área: la lista es corta a propósito («no todo el inventario»).
+#: Estos tres son los defaults: la sede los cambia en Ajustes › Inventario ›
+#: Conteo por área (`AreaCountSettings`, 0035) y se leen con `limits`.
 MAX_ITEMS_PER_AREA = 15
 MAX_RECOUNT_ITEMS = 5
 
@@ -250,14 +252,31 @@ def _monthly_reading(day: int | None, today: date) -> str:
     )
 
 
+def limits(db: Session, store: Store) -> tuple[int, int, int]:
+    """`(artículos por área, artículos por recuento, hora de sugerir cierre)`
+    de la sede, o los defaults si nunca guardó la configuración."""
+    row = db.get(AreaCountSettings, store.id)
+    if row is None:
+        return MAX_ITEMS_PER_AREA, MAX_RECOUNT_ITEMS, SUGGEST_CLOSING_FROM_LOCAL_HOUR
+    return (
+        row.max_items_per_area or MAX_ITEMS_PER_AREA,
+        row.max_recount_items or MAX_RECOUNT_ITEMS,
+        row.suggest_closing_from_hour if row.suggest_closing_from_hour is not None else SUGGEST_CLOSING_FROM_LOCAL_HOUR,
+    )
+
+
 def settings_out(db: Session, store: Store) -> AreaCountSettingsOut:
     pct_bp, amount = thresholds(db, store)
     day = monthly_full_count_day(db, store)
     today = tz.today_business_date(store.cutoff_hour)
+    max_items, max_recount, closing_hour = limits(db, store)
     return AreaCountSettingsOut(
         store_id=store.id,
         threshold_pct_bp=pct_bp,
         threshold_amount=amount,
+        max_items_per_area=max_items,
+        max_recount_items=max_recount,
+        suggest_closing_from_hour=closing_hour,
         reading=_reading(pct_bp, amount),
         monthly_full_count_day=day,
         monthly_reading=_monthly_reading(day, today),
@@ -281,6 +300,11 @@ def update_settings(db: Session, store: Store, data: AreaCountSettingsIn) -> Are
     # Guardar el umbral sin mandar el día no apaga el conteo completo.
     if "monthly_full_count_day" in data.model_fields_set:
         row.monthly_full_count_day = data.monthly_full_count_day
+    # Los límites de 0035: sólo si vienen (y nunca en `null`).
+    for field in ("max_items_per_area", "max_recount_items", "suggest_closing_from_hour"):
+        value = getattr(data, field)
+        if field in data.model_fields_set and value is not None:
+            setattr(row, field, value)
     row.updated_at = now
     db.flush()
     return settings_out(db, store)
@@ -383,10 +407,11 @@ def set_area_items(db: Session, *, store: Store, area: CountArea, data: CountAre
     ids = data.ingredient_ids
     if len(set(ids)) != len(ids):
         raise AppError(code="VALIDATION_ERROR", message="Hay un artículo repetido en la lista")
-    if len(ids) > MAX_ITEMS_PER_AREA:
+    max_items = limits(db, store)[0]
+    if len(ids) > max_items:
         raise AppError(
             code="VALIDATION_ERROR",
-            message=f"Una lista de conteo corto lleva como máximo {MAX_ITEMS_PER_AREA} artículos: dejá sólo los clave",
+            message=f"Una lista de conteo corto lleva como máximo {max_items} artículos: dejá sólo los clave",
         )
     if not area.active:
         raise AppError(code="AREA_INACTIVE", message=f"El área «{area.name}» está desactivada: activala para armar su lista")
@@ -641,7 +666,14 @@ def _done(count: AreaCount | None) -> AreaCountDoneOut | None:
     return AreaCountDoneOut(count_id=count.id, counted_at=count.counted_at, employee_name=count.employee_name)
 
 
-def suggested_moment(*, store: Store, now: datetime, opening_done: bool, closing_done: bool) -> str:
+def suggested_moment(
+    *,
+    store: Store,
+    now: datetime,
+    opening_done: bool,
+    closing_done: bool,
+    closing_from_hour: int = SUGGEST_CLOSING_FROM_LOCAL_HOUR,
+) -> str:
     """Qué momento propone el POS. Ya contó al abrir → «Cierre». Nada todavía:
     «Apertura», salvo de noche (desde `SUGGEST_CLOSING_FROM_LOCAL_HOUR` hasta
     la hora de corte, que ya es madrugada del mismo día operativo). La
@@ -649,7 +681,7 @@ def suggested_moment(*, store: Store, now: datetime, opening_done: bool, closing
     if opening_done or closing_done:
         return "closing"
     local_hour = tz.to_bogota(now).hour
-    late = local_hour >= SUGGEST_CLOSING_FROM_LOCAL_HOUR or local_hour < store.cutoff_hour
+    late = local_hour >= closing_from_hour or local_hour < store.cutoff_hour
     return "closing" if late else "opening"
 
 
@@ -711,7 +743,8 @@ def device_board(db: Session, *, store: Store, actor: Actor) -> DeviceAreaCountB
         business_date=business_date.isoformat(),
         items=[item_out(i) for i in items],
         suggested_moment=suggested_moment(  # type: ignore[arg-type]
-            store=store, now=now, opening_done=opening is not None, closing_done=closing is not None
+            store=store, now=now, opening_done=opening is not None, closing_done=closing is not None,
+            closing_from_hour=limits(db, store)[2],
         ),
         opening_done=_done(opening),
         closing_done=_done(closing),
@@ -1131,6 +1164,7 @@ def sheet(db: Session, *, store: Store, actor: Actor) -> DeviceAreaCountSheetOut
             now=now,
             opening_done=bool(mine and mine.opening.complete),
             closing_done=bool(mine and mine.closing.counted > 0),
+            closing_from_hour=limits(db, store)[2],
         ),
         full_count_today=is_full_count_day(db, store, business_date),
         opening_required=bool(mine and actor.role not in _GATE_EXEMPT_ROLES and _opening_pending(mine)),
@@ -1200,8 +1234,9 @@ def create_recount(db: Session, *, store: Store, actor: Actor, data: AreaRecount
     ids = data.ingredient_ids
     if len(set(ids)) != len(ids):
         raise AppError(code="VALIDATION_ERROR", message="Hay un artículo repetido en el recuento")
-    if not 1 <= len(ids) <= MAX_RECOUNT_ITEMS:
-        raise AppError(code="VALIDATION_ERROR", message=f"Un recuento lleva de 1 a {MAX_RECOUNT_ITEMS} artículos")
+    max_recount = limits(db, store)[1]
+    if not 1 <= len(ids) <= max_recount:
+        raise AppError(code="VALIDATION_ERROR", message=f"Un recuento lleva de 1 a {max_recount} artículos")
     found = _ingredients_by_id(db, ids)
     for ing_id in ids:
         ing = found.get(ing_id)

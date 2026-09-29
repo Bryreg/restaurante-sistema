@@ -19,7 +19,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
-import { channelPriceKey, COURSE_LABEL, quickNotesFor } from "./lib"
+import { channelPriceKey, COURSE_LABEL } from "./lib"
+import { useQuickNotes } from "./quickNotes"
 
 export interface ItemDialogProps {
   open: boolean
@@ -118,6 +119,7 @@ export function ItemDialog({
     setValidationError(null)
   }, [open, product, combo])
 
+  const notesFor = useQuickNotes()
   if (!item) {
     return <Dialog open={open} onOpenChange={onOpenChange} />
   }
@@ -126,7 +128,7 @@ export function ItemDialog({
   const listPrice = product ? product.prices[priceKey] : combo?.price
   const modifierGroups = modifiersEnabled ? (product?.modifier_groups ?? []) : []
   const seatButtons = seatCount !== null && seatCount > 0 ? Array.from({ length: seatCount }, (_, i) => i + 1) : null
-  const noteOptions = quickNotesFor(course || product?.default_course)
+  const noteOptions = notesFor(course || product?.default_course)
 
   function nextModifierSelection(
     prev: Record<number, number[]>,

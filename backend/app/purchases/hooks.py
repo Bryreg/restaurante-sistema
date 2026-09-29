@@ -30,6 +30,14 @@ nunca se llama desde afuera de otra forma):
     pending_drafts_count(db, store_id) -> int
         # recepciones registradas en el POS que esperan al administrador
         # (bandeja de Hoy)
+    receptions_of_day(db, *, store_id, business_date) -> list[dict]
+        # las líneas de las recepciones CONFIRMADAS del día operativo, con
+        # su lote y vencimiento, para «Entradas de mercancía» de Hoy
+
+**Hacia `shifts`** (2026-09-29, pantalla «Cuadres» como el café):
+
+    supplier_names_by_cash_movement(db, movement_ids) -> dict[int, str]
+        # {id del egreso del cajón: nombre del proveedor al que se le pagó}
 """
 
 from __future__ import annotations
@@ -175,3 +183,79 @@ def pending_drafts_count(db: Session, store_id: int) -> int:
             )
         ).scalar_one()
     )
+
+
+def receptions_of_day(db: Session, *, store_id: int, business_date: date) -> list[dict]:
+    """Las líneas de las recepciones **confirmadas** del día operativo
+    `business_date` (una revertida ya no es una entrada: su lote se dio de
+    baja), en el orden en que llegaron. La cantidad se publica en la
+    **unidad de compra**, convertida con la misma aritmética entera que usa
+    la recepción al escribir (`qty_purchase_milli * purchase_factor`, acá al
+    revés, mitad hacia arriba en la milésima), como texto decimal. Sin
+    precios ni costos: Hoy muestra qué entró, no cuánto costó."""
+    from app.core.quantity import format_qty_base
+    from app.inventory.models import Ingredient
+    from app.purchases.models import ReceptionLine
+
+    rows = db.execute(
+        select(Reception, ReceptionLine, Supplier.name, Ingredient)
+        .join(ReceptionLine, ReceptionLine.reception_id == Reception.id)
+        .join(Supplier, Supplier.id == Reception.supplier_id)
+        .join(Ingredient, Ingredient.id == ReceptionLine.ingredient_id)
+        .where(
+            Reception.store_id == store_id,
+            Reception.status == ReceptionStatus.CONFIRMED,
+            Reception.business_date == business_date,
+        )
+        .order_by(Reception.at, Reception.id, ReceptionLine.id)
+    ).all()
+    result: list[dict] = []
+    for reception, line, supplier_name, ingredient in rows:
+        factor = max(1, int(ingredient.purchase_factor))
+        qty_purchase_milli = (line.qty_received_base * 2 + factor) // (2 * factor)
+        result.append(
+            {
+                "reception_id": reception.id,
+                "line_id": line.id,
+                "received_at": reception.at,
+                "supplier_name": supplier_name,
+                "ingredient_id": ingredient.id,
+                "ingredient_name": ingredient.name,
+                "qty": format_qty_base(qty_purchase_milli),
+                "purchase_unit": ingredient.purchase_unit,
+                "lot_code": line.lot_code,
+                "expires_at": line.expires_at,
+                "stock_batch_id": line.stock_batch_id,
+                "received_by": reception.received_by_employee_name,
+            }
+        )
+    return result
+def supplier_names_by_cash_movement(db: Session, movement_ids: list[int]) -> dict[int, str]:
+    """A qué proveedor se le pagó con cada egreso del cajón (causa
+    `supplier_payment`): por el pago de una cuenta por pagar
+    (`Payment.cash_movement_id`) o por una recepción registrada en el POS
+    (`ReceptionDraft.cash_movement_id`). Lo lee «Movimientos de caja» de
+    Cuadres (`app.shifts.service.build_timeline`). Sólo el nombre: nunca un
+    costo."""
+    ids = [int(i) for i in movement_ids]
+    if not ids:
+        return {}
+    out: dict[int, str] = {}
+    by_payment = db.execute(
+        select(Payment.cash_movement_id, Supplier.name)
+        .join(Payable, Payable.id == Payment.payable_id)
+        .join(Supplier, Supplier.id == Payable.supplier_id)
+        .where(Payment.cash_movement_id.in_(ids))
+    ).all()
+    for movement_id, name in by_payment:
+        if movement_id is not None:
+            out[int(movement_id)] = name
+    by_draft = db.execute(
+        select(ReceptionDraft.cash_movement_id, Supplier.name)
+        .join(Supplier, Supplier.id == ReceptionDraft.supplier_id)
+        .where(ReceptionDraft.cash_movement_id.in_(ids))
+    ).all()
+    for movement_id, name in by_draft:
+        if movement_id is not None:
+            out.setdefault(int(movement_id), name)
+    return out

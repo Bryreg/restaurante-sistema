@@ -40,7 +40,7 @@ import { cn } from "@/lib/utils"
 import { areaCountHref } from "@/features/inventory/areaCountLib"
 import { COURTESY_REASON_LABEL, DISCOUNT_REASON_LABEL, VOID_REASON_LABEL } from "@/features/orders/lib"
 import { CAUSE_LABEL } from "@/features/shifts/MovementsPanel"
-import { ShiftDetailDialog } from "@/features/shifts/admin/ShiftDetailDialog"
+import { ShiftRescuesDialog } from "@/features/shifts/admin/rescates"
 
 import { weekdayName } from "../lib"
 import { ATTENDANCE_NOTE, attendanceColumns } from "./columnas"
@@ -773,7 +773,7 @@ export function FichaTurno(): React.JSX.Element {
       </DetallePlegable>
 
       {rescates ? (
-        <ShiftDetailDialog
+        <ShiftRescuesDialog
           shift={asListItem(s, r.is_stale, r.store_id, r.responsible.active)}
           open
           onOpenChange={(open) => {

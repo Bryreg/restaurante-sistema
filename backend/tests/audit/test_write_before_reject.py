@@ -54,6 +54,12 @@ PERMITIDOS = {
     ("app/payroll/service.py", "create_surcharge_table"): _RAZON_INTEGRITY,
     ("app/payroll/service.py", "create_holiday"): _RAZON_INTEGRITY,
     ("app/payroll/service.py", "create_wage_rate"): _RAZON_INTEGRITY,
+    ("app/reports/accountant.py", "set_goal"): (
+        "La meta del mes se escribe dentro de `db.begin_nested()`: el "
+        "`ConflictError` sale del `except IntegrityError` de ese savepoint, que "
+        "ya deshizo la fila (dos personas guardando la misma meta a la vez). "
+        "Nada de lo escrito sobrevive al 409."
+    ),
 }
 
 

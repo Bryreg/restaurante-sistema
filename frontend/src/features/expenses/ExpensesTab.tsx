@@ -23,6 +23,8 @@ import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { daysAgoLocal, EXPENSE_CATEGORY_LABEL, expenseCategoryLabel, todayLocal } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 function CreateExpenseDialog({
   storeId,
@@ -194,6 +196,7 @@ export function ExpensesTab({ storeId }: { storeId: number }): React.JSX.Element
               setTo(r.to)
             }}
           />
+          <CsvExportButton href={csvUrl("/admin/expenses", { store_id: storeId, from, to })} />
           <CreateExpenseDialog
             storeId={storeId}
             onCreated={() => void queryClient.invalidateQueries({ queryKey: ["expenses", "list"] })}

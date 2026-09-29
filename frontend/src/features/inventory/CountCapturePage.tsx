@@ -37,6 +37,8 @@ import { errorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
 import { parseCountInput } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 const UNIT_LABEL: Record<string, string> = { g: "g", ml: "ml", unit: "unidad" }
 
@@ -395,12 +397,17 @@ export function CountCapturePage(): React.JSX.Element {
           },
         ]}
         actions={
-          <Link
-            to="/admin/inventario?tab=conteos"
-            className="text-sm text-primary underline underline-offset-2"
-          >
-            Volver a conteos
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* El CSV es tan a ciegas como la pantalla (`CountLineOut`): lo
+                contado y el conteo anterior, nunca el stock del libro. */}
+            <CsvExportButton href={csvUrl(`/admin/counts/${count.id}`, { store_id: activeStoreId })} />
+            <Link
+              to="/admin/inventario?tab=conteos"
+              className="text-sm text-primary underline underline-offset-2"
+            >
+              Volver a conteos
+            </Link>
+          </div>
         }
       />
 
