@@ -33,6 +33,11 @@ nunca se llama desde afuera de otra forma):
     receptions_of_day(db, *, store_id, business_date) -> list[dict]
         # las líneas de las recepciones CONFIRMADAS del día operativo, con
         # su lote y vencimiento, para «Entradas de mercancía» de Hoy
+
+**Hacia `shifts`** (2026-09-29, pantalla «Cuadres» como el café):
+
+    supplier_names_by_cash_movement(db, movement_ids) -> dict[int, str]
+        # {id del egreso del cajón: nombre del proveedor al que se le pagó}
 """
 
 from __future__ import annotations
@@ -225,3 +230,32 @@ def receptions_of_day(db: Session, *, store_id: int, business_date: date) -> lis
             }
         )
     return result
+def supplier_names_by_cash_movement(db: Session, movement_ids: list[int]) -> dict[int, str]:
+    """A qué proveedor se le pagó con cada egreso del cajón (causa
+    `supplier_payment`): por el pago de una cuenta por pagar
+    (`Payment.cash_movement_id`) o por una recepción registrada en el POS
+    (`ReceptionDraft.cash_movement_id`). Lo lee «Movimientos de caja» de
+    Cuadres (`app.shifts.service.build_timeline`). Sólo el nombre: nunca un
+    costo."""
+    ids = [int(i) for i in movement_ids]
+    if not ids:
+        return {}
+    out: dict[int, str] = {}
+    by_payment = db.execute(
+        select(Payment.cash_movement_id, Supplier.name)
+        .join(Payable, Payable.id == Payment.payable_id)
+        .join(Supplier, Supplier.id == Payable.supplier_id)
+        .where(Payment.cash_movement_id.in_(ids))
+    ).all()
+    for movement_id, name in by_payment:
+        if movement_id is not None:
+            out[int(movement_id)] = name
+    by_draft = db.execute(
+        select(ReceptionDraft.cash_movement_id, Supplier.name)
+        .join(Supplier, Supplier.id == ReceptionDraft.supplier_id)
+        .where(ReceptionDraft.cash_movement_id.in_(ids))
+    ).all()
+    for movement_id, name in by_draft:
+        if movement_id is not None:
+            out.setdefault(int(movement_id), name)
+    return out

@@ -507,12 +507,19 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       café-sistema» lleva la meta de ventas del mes, que es una decisión del
       dueño por sede y por mes (`sales_goals`, con un único por sede, año y
       mes). Se mueven los dos postes; las dos igualdades siguen exactas.
+    - Con **`0034_carry_in_reversal`** (re-encadenada detrás de `0033` al
+      integrar) la cadena llega a `"0034"` y el conteo **sigue en 114**.
+      Motivo declarado (decisión del dueño, 2026-09-29): «Ajustar apertura»
+      rehace de qué días era la plata del cajón, y el día que sale queda
+      reversado con motivo (columnas de `shift_carry_ins` e índice único
+      parcial sobre las filas vivas), ninguna tabla. Se mueve sólo el poste
+      de la cabeza.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0033"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0033 "
+    assert 'version == "0034"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0034 "
         "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031, "
-        "supuestos del panel 0032 y meta de ventas del mes 0033)"
+        "supuestos del panel 0032, meta de ventas del mes 0033 y reversa de los días en el cajón 0034)"
     )
     assert "len(tablas) == 114" in fuente, (
         "el conteo de tablas sigue en un número viejo: 0033 lo deja en 114 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1)"

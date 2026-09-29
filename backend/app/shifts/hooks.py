@@ -757,9 +757,13 @@ def difference_streak(db: Session, *, store_id: int, employee_id: int) -> int:
 def carried_into(db: Session, shift_id: int) -> dict[int, int]:
     """`{turno de origen: saldo que tenía al abrir}` de la plata de días
     anteriores que el turno `shift_id` encontró en el cajón
-    (`ShiftCarryIn`). Lo lee `app.banking.service` para consignar desde el POS."""
+    (`ShiftCarryIn`). Lo lee `app.banking.service` para consignar desde el POS.
+    Sólo las filas vivas: un día que el administrador sacó de la selección
+    (`service.adjust_opening`, 0034) queda reversado y ya no cuenta."""
     rows = db.execute(
-        select(ShiftCarryIn.source_shift_id, ShiftCarryIn.amount).where(ShiftCarryIn.shift_id == shift_id)
+        select(ShiftCarryIn.source_shift_id, ShiftCarryIn.amount).where(
+            ShiftCarryIn.shift_id == shift_id, ShiftCarryIn.reversed_at.is_(None)
+        )
     ).all()
     return {source: amount for source, amount in rows}
 

@@ -229,6 +229,57 @@ Es la **unidad de responsabilidad sobre el dinero**. Estados: `abierto → cerra
 Un solo turno abierto por sede, con **índice único parcial** en la base y `409` en
 la carrera (la referencia lo tiene: `caja.py:296-303`).
 
+> **Regla vigente desde el 2026-09-29 (decisión del dueño): la apertura, la
+> cascada, «Cuadres» y «Ajustar apertura» son «igual al café».** Reemplaza el
+> punto 1 del recuadro de abajo (la apertura por sobres a ciegas); el resto de ese
+> recuadro sigue valiendo. El **cierre sigue a ciegas** en tres pasos.
+>
+> 1. **Apertura sin ciegas.** Quien abre ve **«Debería haber en la registradora»**
+>    = la suma de los días con saldo por consignar que están físicamente en el
+>    cajón, con **todos los días pendientes marcados de entrada** (desmarca los que
+>    no están: ya se consignaron o están apartados), cuenta **el cajón entero una
+>    vez** con el teclado de denominaciones y ve la diferencia **en vivo**
+>    («✓ Cuadra / Sobra / Falta ±$»), que calcula el servidor
+>    (`POST /shifts/opening/preview`; la pantalla no suma ni resta). Con
+>    diferencia ≠ 0, **causa tipada y justificación escrita obligatorias**. No se
+>    abre con $0 contados si debería haber plata (`OPENING_EMPTY_DRAWER`). El turno
+>    guarda lo que debía haber (`shifts.opening_expected`, migración `0034`; nulo en
+>    los turnos anteriores, cuya cuenta no cambia).
+> 2. **Sobrante y faltante al abrir.** El **sobrante** se consigna con este turno
+>    (como el `sobrante_consignable = max(0, diferencia)` del café: ya está en lo
+>    contado). El **faltante** queda como **novedad justificada**: los días
+>    anteriores lo siguen pidiendo entero y el turno no lo absorbe como venta de
+>    menos. Fórmula: `a consignar = contado − base fija del turno − propinas en
+>    efectivo − días anteriores que siguen en el cajón − prestado por la base sin
+>    devolver + faltante al abrir` (`faltante al abrir = max(0, debería haber −
+>    contado al abrir)`, `0` en los turnos anteriores a la regla).
+> 3. **Cascada.** Cuando un turno paga del cajón (proveedores, gastos) más de lo que
+>    entró, su consignable queda negativo: el hueco se cobra del **turno anterior
+>    más reciente** con saldo y, sólo si no alcanza, de los más viejos; cada peso
+>    queda dicho (**cubrió / cubierto por**) y lo que no encuentra de dónde
+>    cobrarse queda como **faltante sin cubrir**, visible. Es una sola cuenta
+>    (`app.banking.hooks.store_balances`): la leen la lista de pendientes del
+>    banco, Hoy, los días que se ofrecen al abrir y el techo de una consignación.
+>    El `to_deposit` de cada turno es un snapshot y no se reescribe.
+> 4. **Cuadres** (Caja › Dinero): una tarjeta por turno con filtros
+>    Todos/Cerrados/Abiertos y Desde/Hasta; «Abrió → cerró»; la línea Base ·
+>    Ventas · Efectivo · Tarjeta · Cierre; los cuadres (Inicial, Relevo, Arqueo,
+>    Cierre) «contó / debía» con diferencia y foto, cada uno con su **desglose**
+>    (con lo que empezó + ventas en efectivo + otros ingresos − salidas una por una
+>    − retiros − consignado = debería haber; contó; diferencia; base de respaldo
+>    aparte, no cuenta); quién estuvo; **Movimientos de caja** con concepto, causa,
+>    proveedor, hora, foto y nota; «Desempeño por responsable»; descargas CSV (`;`,
+>    BOM, encabezados en español). Los rescates (reabrir, cerrar pendiente, ajustar
+>    apertura) viven en la tarjeta.
+> 5. **Ajustar apertura** (administrador): efectivo real de la registradora (el
+>    **total**, sin teclear denominaciones), «¿de qué días era la plata que había en
+>    el cajón?» (no se ofrece el mismo turno ni un día que cerró después de que
+>    abrió) y **motivo obligatorio**, con **vista previa** del servidor antes de
+>    guardar («Va a quedar esperando $X de días anteriores / consignable queda en
+>    $Y»). Se recalcula con las mismas funciones del cierre; los relevos congelados
+>    no se tocan. Un día que sale de la selección queda **reversado con motivo**
+>    (`shift_carry_ins.reversed_*`), nunca borrado.
+
 > **Regla vigente desde el 2026-09-26 (decisión del dueño): el cajón abre sólo con
 > los sobres por consignar, y «base» significa UNA sola cosa: la base de respaldo.**
 > Lo que sigue en esta sección sobre la «base fija» describe la regla anterior; queda
@@ -238,7 +289,8 @@ la carrera (la referencia lo tiene: `caja.py:296-303`).
 > existente pasó a la regla nueva con la migración `0029`, y toda sede nueva nace
 > con ella.
 >
-> 1. **Apertura = cuadre de los sobres** (como café-sistema). Para quien puede
+> 1. *(Reemplazado el 2026-09-29 por la apertura sin ciegas del recuadro de arriba;
+>    queda para un conteo ya sellado.)* **Apertura = cuadre de los sobres** (como café-sistema). Para quien puede
 >    manejar la caja, lo primero después del PIN —si no hay turno abierto— es el
 >    cuadre: elige los sobres de días por consignar (`shift_carry_ins`, los «días
 >    por consignar») que va a trabajar en el turno —ve sólo la **fecha** de cada

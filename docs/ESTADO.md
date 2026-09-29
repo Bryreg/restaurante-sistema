@@ -2038,6 +2038,52 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       trae texto para ellos cuando la tengan. Falta caminarlo en un iPhone y
       un Android reales contra producción.
 
+50. **Caja «igual al café»: apertura sin ciegas, cascada, Cuadres y Ajustar
+    apertura** (decisión del dueño, 2026-09-29; `docs/SPEC-NEGOCIO.md` §3.2,
+    fila «Caja» de `AGENTS.md`). Reemplaza la apertura por sobres a ciegas de
+    §46; el cierre sigue a ciegas. Migración **`0034_carry_in_reversal`**
+    (cuelga de `0032`; `0033`/`0035` nacen en paralelo y se re-encadenan al
+    integrar), sin tablas nuevas (sigue en 113): `shifts.opening_expected`
+    (nulo en los turnos anteriores, cuya cuenta no cambia) y
+    `shift_carry_ins.reversed_*` con índice único parcial sobre las filas
+    vivas. Probada en SQLite y en Postgres 16 (up → down → up).
+    - **Apertura** (`service._open_shift_like_the_cafe`,
+      `POST /shifts/opening/preview`, `CashOpeningForm.tsx`): «Debería haber en
+      la registradora» con todos los días por consignar marcados, conteo del
+      cajón entero con el teclado de denominaciones y la diferencia en vivo
+      que calcula el servidor. Con diferencia, causa **y** motivo escrito
+      (`OPENING_DIFFERENCE_NEEDS_CAUSE` / `_NEEDS_NOTE`); no se abre con $0
+      si debería haber plata (`OPENING_EMPTY_DRAWER`). Un conteo por sobres
+      ya sellado (`opening_count_id`) sigue abriendo por su camino.
+    - **Fórmula movida con motivo**: `to_deposit = … + opening_shortfall(shift)`
+      (`max(0, opening_expected − opening_cash_total)`): el faltante al abrir
+      es novedad, no venta de menos; el sobrante ya está en lo contado y se
+      consigna con el turno. El poste letra por letra de
+      `tests/audit/test_channels_round2_invariants.py` se movió con el motivo.
+    - **Cascada** (`banking.hooks.store_balances` / `apply_cascade`): el
+      consignable negativo de un turno se cobra del anterior más reciente con
+      saldo, con procedencia (`covered` / `covered_by`) y
+      `uncovered_shortfall`. La leen la lista de pendientes, Hoy, los días que
+      se ofrecen al abrir y el techo de una consignación
+      (`DEPOSIT_EXCEEDS_PENDING`). El snapshot `to_deposit` no se toca.
+    - **Cuadres** (`GET /admin/cuadres`, `app/shifts/cuadres.py`,
+      `CuadresScreen.tsx`): la única pantalla de turnos de Caja › Dinero
+      (Operacional, Historial y el diálogo de detalle se unificaron; la ruta
+      sigue siendo `/admin/dinero`, `?tab=historial` abre los cerrados, la
+      ficha del turno usa los mismos rescates de `rescates.tsx`). La
+      cronología del turno suma nota, foto y proveedor
+      (`purchases.hooks.supplier_names_by_cash_movement`); descargas CSV con
+      `;`, BOM y encabezados en español (`export=cuadres|movements|performance`).
+    - **Ajustar apertura** (`GET`/`POST /admin/shifts/{id}/adjust-opening`,
+      `…/preview`): total directo, re-selección de días (sin el mismo turno
+      ni días cerrados después de que abrió; `ADJUST_DAY_NOT_AVAILABLE`),
+      motivo obligatorio (`ADJUST_REASON_REQUIRED`) y vista previa con la
+      misma cuenta. Compatible con el cuerpo anterior (`opening_cash` +
+      `cash_reserve`). El caso del café ($697.900 → $197.900) es un test.
+    - Pendiente: caminarlo en la tablet y en el admin reales; la ficha del
+      turno (`FichaTurno.tsx`) todavía repite parte de lo que muestra la
+      tarjeta de Cuadres.
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

@@ -544,6 +544,16 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     postes; las dos igualdades siguen exactas y el nombre entra enumerado
     abajo. (En paralelo nacen otras migraciones sobre `0032`: al integrar se
     re-encadenan y el poste se vuelve a mover, con su motivo.)
+
+    **Re-apuntado con la reversa de «qué días estaban en el cajón»**
+    (`0034_carry_in_reversal`, decisión del dueño 2026-09-29): la cabeza pasa
+    a **`0034`** y el conteo **sigue en 114**. Motivo declarado: «Ajustar
+    apertura» como el café deja rehacer de qué días era la plata del cajón, y
+    como nada se borra, el día que sale de la selección queda reversado con
+    motivo y quién (cuatro columnas de `shift_carry_ins`) y la unicidad pasa a
+    ser sobre las filas vivas (índice único parcial). Ninguna tabla. Nació
+    colgando de `0032` en paralelo con `0033`; al integrar se re-encadenó
+    detrás de `0033` y el poste se movió con este motivo.
     """
     from sqlalchemy import text
 
@@ -555,12 +565,13 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0033", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0033: 0027 → 0028 (asistencia separada del turno de caja) "
+    assert version == "0034", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0034: 0027 → 0028 (asistencia separada del turno de caja) "
         "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo) "
-        "→ 0031 (avisos al celular) → 0032 (supuestos del panel) → 0033 (meta de ventas del mes). "
+        "→ 0031 (avisos al celular) → 0032 (supuestos del panel) → 0033 (meta de ventas del mes) "
+        "→ 0034 (reversa de los días en el cajón). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032 y 0033"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032, 0033 y 0034"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -674,7 +685,8 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # respaldo) suma tres: 111. `0030` agrega columnas, no tablas. `0031`
     # (avisos al celular) suma dos: **113**. `0032` (supuestos del panel)
     # agrega columnas, no tablas: sigue 113. `0033` (la meta de ventas del
-    # mes) suma una: **114**.
+    # mes) suma una: **114**. `0034` (reversa de los días en el cajón) agrega
+    # columnas, no tablas: sigue 114.
     assert len(tablas) == 114, (
         f"el esquema quedó con {len(tablas)} tablas de dominio; `0031` lo deja en 113, `0032` no lo mueve "
         f"y `0033` suma la meta de ventas del mes: 114 "
