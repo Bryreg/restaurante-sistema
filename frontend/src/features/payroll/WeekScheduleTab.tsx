@@ -54,7 +54,7 @@ function WeekChart({ data }: { data: WeekScheduleOut }): React.JSX.Element {
   const pct = (min: number) => ((min - axis.fromMin) / span) * 100
 
   return (
-    <div className="min-w-0 overflow-x-auto" aria-hidden="true" data-slot="horario-semana-grafico">
+    <div className="min-w-0 overflow-x-auto pb-3" aria-hidden="true" data-slot="horario-semana-grafico">
       <div className="grid min-w-[44rem] grid-cols-[3.75rem_repeat(7,minmax(0,1fr))] gap-x-1.5">
         <div />
         {columns.map((col) => (
@@ -110,18 +110,22 @@ function WeekChart({ data }: { data: WeekScheduleOut }): React.JSX.Element {
                   data-lanes={bar.lanes}
                   data-status={bar.status}
                   title={barTitle(bar)}
-                  className="absolute px-[1.5px]"
+                  className={cn("absolute px-[1.5px]", bar.status === "review" && "z-[1]")}
                   style={{ top: `${top}%`, height: `${Math.max(bottom - top, 1)}%`, left: `${bar.lane * width}%`, width: `${width}%` }}
                 >
                   <div
                     className={cn(
                       "relative h-full w-full rounded-sm",
-                      bar.status === "review" && "border-2 border-dashed bg-transparent opacity-85",
+                      bar.status === "review" && "z-[1] border-2 border-dashed",
                     )}
                     style={
                       bar.status === "review"
                         ? {
-                            borderColor: bar.color,
+                            // Fondo de tarjeta debajo del rayado: si el roster
+                            // ya dibuja un tramo de esa persona a esa hora, la
+                            // marca «a revisar» se ve encima y no se confunde.
+                            borderColor: "var(--warning)",
+                            backgroundColor: "var(--card)",
                             backgroundImage: `repeating-linear-gradient(135deg, ${bar.color} 0 3px, transparent 3px 7px)`,
                           }
                         : { background: bar.color }
@@ -318,7 +322,7 @@ export function WeekScheduleTab({ storeId }: { storeId: number }): React.JSX.Ele
               {openNow ? <span>▼ La barra que termina en flecha sigue trabajando: llega hasta ahora.</span> : null}
               {reviewTotal > 0 ? (
                 <span>
-                  ! Rayada: salida olvidada, a revisar. No suma horas hasta corregirla en «Más › Horas».
+                  ! Rayada con borde ámbar: entrada sin salida marcada (salida olvidada, a revisar). No suma horas hasta corregirla en «Más › Horas».
                 </span>
               ) : null}
             </p>

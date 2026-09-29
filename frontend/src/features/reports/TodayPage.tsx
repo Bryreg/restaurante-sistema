@@ -1119,7 +1119,9 @@ function DayFigures({ today }: { today: TodayOut }): React.JSX.Element {
   const other = today.other_payment_sales ?? null
   return (
     <div className="space-y-2">
-      <div className="grid min-w-0 grid-cols-2 gap-3 max-sm:[&_.text-2xl]:text-xl max-sm:[&>div]:p-3 lg:grid-cols-4">
+      {/* A 1440 cada tarjeta mide ~170 px: una cifra de siete dígitos a
+          `text-2xl` se partía en dos renglones. Baja a `text-xl` y no se parte. */}
+      <div className="grid min-w-0 grid-cols-2 gap-3 max-sm:[&>div]:p-3 lg:grid-cols-4 [&_.text-2xl]:text-xl [&_.text-2xl]:whitespace-nowrap">
         {today.avg_ticket === null || today.avg_ticket === undefined ? (
           <IndicadorSinDato label="Ticket promedio" motivo="todavía sin tickets pagados hoy" />
         ) : (
