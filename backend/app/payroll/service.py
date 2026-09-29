@@ -53,6 +53,7 @@ from app.payroll.models import (
     TipDistributionSettings,
 )
 from app.shifts.models import AttendanceEntry, BusinessDay, Shift, ShiftRoster, ShiftStatus
+from app.payroll.schemas import WeekPersonDayOut, WeekPersonOut, WeekScheduleOut, WeekSegmentOut
 from app.shifts.tips import get_shift_tips
 from app.stores.models import Store
 
@@ -718,6 +719,126 @@ def get_hours(
             )
         )
     return HoursResult(rows=rows, available=True, reason=None)
+
+
+# ---------------------------------------------------------------------------
+# Horario de la semana (decisión del dueño, 2026-09-29): quién estuvo, de qué
+# hora a qué hora, cada día de la semana. Los tramos y los totales salen del
+# MISMO motor que `get_hours` (`_employee_intervals` / `_employee_pieces`):
+# unión de asistencia y roster, pausas fuera, administradores fuera, salidas
+# olvidadas fuera de las horas y publicadas aparte.
+# ---------------------------------------------------------------------------
+
+
+def week_start_of(day: date) -> date:
+    """El lunes de la semana (ISO, lunes a domingo) de `day`."""
+    return day - timedelta(days=day.weekday())
+
+
+def _business_day_start(business_date: date, cutoff_hour: int) -> datetime:
+    """El instante (UTC) en que arranca el día operativo: la hora de corte
+    de la sede en el reloj de Bogotá."""
+    return tz.from_bogota_wall_clock(datetime.combine(business_date, datetime.min.time()).replace(hour=cutoff_hour))
+
+
+def week_schedule(db: Session, *, store: Store, week_of: date | None = None) -> WeekScheduleOut:
+    now = clock.now_utc()
+    today = tz.business_date_for(now, store.cutoff_hour)
+    week_start = week_start_of(week_of or today)
+    week_end = week_start + timedelta(days=6)
+    days = [week_start + timedelta(days=i) for i in range(7)]
+    day_starts = {d: _business_day_start(d, store.cutoff_hour) for d in days}
+
+    pieces_by_employee, _tables = _employee_pieces(
+        db, store=store, date_from=week_start, date_to=week_end, employee_id=None, until=now
+    )
+    intervals_by_employee, names = _employee_intervals(
+        db, store=store, date_from=week_start, date_to=week_end, employee_id=None, until=now
+    )
+    review_entries = pending_review_entries(db, store=store, date_from=week_start, date_to=week_end)
+    admins = _admin_ids(db, {e.employee_id for e in review_entries})
+    review_entries = [e for e in review_entries if e.employee_id not in admins]
+
+    segments: dict[int, dict[date, list[WeekSegmentOut]]] = {}
+    for employee_id, intervals in intervals_by_employee.items():
+        for w_start, w_end in intervals:
+            is_open = w_end == now
+            for p_start, p_end in _split_by_hour_boundaries(w_start, w_end, {store.cutoff_hour}):
+                business_date = tz.business_date_for(p_start, store.cutoff_hour)
+                if business_date not in day_starts:
+                    continue
+                minutes = hours_mod.minutes_between(p_start, p_end)
+                if minutes <= 0:
+                    continue
+                day_start = day_starts[business_date]
+                segments.setdefault(employee_id, {}).setdefault(business_date, []).append(
+                    WeekSegmentOut(
+                        start=p_start,
+                        end=p_end,
+                        start_offset_min=hours_mod.minutes_between(day_start, p_start),
+                        end_offset_min=hours_mod.minutes_between(day_start, p_end),
+                        status="open" if is_open and p_end == w_end else "closed",
+                        minutes=minutes,
+                        hours=hours_mod.format_hours(minutes),
+                    )
+                )
+
+    review_count: dict[int, int] = {}
+    for entry in review_entries:
+        if entry.business_date not in day_starts:
+            continue
+        names.setdefault(entry.employee_id, entry.employee_name)
+        review_count[entry.employee_id] = review_count.get(entry.employee_id, 0) + 1
+        segments.setdefault(entry.employee_id, {}).setdefault(entry.business_date, []).append(
+            WeekSegmentOut(
+                start=entry.in_at,
+                end=None,
+                start_offset_min=hours_mod.minutes_between(day_starts[entry.business_date], entry.in_at),
+                end_offset_min=None,
+                status="review",
+                minutes=None,
+                hours=None,
+                attendance_id=entry.id,
+            )
+        )
+
+    people: list[WeekPersonOut] = []
+    for employee_id, by_day in segments.items():
+        pieces = pieces_by_employee.get(employee_id, [])
+        minutes_by_day: dict[date, int] = {}
+        for piece in pieces:
+            minutes_by_day[piece.business_date] = minutes_by_day.get(piece.business_date, 0) + piece.minutes
+        total = sum(minutes_by_day.values())
+        people.append(
+            WeekPersonOut(
+                employee_id=employee_id,
+                employee_name=names.get(employee_id, f"#{employee_id}"),
+                total_minutes=total,
+                total_hours=hours_mod.format_hours(total),
+                review_count=review_count.get(employee_id, 0),
+                days=[
+                    WeekPersonDayOut(
+                        business_date=d,
+                        segments=sorted(by_day[d], key=lambda s: s.start),
+                        minutes=minutes_by_day.get(d, 0),
+                        hours=hours_mod.format_hours(minutes_by_day.get(d, 0)),
+                    )
+                    for d in days
+                    if d in by_day
+                ],
+            )
+        )
+    people.sort(key=lambda p: (p.employee_name.casefold(), p.employee_id))
+    return WeekScheduleOut(
+        store_id=store.id,
+        week_start=week_start,
+        week_end=week_end,
+        days=days,
+        day_start_hour=store.cutoff_hour,
+        now=now,
+        today=today,
+        people=people,
+    )
 
 
 # ---------------------------------------------------------------------------

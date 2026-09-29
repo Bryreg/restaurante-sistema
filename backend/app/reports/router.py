@@ -14,7 +14,9 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, admin_store, current_admin
+from app.core import tz
 from app.core.csv import csv_response, wants_csv
+from app.core.csv_es import csv_es_response
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.reports import overview as overview_service
@@ -36,6 +38,129 @@ def get_today(
 ) -> TodayOut:
     store = admin_store(db, actor, store_id)
     return service.today_report(db, store=store)
+
+
+# ---------------------------------------------------------------------------
+# Las descargas de los bloques de Hoy (decisión del dueño, 2026-09-29): cada
+# bloque se baja tal como se ve, en CSV para Excel en español (`;`, BOM,
+# encabezados en español — `app.core.csv_es`). Sin `format=csv`, el JSON de
+# las mismas filas.
+# ---------------------------------------------------------------------------
+
+
+def _hour_text(hour: int) -> str:
+    return f"{hour:02d}:00"
+
+
+@router.get("/admin/today/sales-by-hour")
+def get_today_sales_by_hour(
+    request: Request,
+    store_id: int = Query(...),
+    format: str | None = Query(None, description='"csv" descarga la tabla en CSV'),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any] | Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
+    store = admin_store(db, actor, store_id)
+    business_date, hours, reference = service.today_sales_by_hour(db, store=store)
+    if wants_csv(request):
+        ref_by_hour = {h.hour: h.net for h in reference}
+        rows = [
+            {
+                "hour": _hour_text(h.hour),
+                # Una hora que todavía no llega no es «$ 0»: celda vacía.
+                "net": None if h.pending else h.net,
+                "gross": None if h.pending else h.gross,
+                "orders": None if h.pending else h.orders,
+                "reference": ref_by_hour.get(h.hour),
+            }
+            for h in hours
+        ]
+        return csv_es_response(
+            rows,
+            columns=[
+                ("hour", "Hora"),
+                ("net", "Venta neta"),
+                ("gross", "Cobrado"),
+                ("orders", "Comandas"),
+                ("reference", "Mismo día semana pasada (día completo)"),
+            ],
+            filename=f"ventas-por-hora-{business_date.isoformat()}.csv",
+        )
+    return {
+        "business_date": business_date.isoformat(),
+        "hours": [h.model_dump(mode="json") for h in hours],
+        "reference": [h.model_dump(mode="json") for h in reference],
+    }
+
+
+@router.get("/admin/today/top-products")
+def get_today_top_products(
+    request: Request,
+    store_id: int = Query(...),
+    format: str | None = Query(None, description='"csv" descarga todos los platos del día en CSV'),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]] | Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
+    store = admin_store(db, actor, store_id)
+    business_date = tz.today_business_date(store.cutoff_hour)
+    products = service.today_top_products(db, store=store, business_date=business_date, limit=None)
+    if wants_csv(request):
+        return csv_es_response(
+            [p.model_dump() for p in products],
+            columns=[("label", "Producto"), ("units", "Unidades"), ("net", "Venta neta")],
+            filename=f"productos-vendidos-{business_date.isoformat()}.csv",
+        )
+    return [p.model_dump(mode="json") for p in products]
+
+
+@router.get("/admin/today/receptions")
+def get_today_receptions(
+    request: Request,
+    store_id: int = Query(...),
+    format: str | None = Query(None, description='"csv" descarga las entradas de mercancía del día en CSV'),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]] | Any:
+    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
+    store = admin_store(db, actor, store_id)
+    business_date = tz.today_business_date(store.cutoff_hour)
+    enabled, lines = service.today_receptions(db, store=store, business_date=business_date)
+    if not enabled:
+        raise AppError(
+            "FEATURE_DISABLED",
+            "«Compras» está apagada en esta sede; habilitala en Admin → Funciones para ver las entradas de mercancía.",
+            status=400,
+        )
+    if wants_csv(request):
+        return csv_es_response(
+            [
+                {
+                    **line.model_dump(),
+                    "received_at": tz.to_bogota(line.received_at).strftime("%H:%M"),
+                    "expires_at": line.expires_at.isoformat() if line.expires_at else None,
+                    "lot_status": _LOT_STATUS_ES.get(line.lot_status or ""),
+                }
+                for line in lines
+            ],
+            columns=[
+                ("received_at", "Hora"),
+                ("supplier_name", "Proveedor"),
+                ("ingredient_name", "Insumo"),
+                ("qty", "Cantidad"),
+                ("purchase_unit", "Unidad de compra"),
+                ("lot_code", "Lote"),
+                ("expires_at", "Vence"),
+                ("lot_status", "Estado del lote"),
+                ("received_by", "Recibió"),
+            ],
+            filename=f"entradas-de-mercancia-{business_date.isoformat()}.csv",
+        )
+    return [line.model_dump(mode="json") for line in lines]
+
+
+_LOT_STATUS_ES = {"active": "Vigente", "expiring": "Vence pronto", "expired": "Vencido", "depleted": "Agotado"}
 
 
 @router.get("/admin/sales")

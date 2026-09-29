@@ -30,6 +30,9 @@ nunca se llama desde afuera de otra forma):
     pending_drafts_count(db, store_id) -> int
         # recepciones registradas en el POS que esperan al administrador
         # (bandeja de Hoy)
+    receptions_of_day(db, *, store_id, business_date) -> list[dict]
+        # las líneas de las recepciones CONFIRMADAS del día operativo, con
+        # su lote y vencimiento, para «Entradas de mercancía» de Hoy
 """
 
 from __future__ import annotations
@@ -175,3 +178,50 @@ def pending_drafts_count(db: Session, store_id: int) -> int:
             )
         ).scalar_one()
     )
+
+
+def receptions_of_day(db: Session, *, store_id: int, business_date: date) -> list[dict]:
+    """Las líneas de las recepciones **confirmadas** del día operativo
+    `business_date` (una revertida ya no es una entrada: su lote se dio de
+    baja), en el orden en que llegaron. La cantidad se publica en la
+    **unidad de compra**, convertida con la misma aritmética entera que usa
+    la recepción al escribir (`qty_purchase_milli * purchase_factor`, acá al
+    revés, mitad hacia arriba en la milésima), como texto decimal. Sin
+    precios ni costos: Hoy muestra qué entró, no cuánto costó."""
+    from app.core.quantity import format_qty_base
+    from app.inventory.models import Ingredient
+    from app.purchases.models import ReceptionLine
+
+    rows = db.execute(
+        select(Reception, ReceptionLine, Supplier.name, Ingredient)
+        .join(ReceptionLine, ReceptionLine.reception_id == Reception.id)
+        .join(Supplier, Supplier.id == Reception.supplier_id)
+        .join(Ingredient, Ingredient.id == ReceptionLine.ingredient_id)
+        .where(
+            Reception.store_id == store_id,
+            Reception.status == ReceptionStatus.CONFIRMED,
+            Reception.business_date == business_date,
+        )
+        .order_by(Reception.at, Reception.id, ReceptionLine.id)
+    ).all()
+    result: list[dict] = []
+    for reception, line, supplier_name, ingredient in rows:
+        factor = max(1, int(ingredient.purchase_factor))
+        qty_purchase_milli = (line.qty_received_base * 2 + factor) // (2 * factor)
+        result.append(
+            {
+                "reception_id": reception.id,
+                "line_id": line.id,
+                "received_at": reception.at,
+                "supplier_name": supplier_name,
+                "ingredient_id": ingredient.id,
+                "ingredient_name": ingredient.name,
+                "qty": format_qty_base(qty_purchase_milli),
+                "purchase_unit": ingredient.purchase_unit,
+                "lot_code": line.lot_code,
+                "expires_at": line.expires_at,
+                "stock_batch_id": line.stock_batch_id,
+                "received_by": reception.received_by_employee_name,
+            }
+        )
+    return result
