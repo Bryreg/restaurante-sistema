@@ -37,7 +37,6 @@ from app.shifts.models import (
     BusinessDay,
     CashMovement,
     CashMovementKind,
-    CashPickup,
     HandoverKind,
     Shift,
     ShiftHandover,
@@ -150,13 +149,14 @@ def _opening_cuadre(db: Session, shift: Shift) -> dict[str, Any]:
     counted = shift.opening_cash_total
     days = []
     if carried:
-        dates = dict(
-            db.execute(
+        dates: dict[int, date] = {
+            int(sid): bd
+            for sid, bd in db.execute(
                 select(Shift.id, BusinessDay.business_date)
                 .join(BusinessDay, BusinessDay.id == Shift.business_day_id)
                 .where(Shift.id.in_(list(carried)))
             ).all()
-        )
+        }
         days = [
             {"shift_id": sid, "business_date": dates.get(sid), "amount": amount}
             for sid, amount in sorted(carried.items(), key=lambda kv: (dates.get(kv[0]) or date.min, kv[0]))
@@ -220,7 +220,7 @@ def _close_cuadre(
     if shift.status != ShiftStatus.CLOSED or shift.closed_at is None:
         return None
     count = service._get_active_close_count(db, shift.id)
-    breakdown = service.compute_breakdown(db, shift, as_of=shift.closed_at)
+    breakdown: dict[str, Any] = dict(service.compute_breakdown(db, shift, as_of=shift.closed_at))
     # El esperado y la diferencia son los que el cierre (o un ajuste de
     # apertura) dejó escritos en el turno: son los que valen.
     breakdown["expected"] = shift.expected_cash

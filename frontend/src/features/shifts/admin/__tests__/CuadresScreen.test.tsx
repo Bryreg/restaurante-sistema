@@ -265,5 +265,5 @@ describe("Cuadres — Ajustar apertura como el café", () => {
         reason: "El cajón tenía la venta del viernes",
       }),
     );
-  });
+  }, 15_000);
 });

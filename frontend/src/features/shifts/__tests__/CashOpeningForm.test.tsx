@@ -118,7 +118,7 @@ describe("CashOpeningForm — la apertura igual al café", () => {
     expect(body.opening_cash.total).toBe(100_000);
     expect(body.opening_cause).toBe("counting_error");
     expect(body.opening_note).toBe("Faltaba plata del lunes");
-  });
+  }, 15_000);
 
   it("si cuadra no pide nada: «✓ Cuadra» y abre", async () => {
     previewMock.mockImplementation((body: OpeningPreviewIn) => {

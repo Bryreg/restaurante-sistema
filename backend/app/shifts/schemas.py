@@ -252,8 +252,10 @@ class OpenShiftIn(BaseModel):
     opening_cause: CashDifferenceCauseLiteral | None = None
     opening_note: str | None = None
     # Los turnos con saldo por consignar cuya plata está físicamente en el
-    # cajón (`ShiftCarryIn`). Quien abre los marca uno por uno; ninguno viene
-    # marcado. El conteo de apertura los incluye.
+    # cajón (`ShiftCarryIn`). Con la regla del cajón (2026-09-29, «igual al
+    # café») la pantalla los manda todos marcados salvo los que se
+    # desmarcaron; con la base fija se marcan uno por uno. El conteo de
+    # apertura los incluye y el servidor recalcula el saldo de cada uno.
     carried_shift_ids: list[int] = Field(default_factory=list)
     # Los sobres de días anteriores se confirman ENTEROS, aparte de la base:
     # con `True`, `opening_cash` es sólo la base contada y el servidor le

@@ -71,9 +71,10 @@ export type CashDifferenceCause =
   | "unknown";
 export type HandoverKind = "handover" | "spot_check";
 /**
- * Cómo abre el cajón (2026-09-26, `OpeningModeLiteral` del backend):
- * `envelopes` = sólo los sobres por consignar que se eligen y se cuentan a
- * ciegas (decisión del dueño); `fixed_base` = la base fija de siempre.
+ * Cómo abre el cajón (`OpeningModeLiteral` del backend): `envelopes` = sólo
+ * con los días por consignar que están en el cajón, «igual al café» desde el
+ * 2026-09-29 (se ve cuánto debería haber); `fixed_base` = la base fija de
+ * siempre.
  */
 export type OpeningMode = "envelopes" | "fixed_base";
 /** El libro de la base de respaldo: tomar (entra al cajón) y devolver. */
@@ -152,9 +153,10 @@ export interface OpenShiftIn {
   opening_note?: string;
   /**
    * Los días con saldo por consignar cuya plata está físicamente en el cajón
-   * (2026-09-24). Quien abre los marca uno por uno; ninguno viene marcado. El
-   * servidor recalcula el saldo de cada uno y compara el conteo contra base
-   * fija + lo marcado — esta pantalla no suma nada.
+   * (2026-09-24). Con la regla del cajón (2026-09-29, «igual al café») vienen
+   * todos marcados y se desmarca el que no está. El servidor recalcula el
+   * saldo de cada uno y compara el conteo contra lo que debería haber — esta
+   * pantalla no suma nada.
    */
   carried_shift_ids?: number[];
   /**

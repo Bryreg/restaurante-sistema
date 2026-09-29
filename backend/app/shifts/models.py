@@ -563,8 +563,11 @@ class ShiftCarryIn(Base):
     El dueño decidió (2026-09-24) que la venta que todavía no se consignó se
     queda en el mismo cajón, como en café-sistema, en vez de salir en sobre.
     Al abrir, quien abre **marca** qué turnos cerrados con saldo por
-    consignar están físicamente en el cajón —ninguno viene marcado: marcarlos
-    todos por defecto es lo que en el café terminó cobrando plata dos veces—.
+    consignar están físicamente en el cajón. Desde el 2026-09-29 (decisión
+    del dueño, apertura «igual al café») **todos vienen marcados** y se
+    desmarca el que no está; la plata pedida dos veces que eso causó en el
+    café se corrige con «Ajustar apertura», que rehace la selección
+    (`service.adjust_opening`).
     Una fila por turno marcado, con el saldo que tenía **en ese instante**,
     calculado por el servidor.
 

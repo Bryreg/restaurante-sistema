@@ -24,7 +24,7 @@ se alcanzó a `db.add()` sobrevive a un error de negocio a mitad de camino —
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 from sqlalchemy import func, select
