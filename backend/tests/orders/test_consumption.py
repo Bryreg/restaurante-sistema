@@ -774,7 +774,9 @@ def test_order_consumption_is_published_exactly_once_with_this_contract(client: 
         "la ruta no puede declarar `store_id`: la sede se resuelve de `order.store_id` "
         f"(una sola fuente) — parámetros publicados: {sorted(nombres_de_parametro)}"
     )
-    assert nombres_de_parametro == {"order_id"}, f"parámetros inesperados: {sorted(nombres_de_parametro)}"
+    # `format` (opcional, `csv`): «todo descargable» (decisión del dueño,
+    # 2026-09-29) — la misma respuesta en CSV, no una segunda fuente.
+    assert nombres_de_parametro == {"order_id", "format"}, f"parámetros inesperados: {sorted(nombres_de_parametro)}"
 
     ref_respuesta = operacion["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
     assert ref_respuesta.rsplit("/", 1)[-1] == "OrderConsumptionOut", (

@@ -999,6 +999,19 @@ def test_on_the_14_day_border_today_control_health_and_food_cost_use_the_same_th
 STALE_DAYS_OWNER = "app/inventory/hooks.py"
 
 
+#: Constantes que valen 14 y NO son el umbral de inventario no confiable:
+#: son el ancho de dos gráficos de Informes (días que se dibujan). Cada una,
+#: con su porqué; mover el umbral no tiene por qué mover estas ventanas.
+NO_SON_EL_UMBRAL: dict[tuple[str, str], str] = {
+    ("app/reports/series.py", "STOCK_CLOSED_DAYS"): (
+        "días cerrados que dibuja «¿Cuándo se me acaba?» (ventana del gráfico de consumo)"
+    ),
+    ("app/reports/series.py", "SECTION_TREND_DAYS"): (
+        "días de la tendencia de las tarjetas «por día» (cuadre, consignaciones, salidas olvidadas)"
+    ),
+}
+
+
 def _literal_14_sweep() -> tuple[list[str], list[str]]:
     """`(declaraciones, usos_como_días)` del número 14 en todo `app/**`.
 
@@ -1025,6 +1038,8 @@ def _literal_14_sweep() -> tuple[list[str], list[str]]:
             valor = getattr(nodo, "value", None)
             if destinos and isinstance(valor, ast.Constant) and valor.value == 14 and not isinstance(valor.value, bool):
                 nombres = [t.id for t in destinos if isinstance(t, ast.Name)]
+                if nombres and all((ruta, n) in NO_SON_EL_UMBRAL for n in nombres):
+                    continue
                 declaraciones.append(f"{ruta}:{valor.lineno} ({', '.join(nombres) or '?'})")
         if ruta == STALE_DAYS_OWNER:
             continue
