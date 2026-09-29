@@ -118,7 +118,9 @@ def test_admin_list_and_csv(admin_client: Any, store: Any, paid_order: Any) -> N
     csv_resp = admin_client.get(f"/api/v1/admin/documents?store_id={store.id}&format=csv")
     assert csv_resp.status_code == 200, csv_resp.text
     assert csv_resp.headers["content-type"].startswith("text/csv")
-    assert "full_number" in csv_resp.text
+    # Movido a propósito: el CSV pasó a Excel es-CO (`;`, BOM y encabezados en
+    # español, `app.core.csv`); la columna es la misma, con su nombre en español.
+    assert "Número completo" in csv_resp.text
 
 
 def test_document_404_across_stores(
