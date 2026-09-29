@@ -7,6 +7,7 @@ import { listIngredients } from "@/api/inventory"
 import { Cargando } from "@/components/Cargando"
 import { FeatureOffEmptyState, MasPestanas, PageHeader, type PestanaDeMas } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { LabelsAdminTab } from "@/features/labels/LabelsAdminTab"
 
 import { AreaCountsTab } from "./AreaCountsTab"
 import { ControlHealthTab } from "./ControlHealthTab"
@@ -17,7 +18,7 @@ import { MovementsWasteTab } from "./MovementsWasteTab"
 import { StockTab } from "./StockTab"
 import { VarianceTab } from "./VarianceTab"
 
-const ALL_TABS = ["insumos", "stock", "movimientos", "conteos", "por-area", "varianza", "lotes", "salud"] as const
+const ALL_TABS = ["insumos", "stock", "movimientos", "conteos", "por-area", "varianza", "lotes", "etiquetas", "salud"] as const
 type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
@@ -79,6 +80,8 @@ export function InventoryAdminPage(): React.JSX.Element {
   // Conteo corto por área (2026-09-25): requiere `inventory.perpetual`, que
   // ya es el gate de toda la página.
   const areaCountsEnabled = hasFeature("inventory.shift_counts")
+  // Etiquetas de cocina (0036): requiere `inventory.lots`.
+  const labelsEnabled = hasFeature("inventory.labels")
 
   const tabParam = searchParams.get("tab")
   const requestedTab: TabValue = isTabValue(tabParam) ? tabParam : "insumos"
@@ -90,6 +93,7 @@ export function InventoryAdminPage(): React.JSX.Element {
     "por-area": areaCountsEnabled,
     varianza: varianceEnabled,
     lotes: lotsEnabled,
+    etiquetas: labelsEnabled,
     salud: varianceEnabled,
   }
   const tab: TabValue = tabAvailable[requestedTab] ? requestedTab : "insumos"
@@ -136,6 +140,7 @@ export function InventoryAdminPage(): React.JSX.Element {
     ...(areaCountsEnabled ? [{ value: "por-area", label: "Conteo por área" }] : []),
     ...(varianceEnabled ? [{ value: "varianza", label: "Varianza" }] : []),
     ...(lotsEnabled ? [{ value: "lotes", label: "Lotes" }] : []),
+    ...(labelsEnabled ? [{ value: "etiquetas", label: "Etiquetas" }] : []),
     ...(varianceEnabled ? [{ value: "salud", label: "Salud del control" }] : []),
   ]
 
@@ -238,6 +243,11 @@ export function InventoryAdminPage(): React.JSX.Element {
         {lotsEnabled ? (
           <TabsContent value="lotes" className="pt-4">
             <LotsTab storeId={activeStoreId} ingredients={ingredients} />
+          </TabsContent>
+        ) : null}
+        {labelsEnabled ? (
+          <TabsContent value="etiquetas" className="pt-4">
+            <LabelsAdminTab storeId={activeStoreId} />
           </TabsContent>
         ) : null}
         {varianceEnabled ? (

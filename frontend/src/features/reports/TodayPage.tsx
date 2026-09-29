@@ -14,6 +14,7 @@ import {
   type CashDiffSummaryPayload,
   type HourBucketOut,
   type IngredientAlertOut,
+  type LabelAlertOut,
   type LotAlertOut,
   type NegativeStockAlertOut,
   type PayableAlertOut,
@@ -195,6 +196,7 @@ function directAttentionItems(today: {
   preps_without_production?: PrepAlertOut[]
   products_discounting_nothing?: UncostedProductOut[]
   lots_expiring_or_expired?: LotAlertOut[]
+  labels_expired?: LabelAlertOut | null
   payables_overdue?: PayableAlertOut[]
   payables_pending_review_count?: number
   inventory_unreliable?: boolean | null
@@ -621,6 +623,26 @@ function directAttentionItems(today: {
       tone: expiredCount > 0 ? "critical" : "warning",
       screen: "Inventario",
       tab: "Lotes",
+    })
+  }
+
+  // Etiquetas de cocina vencidas que siguen en la cocina: se botan desde la
+  // tablet (leyendo el QR), y eso queda como merma con PIN.
+  const labelsAlert = today.labels_expired
+  if (labelsAlert && labelsAlert.expired > 0) {
+    items.push({
+      key: "labels-expired",
+      title: `${labelsAlert.expired} etiqueta${labelsAlert.expired === 1 ? "" : "s"} vencida${labelsAlert.expired === 1 ? "" : "s"} en la cocina`,
+      body: `${labelsAlert.expired_names.join(", ")}${labelsAlert.due_today > 0 ? ` · ${labelsAlert.due_today} vence${labelsAlert.due_today === 1 ? "" : "n"} hoy` : ""}.`,
+      why: {
+        term: "Etiquetas vencidas",
+        text: "Pasó su «usar antes de» y nadie la marcó como acabada ni botada. En la tablet se lee el QR y se bota: queda como merma.",
+      },
+      to: "/admin/inventario?tab=etiquetas",
+      ctaLabel: "Ver Etiquetas",
+      tone: "critical",
+      screen: "Inventario",
+      tab: "Etiquetas",
     })
   }
 

@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Check, Trash2 } from "lucide-react"
 import { useId, useRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
+import { useSession } from "@/app/session"
 import { newIdempotencyKey } from "@/api/client"
 import {
   createReceptionDraft,
@@ -111,6 +113,10 @@ function statusText(d: ReceptionDraftOut): string {
 export function ReceiveGoodsPanel(): React.JSX.Element {
   const queryClient = useQueryClient()
   const baseId = useId()
+  const navigate = useNavigate()
+  const { hasFeature } = useSession()
+  // Con etiquetas encendidas, lo recibido se etiqueta en la puerta.
+  const labelsOn = hasFeature("inventory.labels")
 
   const suppliersQuery = useQuery({ queryKey: ["purchases", "device-suppliers"], queryFn: listDeviceSuppliers })
   const ingredientsQuery = useQuery({
@@ -202,6 +208,12 @@ export function ReceiveGoodsPanel(): React.JSX.Element {
       ),
     onSuccess: () => {
       toast.success("Recepción registrada. Queda por completar por el administrador.")
+      if (labelsOn) {
+        toast("Etiquetá lo que llegó antes de guardarlo", {
+          action: { label: "Imprimir etiquetas", onClick: () => navigate("/pos/etiquetas?tab=recibi") },
+          duration: 15_000,
+        })
+      }
       idempotencyKeyRef.current = newIdempotencyKey()
       reset()
       void queryClient.invalidateQueries({ queryKey: TODAY_RECEPTION_DRAFTS_QUERY_KEY })

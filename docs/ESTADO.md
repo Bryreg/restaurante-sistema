@@ -2084,6 +2084,42 @@ La UI habla español y el código inglés. Para que nadie invente un tercer nomb
       turno (`FichaTurno.tsx`) todavía repite parte de lo que muestra la
       tarjeta de Cuadres.
 
+51. **Etiquetas de cocina con QR** (pedido del dueño, 2026-09-29: «cada insumo
+    guardado con su etiqueta de lote y fecha de vencimiento»; flag
+    **`inventory.labels`**, requiere `inventory.lots`, encendida en `full`).
+    Lo más difícil de controlar era lo ABIERTO y lo PRODUCIDO: el lote del
+    proveedor ya tenía fecha, la bolsa abierta y el tarro de salsa no.
+    Migración **`0036_food_labels`**: `food_labels`, `label_settings` y
+    `ingredients.opened_shelf_life_days` (114 → **116** tablas; postes de
+    `test_migration_invariants` y `test_contract_2c_invariants` movidos con
+    el motivo).
+    - **Una etiqueta = un recipiente**, con su código de 8 caracteres (sin
+      0/O ni 1/I/L) y QR `ET-<código>`. El **«usar antes de» lo calcula el
+      servidor y queda congelado**: abierto = hoy + días de abierto del
+      insumo, sin pasarse del lote (FEFO); recibido = el vencimiento del
+      lote o del renglón del borrador; producido = la vida útil de la
+      preparación. Una fecha manual sólo acorta (`LABEL_USE_BY_TOO_LATE`);
+      sin regla es obligatoria (`LABEL_USE_BY_REQUIRED`).
+    - **Lo recibido se etiqueta en la puerta**: en la tablet la recepción es
+      un borrador y el lote nace al completarla el admin, así que «Recibí»
+      ofrece los renglones del borrador (`reception_draft_line_id`) y, de las
+      recepciones cargadas directo, los lotes — nunca los dos.
+    - Imprimir no mueve inventario. **Botar es merma** (`register_waste`,
+      con PIN, tipo «vencido» por defecto) y la etiqueta apunta a ella
+      (`waste_id`). Se cierra una sola vez (`LABEL_ALREADY_CLOSED`).
+    - POS **`/pos/etiquetas`** (puestos cocina y bar): «En la cocina» (lo que
+      vence primero arriba), «Abrí algo», «Recibí», «Produje» y el lector
+      (cámara con `BarcodeDetector` o `jsqr`, pistola lectora o teclado).
+      Producción rápida y la recepción del POS ofrecen «Imprimir etiquetas»
+      al terminar. Imprime desde el navegador con `@page` del tamaño del
+      rollo (Inventario › Etiquetas, 50 × 30 mm por defecto): sirve con
+      cualquier impresora que la tablet vea (AirPrint, Mopria o driver).
+    - Admin: pestaña **Inventario › Etiquetas** (lista, CSV, tamaño del
+      rollo), campo «Días que dura abierto» en el insumo y aviso en Hoy de
+      etiquetas vencidas que siguen en la cocina (`labels_expired`).
+    - Pendiente: probar la impresión con la impresora real que compre el
+      dueño (tamaño del rollo y márgenes del driver).
+
 ---
 
 ## Rediseño del admin — dónde quedó (rama `claude/keen-ptolemy-l8fpe8`)

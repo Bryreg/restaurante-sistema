@@ -185,6 +185,14 @@ export interface UncostedProductOut {
 // sede no puede resolver.
 // ---------------------------------------------------------------------------
 
+/** Etiquetas de cocina activas vencidas (siguen en la cocina) o que vencen
+ * hoy. `null` con `inventory.labels` apagada. */
+export interface LabelAlertOut {
+  expired: number
+  due_today: number
+  expired_names: string[]
+}
+
 export interface LotAlertOut {
   batch_id: number
   ingredient_id: number
@@ -330,6 +338,7 @@ export interface TodayOut {
   // montado — nunca falta la llave (mismo criterio que las cuatro de
   // arriba, `backend/app/reports/schemas.py::TodayOut`).
   lots_expiring_or_expired?: LotAlertOut[]
+  labels_expired?: LabelAlertOut | null
   payables_overdue?: PayableAlertOut[]
   payables_pending_review_count?: number
   /** `null` (no `false` mudo) cuando `inventory.variance` está apagada o el

@@ -41,8 +41,8 @@ export interface PersonaPuesto {
 const DESTINOS: Record<Puesto, readonly string[]> = {
   salon: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno"],
   caja: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno", "/pos/cocina"],
-  cocina: ["/pos/kds", "/pos/conteo", "/pos/cocina", "/pos/produccion", "/pos/merma", "/pos/turno"],
-  bar: ["/pos/kds", "/pos/conteo", "/pos/cocina", "/pos/produccion", "/pos/merma", "/pos/turno"],
+  cocina: ["/pos/kds", "/pos/conteo", "/pos/cocina", "/pos/produccion", "/pos/etiquetas", "/pos/merma", "/pos/turno"],
+  bar: ["/pos/kds", "/pos/conteo", "/pos/cocina", "/pos/produccion", "/pos/etiquetas", "/pos/merma", "/pos/turno"],
 };
 
 function esPuesto(value: string | null | undefined): value is Puesto {

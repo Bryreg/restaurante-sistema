@@ -519,15 +519,19 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       Motivo declarado: «todo se configura desde el panel»; los umbrales
       quemados en el código pasan a columnas de las tablas de configuración
       existentes. Se mueve sólo el poste de la cabeza.
+    - Con **`0036_food_labels`** la cadena llega a `"0036"` y el conteo pasa
+      a **116**. Motivo declarado: etiquetas de cocina con QR (lo recibido,
+      lo abierto y lo producido con su «usar antes de»): `food_labels` y
+      `label_settings`.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0035"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0035 "
+    assert 'version == "0036"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0036 "
         "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031, "
-        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034 y ajustes del panel 0035)"
+        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035 y etiquetas de cocina 0036)"
     )
-    assert "len(tablas) == 114" in fuente, (
-        "el conteo de tablas sigue en un número viejo: 0033 lo deja en 114 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1)"
+    assert "len(tablas) == 116" in fuente, (
+        "el conteo de tablas sigue en un número viejo: 0036 lo deja en 116 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1 + 2)"
     )
     assert ">=" not in fuente.split("def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory")[1].split("\ndef ")[0], (
         "el invariante de la cadena se aflojó a una desigualdad: un conjunto exacto se MUEVE, no se afloja"
