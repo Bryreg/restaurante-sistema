@@ -196,6 +196,16 @@ class LotAlertOut(BaseModel):
     status: Literal["expiring", "expired"]
 
 
+class LabelAlertOut(BaseModel):
+    """Etiquetas de cocina activas vencidas (siguen en la cocina) o que
+    vencen hoy (`inventory.labels`)."""
+
+    expired: int
+    due_today: int
+    # Hasta cinco nombres de lo vencido, sin repetir.
+    expired_names: list[str]
+
+
 class PayableAlertOut(BaseModel):
     payable_id: int
     supplier_id: int
@@ -393,6 +403,8 @@ class TodayOut(BaseModel):
     # montado — nunca falta la llave (mismo criterio que las cuatro de
     # arriba).
     lots_expiring_or_expired: list[LotAlertOut]
+    # `null` con `inventory.labels` apagada.
+    labels_expired: LabelAlertOut | None = None
     payables_overdue: list[PayableAlertOut]
     payables_pending_review_count: int
     # `null` (no `false` mudo) cuando `inventory.variance` está apagada o el

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, ChefHat } from "lucide-react"
 import { useRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import { useSession } from "@/app/session"
@@ -30,7 +31,10 @@ import { cn } from "@/lib/utils"
 export function QuickProductionPage(): React.JSX.Element {
   const { hasFeature, me } = useSession()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const enabled = hasFeature("catalog.preps")
+  // Con etiquetas encendidas, lo producido se etiqueta al salir de la olla.
+  const labelsOn = hasFeature("inventory.labels")
 
   const [selected, setSelected] = useState<PreparationDeviceOut | null>(null)
   const [qtyReal, setQtyReal] = useState("")
@@ -61,6 +65,12 @@ export function QuickProductionPage(): React.JSX.Element {
         )
       } else {
         toast.success(`«${selected?.name}» producido: ${out.qty_real} ${out.unit}.`)
+      }
+      if (labelsOn) {
+        toast(`Etiquetá «${selected?.name}» antes de guardarlo`, {
+          action: { label: "Imprimir etiquetas", onClick: () => navigate(`/pos/etiquetas?tab=produje&lote=${out.id}`) },
+          duration: 15_000,
+        })
       }
       setSelected(null)
       setQtyReal("")

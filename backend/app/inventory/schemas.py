@@ -63,6 +63,7 @@ class IngredientIn(BaseModel):
     min_stock: str  # obligatorio; `> 0` lo exige el service (`400 MIN_STOCK_REQUIRED`)
     lead_time_days: int | None = Field(default=None, ge=0)
     perishable: bool = False
+    opened_shelf_life_days: int | None = Field(default=None, ge=1, le=365)
     key_item: bool = False
     consumption_untracked: bool = False
     substitute_ingredient_id: int | None = None
@@ -84,6 +85,8 @@ class IngredientUpdateIn(BaseModel):
     min_stock: str | None = None
     lead_time_days: int | None = Field(default=None, ge=0)
     perishable: bool | None = None
+    opened_shelf_life_days: int | None = Field(default=None, ge=1, le=365)
+    clear_opened_shelf_life: bool = False
     key_item: bool | None = None
     consumption_untracked: bool | None = None
     substitute_ingredient_id: int | None = None
@@ -107,6 +110,7 @@ class IngredientOut(BaseModel):
     min_stock: str
     lead_time_days: int | None
     perishable: bool
+    opened_shelf_life_days: int | None = None
     key_item: bool
     consumption_untracked: bool
     substitute_ingredient_id: int | None

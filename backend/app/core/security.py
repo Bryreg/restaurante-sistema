@@ -17,12 +17,17 @@ from fastapi import Response
 from app.core.clock import now_utc
 from app.core.config import settings
 
+#: Costo de bcrypt. 12 es el de fábrica de la librería y el de producción.
+#: Sólo la suite de tests lo baja (`tests/conftest.py`), porque cada test crea
+#: sus empleados con PIN y a 12 rondas eso solo son ~2 s por test.
+BCRYPT_ROUNDS = 12
+
 COOKIE_ADMIN = "admin_session"
 COOKIE_DEVICE = "device_session"
 
 
 def hash_secret(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode("utf-8")
 
 
 def verify_secret(plain: str, hashed: str) -> bool:

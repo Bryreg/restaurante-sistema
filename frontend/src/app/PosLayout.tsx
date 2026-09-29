@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { inventoryFeature } from "@/features/inventory";
+import { labelsFeature } from "@/features/labels";
 import { kitchenFeature } from "@/features/kitchen";
 import { ordersFeature } from "@/features/orders";
 import { recipesFeature } from "@/features/recipes";
@@ -553,6 +554,7 @@ export default function PosLayout(): React.JSX.Element | null {
               ...shiftsFeature.posNav,
               ...kitchenFeature.posNav,
               ...recipesFeature.posNav,
+              ...labelsFeature.posNav,
               ...inventoryFeature.posNav,
             ],
             hasFeature,

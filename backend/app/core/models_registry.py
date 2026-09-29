@@ -65,6 +65,8 @@ MODEL_MODULES: list[str] = [
     # La rutina del turno en el POS (2026-09-25): solicitudes y novedades.
     "requests",
     "novelties",
+    # Etiquetas de cocina con QR (0036).
+    "labels",
 ]
 
 

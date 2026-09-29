@@ -62,6 +62,7 @@ from app.reports.schemas import (
     EmployeeRefOut,
     HourBucketOut,
     IngredientAlertOut,
+    LabelAlertOut,
     LotAlertOut,
     MethodAmountOut,
     NegativeStockAlertOut,
@@ -1329,6 +1330,13 @@ def _lot_alerts(db: Session, store: Store, *, business_date: date) -> list[LotAl
     ]
 
 
+def _label_alerts(db: Session, store: Store, *, business_date: date) -> LabelAlertOut | None:
+    hooks = _hooks_if_enabled(db, store, module="app.labels.hooks", feature="inventory.labels")
+    if hooks is None:
+        return None
+    return LabelAlertOut(**hooks.label_alerts(db, store_id=store.id, today=business_date))
+
+
 def _payables_overdue(db: Session, store: Store) -> list[PayableAlertOut]:
     hooks = _hooks_if_enabled(db, store, module="app.purchases.hooks", feature="purchases")
     if hooks is None:
@@ -1682,6 +1690,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         preps_without_production=_prep_alerts(db, store),
         products_discounting_nothing=_uncosted_products(db, store, business_date=business_date),
         lots_expiring_or_expired=_lot_alerts(db, store, business_date=business_date),
+        labels_expired=_label_alerts(db, store, business_date=business_date),
         payables_overdue=payables_overdue,
         payables_pending_review_count=_payables_pending_review_count(db, store),
         inventory_unreliable=inventory_unreliable,

@@ -20,6 +20,7 @@ export interface IngredientFormValues {
   minStock: string
   leadTimeDays: string
   perishable: boolean
+  openedShelfLifeDays: string
   keyItem: boolean
   consumptionUntracked: boolean
   substituteIngredientId: number | null
@@ -39,6 +40,10 @@ function toFormValues(ingredient?: IngredientOut): IngredientFormValues {
     minStock: ingredient?.min_stock ?? "",
     leadTimeDays: ingredient?.lead_time_days !== null && ingredient?.lead_time_days !== undefined ? String(ingredient.lead_time_days) : "",
     perishable: ingredient?.perishable ?? false,
+    openedShelfLifeDays:
+      ingredient?.opened_shelf_life_days !== null && ingredient?.opened_shelf_life_days !== undefined
+        ? String(ingredient.opened_shelf_life_days)
+        : "",
     keyItem: ingredient?.key_item ?? false,
     consumptionUntracked: ingredient?.consumption_untracked ?? false,
     substituteIngredientId: ingredient?.substitute_ingredient_id ?? null,
@@ -69,6 +74,7 @@ export function formValuesToIngredientIn(values: IngredientFormValues): Ingredie
     min_stock: values.minStock.trim(),
     lead_time_days: values.leadTimeDays.trim() === "" ? null : Number(values.leadTimeDays),
     perishable: values.perishable,
+    opened_shelf_life_days: values.openedShelfLifeDays.trim() === "" ? null : Number(values.openedShelfLifeDays),
     key_item: values.keyItem,
     consumption_untracked: values.consumptionUntracked,
     substitute_ingredient_id: values.substituteIngredientId,
@@ -91,6 +97,8 @@ export function formValuesToIngredientUpdateIn(values: IngredientFormValues): In
     min_stock: values.minStock.trim(),
     lead_time_days: values.leadTimeDays.trim() === "" ? null : Number(values.leadTimeDays),
     perishable: values.perishable,
+    opened_shelf_life_days: values.openedShelfLifeDays.trim() === "" ? null : Number(values.openedShelfLifeDays),
+    clear_opened_shelf_life: values.openedShelfLifeDays.trim() === "",
     key_item: values.keyItem,
     consumption_untracked: values.consumptionUntracked,
     substitute_ingredient_id: values.substituteIngredientId,
@@ -242,6 +250,21 @@ export function IngredientForm({
             value={values.leadTimeDays}
             onChange={(event) => setValues((v) => ({ ...v, leadTimeDays: event.target.value }))}
           />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="ing-opened-days">Días que dura abierto (opcional)</Label>
+          <Input
+            id="ing-opened-days"
+            type="number"
+            min={1}
+            max={365}
+            value={values.openedShelfLifeDays}
+            aria-describedby="ing-opened-days-help"
+            onChange={(event) => setValues((v) => ({ ...v, openedShelfLifeDays: event.target.value }))}
+          />
+          <p id="ing-opened-days-help" className="text-xs text-muted-foreground">
+            La etiqueta de «Abrí» vence hoy más estos días, sin pasarse del vencimiento del lote.
+          </p>
         </div>
       </div>
       <p className="text-xs text-muted-foreground">

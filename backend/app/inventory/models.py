@@ -183,6 +183,10 @@ class Ingredient(Base):
     lead_time_days: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
 
     perishable: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    # Días que dura una vez abierto el empaque (0036, etiquetas de cocina):
+    # la etiqueta de «Abrí» vence hoy + esto, sin pasarse del vencimiento del
+    # lote. `NULL` = sin regla; quien abre pone la fecha.
+    opened_shelf_life_days: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     key_item: Mapped[bool] = mapped_column(sa.Boolean, default=False)  # entra al conteo rápido (2b)
     active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
 

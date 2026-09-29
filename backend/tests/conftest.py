@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+import shutil
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, select
@@ -52,6 +54,25 @@ from app.stores.service import (
 # su router todavía no exista (find_spec busca `models.py`, no `router.py`).
 import_all_models()
 
+# Los PIN de prueba no protegen nada: bcrypt al mínimo (4 rondas en vez de 12)
+# para que crear seis empleados por test no cueste dos segundos.
+security.BCRYPT_ROUNDS = 4
+
+_TEMPLATE_DB: Path | None = None
+
+
+def _template_db(tmp_root: Path) -> Path:
+    """El esquema se crea UNA vez por proceso y cada test copia el archivo:
+    `create_all` de 116 tablas cuesta más de un segundo por test."""
+    global _TEMPLATE_DB
+    if _TEMPLATE_DB is None or not _TEMPLATE_DB.exists():
+        path = tmp_root / f"template-{uuid4().hex}.db"
+        engine = create_engine(f"sqlite:///{path}")
+        Base.metadata.create_all(engine)
+        engine.dispose()
+        _TEMPLATE_DB = path
+    return _TEMPLATE_DB
+
 KNOWN_PINS: dict[str, str] = {
     "Admin": "9999",
     "Supervisor": "5555",
@@ -71,8 +92,9 @@ STORE_PIN = "123456"
 
 
 @pytest.fixture()
-def db(tmp_path: Path) -> Iterator[Session]:
+def db(tmp_path: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Session]:
     db_path = tmp_path / f"test-{uuid4().hex}.db"
+    shutil.copyfile(_template_db(tmp_path_factory.getbasetemp()), db_path)
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
 
     @event.listens_for(engine, "connect")
@@ -83,7 +105,6 @@ def db(tmp_path: Path) -> Iterator[Session]:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()
 
-    Base.metadata.create_all(engine)
     testing_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
     session = testing_session_local()
 

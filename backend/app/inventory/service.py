@@ -154,6 +154,7 @@ def create_ingredient(db: Session, *, organization_id: int, store_id: int, data:
         min_stock=min_stock,
         lead_time_days=data.lead_time_days,
         perishable=data.perishable,
+        opened_shelf_life_days=data.opened_shelf_life_days,
         key_item=data.key_item,
         active=data.active,
         consumption_untracked=data.consumption_untracked,
@@ -233,6 +234,10 @@ def update_ingredient(db: Session, ingredient: Ingredient, data: IngredientUpdat
         ingredient.lead_time_days = data.lead_time_days
     if data.perishable is not None:
         ingredient.perishable = data.perishable
+    if data.clear_opened_shelf_life:
+        ingredient.opened_shelf_life_days = None
+    elif data.opened_shelf_life_days is not None:
+        ingredient.opened_shelf_life_days = data.opened_shelf_life_days
     if data.key_item is not None:
         ingredient.key_item = data.key_item
     if data.consumption_untracked is not None:
@@ -286,6 +291,7 @@ def ingredient_out(db: Session, ingredient: Ingredient) -> IngredientOut:
         min_stock=format_qty_base(ingredient.min_stock),
         lead_time_days=ingredient.lead_time_days,
         perishable=ingredient.perishable,
+        opened_shelf_life_days=ingredient.opened_shelf_life_days,
         key_item=ingredient.key_item,
         consumption_untracked=ingredient.consumption_untracked,
         substitute_ingredient_id=ingredient.substitute_ingredient_id,

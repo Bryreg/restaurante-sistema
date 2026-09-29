@@ -331,6 +331,13 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "2",
     ),
     FeatureDef(
+        "inventory.labels",
+        "Etiquetas de cocina con QR: lo recibido, lo abierto y lo producido, con su «usar antes de»",
+        ["inventory.lots"],
+        {"basic": False, "standard": False, "full": True},
+        "2",
+    ),
+    FeatureDef(
         "purchases",
         "Proveedores, recepciones de compra y cuentas por pagar",
         ["inventory.perpetual"],

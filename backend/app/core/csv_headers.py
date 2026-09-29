@@ -128,6 +128,20 @@ KEYS: dict[str, str] = {
     "nit": "NIT",
     "dv": "DV",
     "uvt": "UVT",
+    # Etiquetas de cocina (0036).
+    "use_by": "Usar antes de",
+    "use_by_source": "Origen de la fecha",
+    "days_left": "Días que le quedan",
+    "item_name": "Producto",
+    "qty_text": "Contenido",
+    "lot_code": "Lote",
+    "print_count": "Veces impresa",
+    "waste_unit": "Unidad de merma",
+    "labels_printed": "Etiquetas impresas",
+    "expired_names": "Lo vencido",
+    "closed_by_employee_name": "Cerrada por",
+    "use_by_preview": "Usar antes de (si se imprime ya)",
+    "use_by_source_preview": "Origen de la fecha (si se imprime ya)",
 }
 
 #: Palabra por palabra. Cubre toda palabra de todo campo de todo esquema de
@@ -819,13 +833,28 @@ TOKENS: dict[str, str] = {
     "shortfall": "faltante",
     "uncovered": "sin cubrir",
     "worst": "peor",
+    # Etiquetas de cocina (0036).
+    "copies": "copias",
+    "left": "restantes",
+    "names": "nombres",
+    "height": "alto",
+    "width": "ancho",
+    "mm": "(mm)",
+    "labels": "etiquetas",
+    "made": "hecha",
+    "openable": "para abrir",
+    "outcome": "resultado",
+    "state": "estado",
+    "tomorrow": "mañana",
+    "preview": "vista previa",
+    "draft": "borrador",
 }
 
 _RAW_KEY = re.compile(r"^[a-z0-9_]+$")
 
 #: Palabras que en inglés van DESPUÉS del núcleo y en español se quedan al
 #: final («con impuesto», «en pesos»): no se invierten.
-_TRAILING = {"pct": "(%)", "bp": "(pb)", "x100": "(×100)", "micros": "(micros)"}
+_TRAILING = {"pct": "(%)", "bp": "(pb)", "x100": "(×100)", "micros": "(micros)", "mm": "(mm)"}
 
 
 def untranslated_tokens(key: str) -> set[str]:

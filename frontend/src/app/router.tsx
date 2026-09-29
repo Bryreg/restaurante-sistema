@@ -14,6 +14,7 @@ import { fiscalFeature } from "@/features/fiscal";
 import FeaturesPage from "@/features/features/FeaturesPage";
 import { inventoryFeature } from "@/features/inventory";
 import { kitchenFeature } from "@/features/kitchen";
+import { labelsFeature } from "@/features/labels";
 import AvisoPage from "@/features/notifications/AvisoPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import { ordersFeature } from "@/features/orders";
@@ -147,6 +148,7 @@ const routes: RouteObject[] = [
       ...paymentsFeature.posRoutes,
       ...inventoryFeature.posRoutes,
       ...recipesFeature.posRoutes,
+      ...labelsFeature.posRoutes,
       ...kitchenFeature.posRoutes,
     ]),
   },

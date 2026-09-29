@@ -49,6 +49,7 @@ describe("formValuesToIngredientIn", () => {
       minStock: "1000",
       leadTimeDays: "",
       perishable: true,
+      openedShelfLifeDays: "",
       keyItem: false,
       consumptionUntracked: false,
       substituteIngredientId: null,
