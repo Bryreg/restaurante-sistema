@@ -21,7 +21,7 @@ function rango(s: ShiftCashSummary): string | undefined {
 }
 
 /**
- * La cabecera de Dinero › Historial: el titular, las diferencias por día y
+ * La cabecera de Cuadres (antes, de Dinero › Historial): el titular, las diferencias por día y
  * por responsable como barras divergentes (faltante rojo, sobrante ámbar,
  * cero al centro), con su tabla gemela. Mismos filtros que la tabla.
  */

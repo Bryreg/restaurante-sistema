@@ -144,6 +144,32 @@
  * - «Insumos activos» — la franja ahora dice «47 insumos activos», con la
  *   cifra adelante y en negrita, como la dibuja el handoff (pantalla 12). El
  *   dato sigue a la vista; cambió el orden de la frase.
+ *
+ * **Bajas declaradas · Cuadres como el café (decisión del dueño, 2026-09-29).**
+ * Caja › Dinero pasa a ser UNA pantalla, «Cuadres»: una tarjeta por turno con
+ * sus cuadres, desglose, movimientos y rescates. Salen de la base, a mano,
+ * cuatro entradas enteras, y entran tres nuevas con lo que las reemplaza:
+ *
+ * - `features/shifts/admin/OperationalTab.tsx` y `HistoryTab.tsx` — se
+ *   unificaron en `CuadresScreen.tsx`. «Operacional»/«Historial» (las
+ *   pestañas de `MoneyAdminPage.tsx`) pasaron a ser los filtros «Todos»,
+ *   «Cerrados», «Abiertos» y «Desde/Hasta»; `?tab=historial` abre los
+ *   cerrados. «Reintentar» y «Sin turnos para estos filtros» siguen, ahora
+ *   en `CuadresScreen.tsx`; «No se pudieron cargar los turnos» / «…el
+ *   historial» son «No se pudieron cargar los cuadres»; «Quitar el período y
+ *   ver todo el historial» sale (el período arranca en el mes y se cambia en
+ *   el mismo filtro); «Del día» y «Ahora mismo» eran rótulos de grupo, no
+ *   controles; «Sin turnos hoy en esta sede» es el mismo vacío con filtros.
+ * - `features/shifts/admin/ShiftDetailDialog.tsx` — los rescates se mudaron a
+ *   `rescates.tsx` (la tarjeta de Cuadres y la ficha del turno usan los
+ *   mismos): «Reabrir» → «Reabrir cierre», «Cierre administrativo» →
+ *   «Cerrar turno pendiente» (los nombres del café), «Reabrir este cierre» y
+ *   «Cerrar administrativamente este turno abandonado» siguen como títulos
+ *   de la confirmación, y «Cancelar»/«Volver» siguen como botones.
+ *   «Sin eventos todavía» sale con la cronología del diálogo: los
+ *   movimientos de caja y los cuadres viven en la tarjeta.
+ * - `features/shifts/EnvelopeOpeningForm.tsx` no estaba en la base; lo
+ *   reemplaza `CashOpeningForm.tsx` (la apertura sin ciegas), que entra.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

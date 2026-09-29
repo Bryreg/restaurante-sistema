@@ -502,12 +502,18 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       por mesero) son decisiones del dueño y viven en Ajustes: cuatro
       columnas de `store_sales_settings`, ninguna tabla. Se mueve sólo el
       poste de la cabeza.
+    - Con **`0034_carry_in_reversal`** la cadena llega a `"0034"` y el
+      conteo **sigue en 113**. Motivo declarado (decisión del dueño,
+      2026-09-29): «Ajustar apertura» rehace de qué días era la plata del
+      cajón, y el día que sale queda reversado con motivo (columnas de
+      `shift_carry_ins` e índice único parcial sobre las filas vivas),
+      ninguna tabla. Se mueve sólo el poste de la cabeza.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0032"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0032 "
-        "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031 "
-        "y supuestos del panel 0032)"
+    assert 'version == "0034"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0034 "
+        "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031, "
+        "supuestos del panel 0032 y reversa de los días en el cajón 0034)"
     )
     assert "len(tablas) == 113" in fuente, (
         "el conteo de tablas sigue en un número viejo: 0031 lo deja en 113 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2)"

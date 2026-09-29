@@ -170,7 +170,7 @@ export interface OpenShiftIn {
 export interface CarryCandidate {
   shift_id: number;
   business_date: string;
-  /** `null` con la apertura por sobres: se cuenta a ciegas. */
+  /** Saldo por consignar después de la cascada (desde 2026-09-29 también con la regla del cajón). */
   outstanding: number | null;
 }
 
@@ -195,10 +195,52 @@ export interface OpenShiftResult {
 // Apertura por sobres (2026-09-26)
 // ---------------------------------------------------------------------------
 
-/** Un sobre por consignar que se puede elegir al abrir: **sin monto**. */
+/**
+ * Un día con saldo por consignar que puede estar en el cajón al abrir. **Con
+ * monto** desde el 2026-09-29 (apertura «igual al café»): saldo después de la
+ * cascada, calculado por el servidor.
+ */
 export interface OpeningEnvelopeCandidate {
   shift_id: number;
   business_date: string;
+  outstanding?: number;
+}
+
+/** `POST /shifts/opening/preview` (entrada): `carried_shift_ids` ausente = todos marcados. */
+export interface OpeningPreviewIn {
+  carried_shift_ids?: number[];
+  counted?: DenominationCount;
+}
+
+export interface OpeningPreviewDay {
+  shift_id: number;
+  business_date: string;
+  outstanding: number;
+  selected: boolean;
+}
+
+/**
+ * La apertura en vivo, calculada por el servidor: «Debería haber», la
+ * diferencia, el sobrante que se consigna con el turno y si hay que
+ * justificar. `null` = todavía no se contó (nunca `0`). Esta pantalla no
+ * suma ni resta: pinta esto.
+ */
+export interface OpeningPreview {
+  mode: OpeningMode;
+  days: OpeningPreviewDay[];
+  fixed_base: number;
+  carried_total: number;
+  expected: number;
+  counted: number | null;
+  difference: number | null;
+  surplus_consignable: number | null;
+  shortage: number | null;
+  requires_justification: boolean;
+  blocks_empty: boolean;
+}
+
+export function previewOpening(body: OpeningPreviewIn): Promise<OpeningPreview> {
+  return api<OpeningPreview>("/shifts/opening/preview", { method: "POST", body });
 }
 
 /** Un sobre revelado después de sellar: lo calcula el servidor, nunca esta pantalla. */
@@ -881,14 +923,198 @@ export function adminCancelShift(shiftId: number): Promise<Record<string, unknow
   return api<Record<string, unknown>>(`/admin/shifts/${shiftId}`, { method: "DELETE" });
 }
 
+/**
+ * «Ajustar apertura» (2026-09-29, como el café). Compatible con lo de antes
+ * (`opening_cash` por denominaciones + `cash_reserve`), y además:
+ * `opening_cash_total` —el efectivo real de la registradora, el total
+ * directo— y `carried_shift_ids` —«¿de qué días era la plata del cajón?»;
+ * ausente = no se toca, una lista (aunque vacía) rehace la selección—.
+ */
 export interface AdminAdjustOpeningIn {
-  opening_cash: DenominationCount;
-  cash_reserve: number;
+  opening_cash?: DenominationCount;
+  opening_cash_total?: number;
+  cash_reserve?: number;
+  carried_shift_ids?: number[];
   reason: string;
 }
 
 export function adminAdjustOpening(shiftId: number, body: AdminAdjustOpeningIn): Promise<ShiftSummary> {
   return api<ShiftSummary>(`/admin/shifts/${shiftId}/adjust-opening`, { method: "POST", body });
+}
+
+export interface AdjustOpeningDay {
+  shift_id: number;
+  business_date: string;
+  amount: number;
+  selected: boolean;
+}
+
+/** `GET /admin/shifts/{id}/adjust-opening`: lo que necesita el formulario. */
+export interface AdjustOpeningForm {
+  shift_id: number;
+  opening_mode: OpeningMode;
+  opening_cash_total: number;
+  cash_reserve: number;
+  days: AdjustOpeningDay[];
+}
+
+export function getAdjustOpeningForm(shiftId: number): Promise<AdjustOpeningForm> {
+  return api<AdjustOpeningForm>(`/admin/shifts/${shiftId}/adjust-opening`);
+}
+
+/**
+ * La vista previa del ajuste, con la misma cuenta que lo va a guardar.
+ * `*_before`/`*_after` del cierre y de lo consignable son `null` mientras el
+ * turno no cerró con conteo (nunca `0`).
+ */
+export interface AdjustOpeningPreview {
+  opening_cash_total: number;
+  carried_total_before: number;
+  carried_total_after: number;
+  opening_expected_after: number;
+  opening_difference_after: number;
+  close_expected_before: number | null;
+  close_expected_after: number | null;
+  close_difference_before: number | null;
+  close_difference_after: number | null;
+  to_deposit_before: number | null;
+  to_deposit_after: number | null;
+}
+
+export function previewAdjustOpening(shiftId: number, body: AdminAdjustOpeningIn): Promise<AdjustOpeningPreview> {
+  return api<AdjustOpeningPreview>(`/admin/shifts/${shiftId}/adjust-opening/preview`, { method: "POST", body });
+}
+
+// ---------------------------------------------------------------------------
+// Cuadres (Caja › Dinero, como el café — 2026-09-29)
+// ---------------------------------------------------------------------------
+
+export type CuadreKind = "opening" | "handover" | "spot_check" | "close";
+export type CuadresStatus = "all" | "closed" | "open";
+
+export interface CuadreExpenseLine {
+  at: string;
+  concept: string;
+  note?: string | null;
+  amount: number;
+}
+
+/** El desglose de un cuadre, calculado por el servidor. `null` = no aplica. */
+export interface CuadreDesglose {
+  base?: number | null;
+  cash_sales?: number | null;
+  incomes?: number | null;
+  expenses?: number | null;
+  expense_lines?: CuadreExpenseLine[];
+  pickups?: number | null;
+  deposits?: number | null;
+  reserve_loan?: number | null;
+  expected?: number | null;
+  counted?: number | null;
+  difference?: number | null;
+  reserve_apart?: number | null;
+  fixed_base?: number | null;
+  carried_days?: { shift_id: number; business_date?: string | null; amount: number }[];
+  surplus_consignable?: number | null;
+  shortage?: number | null;
+}
+
+export interface Cuadre {
+  kind: CuadreKind;
+  label: string;
+  at: string;
+  employee_name?: string | null;
+  employee_id?: number | null;
+  new_responsible_name?: string | null;
+  counted?: number | null;
+  expected?: number | null;
+  difference?: number | null;
+  photo?: string | null;
+  cause?: string | null;
+  note?: string | null;
+  without_count?: boolean;
+  desglose: CuadreDesglose;
+}
+
+export interface CuadreMovement {
+  at: string;
+  direction: "in" | "out";
+  kind: string;
+  concept: string;
+  cause?: string | null;
+  supplier_name?: string | null;
+  employee_name?: string | null;
+  photo?: string | null;
+  note?: string | null;
+  /** Con signo, tal como lo manda el servidor. */
+  amount: number;
+}
+
+export interface CuadreShift {
+  shift_id: number;
+  business_date: string;
+  status: string;
+  opened_at: string;
+  closed_at?: string | null;
+  opened_by: string;
+  cash_responsible: EmployeeRef;
+  is_stale: boolean;
+  opening_mode: OpeningMode;
+  opening_cash_total: number;
+  sales_total: number;
+  sales_cash: number;
+  sales_card: number;
+  sales_transfer: number;
+  sales_other: number;
+  expected_cash?: number | null;
+  counted_cash?: number | null;
+  difference?: number | null;
+  closed_without_count: boolean;
+  to_deposit?: number | null;
+  close_photo?: string | null;
+  cuadres: Cuadre[];
+  people: { employee_id: number; name: string; in_at: string; out_at?: string | null }[];
+  movements: CuadreMovement[];
+  adjustments: number;
+}
+
+export interface CuadrePerformance {
+  employee_id?: number | null;
+  name: string;
+  cuadres: number;
+  with_difference: number;
+  diff_total: number;
+  worst_difference: number;
+}
+
+export interface CuadresResponse {
+  shifts: CuadreShift[];
+  performance: CuadrePerformance[];
+}
+
+export interface CuadresFilters {
+  storeId: number;
+  from?: string;
+  to?: string;
+  status: CuadresStatus;
+}
+
+export function listCuadres(filters: CuadresFilters): Promise<CuadresResponse> {
+  return api<CuadresResponse>("/admin/cuadres", {
+    query: { store_id: filters.storeId, from: filters.from, to: filters.to, status: filters.status },
+  });
+}
+
+/** La descarga CSV (`;`, BOM, encabezados en español) la arma el servidor. */
+export function cuadresCsvUrl(filters: CuadresFilters, exportKind: "cuadres" | "movements" | "performance"): string {
+  const params = new URLSearchParams();
+  params.set("format", "csv");
+  params.set("export", exportKind);
+  params.set("store_id", String(filters.storeId));
+  params.set("status", filters.status);
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  return `/api/v1/admin/cuadres?${params.toString()}`;
 }
 
 export interface BusinessDayListItem {

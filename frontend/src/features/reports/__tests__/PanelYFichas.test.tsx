@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ShiftRecordOut, StorePanelOut } from "@/api/panel"
 import { buildMe, renderWithProviders } from "@/test/utils"
 
-import { OperationalTab } from "@/features/shifts/admin/OperationalTab"
 
 import { FichaTurno } from "../fichas/FichaTurno"
 import { PanelAhora } from "../PanelAhora"
@@ -260,34 +259,6 @@ describe("Hoy y el turno abierto de otro día", () => {
     expect(within(salidas).getByRole("link", { name: /Ficha de Operador/ })).toHaveAttribute("href", "/admin/personal/persona/3")
     // La notificación del servidor no se repite al lado del aviso directo.
     expect(screen.queryByText("Turno sin cerrar")).not.toBeInTheDocument()
-  })
-})
-
-describe("Dinero › Operacional", () => {
-  it("pide también los turnos abiertos de otros días y marca abandonado e inactivo", async () => {
-    listAdminShiftsMock.mockResolvedValue([
-      {
-        id: 7,
-        business_date: "2026-09-16",
-        store_id: 1,
-        status: "open",
-        opened_at: "2026-09-16T14:00:00Z",
-        cash_responsible: { id: 3, name: "Operador 1" },
-        cash_responsible_active: false,
-        expected_cash: 480_000,
-        counted_cash: null,
-        difference: null,
-        is_stale: true,
-      },
-    ])
-
-    renderWithProviders(<OperationalTab storeId={1} />, { me: buildMe() })
-
-    expect(await screen.findByText(/Abandonado · /)).toBeInTheDocument()
-    expect(listAdminShiftsMock).toHaveBeenCalledWith(expect.objectContaining({ storeId: 1, includeOpen: true }))
-    expect(screen.getByText("inactivo")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Operador 1" })).toHaveAttribute("href", "/admin/personal/persona/3")
-    expect(screen.getByRole("link", { name: "Ficha" })).toHaveAttribute("href", "/admin/dinero/turno/7")
   })
 })
 

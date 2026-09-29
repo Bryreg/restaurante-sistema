@@ -533,6 +533,16 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     quemadas en el código: son cuatro columnas de `store_sales_settings`,
     ninguna tabla. Se mueve sólo el poste de la cabeza; la igualdad sigue
     exacta.
+
+    **Re-apuntado con la reversa de «qué días estaban en el cajón»**
+    (`0034_carry_in_reversal`, decisión del dueño 2026-09-29): la cabeza pasa
+    a **`0034`** y el conteo **sigue en 113**. Motivo declarado: «Ajustar
+    apertura» como el café deja rehacer de qué días era la plata del cajón, y
+    como nada se borra, el día que sale de la selección queda reversado con
+    motivo y quién (cuatro columnas de `shift_carry_ins`) y la unicidad pasa a
+    ser sobre las filas vivas (índice único parcial). Ninguna tabla. Cuelga de
+    `0032` porque `0033`/`0035` nacen en paralelo; al integrar se re-encadena
+    y el poste se mueve con su motivo.
     """
     from sqlalchemy import text
 
@@ -544,12 +554,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0032", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0032: 0027 → 0028 (asistencia separada del turno de caja) "
+    assert version == "0034", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0034: 0027 → 0028 (asistencia separada del turno de caja) "
         "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo) "
-        "→ 0031 (avisos al celular) → 0032 (supuestos del panel). "
+        "→ 0031 (avisos al celular) → 0032 (supuestos del panel) → 0034 (reversa de los días en el cajón). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031 y 0032"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032 y 0034"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}

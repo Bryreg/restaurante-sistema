@@ -7,12 +7,14 @@ define `features/fase-1a-cimientos/spec.md` (contrato de API vinculante).
 
 from __future__ import annotations
 
+import csv
+import io
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -26,11 +28,17 @@ from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.shifts import hooks as shifts_hooks, reserve as reserve_service, service, tips as tips_service
+from app.shifts import cuadres as cuadres_service, hooks as shifts_hooks, reserve as reserve_service, service, tips as tips_service
 from app.shifts.models import BusinessDay, CashMovement, CashPickup, CashSwap, HandoverKind, Shift, ShiftHandover, ShiftStatus
 from app.shifts.schemas import (
     ShiftCashSummaryOut,
     AdminAdjustOpeningIn,
+    AdjustOpeningCandidatesOut,
+    AdjustOpeningDayOut,
+    AdjustOpeningPreviewOut,
+    CuadresOut,
+    OpeningPreviewIn,
+    OpeningPreviewOut,
     AdminCloseAdministrativeIn,
     AdminReopenIn,
     AdminReviewIn,
@@ -349,8 +357,9 @@ def get_current(actor: Actor = Depends(current_device), db: Session = Depends(ge
 class CarryCandidateOut(BaseModel):
     shift_id: int
     business_date: date
-    # `None` con la apertura por sobres: ahí cada sobre se cuenta a ciegas y
-    # su saldo se revela recién al sellar (`POST /shifts/opening-counts`).
+    # Con monto también con la regla del cajón desde el 2026-09-29 (apertura
+    # «igual al café»: quien abre ve cuánto debería haber). Saldo después
+    # de la cascada (`app.banking.hooks.store_balances`).
     outstanding: int | None
 
 
@@ -363,11 +372,8 @@ def get_carry_candidates(actor: Actor = Depends(current_device), db: Session = D
     store = _store_of(db, actor)
     if not features.is_enabled(db, store.organization_id, store.id, "money.deposits"):
         return []
-    blind = service.opening_mode_of(db, store) == service.ENVELOPES
     return [
-        CarryCandidateOut(
-            shift_id=p.shift_id, business_date=p.business_date, outstanding=None if blind else p.outstanding
-        )
+        CarryCandidateOut(shift_id=p.shift_id, business_date=p.business_date, outstanding=p.outstanding)
         for p in banking_hooks.pending_shifts(db, organization_id=store.organization_id, store_id=store.id)
     ]
 
@@ -375,15 +381,17 @@ def get_carry_candidates(actor: Actor = Depends(current_device), db: Session = D
 @router.get("/shifts/opening")
 def get_opening_info(actor: Actor = Depends(current_device), db: Session = Depends(get_db)) -> OpeningInfoOut:
     """Lo que necesita la pantalla de apertura: la regla de la sede, los
-    sobres por consignar que se pueden elegir (**sólo la fecha**: se cuentan
-    a ciegas) y un conteo ya sellado sin usar, para retomar."""
+    días por consignar que pueden estar en el cajón **con su saldo** (desde
+    el 2026-09-29 la apertura es «igual al café»: se ve cuánto debería
+    haber; todos arrancan marcados) y un conteo por sobres ya sellado sin
+    usar, de la regla anterior, para retomarlo."""
     store = _store_of(db, actor)
     mode = service.opening_mode_of(db, store)
     envelopes: list[OpeningEnvelopeCandidateOut] = []
     pending: OpeningCountOut | None = None
     if mode == service.ENVELOPES:
         envelopes = [
-            OpeningEnvelopeCandidateOut(shift_id=p.shift_id, business_date=p.business_date)
+            OpeningEnvelopeCandidateOut(shift_id=p.shift_id, business_date=p.business_date, outstanding=p.outstanding)
             for p in service.opening_envelope_candidates(db, store=store)
         ]
         count = service.pending_opening_count(db, store=store)
@@ -395,6 +403,23 @@ def get_opening_info(actor: Actor = Depends(current_device), db: Session = Depen
         envelopes=envelopes,
         pending_count=pending,
         reserve_available=reserve_on and reserve_service.reserve_amount(db, store.id) > 0,
+    )
+
+
+@router.post("/shifts/opening/preview")
+def post_opening_preview(
+    payload: OpeningPreviewIn, actor: Actor = Depends(current_operator), db: Session = Depends(get_db)
+) -> OpeningPreviewOut:
+    """La apertura en vivo (2026-09-29, «igual al café»): con los días
+    marcados y lo contado, «Debería haber», la diferencia, el sobrante que
+    se consigna con el turno y si hace falta justificar. No escribe nada; la
+    pantalla pinta esto y no suma ni resta."""
+    store = _store_of(db, actor)
+    shifts_hooks.require_cash_permission(db, actor=actor, shift=None)
+    return OpeningPreviewOut(
+        **service.opening_preview(
+            db, store=store, carried_shift_ids=payload.carried_shift_ids, counted=payload.counted
+        )
     )
 
 
@@ -906,15 +931,85 @@ def admin_delete_shift(shift_id: int, actor: Actor = Depends(current_admin), db:
     return {"id": shift.id, "status": shift.status}
 
 
+@router.get("/admin/shifts/{shift_id}/adjust-opening")
+def admin_adjust_opening_form(
+    shift_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> AdjustOpeningCandidatesOut:
+    """Lo que necesita «Ajustar apertura»: el efectivo que quedó registrado y
+    «¿de qué días era la plata que había en el cajón?» (los marcados y los
+    que se pueden marcar)."""
+    shift = _admin_get_shift(db, actor, shift_id)
+    return AdjustOpeningCandidatesOut(
+        shift_id=shift.id,
+        opening_mode=_opening_mode(shift),
+        opening_cash_total=shift.opening_cash_total,
+        cash_reserve=shift.cash_reserve,
+        days=[AdjustOpeningDayOut(**d) for d in service.adjust_opening_days(db, shift)],
+    )
+
+
+@router.post("/admin/shifts/{shift_id}/adjust-opening/preview")
+def admin_adjust_opening_preview(
+    shift_id: int, payload: AdminAdjustOpeningIn, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> AdjustOpeningPreviewOut:
+    """«Va a quedar esperando $X de días anteriores / consignable queda en
+    $Y», con la misma cuenta que va a guardar el ajuste. No escribe nada."""
+    shift = _admin_get_shift(db, actor, shift_id)
+    return AdjustOpeningPreviewOut(**service.adjust_opening_preview(db, shift=shift, payload=payload))
+
+
 @router.post("/admin/shifts/{shift_id}/adjust-opening")
 def admin_adjust_opening(
     shift_id: int, payload: AdminAdjustOpeningIn, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
 ) -> ShiftSummaryOut:
     shift = _admin_get_shift(db, actor, shift_id)
-    service.adjust_opening(
-        db, actor=actor, shift=shift, opening_cash=payload.opening_cash, cash_reserve=payload.cash_reserve, reason=payload.reason
-    )
+    service.adjust_opening(db, actor=actor, shift=shift, payload=payload)
     return _shift_summary(db, shift, actor)
+
+
+def _csv_es(rows: list[dict[str, Any]], filename: str) -> Response:
+    """CSV para abrir con doble clic en Excel en español: `;` como
+    separador, BOM UTF-8 y encabezados en español (las filas ya vienen con
+    ellos)."""
+    buffer = io.StringIO()
+    if rows:
+        writer = csv.DictWriter(buffer, fieldnames=list(rows[0].keys()), delimiter=";", extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    return Response(
+        content="\ufeff" + buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/admin/cuadres")
+def admin_cuadres(
+    store_id: int,
+    date_from: date | None = Query(None, alias="from"),
+    date_to: date | None = Query(None, alias="to"),
+    status: str = Query("all", description="all | closed | open"),
+    format: str | None = Query(None, description='"csv" descarga la planilla'),
+    export: str = Query("cuadres", description="Con format=csv: cuadres | movements | performance"),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> Any:
+    """**Cuadres** (Caja › Dinero, como el café, 2026-09-29): una tarjeta
+    por turno con sus cuadres (Inicial, Relevo, Arqueo, Cierre) y el
+    desglose de cada uno, quién estuvo, los movimientos de caja y el
+    desempeño por responsable. Todo calculado acá. Con `format=csv`, la
+    planilla de cuadres, de movimientos o de desempeño."""
+    store = admin_store(db, actor, store_id)
+    if status not in cuadres_service.STATUS_FILTERS:
+        raise AppError("INVALID_STATUS_FILTER", "Elegí Todos, Cerrados o Abiertos", status=400)
+    body = cuadres_service.list_cuadres(db, store=store, date_from=date_from, date_to=date_to, status=status)
+    if format == "csv":
+        if export == "movements":
+            return _csv_es(cuadres_service.movements_csv_rows(body["shifts"]), "movimientos-de-caja.csv")
+        if export == "performance":
+            return _csv_es(cuadres_service.performance_csv_rows(body["performance"]), "desempeno-por-responsable.csv")
+        return _csv_es(cuadres_service.cuadres_csv_rows(body["shifts"]), "cuadres.csv")
+    return CuadresOut(**body)
 
 
 @router.get("/admin/business-days")

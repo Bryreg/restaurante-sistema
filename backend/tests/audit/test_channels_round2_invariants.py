@@ -78,10 +78,20 @@ PHOTO = "data:image/png;base64,AAAA"
 #: préstamo sin devolver resta de lo que se consigna, porque vuelve a la
 #: base, no al banco (es la resta que el café no hizo: $697.900 en vez de
 #: $197.900).
+#:
+#: **Movida otra vez a propósito el 2026-09-29, por decisión del dueño**
+#: (apertura «igual al café», `docs/SPEC-NEGOCIO.md` §3.2): quien abre ve
+#: cuánto debería haber y cuenta el cajón entero; el sobrante al abrir se
+#: consigna con el turno (ya está en lo contado, no necesita término) y el
+#: FALTANTE al abrir queda como novedad justificada —los días anteriores lo
+#: siguen pidiendo entero—, así que vuelve a sumar: `+ opening_shortfall(shift)`
+#: (`max(0, opening_expected − opening_cash_total)`, `0` para los turnos
+#: anteriores a la regla, cuya cuenta no se reescribe). Ninguno es de
+#: domicilios ni de propinas; el esperado no se toca.
 EXPECTED_FORMULA = "expected = base + sales.cash + incomes - expenses - pickups - deposits + reserve_loan"
 TO_DEPOSIT_FORMULA = (
     "to_deposit = count.counted_cash_total - shift.opening_fixed_base - (count.tips_cash_out or 0)"
-    " - carried_still_in_drawer(db, shift) - reserve.loan_outstanding(db, shift.id)"
+    " - carried_still_in_drawer(db, shift) - reserve.loan_outstanding(db, shift.id) + opening_shortfall(shift)"
 )
 
 

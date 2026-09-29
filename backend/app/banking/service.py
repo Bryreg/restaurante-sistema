@@ -23,7 +23,7 @@ se alcanzó a `db.add()` sobrevive a un error de negocio a mitad de camino —
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
@@ -189,9 +189,20 @@ def _validate_allocations(
     # Orden determinístico de bloqueo (por `shift_id`): dos consignaciones
     # concurrentes que imputan turnos en distinto orden podrían generar un
     # deadlock en Postgres si no se bloquean siempre en el mismo orden.
-    for line in sorted(allocations, key=lambda x: x.shift_id):
-        shift = _closed_shift_for_update(db, organization_id=organization_id, store_id=store_id, shift_id=line.shift_id)
-        outstanding = shift.to_deposit - _allocated_live_for_shift(db, shift.id)  # type: ignore[operator]
+    shifts = [
+        _closed_shift_for_update(db, organization_id=organization_id, store_id=store_id, shift_id=line.shift_id)
+        for line in sorted(allocations, key=lambda x: x.shift_id)
+    ]
+    # El techo es el saldo DESPUÉS de la cascada (decisión del dueño,
+    # 2026-09-29): si un turno más nuevo pagó con plata de éste, lo que queda
+    # por consignar de éste es menos que su `to_deposit`. La misma cuenta
+    # que publica la lista de pendientes (`banking_hooks.store_balances`).
+    balances = banking_hooks.balances_by_shift(db, organization_id=organization_id, store_id=store_id)
+    by_id = {line.shift_id: line for line in allocations}
+    for shift in shifts:
+        line = by_id[shift.id]
+        balance = balances.get(shift.id)
+        outstanding = balance.outstanding if balance is not None else 0
         if line.amount > outstanding:
             raise AppError(
                 code="DEPOSIT_EXCEEDS_PENDING",
@@ -577,6 +588,9 @@ class PendingDepositRow:
     reason: str | None
     deposited: int
     outstanding: int | None
+    covered: list[dict[str, Any]] = field(default_factory=list)
+    covered_by: list[dict[str, Any]] = field(default_factory=list)
+    uncovered_shortfall: int = 0
 
 
 def pending_deposits(db: Session, *, store: Store, date_from: date, date_to: date) -> list[PendingDepositRow]:
@@ -593,6 +607,7 @@ def pending_deposits(db: Session, *, store: Store, date_from: date, date_to: dat
         .order_by(BusinessDay.business_date, Shift.id)
     ).all()
 
+    balances = banking_hooks.balances_by_shift(db, organization_id=store.organization_id, store_id=store.id)
     out: list[PendingDepositRow] = []
     for shift, business_date in rows:
         deposited = _allocated_live_for_shift(db, shift.id)
@@ -623,6 +638,7 @@ def pending_deposits(db: Session, *, store: Store, date_from: date, date_to: dat
                 )
             )
         else:
+            balance = balances.get(shift.id)
             out.append(
                 PendingDepositRow(
                     shift_id=shift.id,
@@ -630,10 +646,19 @@ def pending_deposits(db: Session, *, store: Store, date_from: date, date_to: dat
                     to_deposit=shift.to_deposit,
                     reason=None,
                     deposited=deposited,
-                    outstanding=shift.to_deposit - deposited,
+                    # Después de la cascada: nunca negativo; lo que este turno
+                    # le tapó a otro y lo que otro le tapó a él viajan aparte.
+                    outstanding=balance.outstanding if balance is not None else shift.to_deposit - deposited,
+                    covered=[_link(link) for link in balance.covered] if balance is not None else [],
+                    covered_by=[_link(link) for link in balance.covered_by] if balance is not None else [],
+                    uncovered_shortfall=balance.uncovered_shortfall if balance is not None else 0,
                 )
             )
     return out
+
+
+def _link(link: banking_hooks.CascadeLink) -> dict[str, Any]:
+    return {"shift_id": link.shift_id, "business_date": link.business_date, "amount": link.amount}
 
 
 # ---------------------------------------------------------------------------
@@ -950,24 +975,10 @@ def _oldest_undeposited(db: Session, *, store: Store, date_to: date) -> tuple[da
     turno (`CashPickup`) no se imputan a una consignación, así que no tienen
     antigüedad medible y no entran; los cierres sin conteo tampoco (su
     `to_deposit` no es un arqueo). `(None, None)` si no queda nada."""
-    rows = db.execute(
-        select(Shift, BusinessDay.business_date)
-        .join(BusinessDay, BusinessDay.id == Shift.business_day_id)
-        .where(
-            Shift.organization_id == store.organization_id,
-            Shift.store_id == store.id,
-            Shift.status == ShiftStatus.CLOSED,
-            Shift.closed_without_count.is_(False),
-            Shift.to_deposit.is_not(None),
-            Shift.to_deposit > 0,
-            BusinessDay.business_date <= date_to,
-        )
-        .order_by(BusinessDay.business_date, Shift.id)
-    ).all()
-    for shift, business_date in rows:
-        if (shift.to_deposit or 0) - _allocated_live_for_shift(db, shift.id) > 0:
+    for pending in banking_hooks.pending_shifts(db, organization_id=store.organization_id, store_id=store.id):
+        if pending.business_date <= date_to:
             today = tz.today_business_date(store.cutoff_hour)
-            return business_date, max((today - business_date).days, 0)
+            return pending.business_date, max((today - pending.business_date).days, 0)
     return None, None
 
 

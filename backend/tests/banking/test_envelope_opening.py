@@ -1,5 +1,14 @@
 """El cajón abre SÓLO con los sobres por consignar (decisión del dueño, 2026-09-26).
 
+**Movido a propósito el 2026-09-29, por decisión del dueño** (apertura «igual
+al café», `docs/SPEC-NEGOCIO.md` §3.2): la apertura deja de ser a ciegas —quien
+abre ve cuánto debería haber, con todos los días marcados, y cuenta el cajón
+entero una vez (`tests/banking/test_opening_like_cafe.py`)—. Dos aserciones de
+acá cambian con esa decisión y se dicen en su test: los días ahora se listan
+CON su saldo, y la plata suelta sin días marcados ya no se rechaza como «sin
+conteo de sobres» sino como sobrante que pide causa y motivo. El conteo por
+sobres ya sellado sigue abriendo por su camino: lo cobran los demás tests.
+
 Lo que cobran estos tests, todo por HTTP:
 
 - con la regla de sobres, la apertura lista los sobres **sin monto** (a
@@ -63,9 +72,12 @@ def _open(device_client: TestClient, who: Employee, **extra: Any) -> Any:
     )
 
 
-def test_the_opening_lists_the_envelopes_by_date_and_never_their_amount(
+def test_the_opening_lists_the_days_by_date_with_their_amount(
     db: Session, device_client: TestClient, open_shift: Any, close_shift: Any, store: Any
 ) -> None:
+    """Antes: «sin monto, a ciegas». Movido el 2026-09-29 por decisión del
+    dueño (apertura «igual al café»): quien abre ve «Debería haber en la
+    registradora», así que cada día viaja con su saldo por consignar."""
     ayer = _yesterday_with(open_shift, close_shift, 50_000)
     _envelopes_mode(db, store)
 
@@ -73,11 +85,10 @@ def test_the_opening_lists_the_envelopes_by_date_and_never_their_amount(
     assert info.status_code == 200, info.text
     body = info.json()
     assert body["mode"] == "envelopes"
-    assert [e["shift_id"] for e in body["envelopes"]] == [ayer]
-    assert set(body["envelopes"][0]) == {"shift_id", "business_date"}, "el sobre se cuenta a ciegas: sin monto"
+    assert [(e["shift_id"], e["outstanding"]) for e in body["envelopes"]] == [(ayer, 50_000)]
 
     candidates = device_client.get(f"{API}/shifts/carry-candidates").json()
-    assert [(c["shift_id"], c["outstanding"]) for c in candidates] == [(ayer, None)]
+    assert [(c["shift_id"], c["outstanding"]) for c in candidates] == [(ayer, 50_000)]
 
 
 def test_sealing_reveals_the_difference_of_each_envelope_attributed_to_who_counted(
@@ -177,16 +188,20 @@ def test_a_shift_opened_with_the_fixed_base_keeps_it_after_the_store_switches(
     assert body["to_deposit"] == 40_000, "la regla del turno se congeló al abrir: la base fija sigue restando"
 
 
-def test_without_envelopes_the_drawer_opens_empty_and_loose_cash_is_rejected(
+def test_without_envelopes_the_drawer_opens_empty_and_loose_cash_needs_a_justification(
     db: Session, device_client: TestClient, identify: Any, employees: dict, store: Any
 ) -> None:
+    """Antes la plata suelta se rechazaba con `OPENING_COUNT_REQUIRED`.
+    Movido el 2026-09-29 por decisión del dueño (apertura «igual al café»):
+    contar plata que no es de ningún día marcado es un SOBRANTE —se consigna
+    con el turno— y pide causa y motivo como cualquier diferencia."""
     _envelopes_mode(db, store)
     cashier = employees["cashier"]
     identify(device_client, cashier)
 
     con_base = _open(device_client, cashier, opening_cash=denoms(BASE))
     assert con_base.status_code == 400
-    assert con_base.json()["error"]["code"] == "OPENING_COUNT_REQUIRED"
+    assert con_base.json()["error"]["code"] == "OPENING_DIFFERENCE_NEEDS_CAUSE"
     assert shifts_service.get_current_shift(db, store=store) is None
 
     vacio = _open(device_client, cashier)

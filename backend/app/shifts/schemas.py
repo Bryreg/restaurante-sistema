@@ -173,11 +173,60 @@ class OpeningCountOut(BaseModel):
 
 
 class OpeningEnvelopeCandidateOut(BaseModel):
-    """Un sobre por consignar que se puede elegir al abrir. **Sin monto**:
-    se cuenta a ciegas."""
+    """Un día con saldo por consignar que puede estar en el cajón al abrir.
+
+    **Con monto desde el 2026-09-29** (decisión del dueño, «igual al café»):
+    la apertura ya no es a ciegas. Quien abre ve «Debería haber en la
+    registradora» —la suma de los días que están en el cajón, que calcula el
+    servidor— y cuenta el cajón entero una vez. `outstanding` es el saldo del
+    día después de la cascada (`app.banking.hooks.store_balances`)."""
 
     shift_id: int
     business_date: date
+    outstanding: int
+
+
+class OpeningPreviewIn(BaseModel):
+    """`POST /shifts/opening/preview`: los días marcados y, si ya contó, lo
+    contado. `carried_shift_ids = None` = todos los días pendientes marcados
+    (la pantalla arranca así: si no se consignó, la plata debería estar)."""
+
+    carried_shift_ids: list[int] | None = None
+    counted: DenominationCountIn | None = None
+
+
+class OpeningPreviewDayOut(BaseModel):
+    shift_id: int
+    business_date: date
+    outstanding: int
+    selected: bool
+
+
+class OpeningPreviewOut(BaseModel):
+    """Lo que la pantalla de apertura muestra EN VIVO, calculado acá una vez:
+    «Debería haber», lo contado y la diferencia. La pantalla no suma ni resta.
+
+    - `expected`: base fija de la sede (0 con la regla del cajón) + la suma de
+      los días marcados.
+    - `difference`: contado − esperado; `None` mientras no se contó.
+    - `surplus_consignable`: el sobrante al abrir se consigna con este turno
+      (`max(0, diferencia)`, como el café); `None` sin conteo.
+    - `shortage`: el faltante al abrir, que queda como novedad justificada.
+    - `requires_justification`: la diferencia no es cero → causa y nota.
+    - `blocks_empty`: debería haber plata y lo contado es $0 → no se abre.
+    """
+
+    mode: OpeningModeLiteral
+    days: list[OpeningPreviewDayOut]
+    fixed_base: int
+    carried_total: int
+    expected: int
+    counted: int | None
+    difference: int | None
+    surplus_consignable: int | None
+    shortage: int | None
+    requires_justification: bool
+    blocks_empty: bool
 
 
 class OpeningInfoOut(BaseModel):
@@ -647,9 +696,65 @@ class AdminReopenIn(BaseModel):
 
 
 class AdminAdjustOpeningIn(BaseModel):
-    opening_cash: DenominationCountIn
+    """`POST /admin/shifts/{id}/adjust-opening` (y su vista previa).
+
+    Compatible con lo de antes (`opening_cash` por denominaciones +
+    `cash_reserve`) y, desde el 2026-09-29 («Ajustar apertura» como el café):
+
+    - `opening_cash_total`: el efectivo real de la registradora, **el total**
+      directo, sin teclear denominaciones.
+    - `carried_shift_ids`: «¿De qué días era la plata que había en el
+      cajón?». `None` = no se toca la selección; una lista —aunque esté
+      vacía— la REHACE, con la misma validación del servidor que al abrir.
+    - `cash_reserve`: `None` = no se toca (con la regla del cajón no existe).
+
+    Sin `opening_cash` ni `opening_cash_total`, el total no cambia.
+    """
+
+    opening_cash: DenominationCountIn | None = None
+    opening_cash_total: int | None = Field(default=None, ge=0)
+    cash_reserve: int | None = Field(default=None, ge=0)
+    carried_shift_ids: list[int] | None = None
+    reason: str = ""
+
+
+class AdjustOpeningDayOut(BaseModel):
+    shift_id: int
+    business_date: date
+    # Con lo que entra a la cuenta: el saldo que el día tenía cuando se
+    # marcó (si ya estaba marcado) o su saldo por consignar de hoy.
+    amount: int
+    selected: bool
+
+
+class AdjustOpeningCandidatesOut(BaseModel):
+    """`GET /admin/shifts/{id}/adjust-opening`: lo que el formulario necesita."""
+
+    shift_id: int
+    opening_mode: OpeningModeLiteral
+    opening_cash_total: int
     cash_reserve: int
-    reason: str
+    days: list[AdjustOpeningDayOut]
+
+
+class AdjustOpeningPreviewOut(BaseModel):
+    """«Va a quedar esperando $X de días anteriores / consignable queda en $Y»,
+    calculado con la misma cuenta que va a guardar el ajuste.
+
+    `to_deposit_*` y `close_*` son `None` mientras el turno no cerró con
+    conteo: no hay consignable todavía (nunca `0`)."""
+
+    opening_cash_total: int
+    carried_total_before: int
+    carried_total_after: int
+    opening_expected_after: int
+    opening_difference_after: int
+    close_expected_before: int | None
+    close_expected_after: int | None
+    close_difference_before: int | None
+    close_difference_after: int | None
+    to_deposit_before: int | None
+    to_deposit_after: int | None
 
 
 class BusinessDayListItem(BaseModel):
@@ -946,3 +1051,125 @@ class AdminReserveOut(BaseModel):
     loans_outstanding: int
     open_loans: list[ReserveOpenLoanOut]
     checks: list[ReserveCheckOut]
+
+
+# ---------------------------------------------------------------------------
+# Cuadres (Caja › Dinero, como el café — decisión del dueño 2026-09-29)
+# ---------------------------------------------------------------------------
+
+
+class CuadreExpenseLineOut(BaseModel):
+    at: datetime
+    concept: str
+    note: str | None = None
+    amount: int
+
+
+class CarriedDayOut(BaseModel):
+    shift_id: int
+    business_date: date | None = None
+    amount: int
+
+
+class CuadreDesgloseOut(BaseModel):
+    """El desglose de un cuadre, calculado por el servidor. Para «Inicial»
+    viajan `fixed_base`/`carried_days`/`surplus_consignable`/`shortage`;
+    para relevo, arqueo y cierre, la ecuación del esperado con las salidas
+    una por una. `None` = no aplica (nunca `0`)."""
+
+    base: int | None = None
+    cash_sales: int | None = None
+    incomes: int | None = None
+    expenses: int | None = None
+    expense_lines: list[CuadreExpenseLineOut] = Field(default_factory=list)
+    pickups: int | None = None
+    deposits: int | None = None
+    reserve_loan: int | None = None
+    expected: int | None = None
+    counted: int | None = None
+    difference: int | None = None
+    reserve_apart: int | None = None
+    fixed_base: int | None = None
+    carried_days: list[CarriedDayOut] = Field(default_factory=list)
+    surplus_consignable: int | None = None
+    shortage: int | None = None
+
+
+class CuadreOut(BaseModel):
+    kind: Literal["opening", "handover", "spot_check", "close"]
+    label: str
+    at: datetime
+    employee_name: str | None = None
+    employee_id: int | None = None
+    new_responsible_name: str | None = None
+    counted: int | None = None
+    expected: int | None = None
+    difference: int | None = None
+    photo: str | None = None
+    cause: str | None = None
+    note: str | None = None
+    without_count: bool = False
+    desglose: CuadreDesgloseOut
+
+
+class CuadrePersonOut(BaseModel):
+    employee_id: int
+    name: str
+    in_at: datetime
+    out_at: datetime | None = None
+
+
+class CuadreMovementOut(BaseModel):
+    at: datetime
+    direction: Literal["in", "out"]
+    kind: str
+    concept: str
+    cause: str | None = None
+    supplier_name: str | None = None
+    employee_name: str | None = None
+    photo: str | None = None
+    note: str | None = None
+    # Con signo: positivo entra al cajón, negativo sale.
+    amount: int
+
+
+class CuadreShiftOut(BaseModel):
+    shift_id: int
+    business_date: date
+    status: str
+    opened_at: datetime
+    closed_at: datetime | None = None
+    opened_by: str
+    cash_responsible: EmployeeRef
+    is_stale: bool
+    opening_mode: OpeningModeLiteral
+    opening_cash_total: int
+    sales_total: int
+    sales_cash: int
+    sales_card: int
+    sales_transfer: int
+    sales_other: int
+    expected_cash: int | None = None
+    counted_cash: int | None = None
+    difference: int | None = None
+    closed_without_count: bool
+    to_deposit: int | None = None
+    close_photo: str | None = None
+    cuadres: list[CuadreOut]
+    people: list[CuadrePersonOut]
+    movements: list[CuadreMovementOut]
+    adjustments: int
+
+
+class CuadrePerformanceOut(BaseModel):
+    employee_id: int | None = None
+    name: str
+    cuadres: int
+    with_difference: int
+    diff_total: int
+    worst_difference: int
+
+
+class CuadresOut(BaseModel):
+    shifts: list[CuadreShiftOut]
+    performance: list[CuadrePerformanceOut]

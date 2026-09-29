@@ -195,6 +195,14 @@ class Shift(Base):
     # el sumando que resta `to_deposit` (`service._finalize_close`); antes se
     # leía de la sede en vivo.
     opening_fixed_base: Mapped[int] = mapped_column(sa.Integer, default=0, server_default="0")
+    # **Lo que debería haber en el cajón al abrir** (0034, decisión del dueño
+    # 2026-09-29, apertura «igual al café»): la base fija congelada más la
+    # suma de los días por consignar que quien abrió dejó marcados, calculada
+    # por el servidor. `None` en los turnos anteriores a la regla: su cuenta
+    # no se reescribe. Con valor, el faltante al abrir
+    # (`service.opening_shortfall`) queda como novedad justificada y NO sale
+    # de lo que este turno consigna; el sobrante entra solo, porque se contó.
+    opening_expected: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
 
     # Marca por defecto el turno cuya hora de cierre es la última del horario
     # de la sede; lo decide quien confirma el cierre (`close/confirm`).
@@ -577,8 +585,27 @@ class ShiftCarryIn(Base):
     amount: Mapped[int] = mapped_column(sa.Integer)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
+    # **Reversa con motivo, nunca se borra** (0034, decisión del dueño
+    # 2026-09-29): el administrador rehace «¿de qué días era la plata que
+    # había en el cajón?» (`service.adjust_opening`). Un día que sale de la
+    # selección queda reversado —con quién, cuándo y por qué— y deja de
+    # contar (`hooks.carried_into` sólo lee las vivas); uno que entra es una
+    # fila nueva. Por eso la unicidad «un día una vez por turno» es sobre las
+    # filas VIVAS (índice único parcial), no sobre toda la historia.
+    reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    reversed_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    reversed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    reversed_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
     __table_args__ = (
-        UniqueConstraint("shift_id", "source_shift_id", name="uq_shift_carry_ins_shift_source"),
+        Index(
+            "uq_shift_carry_ins_live_shift_source",
+            "shift_id",
+            "source_shift_id",
+            unique=True,
+            postgresql_where=sa.text("reversed_at IS NULL"),
+            sqlite_where=sa.text("reversed_at IS NULL"),
+        ),
         CheckConstraint("amount > 0", name="ck_shift_carry_ins_amount_positive"),
         CheckConstraint("shift_id <> source_shift_id", name="ck_shift_carry_ins_not_self"),
     )
