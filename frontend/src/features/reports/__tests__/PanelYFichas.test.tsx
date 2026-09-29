@@ -197,7 +197,7 @@ describe("PanelAhora (la portada)", () => {
 })
 
 describe("Hoy y el turno abierto de otro día", () => {
-  it("el turno abandonado es un aviso crítico que lleva a su ficha, y la tarjeta del esperado lo dice", async () => {
+  it("el turno abandonado es un aviso crítico que lleva a su ficha (la tarjeta del esperado salió de Hoy, 2026-09-29)", async () => {
     getPanelMock.mockResolvedValue({ scope: "store", generated_at: "2026-09-26T15:00:00Z", stores: [storePanel()] })
     getTodayMock.mockResolvedValue({
       store_id: 1,
@@ -424,7 +424,10 @@ describe("Hoy sin turno abierto", () => {
     getPanelMock.mockResolvedValue({ scope: "store", generated_at: "2026-09-26T03:00:00Z", stores: [] })
     getTodayMock.mockResolvedValue({ ...base, store_closed: true })
     const { unmount } = renderWithProviders(<TodayPage />, { me: buildMe() })
-    expect(await screen.findByText(/la sede está cerrada: no hay turno de caja/)).toBeInTheDocument()
+    // Cambio intencional (2026-09-29): la tarjeta «Efectivo esperado» salió
+    // de Hoy; lo dice el aviso del riel, en calma: «para cuando puedas»,
+    // plegado y sin urgencia.
+    expect(await screen.findByText(/sin urgencia/)).toBeInTheDocument()
     expect(screen.queryByText(/Hay actividad sin turno de caja/)).not.toBeInTheDocument()
     unmount()
 

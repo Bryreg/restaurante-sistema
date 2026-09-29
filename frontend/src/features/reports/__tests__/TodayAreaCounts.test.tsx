@@ -1,13 +1,17 @@
 /**
  * Hoy · «Conteo por área» (`inventory.shift_counts`). Lo que no se negocia:
  *
- * - con la función apagada no hay tarjeta ni aviso;
- * - un área sin conteo de apertura va en rojo y el aviso dice que no bloquea;
+ * - con la función apagada no hay aviso;
+ * - un área sin conteo de apertura es un aviso que dice que no bloquea;
  * - cada artículo fuera del umbral es un aviso que dice si fue de noche o en
  *   el turno, con la plata y la cantidad TAL COMO las manda el servidor, y
  *   lleva al detalle del conteo;
- * - un recuento dentro del umbral no es aviso, pero la tarjeta muestra su
- *   respuesta.
+ * - un recuento dentro del umbral no es aviso.
+ *
+ * Cambio intencional (decisión del dueño, 2026-09-29): la tarjeta «Conteo
+ * por área» salió de Hoy (Hoy muestra sólo venta, cifras, ventas por hora,
+ * top productos, entradas de mercancía y los avisos). El conteo sigue en
+ * Inventario › Conteo por área; en Hoy quedan sus avisos del riel.
  */
 import { screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
@@ -86,7 +90,7 @@ describe("TodayPage · Conteo por área", () => {
     expect(screen.queryByText(/sin conteo de apertura/)).not.toBeInTheDocument()
   })
 
-  it("dice qué áreas contaron, en rojo la que no, y un aviso por artículo fuera del umbral", async () => {
+  it("un aviso por el área sin apertura y uno por artículo fuera del umbral; la tarjeta ya no está en Hoy", async () => {
     getTodayMock.mockResolvedValue(
       baseToday({
         area_counts_enabled: true,
@@ -118,14 +122,8 @@ describe("TodayPage · Conteo por área", () => {
     )
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    const tarjeta = (await screen.findByRole("heading", { name: "Conteo por área" })).closest("section") as HTMLElement
-    const bar = within(tarjeta).getByRole("rowheader", { name: "Bar" }).closest("tr") as HTMLElement
-    expect(within(bar).getByText("Sin contar")).toHaveClass("text-destructive")
-    const cocina = within(tarjeta).getByRole("rowheader", { name: "Cocina" }).closest("tr") as HTMLElement
-    expect(cocina.textContent).toContain("Beto")
-    // El recuento dentro del umbral se ve en la tarjeta, con el signo del servidor.
-    expect(within(tarjeta).getByText(/Sobran 250 ml de Ron/)).toBeInTheDocument()
-    expect(within(tarjeta).getByText(/1 recuento pedido esperando/)).toBeInTheDocument()
+    await screen.findByText("Requiere tu atención")
+    expect(screen.queryByRole("heading", { name: "Conteo por área" })).not.toBeInTheDocument()
 
     // El riel: el área sin apertura (no bloquea) y el artículo de noche, con su plata.
     await waitFor(() => expect(screen.getByText("1 área sin conteo de apertura")).toBeInTheDocument())

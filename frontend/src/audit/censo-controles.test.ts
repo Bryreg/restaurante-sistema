@@ -144,6 +144,26 @@
  * - «Insumos activos» — la franja ahora dice «47 insumos activos», con la
  *   cifra adelante y en negrita, como la dibuja el handoff (pantalla 12). El
  *   dato sigue a la vista; cambió el orden de la frase.
+ *
+ * **Bajas declaradas · Hoy según el dueño (decisión del 2026-09-29).** Ocho
+ * rótulos de `features/reports/TodayPage.tsx` salen de la base, a mano y uno
+ * por uno. El dueño pidió que Hoy muestre **exactamente** la venta con su
+ * libro, ticket promedio, número de tickets, efectivo, tarjeta, ventas por
+ * hora, top productos, entradas de mercancía y «Requiere tu atención»; lo
+ * demás deja de dibujarse en Hoy. Ninguno era un botón: eran tarjetas de
+ * cifra y la tabla de comandas abiertas, y sus datos siguen en otra pantalla.
+ *
+ * - «Comandas pagadas» — se renombró: es «Número de tickets», la palabra del
+ *   dueño, con la misma cifra (`orders`).
+ * - «Comandas abiertas» y «Sin comandas abiertas» — la tabla y su vacío; las
+ *   comandas abiertas viven en la pestaña Pedidos, al lado de Hoy, y las
+ *   atascadas siguen siendo un aviso del riel.
+ * - «Efectivo esperado» — vive en Dinero › Operacional; «Sin turno abierto»
+ *   y el turno abandonado siguen siendo avisos del riel.
+ * - «Mesas ocupadas», «Comensales», «Ticket por comensal» — en Pedidos y en
+ *   Ventas (`/admin/ventas`, «Ver el día completo»).
+ * - «Propinas de hoy» — en Nómina › Propinas y en el informe de Ventas; la
+ *   propina sigue sin ser venta y lo dice «Cómo leer estas cifras».
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

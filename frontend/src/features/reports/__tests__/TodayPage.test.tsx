@@ -78,7 +78,17 @@ describe("TodayPage", () => {
 
     await waitFor(() => expect(screen.getByText("Ventas netas de hoy")).toBeInTheDocument())
     expect(screen.getAllByText("$ 92.593").length).toBeGreaterThan(0)
-    expect(screen.getByText(/2\/8/)).toBeInTheDocument() // mesas ocupadas
+    // Cambio intencional (decisión del dueño, 2026-09-29): Hoy lleva sólo
+    // ticket promedio, número de tickets, efectivo y tarjeta debajo de la
+    // venta. Las mesas ocupadas, las comandas abiertas, el efectivo esperado
+    // y las propinas salieron de Hoy (siguen en Pedidos y Dinero).
+    expect(screen.getByText("Ticket promedio")).toBeInTheDocument()
+    expect(screen.getByText("Número de tickets")).toBeInTheDocument()
+    expect(screen.getByText("Ventas en efectivo")).toBeInTheDocument()
+    expect(screen.getByText("Ventas en tarjeta")).toBeInTheDocument()
+    for (const fuera of ["Mesas ocupadas", "Comandas abiertas", "Efectivo esperado", "Propinas de hoy", "Comensales"]) {
+      expect(screen.queryByText(fuera)).not.toBeInTheDocument()
+    }
     expect(screen.getByText("Todo al día")).toBeInTheDocument()
   })
 
@@ -88,11 +98,10 @@ describe("TodayPage", () => {
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
     await waitFor(() => expect(screen.getAllByText("Sin turno abierto").length).toBeGreaterThan(0))
-    // La tarjeta de efectivo dice qué falta; ningún texto de la página (fuera
+    // Cambio intencional (2026-09-29): la tarjeta «Efectivo esperado» salió
+    // de Hoy; el aviso del riel queda. Ningún texto de la página (fuera
     // del eje del gráfico, cuyo «$ 0» es la base de las columnas) es «$ 0».
-    const efectivo = screen.getByText("Efectivo esperado").closest("div.rounded-lg") as HTMLElement
-    expect(within(efectivo).queryByText("$ 0")).not.toBeInTheDocument()
-    expect(within(efectivo).getByText(/no hay un turno de caja abierto/).closest(".sin-dato")).not.toBeNull()
+    expect(screen.queryByText("Efectivo esperado")).not.toBeInTheDocument()
     const ceros = screen.queryAllByText("$ 0").filter((el) => el.closest("svg") === null)
     expect(ceros).toEqual([])
   })
@@ -262,18 +271,29 @@ describe("TodayPage", () => {
   // lo que llega `null` dice qué falta.
   // ---------------------------------------------------------------------
 
-  it("orden de lectura: la cifra rectora, después «Requiere tu atención», después los indicadores", async () => {
+  // Cambio intencional (decisión del dueño, 2026-09-29): el orden es el
+  // que pidió —venta, ticket promedio, número de tickets, efectivo,
+  // tarjeta, ventas por hora, top productos, entradas de mercancía— y
+  // «Requiere tu atención» va al final del código: a la derecha en el
+  // escritorio, después de todo en el celular.
+  it("orden de lectura: la venta, las cuatro cifras, ventas por hora, top productos, entradas y al final «Requiere tu atención»", async () => {
     getTodayMock.mockResolvedValue(baseToday())
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
     const cifra = await screen.findByText("Ventas netas de hoy")
-    const atencion = screen.getByRole("complementary", { name: "Requiere tu atención" })
-    const indicador = screen.getByText("Ticket promedio")
-    const tabla = screen.getByText("Ventas por hora")
+    const orden = [
+      cifra,
+      screen.getByText("Ticket promedio"),
+      screen.getByText("Número de tickets"),
+      screen.getByText("Ventas en efectivo"),
+      screen.getByText("Ventas en tarjeta"),
+      screen.getByText("Ventas por hora"),
+      screen.getByText("Top productos vendidos"),
+      screen.getByText("Entradas de mercancía"),
+      screen.getByRole("complementary", { name: "Requiere tu atención" }),
+    ]
     const antes = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
-    expect(antes(cifra, atencion)).toBe(true)
-    expect(antes(atencion, indicador)).toBe(true)
-    expect(antes(indicador, tabla)).toBe(true)
+    for (let i = 1; i < orden.length; i++) expect(antes(orden[i - 1], orden[i])).toBe(true)
   })
 
   it("los indicadores que llegan `null` se dibujan como «Sin dato» con lo que falta, nunca como «—» ni «$ 0»", async () => {
@@ -295,20 +315,18 @@ describe("TodayPage", () => {
     await screen.findByText("Ventas netas de hoy")
     // Se busca el motivo y se mira que viva dentro del «sin dato» rayado
     // (`SinDato`): el rótulo de adelante es cosa de ese componente.
-    const sinComandas = screen.getAllByText(/todavía sin comandas pagadas/)
-    expect(sinComandas).toHaveLength(3)
-    for (const motivo of sinComandas) expect(motivo.closest(".sin-dato")).not.toBeNull()
-    expect(screen.getByText(/no hay un turno de caja abierto/).closest(".sin-dato")).not.toBeNull()
+    // Cambio intencional (2026-09-29): de las cifras que pueden llegar
+    // `null` en Hoy quedan el ticket promedio y el desglose por medio
+    // (ticket por comensal, comensales y efectivo esperado salieron).
+    expect(screen.getByText(/todavía sin tickets pagados hoy/).closest(".sin-dato")).not.toBeNull()
+    const sinDesglose = screen.getAllByText(/sin el desglose por medio de pago/)
+    expect(sinDesglose).toHaveLength(2)
+    for (const motivo of sinDesglose) expect(motivo.closest(".sin-dato")).not.toBeNull()
     expect(screen.queryByText("—")).not.toBeInTheDocument()
   })
 
-  it("con comandas pagadas pero sin comensales contados, el ticket por comensal dice eso", async () => {
-    getTodayMock.mockResolvedValue(baseToday({ covers: 0, avg_per_cover: null }))
-    renderWithProviders(<TodayPage />, { me: buildMe() })
-
-    const motivo = await screen.findByText(/ninguna comanda pagada hoy registró comensales/)
-    expect(motivo.closest(".sin-dato")).not.toBeNull()
-  })
+  // Quitado a propósito (decisión del dueño, 2026-09-29): «Ticket por
+  // comensal» ya no está en Hoy; su «sin dato» se prueba en Ventas.
 
   it("no inventa una comparación: un servidor que no manda `comparison` no la muestra", async () => {
     getTodayMock.mockResolvedValue(baseToday())
@@ -445,7 +463,8 @@ describe("TodayPage", () => {
 
     await screen.findByText("Todavía no hay ventas hoy · ayer cerró en")
     expect(screen.getByText("$ 1.954.300")).toBeInTheDocument()
-    expect(screen.getByText(/lun 14 sep · 31 comandas pagadas · ticket promedio \$ 63\.042/)).toBeInTheDocument()
+    // «tickets»: la palabra del dueño para las comandas pagadas (2026-09-29).
+    expect(screen.getByText(/lun 14 sep · 31 tickets · ticket promedio \$ 63\.042/)).toBeInTheDocument()
     // El libro sigue siendo el de hoy: lo de hoy es $ 0 de verdad (el día está abierto).
     expect(screen.getByText("Ventas netas de hoy")).toBeInTheDocument()
   })
@@ -631,30 +650,8 @@ describe("TodayPage", () => {
     expect(merma.querySelector("[data-notice-amount]")).toBeNull()
   })
 
-  it("comandas abiertas: el tiempo en horas y minutos, y marca las que vienen del día anterior", async () => {
-    getTodayMock.mockResolvedValue(
-      baseToday({
-        business_date: "2026-09-15",
-        yesterday_close: { business_date: "2026-09-14", net: 100000, orders: 3, avg_ticket: 33333, operated: true },
-        open_orders: [
-          // 22:00 del 14 en Bogotá (03:00 UTC del 15): con corte a las 3, es del 14.
-          { id: 458, channel: "dine_in", tables: ["1"], opened_at: "2026-09-15T03:00:00Z", minutes_since_opened: 968, total: 80000 },
-          // 12:00 del 15 en Bogotá: es de hoy.
-          { id: 461, channel: "dine_in", tables: ["2"], opened_at: "2026-09-15T17:00:00Z", minutes_since_opened: 45, total: 20000 },
-        ],
-      }),
-    )
-    renderWithProviders(<TodayPage />, {
-      me: buildMe({ store: { id: 1, name: "Sede Centro", cutoff_hour: 3, active_channels: [] } }),
-    })
-
-    await screen.findByText("16 h 8 min")
-    expect(screen.queryByText("968 min")).not.toBeInTheDocument()
-    expect(screen.getByText("45 min")).toBeInTheDocument()
-    expect(screen.getAllByText("Viene de ayer")).toHaveLength(1)
-    const fila458 = screen.getByText("#458").closest("tr") as HTMLElement
-    expect(within(fila458).getByText("Viene de ayer")).toBeInTheDocument()
-  })
+  // Quitado a propósito (decisión del dueño, 2026-09-29): la tabla de
+  // comandas abiertas salió de Hoy; vive en la pestaña Pedidos, al lado.
 
   // ---------------------------------------------------------------------
   // «Orden y aire»: cinco avisos a la vista y la explicación plegada.
@@ -712,14 +709,13 @@ describe("TodayPage", () => {
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
     await screen.findByText("1 insumo en negativo")
-    expect(screen.getByText(/cobradas y cerradas: ya no cambian/).closest("details")).not.toBeNull()
+    expect(screen.getByText(/cobradas y cerradas hoy: ya no cambian/).closest("details")).not.toBeNull()
     expect(screen.getByText(/Venta neta por hora de reloj/).closest("details")).not.toBeNull()
     expect(screen.getByText(/Es deuda de registro/).closest("details")).not.toBeNull()
-    // La propina: que no es venta se ve; la ley, plegada.
-    expect(screen.getByText("No son venta.").closest("details")).toBeNull()
+    // Que la propina no es venta (Ley 1935 de 2018) va plegado con las cifras.
     expect(screen.getByText(/Ley 1935 de 2018/).closest("details")).not.toBeNull()
     // null ≠ 0: el motivo queda a la vista, dentro del rayado.
-    const motivo = screen.getByText(/ninguna comanda pagada hoy registró comensales/)
+    const motivo = screen.getAllByText(/sin el desglose por medio de pago/)[0]
     expect(motivo.closest("details")).toBeNull()
     expect(motivo.closest(".sin-dato")).not.toBeNull()
   })
