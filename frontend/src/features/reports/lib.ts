@@ -179,11 +179,11 @@ export interface AlertRoute {
  * romper la pantalla.
  */
 const ALERT_ROUTES: Record<string, AlertRoute> = {
-  shift_stale: { to: "/admin/dinero", label: "Ver turno", screen: "Dinero", tab: "Operacional" },
-  cash_difference: { to: "/admin/dinero", label: "Ver caja", screen: "Dinero", tab: "Operacional" },
-  cash_difference_critical: { to: "/admin/dinero", label: "Ver caja", screen: "Dinero", tab: "Operacional" },
+  shift_stale: { to: "/admin/dinero", label: "Ver turno", screen: "Dinero", tab: "Cuadres" },
+  cash_difference: { to: "/admin/dinero", label: "Ver caja", screen: "Dinero", tab: "Cuadres" },
+  cash_difference_critical: { to: "/admin/dinero", label: "Ver caja", screen: "Dinero", tab: "Cuadres" },
   difference_streak: { to: "/admin/personal", label: "Ver racha por persona", screen: "Turnos y personal", tab: "Por persona" },
-  cash_over_threshold: { to: "/admin/dinero", label: "Ver caja", screen: "Dinero", tab: "Operacional" },
+  cash_over_threshold: { to: "/admin/dinero", label: "Ver caja", screen: "Dinero", tab: "Cuadres" },
   pin_locked: { to: "/admin/personal", label: "Ver personal", screen: "Turnos y personal" },
   product_unavailable: { to: "/admin/carta", label: "Ver carta", screen: "Carta" },
   discount_rate_high: { to: "/admin/personal", label: "Ver descuentos por persona", screen: "Turnos y personal", tab: "Por persona" },
@@ -199,7 +199,7 @@ const ALERT_ROUTES: Record<string, AlertRoute> = {
   // en un solo aviso. Se resuelven mirando los cierres uno por uno, que es
   // lo que lista el historial de turnos.
   // 0031, avisos al celular.
-  reserve_loan_open: { to: "/admin/dinero", label: "Ver turno", screen: "Dinero", tab: "Operacional" },
+  reserve_loan_open: { to: "/admin/dinero", label: "Ver turno", screen: "Dinero", tab: "Cuadres" },
   area_count_shortage: {
     to: "/admin/inventario?tab=por-area",
     label: "Ver conteo por área",

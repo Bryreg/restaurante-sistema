@@ -271,8 +271,8 @@ function MetaDelMes({
 
 function TablaDiaria({ data }: { data: AccountantReportOut }): React.JSX.Element {
   const s = data.summary
-  const th = "px-3 py-2 text-right font-bold"
-  const td = "px-3 py-2 text-right"
+  const th = "whitespace-nowrap px-3 py-2 text-right font-bold"
+  const td = "whitespace-nowrap px-3 py-2 text-right tabular-nums"
   return (
     <div className="overflow-hidden rounded-lg border bg-card">
       <div className="overflow-x-auto print:overflow-visible">
