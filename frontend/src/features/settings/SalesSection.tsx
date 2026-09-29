@@ -44,7 +44,33 @@ function cambiosDeVentas(guardado: SalesSettings, actual: SalesSettings): Pendin
     { key: "long_table_minutes", field: "Mesa larga", sufijo: " min", leaks: "Cambia la raya de Hoy › Salón" },
     { key: "late_ticket_minutes", field: "Tiquete demorado", sufijo: " min", leaks: "Cambia la raya de Hoy › Cocina" },
     { key: "orders_per_waiter", field: "Comandas por mesero", sufijo: "", leaks: "Cambia la raya de Informes › Horas pico" },
+    { key: "invoice_threshold_uvt", field: "Factura electrónica desde", sufijo: " UVT", leaks: "Cambia Salón › Cobro" },
+    { key: "period_low_base_orders", field: "Muestra chica del período", sufijo: " comandas", leaks: "Cambia Informes" },
+    { key: "daily_low_base_orders", field: "Muestra chica del día", sufijo: " comandas", leaks: "Cambia Informes" },
   ];
+  const seguridad: { key: keyof SalesSettings; field: string; sufijo: string }[] = [
+    { key: "employee_session_minutes", field: "Sesión de la persona", sufijo: " min" },
+    { key: "pin_lock_attempts", field: "Intentos antes del bloqueo", sufijo: "" },
+    { key: "pin_lock_minutes", field: "Bloqueo del PIN", sufijo: " min" },
+  ];
+  for (const { key, field, sufijo } of seguridad) {
+    const antes = guardado[key] as number | null;
+    const ahora = actual[key] as number | null;
+    if (antes !== ahora) {
+      cambios.push({
+        field,
+        from: antes === null ? "el de fábrica" : `${antes}${sufijo}`,
+        to: ahora === null ? "el de fábrica" : `${ahora}${sufijo}`,
+        leaks: "Cambia Quién opera en las tablets",
+      });
+    }
+  }
+  if (JSON.stringify(guardado.station_target_minutes) !== JSON.stringify(actual.station_target_minutes)) {
+    cambios.push({ field: "Tiempo objetivo por estación", from: "antes", to: "ahora", leaks: "Cambia Cocina y KDS" });
+  }
+  if (JSON.stringify(guardado.quick_notes) !== JSON.stringify(actual.quick_notes)) {
+    cambios.push({ field: "Notas rápidas", from: "antes", to: "ahora", leaks: "Cambia Salón › Comanda" });
+  }
   for (const { key, field, sufijo, leaks } of numeros) {
     const antes = guardado[key] as number;
     const ahora = actual[key] as number;
@@ -562,6 +588,203 @@ export function SalesSection({ storeId }: { storeId: number | null }): React.JSX
             </fieldset>
           ) : null}
         </div>
+      </FormSection>
+
+      <FormSection
+        title="Estaciones: tiempo objetivo"
+        columns="one"
+        governs="Cuánto debería tardar un plato en cada estación cuando su curso no tiene tiempo propio (una bebida, un plato sin curso). Pinta el semáforo del KDS."
+        reading={
+          values.stations.length === 0 ? (
+            <>Sin estaciones no hay tiempo por estación: rige el del curso o, sin él, 12 minutos.</>
+          ) : (
+            <>
+              El tiempo del curso sigue mandando; éste sólo cubre los platos cuyo curso no tiene uno. Vacío = el de
+              fábrica (barra 5, cocina caliente 15, cocina fría 10, el resto 12).
+            </>
+          )
+        }
+      >
+        {values.stations.length > 0 ? (
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-bold">Minutos por estación</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {values.stations.map((station) => (
+                <div key={station} className="flex items-center gap-2">
+                  <Label htmlFor={`station-min-${station}`} className="w-32 shrink-0 text-sm">
+                    {station}
+                  </Label>
+                  <Input
+                    id={`station-min-${station}`}
+                    type="number"
+                    min={1}
+                    max={240}
+                    className="h-9 w-24"
+                    value={values.station_target_minutes?.[station] ?? ""}
+                    placeholder="12"
+                    onChange={(e) => {
+                      const next = { ...(values.station_target_minutes ?? {}) };
+                      if (e.target.value === "") delete next[station];
+                      else next[station] = Number(e.target.value);
+                      patch({ station_target_minutes: next });
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
+      </FormSection>
+
+      <FormSection
+        title="Notas rápidas del POS"
+        columns="one"
+        governs="Los botones de nota que el mesero toca en vez de escribir, por curso del plato. «Para el resto» es la lista de un curso sin lista propia."
+        reading={<>Hasta 8 notas por curso y 40 letras por nota: la tablet las muestra como botones.</>}
+        doesNotDo="Cambiar una nota no toca las comandas ya enviadas: la nota viaja escrita con el plato."
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          {["_default", ...values.courses].map((course) => (
+            <div key={course} className="space-y-1.5">
+              <Label htmlFor={`quick-notes-${course}`} className="text-sm font-bold">
+                {course === "_default" ? "Para el resto (una por línea)" : `${course} (una por línea)`}
+              </Label>
+              <Textarea
+                id={`quick-notes-${course}`}
+                value={listToLines(values.quick_notes?.[course] ?? values.quick_notes?._default ?? [])}
+                onChange={(e) => patch({ quick_notes: { ...(values.quick_notes ?? {}), [course]: linesToList(e.target.value) } })}
+              />
+            </div>
+          ))}
+        </div>
+      </FormSection>
+
+      <FormSection
+        title="Factura electrónica"
+        governs="Desde qué monto una venta a un cliente identificado sale como factura electrónica en vez de documento equivalente POS."
+        reading={
+          <>
+            Una venta con neto mayor a <b className="font-bold text-foreground tabular-nums">{values.invoice_threshold_uvt}</b>{" "}
+            UVT del año y cliente identificado se factura; por debajo, documento equivalente POS (o factura si el
+            cliente la pide).
+          </>
+        }
+      >
+        <FormField
+          label="Umbral de factura (UVT)"
+          help="En UVT, no en pesos: el valor en pesos cambia cada año con la UVT que se carga en Ajustes › UVT."
+          scope={{ affects: [{ screen: "Salón › Cobro", verb: "Decide el documento en" }] }}
+        >
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={1}
+              className="h-11"
+              value={values.invoice_threshold_uvt}
+              onChange={(e) => patch({ invoice_threshold_uvt: Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+      </FormSection>
+
+      <FormSection
+        title="Seguridad de las tablets"
+        governs="Cuánto dura la identificación de una persona en la tablet sin usarla, y cuántos PIN equivocados la bloquean y por cuánto tiempo."
+        reading={
+          <>
+            Vacío = el valor de fábrica ({values.employee_session_minutes_default ?? 3} min de sesión,{" "}
+            {values.pin_lock_attempts_default ?? 5} intentos, {values.pin_lock_minutes_default ?? 15} min de bloqueo).
+          </>
+        }
+        doesNotDo="No toca el PIN de nadie ni desbloquea a quien ya está bloqueado: el cambio rige desde el próximo intento."
+      >
+        <FormField label="Sesión de la persona (minutos sin usar)" help="Pasado este tiempo sin tocar la tablet, pide el PIN otra vez.">
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={1}
+              max={240}
+              className="h-11"
+              placeholder={String(values.employee_session_minutes_default ?? 3)}
+              value={values.employee_session_minutes ?? ""}
+              onChange={(e) => patch({ employee_session_minutes: e.target.value === "" ? null : Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+        <FormField label="PIN equivocados antes del bloqueo" help="Al llegar a este número el PIN se bloquea y el administrador recibe un aviso.">
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={2}
+              max={20}
+              className="h-11"
+              placeholder={String(values.pin_lock_attempts_default ?? 5)}
+              value={values.pin_lock_attempts ?? ""}
+              onChange={(e) => patch({ pin_lock_attempts: e.target.value === "" ? null : Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+        <FormField label="Minutos de bloqueo del PIN" help="Cuánto queda bloqueado el PIN; ni el PIN correcto entra mientras tanto.">
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={1}
+              max={1440}
+              className="h-11"
+              placeholder={String(values.pin_lock_minutes_default ?? 15)}
+              value={values.pin_lock_minutes ?? ""}
+              onChange={(e) => patch({ pin_lock_minutes: e.target.value === "" ? null : Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+      </FormSection>
+
+      <FormSection
+        title="Informes: muestra chica"
+        governs="Debajo de cuántas comandas un porcentaje de Informes se marca como «muestra chica» y no cuenta como subida o bajada."
+        reading={
+          <>
+            Un período con menos de <b className="font-bold text-foreground tabular-nums">{values.period_low_base_orders}</b>{" "}
+            comandas, o un día con menos de{" "}
+            <b className="font-bold text-foreground tabular-nums">{values.daily_low_base_orders}</b>, se muestra pero no se
+            compara.
+          </>
+        }
+      >
+        <FormField label="Comandas mínimas del período" help="Contra el período anterior (Informes › Ventas).">
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={1}
+              className="h-11"
+              value={values.period_low_base_orders}
+              onChange={(e) => patch({ period_low_base_orders: Number(e.target.value) })}
+            />
+          )}
+        </FormField>
+        <FormField label="Comandas mínimas del día" help="Un día contra el mismo día de la semana anterior.">
+          {({ fieldId, describedBy }) => (
+            <Input
+              id={fieldId}
+              aria-describedby={describedBy}
+              type="number"
+              min={1}
+              className="h-11"
+              value={values.daily_low_base_orders}
+              onChange={(e) => patch({ daily_low_base_orders: Number(e.target.value) })}
+            />
+          )}
+        </FormField>
       </FormSection>
 
       {error ? (

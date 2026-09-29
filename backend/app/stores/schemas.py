@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class OrganizationOut(BaseModel):
@@ -115,6 +115,9 @@ class CashSettingsIn(BaseModel):
     photo_required_on_close: bool
     photo_required_on_pickup: bool
     streak_alert_shifts: int = Field(ge=1)
+    # Días de plata de cierres sin consignar antes del aviso (0035). Sin el
+    # campo, la sede conserva el que tenía.
+    deposit_overdue_days: int | None = Field(default=None, ge=1, le=60)
     # Cómo abre el cajón (2026-09-26): `envelopes` (sólo los sobres por
     # consignar, contados a ciegas; la base de respaldo aparte con el monto
     # de `cash_reserve_default`) o `fixed_base` (la base fija de siempre).
@@ -125,6 +128,7 @@ class CashSettingsIn(BaseModel):
 
 class CashSettingsOut(CashSettingsIn):
     opening_mode: Literal["envelopes", "fixed_base"] | None = "fixed_base"
+    deposit_overdue_days: int | None = 3
 
 
 class PaymentMethodIn(BaseModel):
@@ -165,10 +169,63 @@ class SalesSettingsIn(BaseModel):
     long_table_minutes: int | None = Field(default=None, ge=1, le=1440)
     late_ticket_minutes: int | None = Field(default=None, ge=1, le=1440)
     orders_per_waiter: int | None = Field(default=None, ge=1, le=100)
+    # Configurables desde el panel (0035). Opcionales al guardar: un campo
+    # que NO viene en el cuerpo deja la sede como estaba
+    # (`CONFIG_FIELDS_KEPT_WHEN_ABSENT`). En los tres de seguridad, `null`
+    # explícito vuelve al valor de la variable de entorno.
+    # Objetivo de cocina por estación, en minutos (KDS).
+    station_target_minutes: dict[str, int] | None = None
+    # Notas rápidas del POS por curso; `_default` es la lista para el resto.
+    quick_notes: dict[str, list[str]] | None = None
+    employee_session_minutes: int | None = Field(default=None, ge=1, le=240)
+    pin_lock_attempts: int | None = Field(default=None, ge=2, le=20)
+    pin_lock_minutes: int | None = Field(default=None, ge=1, le=1440)
+    # Debajo de cuántas comandas un porcentaje de Informes es muestra chica.
+    period_low_base_orders: int | None = Field(default=None, ge=1, le=10_000)
+    daily_low_base_orders: int | None = Field(default=None, ge=1, le=1_000)
+
+    @field_validator("station_target_minutes")
+    @classmethod
+    def _station_minutes_in_range(cls, value: dict[str, int] | None) -> dict[str, int] | None:
+        if value is None:
+            return value
+        for station, minutes in value.items():
+            if not 1 <= minutes <= 240:
+                raise ValueError(f"el objetivo de «{station}» tiene que estar entre 1 y 240 minutos")
+        return value
+
+    @field_validator("quick_notes")
+    @classmethod
+    def _quick_notes_short(cls, value: dict[str, list[str]] | None) -> dict[str, list[str]] | None:
+        if value is None:
+            return value
+        clean: dict[str, list[str]] = {}
+        for course, notes in value.items():
+            items = [n.strip() for n in notes if n.strip()]
+            if len(items) > 8:
+                raise ValueError(f"«{course}» tiene más de 8 notas rápidas: el POS muestra hasta 8")
+            if any(len(n) > 40 for n in items):
+                raise ValueError(f"una nota rápida de «{course}» pasa de 40 caracteres")
+            clean[course] = items
+        return clean
 
 
 #: Los campos de `SalesSettingsIn` que se conservan cuando llegan vacíos.
 PANEL_ASSUMPTION_FIELDS = ("margin_target_pct", "long_table_minutes", "late_ticket_minutes", "orders_per_waiter")
+
+#: Los campos de 0035: se conservan cuando NO vienen en el cuerpo (un
+#: `null` explícito en los de seguridad sí se guarda: vuelve al de entorno).
+CONFIG_FIELDS_KEPT_WHEN_ABSENT = (
+    "station_target_minutes",
+    "quick_notes",
+    "employee_session_minutes",
+    "pin_lock_attempts",
+    "pin_lock_minutes",
+    "period_low_base_orders",
+    "daily_low_base_orders",
+)
+#: De esos, los que nunca se guardan en `null` (la columna no lo admite).
+CONFIG_FIELDS_NOT_NULL = ("station_target_minutes", "quick_notes", "period_low_base_orders", "daily_low_base_orders")
 
 
 class SalesSettingsOut(SalesSettingsIn):
@@ -176,6 +233,16 @@ class SalesSettingsOut(SalesSettingsIn):
     long_table_minutes: int = 60
     late_ticket_minutes: int = 20
     orders_per_waiter: int = 7
+    # Lo que rige, ya resuelto contra los de fábrica.
+    station_target_minutes: dict[str, int] = {}
+    quick_notes: dict[str, list[str]] = {}
+    period_low_base_orders: int = 20
+    daily_low_base_orders: int = 5
+    # Los valores de la variable de entorno que rigen mientras el de la sede
+    # esté en `null` (la pantalla los muestra como sugerencia).
+    employee_session_minutes_default: int = 3
+    pin_lock_attempts_default: int = 5
+    pin_lock_minutes_default: int = 15
 
 
 class UvtEntry(BaseModel):

@@ -10,11 +10,11 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, admin_store, current_admin
-from app.core.csv import csv_response, wants_csv
+from app.core.csv import CsvFormat, csv_response, sectioned_rows, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.reports import overview as overview_service
@@ -123,14 +123,15 @@ def get_unavailable_log(
     return payload
 
 
-@router.get("/admin/reports/overview")
+@router.get("/admin/reports/overview", response_model=ReportsOverviewOut)
 def get_reports_overview(
     store_id: str = Query(..., description='Id de la sede, o "all" para todas las sedes de la organización'),
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> ReportsOverviewOut:
+) -> ReportsOverviewOut | Response:
     """«Informes»: todas las secciones del período en una sola respuesta
     (`app.reports.overview`). `store_id=all` consolida las sedes de la
     organización del administrador con la misma agregación que por sede y
@@ -139,13 +140,19 @@ def get_reports_overview(
         stores = overview_service.organization_stores(db, actor.organization_id)
         if not stores:
             raise AppError("VALIDATION_ERROR", "Todavía no hay sedes creadas: creá una en Configuración", status=400)
-        return overview_service.reports_overview(
+        result = overview_service.reports_overview(
             db, stores=stores, all_stores=True, date_from=date_from, date_to=date_to
         )
-    if not store_id.isdigit():
-        raise AppError("VALIDATION_ERROR", 'store_id: tiene que ser el id de una sede o "all"', status=400)
-    store = admin_store(db, actor, int(store_id))
-    return overview_service.reports_overview(db, stores=[store], all_stores=False, date_from=date_from, date_to=date_to)
+    else:
+        if not store_id.isdigit():
+            raise AppError("VALIDATION_ERROR", 'store_id: tiene que ser el id de una sede o "all"', status=400)
+        store = admin_store(db, actor, int(store_id))
+        result = overview_service.reports_overview(
+            db, stores=[store], all_stores=False, date_from=date_from, date_to=date_to
+        )
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "informes.csv")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -213,31 +220,36 @@ def get_shift_record(
     return panel_service.shift_record(db, shift=shift)
 
 
-@router.get("/admin/records/employee/{employee_id}")
+@router.get("/admin/records/employee/{employee_id}", response_model=EmployeeRecordOut)
 def get_employee_record(
     employee_id: int,
     store_id: int = Query(...),
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> EmployeeRecordOut:
+) -> EmployeeRecordOut | Response:
     """La ficha de una persona en una sede y un período (30 días por
     defecto): lo que cobró, los turnos en que tuvo la caja, su asistencia,
     y sus anulaciones, descuentos y cortesías."""
     store = admin_store(db, actor, store_id)
     employee = panel_service.get_employee_or_404(db, organization_id=actor.organization_id, employee_id=employee_id)
-    return panel_service.employee_record(db, employee=employee, store=store, date_from=date_from, date_to=date_to)
+    result = panel_service.employee_record(db, employee=employee, store=store, date_from=date_from, date_to=date_to)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "ficha-persona.csv")
+    return result
 
 
-@router.get("/admin/records/ingredient/{ingredient_id}")
+@router.get("/admin/records/ingredient/{ingredient_id}", response_model=IngredientRecordOut)
 def get_ingredient_record(
     ingredient_id: int,
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> IngredientRecordOut:
+) -> IngredientRecordOut | Response:
     """La ficha de un insumo: stock según el libro, entradas y salidas por
     causa, y sus conteos por área. El detalle movimiento por movimiento lo
     trae `GET /admin/ingredients/{id}/movements`."""
@@ -247,7 +259,10 @@ def get_ingredient_record(
     if ingredient is None:
         raise AppError("NOT_FOUND", "El insumo no existe", status=404)
     store = admin_store(db, actor, ingredient.store_id)
-    return panel_service.ingredient_record(
+    result = panel_service.ingredient_record(
         db, ingredient=ingredient, store=store, date_from=date_from, date_to=date_to
     )
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "ficha-insumo.csv")
+    return result
 

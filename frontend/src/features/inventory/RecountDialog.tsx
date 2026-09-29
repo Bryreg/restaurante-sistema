@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { createAreaRecount, listCountAreas } from "@/api/areaCounts"
+import { createAreaRecount, getAreaCountSettings, listCountAreas } from "@/api/areaCounts"
 import { ApiError, newIdempotencyKey } from "@/api/client"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -22,7 +22,9 @@ import { errorMessage } from "@/lib/errors"
 
 import { AREA_COUNTS_QUERY_KEYS } from "./areaCountLib"
 
-const MAX = 5
+/** Default de artículos por recuento mientras no llega la configuración de
+ * la sede (`max_recount_items`, Ajustes › Inventario). */
+const MAX_DEFAULT = 5
 
 /**
  * «Pedir recuento»: el administrador elige un área y 1–5 de sus artículos; el
@@ -72,6 +74,12 @@ export function RecountDialog({
     queryFn: () => listCountAreas(storeId),
     enabled: open,
   })
+  const settingsQuery = useQuery({
+    queryKey: AREA_COUNTS_QUERY_KEYS.settings(storeId),
+    queryFn: () => getAreaCountSettings(storeId),
+    enabled: open,
+  })
+  const MAX = settingsQuery.data?.max_recount_items ?? MAX_DEFAULT
   const areas = (areasQuery.data ?? []).filter((a) => a.active && a.items.length > 0)
   const area = areas.find((a) => a.id === areaId) ?? null
 

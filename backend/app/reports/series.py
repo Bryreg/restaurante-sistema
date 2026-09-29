@@ -191,6 +191,7 @@ def daily_sales(
     )
     by_day = {r.key: r.net for r in rows}
     orders_by_day = {r.key: r.orders or 0 for r in rows}
+    daily_low_base = service.low_base_orders(db, scope, "daily_low_base_orders", DAILY_LOW_BASE_ORDERS)
     points: list[SeriesPointOut] = []
     days_ref = days_above = 0
     best: tuple[int, str] | None = None
@@ -207,7 +208,7 @@ def daily_sales(
         # por «el mejor». Un día sin raya (la semana anterior no vendió) no
         # es un día «por encima»: no tiene contra qué.
         low_base = delta is not None and (
-            min(orders_by_day.get(key, 0), orders_by_day.get(ref_key, 0)) < DAILY_LOW_BASE_ORDERS
+            min(orders_by_day.get(key, 0), orders_by_day.get(ref_key, 0)) < daily_low_base
         )
         if value is not None and reference is not None and reference > 0 and not low_base:
             days_ref += 1

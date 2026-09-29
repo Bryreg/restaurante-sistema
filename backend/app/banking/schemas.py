@@ -213,6 +213,10 @@ class OwnerHandOut(BaseModel):
     # hoy. `None` (los dos) si no queda plata de cierres sin consignar.
     oldest_undeposited_date: date | None = None
     oldest_undeposited_days: int | None = None
+    # Desde cuántos días sin consignar la tarjeta pasa a ámbar: el de la sede
+    # (Ajustes › Caja, `deposit_overdue_days`, 0035). Es un umbral de
+    # lectura, no una cifra de plata; antes estaba quemado en la pantalla.
+    overdue_days: int = 3
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,8 @@ import { errorMessage } from "@/lib/errors"
 
 import { daysAgoLocal, formatPuntos, textoVentana, todayLocal } from "./lib"
 import { foodCostTitular } from "./titulares"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /**
  * Admin → Inventario → Salud del control (SPEC-NEGOCIO §5.4/§10/§9.3): los
@@ -250,6 +252,9 @@ export function ControlHealthTab({ storeId }: { storeId: number }): React.JSX.El
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <CsvExportButton href={csvUrl("/admin/control-health", { store_id: storeId })} label="Exportar salud del control" />
+      </div>
       <GroupLabel
         label="Si los números se pueden creer"
         says="cuatro señales de que el control está vivo — o de que hace rato que no"
@@ -320,7 +325,7 @@ export function ControlHealthTab({ storeId }: { storeId: number }): React.JSX.El
       </GroupLabel>
 
       <GroupLabel label="Food cost real" says="el número, cuando hay dos conteos completos que lo sostengan">
-        <div className="mb-3">
+        <div className="mb-3 flex flex-wrap items-end gap-3">
           <DateRangeFilter
             idPrefix="food-cost"
             from={from}
@@ -330,6 +335,7 @@ export function ControlHealthTab({ storeId }: { storeId: number }): React.JSX.El
               setTo(r.to)
             }}
           />
+          <CsvExportButton href={csvUrl("/admin/food-cost", { store_id: storeId, from, to })} label="Exportar food cost" />
         </div>
 
         {foodCostQuery.isLoading ? (

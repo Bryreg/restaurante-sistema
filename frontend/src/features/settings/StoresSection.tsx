@@ -31,6 +31,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/errors";
 
 import { CHANNELS, StoreFormDialog } from "./StoreFormDialog";
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /**
  * **La celda escribe la palabra del negocio, no el enum** (patrón 8c): la
@@ -188,6 +190,7 @@ export function StoresSection(): React.JSX.Element {
               noun="sedes"
               hidden={stores.length > activas ? `${stores.length - activas} inactivas` : undefined}
             >
+              <CsvExportButton href={csvUrl("/admin/stores")} />
               <Button type="button" className="gap-2" onClick={() => setEditingStore("new")}>
                 <Plus className="size-4" aria-hidden="true" />
                 Nueva sede

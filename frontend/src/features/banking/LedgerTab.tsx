@@ -20,6 +20,8 @@ import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { daysAgoLocal, ledgerKindLabel, todayLocal } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 const LEDGER_COLUMNS: readonly DenseColumn<BankLedgerEntryOut>[] = [
   { key: "date", header: "Fecha", kind: "name", cell: (e) => formatBusinessDate(e.business_date) },
@@ -49,7 +51,10 @@ export function LedgerTab({ storeId }: { storeId: number }): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <DateRangeFilter idPrefix="bank-ledger" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
+      <div className="flex flex-wrap items-end gap-3">
+        <DateRangeFilter idPrefix="bank-ledger" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
+        <CsvExportButton href={csvUrl("/admin/bank/ledger", { store_id: storeId, from, to })} />
+      </div>
 
       {query.isLoading ? (
         <Cargando texto="Cargando el libro del banco…" />

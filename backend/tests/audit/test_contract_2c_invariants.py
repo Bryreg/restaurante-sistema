@@ -502,12 +502,17 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       por mesero) son decisiones del dueño y viven en Ajustes: cuatro
       columnas de `store_sales_settings`, ninguna tabla. Se mueve sólo el
       poste de la cabeza.
+    - Con **`0035_admin_settings`** la cadena llega a `"0035"` y el conteo
+      **sigue en 113**. Motivo declarado: «todo se configura desde el
+      panel»; los umbrales quemados en el código pasan a columnas de las
+      tablas de configuración existentes. Se mueve sólo el poste de la
+      cabeza.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0032"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0032 "
-        "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031 "
-        "y supuestos del panel 0032)"
+    assert 'version == "0035"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0035 "
+        "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031, "
+        "supuestos del panel 0032 y ajustes del panel 0035)"
     )
     assert "len(tablas) == 113" in fuente, (
         "el conteo de tablas sigue en un número viejo: 0031 lo deja en 113 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2)"

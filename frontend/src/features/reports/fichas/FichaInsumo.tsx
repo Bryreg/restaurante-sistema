@@ -29,6 +29,8 @@ import { areaCountHref } from "@/features/inventory/areaCountLib"
 import { CAUSE_LABEL } from "@/features/inventory/lib"
 
 import { AvatarFicha, DetallePlegable, FilaDeTarjetas, PersonaLink, PreguntaFicha, SeccionFicha } from "./comun"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 const MOMENT_LABEL: Record<string, string> = { opening: "Apertura", closing: "Cierre", spot: "Recuento" }
 
@@ -221,6 +223,12 @@ export function FichaInsumo(): React.JSX.Element {
         <ArrowLeft className="size-3.5 shrink-0" aria-hidden="true" />
         Volver a Inventario › Stock
       </Link>
+      <div className="flex justify-end">
+        <CsvExportButton
+          href={csvUrl(`/admin/records/ingredient/${ingredientId}`, { from: from || undefined, to: to || undefined })}
+          label="Descargar la ficha"
+        />
+      </div>
       <div className="flex items-start gap-3.5">
         <AvatarFicha forma="cosa" icono={Package} />
         <PageHeader

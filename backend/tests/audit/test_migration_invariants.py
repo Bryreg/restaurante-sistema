@@ -533,6 +533,18 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     quemadas en el código: son cuatro columnas de `store_sales_settings`,
     ninguna tabla. Se mueve sólo el poste de la cabeza; la igualdad sigue
     exacta.
+
+    **Re-apuntado con los ajustes del panel** (`0035_admin_settings`): la
+    cabeza pasa a **`0035`** y el conteo **sigue en 113**. Motivo declarado:
+    el dueño pidió que «todo se pueda configurar desde el panel»; los
+    umbrales que vivían quemados en el código (objetivo por estación, notas
+    rápidas, sesión y bloqueo del PIN, salto de precio, varianza de
+    producción, inventario no confiable, lotes por vencer, franja de food
+    cost, confiabilidad de proveedores, límites del conteo por área, días sin
+    consignar, muestra chica de Informes) pasan a columnas de las tablas de
+    configuración que ya existían, ninguna tabla nueva. `0033`/`0034` los
+    toman ramas paralelas y se re-encadenan al integrar. Se mueve sólo el
+    poste de la cabeza.
     """
     from sqlalchemy import text
 
@@ -544,12 +556,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0032", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0032: 0027 → 0028 (asistencia separada del turno de caja) "
+    assert version == "0035", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0035: 0027 → 0028 (asistencia separada del turno de caja) "
         "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo) "
-        "→ 0031 (avisos al celular) → 0032 (supuestos del panel). "
+        "→ 0031 (avisos al celular) → 0032 (supuestos del panel) → 0035 (ajustes del panel). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031 y 0032"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032 y 0035"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -659,7 +671,8 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # separada del turno de caja: 108. `0029` (apertura por sobres y base de
     # respaldo) suma tres: 111. `0030` agrega columnas, no tablas. `0031`
     # (avisos al celular) suma dos: **113**. `0032` (supuestos del panel)
-    # agrega columnas, no tablas: sigue **113**.
+    # agrega columnas, no tablas: sigue **113**. `0035` (ajustes del panel)
+    # también agrega sólo columnas: sigue **113**.
     assert len(tablas) == 113, (
         f"el esquema quedó con {len(tablas)} tablas de dominio; `0031` lo deja en 113 y `0032` no lo mueve "
         f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón "

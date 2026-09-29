@@ -128,6 +128,8 @@ export interface CashSettings {
   photo_required_on_close: boolean;
   photo_required_on_pickup: boolean;
   streak_alert_shifts: number;
+  /** Días que la plata de un cierre puede quedarse sin consignar antes del aviso ámbar (0035). */
+  deposit_overdue_days?: number | null;
   /**
    * Cómo abre el cajón (2026-09-26): `envelopes` = sólo los sobres por
    * consignar, y `cash_reserve_default` es el monto fijo de la base de
@@ -175,6 +177,26 @@ export interface SalesSettings {
   long_table_minutes: number;
   late_ticket_minutes: number;
   orders_per_waiter: number;
+  /** Factura electrónica cuando el neto supera este número de UVT y el cliente está identificado. */
+  invoice_threshold_uvt: number;
+  /**
+   * Configurables desde el panel (0035). Objetivo de cocina por estación
+   * (minutos, ya resuelto contra los de fábrica), notas rápidas del POS por
+   * curso (`_default` = la lista para el resto), sesión y bloqueo del PIN
+   * (`null` = el de la variable de entorno, que viene en `*_default`) y el
+   * mínimo de comandas debajo del cual un porcentaje de Informes es muestra
+   * chica.
+   */
+  station_target_minutes: Record<string, number>;
+  quick_notes: Record<string, string[]>;
+  employee_session_minutes: number | null;
+  pin_lock_attempts: number | null;
+  pin_lock_minutes: number | null;
+  period_low_base_orders: number;
+  daily_low_base_orders: number;
+  employee_session_minutes_default?: number;
+  pin_lock_attempts_default?: number;
+  pin_lock_minutes_default?: number;
 }
 
 export function getSalesSettings(storeId: number): Promise<SalesSettings> {
@@ -243,4 +265,13 @@ export function updateTable(
   body: Partial<{ zone_id: number; number: string; seats: number; active: boolean }>,
 ): Promise<Table> {
   return api<Table>(`/admin/tables/${tableId}`, { method: "PATCH", body });
+}
+
+/**
+ * Las notas rápidas del POS por curso (Ajustes › Ventas, 0035). Lectura de
+ * dispositivo: sólo textos. `_default` es la lista para un curso sin lista
+ * propia.
+ */
+export function getQuickNotes(): Promise<Record<string, string[]>> {
+  return api<Record<string, string[]>>("/quick-notes");
 }

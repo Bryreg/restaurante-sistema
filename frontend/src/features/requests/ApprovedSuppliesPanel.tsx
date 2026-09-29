@@ -10,6 +10,8 @@ import { formatCantidad } from "@/lib/format";
 import { unidadEnPlural } from "@/features/inventory/areaCountLib";
 
 import { REQUESTS_QUERY_KEYS } from "./lib";
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 function Pedido({ storeId, request }: { storeId: number; request: StaffRequest }): React.JSX.Element {
   const queryClient = useQueryClient();
@@ -65,9 +67,12 @@ export function ApprovedSuppliesPanel({ storeId }: { storeId: number }): React.J
 
   return (
     <section aria-labelledby="por-comprar" className="space-y-3">
-      <h2 id="por-comprar" className="text-lg font-semibold">
-        Por comprar (pedidos del salón)
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="por-comprar" className="text-lg font-semibold">
+          Por comprar (pedidos del salón)
+        </h2>
+        <CsvExportButton href={csvUrl("/admin/requests/supplies", { store_id: storeId, status: "approved" })} />
+      </div>
       {query.isLoading ? (
         <Cargando filas={2} />
       ) : query.isError ? (

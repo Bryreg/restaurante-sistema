@@ -18,10 +18,10 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import DeviceSession, Employee
 from app.core import clock
-from app.core.config import settings
 from app.core.db import get_db
 from app.core.errors import NotFoundError, UnauthorizedError
 from app.core.security import COOKIE_ADMIN, COOKIE_DEVICE, read_token
+from app.stores import service as stores_service
 from app.stores.models import Store
 
 
@@ -135,8 +135,12 @@ def current_operator(request: Request, db: Session = Depends(get_db)) -> Actor:
     employee = _bound_employee(db, session, now)
     if employee is None:
         raise UnauthorizedError("Identificate con tu PIN", code="IDENTIFY_REQUIRED")
-    # Expiración por inactividad, renovada en cada uso (sliding window).
-    session.employee_expires_at = now + timedelta(minutes=settings.EMPLOYEE_SESSION_MINUTES)
+    # Expiración por inactividad, renovada en cada uso (sliding window). Los
+    # minutos son los de la sede (Ajustes › Ventas › Seguridad, 0035) o, sin
+    # ellos, los de la variable de entorno.
+    session.employee_expires_at = now + timedelta(
+        minutes=stores_service.employee_session_minutes(db, session.store_id)
+    )
     db.flush()
     return Actor(
         kind="device",

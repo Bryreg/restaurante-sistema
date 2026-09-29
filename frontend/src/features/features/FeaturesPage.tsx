@@ -34,6 +34,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { errorMessage } from "@/lib/errors";
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 const PROFILE_LABEL: Record<Profile, string> = {
   basic: "Básico",
@@ -331,6 +333,7 @@ export default function FeaturesPage(): React.JSX.Element {
               noun="funciones"
               hidden={features.length > 0 ? `${encendidas} encendidas · ${features.length - encendidas} apagadas` : undefined}
             >
+              <CsvExportButton href={csvUrl("/admin/features", { store_id: storeIdForScope ?? undefined })} />
               <span className="text-xs text-muted-foreground">Editando:</span>
               <Select
                 value={String(scope)}

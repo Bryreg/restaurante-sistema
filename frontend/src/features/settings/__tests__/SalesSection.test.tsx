@@ -33,6 +33,17 @@ const DEFAULTS: SalesSettings = {
   long_table_minutes: 60,
   late_ticket_minutes: 20,
   orders_per_waiter: 7,
+  invoice_threshold_uvt: 5,
+  station_target_minutes: { bar: 5, hot_kitchen: 15, cold_kitchen: 10 },
+  quick_notes: { _default: ["Sin cebolla", "Sin sal", "Aparte", "Para llevar"] },
+  employee_session_minutes: null,
+  pin_lock_attempts: null,
+  pin_lock_minutes: null,
+  period_low_base_orders: 20,
+  daily_low_base_orders: 5,
+  employee_session_minutes_default: 3,
+  pin_lock_attempts_default: 5,
+  pin_lock_minutes_default: 15,
 }
 
 describe("SalesSection — los supuestos del panel viven en Ajustes", () => {
@@ -66,5 +77,19 @@ describe("SalesSection — los supuestos del panel viven en Ajustes", () => {
     await user.click(within(dialogo).getByRole("button", { name: "Guardar" }))
     await waitFor(() => expect(setSalesSettingsMock).toHaveBeenCalled())
     expect(setSalesSettingsMock.mock.calls[0]![1]).toMatchObject({ long_table_minutes: 90, margin_target_pct: 65 })
+  })
+})
+
+describe("SalesSection — lo que estaba quemado en el código ahora se configura acá (0035)", () => {
+  it("muestra el umbral de factura, la seguridad con los valores de fábrica y la muestra chica", async () => {
+    getSalesSettingsMock.mockResolvedValue(DEFAULTS)
+    renderWithProviders(<SalesSection storeId={1} />, { me: buildMe() })
+
+    expect(await screen.findByLabelText("Umbral de factura (UVT)")).toHaveValue(5)
+    const sesion = screen.getByLabelText("Sesión de la persona (minutos sin usar)")
+    expect(sesion).toHaveValue(null)
+    expect(sesion).toHaveAttribute("placeholder", "3")
+    expect(screen.getByLabelText("Comandas mínimas del período")).toHaveValue(20)
+    expect(screen.getByLabelText("Para el resto (una por línea)")).toHaveValue("Sin cebolla\nSin sal\nAparte\nPara llevar")
   })
 })

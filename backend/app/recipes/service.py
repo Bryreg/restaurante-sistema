@@ -52,6 +52,8 @@ from app.recipes.schemas import (
     RecipeEffectOut,
 )
 
+# Default del aviso de varianza de producción (15,00 %); la sede lo cambia en
+# Ajustes › Inventario (`StoreInventorySettings.prep_variance_alert_pct`, 0035).
 VARIANCE_ALERT_THRESHOLD_X100 = 1500  # 15.00 %
 
 # ---------------------------------------------------------------------------
@@ -391,7 +393,11 @@ def produce_preparation(db: Session, *, actor: Actor, preparation: Preparation, 
     business_date = tz.business_date_for(now, _cutoff_hour(db, preparation.store_id))
 
     variance_pct_x100 = abs(qty_real - qty_expected) * 10000 // qty_expected
-    variance_alert = variance_pct_x100 > VARIANCE_ALERT_THRESHOLD_X100
+
+    # El umbral es el de la sede (Ajustes › Inventario, 0035); la constante
+    # es el default.
+    alert_pct = inventory_hooks.store_thresholds(db, preparation.store_id).prep_variance_alert_pct
+    variance_alert = variance_pct_x100 > alert_pct * 100
 
     unit_cost_micros: int | None = None
     if total_micros is not None and qty_real > 0:

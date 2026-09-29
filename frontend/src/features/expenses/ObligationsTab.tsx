@@ -60,6 +60,8 @@ import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { obligationCategoryLabel, obligationStatusLabel, OBLIGATION_CATEGORY_LABEL } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 function CreateObligationDialog({
   storeId,
@@ -302,6 +304,9 @@ export function ObligationsTab({ storeId }: { storeId: number }): React.JSX.Elem
           noun="obligaciones"
           hidden={query.isLoading ? "contando…" : overdue > 0 ? `${overdue} ya vencidas` : undefined}
         >
+          <CsvExportButton
+            href={csvUrl("/admin/obligations", { store_id: storeId, status: status === "all" ? undefined : status })}
+          />
           <div className="flex items-center gap-2">
             <Label htmlFor="obligation-status-filter">Estado</Label>
             <Select value={status} onValueChange={(value) => setStatus(value as ObligationStatus | "all")}>

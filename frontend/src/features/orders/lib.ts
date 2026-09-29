@@ -224,10 +224,11 @@ export function unsentItemCount(items: { qty?: number; status?: string; is_deliv
 }
 
 /**
- * Notas rápidas de un plato: un toque en vez del teclado. Hoy no hay dónde
- * configurarlas por sede (no hay columna para eso y no se abre una
- * migración por una lista de textos), así que viven acá: una lista por
- * curso del plato y la de siempre para el resto. El teclado queda para
+ * Notas rápidas de un plato: un toque en vez del teclado. Se configuran por
+ * sede en Ajustes › Ventas (`quick_notes`, 0035) y el POS las lee de
+ * `GET /quick-notes` (`useQuickNotes`); las de acá son las de fábrica, las
+ * mismas que devuelve el servidor mientras la sede no guarde las suyas, y
+ * lo que se muestra si la lectura todavía no llegó. El teclado queda para
  * «Otra nota».
  */
 export const DEFAULT_QUICK_NOTES: readonly string[] = ["Sin cebolla", "Sin sal", "Aparte", "Para llevar"]
@@ -237,7 +238,17 @@ const QUICK_NOTES_BY_COURSE: Record<string, readonly string[]> = {
   dessert: ["Sin azúcar", "Aparte", "Para compartir", "Para llevar"],
 }
 
-export function quickNotesFor(course: string | null | undefined): readonly string[] {
+/** La clave de la lista para un curso sin lista propia (la del servidor). */
+export const QUICK_NOTES_DEFAULT_KEY = "_default"
+
+export function quickNotesFor(
+  course: string | null | undefined,
+  configured?: Record<string, readonly string[]> | null,
+): readonly string[] {
+  if (configured) {
+    const own = course ? configured[course] : undefined
+    return own ?? configured[QUICK_NOTES_DEFAULT_KEY] ?? DEFAULT_QUICK_NOTES
+  }
   return (course ? QUICK_NOTES_BY_COURSE[course] : undefined) ?? DEFAULT_QUICK_NOTES
 }
 

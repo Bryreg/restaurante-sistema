@@ -19,6 +19,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP, parseCOP } from "@/lib/money"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 const WEEKDAY_LABELS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 
@@ -195,7 +197,8 @@ export function CombosTab({ storeId }: { storeId: number }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <CsvExportButton href={csvUrl("/admin/combos", { store_id: storeId })} />
         <CreateComboDialog storeId={storeId} />
       </div>
 

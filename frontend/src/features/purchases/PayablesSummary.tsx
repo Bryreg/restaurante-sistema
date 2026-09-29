@@ -16,6 +16,8 @@ import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
 import { AGING_EJE, AGING_LABEL, cuentas } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 export function PayablesSummary({ storeId }: { storeId: number }): React.JSX.Element | null {
   const query = useQuery({
@@ -49,6 +51,9 @@ export function PayablesSummary({ storeId }: { storeId: number }): React.JSX.Ele
 
   return (
     <section aria-label="Resumen de lo que se debe" className="space-y-4">
+      <div className="flex justify-end">
+        <CsvExportButton href={csvUrl("/admin/payables/summary", { store_id: storeId })} label="Exportar resumen" />
+      </div>
       {/* **Una cifra protagonista** (mapa de pantallas, regla 1): lo que se
           debe, grande y en ámbar —es plata pendiente—; lo vencido y lo que
           vence en la semana, al lado y más chico. Las tres cifras son las del

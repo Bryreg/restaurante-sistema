@@ -26,6 +26,8 @@ import { errorMessage } from "@/lib/errors"
 import { formatCOP, parseCOP } from "@/lib/money"
 
 import { RecipeEffectDialog } from "./RecipeEffectDialog"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 function GroupCard({
   group,
@@ -209,6 +211,9 @@ export function ModifiersTab({ storeId }: { storeId: number }) {
         <p className="text-sm text-destructive">{errorMessage(groupsQuery.error)}</p>
       ) : (
         <div className="space-y-3">
+          <div className="flex justify-end">
+            <CsvExportButton href={csvUrl("/admin/modifier-groups", { product_id: productId })} />
+          </div>
           {(groupsQuery.data ?? []).length === 0 && (
             <p className="text-sm text-muted-foreground">Este producto todavía no tiene grupos.</p>
           )}

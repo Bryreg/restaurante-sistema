@@ -594,12 +594,70 @@ class ControlHealthOut(BaseModel):
 class InventorySettingsIn(BaseModel):
     variance_yellow_threshold_bp: int = Field(gt=0)
     variance_red_threshold_bp: int = Field(gt=0)
+    # Configurables desde el panel (0035). Opcionales: un campo que no viene
+    # deja la sede como estaba (un cliente escrito antes no los pisa).
+    price_jump_pct: int | None = Field(default=None, ge=1, le=100)
+    prep_variance_alert_pct: int | None = Field(default=None, ge=1, le=100)
+    stale_days: int | None = Field(default=None, ge=1, le=120)
+    lot_expiring_window_days: int | None = Field(default=None, ge=1, le=90)
+    food_cost_band_min_pct: int | None = Field(default=None, ge=1, le=100)
+    food_cost_band_max_pct: int | None = Field(default=None, ge=1, le=100)
+    supplier_received_warning_bp: int | None = Field(default=None, ge=1, le=10_000)
+    supplier_received_critical_bp: int | None = Field(default=None, ge=1, le=10_000)
+    supplier_drift_warning_bp: int | None = Field(default=None, ge=1, le=10_000)
+    supplier_drift_critical_bp: int | None = Field(default=None, ge=1, le=10_000)
+    supplier_min_receptions: int | None = Field(default=None, ge=1, le=100)
+
+
+class InventoryThresholdsIn(BaseModel):
+    """Sólo los umbrales de 0035 (`PUT /admin/stores/{id}/inventory-thresholds`):
+    compras, recetas e informes los usan aunque la varianza esté apagada, así
+    que se guardan sin exigir `inventory.variance`."""
+
+    price_jump_pct: int | None = Field(default=None, ge=1, le=100)
+    prep_variance_alert_pct: int | None = Field(default=None, ge=1, le=100)
+    stale_days: int | None = Field(default=None, ge=1, le=120)
+    lot_expiring_window_days: int | None = Field(default=None, ge=1, le=90)
+    food_cost_band_min_pct: int | None = Field(default=None, ge=1, le=100)
+    food_cost_band_max_pct: int | None = Field(default=None, ge=1, le=100)
+    supplier_received_warning_bp: int | None = Field(default=None, ge=1, le=10_000)
+    supplier_received_critical_bp: int | None = Field(default=None, ge=1, le=10_000)
+    supplier_drift_warning_bp: int | None = Field(default=None, ge=1, le=10_000)
+    supplier_drift_critical_bp: int | None = Field(default=None, ge=1, le=10_000)
+    supplier_min_receptions: int | None = Field(default=None, ge=1, le=100)
+
+
+#: Los campos de 0035 de `InventorySettingsIn` (se conservan si no vienen).
+INVENTORY_CONFIG_FIELDS = (
+    "price_jump_pct",
+    "prep_variance_alert_pct",
+    "stale_days",
+    "lot_expiring_window_days",
+    "food_cost_band_min_pct",
+    "food_cost_band_max_pct",
+    "supplier_received_warning_bp",
+    "supplier_received_critical_bp",
+    "supplier_drift_warning_bp",
+    "supplier_drift_critical_bp",
+    "supplier_min_receptions",
+)
 
 
 class InventorySettingsOut(BaseModel):
     store_id: int
     variance_yellow_threshold_bp: int
     variance_red_threshold_bp: int
+    price_jump_pct: int = 15
+    prep_variance_alert_pct: int = 15
+    stale_days: int = 14
+    lot_expiring_window_days: int = 7
+    food_cost_band_min_pct: int = 28
+    food_cost_band_max_pct: int = 35
+    supplier_received_warning_bp: int = 9900
+    supplier_received_critical_bp: int = 9500
+    supplier_drift_warning_bp: int = 500
+    supplier_drift_critical_bp: int = 1000
+    supplier_min_receptions: int = 5
 
 
 # ---------------------------------------------------------------------------
@@ -870,12 +928,19 @@ class AreaCountSettingsIn(BaseModel):
     # Día del mes del conteo completo (1–28; `None` = apagado). Si no viene en
     # el cuerpo, queda como estaba (guardar el umbral no lo apaga).
     monthly_full_count_day: int | None = Field(default=None, ge=1, le=28)
+    # Configurables desde el panel (0035). Si no vienen, quedan como estaban.
+    max_items_per_area: int | None = Field(default=None, ge=1, le=100)
+    max_recount_items: int | None = Field(default=None, ge=1, le=50)
+    suggest_closing_from_hour: int | None = Field(default=None, ge=0, le=23)
 
 
 class AreaCountSettingsOut(BaseModel):
     store_id: int
     threshold_pct_bp: int | None
     threshold_amount: int | None
+    max_items_per_area: int = 15
+    max_recount_items: int = 5
+    suggest_closing_from_hour: int = 20
     # La regla en palabras, escrita por el servidor (patrón 9, «la lectura»).
     reading: str
     monthly_full_count_day: int | None

@@ -30,6 +30,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { errorMessage } from "@/lib/errors";
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /** Zonas y mesas de la sede: `/admin/zones`, `/admin/tables`. */
 export function ZonesTablesSection({ storeId }: { storeId: number | null }): React.JSX.Element {
@@ -172,7 +174,9 @@ export function ZonesTablesSection({ storeId }: { storeId: number | null }): Rea
                 total={zones.length}
                 noun="zonas"
                 hidden={zones.length > zonasActivas ? `${zones.length - zonasActivas} inactivas` : undefined}
-              />
+              >
+                <CsvExportButton href={csvUrl("/admin/zones", { store_id: storeId })} />
+              </DenseTableBar>
             }
             note={
               <>
@@ -224,7 +228,9 @@ export function ZonesTablesSection({ storeId }: { storeId: number | null }): Rea
                 total={tables.length}
                 noun="mesas"
                 hidden={`${mesasActivas} activas · ${sillasActivas} sillas para sentar`}
-              />
+              >
+                <CsvExportButton href={csvUrl("/admin/tables", { store_id: storeId })} />
+              </DenseTableBar>
             }
             legend={[
               {

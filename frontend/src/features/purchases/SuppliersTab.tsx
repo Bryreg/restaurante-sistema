@@ -63,11 +63,14 @@ const SUPPLIERS_LEGEND: readonly LegendEntry[] = [
     meaning: "no borra: el proveedor deja de ofrecerse en recepciones nuevas y sus compras viejas quedan enteras.",
   },
 ]
-import { defaultDateRange, downloadSuppliersCsv } from "./lib"
-import { formatDeriva, peorTono, tonoDeriva, tonoRecibido } from "./reliability"
+import { defaultDateRange } from "./lib"
+import { formatDeriva, peorTono, tonoDeriva, tonoRecibido, umbralesDe } from "./reliability"
 import { Indicador, Recepciones } from "./ReliabilityMarks"
 import { formValuesToSupplierIn, formValuesToSupplierUpdateIn, SupplierForm } from "./SupplierForm"
 import { SupplierReliabilityDialog } from "./SupplierReliabilityDialog"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
+import { getInventoryThresholds } from "@/api/inventory"
 
 /**
  * Las tres acciones de la fila —Confiabilidad, Editar, Desactivar— en el
@@ -171,6 +174,11 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
   const suppliers = query.data ?? []
   const inactive = suppliers.filter((s) => !s.active).length
 
+  const thresholdsQuery = useQuery({
+    queryKey: ["inventory", "thresholds", storeId],
+    queryFn: () => getInventoryThresholds(storeId),
+  })
+  const u = umbralesDe(thresholdsQuery.data)
   const columns: readonly DenseColumn<SupplierOut>[] = [
     { key: "name", header: "Nombre", kind: "name", cell: (s) => s.name },
     // NIT, contacto y factura, detrás de «Más columnas» (regla 3): la
@@ -202,7 +210,7 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
       cell: (s) => {
         const r = reliabilityById.get(s.id)
         const bp = r?.received_over_invoiced_bp ?? null
-        return bp === null ? <SinReliability cargando={reliabilityQuery.isLoading} /> : <Indicador tono={tonoRecibido(bp)}>{formatPct(bp)}</Indicador>
+        return bp === null ? <SinReliability cargando={reliabilityQuery.isLoading} /> : <Indicador tono={tonoRecibido(bp, u)}>{formatPct(bp)}</Indicador>
       },
     },
     {
@@ -212,7 +220,7 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
       cell: (s) => {
         const r = reliabilityById.get(s.id)
         const bp = r?.price_drift_bp ?? null
-        return bp === null ? <SinReliability cargando={reliabilityQuery.isLoading} /> : <Indicador tono={tonoDeriva(bp)}>{formatDeriva(bp)}</Indicador>
+        return bp === null ? <SinReliability cargando={reliabilityQuery.isLoading} /> : <Indicador tono={tonoDeriva(bp, u)}>{formatDeriva(bp)}</Indicador>
       },
     },
     {
@@ -221,7 +229,7 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
       kind: "number",
       cell: (s) => {
         const r = reliabilityById.get(s.id)
-        return r ? <Recepciones n={r.n_receptions ?? r.receptions} /> : <SinReliability cargando={reliabilityQuery.isLoading} />
+        return r ? <Recepciones n={r.n_receptions ?? r.receptions} minimo={u.muestraChica} /> : <SinReliability cargando={reliabilityQuery.isLoading} />
       },
     },
     {
@@ -260,7 +268,7 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
         rowInactive={(s) => !s.active}
         rowStatus={(s) => {
           const r = reliabilityById.get(s.id)
-          return r ? peorTono(tonoRecibido(r.received_over_invoiced_bp), tonoDeriva(r.price_drift_bp)) : "none"
+          return r ? peorTono(tonoRecibido(r.received_over_invoiced_bp, u), tonoDeriva(r.price_drift_bp, u)) : "none"
         }}
         legend={SUPPLIERS_LEGEND}
         bar={
@@ -286,14 +294,14 @@ export function SuppliersTab({ storeId }: { storeId: number }): React.JSX.Elemen
               />
               <Label htmlFor="sup-show-inactive">Mostrar inactivos</Label>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => downloadSuppliersCsv(suppliers)}
-              disabled={suppliers.length === 0}
-            >
-              Exportar CSV
-            </Button>
+            <CsvExportButton
+              href={csvUrl("/admin/suppliers", { store_id: storeId, active: showInactive ? undefined : true })}
+              label="Exportar proveedores"
+            />
+            <CsvExportButton
+              href={csvUrl("/admin/suppliers/reliability", { store_id: storeId, from: range.from, to: range.to })}
+              label="Exportar confiabilidad"
+            />
             <Dialog open={creating} onOpenChange={setCreating}>
               <DialogTrigger render={<Button size="sm" />}>Nuevo proveedor</DialogTrigger>
               <DialogContent className="sm:max-w-xl">

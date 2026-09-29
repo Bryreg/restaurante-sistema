@@ -25,6 +25,8 @@ import { errorMessage } from "@/lib/errors"
 
 import { formatBasisPoints } from "@/features/inventory/lib"
 
+import { AreaCountLimitsSection, ThresholdsSection } from "./ThresholdsSection"
+
 /** Puntos básicos REALES (100 = 1 %, misma escala que `variance_pct_bp`) —
  * texto en porcentaje para el input, sólo para esta pantalla de edición. */
 function bpToPercentText(bp: number): string {
@@ -265,6 +267,10 @@ export function InventorySection({ storeId }: { storeId: number | null }): React
           </form>
         )}
       </FormSection>
+
+      <ThresholdsSection storeId={storeId} />
+
+      <AreaCountLimitsSection storeId={storeId} />
 
       <FormSection
         title="Insumos críticos"

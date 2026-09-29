@@ -17,6 +17,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { errorMessage } from "@/lib/errors"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 export function CategoriesTab({ storeId }: { storeId: number }) {
   const queryClient = useQueryClient()
@@ -73,6 +75,7 @@ export function CategoriesTab({ storeId }: { storeId: number }) {
         <Button type="submit" disabled={createMutation.isPending || newName.trim() === ""}>
           Agregar
         </Button>
+        <CsvExportButton href={csvUrl("/admin/categories", { store_id: storeId })} />
       </form>
       {createMutation.isError && (
         <p className="text-sm text-destructive">{errorMessage(createMutation.error)}</p>

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import clock
+from app.core.config import settings
 from app.stores.models import StoreCashSettings, StoreFiscalConfig, StoreSalesSettings
 
 DEFAULT_PAYMENT_METHODS: list[dict[str, object]] = [
@@ -38,6 +39,54 @@ DEFAULT_COURTESY_REASONS = ["complaint", "promo_owner", "guest_of_owner", "other
 DEFAULT_COURSES = ["beverage", "starter", "main", "dessert"]
 DEFAULT_STATIONS = ["hot_kitchen", "cold_kitchen", "bar", "desserts", "none"]
 DEFAULT_COURSE_TARGET_MINUTES: dict[str, int] = {"starter": 8, "main": 18, "dessert": 8}
+
+#: Objetivo de cocina por estación de fábrica (antes sólo en
+#: `app.kitchen.service`): rige mientras la sede no guarde el suyo en
+#: Ajustes › Ventas › Estaciones (`station_target_minutes`, 0035).
+DEFAULT_STATION_TARGET_MINUTES: dict[str, int] = {"bar": 5, "hot_kitchen": 15, "cold_kitchen": 10}
+
+#: Notas rápidas del POS de fábrica, por curso (antes quemadas en
+#: `frontend/src/features/orders/lib.ts`). `_default` es la lista para un
+#: curso sin lista propia. La sede las cambia en Ajustes › Ventas.
+QUICK_NOTES_DEFAULT_KEY = "_default"
+DEFAULT_QUICK_NOTES: dict[str, list[str]] = {
+    QUICK_NOTES_DEFAULT_KEY: ["Sin cebolla", "Sin sal", "Aparte", "Para llevar"],
+    "beverage": ["Sin hielo", "Sin azúcar", "Al clima", "Para llevar"],
+    "dessert": ["Sin azúcar", "Aparte", "Para compartir", "Para llevar"],
+}
+
+
+def station_targets(row: StoreSalesSettings) -> dict[str, int]:
+    """Los objetivos por estación que rigen: los de fábrica pisados por los
+    que la sede guardó."""
+    return {**DEFAULT_STATION_TARGET_MINUTES, **{k: int(v) for k, v in (row.station_target_minutes or {}).items()}}
+
+
+def quick_notes(row: StoreSalesSettings) -> dict[str, list[str]]:
+    """Las notas rápidas que rigen, por curso (fábrica + las de la sede)."""
+    return {**DEFAULT_QUICK_NOTES, **{k: list(v) for k, v in (row.quick_notes or {}).items()}}
+
+
+def employee_session_minutes(db: Session, store_id: int | None) -> int:
+    """Minutos de inactividad antes de pedir el PIN otra vez: el de la sede
+    (Ajustes › Ventas › Seguridad) o, sin él, el de la variable de entorno."""
+    if store_id is not None:
+        row = db.get(StoreSalesSettings, store_id)
+        if row is not None and row.employee_session_minutes:
+            return int(row.employee_session_minutes)
+    return settings.EMPLOYEE_SESSION_MINUTES
+
+
+def pin_lock_policy(db: Session, store_id: int | None) -> tuple[int, int]:
+    """`(intentos, minutos)` del bloqueo del PIN: los de la sede o, sin
+    ellos, los de la variable de entorno."""
+    attempts, minutes = settings.PIN_LOCK_ATTEMPTS, settings.PIN_LOCK_MINUTES
+    if store_id is not None:
+        row = db.get(StoreSalesSettings, store_id)
+        if row is not None:
+            attempts = int(row.pin_lock_attempts or attempts)
+            minutes = int(row.pin_lock_minutes or minutes)
+    return attempts, minutes
 
 
 def get_cash_settings(db: Session, store_id: int) -> StoreCashSettings:

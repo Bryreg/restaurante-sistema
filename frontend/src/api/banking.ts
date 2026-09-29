@@ -276,6 +276,8 @@ export interface OwnerHandOut {
    * `from` del período: la plata de antes que sigue en la mano es la más vieja. */
   oldest_undeposited_date?: string | null
   oldest_undeposited_days?: number | null
+  /** Desde cuántos días sin consignar la tarjeta va en ámbar (Ajustes › Caja). */
+  overdue_days?: number
   reason?: string | null
 }
 

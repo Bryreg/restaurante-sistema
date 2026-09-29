@@ -13,14 +13,14 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
+from app.core.csv import CsvFormat, csv_response, sectioned_rows, wants_csv
 from app.stores.models import Store
 
 from app.auth.deps import Actor, admin_store, current_admin, current_device, current_operator
 from app.core import clock
-from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.features import require_feature
@@ -151,37 +151,45 @@ def _idempotent(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/suppliers")
+@router.get("/admin/suppliers", response_model=list[SupplierOut])
 def list_suppliers(
     store_id: int,
     active: bool | None = None,
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[SupplierOut]:
+) -> list[SupplierOut] | Response:
     store = admin_store(db, actor, store_id)
     rows = service.list_suppliers(db, store_id=store.id, active=active)
-    return [SupplierOut.model_validate(r) for r in rows]
+    result = [SupplierOut.model_validate(r) for r in rows]
+    if format == "csv":
+        return csv_response(result, "proveedores.csv")
+    return result
 
 
-@router.get("/admin/suppliers/reliability")
+@router.get("/admin/suppliers/reliability", response_model=SuppliersReliabilityOut)
 def suppliers_reliability(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> SuppliersReliabilityOut:
+) -> SuppliersReliabilityOut | Response:
     """Todos los proveedores de la sede de una vez, para compararlos en la
     lista (informe de visualización #9). Misma matemática, por insumo, que
     `GET /admin/suppliers/{id}/reliability`."""
     store = admin_store(db, actor, store_id)
     rows = service.suppliers_reliability(db, store_id=store.id, date_from=date_from, date_to=date_to)
-    return SuppliersReliabilityOut(
+    result = SuppliersReliabilityOut(
         store_id=store.id,
         date_from=date_from,
         date_to=date_to,
         rows=[SupplierReliabilityRowOut(date_from=date_from, date_to=date_to, **row) for row in rows],
     )
+    if format == "csv":
+        return csv_response(result.rows, "confiabilidad-proveedores.csv")
+    return result
 
 
 @router.post("/admin/suppliers", status_code=201)
@@ -217,17 +225,21 @@ def delete_supplier(
     return SupplierOut.model_validate(row)
 
 
-@router.get("/admin/suppliers/{supplier_id}/reliability")
+@router.get("/admin/suppliers/{supplier_id}/reliability", response_model=SupplierReliabilityOut)
 def supplier_reliability(
     supplier_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> SupplierReliabilityOut:
+) -> SupplierReliabilityOut | Response:
     supplier = service.get_supplier_or_404(db, organization_id=actor.organization_id, supplier_id=supplier_id)
     data = service.supplier_reliability(db, supplier=supplier, date_from=date_from, date_to=date_to)
-    return SupplierReliabilityOut(supplier_id=supplier.id, date_from=date_from, date_to=date_to, **data)
+    result = SupplierReliabilityOut(supplier_id=supplier.id, date_from=date_from, date_to=date_to, **data)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "confiabilidad-proveedor.csv")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -358,15 +370,18 @@ def list_payables(
     return out
 
 
-@router.get("/admin/payables/summary")
+@router.get("/admin/payables/summary", response_model=PayablesSummaryOut)
 def payables_summary(
-    store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
-) -> PayablesSummaryOut:
+    store_id: int, format: CsvFormat = None, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> PayablesSummaryOut | Response:
     """Cabecera de cuentas por pagar (informe de visualización #8). Va ANTES
     de `/admin/payables/{payable_id}`: si no, «summary» se intenta leer como
     id y responde 422."""
     store = admin_store(db, actor, store_id)
-    return PayablesSummaryOut(store_id=store.id, **service.payables_summary(db, store_id=store.id))
+    result = PayablesSummaryOut(store_id=store.id, **service.payables_summary(db, store_id=store.id))
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "cuentas-por-pagar-resumen.csv")
+    return result
 
 
 @router.get("/admin/payables/{payable_id}")
@@ -639,18 +654,22 @@ def list_my_reception_drafts(
     return [_draft_device_out(db, r) for r in rows]
 
 
-@router.get("/admin/reception-drafts")
+@router.get("/admin/reception-drafts", response_model=list[ReceptionDraftAdminOut])
 def list_reception_drafts(
     store_id: int,
     status: str | None = Query(None, description='"pending", "completed" o "rejected"; sin filtro, todas'),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[ReceptionDraftAdminOut]:
+) -> list[ReceptionDraftAdminOut] | Response:
     store = admin_store(db, actor, store_id)
     if status is not None and status not in ("pending", "completed", "rejected"):
         raise AppError(code="VALIDATION_ERROR", message='status: usá "pending", "completed" o "rejected"', status=400)
     rows = service.list_reception_drafts(db, store_id=store.id, status=status)
-    return [_draft_admin_out(db, r) for r in rows]
+    result = [_draft_admin_out(db, r) for r in rows]
+    if format == "csv":
+        return csv_response(result, "recepciones-del-pos.csv")
+    return result
 
 
 @router.get("/admin/reception-drafts/{draft_id}")

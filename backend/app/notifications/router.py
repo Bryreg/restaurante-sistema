@@ -28,7 +28,7 @@ from app.notifications.schemas import (
     PushUnsubscribeIn,
     PushUnsubscribeOut,
 )
-from app.notifications.service import NOTIFICATION_TYPES, default_level
+from app.notifications.service import NOTIFICATION_TYPES, THRESHOLD_DEFAULTS, default_level
 
 router = APIRouter()
 
@@ -111,10 +111,21 @@ def get_notification_rules(
     out: list[NotificationRuleOut] = []
     for t in NOTIFICATION_TYPES:
         row = existing.get(t)
+        default, unit = THRESHOLD_DEFAULTS.get(t, (None, None))
         if row is not None:
-            out.append(NotificationRuleOut(type=t, enabled=row.enabled, threshold=row.threshold, level=row.level))
+            out.append(
+                NotificationRuleOut(
+                    type=t, enabled=row.enabled, threshold=row.threshold, level=row.level,
+                    threshold_default=default, threshold_unit=unit,
+                )
+            )
         else:
-            out.append(NotificationRuleOut(type=t, enabled=True, threshold=None, level=default_level(t)))
+            out.append(
+                NotificationRuleOut(
+                    type=t, enabled=True, threshold=None, level=default_level(t),
+                    threshold_default=default, threshold_unit=unit,
+                )
+            )
     return out
 
 

@@ -28,6 +28,8 @@ import { formatRangoCorto } from "@/features/reports/lib"
 
 import { daysAgoLocal, todayLocal } from "./lib"
 import { lineOf, profitHeadline, type LineKey } from "./titulares"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /** Monto de un renglón o su «sin datos» con motivo. */
 function Monto({ line, reason }: { line: ProfitLine | null; reason: string | null }): React.JSX.Element {
@@ -118,15 +120,18 @@ export function ProfitTab({ storeId }: { storeId: number }): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <DateRangeFilter
-        idPrefix="profit"
-        from={from}
-        to={to}
-        onChange={(r) => {
-          setFrom(r.from)
-          setTo(r.to)
-        }}
-      />
+      <div className="flex flex-wrap items-end gap-3">
+        <DateRangeFilter
+          idPrefix="profit"
+          from={from}
+          to={to}
+          onChange={(r) => {
+            setFrom(r.from)
+            setTo(r.to)
+          }}
+        />
+        <CsvExportButton href={csvUrl("/admin/profit", { store_id: storeId, from, to })} />
+      </div>
 
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Calculando la utilidad del período…</p>

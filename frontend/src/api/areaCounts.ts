@@ -261,9 +261,17 @@ export interface AreaCountSettingsIn {
   threshold_amount: number | null
   /** Día del mes (1–28) del conteo completo; `null` = apagado. Si no se manda, queda como estaba. */
   monthly_full_count_day?: number | null
+  /** Límites configurables (Ajustes › Inventario, 0035). Si no se mandan, quedan como estaban. */
+  max_items_per_area?: number
+  max_recount_items?: number
+  /** Hora de Bogotá (0–23) desde la que el POS sugiere «Cierre». */
+  suggest_closing_from_hour?: number
 }
 
 export interface AreaCountSettingsOut extends AreaCountSettingsIn {
+  max_items_per_area: number
+  max_recount_items: number
+  suggest_closing_from_hour: number
   store_id: number
   /** La regla en palabras, escrita por el servidor. */
   reading: string

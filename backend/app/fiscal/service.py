@@ -150,10 +150,13 @@ def _maybe_alert_range_low(db: Session, range_row: FiscalRange, *, business_date
     consumed = _range_consumed(range_row)
     pct = consumed / total if total > 0 else 1.0
     days_left = (range_row.valid_until - business_date).days
-    if pct < RANGE_ALERT_CONSUMED_PCT and days_left > RANGE_ALERT_DAYS_LEFT:
+    # El % consumido que dispara el aviso es el de la regla de la sede
+    # (`NotificationRule.threshold` de `fiscal_range_low`); sin regla, 80 %.
+    consumed_limit = notifications_service.rule_threshold(db, range_row.store_id, "fiscal_range_low") / 100
+    if pct < consumed_limit and days_left > RANGE_ALERT_DAYS_LEFT:
         return
     reasons = []
-    if pct >= RANGE_ALERT_CONSUMED_PCT:
+    if pct >= consumed_limit:
         reasons.append(f"{consumed}/{total} números consumidos ({pct:.0%})")
     if days_left <= RANGE_ALERT_DAYS_LEFT:
         reasons.append("ya venció" if days_left < 0 else f"vence en {days_left} días")

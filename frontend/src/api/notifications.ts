@@ -42,6 +42,9 @@ export interface NotificationRule {
   enabled: boolean;
   threshold: number | null;
   level: NotificationLevel;
+  /** Sólo en los tipos cuyo aviso lee el umbral: el de fábrica y qué mide. */
+  threshold_default?: number | null;
+  threshold_unit?: string | null;
 }
 
 export function getNotificationRules(storeId: number): Promise<NotificationRule[]> {

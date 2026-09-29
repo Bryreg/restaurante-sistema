@@ -17,9 +17,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.csv import CsvFormat, csv_response, sectioned_rows
 from app.auth.deps import Actor, admin_store, current_admin, current_device, current_operator
 from app.core import tz
-from app.core.csv import csv_response
 from app.core.db import get_db
 from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
@@ -188,14 +188,18 @@ def produce(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/products/{product_id}/recipe")
+@router.get("/admin/products/{product_id}/recipe", response_model=ProductRecipeOut)
 def get_product_recipe(
     product_id: int,
+    format: CsvFormat = None,
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
     _feature: None = Depends(require_feature("catalog.recipes")),
-) -> ProductRecipeOut:
-    return service.get_product_recipe(db, actor=actor, product_id=product_id)
+) -> ProductRecipeOut | Response:
+    result = service.get_product_recipe(db, actor=actor, product_id=product_id)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "receta.csv")
+    return result
 
 
 @router.put("/admin/products/{product_id}/recipe")

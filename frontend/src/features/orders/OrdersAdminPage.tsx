@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { useContext, useState } from "react"
 
 import { useStoreSelection } from "@/app/storeContext"
 import {
@@ -38,6 +38,8 @@ import { formatCOP } from "@/lib/money"
 import { formatInstant } from "@/lib/businessDate"
 
 import { CHANNEL_LABEL, ORDER_STATUS_LABEL, VOID_REASON_LABEL } from "./lib"
+import { csvUrl } from "@/api/client"
+import { SessionContext } from "@/app/session"
 
 const FLAG_OPTIONS: { value: string; label: string }[] = [
   { value: "voided", label: "Anuladas" },
@@ -119,6 +121,10 @@ export function OrderDetailBody({
     enabled: orderId !== null,
   })
   const order = query.data
+  // Sin sesión (un test que monta sólo el detalle) no se ofrece el consumo:
+  // esa lectura exige «Inventario perpetuo».
+  const session = useContext(SessionContext)
+  const consumoHabilitado = session?.hasFeature("inventory.perpetual") ?? false
 
   return query.isLoading ? (
     <Cargando texto="Cargando…" />
@@ -128,6 +134,12 @@ export function OrderDetailBody({
     </p>
   ) : order ? (
     <div className="space-y-3 text-sm">
+      <div className="flex flex-wrap gap-2">
+        <CsvExportButton href={csvUrl(`/admin/orders/${order.id}`)} label="Descargar ítems" />
+        {consumoHabilitado ? (
+          <CsvExportButton href={csvUrl(`/admin/orders/${order.id}/consumption`)} label="Descargar consumo" />
+        ) : null}
+      </div>
       <dl className="grid grid-cols-2 gap-2">
         <div>
           <dt className="text-muted-foreground">Canal</dt>
