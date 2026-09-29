@@ -14,6 +14,7 @@ import type { RouteObject } from "react-router-dom"
 
 import type { NavItem } from "@/app/nav"
 
+import { AccountantReportPage } from "./AccountantReportTab"
 import { FichaInsumo } from "./fichas/FichaInsumo"
 import { FichaPersona } from "./fichas/FichaPersona"
 import { FichaTurno } from "./fichas/FichaTurno"
@@ -26,6 +27,9 @@ const adminRoutes: RouteObject[] = [
   { path: "hoy", element: createElement(TodayPage) },
   { path: "ventas", element: createElement(SalesPage) },
   { path: "informes", element: createElement(InformesPage) },
+  // El informe del contador con su propia entrada en Informes (decisión del
+  // dueño 2026-09: «igual que café-sistema»). La pestaña de Ventas sigue.
+  { path: "contador", element: createElement(AccountantReportPage) },
   // Las fichas relacionales cuelgan de la pantalla de su sección (Caja ›
   // Dinero, Equipo › Turnos, Inventario): el rail enciende la sección por
   // prefijo de ruta y no suma entradas (`app/AdminLayout.tsx`).
@@ -45,6 +49,7 @@ const adminNav: NavItem[] = [
   { to: "/admin/hoy", label: "Hoy" },
   { to: "/admin/ventas", label: "Ventas" },
   { to: "/admin/informes", label: "Informes" },
+  { to: "/admin/contador", label: "Informe del contador" },
 ]
 
 export const reportsFeature = { adminRoutes, adminNav }

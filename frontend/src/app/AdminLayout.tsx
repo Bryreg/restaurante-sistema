@@ -191,6 +191,9 @@ export const RAIL: Record<string, FilaDelRail> = {
 
   "/admin/informes": { seccion: "Informes", label: "Informes", title: "Informes" },
   "/admin/ventas": { seccion: "Informes", label: "Ventas", title: "Ventas" },
+  // Entrada propia del informe del contador (decisión del dueño 2026-09,
+  // «igual que café-sistema»); sigue también como pestaña de Ventas.
+  "/admin/contador": { seccion: "Informes", label: "Informe del contador", title: "Informe del contador" },
   "/admin/analitica": {
     seccion: "Informes",
     label: "Ingeniería de menú",
@@ -439,7 +442,7 @@ function PestanasDeSeccion({
   const pantallas = pantallasDe(items, seccion);
   if (pantallas.length < 2) return null;
   return (
-    <nav aria-label={`Pantallas de ${seccion}`} className="mt-1 shrink-0 overflow-x-auto border-b px-3.5 md:px-6">
+    <nav aria-label={`Pantallas de ${seccion}`} className="mt-1 shrink-0 overflow-x-auto border-b px-3.5 md:px-6 print:hidden">
       <ul className="flex min-w-max gap-1">
         {pantallas.map((item) => {
           const fila = filaDe(item);
@@ -661,7 +664,7 @@ function LogoutButton({
  */
 function TopBar({ storeId }: { storeId: number | null }): React.JSX.Element {
   return (
-    <header className="sticky top-0 z-20 flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b bg-muted px-3 py-1.5">
+    <header className="sticky top-0 z-20 flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b bg-muted px-3 py-1.5 print:hidden">
       <StoreSwitcher />
       <PersonaYRol />
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
@@ -767,7 +770,7 @@ function BarraSuperiorCelular({
   enAviso: boolean;
 }): React.JSX.Element {
   return (
-    <header className="sticky top-0 z-20 flex min-h-[52px] shrink-0 items-center gap-2 border-b bg-muted px-2.5 py-1">
+    <header className="sticky top-0 z-20 flex min-h-[52px] shrink-0 items-center gap-2 border-b bg-muted px-2.5 py-1 print:hidden">
       {enAviso ? (
         <Link
           to={`/admin/hoy#${ANCLA_AVISOS}`}
@@ -913,7 +916,7 @@ function BarraInferior({
       aria-label="Accesos del celular"
       // `pb-[env(…)]`: en un iPhone sin botón la barra no queda debajo de la
       // raya de inicio.
-      className="fixed inset-x-0 bottom-0 z-30 border-t bg-muted pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 border-t bg-muted pb-[env(safe-area-inset-bottom)] md:hidden print:hidden"
     >
       <ul className="grid auto-cols-fr grid-flow-col">
         {/* Los rótulos van escritos literal, uno por destino, y no desde un
@@ -1016,7 +1019,7 @@ function AdminChrome(): React.JSX.Element {
           franja blanca bajo el pliegue en toda pantalla más alta que el
           monitor. En `a2` la lateral es una celda de la grilla y llega
           siempre hasta abajo. */}
-      <aside className={cn("hidden w-[222px] shrink-0 border-r bg-muted md:block")}>
+      <aside className={cn("hidden w-[222px] shrink-0 border-r bg-muted md:block print:hidden")}>
         <div className="sticky top-0 flex h-screen flex-col p-2">
           <RailContenido items={items} counts={counts} />
         </div>
@@ -1041,7 +1044,7 @@ function AdminChrome(): React.JSX.Element {
             último renglón de la pantalla nunca queda tapado. */}
         <main
           className={cn(
-            "min-w-0 flex-1 px-3.5 pt-3.5 pb-6 md:px-6 md:pt-4 md:pb-10",
+            "min-w-0 flex-1 px-3.5 pt-3.5 pb-6 md:px-6 md:pt-4 md:pb-10 print:p-0",
             celular && "pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-10",
           )}
         >
