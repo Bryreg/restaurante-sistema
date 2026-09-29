@@ -66,6 +66,9 @@ from app.reports.schemas import (
     MethodAmountOut,
     NegativeStockAlertOut,
     OpenOrderAgeOut,
+    PaymentBucketSalesOut,
+    TodayReceptionLineOut,
+    TodayTopProductOut,
     DayCloseOut,
     PayableAlertOut,
     PrepAlertOut,
@@ -1449,6 +1452,109 @@ def _yesterday_close(db: Session, store: Store, *, business_date: date, first_ac
     )
 
 
+# ---------------------------------------------------------------------------
+# Hoy según el dueño (2026-09-29): efectivo y tarjeta, platos más vendidos y
+# entradas de mercancía con su lote. Cada bloque es una función propia para
+# que la descarga (`format=csv`) y la pantalla lean exactamente lo mismo.
+# ---------------------------------------------------------------------------
+
+#: Cuántos platos lleva Hoy en «Top productos vendidos». La descarga los trae todos.
+TOP_PRODUCTS_LIMIT = 10
+
+#: Los dos bolsillos que Hoy muestra aparte; el resto va junto en «otros medios».
+_TODAY_OWN_BUCKETS = {"cash": "cash", "card": "card"}
+
+
+def today_payment_split(
+    db: Session, *, store: Store, business_date: date
+) -> dict[str, PaymentBucketSalesOut]:
+    """Venta del día por bolsillo: `{"cash", "card", "other"}`. Las filas
+    salen de `aggregate_sales(group_by="method")` —el impuesto de cada
+    comprobante ya está prorrateado entre sus partes de pago con
+    `money.prorate`— y el bolsillo de cada medio lo decide
+    `shifts_hooks.payment_bucket`, el único clasificador de un pago. Acá
+    sólo se juntan las filas de un mismo bolsillo."""
+    rows, _total = aggregate_sales(
+        db, store_id=store.id, date_from=business_date, date_to=business_date, group_by="method"
+    )
+    sums: dict[str, list[int]] = {"cash": [0, 0, 0], "card": [0, 0, 0], "other": [0, 0, 0]}
+    for row in rows:
+        target = _TODAY_OWN_BUCKETS.get(shifts_hooks.payment_bucket(row.key, None), "other")
+        acc = sums[target]
+        acc[0] += row.net
+        acc[1] += row.gross
+        acc[2] += row.payments or 0
+    return {k: PaymentBucketSalesOut(net=v[0], gross=v[1], payments=v[2]) for k, v in sums.items()}
+
+
+def today_top_products(
+    db: Session, *, store: Store, business_date: date, limit: int | None = TOP_PRODUCTS_LIMIT
+) -> list[TodayTopProductOut]:
+    """Los platos del día por venta neta, de mayor a menor (el orden lo
+    decide `aggregate_sales`, una sola vez). `limit=None` = todos."""
+    rows, _total = aggregate_sales(
+        db, store_id=store.id, date_from=business_date, date_to=business_date, group_by="product"
+    )
+    picked = rows if limit is None else rows[:limit]
+    return [
+        TodayTopProductOut(key=r.key, label=r.label, units=r.units, net=r.net, share_bp=r.share_bp) for r in picked
+    ]
+
+
+def today_receptions(db: Session, *, store: Store, business_date: date) -> tuple[bool, list[TodayReceptionLineOut]]:
+    """`(función encendida, líneas)` de las recepciones confirmadas del día.
+    El estado del lote sale de `app.inventory.hooks.lot_statuses` (la regla
+    de Lotes) sólo con `inventory.lots` encendida."""
+    purchases = _hooks_if_enabled(db, store, module="app.purchases.hooks", feature="purchases")
+    if purchases is None:
+        return False, []
+    lines = purchases.receptions_of_day(db, store_id=store.id, business_date=business_date)
+    lots = _hooks_if_enabled(db, store, module="app.inventory.hooks", feature="inventory.lots")
+    statuses: dict[int, str] = {}
+    if lots is not None:
+        batch_ids = [int(line["stock_batch_id"]) for line in lines if line.get("stock_batch_id") is not None]
+        statuses = lots.lot_statuses(db, batch_ids=batch_ids, today=business_date)
+    out: list[TodayReceptionLineOut] = []
+    for line in lines:
+        expires_at = line["expires_at"]
+        batch_id = line.get("stock_batch_id")
+        out.append(
+            TodayReceptionLineOut(
+                reception_id=line["reception_id"],
+                line_id=line["line_id"],
+                received_at=line["received_at"],
+                supplier_name=line["supplier_name"],
+                ingredient_id=line["ingredient_id"],
+                ingredient_name=line["ingredient_name"],
+                qty=line["qty"],
+                purchase_unit=line["purchase_unit"],
+                lot_code=line["lot_code"],
+                expires_at=expires_at,
+                days_to_expiry=(expires_at - business_date).days if expires_at is not None else None,
+                lot_status=statuses.get(int(batch_id)) if batch_id is not None else None,  # type: ignore[arg-type]
+                received_by=line["received_by"],
+            )
+        )
+    return True, out
+
+
+def today_sales_by_hour(db: Session, *, store: Store) -> tuple[date, list[HourBucketOut], list[HourBucketOut]]:
+    """`(día operativo, horas de hoy, horas del mismo día de la semana
+    pasada completo)` — lo mismo que `today_report` publica en
+    `sales_by_hour`/`sales_by_hour_reference`, para la descarga."""
+    now = clock.now_utc()
+    business_date = tz.today_business_date(store.cutoff_hour)
+    documents = _sale_documents(db, store_id=store.id, date_from=business_date, date_to=business_date)
+    hours = _hour_buckets(documents, cutoff_hour=store.cutoff_hour, now_local_hour=_bogota_hour(now))
+    reference_date = business_date - timedelta(days=7)
+    first_activity = _first_activity_date(db, store.id)
+    reference: list[HourBucketOut] = []
+    if first_activity is not None and first_activity <= reference_date:
+        reference_docs = _sale_documents(db, store_id=store.id, date_from=reference_date, date_to=reference_date)
+        reference = _hour_buckets(reference_docs, cutoff_hour=store.cutoff_hour, now_local_hour=None)
+    return business_date, hours, reference
+
+
 def today_report(db: Session, *, store: Store) -> TodayOut:
     now = clock.now_utc()
     business_date = tz.today_business_date(store.cutoff_hour)
@@ -1524,6 +1630,8 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     negative_unvalued = sum(1 for n in negatives if n.amount is None)
     payables_enabled = _hooks_if_enabled(db, store, module="app.purchases.hooks", feature="purchases") is not None
     payables_overdue = _payables_overdue(db, store)
+    split = today_payment_split(db, store=store, business_date=business_date)
+    receptions_enabled, receptions = today_receptions(db, store=store, business_date=business_date)
 
     return TodayOut(
         store_id=store.id,
@@ -1570,6 +1678,12 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         current_shift=current_shift,
         store_closed=current_shift is None and not panel_service.shift_activity(db, store),
         attendance_pending_review_count=len(shifts_hooks.attendance_pending_review(db, store_id=store.id)),
+        cash_sales=split["cash"],
+        card_sales=split["card"],
+        other_payment_sales=split["other"],
+        top_products=today_top_products(db, store=store, business_date=business_date),
+        receptions_enabled=receptions_enabled,
+        receptions_today=receptions,
     )
 
 

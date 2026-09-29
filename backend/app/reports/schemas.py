@@ -289,6 +289,54 @@ class AreaCountFlagOut(BaseModel):
     employee_name: str
 
 
+class PaymentBucketSalesOut(BaseModel):
+    """Venta del día cobrada por un bolsillo (`app.shifts.hooks.
+    payment_bucket`, el único clasificador de un pago). `net` en la misma
+    unidad que `TodayOut.net` (sin impuesto, prorrateado por parte de pago
+    con `money.prorate`, sin propina); `gross` = lo cobrado sin propina;
+    `payments` = partes de pago. Decisión del dueño (2026-09-29)."""
+
+    net: int
+    gross: int
+    payments: int
+
+
+class TodayTopProductOut(BaseModel):
+    """Un plato vendido hoy: la fila de `aggregate_sales(group_by="product")`
+    del día operativo, tal cual (el snapshot del ítem, nunca la carta
+    actual). `net` sin impuesto ni propina; `units` = unidades pedidas."""
+
+    key: str
+    label: str
+    units: int | None
+    net: int
+    share_bp: int | None
+
+
+class TodayReceptionLineOut(BaseModel):
+    """Una línea de una recepción confirmada hoy
+    (`app.purchases.hooks.receptions_of_day`). `qty` en la unidad de compra,
+    como texto decimal. `lot_status` es el estado del lote con la regla de
+    Lotes (`app.inventory.hooks.lot_statuses`): `expiring` (≤ 7 días) y
+    `expired` son los que Hoy resalta; `None` con `inventory.lots` apagada o
+    sin lote. `days_to_expiry` con signo (negativo = ya venció), `None` sin
+    vencimiento."""
+
+    reception_id: int
+    line_id: int
+    received_at: datetime
+    supplier_name: str
+    ingredient_id: int
+    ingredient_name: str
+    qty: str
+    purchase_unit: str
+    lot_code: str | None
+    expires_at: date | None
+    days_to_expiry: int | None
+    lot_status: Literal["active", "expiring", "expired", "depleted"] | None
+    received_by: str
+
+
 class TodayOut(BaseModel):
     store_id: int
     business_date: date
@@ -381,6 +429,20 @@ class TodayOut(BaseModel):
     store_closed: bool = False
     # Salidas olvidadas de la asistencia «a revisar» (`GET /admin/attendance`).
     attendance_pending_review_count: int = 0
+    # Hoy según el dueño (2026-09-29): efectivo y tarjeta por separado, los
+    # platos más vendidos y las entradas de mercancía con su lote. Todo del
+    # servidor; la pantalla sólo lo escribe.
+    cash_sales: PaymentBucketSalesOut | None = None
+    card_sales: PaymentBucketSalesOut | None = None
+    # Lo cobrado por transferencia, plataforma, bono u otro medio: no es
+    # efectivo ni tarjeta, y se publica para que las dos tarjetas no
+    # parezcan sumar menos que la venta sin explicación.
+    other_payment_sales: PaymentBucketSalesOut | None = None
+    top_products: list[TodayTopProductOut] = []
+    # `False` con `purchases` apagada: no hay recepciones que listar (no es
+    # «no entró nada»).
+    receptions_enabled: bool = False
+    receptions_today: list[TodayReceptionLineOut] = []
 
 
 # ---------------------------------------------------------------------------

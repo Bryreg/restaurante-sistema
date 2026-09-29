@@ -64,6 +64,66 @@ class HoursOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Horario de la semana — GET /admin/payroll/week-schedule (decisión del
+# dueño, 2026-09-29: la vista principal de Nómina).
+# ---------------------------------------------------------------------------
+
+
+class WeekSegmentOut(BaseModel):
+    """Un tramo trabajado de una persona en un día operativo, ya sin pausas
+    (una pausa es el hueco entre dos tramos). `start_offset_min`/
+    `end_offset_min` = minutos desde el comienzo del día operativo (la hora
+    de corte de la sede, reloj de Bogotá): la posición en el eje, sin que el
+    navegador tenga que saber de zonas horarias.
+
+    `status`: `closed` (entrada y salida), `open` (sigue trabajando: el
+    tramo llega hasta `now`) o `review` (salida olvidada de un día que ya
+    pasó: `end`/`minutes` son `None` y **no suma horas** hasta que el
+    administrador corrija la salida en Nómina › Horas)."""
+
+    start: datetime
+    end: datetime | None
+    start_offset_min: int
+    end_offset_min: int | None
+    status: Literal["closed", "open", "review"]
+    minutes: int | None
+    hours: str | None
+    attendance_id: int | None = None
+
+
+class WeekPersonDayOut(BaseModel):
+    business_date: date
+    segments: list[WeekSegmentOut]
+    #: Minutos que el motor de nómina cuenta para ese día (0 si sólo hay una salida a revisar).
+    minutes: int
+    hours: str
+
+
+class WeekPersonOut(BaseModel):
+    employee_id: int
+    employee_name: str
+    #: El total de la semana, con el mismo motor que Nómina › Horas
+    #: (unión de asistencia y roster, pausas fuera, salidas olvidadas fuera).
+    total_minutes: int
+    total_hours: str
+    review_count: int
+    days: list[WeekPersonDayOut]
+
+
+class WeekScheduleOut(BaseModel):
+    store_id: int
+    week_start: date
+    week_end: date
+    days: list[date]
+    #: Hora de reloj (0-23) en la que arranca cada día operativo de la sede.
+    day_start_hour: int
+    now: datetime
+    #: Día operativo en curso (para marcar «hoy»), aunque no caiga en la semana pedida.
+    today: date
+    people: list[WeekPersonOut]
+
+
+# ---------------------------------------------------------------------------
 # Tablas de recargos con vigencia — GET/POST /admin/payroll/surcharge-tables
 # ---------------------------------------------------------------------------
 

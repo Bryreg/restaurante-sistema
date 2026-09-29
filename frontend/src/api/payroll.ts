@@ -72,6 +72,68 @@ export function getPayrollHours(params: PeriodQuery): Promise<PayrollHoursOut> {
 }
 
 // ---------------------------------------------------------------------------
+// GET /admin/payroll/week-schedule — el horario de la semana por persona
+// (decisión del dueño, 2026-09-29). Tramos y totales del motor de nómina.
+// ---------------------------------------------------------------------------
+
+export type WeekSegmentStatus = "closed" | "open" | "review"
+
+export interface WeekSegmentOut {
+  start: string
+  end: string | null
+  /** Minutos desde el comienzo del día operativo (hora de corte de la sede). */
+  start_offset_min: number
+  end_offset_min: number | null
+  /** `open` = sigue trabajando; `review` = salida olvidada, sin horas. */
+  status: WeekSegmentStatus
+  minutes: number | null
+  hours: string | null
+  attendance_id?: number | null
+}
+
+export interface WeekPersonDayOut {
+  business_date: string
+  segments: WeekSegmentOut[]
+  minutes: number
+  hours: string
+}
+
+export interface WeekPersonOut {
+  employee_id: number
+  employee_name: string
+  total_minutes: number
+  total_hours: string
+  review_count: number
+  days: WeekPersonDayOut[]
+}
+
+export interface WeekScheduleOut {
+  store_id: number
+  week_start: string
+  week_end: string
+  days: string[]
+  day_start_hour: number
+  now: string
+  today: string
+  people: WeekPersonOut[]
+}
+
+export function getWeekSchedule(params: { storeId: number; weekOf?: string | null }): Promise<WeekScheduleOut> {
+  return api<WeekScheduleOut>("/admin/payroll/week-schedule", {
+    query: { store_id: params.storeId, ...(params.weekOf ? { week_of: params.weekOf } : {}) },
+  })
+}
+
+/** Descarga de la semana: CSV `;` con BOM y encabezados en español, del servidor. */
+export function weekScheduleCsvUrl(params: { storeId: number; weekOf: string }): string {
+  const query = new URLSearchParams()
+  query.set("store_id", String(params.storeId))
+  query.set("week_of", params.weekOf)
+  query.set("format", "csv")
+  return `/api/v1/admin/payroll/week-schedule?${query.toString()}`
+}
+
+// ---------------------------------------------------------------------------
 // GET/POST /admin/payroll/surcharge-tables — tablas de recargos con vigencia.
 // Nunca quemadas en código (§7): una tabla vieja tiene que poder recalcular
 // un período viejo con las tablas que regían ese mes.

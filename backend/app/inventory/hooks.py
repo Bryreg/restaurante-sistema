@@ -1037,3 +1037,19 @@ def ingredients_by_id(db: Session, *, store_id: int, ids: list[int]) -> dict[int
         return {}
     stmt = select(Ingredient).where(Ingredient.store_id == store_id, Ingredient.id.in_(ids))
     return {i.id: i for i in db.execute(stmt).scalars()}
+
+
+def lot_statuses(db: Session, *, batch_ids: list[int], today: date) -> dict[int, str]:
+    """El estado de cada lote pedido (`active`/`expiring`/`expired`/
+    `depleted`), con la MISMA regla que `GET /admin/lots`
+    (`app.inventory.service.lot_status`) — Hoy lo usa para marcar qué
+    entrada del día vence pronto sin escribir un segundo umbral. Un lote
+    revertido no está en el diccionario."""
+    from app.inventory import service as inventory_service
+
+    if not batch_ids:
+        return {}
+    batches = db.execute(
+        select(StockBatch).where(StockBatch.id.in_(batch_ids), StockBatch.reversed_at.is_(None))
+    ).scalars()
+    return {b.id: inventory_service.lot_status(b, today) for b in batches}

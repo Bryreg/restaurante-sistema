@@ -362,10 +362,70 @@ export interface TodayOut {
   store_closed?: boolean
   /** Salidas olvidadas «a revisar» de la asistencia. */
   attendance_pending_review_count?: number
+  // Hoy según el dueño (2026-09-29). Todo del servidor: la pantalla no suma
+  // ni reparte nada. `net` en la misma unidad que la cifra rectora.
+  cash_sales?: PaymentBucketSalesOut | null
+  card_sales?: PaymentBucketSalesOut | null
+  /** Transferencia, plataforma, bono u otro medio: ni efectivo ni tarjeta. */
+  other_payment_sales?: PaymentBucketSalesOut | null
+  top_products?: TodayTopProductOut[]
+  /** `false` con «Compras» apagada: no es «no entró nada». */
+  receptions_enabled?: boolean
+  receptions_today?: TodayReceptionLineOut[]
+}
+
+/** Venta del día cobrada por un bolsillo (`app.shifts.hooks.payment_bucket`). */
+export interface PaymentBucketSalesOut {
+  /** Sin impuesto ni propina (impuesto prorrateado por parte de pago en el servidor). */
+  net: number
+  /** Lo cobrado, sin propina. */
+  gross: number
+  /** Partes de pago. */
+  payments: number
+}
+
+export interface TodayTopProductOut {
+  key: string
+  label: string
+  units: number | null
+  net: number
+  share_bp: number | null
+}
+
+export type LotStatus = "active" | "expiring" | "expired" | "depleted"
+
+export interface TodayReceptionLineOut {
+  reception_id: number
+  line_id: number
+  received_at: string
+  supplier_name: string
+  ingredient_id: number
+  ingredient_name: string
+  /** Texto decimal en la unidad de compra. */
+  qty: string
+  purchase_unit: string
+  lot_code: string | null
+  expires_at: string | null
+  /** Con signo: negativo = ya venció. `null` sin vencimiento. */
+  days_to_expiry: number | null
+  /** La regla de Lotes: `expiring` = vence en ≤ 7 días. `null` sin lotes. */
+  lot_status: LotStatus | null
+  received_by: string
 }
 
 export function getToday(storeId: number): Promise<TodayOut> {
   return api<TodayOut>("/admin/today", { query: { store_id: storeId } })
+}
+
+/** Los bloques de Hoy que se descargan, cada uno con su ruta `format=csv`. */
+export type TodayBlock = "sales-by-hour" | "top-products" | "receptions"
+
+/** URL directa de la descarga (CSV `;` con BOM y encabezados en español, del servidor). */
+export function todayBlockCsvUrl(block: TodayBlock, storeId: number): string {
+  const query = new URLSearchParams()
+  query.set("store_id", String(storeId))
+  query.set("format", "csv")
+  return `/api/v1/admin/today/${block}?${query.toString()}`
 }
 
 // ---------------------------------------------------------------------------
