@@ -498,8 +498,122 @@ class AccountantRowOut(BaseModel):
     by_rate: list[AccountantRateBreakdownOut]
 
 
+AccountantMethodGroup = Literal["cash", "card", "transfer", "other"]
+
+
+class AccountantDayOut(BaseModel):
+    """Una fila del informe del contador, por día operativo (el del turno y
+    su cuadre, no el calendario). Todo lo calcula el servidor: la interfaz
+    sólo pinta. `total` = efectivo + tarjeta + transferencia + otros = lo
+    cobrado de la venta, **sin propina**; `tips` va aparte y no es venta.
+    `credit_notes` es lo que devolvieron las notas crédito y de ajuste de
+    ese día (el documento que corrigen ya no suma: quedó reversado).
+    `avg_ticket` es `null` si el día no tuvo facturas (sólo notas)."""
+
+    business_date: date
+    cash: int
+    card: int
+    transfer: int
+    other: int
+    total: int
+    cumulative: int
+    documents_count: int
+    avg_ticket: int | None
+    base: int
+    tax: int
+    credit_notes: int
+    tips: int
+
+
+class AccountantDayRefOut(BaseModel):
+    business_date: date
+    total: int
+
+
+class AccountantMethodShareOut(BaseModel):
+    """Participación de un grupo de medios en lo cobrado del período, en
+    puntos básicos (10000 = 100 %). `null` si el período no cobró nada."""
+
+    method: AccountantMethodGroup
+    label: str
+    amount: int
+    share_bp: int | None
+
+
+class AccountantRateTotalOut(BaseModel):
+    rate: int
+    base: int
+    tax: int
+
+
+class AccountantSummaryOut(BaseModel):
+    """Los totales del período («Total del mes» de café-sistema), más lo
+    fiscal que el contador necesita. Los promedios son `null` cuando su
+    divisor es cero: sin días con venta no hay promedio, no hay un $0."""
+
+    total: int
+    cash: int
+    card: int
+    transfer: int
+    other: int
+    documents_count: int
+    days_with_sales: int
+    days_in_period: int
+    avg_daily_with_sales: int | None
+    avg_daily_calendar: int | None
+    avg_ticket: int | None
+    base: int
+    tax: int
+    credit_notes: int
+    tips: int
+    shares: list[AccountantMethodShareOut]
+    best_day: AccountantDayRefOut | None
+    worst_day: AccountantDayRefOut | None
+    tax_by_rate: list[AccountantRateTotalOut]
+
+
+class AccountantDeltaOut(BaseModel):
+    """Contra el período anterior (mes o bimestre). `pct` es el cambio en
+    por ciento entero con signo; `null` si el anterior fue 0 o no existe
+    (no se divide por cero ni se inventa un «+100 %»)."""
+
+    previous: int | None
+    pct: int | None
+
+
+class AccountantComparisonOut(BaseModel):
+    previous_year: int
+    previous_period: int
+    previous_label: str
+    total: AccountantDeltaOut
+    avg_daily_calendar: AccountantDeltaOut
+    avg_daily_with_sales: AccountantDeltaOut
+    avg_ticket: AccountantDeltaOut
+
+
+class AccountantGoalOut(BaseModel):
+    """La meta del mes. `amount=null` = sin meta. `source` dice de dónde
+    sale: `month` (puesta para este mes), `inherited` (la del último mes que
+    la tenía, `inherited_from` = «AAAA-MM»), `sum` (todas las sedes: la suma
+    de las metas de cada una, sólo si todas tienen). `progress_bp` es el
+    avance en puntos básicos sin tope; `bar_bp`, el mismo con tope en 10000
+    para la barra; `remaining` lo que falta (0 si se cumplió)."""
+
+    year: int
+    month: int
+    amount: int | None
+    source: Literal["month", "inherited", "sum"] | None
+    inherited_from: str | None
+    progress_bp: int | None
+    bar_bp: int | None
+    remaining: int | None
+    met: bool | None
+    editable: bool
+
+
 class AccountantReportOut(BaseModel):
-    store_id: int
+    store_id: int | None
+    all_stores: bool = False
     year: int
     period_kind: Literal["bimester", "month"]
     period: int
@@ -512,6 +626,21 @@ class AccountantReportOut(BaseModel):
     notes_total_base: int
     notes_total_tax: int
     tips_total: int
+    # Informe del contador «como café-sistema» (decisión del dueño 2026-09).
+    days: list[AccountantDayOut]
+    summary: AccountantSummaryOut
+    comparison: AccountantComparisonOut
+    goal: AccountantGoalOut | None
+
+
+class SalesGoalIn(BaseModel):
+    """`PUT /admin/accountant-report/goal`. `amount=null` (o 0) = «sin meta»
+    para ese mes."""
+
+    store_id: int
+    year: int
+    month: int
+    amount: int | None
 
 
 # ---------------------------------------------------------------------------
