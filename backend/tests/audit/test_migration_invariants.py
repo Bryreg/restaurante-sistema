@@ -533,6 +533,17 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     quemadas en el código: son cuatro columnas de `store_sales_settings`,
     ninguna tabla. Se mueve sólo el poste de la cabeza; la igualdad sigue
     exacta.
+
+    **Re-apuntado con la meta de ventas del mes** (`0033_sales_goals`): la
+    cabeza pasa a **`0033`** y el conteo de 113 a **114**. Motivo declarado:
+    el dueño pidió el informe del contador «igual que café-sistema», con
+    meta mensual; la meta es una decisión suya por sede y por mes y no puede
+    vivir quemada en el código ni en una sola columna de la sede (la meta de
+    un mes cerrado no se reescribe al cambiar la del siguiente). Es una tabla
+    nueva, `sales_goals`, con un único por sede, año y mes. Se mueven los dos
+    postes; las dos igualdades siguen exactas y el nombre entra enumerado
+    abajo. (En paralelo nacen otras migraciones sobre `0032`: al integrar se
+    re-encadenan y el poste se vuelve a mover, con su motivo.)
     """
     from sqlalchemy import text
 
@@ -544,12 +555,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0032", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0032: 0027 → 0028 (asistencia separada del turno de caja) "
+    assert version == "0033", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0033: 0027 → 0028 (asistencia separada del turno de caja) "
         "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo) "
-        "→ 0031 (avisos al celular) → 0032 (supuestos del panel). "
+        "→ 0031 (avisos al celular) → 0032 (supuestos del panel) → 0033 (meta de ventas del mes). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031 y 0032"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032 y 0033"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -607,6 +618,8 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     de_la_base_de_respaldo = {"shift_opening_counts", "cash_reserve_movements", "cash_reserve_checks"}
     # 0031: los celulares suscritos a los avisos y las claves VAPID.
     de_los_avisos_al_celular = {"push_subscriptions", "push_vapid_keys"}
+    # 0033: la meta de ventas del mes, por sede (informe del contador).
+    de_la_meta_del_mes = {"sales_goals"}
     de_la_nomina = {
         "payroll_surcharge_tables",
         "payroll_holidays",
@@ -634,6 +647,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
             | de_la_asistencia
             | de_la_base_de_respaldo
             | de_los_avisos_al_celular
+            | de_la_meta_del_mes
         )
         - tablas
     )
@@ -659,12 +673,14 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # separada del turno de caja: 108. `0029` (apertura por sobres y base de
     # respaldo) suma tres: 111. `0030` agrega columnas, no tablas. `0031`
     # (avisos al celular) suma dos: **113**. `0032` (supuestos del panel)
-    # agrega columnas, no tablas: sigue **113**.
-    assert len(tablas) == 113, (
-        f"el esquema quedó con {len(tablas)} tablas de dominio; `0031` lo deja en 113 y `0032` no lo mueve "
+    # agrega columnas, no tablas: sigue 113. `0033` (la meta de ventas del
+    # mes) suma una: **114**.
+    assert len(tablas) == 114, (
+        f"el esquema quedó con {len(tablas)} tablas de dominio; `0031` lo deja en 113, `0032` no lo mueve "
+        f"y `0033` suma la meta de ventas del mes: 114 "
         f"(79 al cerrar 2c + 4 de banco + 3 de obligaciones + 7 de nómina + 1 de fotos + 1 del cajón "
         f"+ 5 de la rutina del turno + 7 del conteo por área + 1 de asistencia "
-        f"+ 3 de la apertura por sobres y la base de respaldo + 2 de los avisos al celular). "
+        f"+ 3 de la apertura por sobres y la base de respaldo + 2 de los avisos al celular + 1 de la meta del mes). "
         f"Actualizá este número junto con la migración que lo cambie: {sorted(tablas)}"
     )
 

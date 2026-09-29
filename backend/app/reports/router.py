@@ -11,19 +11,28 @@ from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, admin_store, current_admin
 from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
+from app.reports import accountant as accountant_service
 from app.reports import overview as overview_service
 from app.reports import panel as panel_service
 from app.reports import series as series_service
 from app.reports import service
 from app.reports.panel_schemas import EmployeeRecordOut, IngredientRecordOut, PanelOut, ShiftRecordOut
 from app.reports.series_schemas import SectionKey, SectionOut
-from app.reports.schemas import AccountantReportOut, GroupBy, ReportsOverviewOut, TodayOut
+from app.reports.schemas import (
+    AccountantGoalOut,
+    AccountantReportOut,
+    GroupBy,
+    ReportsOverviewOut,
+    SalesGoalIn,
+    TodayOut,
+)
 
 router = APIRouter()
 
@@ -67,39 +76,72 @@ def get_sales(
 @router.get("/admin/accountant-report")
 def get_accountant_report(
     request: Request,
-    store_id: int = Query(...),
+    store_id: str = Query(..., description='Id de la sede, o "all" para todas las sedes de la organización'),
     year: int = Query(...),
     bimester: int | None = Query(None),
     month: int | None = Query(None),
     # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): `format`
     # declarado en el contrato, no sólo leído de `request.query_params` dentro
     # de `wants_csv` — mismo patrón que `get_sales` arriba.
-    format: str | None = Query(None, description='"csv" exporta como CSV'),
+    format: str | None = Query(None, description='"csv" exporta el «Excel» del contador (`;`, UTF-8 con BOM)'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> AccountantReportOut | Any:
+    """Informe del contador «como café-sistema» (`app.reports.accountant`):
+    por día operativo y medio de pago, con los totales del mes, la
+    comparación contra el período anterior y la meta. `store_id=all` junta
+    las sedes de la organización. `format=csv` baja el «Excel»: `;` como
+    separador, BOM UTF-8 y la fila TOTAL."""
     del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
-    admin_store(db, actor, store_id)
-    report = service.accountant_report(db, store_id=store_id, year=year, bimester=bimester, month=month)
+    if year < 2000 or year > 2100:
+        raise AppError("VALIDATION_ERROR", "year: elegí un año entre 2000 y 2100", status=400)
+    if store_id == "all":
+        stores = overview_service.organization_stores(db, actor.organization_id)
+        if not stores:
+            raise AppError("VALIDATION_ERROR", "Todavía no hay sedes creadas: creá una en Configuración", status=400)
+        all_stores = True
+    else:
+        if not store_id.isdigit():
+            raise AppError("VALIDATION_ERROR", 'store_id: tiene que ser el id de una sede o "all"', status=400)
+        stores = [admin_store(db, actor, int(store_id))]
+        all_stores = False
+    report = accountant_service.accountant_report(
+        db, stores=stores, all_stores=all_stores, year=year, bimester=bimester, month=month
+    )
     if wants_csv(request):
-        rows: list[dict[str, Any]] = []
-        for row in report.rows:
-            for rate_row in row.by_rate:
-                rows.append(
-                    {
-                        "business_date": row.business_date.isoformat(),
-                        "rate": rate_row.rate,
-                        "documents_count": row.documents_count,
-                        "documents_base": rate_row.documents_base,
-                        "documents_tax": rate_row.documents_tax,
-                        "notes_count": row.notes_count,
-                        "notes_base": rate_row.notes_base,
-                        "notes_tax": rate_row.notes_tax,
-                        "tips_amount": row.tips_amount,
-                    }
-                )
-        return csv_response(rows, filename="informe-contador.csv")
+        return StreamingResponse(
+            (chunk.encode("utf-8") for chunk in accountant_service.csv_lines(report)),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{accountant_service.csv_filename(report)}"'},
+        )
     return report
+
+
+@router.get("/admin/accountant-report/goal")
+def get_sales_goal(
+    store_id: int = Query(...),
+    year: int = Query(...),
+    month: int = Query(...),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> AccountantGoalOut:
+    """La meta de ventas de ese mes para la sede (la del mes, o la heredada
+    del último mes que tenía una)."""
+    store = admin_store(db, actor, store_id)
+    return accountant_service.get_goal(db, store=store, year=year, month=month)
+
+
+@router.put("/admin/accountant-report/goal")
+def put_sales_goal(
+    body: SalesGoalIn,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> AccountantGoalOut:
+    """Pone la meta de ventas del mes (`amount` nulo o 0 = sin meta). Sólo
+    administrador; queda en el historial."""
+    store = admin_store(db, actor, body.store_id)
+    accountant_service.set_goal(db, actor=actor, store=store, year=body.year, month=body.month, amount=body.amount)
+    return accountant_service.get_goal(db, store=store, year=body.year, month=body.month)
 
 
 @router.get("/admin/unavailable-log")

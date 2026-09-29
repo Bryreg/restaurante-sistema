@@ -509,8 +509,107 @@ export interface AccountantRowOut {
   by_rate: AccountantRateBreakdownOut[]
 }
 
+export type AccountantMethodGroup = "cash" | "card" | "transfer" | "other"
+
+/**
+ * Una fila del informe del contador, por día operativo. Todo lo manda el
+ * servidor ya calculado (`app/reports/accountant.py`): acá no se suma, no se
+ * resta ni se promedia nada. `avg_ticket` es `null` si el día no tuvo
+ * facturas.
+ */
+export interface AccountantDayOut {
+  business_date: string
+  cash: number
+  card: number
+  transfer: number
+  other: number
+  total: number
+  cumulative: number
+  documents_count: number
+  avg_ticket: number | null
+  base: number
+  tax: number
+  credit_notes: number
+  tips: number
+}
+
+export interface AccountantDayRefOut {
+  business_date: string
+  total: number
+}
+
+export interface AccountantMethodShareOut {
+  method: AccountantMethodGroup
+  label: string
+  amount: number
+  /** Puntos básicos (10.000 = 100 %); `null` si el período no cobró nada. */
+  share_bp: number | null
+}
+
+export interface AccountantRateTotalOut {
+  rate: number
+  base: number
+  tax: number
+}
+
+export interface AccountantSummaryOut {
+  total: number
+  cash: number
+  card: number
+  transfer: number
+  other: number
+  documents_count: number
+  days_with_sales: number
+  days_in_period: number
+  avg_daily_with_sales: number | null
+  avg_daily_calendar: number | null
+  avg_ticket: number | null
+  base: number
+  tax: number
+  credit_notes: number
+  tips: number
+  shares: AccountantMethodShareOut[]
+  best_day: AccountantDayRefOut | null
+  worst_day: AccountantDayRefOut | null
+  tax_by_rate: AccountantRateTotalOut[]
+}
+
+/** `pct`: cambio en por ciento entero con signo; `null` si el anterior fue 0. */
+export interface AccountantDeltaOut {
+  previous: number | null
+  pct: number | null
+}
+
+export interface AccountantComparisonOut {
+  previous_year: number
+  previous_period: number
+  previous_label: string
+  total: AccountantDeltaOut
+  avg_daily_calendar: AccountantDeltaOut
+  avg_daily_with_sales: AccountantDeltaOut
+  avg_ticket: AccountantDeltaOut
+}
+
+export interface AccountantGoalOut {
+  year: number
+  month: number
+  amount: number | null
+  source: "month" | "inherited" | "sum" | null
+  /** «AAAA-MM» del mes del que se heredó la meta. */
+  inherited_from: string | null
+  /** Avance en puntos básicos, sin tope. */
+  progress_bp: number | null
+  /** El mismo avance con tope en 10.000, para el ancho de la barra. */
+  bar_bp: number | null
+  remaining: number | null
+  met: boolean | null
+  editable: boolean
+}
+
 export interface AccountantReportOut {
-  store_id: number
+  /** `null` con «Todas las sedes». */
+  store_id: number | null
+  all_stores?: boolean
   year: number
   period_kind: "bimester" | "month"
   period: number
@@ -523,10 +622,15 @@ export interface AccountantReportOut {
   notes_total_base: number
   notes_total_tax: number
   tips_total: number
+  days: AccountantDayOut[]
+  summary: AccountantSummaryOut
+  comparison: AccountantComparisonOut
+  goal: AccountantGoalOut | null
 }
 
 export interface AccountantQuery {
-  storeId: number
+  /** Id de la sede, o `"all"` para todas las de la organización. */
+  storeId: number | "all"
   year: number
   bimester?: number
   month?: number
@@ -538,6 +642,7 @@ export function getAccountantReport(params: AccountantQuery): Promise<Accountant
   })
 }
 
+/** El «Excel» del contador: lo arma el servidor (`;`, UTF-8 con BOM, fila TOTAL). */
 export function accountantReportCsvUrl(params: AccountantQuery): string {
   const query = new URLSearchParams()
   query.set("format", "csv")
@@ -546,6 +651,19 @@ export function accountantReportCsvUrl(params: AccountantQuery): string {
   if (params.bimester !== undefined) query.set("bimester", String(params.bimester))
   if (params.month !== undefined) query.set("month", String(params.month))
   return `/api/v1/admin/accountant-report?${query.toString()}`
+}
+
+export interface SalesGoalIn {
+  store_id: number
+  year: number
+  month: number
+  /** `null` o 0 = sin meta para ese mes. */
+  amount: number | null
+}
+
+/** `PUT /admin/accountant-report/goal`: la meta de ventas del mes, por sede. */
+export function putSalesGoal(body: SalesGoalIn): Promise<AccountantGoalOut> {
+  return api<AccountantGoalOut>("/admin/accountant-report/goal", { method: "PUT", body })
 }
 
 // ---------------------------------------------------------------------------

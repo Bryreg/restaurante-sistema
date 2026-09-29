@@ -55,12 +55,9 @@ from app.orders.models import (
     OrderTable,
 )
 from app.reports.schemas import (
-    AccountantRateBreakdownOut,
     AreaCountAreaTodayOut,
     AreaCountDoneTodayOut,
     AreaCountFlagOut,
-    AccountantReportOut,
-    AccountantRowOut,
     AlertOut,
     EmployeeRefOut,
     HourBucketOut,
@@ -1577,7 +1574,8 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
 
 
 # ---------------------------------------------------------------------------
-# GET /admin/accountant-report
+# GET /admin/accountant-report — el período. El informe en sí vive en
+# `app.reports.accountant` (por día operativo y medio, como café-sistema).
 # ---------------------------------------------------------------------------
 
 _BIMESTER_MONTHS: dict[int, tuple[int, int]] = {1: (1, 2), 2: (3, 4), 3: (5, 6), 4: (7, 8), 5: (9, 10), 6: (11, 12)}
@@ -1603,91 +1601,6 @@ def _period_range(year: int, *, bimester: int | None, month: int | None) -> tupl
     next_year = year + 1 if last_month == 12 else year
     date_to = date(next_year, next_month, 1) - timedelta(days=1)
     return date_from, date_to, period_kind, period
-
-
-def accountant_report(
-    db: Session, *, store_id: int, year: int, bimester: int | None, month: int | None
-) -> AccountantReportOut:
-    date_from, date_to, period_kind, period = _period_range(year, bimester=bimester, month=month)
-
-    sale_docs = _sale_documents(db, store_id=store_id, date_from=date_from, date_to=date_to)
-    note_docs = list(
-        db.execute(
-            select(FiscalDocument).where(
-                FiscalDocument.store_id == store_id,
-                FiscalDocument.business_date >= date_from,
-                FiscalDocument.business_date <= date_to,
-                FiscalDocument.document_type.in_(NOTE_DOCUMENT_TYPES),
-                FiscalDocument.status == "issued",
-            )
-        ).scalars()
-    )
-
-    # (business_date, rate) -> {documents_base, documents_tax, notes_base, notes_tax}
-    by_date_rate: dict[tuple[date, int], dict[str, int]] = {}
-    docs_per_date: dict[date, int] = defaultdict(int)
-    notes_per_date: dict[date, int] = defaultdict(int)
-    tips_per_date: dict[date, int] = defaultdict(int)
-    methods_total: dict[str, int] = defaultdict(int)
-
-    for doc in sale_docs:
-        docs_per_date[doc.business_date] += 1
-        tips_per_date[doc.business_date] += doc.tip_amount
-        for line in doc.tax_lines or []:
-            key = (doc.business_date, int(line["rate"]))
-            bucket = by_date_rate.setdefault(key, {"documents_base": 0, "documents_tax": 0, "notes_base": 0, "notes_tax": 0})
-            bucket["documents_base"] += int(line["base"])
-            bucket["documents_tax"] += int(line["tax"])
-        for split in doc.payments_snapshot or []:
-            methods_total[str(split.get("method", "other"))] += int(split.get("amount", 0))
-
-    for doc in note_docs:
-        notes_per_date[doc.business_date] += 1
-        for line in doc.tax_lines or []:
-            key = (doc.business_date, int(line["rate"]))
-            bucket = by_date_rate.setdefault(key, {"documents_base": 0, "documents_tax": 0, "notes_base": 0, "notes_tax": 0})
-            bucket["notes_base"] += int(line["base"])
-            bucket["notes_tax"] += int(line["tax"])
-
-    all_dates = sorted(set(docs_per_date) | set(notes_per_date) | {d for d, _r in by_date_rate})
-    rows: list[AccountantRowOut] = []
-    documents_total_base = documents_total_tax = notes_total_base = notes_total_tax = 0
-    for business_date in all_dates:
-        by_rate = [
-            AccountantRateBreakdownOut(rate=rate, **values)
-            for (d, rate), values in sorted(by_date_rate.items())
-            if d == business_date
-        ]
-        for r in by_rate:
-            documents_total_base += r.documents_base
-            documents_total_tax += r.documents_tax
-            notes_total_base += r.notes_base
-            notes_total_tax += r.notes_tax
-        rows.append(
-            AccountantRowOut(
-                business_date=business_date,
-                documents_count=docs_per_date.get(business_date, 0),
-                notes_count=notes_per_date.get(business_date, 0),
-                tips_amount=tips_per_date.get(business_date, 0),
-                by_rate=by_rate,
-            )
-        )
-
-    return AccountantReportOut(
-        store_id=store_id,
-        year=year,
-        period_kind=period_kind,  # type: ignore[arg-type]
-        period=period,
-        date_from=date_from,
-        date_to=date_to,
-        rows=rows,
-        totals_by_method=[MethodAmountOut(method=m, amount=a) for m, a in sorted(methods_total.items())],
-        documents_total_base=documents_total_base,
-        documents_total_tax=documents_total_tax,
-        notes_total_base=notes_total_base,
-        notes_total_tax=notes_total_tax,
-        tips_total=sum(tips_per_date.values()),
-    )
 
 
 # ---------------------------------------------------------------------------
