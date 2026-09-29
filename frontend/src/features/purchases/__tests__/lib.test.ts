@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { SupplierOut } from "@/api/purchases"
 
-import { defaultDateRange, downloadSuppliersCsv, formatPct, supplierName } from "../lib"
+import { defaultDateRange, formatPct, supplierName } from "../lib"
 
 describe("formatPct — null no es 0", () => {
   it("un porcentaje null se dice «sin datos», nunca «0 %»", () => {
@@ -25,44 +25,9 @@ describe("supplierName", () => {
   })
 })
 
-describe("downloadSuppliersCsv — «toda lista exporta», armado en el cliente por el hueco de contrato (sin format=csv en /admin/suppliers)", () => {
-  it("serializa las columnas ya traídas (sin derivar nada nuevo) y dispara una descarga", async () => {
-    const supplier: SupplierOut = {
-      id: 1,
-      store_id: 1,
-      name: 'Proveedor, "Grande" S.A.',
-      nit: "900123456",
-      payment_term_days: 30,
-      contact_name: "Ana",
-      contact_phone: "3001234567",
-      invoices_required: true,
-      active: true,
-    }
-
-    let capturedBlob: Blob | null = null
-    const createObjectURL = vi.fn((blob: Blob) => {
-      capturedBlob = blob
-      return "blob:mock-url"
-    })
-    const revokeObjectURL = vi.fn()
-    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL })
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
-
-    downloadSuppliersCsv([supplier])
-
-    expect(createObjectURL).toHaveBeenCalledTimes(1)
-    expect(clickSpy).toHaveBeenCalledTimes(1)
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-url")
-
-    const text = await capturedBlob!.text()
-    expect(text).toContain('"Proveedor, ""Grande"" S.A."')
-    expect(text).toContain("900123456")
-    expect(text).toContain("true")
-
-    clickSpy.mockRestore()
-    vi.unstubAllGlobals()
-  })
-})
+// El test de `downloadSuppliersCsv` se fue con la función: el CSV de
+// proveedores ya lo arma el servidor (`GET /admin/suppliers?format=csv`,
+// `backend/tests/core/test_csv.py`), con `;`, BOM y encabezados en español.
 
 describe("defaultDateRange — fecha de negocio en America/Bogota, nunca la UTC del navegador (H-6, ronda 2)", () => {
   beforeEach(() => {

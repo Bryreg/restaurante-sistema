@@ -40,6 +40,8 @@ import { errorMessage } from "@/lib/errors";
 
 import { PushCard } from "./PushCard";
 import { TYPE_HELP, TYPE_LABEL } from "./types";
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 
 const LEVEL_LABEL: Record<NotificationLevel, string> = {
@@ -144,7 +146,9 @@ function NotificationsList() {
             total={notifications.length}
             noun="avisos"
             hidden={sinLeer > 0 ? `${sinLeer} sin leer` : "ninguno sin leer"}
-          />
+          >
+            <CsvExportButton href={csvUrl("/admin/notifications")} />
+          </DenseTableBar>
         }
         legend={[
           {
@@ -274,18 +278,28 @@ function NotificationRules({ storeId }: { storeId: number }) {
     {
       key: "threshold",
       header: "Umbral",
-      widthPx: 110,
-      cell: (rule) => (
-        <Input
-          type="number"
-          className="h-8 w-24"
-          aria-label={`Umbral de ${TYPE_LABEL[rule.type] ?? rule.type}`}
-          value={rule.threshold ?? ""}
-          onChange={(e) =>
-            updateRule(rule.type, { threshold: e.target.value === "" ? null : Number(e.target.value) })
-          }
-        />
-      ),
+      widthPx: 200,
+      // Sólo los tipos cuyo aviso LEE el umbral lo dejan editar (el
+      // servidor dice cuáles con `threshold_default`); vacío = el de fábrica.
+      cell: (rule) =>
+        rule.threshold_default === null || rule.threshold_default === undefined ? (
+          <span className="text-xs text-muted-foreground">No aplica</span>
+        ) : (
+          <span className="flex items-center gap-1.5">
+            <Input
+              type="number"
+              min={1}
+              className="h-8 w-20"
+              aria-label={`Umbral de ${TYPE_LABEL[rule.type] ?? rule.type}`}
+              placeholder={String(rule.threshold_default)}
+              value={rule.threshold ?? ""}
+              onChange={(e) =>
+                updateRule(rule.type, { threshold: e.target.value === "" ? null : Number(e.target.value) })
+              }
+            />
+            <span className="text-xs leading-tight text-muted-foreground">{rule.threshold_unit}</span>
+          </span>
+        ),
     },
     {
       key: "level",

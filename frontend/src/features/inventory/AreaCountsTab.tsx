@@ -71,8 +71,11 @@ import {
 } from "./areaCountLib"
 import { daysAgoLocal, todayLocal } from "./lib"
 import { RecountDialog } from "./RecountDialog"
+import { csvUrl } from "@/api/client"
 
-const MAX_ITEMS = 15
+/** Default del largo de la lista de un área mientras no llega la
+ * configuración de la sede (`max_items_per_area`, Ajustes › Inventario). */
+const MAX_ITEMS_DEFAULT = 15
 const SIN_AREA = "none"
 
 const LEGEND: readonly LegendEntry[] = [
@@ -192,6 +195,11 @@ function DetailDialog({
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{detail ? `${detail.area_name} · ${windowText(detail)}` : "Conteo"}</DialogTitle>
+          {countId !== null ? (
+            <div>
+              <CsvExportButton href={csvUrl(`/admin/area-counts/${countId}`, { store_id: storeId })} label="Descargar este conteo" />
+            </div>
+          ) : null}
           <DialogDescription>
             {detail
               ? `Contó ${detail.people.length > 0 ? detail.people.join(", ") : detail.employee_name} · ${formatInstant(detail.last_counted_at)}` +
@@ -420,7 +428,8 @@ function RecountsSection({ storeId }: { storeId: number }): React.JSX.Element {
         <h3 id="area-recounts" className="text-base font-bold">
           Recuentos sorpresa
         </h3>
-        <div className="ml-auto">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <CsvExportButton href={csvUrl("/admin/area-recounts", { store_id: storeId })} label="Exportar recuentos" />
           <RecountDialog storeId={storeId} />
         </div>
       </div>
@@ -700,6 +709,11 @@ function ItemsDialog({
   ingredients: IngredientOut[]
   onClose: () => void
 }): React.JSX.Element {
+  const settingsQuery = useQuery({
+    queryKey: AREA_COUNTS_QUERY_KEYS.settings(storeId),
+    queryFn: () => getAreaCountSettings(storeId),
+  })
+  const MAX_ITEMS = settingsQuery.data?.max_items_per_area ?? MAX_ITEMS_DEFAULT
   // Se monta de nuevo por área (`key`): el estado arranca de la lista guardada.
   const [chosen, setChosen] = useState<number[]>(() => (area ? area.items.map((i) => i.ingredient_id) : []))
   const queryClient = useQueryClient()

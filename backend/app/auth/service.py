@@ -15,11 +15,11 @@ from sqlalchemy.orm import Session
 from app.auth.deps import Actor
 from app.auth.models import Authorization, Employee
 from app.core import clock
-from app.core.config import settings
 from app.core.errors import AppError
 from app.core.features import is_enabled
 from app.core.security import verify_secret
 from app.notifications.service import notify
+from app.stores import service as stores_service
 
 SUPERVISOR_ACTIONS: set[str] = {
     "void_sent_item",
@@ -34,11 +34,14 @@ SUPERVISOR_ACTIONS: set[str] = {
 }
 
 
-def verify_pin(db: Session, employee: Employee, pin: str) -> bool:
+def verify_pin(db: Session, employee: Employee, pin: str, *, store_id: int | None = None) -> bool:
     """Verifica el PIN de una persona ya identificada por id. Lleva el
-    contador de fallos y el bloqueo de 15 minutos tras 5 intentos (con
-    notificación `pin_locked`); mientras está bloqueada, cualquier PIN
-    devuelve `False` sin tocar el contador."""
+    contador de fallos y el bloqueo tras N intentos (con notificación
+    `pin_locked`); mientras está bloqueada, cualquier PIN devuelve `False`
+    sin tocar el contador. Intentos y minutos son los de la sede (Ajustes ›
+    Ventas › Seguridad, 0035) o, sin ellos, los de la variable de entorno
+    (5 y 15). `store_id` es la sede del dispositivo; sin él, la de la persona."""
+    lock_attempts, lock_minutes = stores_service.pin_lock_policy(db, store_id or employee.store_id)
     now = clock.now_utc()
     if employee.pin_locked_until is not None and employee.pin_locked_until > now:
         return False
@@ -50,8 +53,8 @@ def verify_pin(db: Session, employee: Employee, pin: str) -> bool:
         return True
 
     employee.failed_pin_attempts += 1
-    if employee.failed_pin_attempts >= settings.PIN_LOCK_ATTEMPTS:
-        employee.pin_locked_until = now + timedelta(minutes=settings.PIN_LOCK_MINUTES)
+    if employee.failed_pin_attempts >= lock_attempts:
+        employee.pin_locked_until = now + timedelta(minutes=lock_minutes)
         employee.failed_pin_attempts = 0
         db.flush()
         # Un admin (store_id None, ve toda la organización) no tiene una sede
@@ -64,7 +67,7 @@ def verify_pin(db: Session, employee: Employee, pin: str) -> bool:
                 type="pin_locked",
                 level="warning",
                 title="PIN bloqueado",
-                body=f"{employee.name} bloqueó su PIN tras {settings.PIN_LOCK_ATTEMPTS} intentos fallidos",
+                body=f"{employee.name} bloqueó su PIN tras {lock_attempts} intentos fallidos",
                 payload={"employee_id": employee.id},
                 dedupe_key=f"pin_locked:{employee.id}:{now.date().isoformat()}",
             )
@@ -127,7 +130,10 @@ def verify_authorizer(
     if matched.pin_locked_until is not None and matched.pin_locked_until > now:
         raise AppError(
             code="PIN_LOCKED",
-            message=f"Ese PIN está bloqueado por {settings.PIN_LOCK_MINUTES} minutos tras varios intentos fallidos",
+            message=(
+                f"Ese PIN está bloqueado por {stores_service.pin_lock_policy(db, store_id)[1]} minutos "
+                "tras varios intentos fallidos"
+            ),
         )
 
     if matched.role not in allowed_roles:

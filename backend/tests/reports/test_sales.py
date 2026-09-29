@@ -147,7 +147,9 @@ def test_csv_export(
     )
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("text/csv")
-    assert "gross" in resp.text.splitlines()[0]
+    # Movido a propósito: el CSV pasó a Excel es-CO (`;`, BOM y encabezados en
+    # español, `app.core.csv`); la columna es la misma, con su nombre en español.
+    assert "Venta bruta" in resp.text.splitlines()[0].split(";")
 
 
 def test_every_group_by_value_answers_200_with_sane_rows(

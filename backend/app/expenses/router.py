@@ -9,9 +9,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
+from app.core.csv import CsvFormat, csv_response, sectioned_rows
 from app.auth.deps import Actor, admin_store, current_admin
 from app.core import clock
 from app.core.db import get_db
@@ -97,18 +98,22 @@ def _obligation_out(row: Obligation) -> ObligationOut:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/expenses")
+@router.get("/admin/expenses", response_model=list[ExpenseOut])
 def list_expenses(
     store_id: int,
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
     category: str | None = None,
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[ExpenseOut]:
+) -> list[ExpenseOut] | Response:
     store = admin_store(db, actor, store_id)
     rows = service.list_expenses(db, store_id=store.id, date_from=date_from, date_to=date_to, category=category)
-    return [_expense_out(r) for r in rows]
+    result = [_expense_out(r) for r in rows]
+    if format == "csv":
+        return csv_response(result, "gastos.csv")
+    return result
 
 
 @router.post("/admin/expenses", status_code=201)
@@ -157,18 +162,22 @@ def post_void_expense(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/obligations")
+@router.get("/admin/obligations", response_model=list[ObligationOut])
 def list_obligations(
     store_id: int,
     status: str | None = None,
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[ObligationOut]:
+) -> list[ObligationOut] | Response:
     store = admin_store(db, actor, store_id)
     rows = service.list_obligations(db, store_id=store.id, status=status, date_from=date_from, date_to=date_to)
-    return [_obligation_out(r) for r in rows]
+    result = [_obligation_out(r) for r in rows]
+    if format == "csv":
+        return csv_response(result, "obligaciones.csv")
+    return result
 
 
 @router.post("/admin/obligations", status_code=201)
@@ -269,25 +278,33 @@ def patch_settings(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/break-even")
+@router.get("/admin/break-even", response_model=BreakEvenOut)
 def get_break_even(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> BreakEvenOut:
+) -> BreakEvenOut | Response:
     store = admin_store(db, actor, store_id)
-    return service.compute_break_even(db, store=store, date_from=date_from, date_to=date_to)
+    result = service.compute_break_even(db, store=store, date_from=date_from, date_to=date_to)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "punto-de-equilibrio.csv")
+    return result
 
 
-@router.get("/admin/profit")
+@router.get("/admin/profit", response_model=ProfitOut)
 def get_profit(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> ProfitOut:
+) -> ProfitOut | Response:
     store = admin_store(db, actor, store_id)
-    return service.compute_profit(db, store=store, date_from=date_from, date_to=date_to)
+    result = service.compute_profit(db, store=store, date_from=date_from, date_to=date_to)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "utilidad.csv")
+    return result

@@ -20,6 +20,8 @@ import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { formValuesToProductIn, formValuesToProductUpdateIn, ProductForm } from "./ProductForm"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /**
  * Un canal opcional en `null` no es "sin precio": cae al de mesa (§4.3). Se
@@ -150,6 +152,9 @@ export function ProductsTab({ storeId }: { storeId: number }) {
             placeholder="Nombre del producto"
           />
         </div>
+        <CsvExportButton
+          href={csvUrl("/admin/products", { store_id: storeId, search: search.trim() === "" ? undefined : search.trim() })}
+        />
         <Dialog open={creating} onOpenChange={setCreating}>
           <DialogTrigger render={<Button disabled={categories.length === 0} />}>
             Nuevo producto

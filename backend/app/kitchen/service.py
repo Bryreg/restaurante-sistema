@@ -39,6 +39,7 @@ from app.kitchen.schemas import (
 )
 from app.core import clock, tz
 from app.orders.models import Order, OrderItem, OrderItemStatus, OrderRound, OrderStatus, OrderTable
+from app.stores import service as stores_service
 from app.stores.models import Store, Table
 
 if TYPE_CHECKING:
@@ -356,12 +357,9 @@ def tables_for_order(db: Session, *, order_id: int) -> list[str]:
 # Un ítem sin tiempo objetivo de su curso (una cerveza: `beverage` no trae
 # objetivo de fábrica) quedaba «A tiempo» para siempre — se vio en verde un
 # plato con 66 h de espera. El objetivo del CURSO (Admin → Ventas) sigue
-# mandando; si el curso no tiene, se usa el de la estación.
-DEFAULT_STATION_TARGET_MINUTES: dict[str, int] = {
-    "bar": 5,
-    "hot_kitchen": 15,
-    "cold_kitchen": 10,
-}
+# mandando; si el curso no tiene, se usa el de la estación: el que la sede
+# guardó en Ajustes › Ventas › Estaciones (0035) y, si no guardó, éste.
+DEFAULT_STATION_TARGET_MINUTES: dict[str, int] = stores_service.DEFAULT_STATION_TARGET_MINUTES
 FALLBACK_TARGET_MINUTES = 12
 
 
@@ -384,10 +382,21 @@ def semaphore(elapsed_seconds: int, target_minutes: int | None) -> str:
     return "red"
 
 
-def target_minutes_for(course_targets: dict[str, Any], *, course: str | None, station: str | None) -> int:
+def target_minutes_for(
+    course_targets: dict[str, Any],
+    *,
+    course: str | None,
+    station: str | None,
+    station_targets: dict[str, Any] | None = None,
+) -> int:
+    """Curso configurado → estación configurada en Ajustes › Ventas ›
+    Estaciones (`StoreSalesSettings.station_target_minutes`, 0035) →
+    estación de fábrica → `FALLBACK_TARGET_MINUTES`."""
     configured = course_targets.get(course) if course is not None else None
     if configured is not None:
         return int(configured)
+    if station is not None and station_targets and station_targets.get(station):
+        return int(station_targets[station])
     if station is not None and station in DEFAULT_STATION_TARGET_MINUTES:
         return DEFAULT_STATION_TARGET_MINUTES[station]
     return FALLBACK_TARGET_MINUTES

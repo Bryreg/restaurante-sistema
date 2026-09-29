@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /** Los cambios sin guardar de la tabla, año por año (patrón 12). */
 function cambiosDeUvt(guardadas: UvtEntry[], actuales: UvtEntry[]): PendingChange[] {
@@ -83,6 +85,9 @@ export function UvtSection(): React.JSX.Element {
 
   return (
     <div className="space-y-3">
+      <div className="flex justify-end">
+        <CsvExportButton href={csvUrl("/admin/uvt")} />
+      </div>
       <FormSection
         title="La UVT de cada año"
         columns="one"

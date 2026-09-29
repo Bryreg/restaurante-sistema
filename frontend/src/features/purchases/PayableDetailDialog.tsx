@@ -22,6 +22,7 @@ import {
   approvePayable,
   createPayment,
   listPayablePayments,
+  payablePaymentsCsvUrl,
   voidPayment,
   type PayableOut,
   type PaymentOut,
@@ -62,6 +63,7 @@ import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
 import { PAYABLE_STATUS_LABEL, SUPPLIER_PAYMENT_METHOD_LABEL } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
 
 /** El historial de pagos viene del servidor.
  *
@@ -535,7 +537,9 @@ export function PayableDetailDialog({
                         ? `${payments.length - vivos} anulados, que ya no descuentan`
                         : undefined
                   }
-                />
+                >
+                  <CsvExportButton href={payablePaymentsCsvUrl(payable.id)} />
+                </DenseTableBar>
               }
               note="Un pago no se borra: se anula con motivo y PIN de administrador, y el motivo queda a la vista en su fila."
               empty={

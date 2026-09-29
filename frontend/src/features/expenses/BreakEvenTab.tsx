@@ -29,6 +29,8 @@ import { Explicacion } from "@/components/admin"
 import { FixedCostsCard } from "./FixedCostsCard"
 import { daysAgoLocal, todayLocal } from "./lib"
 import { breakEvenHeadline } from "./titulares"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /** «Llevás $X de $Y (Z %)», con el avance que manda el backend. */
 function avanceTexto(d: BreakEvenOut): string {
@@ -68,15 +70,18 @@ export function BreakEvenTab({ storeId }: { storeId: number }): React.JSX.Elemen
 
   return (
     <div className="space-y-4">
-      <DateRangeFilter
-        idPrefix="break-even"
-        from={from}
-        to={to}
-        onChange={(r) => {
-          setFrom(r.from)
-          setTo(r.to)
-        }}
-      />
+      <div className="flex flex-wrap items-end gap-3">
+        <DateRangeFilter
+          idPrefix="break-even"
+          from={from}
+          to={to}
+          onChange={(r) => {
+            setFrom(r.from)
+            setTo(r.to)
+          }}
+        />
+        <CsvExportButton href={csvUrl("/admin/break-even", { store_id: storeId, from, to })} />
+      </div>
 
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Calculando el punto de equilibrio…</p>

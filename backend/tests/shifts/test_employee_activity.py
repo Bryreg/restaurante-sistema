@@ -199,7 +199,9 @@ def test_employee_activity_csv_export(
     resp = admin_client.get(f"/api/v1/admin/employees/{cashier.id}/activity?store_id={store.id}&format=csv")
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("text/csv")
-    assert "employee_id" in resp.text
+    # Movido a propósito: el CSV pasó a Excel es-CO (`;`, BOM y encabezados en
+    # español, `app.core.csv`); la columna es la misma, con su nombre en español.
+    assert "ID empleado" in resp.text
 
 
 def test_employee_activity_with_no_sales_has_null_metrics_not_zero_by_default(

@@ -65,7 +65,9 @@ def test_admin_list_customers_csv(admin_client: TestClient, db: Session, org: Or
     resp = admin_client.get("/api/v1/admin/customers?format=csv")
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"].startswith("text/csv")
-    assert "doc_number" in resp.text
+    # Movido a propósito: el CSV pasó a Excel es-CO (`;`, BOM y encabezados en
+    # español, `app.core.csv`); la columna es la misma, con su nombre en español.
+    assert "Número de documento" in resp.text
 
 
 def test_admin_list_customers_disabled_flag_returns_feature_disabled(

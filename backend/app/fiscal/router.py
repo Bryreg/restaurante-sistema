@@ -11,13 +11,13 @@ from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
 from app.auth.deps import Actor, admin_store, current_admin
 from app.core import clock, tz
-from app.core.csv import csv_response, wants_csv
+from app.core.csv import CsvFormat, csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
@@ -207,17 +207,33 @@ def get_evidence(
     return service.document_evidence(db, document=document)
 
 
-@router.get("/admin/fiscal/export")
+@router.get("/admin/fiscal/export", response_model=ExportBundleOut)
 def get_export(
     store_id: int = Query(...),
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
+    download: bool = Query(
+        False, description="true: el manifiesto llega como archivo `.json` para guardar (Content-Disposition)"
+    ),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
-) -> ExportBundleOut:
+) -> ExportBundleOut | Response:
     admin_store(db, actor, store_id)
     service.sweep_contingency_overdue(db, store_id=store_id)
-    return service.export_bundle(db, store_id=store_id, date_from=date_from, date_to=date_to)
+    result = service.export_bundle(db, store_id=store_id, date_from=date_from, date_to=date_to)
+    stem = f"exportacion-fiscal-{date_from.isoformat()}-a-{date_to.isoformat()}"
+    if format == "csv":
+        return csv_response(result.documents, f"{stem}.csv")
+    if download:
+        # El mismo manifiesto, como archivo: el navegador lo guarda en vez de
+        # mostrarlo, y el nombre dice de qué período es.
+        return Response(
+            content=result.model_dump_json(indent=2).encode("utf-8"),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{stem}.json"'},
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------

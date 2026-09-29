@@ -230,6 +230,9 @@ export function fiscalExportUrl(params: { storeId: number; from: string; to: str
   query.set("store_id", String(params.storeId));
   query.set("from", params.from);
   query.set("to", params.to);
+  // `download=true`: el servidor lo manda como archivo
+  // (`exportacion-fiscal-<desde>-a-<hasta>.json`), no como JSON en pantalla.
+  query.set("download", "true");
   return `/api/v1/admin/fiscal/export?${query.toString()}`;
 }
 

@@ -44,6 +44,8 @@ import { formatCOP } from "@/lib/money"
 
 import { SettlementsSection } from "./SettlementsSection"
 import { daysAgoLocal, todayLocal } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 function SettleDialog({
   row,
@@ -162,7 +164,22 @@ export function ReconciliationTab({ storeId, kind }: { storeId: number; kind: "c
 
   return (
     <div className="space-y-4">
-      <DateRangeFilter idPrefix={`reconciliation-${kind}`} from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
+      <div className="flex flex-wrap items-end gap-3">
+        <DateRangeFilter idPrefix={`reconciliation-${kind}`} from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
+        <CsvExportButton href={csvUrl(`/admin/reconciliation/${kind}`, { store_id: storeId, from, to })} />
+        {kind === "platform" ? (
+          <>
+            <CsvExportButton
+              href={csvUrl("/admin/platform-commissions", { store_id: storeId, from, to })}
+              label="Exportar comisiones"
+            />
+            <CsvExportButton
+              href={csvUrl("/admin/platform-receivables", { store_id: storeId, from, to })}
+              label="Exportar por cobrar"
+            />
+          </>
+        ) : null}
+      </div>
 
       {query.isLoading ? (
         <Cargando texto="Cargando conciliación…" />

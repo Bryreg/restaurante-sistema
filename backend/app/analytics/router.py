@@ -43,9 +43,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
+from app.core.csv import CsvFormat, csv_response, sectioned_rows
 from app.analytics import service
 from app.analytics.schemas import (
     MenuEngineeringOut,
@@ -84,7 +85,7 @@ def _require_replenishment() -> Any:
     return _dependency
 
 
-@router.get("/admin/menu-engineering", dependencies=[Depends(_require_menu_engineering())])
+@router.get("/admin/menu-engineering", response_model=MenuEngineeringOut, dependencies=[Depends(_require_menu_engineering())])
 def get_menu_engineering(
     store_id: int = Query(...),
     date_from: date = Query(..., alias="from"),
@@ -94,16 +95,20 @@ def get_menu_engineering(
     category_id: int | None = Query(default=None),
     # Mínimo de unidades vendidas para clasificar un plato (muestra chica).
     min_units: int = Query(default=service.MENU_MIN_UNITS_DEFAULT, ge=1, le=100_000),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> MenuEngineeringOut:
+) -> MenuEngineeringOut | Response:
     store = admin_store(db, actor, store_id)
-    return service.menu_engineering(
+    result = service.menu_engineering(
         db, store=store, date_from=date_from, date_to=date_to, category_id=category_id, min_units=min_units
     )
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "ingenieria-de-menu.csv")
+    return result
 
 
-@router.get("/admin/variance/by-dish", dependencies=[Depends(require_feature("inventory.variance"))])
+@router.get("/admin/variance/by-dish", response_model=VarianceByDishOut, dependencies=[Depends(require_feature("inventory.variance"))])
 def get_variance_by_dish(
     store_id: int = Query(...),
     # AJUSTE ITERACIÓN 2 (C3/H-3, decisión del Maestro): opcional. El
@@ -113,28 +118,40 @@ def get_variance_by_dish(
     # y toda carga de la pantalla devolvía `422`. Se mueve el backend, no el
     # cliente: es el lado que sabe cuál fue el último conteo aplicado.
     count_id: int | None = Query(default=None),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> VarianceByDishOut:
+) -> VarianceByDishOut | Response:
     store = admin_store(db, actor, store_id)
-    return service.variance_by_dish(db, store=store, count_id=count_id)
+    result = service.variance_by_dish(db, store=store, count_id=count_id)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "varianza-por-plato.csv")
+    return result
 
 
-@router.get("/admin/control-health/sustained", dependencies=[Depends(require_feature("inventory.variance"))])
+@router.get("/admin/control-health/sustained", response_model=SustainedOut, dependencies=[Depends(require_feature("inventory.variance"))])
 def get_control_health_sustained(
     store_id: int = Query(...),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> SustainedOut:
+) -> SustainedOut | Response:
     store = admin_store(db, actor, store_id)
-    return service.control_health_sustained(db, store=store)
+    result = service.control_health_sustained(db, store=store)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "salud-sostenida.csv")
+    return result
 
 
-@router.get("/admin/replenishment", dependencies=[Depends(_require_replenishment())])
+@router.get("/admin/replenishment", response_model=ReplenishmentOut, dependencies=[Depends(_require_replenishment())])
 def get_replenishment(
     store_id: int = Query(...),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> ReplenishmentOut:
+) -> ReplenishmentOut | Response:
     store = admin_store(db, actor, store_id)
-    return service.replenishment(db, store=store)
+    result = service.replenishment(db, store=store)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "reposicion-sugerida.csv")
+    return result

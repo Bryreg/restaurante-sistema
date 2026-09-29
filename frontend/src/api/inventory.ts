@@ -494,10 +494,50 @@ export function listDeviceIngredients(): Promise<DeviceIngredientOut[]> {
 export interface InventorySettingsIn {
   variance_yellow_threshold_bp: number
   variance_red_threshold_bp: number
+  // Umbrales de 0035 (Ajustes › Inventario y compras). Opcionales al
+  // guardar: el que no se manda queda como estaba.
+  price_jump_pct?: number
+  prep_variance_alert_pct?: number
+  stale_days?: number
+  lot_expiring_window_days?: number
+  food_cost_band_min_pct?: number
+  food_cost_band_max_pct?: number
+  supplier_received_warning_bp?: number
+  supplier_received_critical_bp?: number
+  supplier_drift_warning_bp?: number
+  supplier_drift_critical_bp?: number
+  supplier_min_receptions?: number
 }
 
-export interface InventorySettingsOut extends InventorySettingsIn {
+/** Los umbrales de lectura de la sede, sin exigir «Varianza»: los usan
+ * Compras (confiabilidad de proveedores) y Carta (franja de food cost). */
+export interface InventoryThresholds {
+  price_jump_pct: number
+  prep_variance_alert_pct: number
+  stale_days: number
+  lot_expiring_window_days: number
+  food_cost_band_min_pct: number
+  food_cost_band_max_pct: number
+  supplier_received_warning_bp: number
+  supplier_received_critical_bp: number
+  supplier_drift_warning_bp: number
+  supplier_drift_critical_bp: number
+  supplier_min_receptions: number
+}
+
+export interface InventorySettingsOut extends InventoryThresholds {
   store_id: number
+  variance_yellow_threshold_bp: number
+  variance_red_threshold_bp: number
+}
+
+export function getInventoryThresholds(storeId: number): Promise<InventoryThresholds> {
+  return api<InventoryThresholds>(`/admin/stores/${storeId}/inventory-thresholds`)
+}
+
+/** Guarda sólo los umbrales que se mandan (no exige «Varianza»). */
+export function putInventoryThresholds(storeId: number, data: Partial<InventoryThresholds>): Promise<InventoryThresholds> {
+  return api<InventoryThresholds>(`/admin/stores/${storeId}/inventory-thresholds`, { method: "PUT", body: data })
 }
 
 export function getInventorySettings(storeId: number): Promise<InventorySettingsOut> {

@@ -48,7 +48,9 @@ def test_admin_list_orders_with_flags_and_csv(
     csv_resp = admin_client.get("/api/v1/admin/orders", params={"store_id": store.id, "format": "csv"})
     assert csv_resp.status_code == 200, csv_resp.text
     assert csv_resp.headers["content-type"].startswith("text/csv")
-    assert "id" in csv_resp.text.splitlines()[0]
+    # Movido a propósito: el CSV pasó a Excel es-CO (`;`, BOM y encabezados en
+    # español, `app.core.csv`); la columna es la misma, con su nombre en español.
+    assert "ID" in csv_resp.text.splitlines()[0].lstrip("\ufeff").split(";")
 
 
 def test_admin_get_order_same_shape_as_device(admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any, open_shift: Any, new_order: Any, add_items: Any, main_product: Any) -> None:

@@ -43,9 +43,10 @@ from dataclasses import asdict
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
+from app.core.csv import CsvFormat, csv_response
 from app.auth.deps import Actor, admin_store, current_actor, current_admin, current_device, current_operator
 from app.banking import service
 from app.banking.models import BankDeposit, BankDepositStatus, CardSettlement, PlatformSettlement
@@ -74,6 +75,7 @@ from app.banking.schemas import (
     SettlementReverseIn,
 )
 from app.core.db import get_db
+from app.stores import service as stores_service
 from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.shifts import hooks as shifts_hooks
@@ -186,17 +188,21 @@ def _platform_settlement_out(s: PlatformSettlement) -> PlatformSettlementOut:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/deposits", dependencies=[Depends(require_feature("money.deposits"))])
+@router.get("/admin/deposits", response_model=list[DepositOut], dependencies=[Depends(require_feature("money.deposits"))])
 def list_deposits(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[DepositOut]:
+) -> list[DepositOut] | Response:
     store = admin_store(db, actor, store_id)
     rows = service.list_deposits(db, store=store, date_from=date_from, date_to=date_to)
-    return [_deposit_out(db, r) for r in rows]
+    result = [_deposit_out(db, r) for r in rows]
+    if format == "csv":
+        return csv_response(result, "consignaciones.csv")
+    return result
 
 
 @router.post("/admin/deposits", status_code=201, dependencies=[Depends(require_feature("money.deposits"))])
@@ -327,17 +333,21 @@ def create_pos_deposit(
     return DepositOut.model_validate(body)
 
 
-@router.get("/admin/deposits/pending", dependencies=[Depends(require_feature("money.deposits"))])
+@router.get("/admin/deposits/pending", response_model=list[PendingDepositRowOut], dependencies=[Depends(require_feature("money.deposits"))])
 def deposits_pending(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[PendingDepositRowOut]:
+) -> list[PendingDepositRowOut] | Response:
     store = admin_store(db, actor, store_id)
     rows = service.pending_deposits(db, store=store, date_from=date_from, date_to=date_to)
-    return [PendingDepositRowOut(**asdict(r)) for r in rows]
+    result = [PendingDepositRowOut(**asdict(r)) for r in rows]
+    if format == "csv":
+        return csv_response(result, "por-consignar.csv")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -345,35 +355,44 @@ def deposits_pending(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/bank/ledger", dependencies=[Depends(_require_bank())])
+@router.get("/admin/bank/ledger", response_model=BankLedgerOut, dependencies=[Depends(_require_bank())])
 def bank_ledger(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> BankLedgerOut:
+) -> BankLedgerOut | Response:
     store = admin_store(db, actor, store_id)
     entries, totals = service.bank_ledger(db, store=store, date_from=date_from, date_to=date_to)
-    return BankLedgerOut(
+    result = BankLedgerOut(
         date_from=date_from,
         date_to=date_to,
         entries=[LedgerEntryOut(**asdict(e)) for e in entries],
         totals=BankLedgerTotalsOut(**totals),
     )
+    if format == "csv":
+        return csv_response(result.entries, "libro-banco.csv")
+    return result
 
 
-@router.get("/admin/bank/owner-hand", dependencies=[Depends(_require_bank())])
+@router.get("/admin/bank/owner-hand", response_model=OwnerHandOut, dependencies=[Depends(_require_bank())])
 def owner_hand(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> OwnerHandOut:
+) -> OwnerHandOut | Response:
     store = admin_store(db, actor, store_id)
-    result = service.owner_hand(db, store=store, date_from=date_from, date_to=date_to)
-    return OwnerHandOut(date_from=date_from, date_to=date_to, **result)
+    data = service.owner_hand(db, store=store, date_from=date_from, date_to=date_to)
+    overdue_days = stores_service.get_cash_settings(db, store.id).deposit_overdue_days
+    result = OwnerHandOut(date_from=date_from, date_to=date_to, overdue_days=overdue_days, **data)
+    if format == "csv":
+        return csv_response([result], "mano-del-dueno.csv")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -381,22 +400,26 @@ def owner_hand(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/reconciliation/card", dependencies=[Depends(_require_bank())])
+@router.get("/admin/reconciliation/card", response_model=CardReconciliationOut, dependencies=[Depends(_require_bank())])
 def reconciliation_card(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> CardReconciliationOut:
+) -> CardReconciliationOut | Response:
     store = admin_store(db, actor, store_id)
     rows = [CardReconciliationRowOut(**r) for r in service.card_reconciliation_rows(db, store=store, date_from=date_from, date_to=date_to)]
-    return CardReconciliationOut(
+    result = CardReconciliationOut(
         date_from=date_from,
         date_to=date_to,
         rows=rows,
         unmatched_count=sum(1 for r in rows if not r.matched),
     )
+    if format == "csv":
+        return csv_response(result.rows, "conciliacion-datafono.csv")
+    return result
 
 
 @router.post("/admin/reconciliation/card", status_code=201, dependencies=[Depends(_require_bank())])
@@ -424,18 +447,22 @@ def create_card_settlement(
     return CardSettlementOut.model_validate(body)
 
 
-@router.get("/admin/reconciliation/card/settlements", dependencies=[Depends(_require_bank())])
+@router.get("/admin/reconciliation/card/settlements", response_model=list[CardSettlementOut], dependencies=[Depends(_require_bank())])
 def list_card_settlements(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
     status: str | None = None,
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[CardSettlementOut]:
+) -> list[CardSettlementOut] | Response:
     store = admin_store(db, actor, store_id)
     rows = service.list_card_settlements(db, store=store, date_from=date_from, date_to=date_to, status=status)
-    return [_card_settlement_out(r) for r in rows]
+    result = [_card_settlement_out(r) for r in rows]
+    if format == "csv":
+        return csv_response(result, "liquidaciones-datafono.csv")
+    return result
 
 
 @router.post("/admin/reconciliation/card/{settlement_id}/settle", dependencies=[Depends(_require_bank())])
@@ -495,25 +522,29 @@ def reverse_card_settlement(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/reconciliation/platform", dependencies=[Depends(_require_bank())])
+@router.get("/admin/reconciliation/platform", response_model=PlatformReconciliationOut, dependencies=[Depends(_require_bank())])
 def reconciliation_platform(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> PlatformReconciliationOut:
+) -> PlatformReconciliationOut | Response:
     store = admin_store(db, actor, store_id)
     rows = [
         PlatformReconciliationRowOut(**r)
         for r in service.platform_reconciliation_rows(db, store=store, date_from=date_from, date_to=date_to)
     ]
-    return PlatformReconciliationOut(
+    result = PlatformReconciliationOut(
         date_from=date_from,
         date_to=date_to,
         rows=rows,
         unmatched_count=sum(1 for r in rows if not r.matched),
     )
+    if format == "csv":
+        return csv_response(result.rows, "conciliacion-plataformas.csv")
+    return result
 
 
 @router.post("/admin/reconciliation/platform", status_code=201, dependencies=[Depends(_require_bank())])
@@ -541,18 +572,22 @@ def create_platform_settlement(
     return PlatformSettlementOut.model_validate(body)
 
 
-@router.get("/admin/reconciliation/platform/settlements", dependencies=[Depends(_require_bank())])
+@router.get("/admin/reconciliation/platform/settlements", response_model=list[PlatformSettlementOut], dependencies=[Depends(_require_bank())])
 def list_platform_settlements(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
     status: str | None = None,
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[PlatformSettlementOut]:
+) -> list[PlatformSettlementOut] | Response:
     store = admin_store(db, actor, store_id)
     rows = service.list_platform_settlements(db, store=store, date_from=date_from, date_to=date_to, status=status)
-    return [_platform_settlement_out(r) for r in rows]
+    result = [_platform_settlement_out(r) for r in rows]
+    if format == "csv":
+        return csv_response(result, "liquidaciones-plataformas.csv")
+    return result
 
 
 @router.post("/admin/reconciliation/platform/{settlement_id}/settle", dependencies=[Depends(_require_bank())])

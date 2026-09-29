@@ -26,6 +26,9 @@ import {
   type LineDraft,
 } from "@/features/recipes/ComponentLinesEditor"
 import { CostValue, FoodCostBadge } from "@/features/recipes/costDisplay"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
+import { getInventoryThresholds } from "@/api/inventory"
 
 /**
  * Editor de ficha técnica de un plato (SPEC-NEGOCIO §4.3 / §9.3 "Carta y
@@ -50,6 +53,13 @@ export function RecipeEditor({ storeId }: { storeId: number }): React.JSX.Elemen
     queryFn: () => getProductRecipe(productId as number),
     enabled: productId !== null,
   })
+  const thresholdsQuery = useQuery({
+    queryKey: ["inventory", "thresholds", storeId],
+    queryFn: () => getInventoryThresholds(storeId),
+  })
+  const foodCostBand = thresholdsQuery.data
+    ? { min: thresholdsQuery.data.food_cost_band_min_pct, max: thresholdsQuery.data.food_cost_band_max_pct }
+    : undefined
   const ingredientsQuery = useQuery({
     queryKey: ["recipes", "ingredient-options", storeId],
     queryFn: () => listIngredientOptions(storeId),
@@ -168,7 +178,10 @@ export function RecipeEditor({ storeId }: { storeId: number }): React.JSX.Elemen
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Food cost</p>
-              <FoodCostBadge pct={recipeQuery.data.food_cost_pct} />
+              <FoodCostBadge pct={recipeQuery.data.food_cost_pct} band={foodCostBand} />
+            </div>
+            <div className="self-end">
+              <CsvExportButton href={csvUrl(`/admin/products/${productId}/recipe`)} label="Descargar receta" />
             </div>
           </div>
 

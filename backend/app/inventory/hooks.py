@@ -93,6 +93,7 @@ from app.inventory.models import (
     StockCountScope,
     StockCountStatus,
     StockMovement,
+    StoreInventorySettings,
     Waste,
     WasteType,
     EXPLAINED_WASTE_TYPES,
@@ -720,6 +721,55 @@ def last_applied_full_count_at(db: Session, *, store_id: int) -> datetime | None
     return db.execute(stmt).scalar_one_or_none()
 
 
+# ---------------------------------------------------------------------------
+# Umbrales configurables de la sede (Ajustes › Inventario y compras, 0035).
+# ---------------------------------------------------------------------------
+
+#: Los valores de fábrica de los umbrales de 0035; son los `server_default`
+#: de la migración y los defaults del modelo.
+THRESHOLD_DEFAULTS: dict[str, int] = {
+    "price_jump_pct": 15,
+    "prep_variance_alert_pct": 15,
+    "stale_days": 14,
+    "lot_expiring_window_days": 7,
+    "food_cost_band_min_pct": 28,
+    "food_cost_band_max_pct": 35,
+    "supplier_received_warning_bp": 9900,
+    "supplier_received_critical_bp": 9500,
+    "supplier_drift_warning_bp": 500,
+    "supplier_drift_critical_bp": 1000,
+    "supplier_min_receptions": 5,
+}
+
+
+@dataclass(frozen=True)
+class StoreThresholds:
+    price_jump_pct: int
+    prep_variance_alert_pct: int
+    stale_days: int
+    lot_expiring_window_days: int
+    food_cost_band_min_pct: int
+    food_cost_band_max_pct: int
+    supplier_received_warning_bp: int
+    supplier_received_critical_bp: int
+    supplier_drift_warning_bp: int
+    supplier_drift_critical_bp: int
+    supplier_min_receptions: int
+
+
+def store_thresholds(db: Session, store_id: int) -> StoreThresholds:
+    """Los umbrales que rigen en la sede: los que guardó en Ajustes ›
+    Inventario y compras o, sin fila, los de fábrica. Contrato cruzado para
+    compras, recetas e informes (no exige `inventory.variance`, que sólo
+    cierra la pantalla de varianza). Sólo lee: no crea la fila."""
+    row = db.get(StoreInventorySettings, store_id)
+    values = {
+        name: (getattr(row, name, None) if row is not None else None) or default
+        for name, default in THRESHOLD_DEFAULTS.items()
+    }
+    return StoreThresholds(**values)
+
+
 # Umbral único de "inventario no confiable" (SPEC-NEGOCIO §5.4/§9.3): más de
 # 14 días sin un conteo completo aplicado apaga el food cost real. RONDA 2,
 # hallazgo H-4: antes vivía escrito DOS VECES (`CONTROL_HEALTH_STALE_DAYS` en
@@ -728,7 +778,9 @@ def last_applied_full_count_at(db: Session, *, store_id: int) -> datetime | None
 # dos endpoints independientes la necesitaban, lo que es exactamente el tipo
 # de "dos matemáticas" que `AGENTS.md` prohíbe. Ahora vive acá, una sola vez,
 # y `service` la consume a través de `inventory_staleness`, nunca
-# recalculándola.
+# recalculándola. Desde 0035 es el DEFAULT: la sede lo cambia en Ajustes ›
+# Inventario (`StoreInventorySettings.stale_days`) y `inventory_staleness`
+# lee el de la sede.
 INVENTORY_STALE_DAYS = 14
 
 
@@ -762,18 +814,19 @@ def inventory_staleness(db: Session, *, store_id: int, cutoff_hour: int) -> Inve
     food_cost_report` LEEN esta función -- ninguno de los dos vuelve a sumar
     días por su cuenta (una sola matemática, una sola fuente de verdad, el
     mismo principio que `weighted_average_cost_micros`)."""
+    stale_days = store_thresholds(db, store_id).stale_days
     last_full = last_applied_full_count_at(db, store_id=store_id)
     if last_full is None:
         return InventoryStaleness(
-            days_since_last_full_count=None, unreliable=True, stale_days=INVENTORY_STALE_DAYS
+            days_since_last_full_count=None, unreliable=True, stale_days=stale_days
         )
     today = tz.today_business_date(cutoff_hour)
     last_full_date = tz.business_date_for(last_full, cutoff_hour)
     days_since = (today - last_full_date).days
     return InventoryStaleness(
         days_since_last_full_count=days_since,
-        unreliable=days_since > INVENTORY_STALE_DAYS,
-        stale_days=INVENTORY_STALE_DAYS,
+        unreliable=days_since > stale_days,
+        stale_days=stale_days,
     )
 
 
@@ -881,7 +934,7 @@ def expiring_or_expired_lots(db: Session, *, store_id: int, today: date) -> list
         StockBatch.reversed_at.is_(None),
         StockBatch.qty_remaining > 0,
         StockBatch.expires_at.is_not(None),
-        StockBatch.expires_at <= today + timedelta(days=7),
+        StockBatch.expires_at <= today + timedelta(days=store_thresholds(db, store_id).lot_expiring_window_days),
     )
     rows = db.execute(stmt.order_by(StockBatch.expires_at.asc())).scalars().all()
     alerts: list[dict] = []

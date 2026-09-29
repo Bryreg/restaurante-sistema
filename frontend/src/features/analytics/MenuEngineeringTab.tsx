@@ -30,6 +30,8 @@ import { cn } from "@/lib/utils"
 import { ComoLeer, CifraProtagonista } from "./Aire"
 import { daysAgoLocal, menuEngineeringLabel, menuEngineeringTone, ordenPorAccion, todayLocal } from "./lib"
 import { menuResumen } from "./titulares"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /**
  * § 8 · La franja de estado de la primera celda deja ver la forma del
@@ -224,7 +226,10 @@ export function MenuEngineeringTab({ storeId }: { storeId: number }): React.JSX.
 
   const filtros = (
     <div className="flex flex-wrap items-end gap-3">
-      <DateRangeFilter idPrefix="menu-engineering" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
+      <div className="flex flex-wrap items-end gap-3">
+        <DateRangeFilter idPrefix="menu-engineering" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
+        <CsvExportButton href={csvUrl("/admin/menu-engineering", { store_id: storeId, from, to })} />
+      </div>
       <div className="flex items-center gap-2">
         <Label htmlFor="menu-engineering-category">Categoría</Label>
         <Select value={categoria} onValueChange={(v) => setCategoria(String(v))}>

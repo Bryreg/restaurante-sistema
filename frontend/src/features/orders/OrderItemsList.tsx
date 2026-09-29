@@ -9,7 +9,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
-import { courseLabel, ITEM_STATUS_LABEL, quickNotesFor, splitNote, VOID_REASON_LABEL } from "./lib"
+import { courseLabel, ITEM_STATUS_LABEL, splitNote, VOID_REASON_LABEL } from "./lib"
+import { useQuickNotes } from "./quickNotes"
 
 export interface OrderItemsListProps {
   items: OrderItemOut[]
@@ -110,6 +111,7 @@ function OrderLine({
   onToggleNote?: (item: OrderItemOut, note: string) => void
   onOtherNote?: (item: OrderItemOut) => void
 }) {
+  const notesFor = useQuickNotes()
   const isVoided = item.status === "voided"
   const isCourtesy = item.courtesy !== null && item.courtesy !== undefined
   const name = item.name ?? "—"
@@ -230,7 +232,7 @@ function OrderLine({
       ) : null}
       {selected && !sent && onToggleNote ? (
         <div className="ml-9 flex flex-wrap gap-1.5" role="group" aria-label={`Notas rápidas de ${name}`}>
-          {quickNotesFor(item.course).map((note) => {
+          {notesFor(item.course).map((note) => {
             const on = notes.includes(note)
             return (
               <button

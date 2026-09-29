@@ -21,6 +21,8 @@ import { formatCantidad } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 import { LOT_STATUS_LABEL } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 const UNIT_LABEL: Record<string, string> = { g: "g", ml: "ml", unit: "unidad" }
 
@@ -255,18 +257,21 @@ export function LotsTab({
           }
         >
           {filters}
+          <CsvExportButton
+            href={csvUrl("/admin/lots", {
+              store_id: storeId,
+              ingredient_id: ingredientId === "all" ? undefined : ingredientId,
+              status: status === "all" ? undefined : status,
+              expiring_within_days: expiringWithinDays.trim() === "" ? undefined : Number(expiringWithinDays),
+            })}
+          />
         </DenseTableBar>
       }
       note={
         <>
-          {/* GAP declarado (§8 del entregable): `GET /admin/lots` no declara
-              `format=csv` en el backend — no hay `CsvExportButton` acá a
-              propósito, para no ofrecer una descarga que en realidad no
-              funciona. La ausencia se dice en voz alta en vez de quedar como
-              un olvido. */}
           El orden de salida es <b>FEFO</b> y lo decide el servidor: primero el que vence antes, y a igualdad
           el que llegó antes. <b>Esta pantalla no da de baja ningún lote</b> — un vencido se corrige
-          registrando la merma, con PIN. Sin exportación: el servidor todavía no la ofrece para lotes.
+          registrando la merma, con PIN.
         </>
       }
       empty={

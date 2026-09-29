@@ -20,10 +20,14 @@ import { formatCOP } from "@/lib/money"
 
 import { Explicacion } from "@/components/admin"
 import { daysAgoLocal, todayLocal } from "./lib"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /**
  * Cuántos días puede quedarse en la mano la plata de un cierre antes de que
- * la tarjeta pase a ámbar (informe de visualización #15). Tres: lo normal es
+ * la tarjeta pase a ámbar (informe de visualización #15). Es el DEFAULT: el
+ * que rige lo manda el servidor (`overdue_days`, Ajustes › Caja ›
+ * `deposit_overdue_days`). Tres: lo normal es
  * consignar dos veces por semana, así que ningún cierre debería pasar más
  * de tres días fuera del banco. Más que eso es efectivo expuesto (robo,
  * mezcla con plata personal) y una conciliación que no va a cuadrar con el
@@ -36,7 +40,15 @@ function dias(n: number): string {
 }
 
 /** La antigüedad de la plata más vieja sin consignar, tal como la manda el servidor. */
-function PlataMasVieja({ date, days }: { date: string | null | undefined; days: number | null | undefined }): React.JSX.Element {
+function PlataMasVieja({
+  date,
+  days,
+  aviso = DIAS_SIN_CONSIGNAR_AVISO,
+}: {
+  date: string | null | undefined
+  days: number | null | undefined
+  aviso?: number
+}): React.JSX.Element {
   if (days === null || days === undefined) {
     // `null` acá NO es «sin dato»: el servidor lo manda cuando no queda
     // plata de cierres por consignar. Es «al día», y así se dice.
@@ -48,7 +60,7 @@ function PlataMasVieja({ date, days }: { date: string | null | undefined; days: 
       />
     )
   }
-  const tarde = days > DIAS_SIN_CONSIGNAR_AVISO
+  const tarde = days > aviso
   return (
     <StatTile
       label="Plata más vieja sin consignar"
@@ -57,8 +69,8 @@ function PlataMasVieja({ date, days }: { date: string | null | undefined; days: 
       hint={
         `Del cierre del ${formatFechaCorta(date)}. ` +
         (tarde
-          ? `Pasa de ${DIAS_SIN_CONSIGNAR_AVISO} días fuera del banco: consignala.`
-          : `Hasta ${DIAS_SIN_CONSIGNAR_AVISO} días fuera del banco es lo normal.`)
+          ? `Pasa de ${dias(aviso)} fuera del banco: consignala.`
+          : `Hasta ${dias(aviso)} fuera del banco es lo normal.`)
       }
       link={{ to: "/admin/banco?tab=por-consignar", screen: "Banco", tab: "Por consignar" }}
     />
@@ -76,7 +88,10 @@ export function OwnerHandTab({ storeId }: { storeId: number }): React.JSX.Elemen
 
   return (
     <div className="space-y-4">
-      <DateRangeFilter idPrefix="owner-hand" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
+      <div className="flex flex-wrap items-end gap-3">
+        <DateRangeFilter idPrefix="owner-hand" from={from} to={to} onChange={(r) => { setFrom(r.from); setTo(r.to) }} />
+        <CsvExportButton href={csvUrl("/admin/bank/owner-hand", { store_id: storeId, from, to })} />
+      </div>
 
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Calculando la mano del dueño…</p>
@@ -106,7 +121,11 @@ export function OwnerHandTab({ storeId }: { storeId: number }): React.JSX.Elemen
             }}
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <PlataMasVieja date={query.data?.oldest_undeposited_date} days={query.data?.oldest_undeposited_days} />
+            <PlataMasVieja
+              date={query.data?.oldest_undeposited_date}
+              days={query.data?.oldest_undeposited_days}
+              aviso={query.data?.overdue_days ?? DIAS_SIN_CONSIGNAR_AVISO}
+            />
           </div>
           {query.data?.withdrawn_from_pickups !== undefined || query.data?.spent_on_tips !== undefined ? (
             <GroupLabel label="De dónde sale y en qué se fue" says="el desglose que el servidor manda cuando lo tiene">

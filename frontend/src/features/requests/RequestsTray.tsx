@@ -15,6 +15,8 @@ import { formatCOP } from "@/lib/money";
 import { unidadEnPlural } from "@/features/inventory/areaCountLib";
 
 import { fullDenominations, KIND_LABEL, REQUESTS_QUERY_KEYS, typedTotal, unidadBase } from "./lib";
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 function Rechazo({
   onConfirm,
@@ -173,9 +175,12 @@ export function RequestsTray({ storeId }: { storeId: number }): React.JSX.Elemen
 
   return (
     <section aria-labelledby="bandeja-solicitudes" className="space-y-3">
-      <h2 id="bandeja-solicitudes" className="text-lg font-semibold">
-        Solicitudes del salón
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="bandeja-solicitudes" className="text-lg font-semibold">
+          Solicitudes del salón
+        </h2>
+        <CsvExportButton href={csvUrl("/admin/requests", { store_id: storeId })} />
+      </div>
       {query.isLoading ? (
         <Cargando filas={2} />
       ) : query.isError ? (

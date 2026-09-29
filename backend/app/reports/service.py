@@ -44,7 +44,7 @@ from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.fiscal import service as fiscal_service
 from app.fiscal.models import FiscalDocument, FiscalDocumentType
 from app.notifications.models import Notification
-from app.notifications.service import notify
+from app.notifications.service import notify, rule_threshold
 from app.orders import money
 from app.orders import service as orders_service
 from app.orders.models import (
@@ -85,7 +85,7 @@ from app.banking import hooks as banking_hooks
 from app.shifts import hooks as shifts_hooks
 from app.shifts import service as shifts_service
 from app.shifts.models import BusinessDay, Shift, ShiftStatus
-from app.stores.models import Store, Table, Zone
+from app.stores.models import Store, StoreSalesSettings, Table, Zone
 
 # Documentos que representan una venta real (comprobante emitido al cobrar):
 # el documento equivalente POS, la factura y el comprobante interno (sede sin
@@ -105,12 +105,10 @@ NOTE_DOCUMENT_TYPES = (
 )
 
 # Umbrales de "comanda abierta hace demasiado" (SPEC-NEGOCIO §9.3 "Hoy":
-# "bandera > X min sin enviar / > Y min sin cobrar"). No existe todavía un
-# campo de configuración por sede para esto (`app.stores.models
-# .StoreSalesSettings` no lo declara y este territorio no toca `app.stores`):
-# quedan como default de producto, declarados en `gaps` del entregable para
-# que un pedido futuro los suba a Configuración, igual que
-# `discount_daily_limit_pct`/`courtesy_shift_limit`.
+# "bandera > X min sin enviar / > Y min sin cobrar"). Mandan los de la regla
+# de la sede (`NotificationRule.threshold` de `order_unsent_too_long` /
+# `order_unpaid_too_long`, Notificaciones › Reglas); estas constantes son el
+# default cuando la sede no guardó uno.
 UNSENT_MINUTES_THRESHOLD = 15
 UNPAID_MINUTES_THRESHOLD = 20
 
@@ -370,6 +368,19 @@ def _signed_bp(numerator: int, denominator: int) -> int:
 #: período es de muestra chica (el mismo mínimo que la interfaz usa para
 #: «Muestra chica» en `ChartFrame`).
 PERIOD_LOW_BASE_ORDERS = 20
+
+
+def low_base_orders(db: Session, scope: StoreScope, field: str, default: int) -> int:
+    """El mínimo de comandas de «muestra chica» que rige (Ajustes › Ventas ›
+    Informes, 0035): el de la sede; con varias sedes, el más alto de ellas
+    (la cifra sumada no puede ser más confiable que la de su sede más
+    exigente). Sin fila, el default."""
+    ids = [scope] if isinstance(scope, int) else list(scope)
+    values = []
+    for store_id in ids:
+        row = db.get(StoreSalesSettings, store_id)
+        values.append(int(getattr(row, field, None) or default) if row is not None else default)
+    return max(values) if values else default
 
 
 def _delta_bp(current: int | None, previous: int | None) -> int | None:
@@ -728,7 +739,9 @@ def _previous_period(
             null_reason="La sede todavía no operaba en el período anterior: no hay contra qué comparar.",
         )
     _rows, prev = aggregate_sales(db, store_id=store_id, date_from=prev_from, date_to=prev_to, group_by=None)
-    low_base = min(current.orders or 0, prev.orders or 0) < PERIOD_LOW_BASE_ORDERS
+    low_base = min(current.orders or 0, prev.orders or 0) < low_base_orders(
+        db, store_id, "period_low_base_orders", PERIOD_LOW_BASE_ORDERS
+    )
     return PreviousPeriodOut(
         date_from=prev_from,
         date_to=prev_to,
@@ -773,6 +786,8 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
             )
         ).scalars()
     )
+    unsent_limit = rule_threshold(db, store.id, "order_unsent_too_long")
+    unpaid_limit = rule_threshold(db, store.id, "order_unpaid_too_long")
     unsent_count = 0
     unpaid_count = 0
     for order in open_orders:
@@ -784,7 +799,7 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
             ).first()
             if has_pending is not None:
                 minutes = int((now - order.opened_at).total_seconds() // 60)
-                if minutes > UNSENT_MINUTES_THRESHOLD:
+                if minutes > unsent_limit:
                     unsent_count += 1
                     notify(
                         db,
@@ -800,7 +815,7 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
 
         if order.bill_presented_at is not None and order.status == OrderStatus.TO_PAY:
             minutes_bill = int((now - order.bill_presented_at).total_seconds() // 60)
-            if minutes_bill > UNPAID_MINUTES_THRESHOLD:
+            if minutes_bill > unpaid_limit:
                 unpaid_count += 1
                 notify(
                     db,
@@ -824,6 +839,8 @@ def _open_orders_out(db: Session, store: Store, now: datetime) -> list[OpenOrder
             .order_by(Order.opened_at)
         ).scalars()
     )
+    unsent_limit = rule_threshold(db, store.id, "order_unsent_too_long")
+    unpaid_limit = rule_threshold(db, store.id, "order_unpaid_too_long")
     out: list[OpenOrderAgeOut] = []
     for order in orders:
         tables = [t.number for t in db.execute(
@@ -845,12 +862,12 @@ def _open_orders_out(db: Session, store: Store, now: datetime) -> list[OpenOrder
                 ).first()
                 is not None
             )
-        unsent_flag = has_pending and minutes_since_opened > UNSENT_MINUTES_THRESHOLD
+        unsent_flag = has_pending and minutes_since_opened > unsent_limit
         unpaid_flag = (
             order.bill_presented_at is not None
             and order.status == OrderStatus.TO_PAY
             and minutes_since_bill is not None
-            and minutes_since_bill > UNPAID_MINUTES_THRESHOLD
+            and minutes_since_bill > unpaid_limit
         )
         total = orders_service.compute_order_totals(db, order).total
         out.append(

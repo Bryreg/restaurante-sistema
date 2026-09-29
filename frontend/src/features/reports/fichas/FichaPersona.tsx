@@ -24,6 +24,8 @@ import { ATTENDANCE_NOTE, DISCOUNT_COLUMNS, VOID_COLUMNS, attendanceColumns } fr
 import { iniciales } from "../lib"
 import { AvatarFicha, DetallePlegable, FilaDeTarjetas, PreguntaFicha, SeccionFicha } from "./comun"
 import { fichaTurnoHref } from "./rutas"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 const ROLE_LABEL: Record<string, string> = {
   operator: "Operador",
@@ -214,6 +216,12 @@ export function FichaPersona(): React.JSX.Element {
         <ArrowLeft className="size-3.5 shrink-0" aria-hidden="true" />
         Volver a Turnos y personal
       </Link>
+      <div className="flex justify-end">
+        <CsvExportButton
+          href={csvUrl(`/admin/records/employee/${employeeId}`, { store_id: activeStoreId, ...range })}
+          label="Descargar la ficha"
+        />
+      </div>
       <div className="flex items-start gap-3.5">
         <AvatarFicha forma="persona" texto={iniciales(r.employee.name)} />
         <PageHeader

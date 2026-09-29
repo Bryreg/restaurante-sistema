@@ -22,11 +22,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.csv import CsvFormat, csv_response
 from app.auth.deps import Actor, admin_store, current_admin, current_operator
 from app.core import features
 from app.core.db import get_db
@@ -183,26 +184,34 @@ def _admin_list(
     return service.to_out_many(db, rows)
 
 
-@router.get("/admin/requests", dependencies=[Depends(_require)])
+@router.get("/admin/requests", response_model=list[StaffRequestOut], dependencies=[Depends(_require)])
 def get_admin_requests(
     store_id: int = Query(...),
     status: StaffRequestStatusLiteral | None = Query(None),
     kind: StaffRequestKindLiteral | None = Query(None),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[StaffRequestOut]:
-    return _admin_list(db, actor, store_id, status, StaffRequestKind(kind) if kind is not None else None)
+) -> list[StaffRequestOut] | Response:
+    result = _admin_list(db, actor, store_id, status, StaffRequestKind(kind) if kind is not None else None)
+    if format == "csv":
+        return csv_response(result, "solicitudes.csv")
+    return result
 
 
-@router.get("/admin/requests/supplies", dependencies=[Depends(_require)])
+@router.get("/admin/requests/supplies", response_model=list[StaffRequestOut], dependencies=[Depends(_require)])
 def get_admin_supply_requests(
     store_id: int = Query(...),
     status: StaffRequestStatusLiteral | None = Query("approved"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[StaffRequestOut]:
+) -> list[StaffRequestOut] | Response:
     """La lista de Compras: por defecto, los pedidos aprobados y por comprar."""
-    return _admin_list(db, actor, store_id, status, StaffRequestKind.SUPPLY)
+    result = _admin_list(db, actor, store_id, status, StaffRequestKind.SUPPLY)
+    if format == "csv":
+        return csv_response(result, "pedidos-de-insumos.csv")
+    return result
 
 
 @router.post("/admin/requests/{request_id}/approve")

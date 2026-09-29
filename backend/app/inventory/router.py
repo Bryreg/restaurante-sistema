@@ -13,22 +13,23 @@ opcional: `inventory.perpetual` (movimientos, stock, ajustes) e
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import date
 from typing import Any, Callable
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.csv import CsvFormat, csv_response, sectioned_rows, wants_csv
 from app.audit.service import record_audit
 from app.auth.deps import Actor, admin_store, current_admin, current_device, current_operator
 from app.core import features, tz
-from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.inventory import area_counts, service
+from app.inventory import area_counts, hooks, service
 from app.inventory.units import entry_spec
 from app.inventory.models import Ingredient, MovementCause, StockCountScope, WasteType
 from app.inventory.schemas import (
@@ -64,6 +65,7 @@ from app.inventory.schemas import (
     IngredientOut,
     IngredientUpdateIn,
     InventorySettingsIn,
+    InventoryThresholdsIn,
     LotOut,
     LotStatusLiteral,
     MovementCauseLiteral,
@@ -452,21 +454,25 @@ def list_device_ingredients(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/lots")
+@router.get("/admin/lots", response_model=list[LotOut])
 def get_lots(
     store_id: int = Query(...),
     ingredient_id: int | None = Query(None),
     status: LotStatusLiteral | None = Query(None),
     expiring_within_days: int | None = Query(None, ge=0),
+    format: CsvFormat = None,
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
     _feature: None = Depends(features.require_feature("inventory.lots")),
-) -> list[LotOut]:
+) -> list[LotOut] | Response:
     store = admin_store(db, actor, store_id)
     rows = service.list_lots(
         db, store=store, ingredient_id=ingredient_id, status=status, expiring_within_days=expiring_within_days
     )
-    return [service.lot_out(db, batch, st) for batch, st in rows]
+    result = [service.lot_out(db, batch, st) for batch, st in rows]
+    if format == "csv":
+        return csv_response(result, "lotes.csv")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +490,42 @@ def get_inventory_settings(
 ) -> Any:
     store = admin_store(db, actor, store_id)
     return service.inventory_settings_out(service.get_inventory_settings(db, store))
+
+
+@router.get("/admin/stores/{store_id}/inventory-thresholds")
+def get_inventory_thresholds(
+    store_id: int,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+) -> dict[str, int]:
+    """Los umbrales de lectura que las pantallas de compras y carta usan
+    para pintar (confiabilidad de proveedores, franja de food cost), sin
+    exigir `inventory.variance`: antes estaban quemados en el frontend. Se
+    editan en Ajustes › Inventario y compras (`PUT .../inventory-settings`).
+    Sólo umbrales: ninguna cifra de plata."""
+    store = admin_store(db, actor, store_id)
+    return dataclasses.asdict(hooks.store_thresholds(db, store.id))
+
+
+@router.put("/admin/stores/{store_id}/inventory-thresholds")
+def put_inventory_thresholds(
+    store_id: int,
+    body: InventoryThresholdsIn,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+) -> dict[str, int]:
+    """Ajustes › Inventario y compras: guarda los umbrales de 0035 (sólo los
+    que llegan) sin exigir `inventory.variance`. Valida el conjunto antes de
+    escribir y deja auditoría."""
+    store = admin_store(db, actor, store_id)
+    before = dataclasses.asdict(hooks.store_thresholds(db, store.id))
+    service.update_inventory_thresholds(db, store, body)
+    after = dataclasses.asdict(hooks.store_thresholds(db, store.id))
+    record_audit(
+        db, actor=actor, organization_id=actor.organization_id, store_id=store.id,
+        entity="inventory_settings", entity_id=store.id, action="update", before=before, after=after,
+    )
+    return after
 
 
 @router.put("/admin/stores/{store_id}/inventory-settings")
@@ -552,17 +594,21 @@ def list_counts_route(
     return out
 
 
-@router.get("/admin/counts/{count_id}")
+@router.get("/admin/counts/{count_id}", response_model=CountDetailOut)
 def get_count_route(
     count_id: int,
     store_id: int = Query(...),
+    format: CsvFormat = None,
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
     _feature: None = Depends(features.require_feature("inventory.counts")),
-) -> CountDetailOut:
+) -> CountDetailOut | Response:
     store = admin_store(db, actor, store_id)
     count = service.count_or_404(db, store, count_id)
-    return service.count_detail_out(db, count)
+    result = service.count_detail_out(db, count)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "conteo.csv")
+    return result
 
 
 @router.put("/admin/counts/{count_id}/lines")
@@ -642,23 +688,31 @@ def get_food_cost(
     store_id: int = Query(...),
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
     _feature: None = Depends(features.require_feature("inventory.variance")),
 ) -> Any:
     store = admin_store(db, actor, store_id)
-    return service.food_cost_report(db, store=store, date_from=date_from, date_to=date_to)
+    result = service.food_cost_report(db, store=store, date_from=date_from, date_to=date_to)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "food-cost.csv")
+    return result
 
 
 @router.get("/admin/control-health")
 def get_control_health(
     store_id: int = Query(...),
+    format: CsvFormat = None,
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
     _feature: None = Depends(features.require_feature("inventory.variance")),
 ) -> Any:
     store = admin_store(db, actor, store_id)
-    return service.control_health(db, store=store)
+    result = service.control_health(db, store=store)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "salud-del-control.csv")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1014,31 +1068,39 @@ def get_area_counts(
     return out
 
 
-@router.get("/admin/area-counts/{count_id}")
+@router.get("/admin/area-counts/{count_id}", response_model=AreaCountDetailOut)
 def get_area_count(
     count_id: int,
     store_id: int = Query(...),
+    format: CsvFormat = None,
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
     _base: None = Depends(_require_shift_counts_base),
     _feature: None = Depends(_require_shift_counts),
-) -> AreaCountDetailOut:
+) -> AreaCountDetailOut | Response:
     store = admin_store(db, actor, store_id)
     count = area_counts.count_or_404(db, store=store, count_id=count_id)
-    return area_counts.count_detail(db, store=store, count=count)
+    result = area_counts.count_detail(db, store=store, count=count)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "conteo-por-area.csv")
+    return result
 
 
-@router.get("/admin/area-recounts")
+@router.get("/admin/area-recounts", response_model=list[AreaRecountRequestOut])
 def get_area_recounts(
     store_id: int = Query(...),
     status: AreaRecountStatusLiteral | None = Query(None),
+    format: CsvFormat = None,
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
     _base: None = Depends(_require_shift_counts_base),
     _feature: None = Depends(_require_shift_counts),
-) -> list[AreaRecountRequestOut]:
+) -> list[AreaRecountRequestOut] | Response:
     store = admin_store(db, actor, store_id)
-    return [area_counts.recount_out(db, r) for r in area_counts.list_recounts(db, store=store, status=status)]
+    result = [area_counts.recount_out(db, r) for r in area_counts.list_recounts(db, store=store, status=status)]
+    if format == "csv":
+        return csv_response(result, "recuentos.csv")
+    return result
 
 
 @router.post("/admin/area-recounts", status_code=201)

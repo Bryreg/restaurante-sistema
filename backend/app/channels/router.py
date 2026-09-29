@@ -20,9 +20,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
+from app.core.csv import CsvFormat, csv_response
 from app.auth.deps import Actor, admin_store, current_admin, current_device, current_operator
 from app.channels import service
 from app.channels.models import DeliveryPlatform, DeliverySettlement
@@ -113,15 +114,19 @@ def _idempotent(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/platforms", dependencies=[Depends(require_feature("pos.platforms"))])
+@router.get("/admin/platforms", response_model=list[PlatformOut], dependencies=[Depends(require_feature("pos.platforms"))])
 def list_platforms(
     store_id: int,
     active: bool | None = None,
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[PlatformOut]:
+) -> list[PlatformOut] | Response:
     store = admin_store(db, actor, store_id)
-    return [_platform_out(r) for r in service.list_platforms(db, store_id=store.id, active=active)]
+    result = [_platform_out(r) for r in service.list_platforms(db, store_id=store.id, active=active)]
+    if format == "csv":
+        return csv_response(result, "plataformas.csv")
+    return result
 
 
 @router.post("/admin/platforms", status_code=201, dependencies=[Depends(require_feature("pos.platforms"))])
@@ -167,16 +172,17 @@ def deactivate_platform(
 
 
 @router.get(
-    "/admin/platforms/{platform_id}/summary", dependencies=[Depends(require_feature("pos.platforms"))]
+    "/admin/platforms/{platform_id}/summary", response_model=PlatformSummaryOut, dependencies=[Depends(require_feature("pos.platforms"))]
 )
 def platform_summary(
     platform_id: int,
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> PlatformSummaryOut:
+) -> PlatformSummaryOut | Response:
     """Venta, propina y comisión del rango, **por separado**: `sales` nunca
     viene neteado de comisión."""
     store = admin_store(db, actor, store_id)
@@ -186,24 +192,28 @@ def platform_summary(
     data = service.platform_summary(
         db, store_id=store.id, platform=platform, date_from=date_from, date_to=date_to
     )
-    return PlatformSummaryOut(
+    result = PlatformSummaryOut(
         platform_id=platform.id,
         platform_name=platform.name,
         date_from=date_from,
         date_to=date_to,
         **data,
     )
+    if format == "csv":
+        return csv_response([result], "plataforma-resumen.csv")
+    return result
 
 
-@router.get("/admin/platform-commissions", dependencies=[Depends(require_feature("pos.platforms"))])
+@router.get("/admin/platform-commissions", response_model=list[PlatformCommissionOut], dependencies=[Depends(require_feature("pos.platforms"))])
 def list_commissions(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
     platform_id: int | None = None,
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[PlatformCommissionOut]:
+) -> list[PlatformCommissionOut] | Response:
     from sqlalchemy import select
 
     from app.channels.models import PlatformCommission
@@ -217,7 +227,7 @@ def list_commissions(
     if platform_id is not None:
         stmt = stmt.where(PlatformCommission.platform_id == platform_id)
     rows = list(db.execute(stmt.order_by(PlatformCommission.at.desc())).scalars())
-    return [
+    result = [
         PlatformCommissionOut(
             id=r.id,
             platform_id=r.platform_id,
@@ -233,17 +243,21 @@ def list_commissions(
         )
         for r in rows
     ]
+    if format == "csv":
+        return csv_response(result, "comisiones.csv")
+    return result
 
 
-@router.get("/admin/platform-receivables", dependencies=[Depends(require_feature("pos.platforms"))])
+@router.get("/admin/platform-receivables", response_model=list[PlatformReceivableOut], dependencies=[Depends(require_feature("pos.platforms"))])
 def list_receivables(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
     platform_id: int | None = None,
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[PlatformReceivableOut]:
+) -> list[PlatformReceivableOut] | Response:
     """Lo que las plataformas nos deben. **Su conciliación es fase 3**: acá
     sólo se registra y se lee, no se marca como cobrada."""
     from sqlalchemy import select
@@ -259,7 +273,7 @@ def list_receivables(
     if platform_id is not None:
         stmt = stmt.where(PlatformReceivable.platform_id == platform_id)
     rows = list(db.execute(stmt.order_by(PlatformReceivable.at.desc())).scalars())
-    return [
+    result = [
         PlatformReceivableOut(
             id=r.id,
             platform_id=r.platform_id,
@@ -277,6 +291,9 @@ def list_receivables(
         )
         for r in rows
     ]
+    if format == "csv":
+        return csv_response(result, "por-cobrar-plataformas.csv")
+    return result
 
 
 @router.get("/device/platforms", dependencies=[Depends(require_feature("pos.platforms"))])
@@ -483,14 +500,18 @@ def void_delivery_settlement(
     return DeliverySettlementOut.model_validate(body)
 
 
-@router.get("/admin/delivery-settlements", dependencies=[Depends(require_feature("pos.delivery"))])
+@router.get("/admin/delivery-settlements", response_model=list[DeliverySettlementOut], dependencies=[Depends(require_feature("pos.delivery"))])
 def list_delivery_settlements(
     store_id: int,
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
+    format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
-) -> list[DeliverySettlementOut]:
+) -> list[DeliverySettlementOut] | Response:
     store = admin_store(db, actor, store_id)
     rows = service.list_settlements(db, store_id=store.id, date_from=date_from, date_to=date_to)
-    return [_settlement_out(r) for r in rows]
+    result = [_settlement_out(r) for r in rows]
+    if format == "csv":
+        return csv_response(result, "liquidaciones-domicilios.csv")
+    return result

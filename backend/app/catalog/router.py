@@ -7,10 +7,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.csv import CsvFormat, csv_response, wants_csv
 from app.audit.service import record_audit
 from app.auth.deps import Actor, admin_store, current_actor, current_admin, current_device
 from app.catalog import service
@@ -34,7 +35,6 @@ from app.catalog.schemas import (
     ProductUpdateIn,
 )
 from app.core import features
-from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError, UnauthorizedError
 
@@ -264,15 +264,19 @@ def set_product_availability(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/admin/modifier-groups")
+@router.get("/admin/modifier-groups", response_model=list[ModifierGroupOut])
 def list_modifier_groups(
     product_id: int,
+    format: CsvFormat = None,
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
     _feature: None = Depends(features.require_feature("pos.modifiers")),
-) -> list[ModifierGroupOut]:
+) -> list[ModifierGroupOut] | Response:
     service.product_or_404(db, actor, product_id)
-    return service.modifier_groups_out(db, product_id)
+    result = service.modifier_groups_out(db, product_id)
+    if format == "csv":
+        return csv_response([{"group_id": g.id, "group_name": g.name, "required": g.required, "min": g.min, "max": g.max, "option_id": o.id, "option_name": o.name, "price_delta": o.price_delta, "available": o.available} for g in result for o in g.options], "modificadores.csv", headers={"group_name": "Grupo", "min": "Mínimo a elegir", "max": "Máximo a elegir", "option_name": "Opción", "price_delta": "Cambio de precio"})
+    return result
 
 
 @router.post("/admin/modifier-groups")

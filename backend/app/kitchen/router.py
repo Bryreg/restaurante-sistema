@@ -101,6 +101,7 @@ def get_kitchen_rounds(
     store_id = actor.store_id
     settings = stores_service.get_sales_settings(db, store_id)  # type: ignore[arg-type]
     course_targets = settings.course_target_minutes or {}
+    station_targets = settings.station_target_minutes or {}
     now = clock.now_utc()
     # `kitchen.kds` es estrictamente ADITIVA acá: con la flag apagada este
     # booleano nunca se usa y la respuesta queda byte a byte la de 1b
@@ -124,7 +125,7 @@ def get_kitchen_rounds(
         items_out: list[dict[str, Any]] = []
         for item in items:
             elapsed_seconds = int((now - item.sent_at).total_seconds()) if item.sent_at is not None else 0
-            target_minutes = service.target_minutes_for(course_targets, course=item.course, station=item.station)
+            target_minutes = service.target_minutes_for(course_targets, course=item.course, station=item.station, station_targets=station_targets)
             items_out.append(
                 {
                     "item_id": item.id,

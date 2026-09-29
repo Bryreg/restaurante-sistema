@@ -67,6 +67,15 @@ function buildUrl(path: string, query?: ApiOptions["query"]): string {
   return url.pathname + url.search;
 }
 
+/**
+ * La URL de la descarga CSV de una lectura (`format=csv`): el mismo camino y
+ * los mismos filtros que la pantalla, para `CsvExportButton`. El servidor
+ * arma el archivo para Excel en español (`;`, BOM, encabezados en español).
+ */
+export function csvUrl(path: string, query?: ApiOptions["query"]): string {
+  return buildUrl(path, { ...(query ?? {}), format: "csv" });
+}
+
 async function parseErrorBody(response: Response): Promise<ApiErrorShape> {
   try {
     const data = await response.json();

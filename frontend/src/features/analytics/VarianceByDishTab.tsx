@@ -33,6 +33,8 @@ import { textoVentana } from "@/features/inventory/lib"
 
 import { ComoLeer, CifraProtagonista } from "./Aire"
 import { varianceByDishTitular } from "./titulares"
+import { CsvExportButton } from "@/components/CsvExportButton"
+import { csvUrl } from "@/api/client"
 
 /**
  * La dirección con palabra: nunca sólo color ni sólo signo. Sin flecha a
@@ -119,6 +121,9 @@ export function VarianceByDishTab({ storeId }: { storeId: number }): React.JSX.E
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <CsvExportButton href={csvUrl("/admin/variance/by-dish", { store_id: storeId })} />
+      </div>
       {/* El método, plegado (mapa de pantallas, regla 2): sigue en la
           pantalla tal como llega —nunca asumido—, pero se lee cuando se pide. */}
       {data ? (

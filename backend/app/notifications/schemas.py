@@ -25,12 +25,19 @@ class NotificationRuleOut(BaseModel):
     enabled: bool
     threshold: int | None = None
     level: str
+    # Sólo en los tipos cuyo emisor lee el umbral (`THRESHOLD_DEFAULTS`):
+    # el valor que manda mientras la sede no guarde uno, y qué mide. En los
+    # demás tipos llegan `None` y el umbral no aplica.
+    threshold_default: int | None = None
+    threshold_unit: str | None = None
 
 
 class NotificationRuleIn(BaseModel):
     type: str
     enabled: bool
-    threshold: int | None = None
+    # `None` = el default del tipo. Un umbral en cero o negativo dispararía
+    # la alerta siempre: se rechaza antes de escribir.
+    threshold: int | None = Field(default=None, ge=1, le=100_000)
     level: str
 
 

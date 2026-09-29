@@ -18,23 +18,36 @@ import { Badge } from "@/components/ui/badge"
 
 export { CostValue, COST_SOURCE_LABEL } from "@/components/CostValue"
 
-/** Franja de referencia del sector, SPEC-NEGOCIO §4.3: 28–35 %. Sólo decide
- * un tono visual sobre un número que YA calculó el servidor — no deriva
- * ningún costo ni porcentaje nuevo. */
-const FOOD_COST_BAND = { min: 28, max: 35 }
+/** Franja de referencia del sector, SPEC-NEGOCIO §4.3: 28–35 %, el default
+ * mientras no llega la de la sede (Ajustes › Inventario y compras,
+ * `food_cost_band_min_pct`/`food_cost_band_max_pct`). Sólo decide un tono
+ * visual sobre un número que YA calculó el servidor — no deriva ningún costo
+ * ni porcentaje nuevo. */
+export const FOOD_COST_BAND_DEFAULT: FoodCostBand = { min: 28, max: 35 }
 
-export function foodCostInBand(pct: string | null): boolean | null {
+export interface FoodCostBand {
+  min: number
+  max: number
+}
+
+export function foodCostInBand(pct: string | null, band: FoodCostBand = FOOD_COST_BAND_DEFAULT): boolean | null {
   if (pct === null) return null
   const value = Number(pct)
   if (Number.isNaN(value)) return null
-  return value >= FOOD_COST_BAND.min && value <= FOOD_COST_BAND.max
+  return value >= band.min && value <= band.max
 }
 
-export function FoodCostBadge({ pct }: { pct: string | null }): React.JSX.Element {
+export function FoodCostBadge({
+  pct,
+  band: FOOD_COST_BAND = FOOD_COST_BAND_DEFAULT,
+}: {
+  pct: string | null
+  band?: FoodCostBand
+}): React.JSX.Element {
   if (pct === null) {
     return <Badge variant="outline">Food cost: sin datos</Badge>
   }
-  const inBand = foodCostInBand(pct)
+  const inBand = foodCostInBand(pct, FOOD_COST_BAND)
   return (
     <span className="inline-flex items-center gap-1.5">
       <Badge variant={inBand ? "secondary" : "destructive"}>Food cost {pct}%</Badge>

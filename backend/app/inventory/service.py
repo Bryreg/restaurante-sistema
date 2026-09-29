@@ -50,6 +50,8 @@ from app.inventory.models import (
     LOSS_WASTE_TYPES,
 )
 from app.inventory.schemas import (
+    INVENTORY_CONFIG_FIELDS,
+    InventoryThresholdsIn,
     AdjustmentIn,
     AdjustmentOut,
     ControlHealthOut,
@@ -80,16 +82,16 @@ from app.inventory.schemas import (
     WasteKpiOut,
     WasteOut,
 )
-from app.notifications.service import notify
+from app.notifications.service import notify, rule_threshold
 from app.photos import hooks as photos_hooks
 from app.stores.models import Store
 
 logger = logging.getLogger("app.inventory")
 
 # Alerta si la merma de un insumo supera 1,5x la de la semana anterior
-# (SPEC-NEGOCIO §5.5). Constante en código a propósito: el umbral
-# configurable llega en 2b junto con la varianza (no hay `StoreSettings`
-# nuevo en este pedido — ver gaps del entregable).
+# (SPEC-NEGOCIO §5.5). El factor lo pone la regla de la sede
+# (`NotificationRule.threshold` de `waste_spike`, en por ciento: 150 = 1,5
+# veces); estas constantes son el default y lo que lo documenta.
 WASTE_SPIKE_NUMERATOR = 3
 WASTE_SPIKE_DENOMINATOR = 2  # 3/2 == 1.5, sin float
 
@@ -477,6 +479,14 @@ def _sum_waste_qty(db: Session, *, store_id: int, ingredient_id: int, date_from:
     return int(db.execute(stmt).scalar_one())
 
 
+def _times_text(factor_pct: int) -> str:
+    """150 → «1,5x»; 200 → «2x» (el factor como lo dice el aviso)."""
+    whole, rest = divmod(factor_pct, 100)
+    if rest == 0:
+        return f"{whole}x"
+    return f"{whole},{rest:02d}".rstrip("0") + "x"
+
+
 def _check_waste_spike(db: Session, *, store: Store, ingredient: Ingredient, business_date: date) -> None:
     this_week_start = business_date - timedelta(days=6)
     previous_week_end = this_week_start - timedelta(days=1)
@@ -490,7 +500,8 @@ def _check_waste_spike(db: Session, *, store: Store, ingredient: Ingredient, bus
     )
     if previous_week_qty <= 0:
         return
-    if this_week_qty * WASTE_SPIKE_DENOMINATOR > previous_week_qty * WASTE_SPIKE_NUMERATOR:
+    factor_pct = rule_threshold(db, store.id, "waste_spike")
+    if this_week_qty * 100 > previous_week_qty * factor_pct:
         notify(
             db,
             organization_id=store.organization_id,
@@ -498,7 +509,7 @@ def _check_waste_spike(db: Session, *, store: Store, ingredient: Ingredient, bus
             type="waste_spike",
             level="warning",
             title="Merma por encima de lo habitual",
-            body=f'La merma de "{ingredient.name}" esta semana supera 1,5x la de la semana anterior',
+            body=f'La merma de "{ingredient.name}" esta semana supera {_times_text(factor_pct)} la de la semana anterior',
             payload={"ingredient_id": ingredient.id},
             dedupe_key=f"waste_spike:{ingredient.id}:{business_date.isoformat()}",
         )
@@ -994,6 +1005,31 @@ def get_inventory_settings(db: Session, store: Store) -> StoreInventorySettings:
     return row
 
 
+def _merged_thresholds(row: StoreInventorySettings, data: Any) -> dict[str, int]:
+    """Lo guardado, pisado por lo que llega (sólo lo que llega): valida el
+    conjunto ANTES de escribir nada."""
+    merged = {f: getattr(row, f) for f in INVENTORY_CONFIG_FIELDS}
+    merged.update(
+        {f: getattr(data, f) for f in INVENTORY_CONFIG_FIELDS if f in data.model_fields_set and getattr(data, f) is not None}
+    )
+    if merged["food_cost_band_max_pct"] <= merged["food_cost_band_min_pct"]:
+        raise AppError(
+            code="FOOD_COST_BAND_INVERTED",
+            message="El techo de la franja de food cost tiene que ser mayor que el piso: subí el techo o bajá el piso",
+        )
+    if merged["supplier_received_critical_bp"] >= merged["supplier_received_warning_bp"]:
+        raise AppError(
+            code="SUPPLIER_THRESHOLDS_INVERTED",
+            message="El «recibido» en rojo tiene que ser menor que el de ámbar: bajá el rojo o subí el ámbar",
+        )
+    if merged["supplier_drift_critical_bp"] <= merged["supplier_drift_warning_bp"]:
+        raise AppError(
+            code="SUPPLIER_THRESHOLDS_INVERTED",
+            message="La deriva de precio en rojo tiene que ser mayor que la de ámbar: subí el rojo o bajá el ámbar",
+        )
+    return merged
+
+
 def update_inventory_settings(db: Session, store: Store, data: InventorySettingsIn) -> StoreInventorySettings:
     if data.variance_red_threshold_bp <= data.variance_yellow_threshold_bp:
         raise AppError(
@@ -1001,8 +1037,22 @@ def update_inventory_settings(db: Session, store: Store, data: InventorySettings
             message="variance_red_threshold_bp: tiene que ser mayor que variance_yellow_threshold_bp",
         )
     row = get_inventory_settings(db, store)
+    merged = _merged_thresholds(row, data)
     row.variance_yellow_threshold_bp = data.variance_yellow_threshold_bp
     row.variance_red_threshold_bp = data.variance_red_threshold_bp
+    for field, value in merged.items():
+        setattr(row, field, value)
+    row.updated_at = clock.now_utc()
+    db.flush()
+    return row
+
+
+def update_inventory_thresholds(db: Session, store: Store, data: InventoryThresholdsIn) -> StoreInventorySettings:
+    """Sólo los umbrales de 0035, sin tocar el semáforo de varianza."""
+    row = get_inventory_settings(db, store)
+    merged = _merged_thresholds(row, data)
+    for field, value in merged.items():
+        setattr(row, field, value)
     row.updated_at = clock.now_utc()
     db.flush()
     return row
@@ -1013,7 +1063,9 @@ def inventory_settings_out(row: StoreInventorySettings) -> InventorySettingsOut:
         store_id=row.store_id,
         variance_yellow_threshold_bp=row.variance_yellow_threshold_bp,
         variance_red_threshold_bp=row.variance_red_threshold_bp,
+        **{f: getattr(row, f) for f in INVENTORY_CONFIG_FIELDS},
     )
+
 
 
 # ---------------------------------------------------------------------------
@@ -1023,8 +1075,9 @@ def inventory_settings_out(row: StoreInventorySettings) -> InventorySettingsOut:
 LOT_EXPIRING_WINDOW_DAYS = 7
 
 
-def lot_status(batch: StockBatch, today: date) -> str:
-    """`active`/`expiring` (`<= 7` días)/`expired`/`depleted`. Un lote SIN
+def lot_status(batch: StockBatch, today: date, window_days: int | None = None) -> str:
+    """`active`/`expiring` (`<= window_days` días: Ajustes › Inventario,
+    7 por defecto)/`expired`/`depleted`. Un lote SIN
     vencimiento nunca es `expiring` ni `expired` (SPEC-NEGOCIO §5.7): queda
     `active` para siempre, hasta que se consuma."""
     if batch.qty_remaining <= 0:
@@ -1033,7 +1086,7 @@ def lot_status(batch: StockBatch, today: date) -> str:
         return "active"
     if batch.expires_at < today:
         return "expired"
-    if (batch.expires_at - today).days <= LOT_EXPIRING_WINDOW_DAYS:
+    if (batch.expires_at - today).days <= (window_days or LOT_EXPIRING_WINDOW_DAYS):
         return "expiring"
     return "active"
 
@@ -1064,9 +1117,10 @@ def list_lots(
     batches = db.execute(stmt).scalars().all()
     today = tz.today_business_date(store.cutoff_hour)
 
+    window = hooks.store_thresholds(db, store.id).lot_expiring_window_days
     rows: list[tuple[StockBatch, str]] = []
     for batch in sorted(batches, key=_lot_sort_key):
-        this_status = lot_status(batch, today)
+        this_status = lot_status(batch, today, window)
         if status is not None and this_status != status:
             continue
         if expiring_within_days is not None:
