@@ -277,6 +277,21 @@ export interface AreaCountFlagOut {
   employee_name: string
 }
 
+/** Antes de la primera venta: el repaso del último día con ventas (ayer si vendió). */
+export interface TodayRecapOut {
+  business_date: string
+  is_yesterday: boolean
+  orders: number
+  avg_ticket: number | null
+  net: number
+  cash_sales?: PaymentBucketSalesOut | null
+  card_sales?: PaymentBucketSalesOut | null
+  other_payment_sales?: PaymentBucketSalesOut | null
+  sales_by_hour: HourBucketOut[]
+  top_products: TodayTopProductOut[]
+  receptions: TodayReceptionLineOut[]
+}
+
 export interface TodayOut {
   store_id: number
   business_date: string
@@ -383,6 +398,7 @@ export interface TodayOut {
   /** `false` con «Compras» apagada: no es «no entró nada». */
   receptions_enabled?: boolean
   receptions_today?: TodayReceptionLineOut[]
+  recap?: TodayRecapOut | null
 }
 
 /** Venta del día cobrada por un bolsillo (`app.shifts.hooks.payment_bucket`). */
@@ -432,10 +448,11 @@ export function getToday(storeId: number): Promise<TodayOut> {
 export type TodayBlock = "sales-by-hour" | "top-products" | "receptions"
 
 /** URL directa de la descarga (CSV `;` con BOM y encabezados en español, del servidor). */
-export function todayBlockCsvUrl(block: TodayBlock, storeId: number): string {
+export function todayBlockCsvUrl(block: TodayBlock, storeId: number, date?: string | null): string {
   const query = new URLSearchParams()
   query.set("store_id", String(storeId))
   query.set("format", "csv")
+  if (date) query.set("date", date)
   return `/api/v1/admin/today/${block}?${query.toString()}`
 }
 

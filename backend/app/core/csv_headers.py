@@ -848,6 +848,7 @@ TOKENS: dict[str, str] = {
     "tomorrow": "mañana",
     "preview": "vista previa",
     "draft": "borrador",
+    "recap": "repaso",
 }
 
 _RAW_KEY = re.compile(r"^[a-z0-9_]+$")

@@ -357,6 +357,43 @@ def test_today_compares_against_same_weekday_last_week_up_to_the_same_hour(
     assert ultimo["orders"] == 2 and ultimo["net"] == 2 * BANDEJA_NET
 
 
+def test_before_the_first_sale_today_recaps_yesterday_block_by_block(
+    db: Any, admin_client: TestClient, device_client: TestClient, identify: Any, employees: Any,
+    open_shift: Any, sell: Any, main_product: Any, store: Any, clock: Any,
+) -> None:
+    """Hoy 15-ene sin ventas; ayer (14) dos ventas. Hoy trae el repaso de
+    ayer con los mismos bloques (tickets, medios, por hora, platos), y la
+    descarga de un bloque acepta ese día. Con la primera venta de hoy, el
+    repaso deja de venir."""
+    open_shift()
+    identify(device_client, employees["cashier"])
+    now = clock.now()
+    for payment in (sell(main_product, qty=1), sell(main_product, qty=1)):
+        _move_document(db, payment, business_date=date(2026, 1, 14), issued_at=now - timedelta(days=1))
+
+    hoy = _today(admin_client, store.id)
+    assert hoy["orders"] == 0
+    recap = hoy["recap"]
+    assert recap["business_date"] == "2026-01-14" and recap["is_yesterday"] is True
+    assert recap["orders"] == 2 and recap["net"] == 2 * BANDEJA_NET
+    assert len(recap["sales_by_hour"]) == 24
+    assert sum(h["net"] for h in recap["sales_by_hour"]) == 2 * BANDEJA_NET
+    assert all(h["pending"] is False for h in recap["sales_by_hour"])
+    assert recap["top_products"][0]["units"] == 2
+    assert recap["cash_sales"]["net"] + recap["card_sales"]["net"] + recap["other_payment_sales"]["net"] == 2 * BANDEJA_NET
+
+    platos = admin_client.get(f"{API}/admin/today/top-products", params={"store_id": store.id, "date": "2026-01-14"})
+    assert platos.status_code == 200, platos.text
+    assert platos.json()[0]["units"] == 2
+    horas = admin_client.get(f"{API}/admin/today/sales-by-hour", params={"store_id": store.id, "date": "2026-01-14"})
+    assert horas.json()["business_date"] == "2026-01-14" and horas.json()["reference"] == []
+    futuro = admin_client.get(f"{API}/admin/today/top-products", params={"store_id": store.id, "date": "2026-01-16"})
+    assert futuro.status_code == 400
+
+    sell(main_product, qty=1)
+    assert _today(admin_client, store.id)["recap"] is None
+
+
 def test_today_without_history_has_null_comparison_with_reason(
     admin_client: TestClient, store: Any, clock: Any
 ) -> None:

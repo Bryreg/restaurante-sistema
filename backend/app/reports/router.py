@@ -27,6 +27,7 @@ from app.reports import series as series_service
 from app.reports import service
 from app.reports.panel_schemas import EmployeeRecordOut, IngredientRecordOut, PanelOut, ShiftRecordOut
 from app.reports.series_schemas import SectionKey, SectionOut
+from app.stores.models import Store
 from app.reports.schemas import (
     AccountantGoalOut,
     AccountantReportOut,
@@ -57,6 +58,15 @@ def get_today(
 # ---------------------------------------------------------------------------
 
 
+def _recap_day(store: Store, day: date | None) -> date | None:
+    """El día pedido para la descarga: hoy o uno anterior, nunca el futuro."""
+    if day is None:
+        return None
+    if day > tz.today_business_date(store.cutoff_hour):
+        raise AppError("VALIDATION_ERROR", "date: elegí hoy o un día anterior", status=400)
+    return day
+
+
 def _hour_text(hour: int) -> str:
     return f"{hour:02d}:00"
 
@@ -65,13 +75,14 @@ def _hour_text(hour: int) -> str:
 def get_today_sales_by_hour(
     request: Request,
     store_id: int = Query(...),
+    day: date | None = Query(None, alias="date", description="Un día ya cerrado (el repaso de Hoy); sin él, hoy"),
     format: str | None = Query(None, description='"csv" descarga la tabla en CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any] | Any:
     del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     store = admin_store(db, actor, store_id)
-    business_date, hours, reference = service.today_sales_by_hour(db, store=store)
+    business_date, hours, reference = service.today_sales_by_hour(db, store=store, day=_recap_day(store, day))
     if wants_csv(request):
         ref_by_hour = {h.hour: h.net for h in reference}
         rows = [
@@ -107,13 +118,14 @@ def get_today_sales_by_hour(
 def get_today_top_products(
     request: Request,
     store_id: int = Query(...),
+    day: date | None = Query(None, alias="date", description="Un día ya cerrado (el repaso de Hoy); sin él, hoy"),
     format: str | None = Query(None, description='"csv" descarga todos los platos del día en CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]] | Any:
     del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     store = admin_store(db, actor, store_id)
-    business_date = tz.today_business_date(store.cutoff_hour)
+    business_date = _recap_day(store, day) or tz.today_business_date(store.cutoff_hour)
     products = service.today_top_products(db, store=store, business_date=business_date, limit=None)
     if wants_csv(request):
         return csv_es_response(
@@ -128,13 +140,14 @@ def get_today_top_products(
 def get_today_receptions(
     request: Request,
     store_id: int = Query(...),
+    day: date | None = Query(None, alias="date", description="Un día ya cerrado (el repaso de Hoy); sin él, hoy"),
     format: str | None = Query(None, description='"csv" descarga las entradas de mercancía del día en CSV'),
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> list[dict[str, Any]] | Any:
     del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
     store = admin_store(db, actor, store_id)
-    business_date = tz.today_business_date(store.cutoff_hour)
+    business_date = _recap_day(store, day) or tz.today_business_date(store.cutoff_hour)
     enabled, lines = service.today_receptions(db, store=store, business_date=business_date)
     if not enabled:
         raise AppError(

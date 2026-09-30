@@ -951,7 +951,27 @@ function todayComparison(
  * pasó: va como hueco rayado, no como venta $ 0. La marca gris de cada
  * columna es el mismo día de la semana pasada, día completo.
  */
-function HourlySales({ today, storeId }: { today: TodayOut; storeId: number }): React.JSX.Element {
+/**
+ * El día que muestran los bloques cuando Hoy repasa otro día (antes de la
+ * primera venta): su fecha ISO, para la descarga, y cómo se nombra.
+ */
+interface RecapDay {
+  date: string
+  /** «ayer (mar 29 sep)» o «el mar 29 sep». */
+  label: string
+  /** «Ayer» o «Mar 29 sep»: encabezado de columna. */
+  short: string
+}
+
+function HourlySales({
+  today,
+  storeId,
+  recap = null,
+}: {
+  today: TodayOut
+  storeId: number
+  recap?: RecapDay | null
+}): React.JSX.Element {
   const hours: HourBucketOut[] = today.sales_by_hour ?? []
   const reference = today.sales_by_hour_reference ?? []
   const c = today.comparison ?? null
@@ -996,6 +1016,8 @@ function HourlySales({ today, storeId }: { today: TodayOut; storeId: number }): 
       palabra === "igual"
         ? `Vas igual que el ${dia} pasado a esta hora`
         : `Vas ${formatPct(c.delta_bp < 0 ? -c.delta_bp : c.delta_bp)} ${palabra} del ${dia} pasado a esta hora`
+  } else if (peak && recap) {
+    titular = `La hora más fuerte de ${recap.label} fue la de las ${hourLabel(peak.hour)}`
   } else if (peak) {
     titular = `La hora más fuerte va siendo la de las ${hourLabel(peak.hour)}`
   } else if (c && c.net === 0 && dia) {
@@ -1016,7 +1038,12 @@ function HourlySales({ today, storeId }: { today: TodayOut; storeId: number }): 
 
   return (
     <section className="min-w-0 rounded-lg border bg-card p-4">
-      <BlockHeader title="Ventas por hora" block="sales-by-hour" storeId={storeId} />
+      <BlockHeader
+        title={recap ? `Ventas por hora · ${recap.short}` : "Ventas por hora"}
+        block="sales-by-hour"
+        storeId={storeId}
+        date={recap?.date}
+      />
       <ChartFrame
         titular={titular}
         // El método del gráfico se lee una vez: va plegado (regla 2), y a la
@@ -1025,7 +1052,7 @@ function HourlySales({ today, storeId }: { today: TodayOut; storeId: number }): 
         tabla={{
           columnas: [
             { key: "hora", header: "Hora" },
-            { key: "hoy", header: "Hoy", align: "right" },
+            { key: "hoy", header: recap ? recap.short : "Hoy", align: "right" },
             ...(hasReference ? [{ key: "ref", header: `${refLabel} (día completo)`, align: "right" as const }] : []),
             { key: "comandas", header: "Comandas", align: "right" },
           ],
@@ -1041,10 +1068,10 @@ function HourlySales({ today, storeId }: { today: TodayOut; storeId: number }): 
           datos={datos}
           formato={formatCOP}
           serieReferencia={serieReferencia}
-          etiquetaSerie="Hoy"
+          etiquetaSerie={recap ? recap.short : "Hoy"}
           etiquetaSerieReferencia={`${refLabel}, día completo`}
           resumen={
-            `Columnas de venta neta por hora de hoy${peak ? `; la más alta, las ${hourLabel(peak.hour)} con ${formatCOP(peak.net)}` : ", todavía sin ventas"}` +
+            `Columnas de venta neta por hora de ${recap ? recap.label : "hoy"}${peak ? `; la más alta, las ${hourLabel(peak.hour)} con ${formatCOP(peak.net)}` : ", todavía sin ventas"}` +
             `${pendingCount > 0 ? `; ${pendingCount} horas todavía no llegan` : ""}. El detalle está en la tabla.`
           }
         />
@@ -1067,11 +1094,14 @@ function BlockHeader({
   title,
   block,
   storeId,
+  date = null,
   children,
 }: {
   title: string
   block: TodayBlock
   storeId: number
+  /** El día repasado (antes de la primera venta); sin él, la descarga es de hoy. */
+  date?: string | null
   children?: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -1081,7 +1111,7 @@ function BlockHeader({
         {children}
       </div>
       <a
-        href={todayBlockCsvUrl(block, storeId)}
+        href={todayBlockCsvUrl(block, storeId, date)}
         target="_blank"
         rel="noreferrer"
         title={`Descargar «${title}» (CSV)`}
@@ -1135,12 +1165,21 @@ const CIFRAS_EXPLICADAS: readonly Definicion[] = [
  * ticket promedio, número de tickets, efectivo y tarjeta. Todas del
  * servidor; `null` se dice (no es «$ 0»).
  */
-function DayFigures({ today }: { today: TodayOut }): React.JSX.Element {
+function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay | null }): React.JSX.Element {
   const cash = today.cash_sales ?? null
   const card = today.card_sales ?? null
   const other = today.other_payment_sales ?? null
   return (
     <div className="space-y-2">
+      {recap ? (
+        <p
+          className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+          data-slot="repaso"
+        >
+          Todavía no hay ventas hoy: estas cifras y los bloques de abajo son de{" "}
+          <b className="font-semibold text-foreground">{recap.label}</b>. Cambian solos con la primera venta de hoy.
+        </p>
+      ) : null}
       {/* A 1440 cada tarjeta mide ~170 px: una cifra de siete dígitos a
           `text-2xl` se partía en dos renglones. Baja a `text-xl` y no se parte. */}
       <div className="grid min-w-0 grid-cols-2 gap-3 max-sm:[&>div]:p-3 lg:grid-cols-4 [&_.text-2xl]:text-xl [&_.text-2xl]:whitespace-nowrap">
@@ -1194,15 +1233,28 @@ const TOP_PRODUCT_COLUMNS: readonly DenseColumn<TodayTopProductOut>[] = [
 ]
 
 /** «Top productos vendidos» de hoy: el orden y las cifras son del servidor. */
-function TopProducts({ today, storeId }: { today: TodayOut; storeId: number }): React.JSX.Element {
+function TopProducts({
+  today,
+  storeId,
+  recap = null,
+}: {
+  today: TodayOut
+  storeId: number
+  recap?: RecapDay | null
+}): React.JSX.Element {
   const products = today.top_products ?? []
   return (
     <section className="min-w-0 rounded-lg border bg-card p-4">
-      <BlockHeader title="Top productos vendidos" block="top-products" storeId={storeId}>
+      <BlockHeader
+        title={recap ? `Top productos vendidos · ${recap.short}` : "Top productos vendidos"}
+        block="top-products"
+        storeId={storeId}
+        date={recap?.date}
+      >
         <p className="mt-0.5 text-xs text-muted-foreground">Por venta neta, sin impuesto ni propina. La descarga trae todos.</p>
       </BlockHeader>
       <DenseTable
-        caption="Productos más vendidos hoy, con unidades y venta neta."
+        caption={`Productos más vendidos ${recap ? recap.label : "hoy"}, con unidades y venta neta.`}
         columns={TOP_PRODUCT_COLUMNS}
         rows={products}
         rowKey={(p) => p.key}
@@ -1278,7 +1330,15 @@ const RECEPTION_COLUMNS: readonly DenseColumn<TodayReceptionLineOut>[] = [
  * servidor) va con franja ámbar; uno vencido, roja. Sin «Compras», se dice
  * que la función está apagada: no es «no entró nada».
  */
-function Receptions({ today, storeId }: { today: TodayOut; storeId: number }): React.JSX.Element {
+function Receptions({
+  today,
+  storeId,
+  recap = null,
+}: {
+  today: TodayOut
+  storeId: number
+  recap?: RecapDay | null
+}): React.JSX.Element {
   const lines = today.receptions_today ?? []
   if (!today.receptions_enabled) {
     return (
@@ -1296,9 +1356,14 @@ function Receptions({ today, storeId }: { today: TodayOut; storeId: number }): R
   const soon = lines.filter((l) => l.lot_status === "expiring" || l.lot_status === "expired").length
   return (
     <section className="min-w-0 rounded-lg border bg-card p-4">
-      <BlockHeader title="Entradas de mercancía" block="receptions" storeId={storeId}>
+      <BlockHeader
+        title={recap ? `Entradas de mercancía · ${recap.short}` : "Entradas de mercancía"}
+        block="receptions"
+        storeId={storeId}
+        date={recap?.date}
+      >
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Lo recibido hoy, con su lote y vencimiento.
+          Lo recibido {recap ? recap.label : "hoy"}, con su lote y vencimiento.
           {soon > 0 ? (
             <b className="font-semibold text-warning">
               {" "}
@@ -1308,7 +1373,7 @@ function Receptions({ today, storeId }: { today: TodayOut; storeId: number }): R
         </p>
       </BlockHeader>
       <DenseTable
-        caption="Entradas de mercancía de hoy: insumo, proveedor, cantidad en unidad de compra, lote, vencimiento y quién recibió."
+        caption={`Entradas de mercancía de ${recap ? recap.label : "hoy"}: insumo, proveedor, cantidad en unidad de compra, lote, vencimiento y quién recibió.`}
         columns={RECEPTION_COLUMNS}
         rows={lines}
         rowKey={(r) => String(r.line_id)}
@@ -1442,6 +1507,34 @@ export function TodayPage(): React.JSX.Element {
   const lastSales = today.last_sales_close ?? null
   const yesterday = yesterdaySold ? yesterdayClose : lastSales
   const beforeFirstSale = today.orders === 0 && yesterday !== null && yesterday.orders > 0
+  // Antes de la primera venta, los bloques repasan ese mismo día (el
+  // servidor manda `recap` con sus cifras): la mañana sirve para ver cómo
+  // cerró ayer. Con la primera venta, `recap` deja de venir y vuelve hoy.
+  const recapData = today.orders === 0 ? (today.recap ?? null) : null
+  const recap: RecapDay | null = recapData
+    ? {
+        date: recapData.business_date,
+        label: recapData.is_yesterday
+          ? `ayer (${formatFechaCorta(recapData.business_date)})`
+          : `el ${formatFechaCorta(recapData.business_date)}`,
+        short: recapData.is_yesterday ? "Ayer" : formatFechaCorta(recapData.business_date),
+      }
+    : null
+  const shown: TodayOut = recapData
+    ? {
+        ...today,
+        orders: recapData.orders,
+        avg_ticket: recapData.avg_ticket,
+        cash_sales: recapData.cash_sales ?? null,
+        card_sales: recapData.card_sales ?? null,
+        other_payment_sales: recapData.other_payment_sales ?? null,
+        sales_by_hour: recapData.sales_by_hour,
+        sales_by_hour_reference: [],
+        comparison: null,
+        top_products: recapData.top_products,
+        receptions_today: recapData.receptions,
+      }
+    : today
 
   const updatedIso = new Date(query.dataUpdatedAt).toISOString()
 
@@ -1548,13 +1641,13 @@ export function TodayPage(): React.JSX.Element {
             )}
           </section>
 
-          <DayFigures today={today} />
+          <DayFigures today={shown} recap={recap} />
 
-          <HourlySales today={today} storeId={activeStoreId} />
+          <HourlySales today={shown} storeId={activeStoreId} recap={recap} />
 
-          <TopProducts today={today} storeId={activeStoreId} />
+          <TopProducts today={shown} storeId={activeStoreId} recap={recap} />
 
-          <Receptions today={today} storeId={activeStoreId} />
+          <Receptions today={shown} storeId={activeStoreId} recap={recap} />
         </div>
 
         <div className="min-w-0 xl:col-start-2 xl:row-start-1 xl:self-stretch">
