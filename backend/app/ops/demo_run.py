@@ -12,10 +12,9 @@ Proceso aparte, lanzado por `app.ops.demo_once`. Qué cambia respecto de
 - El turno abandonado que haya quedado abierto se cierra antes con el cierre
   administrativo (con motivo), porque la simulación abre un turno por día.
 - No corre dos veces: si la sede ya tiene cinco turnos cerrados, sale.
-- `--reiniciar`: BORRA la base entera y vuelve a cargar la demo desde cero
-  (esquema, seed, claves reales de `DEMO_CLAVES` y `--days` días de
-  operación). Exige además `DEMO_REINICIAR=borrar-todo` en el entorno: dos
-  llaves para lo que no tiene vuelta atrás.
+- `--corregir-compras`: corrección única de las cantidades de las compras
+  que el simulador cargó en unidad de compra (ver `_fix_purchase_units`).
+  Con `--continuar` además, corrige y después continúa.
 - `--continuar`: sobre una demo ya cargada, simula sólo los días que faltan
   desde el último turno cerrado hasta AYER (el día de hoy lo vive la sede en
   tiempo real). Sin días que faltan, sale sin hacer nada.
@@ -73,60 +72,147 @@ def _missing_days() -> list:
     return [last + timedelta(days=i) for i in range(1, (yesterday - last).days + 1)]
 
 
-RESET_CONFIRMATION = "borrar-todo"
+def _fix_purchase_units() -> None:
+    """Corrección única de la demo (2026-09-30): el simulador mandaba
+    `qty_received` en UNIDAD DE COMPRA y la API lo guarda en UNIDAD BASE, así
+    que cada compra de la demo entró dividida por `purchase_factor` (10 L de
+    leche como 10 ml). La plata quedó bien (precio por unidad de compra,
+    costo por unidad base, base de la factura); sólo las CANTIDADES están mal.
+
+    Multiplica por el factor la cantidad de cada renglón mal cargado: el que
+    tiene la base de la factura `factor` veces más alta que el costo por
+    unidad base por la cantidad guardada (el seed y los borradores de la
+    tablet estaban bien y no se tocan), el movimiento de inventario que generó y su lote. Después
+    reparte el stock resultante de cada insumo entre sus lotes: lo último en
+    vencer queda con saldo, lo primero ya se consumió (FEFO). Queda en la
+    auditoría y no corre dos veces."""
+    from app.audit.models import AuditLog
+    from app.audit.service import record_audit
+    from app.core.db import SessionLocal
+    from app.inventory.models import Ingredient, StockBatch, StockMovement
+    from app.purchases.models import Reception, ReceptionDraft, ReceptionLine
+
+    with SessionLocal() as db:
+        done = db.execute(
+            select(AuditLog.id).where(AuditLog.entity == "demo_fix", AuditLog.action == "purchase_units")
+        ).first()
+        if done is not None:
+            print("demo_run: la corrección de compras ya se aplicó; no se repite.", flush=True)
+            return
+        from_drafts = {
+            r for (r,) in db.execute(select(ReceptionDraft.reception_id).where(ReceptionDraft.reception_id.is_not(None)))
+        }
+        rows = db.execute(
+            select(ReceptionLine, Ingredient, Reception)
+            .join(Ingredient, Ingredient.id == ReceptionLine.ingredient_id)
+            .join(Reception, Reception.id == ReceptionLine.reception_id)
+        ).all()
+        fixed_lines = 0
+        touched: dict[int, int] = {}  # ingredient_id -> store_id
+        for line, ing, reception in rows:
+            factor = int(ing.purchase_factor)
+            if factor <= 1 or reception.id in from_drafts:
+                continue
+            # Sólo los renglones mal cargados: la plata quedó bien, así que la
+            # base de la factura es `factor` veces lo que da el costo por
+            # unidad base por la cantidad guardada. Uno bien cargado (el seed,
+            # una recepción de verdad) da 1 y no se toca.
+            implied = line.unit_cost_micros * line.qty_received_base / 1_000_000_000
+            if implied <= 0 or line.tax_base <= 0 or abs(line.tax_base / implied - factor) > factor * 0.1:
+                continue
+            line.qty_received_base *= factor
+            line.qty_invoiced_base *= factor
+            if line.stock_movement_id is not None:
+                movement = db.get(StockMovement, line.stock_movement_id)
+                if movement is not None:
+                    movement.qty_base *= factor
+            for rev in db.execute(
+                select(StockMovement).where(
+                    StockMovement.ref_type == "reception_line_reversal", StockMovement.ref_id == line.id
+                )
+            ).scalars():
+                rev.qty_base *= factor
+            if line.stock_batch_id is not None:
+                batch = db.get(StockBatch, line.stock_batch_id)
+                if batch is not None:
+                    batch.qty_received *= factor
+            touched[ing.id] = reception.store_id
+            fixed_lines += 1
+        db.flush()
+
+        for ingredient_id, store_id in touched.items():
+            ledger = db.execute(
+                select(func.coalesce(func.sum(StockMovement.qty_base), 0)).where(
+                    StockMovement.store_id == store_id, StockMovement.ingredient_id == ingredient_id
+                )
+            ).scalar_one()
+            left = max(0, int(ledger))
+            batches = db.execute(
+                select(StockBatch)
+                .where(
+                    StockBatch.store_id == store_id,
+                    StockBatch.ingredient_id == ingredient_id,
+                    StockBatch.reversed_at.is_(None),
+                )
+                .order_by(StockBatch.expires_at.is_(None).desc(), StockBatch.expires_at.desc(), StockBatch.received_at.desc())
+            ).scalars()
+            for batch in batches:
+                batch.qty_remaining = min(batch.qty_received, left)
+                left -= batch.qty_remaining
+
+        audit_store_id: int | None = next(iter(touched.values()), None)
+        organization_id = db.execute(select(Reception.organization_id)).scalars().first()
+        if organization_id is not None:
+            record_audit(
+                db,
+                actor=None,
+                organization_id=organization_id,
+                store_id=audit_store_id,
+                entity="demo_fix",
+                entity_id="purchase_units",
+                action="purchase_units",
+                before=None,
+                after={"lines": fixed_lines, "ingredients": len(touched)},
+                reason="Demo: compras cargadas en unidad de compra en vez de unidad base; se multiplican por el factor.",
+            )
+        db.commit()
+    print(f"demo_run: compras corregidas: {fixed_lines} renglones, {len(touched)} insumos.", flush=True)
+    _ensure_delivery_fee_product()
 
 
-def _reset_database(claves: dict) -> None:
-    """Borra todo, migra, siembra y pone las claves reales. Sólo con las dos
-    llaves (`--reiniciar` en el marcador y `DEMO_REINICIAR=borrar-todo`)."""
-    from alembic import command
-    from alembic.config import Config
-    from pathlib import Path
-    from sqlalchemy import text
-
-    from app.auth.models import Employee
-    from app.core.db import Base, SessionLocal, engine
-    from app.core.models_registry import import_all_models
-    from app.core.security import hash_secret
+def _ensure_delivery_fee_product() -> None:
+    """La carta de la demo no tenía cargo de domicilio y la API rechazaba
+    todo domicilio. Se crea uno por sede si falta (el mismo servicio que usa
+    `POST /admin/products`)."""
+    from app.catalog import service as catalog_service
+    from app.catalog.models import Category
+    from app.catalog.schemas import ProductIn, ProductPricesIn
+    from app.core.db import SessionLocal
     from app.stores.models import Store
 
-    import_all_models()
-    dropped = False
-    if engine.dialect.name == "postgresql":
-        try:
-            with engine.begin() as conn:
-                conn.execute(text("SET lock_timeout = '60s'"))
-                conn.execute(text("DROP SCHEMA public CASCADE"))
-                conn.execute(text("CREATE SCHEMA public"))
-            dropped = True
-        except Exception as exc:  # sin permiso sobre el esquema: tabla por tabla
-            print(f"demo_run: no se pudo borrar el esquema ({exc!r}); se borran las tablas.", flush=True)
-    if not dropped:
-        Base.metadata.drop_all(engine)
-        with engine.begin() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
-    backend_dir = Path(__file__).resolve().parents[2]
-    command.upgrade(Config(str(backend_dir / "alembic.ini")), "head")
-    print("demo_run: base borrada y migrada.", flush=True)
-
-    from app import seed as seed_module
-
     with SessionLocal() as db:
-        seed_module.seed(db)
-    pins: dict[str, str] = claves["pins"]
-    with SessionLocal() as db:
-        for emp in db.execute(select(Employee)).scalars():
-            if emp.email == seed_module.ADMIN_EMAIL:
-                emp.email = claves["admin_email"]
-                emp.password_hash = hash_secret(claves["admin_password"])
-            if emp.name in pins:
-                emp.pin_hash = hash_secret(pins[emp.name])
-            if emp.name.startswith("Operador "):
-                emp.active = False
         for store in db.execute(select(Store)).scalars():
-            store.store_pin_hash = hash_secret(claves["store_pin"])
+            if catalog_service.get_delivery_fee_product(db, store.id) is not None:
+                continue
+            category = db.execute(
+                select(Category).where(Category.store_id == store.id).order_by(Category.id.desc())
+            ).scalars().first()
+            if category is None:
+                print(f"demo_run: la sede {store.id} no tiene categorías; sin cargo de domicilio.", flush=True)
+                continue
+            catalog_service.create_product(
+                db,
+                organization_id=store.organization_id,
+                store_id=store.id,
+                data=ProductIn(
+                    category_id=category.id,
+                    name="Cargo de domicilio",
+                    prices=ProductPricesIn(dine_in=5_000, delivery=5_000),
+                    is_delivery_fee=True,
+                ),
+            )
+            print(f"demo_run: cargo de domicilio creado en la sede {store.id}.", flush=True)
         db.commit()
-    print("demo_run: seed con las claves reales.", flush=True)
 
 
 def _use_real_credentials(demo: object, claves: dict) -> None:
@@ -162,19 +248,15 @@ def main() -> None:
     parser.add_argument("--days", type=int, default=14)
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--continuar", action="store_true")
-    parser.add_argument("--reiniciar", action="store_true")
+    parser.add_argument("--corregir-compras", action="store_true")
     args = parser.parse_args()
 
     days: list = []
-    if args.reiniciar:
-        if os.environ.get("DEMO_REINICIAR") != RESET_CONFIRMATION:
-            print(
-                f"demo_run: --reiniciar pide DEMO_REINICIAR={RESET_CONFIRMATION} en el entorno; no se borra nada.",
-                flush=True,
-            )
+    if args.corregir_compras:
+        _fix_purchase_units()
+        if not args.continuar:
             return
-        _reset_database(json.loads(os.environ["DEMO_CLAVES"]))
-    elif args.continuar:
+    if args.continuar:
         days = _missing_days()
         if not days:
             print("demo_run: no faltan días; la operación ya llega hasta ayer.", flush=True)
