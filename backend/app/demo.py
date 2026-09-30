@@ -64,6 +64,7 @@ STAFF = [
     ("Jhon Jairo Cárdenas", "operator", "7004", False, "cocina", 9_000),
     ("Rosa Elena Méndez", "operator", "7005", False, "cocina", 8_600),
     ("Brayan Estiven Mora", "operator", "7006", False, "domicilios", 7_300),
+    ("Kevin Andrés Ortiz", "operator", "7007", False, "bar", 8_000),
 ]
 
 SUPPLIERS = [
@@ -417,7 +418,7 @@ class Demo:
         existing = {e["name"]: e for e in a.get("/admin/employees")}
         # Inicio por rol: el área de la demo es también su puesto en el POS
         # (el domiciliario no tiene puesto: ve todo, como siempre).
-        puestos = {"caja": "caja", "salón": "salon", "cocina": "cocina"}
+        puestos = {"caja": "caja", "salón": "salon", "cocina": "cocina", "bar": "bar"}
         for name, role, pin, can_charge, area, _wage in STAFF:
             if name in existing:
                 emp = existing[name]

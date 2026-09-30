@@ -12,6 +12,10 @@ Proceso aparte, lanzado por `app.ops.demo_once`. Qué cambia respecto de
 - El turno abandonado que haya quedado abierto se cierra antes con el cierre
   administrativo (con motivo), porque la simulación abre un turno por día.
 - No corre dos veces: si la sede ya tiene cinco turnos cerrados, sale.
+- `--reiniciar`: BORRA la base entera y vuelve a cargar la demo desde cero
+  (esquema, seed, claves reales de `DEMO_CLAVES` y `--days` días de
+  operación). Exige además `DEMO_REINICIAR=borrar-todo` en el entorno: dos
+  llaves para lo que no tiene vuelta atrás.
 - `--continuar`: sobre una demo ya cargada, simula sólo los días que faltan
   desde el último turno cerrado hasta AYER (el día de hoy lo vive la sede en
   tiempo real). Sin días que faltan, sale sin hacer nada.
@@ -69,6 +73,62 @@ def _missing_days() -> list:
     return [last + timedelta(days=i) for i in range(1, (yesterday - last).days + 1)]
 
 
+RESET_CONFIRMATION = "borrar-todo"
+
+
+def _reset_database(claves: dict) -> None:
+    """Borra todo, migra, siembra y pone las claves reales. Sólo con las dos
+    llaves (`--reiniciar` en el marcador y `DEMO_REINICIAR=borrar-todo`)."""
+    from alembic import command
+    from alembic.config import Config
+    from pathlib import Path
+    from sqlalchemy import text
+
+    from app.auth.models import Employee
+    from app.core.db import Base, SessionLocal, engine
+    from app.core.models_registry import import_all_models
+    from app.core.security import hash_secret
+    from app.stores.models import Store
+
+    import_all_models()
+    dropped = False
+    if engine.dialect.name == "postgresql":
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("SET lock_timeout = '60s'"))
+                conn.execute(text("DROP SCHEMA public CASCADE"))
+                conn.execute(text("CREATE SCHEMA public"))
+            dropped = True
+        except Exception as exc:  # sin permiso sobre el esquema: tabla por tabla
+            print(f"demo_run: no se pudo borrar el esquema ({exc!r}); se borran las tablas.", flush=True)
+    if not dropped:
+        Base.metadata.drop_all(engine)
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
+    backend_dir = Path(__file__).resolve().parents[2]
+    command.upgrade(Config(str(backend_dir / "alembic.ini")), "head")
+    print("demo_run: base borrada y migrada.", flush=True)
+
+    from app import seed as seed_module
+
+    with SessionLocal() as db:
+        seed_module.seed(db)
+    pins: dict[str, str] = claves["pins"]
+    with SessionLocal() as db:
+        for emp in db.execute(select(Employee)).scalars():
+            if emp.email == seed_module.ADMIN_EMAIL:
+                emp.email = claves["admin_email"]
+                emp.password_hash = hash_secret(claves["admin_password"])
+            if emp.name in pins:
+                emp.pin_hash = hash_secret(pins[emp.name])
+            if emp.name.startswith("Operador "):
+                emp.active = False
+        for store in db.execute(select(Store)).scalars():
+            store.store_pin_hash = hash_secret(claves["store_pin"])
+        db.commit()
+    print("demo_run: seed con las claves reales.", flush=True)
+
+
 def _use_real_credentials(demo: object, claves: dict) -> None:
     pins: dict[str, str] = claves["pins"]
     demo.ADMIN = (claves["admin_email"], claves["admin_password"])  # type: ignore[attr-defined]
@@ -102,10 +162,19 @@ def main() -> None:
     parser.add_argument("--days", type=int, default=14)
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--continuar", action="store_true")
+    parser.add_argument("--reiniciar", action="store_true")
     args = parser.parse_args()
 
     days: list = []
-    if args.continuar:
+    if args.reiniciar:
+        if os.environ.get("DEMO_REINICIAR") != RESET_CONFIRMATION:
+            print(
+                f"demo_run: --reiniciar pide DEMO_REINICIAR={RESET_CONFIRMATION} en el entorno; no se borra nada.",
+                flush=True,
+            )
+            return
+        _reset_database(json.loads(os.environ["DEMO_CLAVES"]))
+    elif args.continuar:
         days = _missing_days()
         if not days:
             print("demo_run: no faltan días; la operación ya llega hasta ayer.", flush=True)
