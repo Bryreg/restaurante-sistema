@@ -69,6 +69,7 @@ from app.reports.schemas import (
     OpenOrderAgeOut,
     PaymentBucketSalesOut,
     TodayReceptionLineOut,
+    TodayRecapOut,
     TodayTopProductOut,
     DayCloseOut,
     PayableAlertOut,
@@ -1589,12 +1590,18 @@ def today_receptions(db: Session, *, store: Store, business_date: date) -> tuple
     return True, out
 
 
-def today_sales_by_hour(db: Session, *, store: Store) -> tuple[date, list[HourBucketOut], list[HourBucketOut]]:
+def today_sales_by_hour(
+    db: Session, *, store: Store, day: date | None = None
+) -> tuple[date, list[HourBucketOut], list[HourBucketOut]]:
     """`(día operativo, horas de hoy, horas del mismo día de la semana
     pasada completo)` — lo mismo que `today_report` publica en
-    `sales_by_hour`/`sales_by_hour_reference`, para la descarga."""
+    `sales_by_hour`/`sales_by_hour_reference`, para la descarga. Con `day`
+    (el repaso de un día ya cerrado): sus horas completas, sin referencia."""
     now = clock.now_utc()
     business_date = tz.today_business_date(store.cutoff_hour)
+    if day is not None and day != business_date:
+        docs = _sale_documents(db, store_id=store.id, date_from=day, date_to=day)
+        return day, _hour_buckets(docs, cutoff_hour=store.cutoff_hour, now_local_hour=None), []
     documents = _sale_documents(db, store_id=store.id, date_from=business_date, date_to=business_date)
     hours = _hour_buckets(documents, cutoff_hour=store.cutoff_hour, now_local_hour=_bogota_hour(now))
     reference_date = business_date - timedelta(days=7)
@@ -1684,6 +1691,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     split = today_payment_split(db, store=store, business_date=business_date)
     receptions_enabled, receptions = today_receptions(db, store=store, business_date=business_date)
 
+    last_sales_close = _last_sales_close(db, store, business_date=business_date, yesterday_close=yesterday_close)
     return TodayOut(
         store_id=store.id,
         business_date=business_date,
@@ -1727,8 +1735,13 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         comparison=comparison,
         sales_by_hour_reference=sales_by_hour_reference,
         yesterday_close=yesterday_close,
-        last_sales_close=_last_sales_close(
-            db, store, business_date=business_date, yesterday_close=yesterday_close
+        last_sales_close=last_sales_close,
+        recap=_today_recap(
+            db,
+            store,
+            today_orders=orders_count,
+            yesterday_close=yesterday_close,
+            last_sales_close=last_sales_close,
         ),
         current_shift=current_shift,
         store_closed=current_shift is None and not panel_service.shift_activity(db, store),
@@ -1739,6 +1752,42 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         top_products=today_top_products(db, store=store, business_date=business_date),
         receptions_enabled=receptions_enabled,
         receptions_today=receptions,
+    )
+
+
+def _today_recap(
+    db: Session,
+    store: Store,
+    *,
+    today_orders: int,
+    yesterday_close: DayCloseOut | None,
+    last_sales_close: DayCloseOut | None,
+) -> TodayRecapOut | None:
+    """Antes de la primera venta, el repaso del último día con ventas (ayer
+    si vendió): las mismas funciones de los bloques de Hoy, con otra fecha."""
+    if today_orders > 0:
+        return None
+    if yesterday_close is not None and yesterday_close.orders > 0:
+        day, is_yesterday = yesterday_close, True
+    elif last_sales_close is not None:
+        day, is_yesterday = last_sales_close, False
+    else:
+        return None
+    documents = _sale_documents(db, store_id=store.id, date_from=day.business_date, date_to=day.business_date)
+    split = today_payment_split(db, store=store, business_date=day.business_date)
+    _enabled, receptions = today_receptions(db, store=store, business_date=day.business_date)
+    return TodayRecapOut(
+        business_date=day.business_date,
+        is_yesterday=is_yesterday,
+        orders=day.orders,
+        avg_ticket=day.avg_ticket,
+        net=day.net,
+        cash_sales=split["cash"],
+        card_sales=split["card"],
+        other_payment_sales=split["other"],
+        sales_by_hour=_hour_buckets(documents, cutoff_hour=store.cutoff_hour, now_local_hour=None),
+        top_products=today_top_products(db, store=store, business_date=day.business_date),
+        receptions=receptions,
     )
 
 

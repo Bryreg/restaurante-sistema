@@ -505,6 +505,44 @@ describe("TodayPage", () => {
     expect(screen.getByText(/dom 27 sep · 40 tickets/)).toBeInTheDocument()
   })
 
+  it("antes de la primera venta, los bloques repasan ayer: tickets, medios, platos y entradas", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        orders: 0,
+        net: 0,
+        gross: 0,
+        tax: 0,
+        avg_ticket: null,
+        sales_by_hour: [],
+        top_products: [],
+        receptions_today: [],
+        yesterday_close: { business_date: "2026-09-29", net: 1682200, orders: 30, avg_ticket: 56073, operated: true },
+        recap: {
+          business_date: "2026-09-29",
+          is_yesterday: true,
+          orders: 30,
+          avg_ticket: 56073,
+          net: 1682200,
+          cash_sales: { net: 655000, gross: 700000, payments: 14 },
+          card_sales: { net: 872200, gross: 930000, payments: 12 },
+          other_payment_sales: { net: 155000, gross: 165000, payments: 4 },
+          sales_by_hour: [],
+          top_products: [{ key: "1", label: "Bandeja paisa", units: 9, net: 342000, share_bp: null }],
+          receptions: [],
+        },
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    expect(await screen.findByText(/estas cifras y los bloques de abajo son de/)).toBeInTheDocument()
+    expect(screen.getByText("Top productos vendidos · Ayer")).toBeInTheDocument()
+    expect(screen.getByText("Bandeja paisa")).toBeInTheDocument()
+    expect(screen.getByText("30")).toBeInTheDocument()
+    expect(screen.getByText("$ 655.000")).toBeInTheDocument()
+    const descarga = screen.getAllByRole("link", { name: /Descargar CSV/ }).map((a) => a.getAttribute("href"))
+    expect(descarga.some((h) => h?.includes("top-products") && h.includes("date=2026-09-29"))).toBe(true)
+  })
+
   it("ventas por hora sin una sola venta: la pregunta y una línea, sin eje vacío ni horas rayadas", async () => {
     getTodayMock.mockResolvedValue(
       baseToday({

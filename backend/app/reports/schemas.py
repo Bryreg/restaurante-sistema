@@ -347,6 +347,25 @@ class TodayReceptionLineOut(BaseModel):
     received_by: str
 
 
+
+class TodayRecapOut(BaseModel):
+    """Antes de la primera venta del día, Hoy repasa el último día con ventas
+    (normalmente ayer): lo mismo que los bloques de Hoy, de ese día. Deja de
+    venir en cuanto hoy tiene una venta."""
+
+    business_date: date
+    # `True` si el día repasado es ayer; si no, es el último día con ventas.
+    is_yesterday: bool
+    orders: int
+    avg_ticket: int | None
+    net: int
+    cash_sales: PaymentBucketSalesOut | None = None
+    card_sales: PaymentBucketSalesOut | None = None
+    other_payment_sales: PaymentBucketSalesOut | None = None
+    sales_by_hour: list[HourBucketOut] = []
+    top_products: list[TodayTopProductOut] = []
+    receptions: list[TodayReceptionLineOut] = []
+
 class TodayOut(BaseModel):
     store_id: int
     business_date: date
@@ -460,6 +479,8 @@ class TodayOut(BaseModel):
     # «no entró nada»).
     receptions_enabled: bool = False
     receptions_today: list[TodayReceptionLineOut] = []
+    # Antes de la primera venta: el repaso del último día con ventas.
+    recap: TodayRecapOut | None = None
 
 
 # ---------------------------------------------------------------------------
