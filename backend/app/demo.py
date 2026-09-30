@@ -64,6 +64,7 @@ STAFF = [
     ("Jhon Jairo Cárdenas", "operator", "7004", False, "cocina", 9_000),
     ("Rosa Elena Méndez", "operator", "7005", False, "cocina", 8_600),
     ("Brayan Estiven Mora", "operator", "7006", False, "domicilios", 7_300),
+    ("Kevin Andrés Ortiz", "operator", "7007", False, "bar", 8_000),
 ]
 
 SUPPLIERS = [
@@ -417,7 +418,7 @@ class Demo:
         existing = {e["name"]: e for e in a.get("/admin/employees")}
         # Inicio por rol: el área de la demo es también su puesto en el POS
         # (el domiciliario no tiene puesto: ve todo, como siempre).
-        puestos = {"caja": "caja", "salón": "salon", "cocina": "cocina"}
+        puestos = {"caja": "caja", "salón": "salon", "cocina": "cocina", "bar": "bar"}
         for name, role, pin, can_charge, area, _wage in STAFF:
             if name in existing:
                 emp = existing[name]
@@ -441,6 +442,25 @@ class Demo:
         platforms = a.get(f"/admin/platforms?store_id={sid}")
         if platforms:
             self.platform_id = platforms[0]["id"]
+        self.ensure_delivery_fee()
+
+    def ensure_delivery_fee(self) -> None:
+        """Sin un producto «cargo de domicilio» en la carta, la API rechaza
+        todo domicilio (`DELIVERY_FEE_NOT_CONFIGURED`). Se crea una vez."""
+        if self.delivery_fee_id is not None:
+            return
+        a, sid = self.admin, self.store_id
+        categories = a.get(f"/admin/categories?store_id={sid}") or []
+        if not categories:
+            self.issues.append("Sin categorías en la carta: no se pudo crear el cargo de domicilio.")
+            return
+        row = self.attempt("cargo de domicilio", a.post, f"/admin/products?store_id={sid}", {
+            "category_id": categories[-1]["id"], "name": "Cargo de domicilio",
+            "prices": {"dine_in": 5_000, "delivery": 5_000}, "is_delivery_fee": True,
+        })
+        if row:
+            self.delivery_fee_id = row["id"]
+            self.products[row["name"]] = row
 
     def suppliers_and_ingredients(self) -> None:
         a, sid = self.admin, self.store_id
@@ -535,8 +555,12 @@ class Demo:
             base_cost = float(ing.get("official_cost") or ing.get("estimated_cost") or 0)
             # El precio de la factura se mueve ±6 % contra el costo oficial.
             unit_price = round(base_cost * factor * self.rng.uniform(0.94, 1.06))
-            qty = qty_purchase
-            base = int(round(unit_price * float(qty)))
+            # La API recibe la cantidad en la UNIDAD BASE del insumo (g, ml,
+            # und): 10 L de leche son "10000", no "10". Antes se mandaba la
+            # cantidad en unidad de compra y cada compra entraba mil veces
+            # más chica (inventario negativo, cuentas por pagar de centavos).
+            qty = str(int(round(float(qty_purchase) * factor)))
+            base = int(round(unit_price * float(qty_purchase)))
             line: dict[str, Any] = {
                 "ingredient_id": ing["id"], "qty_received": qty, "qty_invoiced": qty,
                 "purchase_unit_price": str(unit_price), "tax_base": base, "tax_rate": 0, "tax_amount": 0,
@@ -1202,6 +1226,7 @@ class Demo:
         self.suppliers = {s["name"]: s["id"] for s in a.get(f"/admin/suppliers?store_id={sid}")}
         self.ingredients = {i["name"]: i for i in a.get(f"/admin/ingredients?store_id={sid}")}
         self.preparations = {p["name"]: p for p in a.get(f"/admin/preparations?store_id={sid}")}
+        self.ensure_delivery_fee()
 
     def continue_days(self, days: list[date]) -> None:
         """Simula sólo los días que faltan, sobre la operación ya cargada: la
