@@ -1433,9 +1433,15 @@ export function TodayPage(): React.JSX.Element {
   // Antes de la primera venta, «$ 0» rayado no le dice nada al dueño: se
   // muestra cómo cerró ayer (`yesterday_close`), y el libro sigue siendo el
   // de hoy. Si ayer la sede no abrió, su $ 0 tampoco dice nada: queda hoy.
-  const yesterday = today.yesterday_close ?? null
+  const yesterdayClose = today.yesterday_close ?? null
   // Un ayer abierto pero sin ventas tampoco dice nada: sólo con comandas.
-  const beforeFirstSale = today.orders === 0 && yesterday !== null && yesterday.operated && yesterday.orders > 0
+  // Si ayer no vendió (cierra lunes, o una demo sin datos recientes), el
+  // servidor manda el último día con ventas (`last_sales_close`): la cifra
+  // grande nunca queda en $ 0 sin contexto.
+  const yesterdaySold = yesterdayClose !== null && yesterdayClose.operated && yesterdayClose.orders > 0
+  const lastSales = today.last_sales_close ?? null
+  const yesterday = yesterdaySold ? yesterdayClose : lastSales
+  const beforeFirstSale = today.orders === 0 && yesterday !== null && yesterday.orders > 0
 
   const updatedIso = new Date(query.dataUpdatedAt).toISOString()
 
@@ -1503,7 +1509,11 @@ export function TodayPage(): React.JSX.Element {
             {beforeFirstSale && yesterday ? (
               <HeadlineFigure
                 className={CIFRA_VENTA}
-                label="Todavía no hay ventas hoy · ayer cerró en"
+                label={
+                  yesterdaySold
+                    ? "Todavía no hay ventas hoy · ayer cerró en"
+                    : "Todavía no hay ventas hoy · el último día con ventas cerró en"
+                }
                 value={formatCOP(yesterday.net)}
                 note={[
                   formatFechaCorta(yesterday.business_date),

@@ -362,6 +362,8 @@ export interface TodayOut {
   /** Día operativo anterior, para mostrar antes de la primera venta.
    * `null` si la sede todavía no operaba. */
   yesterday_close?: DayCloseOut | null
+  /** El último día con ventas, cuando ayer no vendió (cierra lunes, demo sin datos recientes). */
+  last_sales_close?: DayCloseOut | null
   /** El turno abierto de la sede, **de cualquier día** (`null` = no hay).
    * La misma lectura que el panel y que Dinero › Operacional: un turno
    * abandonado de otro día se ve como abandonado, y su responsable con la
