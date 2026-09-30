@@ -1477,6 +1477,32 @@ def _yesterday_close(db: Session, store: Store, *, business_date: date, first_ac
     )
 
 
+#: Hasta cuántos días atrás busca Hoy el último día con ventas.
+LAST_SALES_LOOKBACK_DAYS = 31
+
+
+def _last_sales_close(
+    db: Session, store: Store, *, business_date: date, yesterday_close: DayCloseOut | None
+) -> DayCloseOut | None:
+    """El día más reciente ANTES de ayer con al menos una venta, sólo cuando
+    ayer no vendió. La misma agregación de Ventas (`aggregate_sales` por
+    día), así la cifra coincide con Informes."""
+    if yesterday_close is None or yesterday_close.orders > 0:
+        return None
+    until = business_date - timedelta(days=2)
+    since = business_date - timedelta(days=LAST_SALES_LOOKBACK_DAYS)
+    if until < since:
+        return None
+    rows, _total = aggregate_sales(db, store_id=store.id, date_from=since, date_to=until, group_by="business_date")
+    for row in reversed(rows):
+        if row.orders > 0:
+            day = date.fromisoformat(row.key)
+            return DayCloseOut(
+                business_date=day, net=row.net, orders=row.orders, avg_ticket=row.avg_ticket, operated=True
+            )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Hoy según el dueño (2026-09-29): efectivo y tarjeta, platos más vendidos y
 # entradas de mercancía con su lote. Cada bloque es una función propia para
@@ -1701,6 +1727,9 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         comparison=comparison,
         sales_by_hour_reference=sales_by_hour_reference,
         yesterday_close=yesterday_close,
+        last_sales_close=_last_sales_close(
+            db, store, business_date=business_date, yesterday_close=yesterday_close
+        ),
         current_shift=current_shift,
         store_closed=current_shift is None and not panel_service.shift_activity(db, store),
         attendance_pending_review_count=len(shifts_hooks.attendance_pending_review(db, store_id=store.id)),

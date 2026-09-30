@@ -350,6 +350,11 @@ def test_today_compares_against_same_weekday_last_week_up_to_the_same_hour(
     assert hoy["yesterday_close"] == {
         "business_date": "2026-01-14", "net": 0, "orders": 0, "avg_ticket": None, "operated": False,
     }
+    # Ayer no vendió: Hoy trae el último día con ventas (el jueves 8), para
+    # que la cifra grande no quede en $0 sin contexto.
+    ultimo = hoy["last_sales_close"]
+    assert ultimo["business_date"] == "2026-01-08"
+    assert ultimo["orders"] == 2 and ultimo["net"] == 2 * BANDEJA_NET
 
 
 def test_today_without_history_has_null_comparison_with_reason(
@@ -361,6 +366,7 @@ def test_today_without_history_has_null_comparison_with_reason(
     assert hoy["comparison"]["null_reason"]
     assert hoy["sales_by_hour_reference"] == []
     assert hoy["yesterday_close"] is None
+    assert hoy["last_sales_close"] is None
 
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,9 @@ Proceso aparte, lanzado por `app.ops.demo_once`. Qué cambia respecto de
 - El turno abandonado que haya quedado abierto se cierra antes con el cierre
   administrativo (con motivo), porque la simulación abre un turno por día.
 - No corre dos veces: si la sede ya tiene cinco turnos cerrados, sale.
+- `--continuar`: sobre una demo ya cargada, simula sólo los días que faltan
+  desde el último turno cerrado hasta AYER (el día de hoy lo vive la sede en
+  tiempo real). Sin días que faltan, sale sin hacer nada.
 """
 
 from __future__ import annotations
@@ -40,6 +43,30 @@ def _already_loaded() -> bool:
     with SessionLocal() as db:
         closed = db.execute(select(func.count()).select_from(Shift).where(Shift.status == "closed")).scalar_one()
     return int(closed) >= 5
+
+
+def _missing_days() -> list:
+    """Los días operativos entre el último turno cerrado y ayer (Bogotá)."""
+    from datetime import timedelta
+
+    from app.core import tz
+    from app.core.db import SessionLocal
+    from app.shifts.models import BusinessDay, Shift
+    from app.stores.models import Store
+
+    with SessionLocal() as db:
+        store = db.execute(select(Store).order_by(Store.id)).scalars().first()
+        if store is None:
+            return []
+        last = db.execute(
+            select(func.max(BusinessDay.business_date))
+            .join(Shift, Shift.business_day_id == BusinessDay.id)
+            .where(Shift.store_id == store.id, Shift.status == "closed")
+        ).scalar_one()
+        yesterday = tz.today_business_date(store.cutoff_hour) - timedelta(days=1)
+    if last is None or last >= yesterday:
+        return []
+    return [last + timedelta(days=i) for i in range(1, (yesterday - last).days + 1)]
 
 
 def _use_real_credentials(demo: object, claves: dict) -> None:
@@ -74,9 +101,16 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=14)
     parser.add_argument("--seed", type=int, default=2026)
+    parser.add_argument("--continuar", action="store_true")
     args = parser.parse_args()
 
-    if _already_loaded():
+    days: list = []
+    if args.continuar:
+        days = _missing_days()
+        if not days:
+            print("demo_run: no faltan días; la operación ya llega hasta ayer.", flush=True)
+            return
+    elif _already_loaded():
         print("demo_run: la sede ya tiene operación cargada; no se repite.", flush=True)
         return
 
@@ -92,8 +126,12 @@ def main() -> None:
     if hasattr(deps, "read_token"):
         deps.read_token = demo._read_token_on_clock  # type: ignore[attr-defined]
 
-    print(f"demo_run: simulando {args.days} días…", flush=True)
-    sim = demo.Demo(days=args.days, seed=args.seed)
+    if args.continuar:
+        print(f"demo_run: continuando {len(days)} días: {days[0]} a {days[-1]}…", flush=True)
+    else:
+        print(f"demo_run: simulando {args.days} días…", flush=True)
+    # Otra semilla al continuar: días nuevos, no una copia de los primeros.
+    sim = demo.Demo(days=len(days) or args.days, seed=args.seed + (len(days) and days[0].toordinal()))
     # En producción la cookie de sesión es `Secure`: el cliente en proceso
     # tiene que hablar por https para que la guarde y la devuelva.
     from fastapi.testclient import TestClient
@@ -104,9 +142,15 @@ def main() -> None:
     sim.pos.c = TestClient(asgi_app, base_url="https://testserver")  # type: ignore[attr-defined]
     _set_opening_mode("fixed_base")
     try:
-        sim.login()
-        _close_abandoned(sim)
-        sim.run()
+        if args.continuar:
+            demo.set_local(days[0], "06:30")
+            sim.login()
+            _close_abandoned(sim)
+            sim.continue_days(days)
+        else:
+            sim.login()
+            _close_abandoned(sim)
+            sim.run()
     except Exception as exc:  # el resumen se imprime igual
         import traceback
 

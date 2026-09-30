@@ -486,6 +486,25 @@ describe("TodayPage", () => {
     expect(screen.queryByText(/ayer cerró en/)).not.toBeInTheDocument()
   })
 
+  it("si ayer no vendió, muestra el último día con ventas en vez de un «$ 0» suelto", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        orders: 0,
+        net: 0,
+        gross: 0,
+        tax: 0,
+        sales_by_hour: [],
+        yesterday_close: { business_date: "2026-09-28", net: 0, orders: 0, avg_ticket: null, operated: false },
+        last_sales_close: { business_date: "2026-09-27", net: 3073500, orders: 40, avg_ticket: 76838, operated: true },
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    await screen.findByText("Todavía no hay ventas hoy · el último día con ventas cerró en")
+    expect(screen.getByText("$ 3.073.500")).toBeInTheDocument()
+    expect(screen.getByText(/dom 27 sep · 40 tickets/)).toBeInTheDocument()
+  })
+
   it("ventas por hora sin una sola venta: la pregunta y una línea, sin eje vacío ni horas rayadas", async () => {
     getTodayMock.mockResolvedValue(
       baseToday({

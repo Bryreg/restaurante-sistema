@@ -1175,6 +1175,50 @@ class Demo:
                   flush=True)
         self.money_back_office(self.first_day + timedelta(days=self.days))
 
+    # -- continuar una demo ya cargada ----------------------------------------
+
+    def load_existing(self) -> None:
+        """Lee lo que ya existe (personal, carta, mesas, proveedores, insumos,
+        preparaciones) sin crear ni cambiar nada: la continuación no vuelve a
+        configurar la sede."""
+        a, sid = self.admin, self.store_id
+        a.step = "leer lo cargado"
+        by_name = {e["name"]: e for e in a.get("/admin/employees")}
+        for name, _role, pin, _can_charge, _area, _wage in STAFF:
+            if name in by_name:
+                self.staff[name] = by_name[name]
+                self.pins[int(by_name[name]["id"])] = pin
+        if "Supervisor Demo" in by_name:
+            self.staff["Supervisor Demo"] = by_name["Supervisor Demo"]
+            self.pins[int(by_name["Supervisor Demo"]["id"])] = SUPERVISOR_PIN
+        for p in a.get(f"/admin/products?store_id={sid}"):
+            self.products[p["name"]] = p
+            if p.get("is_delivery_fee"):
+                self.delivery_fee_id = p["id"]
+        self.tables = [t for t in a.get(f"/admin/tables?store_id={sid}") if t.get("active", True)]
+        platforms = a.get(f"/admin/platforms?store_id={sid}")
+        if platforms:
+            self.platform_id = platforms[0]["id"]
+        self.suppliers = {s["name"]: s["id"] for s in a.get(f"/admin/suppliers?store_id={sid}")}
+        self.ingredients = {i["name"]: i for i in a.get(f"/admin/ingredients?store_id={sid}")}
+        self.preparations = {p["name"]: p for p in a.get(f"/admin/preparations?store_id={sid}")}
+
+    def continue_days(self, days: list[date]) -> None:
+        """Simula sólo los días que faltan, sobre la operación ya cargada: la
+        misma rutina diaria de `run`, sin configurar ni sembrar de nuevo."""
+        set_local(days[0], "07:00")
+        self.login()
+        self.load_existing()
+        for idx, day in enumerate(days, start=1):
+            if day.weekday() == 0:
+                self.weekly_back_office(day)
+            self.restock(day)
+            self.simulate_day(day, idx)
+            if day.weekday() in (1, 4):
+                self.pay_payables(day)
+            print(f"  día {idx}/{len(days)} listo: {self.day_summaries[-1] if self.day_summaries else day}",
+                  flush=True)
+
     def restock_initial(self, day: date) -> None:
         self.restock(day, everyone=True)
 

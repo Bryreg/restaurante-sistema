@@ -428,6 +428,11 @@ class TodayOut(BaseModel):
     comparison: TodayComparisonOut | None = None
     sales_by_hour_reference: list[HourBucketOut] = []
     yesterday_close: DayCloseOut | None = None
+    # El último día operativo con ventas, cuando AYER no tuvo ninguna (un
+    # restaurante que cierra lunes, o una demo sin datos recientes): así la
+    # cifra grande de Hoy nunca queda en $0 sin contexto. `null` si ayer sí
+    # vendió (se usa `yesterday_close`) o si no hubo ventas en 31 días.
+    last_sales_close: DayCloseOut | None = None
     # El turno abierto de la sede, **sea del día que sea** (`app.reports.
     # panel.current_cash`, la misma lectura que el panel y que Dinero ›
     # Operacional). Antes Hoy mostraba el esperado de un turno abandonado de
