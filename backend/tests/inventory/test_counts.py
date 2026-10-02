@@ -7,6 +7,7 @@ no puede inventar un faltante."""
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from uuid import uuid4
@@ -81,7 +82,9 @@ def test_count_capture_flow_never_leaks_theoretical_stock(
     assert lines_resp.status_code == 200
 
     for payload in (opened, detail.json(), lines_resp.json()):
-        raw = json.dumps(payload)
+        # Las marcas de hora se sacan antes de buscar: «22:07:54.321387Z»
+        # contiene «54.321» por casualidad y la prueba fallaba sin fuga.
+        raw = re.sub(r"\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})?", "<hora>", json.dumps(payload))
         assert "54321" not in raw and "54.321" not in raw
 
 
