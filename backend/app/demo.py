@@ -1002,7 +1002,7 @@ class Demo:
         stock = {r["name"]: r for r in self.admin.get(f"/admin/inventory/stock?store_id={self.store_id}")}
         used = {ref for lines in RECIPES.values() for ref, _q, _u in lines if not ref.startswith("@")}
         used |= {ref for *_x, lines in PREPARATIONS for ref, _q, _u in lines if not ref.startswith("@")}
-        used.add("Pechuga de pollo")  # el pollo desmechado del seed
+        used |= set(SEED_INGREDIENT_SUPPLIER)  # los del seed los consumen sus propias recetas
         supplier_of = {row[0]: row[7] for row in INGREDIENTS} | SEED_INGREDIENT_SUPPLIER
         for supplier in due:
             items: list[tuple[str, str]] = []

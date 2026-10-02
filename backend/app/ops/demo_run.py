@@ -15,6 +15,11 @@ Proceso aparte, lanzado por `app.ops.demo_once`. Qué cambia respecto de
 - `--corregir-compras`: corrección única de las cantidades de las compras
   que el simulador cargó en unidad de compra (ver `_fix_purchase_units`).
   Con `--continuar` además, corrige y después continúa.
+- `--corregir-minimos`: corrección única de los mínimos de stock que el seed
+  viejo guardó mil veces más chicos (ver `_fix_seed_min_stock`).
+- `--reabastecer`: el pedido de la mañana de hoy a todos los proveedores,
+  con la misma regla del simulador (llegar a ~5 veces el mínimo). Para sacar
+  de negativo lo que se quedó sin comprar.
 - `--continuar`: sobre una demo ya cargada, simula sólo los días que faltan
   desde el último turno cerrado hasta AYER (el día de hoy lo vive la sede en
   tiempo real). Sin días que faltan, sale sin hacer nada.
@@ -180,6 +185,57 @@ def _fix_purchase_units() -> None:
     _ensure_delivery_fee_product()
 
 
+# Los mínimos que siembra `app/recipes/seed.py`, en unidad base. El seed de
+# antes guardaba este entero crudo en una columna en milésimas.
+SEED_MIN_STOCK = {
+    "Pechuga de pollo": 2_000, "Pollo en pechuga": 2_000, "Papa criolla": 5_000, "Arroz blanco": 10_000,
+    "Arroz": 10_000, "Limón": 50, "Panela": 3_000, "Gaseosa 400ml (botella)": 24, "Sal de mesa": 1_000,
+    "Sal": 1_000,
+}
+
+
+def _fix_seed_min_stock() -> None:
+    """Corrección única de la demo (2026-09-30): el seed de recetas de antes
+    guardaba el mínimo de stock sin escalar (el limón con 0,05 unidades, la
+    gaseosa con 0,024 botellas), así que esos insumos nunca quedaban «bajo
+    mínimo» y el simulador no los volvía a pedir. Sólo toca los insumos del
+    seed cuyo valor guardado es exactamente el entero crudo; queda en la
+    auditoría y no corre dos veces."""
+    from app.audit.models import AuditLog
+    from app.audit.service import record_audit
+    from app.core.db import SessionLocal
+    from app.core.quantity import QTY_SCALE
+    from app.inventory.models import Ingredient
+
+    with SessionLocal() as db:
+        done = db.execute(
+            select(AuditLog.id).where(AuditLog.entity == "demo_fix", AuditLog.action == "seed_min_stock")
+        ).first()
+        if done is not None:
+            print("demo_run: la corrección de mínimos ya se aplicó; no se repite.", flush=True)
+            return
+        fixed: list[Ingredient] = []
+        for ing in db.execute(select(Ingredient).where(Ingredient.name.in_(SEED_MIN_STOCK))).scalars():
+            if ing.min_stock == SEED_MIN_STOCK[ing.name]:
+                ing.min_stock = SEED_MIN_STOCK[ing.name] * QTY_SCALE
+                fixed.append(ing)
+        if fixed:
+            record_audit(
+                db,
+                actor=None,
+                organization_id=fixed[0].organization_id,
+                store_id=fixed[0].store_id,
+                entity="demo_fix",
+                entity_id="seed_min_stock",
+                action="seed_min_stock",
+                before=None,
+                after={"ingredients": sorted(i.name for i in fixed)},
+                reason="Demo: mínimos del seed guardados sin escalar; se multiplican por la escala de cantidades.",
+            )
+        db.commit()
+    print(f"demo_run: mínimos corregidos: {len(fixed)} insumos.", flush=True)
+
+
 def _ensure_delivery_fee_product() -> None:
     """La carta de la demo no tenía cargo de domicilio y la API rechazaba
     todo domicilio. Se crea uno por sede si falta (el mismo servicio que usa
@@ -249,19 +305,23 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--continuar", action="store_true")
     parser.add_argument("--corregir-compras", action="store_true")
+    parser.add_argument("--corregir-minimos", action="store_true")
+    parser.add_argument("--reabastecer", action="store_true")
     args = parser.parse_args()
 
     days: list = []
     if args.corregir_compras:
         _fix_purchase_units()
-        if not args.continuar:
-            return
-    if args.continuar:
+    if args.corregir_minimos:
+        _fix_seed_min_stock()
+    if (args.corregir_compras or args.corregir_minimos) and not (args.continuar or args.reabastecer):
+        return
+    if args.continuar and not args.reabastecer:
         days = _missing_days()
         if not days:
             print("demo_run: no faltan días; la operación ya llega hasta ayer.", flush=True)
             return
-    elif _already_loaded():
+    elif not args.reabastecer and _already_loaded():
         print("demo_run: la sede ya tiene operación cargada; no se repite.", flush=True)
         return
 
@@ -277,7 +337,9 @@ def main() -> None:
     if hasattr(deps, "read_token"):
         deps.read_token = demo._read_token_on_clock  # type: ignore[attr-defined]
 
-    if args.continuar:
+    if args.reabastecer:
+        print("demo_run: pedido de hoy a los proveedores…", flush=True)
+    elif args.continuar:
         print(f"demo_run: continuando {len(days)} días: {days[0]} a {days[-1]}…", flush=True)
     else:
         print(f"demo_run: simulando {args.days} días…", flush=True)
@@ -293,7 +355,16 @@ def main() -> None:
     sim.pos.c = TestClient(asgi_app, base_url="https://testserver")  # type: ignore[attr-defined]
     _set_opening_mode("fixed_base")
     try:
-        if args.continuar:
+        if args.reabastecer:
+            from datetime import datetime
+
+            today = datetime.now(demo.BOGOTA).date()
+            demo.set_local(today, "07:00")
+            sim.login()
+            sim.load_existing()
+            sim.restock(today, everyone=True)
+            print(f"demo_run: pedido de hoy: {sim.report.counts['compras']} compras.", flush=True)
+        elif args.continuar:
             demo.set_local(days[0], "06:30")
             sim.login()
             _close_abandoned(sim)
