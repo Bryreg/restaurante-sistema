@@ -39,6 +39,7 @@ import { recipesFeature } from "@/features/recipes";
 import { reportsFeature } from "@/features/reports";
 import { RUTA_CELULAR } from "@/features/reports/movil/rutas";
 import { shiftsFeature } from "@/features/shifts";
+import { segmentoClase } from "@/components/admin/Burbuja";
 import { RailItemContent, railItemClass } from "@/components/admin/RailItem";
 import { formatTimeAgo } from "@/components/admin/TimeAgo";
 import {
@@ -442,8 +443,10 @@ function PestanasDeSeccion({
   const pantallas = pantallasDe(items, seccion);
   if (pantallas.length < 2) return null;
   return (
-    <nav aria-label={`Pantallas de ${seccion}`} className="mt-1 shrink-0 overflow-x-auto border-b px-3.5 md:px-6 print:hidden">
-      <ul className="flex min-w-max gap-1">
+    // «Burbujas»: las pantallas de la sección son un interruptor segmentado
+    // dentro de la barra superior (handoff § 2), no una fila de pestañas.
+    <nav aria-label={`Pantallas de ${seccion}`} className="min-w-0 overflow-x-auto print:hidden">
+      <ul className="flex w-max gap-0.5 rounded-xl bg-muted p-1">
         {pantallas.map((item) => {
           const fila = filaDe(item);
           const n = fila.cuenta ? counts[fila.cuenta] : undefined;
@@ -457,13 +460,7 @@ function PestanasDeSeccion({
                 title={fila.title}
                 aria-label={nombre}
                 aria-current={esta ? "page" : undefined}
-                className={cn(
-                  "-mb-px inline-flex min-h-10 items-center gap-1.5 border-b-2 px-3 text-sm font-medium transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                  esta
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
+                className={segmentoClase(esta)}
               >
                 {fila.label}
                 {n != null && n > 0 ? (
@@ -504,15 +501,54 @@ function Identidad(): React.JSX.Element {
   const { me } = useSession();
   const { stores, activeStoreId } = useStoreSelection();
   const sede = stores.find((s) => s.id === activeStoreId)?.name ?? me?.store?.name;
+  const nombre = me?.organization?.name ?? "Restaurante Sistema";
+  // «4 sedes» cuando hay varias; con una sola, su nombre.
+  const debajo = stores.length > 1 ? `${stores.length} sedes` : sede;
   return (
-    <div className="mb-1.5 flex items-center gap-2 border-b px-1.5 pb-2.5">
-      <Store className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    <div className="flex items-center gap-3">
+      <span
+        aria-hidden="true"
+        className="grid size-9 shrink-0 place-items-center rounded-xl bg-foreground text-sm font-bold text-card"
+      >
+        {iniciales(nombre)}
+      </span>
       <div className="min-w-0">
-        <p className="truncate text-sm leading-tight font-bold">
-          {me?.organization?.name ?? "Restaurante Sistema"}
-        </p>
-        {sede ? <p className="truncate text-xs text-muted-foreground">{sede}</p> : null}
+        <p className="truncate text-sm leading-tight font-semibold">{nombre}</p>
+        {debajo ? <p className="truncate text-xs text-muted-foreground">{debajo}</p> : null}
       </div>
+    </div>
+  );
+}
+
+/** «Restaurante Demo» → «RD»; «Óscar Restrepo» → «ÓR». */
+export function iniciales(nombre: string): string {
+  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+  const letras = partes.length >= 2 ? partes[0][0] + partes[partes.length - 1][0] : (partes[0] ?? "").slice(0, 2);
+  return letras.toUpperCase();
+}
+
+/**
+ * **Quien entró** (handoff «Burbujas», tercera burbuja del riel): avatar con
+ * las iniciales, nombre, rol y la salida en un botón redondo de 32 px.
+ */
+function QuienEntro(): React.JSX.Element | null {
+  const { me } = useSession();
+  const persona = me?.user?.name;
+  if (!persona) return null;
+  const rol = me?.user?.role;
+  return (
+    <div className="flex items-center gap-2.5">
+      <span
+        aria-hidden="true"
+        className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold"
+      >
+        {iniciales(persona)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm leading-tight font-semibold">{persona}</p>
+        {rol ? <p className="truncate text-xs text-muted-foreground">{ROL_EN_PALABRAS[rol] ?? rol}</p> : null}
+      </div>
+      <LogoutButton variant="redondo" />
     </div>
   );
 }
@@ -536,16 +572,16 @@ function StoreSwitcher({ celular = false }: { celular?: boolean } = {}): React.J
 
   // En el celular (handoff, `AdminMovil`) la pastilla mide 34 px, redondeada
   // a 8, y dice sólo el nombre: el ancho de 390 px no alcanza para «Sede».
-  const alto = celular ? "h-[34px] rounded-lg" : "h-8 rounded-md";
+  const alto = celular ? "h-[34px] rounded-lg" : "h-10 rounded-xl";
 
   if (!hasFeature("multi_store") || stores.length <= 1) {
     const sola = stores.find((s) => s.id === activeStoreId)?.name ?? me?.store?.name;
     if (!sola) return null;
     return (
-      <p className={cn("flex min-w-0 shrink items-center gap-1.5 border border-input bg-card px-2.5 text-sm", alto)}>
+      <p className={cn("flex min-w-0 shrink items-center gap-2 bg-muted px-3 text-sm", alto)}>
         <Store className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        {celular ? null : <span className="text-muted-foreground">Sede</span>}
-        <b className="truncate font-bold">{sola}</b>
+        <span className="sr-only">Sede</span>
+        <b className="truncate font-semibold">{sola}</b>
       </p>
     );
   }
@@ -555,9 +591,11 @@ function StoreSwitcher({ celular = false }: { celular?: boolean } = {}): React.J
       value={activeStoreId ? String(activeStoreId) : undefined}
       onValueChange={(next) => setActiveStoreId(Number(next))}
     >
-      <SelectTrigger className={cn("w-auto min-w-0 shrink gap-1.5 bg-card font-bold", alto)} aria-label="Sede activa">
+      <SelectTrigger
+        className={cn("w-auto min-w-0 shrink gap-2 border-0 bg-muted px-3 font-semibold", alto)}
+        aria-label="Sede activa"
+      >
         <Store className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        {celular ? null : <span className="font-normal text-muted-foreground">Sede</span>}
         <SelectValue placeholder="Elegí una sede" />
       </SelectTrigger>
       <SelectContent>
@@ -592,7 +630,7 @@ function LogoutButton({
   variant = "barra",
   touch = false,
 }: {
-  variant?: "barra" | "rail";
+  variant?: "barra" | "rail" | "redondo";
   touch?: boolean;
 } = {}): React.JSX.Element {
   const { me, clear, refresh } = useSession();
@@ -617,6 +655,21 @@ function LogoutButton({
       toast.error(errorMessage(err));
       setSaliendo(false);
     }
+  }
+
+  if (variant === "redondo") {
+    return (
+      <button
+        type="button"
+        className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+        title="Cerrar sesión"
+        aria-label="Salir"
+        onClick={() => void handleLogout()}
+        disabled={saliendo}
+      >
+        <LogOut className="size-4" aria-hidden="true" />
+      </button>
+    );
   }
 
   if (variant === "rail") {
@@ -662,17 +715,26 @@ function LogoutButton({
  * En el móvil la misma barra lleva además el botón del cajón: es una sola
  * franja en las dos superficies, no una para cada una.
  */
-function TopBar({ storeId }: { storeId: number | null }): React.JSX.Element {
+function TopBar({
+  storeId,
+  items,
+  counts,
+}: {
+  storeId: number | null;
+  items: NavItem[];
+  counts: Partial<Record<Recuento, number>>;
+}): React.JSX.Element {
+  // «Burbujas» (handoff § 2): una burbuja de 60 px. A la izquierda, las
+  // pantallas de la sección como interruptor; a la derecha, la frescura, la
+  // sede, la campana y el tema. Quién entró y la salida viven en el riel.
   return (
-    <header className="sticky top-0 z-20 flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b bg-muted px-3 py-1.5 print:hidden">
-      <StoreSwitcher />
-      <PersonaYRol />
-      <div className="ml-auto flex shrink-0 items-center gap-0.5">
-        {/* «Avisos» con su recuento (handoff, `AdminTop`): la palabra a la
-            vista, no una campana muda. */}
+    <header className="sticky top-3 z-20 flex min-h-[60px] shrink-0 items-center gap-3 rounded-[20px] bg-card px-2.5 py-2 print:hidden">
+      <PestanasDeSeccion items={items} counts={counts} />
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <Frescura escritorio />
+        <StoreSwitcher />
         <NotificationBell storeId={storeId} variant="barra" />
         <ThemeToggle />
-        <LogoutButton />
       </div>
     </header>
   );
@@ -737,10 +799,22 @@ export function formatFrescura(desdeMs: number, ahoraMs: number): string {
   return formatTimeAgo(new Date(desdeMs).toISOString(), new Date(ahoraMs));
 }
 
-function Frescura(): React.JSX.Element | null {
+function Frescura({ escritorio = false }: { escritorio?: boolean } = {}): React.JSX.Element | null {
   const ultimo = useUltimoDato();
   const ahora = useAhora(1000);
   if (ultimo === null) return null;
+  if (escritorio) {
+    // «● Al día · hace 14 s»: el punto verde dice que los datos llegan.
+    return (
+      <span
+        className="hidden shrink-0 items-center gap-1.5 px-1 text-[13px] text-muted-foreground tabular-nums lg:inline-flex"
+        title={`Último dato del servidor: ${new Date(ultimo).toLocaleTimeString("es-CO")}`}
+      >
+        <span aria-hidden="true" className="size-[7px] rounded-full bg-success" />
+        Al día · {formatFrescura(ultimo, ahora)}
+      </span>
+    );
+  }
   return (
     <span
       className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums"
@@ -809,28 +883,42 @@ function RailContenido({
   onNavigate?: () => void;
   touch?: boolean;
 }) {
+  if (!touch) {
+    // «Burbujas» (handoff § 2): tres burbujas apiladas — la marca, las
+    // secciones y quién entró.
+    return (
+      <>
+        <div className="rounded-[20px] bg-card px-[18px] py-4">
+          <Identidad />
+        </div>
+        <div className="rounded-[20px] bg-card p-2.5">
+          <SidebarNav items={items} counts={counts} onNavigate={onNavigate} />
+        </div>
+        <div className="rounded-[20px] bg-card py-3 pr-3 pl-3.5">
+          <QuienEntro />
+        </div>
+      </>
+    );
+  }
   return (
     <>
-      <div className="shrink-0">
+      <div className="shrink-0 border-b px-1.5 pb-2.5">
         <Identidad />
       </div>
       {/* Sólo la lista rueda: la identidad queda fija. */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto pt-1.5">
         <SidebarNav items={items} counts={counts} onNavigate={onNavigate} touch={touch} />
       </div>
       {/* El cajón del móvil se abre por encima de la barra superior y la
           tapa: la salida tiene que estar también acá adentro o queda sin
-          alcance mientras el cajón está abierto. En el escritorio el cajón
-          no existe y la salida vive una sola vez, en la barra. */}
-      {touch ? (
-        <div className="mt-auto flex shrink-0 flex-col gap-0.5 border-t pt-1.5">
-          {/* En el celular la barra de arriba sólo lleva menú, sede y
-              frescura: quién sos, el tema y la salida viven acá. */}
-          <PersonaYRol className="px-2 pb-1" />
-          <ThemeToggle variant="rail" touch />
-          <LogoutButton variant="rail" touch />
-        </div>
-      ) : null}
+          alcance mientras el cajón está abierto. */}
+      <div className="mt-auto flex shrink-0 flex-col gap-0.5 border-t pt-1.5">
+        {/* En el celular la barra de arriba sólo lleva menú, sede y
+            frescura: quién sos, el tema y la salida viven acá. */}
+        <PersonaYRol className="px-2 pb-1" />
+        <ThemeToggle variant="rail" touch />
+        <LogoutButton variant="rail" touch />
+      </div>
     </>
   );
 }
@@ -861,12 +949,9 @@ const CLASE_DESTINO =
 function claseDestino(activo: boolean): string {
   return cn(
     CLASE_DESTINO,
-    // La marca llena del rail (`railItemClass`) acá sería un bloque de 72 px
-    // de color: la entrada activa se dice con el color del texto y una raya
-    // arriba, y `aria-current` lo dice en voz alta.
-    activo
-      ? "text-primary shadow-[inset_0_2px_0_0_var(--primary)]"
-      : "text-muted-foreground hover:text-foreground",
+    // «Burbujas»: la entrada activa va en tinta, como en el riel, y
+    // `aria-current` lo dice en voz alta.
+    activo ? "rounded-xl bg-foreground text-card" : "rounded-xl text-muted-foreground hover:text-foreground",
   );
 }
 
@@ -916,9 +1001,10 @@ function BarraInferior({
       aria-label="Accesos del celular"
       // `pb-[env(…)]`: en un iPhone sin botón la barra no queda debajo de la
       // raya de inicio.
-      className="fixed inset-x-0 bottom-0 z-30 border-t bg-muted pb-[env(safe-area-inset-bottom)] md:hidden print:hidden"
+      // «Burbujas»: una burbuja flotante con 12 px de margen y radio 20.
+      className="fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-30 rounded-[20px] bg-card p-1.5 shadow-[0_1px_2px_rgb(0_0_0/6%)] md:hidden print:hidden"
     >
-      <ul className="grid auto-cols-fr grid-flow-col">
+      <ul className="grid auto-cols-fr grid-flow-col gap-1">
         {/* Los rótulos van escritos literal, uno por destino, y no desde un
             arreglo: el censo de controles lee el código, no el DOM. */}
         {hoy ? (
@@ -1010,7 +1096,7 @@ function AdminChrome(): React.JSX.Element {
   const enAviso = pathname.startsWith("/admin/avisos/");
 
   return (
-    <div className="oficina flex min-h-screen bg-background text-foreground">
+    <div className="oficina flex min-h-dvh bg-background text-foreground md:gap-3 md:p-3">
       {/* 222 px medidos: el ancho al que los cuatro nombres largos dejan de
           truncar una vez acortados (`docs/PATRONES-ADMIN.md` § 1).
           El fondo va en el `aside`, que se estira con la página, y el
@@ -1019,8 +1105,8 @@ function AdminChrome(): React.JSX.Element {
           franja blanca bajo el pliegue en toda pantalla más alta que el
           monitor. En `a2` la lateral es una celda de la grilla y llega
           siempre hasta abajo. */}
-      <aside className={cn("hidden w-[222px] shrink-0 border-r bg-muted md:block print:hidden")}>
-        <div className="sticky top-0 flex h-screen flex-col p-2">
+      <aside className="hidden w-[220px] shrink-0 md:block print:hidden">
+        <div className="sticky top-3 flex flex-col gap-3">
           <RailContenido items={items} counts={counts} />
         </div>
       </aside>
@@ -1033,19 +1119,21 @@ function AdminChrome(): React.JSX.Element {
             enAviso={enAviso}
           />
         ) : (
-          <TopBar storeId={activeStoreId} />
+          <TopBar storeId={activeStoreId} items={items} counts={counts} />
         )}
-        {/* Las pestañas de la sección van pegadas a la barra y a todo el
-            ancho, con su filete de lado a lado (handoff, `AdminTop`: 40 px,
-            subrayado de 2 px en `primary`); el contenido arranca debajo. */}
-        <PestanasDeSeccion items={items} counts={counts} />
+        {/* En el celular las pestañas de la sección van debajo de la barra. */}
+        {celular ? (
+          <div className="px-3.5 pt-2.5">
+            <PestanasDeSeccion items={items} counts={counts} />
+          </div>
+        ) : null}
         {/* Con la barra inferior, el pie del contenido sube lo que ella mide
             (56 px + la raya de inicio del teléfono) y un poco de aire: el
             último renglón de la pantalla nunca queda tapado. */}
         <main
           className={cn(
-            "min-w-0 flex-1 px-3.5 pt-3.5 pb-6 md:px-6 md:pt-4 md:pb-10 print:p-0",
-            celular && "pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-10",
+            "min-w-0 flex-1 px-3.5 pt-3.5 pb-6 md:px-1 md:pt-6 md:pb-10 print:p-0",
+            celular && "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-10",
           )}
         >
           <Outlet />

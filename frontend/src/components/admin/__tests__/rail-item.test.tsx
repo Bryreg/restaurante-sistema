@@ -63,17 +63,14 @@ describe("RailItemContent · el rótulo", () => {
 })
 
 describe("railItemClass · dónde estás parado", () => {
-  it("la entrada activa usa la marca llena, como en la maqueta a2", () => {
-    // Era `bg-accent`, porque `docs/DISENO.md` le asigna a `accent` «lo
-    // elegido: fila activa, navegación actual». El dueño miró la app contra
-    // la maqueta `a2` —que marca la entrada activa con la marca llena,
-    // `.nav-i[aria-current="page"]{background:var(--brand);color:#fff}`— y
-    // pidió ésa. La regla dura del color sigue en pie: lo que cambió es cuál
-    // de los dos azules marca dónde estás, no que un ESTADO —verde, ámbar,
-    // rojo— se haya vuelto acción.
+  it("la entrada activa va en tinta, no en cobalto (handoff «Burbujas»)", () => {
+    // Antes la marcaba el añil lleno de la maqueta `a2`. En «Burbujas» el
+    // cobalto queda sólo para las acciones, y dónde estás parado no es una
+    // acción: la entrada activa se entinta.
     const activa = railItemClass({ active: true })
-    expect(activa).toContain("bg-primary")
-    expect(activa).toContain("text-primary-foreground")
+    expect(activa).toContain("bg-foreground")
+    expect(activa).toContain("text-card")
+    expect(activa).not.toContain("bg-primary")
   })
 
   it("la entrada quieta no lleva fondo, y se enciende al pasar por encima", () => {
@@ -83,12 +80,12 @@ describe("railItemClass · dónde estás parado", () => {
     // `reglas-duras.test.tsx`).
     const siempre = quieta.split(/\s+/).filter((c) => c.length > 0 && !c.includes(":"))
     expect(siempre.filter((c) => c.startsWith("bg-"))).toEqual([])
-    expect(quieta).toContain("hover:bg-accent")
+    expect(quieta).toContain("hover:bg-muted")
   })
 
   it("en el cajón del móvil la fila crece al objetivo táctil", () => {
     expect(railItemClass({ touch: true })).toContain("min-h-11")
-    expect(railItemClass()).toContain("min-h-8")
+    expect(railItemClass()).toContain("min-h-10")
   })
 
   it("ningún color crudo de Tailwind: los tokens ya saben cambiar con el tema", () => {

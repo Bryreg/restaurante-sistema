@@ -55,10 +55,13 @@ describe("NotificationBell", () => {
 
   // Handoff (`AdminTop`): en la barra superior es «Avisos» con su recuento,
   // no una campana muda; y cada aviso abre su vista.
-  it("en la barra dice «Avisos» con el recuento, y su nombre empieza por lo que se ve", async () => {
+  // «Burbujas»: en la barra es una campana de 40 × 40 con punto rojo; el
+  // recuento va en el nombre accesible, que empieza por «Avisos».
+  it("en la barra es la campana con punto rojo, y su nombre dice «Avisos» con el recuento", async () => {
     renderWithProviders(<NotificationBell storeId={1} variant="barra" />, { me: buildMe() });
     const boton = await screen.findByRole("button", { name: "Avisos, 1 sin leer" });
-    expect(boton).toHaveTextContent("Avisos1");
+    expect(boton).toHaveTextContent("Avisos");
+    expect(boton.querySelector(".bg-destructive")).not.toBeNull();
   });
 
   it("tocar un aviso abre su vista (`/admin/avisos/:id`)", async () => {

@@ -194,7 +194,7 @@ describe("AdminLayout en el celular: barra inferior", () => {
     renderAdmin(buildMe());
 
     await screen.findByRole("navigation", { name: "Accesos del celular" });
-    expect(screen.getByRole("main").className).toContain("pb-[calc(5rem+env(safe-area-inset-bottom))]");
+    expect(screen.getByRole("main").className).toContain("pb-[calc(6rem+env(safe-area-inset-bottom))]");
   });
 
   it("«Avisos» lleva la insignia de los sin leer, y la dice en voz alta", async () => {

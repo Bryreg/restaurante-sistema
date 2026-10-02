@@ -791,7 +791,7 @@ describe("TodayPage — consignar desde el POS (2026-09-24)", () => {
 
     await screen.findByText("2 consignaciones por confirmar")
     expect(noticeLink("2 consignaciones por confirmar")).toHaveAttribute("href", "/admin/banco?tab=consignaciones")
-    expect(noticeItem("2 consignaciones por confirmar").className).toContain("border-l-warning")
+    expect(noticeItem("2 consignaciones por confirmar")).toHaveAttribute("data-severity", "warning")
   })
 
   it("avisa de la plata sin consignar con el total del SERVIDOR y la fecha más vieja; aviso si tiene ≤ 3 días", async () => {
@@ -803,7 +803,7 @@ describe("TodayPage — consignar desde el POS (2026-09-24)", () => {
     const title = /\$ 350\.000 sin consignar desde el dom 13 sep/
     await screen.findByText(title)
     expect(noticeLink(title)).toHaveAttribute("href", "/admin/banco?tab=por-consignar")
-    expect(noticeItem(title).className).toContain("border-l-warning")
+    expect(noticeItem(title)).toHaveAttribute("data-severity", "warning")
   })
 
   it("con más de 3 días sin consignar, el aviso pasa a crítico", async () => {
@@ -814,7 +814,7 @@ describe("TodayPage — consignar desde el POS (2026-09-24)", () => {
 
     const title = /\$ 350\.000 sin consignar desde el/
     await screen.findByText(title)
-    expect(noticeItem(title).className).toContain("border-l-destructive")
+    expect(noticeItem(title)).toHaveAttribute("data-severity", "critical")
   })
 
   it("con Consignaciones apagada (0 y null) no hay ninguno de los dos avisos, ni un «$ 0»", async () => {

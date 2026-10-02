@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Banknote, BarChart3, CalendarDays, Clock, CreditCard, Download, RefreshCw, type LucideIcon } from "lucide-react"
+import { Banknote, CalendarDays, Clock, CreditCard, Download, RefreshCw, type LucideIcon } from "lucide-react"
 import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 
@@ -31,9 +31,12 @@ import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import {
   AllClearEmptyState,
+  Burbuja,
   DenseTable,
-  HeadlineFigure,
+  EstadoPastilla,
+  IrRedondo,
   NoticeRail,
+  Pozo,
   PageHeader,
   TimeAgo,
   type DenseColumn,
@@ -46,8 +49,6 @@ import { Cargando } from "@/components/Cargando"
 import { ChartFrame, ColumnChart, type ColumnDatum } from "@/components/charts"
 import { EmptyState } from "@/components/EmptyState"
 import { SinDato } from "@/components/SinDato"
-import { StatTile } from "@/components/StatTile"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatBusinessDate, formatClockTime, formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
@@ -66,13 +67,6 @@ import { usePanelAhora } from "./PanelAhora"
 
 
 const REFRESH_MS = 30_000
-
-/**
- * La cifra rectora en verde, que en este admin es el color de la venta (mapa
- * de pantallas, regla 1). `HeadlineFigure` dibuja la cifra en tinta y la usan
- * otras pantallas, así que el color se pone desde acá, sobre su `text-4xl`.
- */
-const CIFRA_VENTA = "xl:col-start-1 [&_.text-4xl]:text-success"
 
 /**
  * El ancla de «Requiere tu atención». La usa «Avisos» de la barra inferior
@@ -982,8 +976,8 @@ function HourlySales({
   // alguna hora trae venta no es calcular.
   if (hours.every((h) => h.pending || h.net === 0)) {
     return (
-      <section className="min-w-0 rounded-lg border bg-card p-4" data-slot="ventas-por-hora-vacio">
-        <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">Ventas por hora</h2>
+      <section className="min-w-0" data-slot="ventas-por-hora-vacio">
+        <h2 className="text-[15px] font-semibold tracking-normal">Ventas por hora</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
           {c && c.net === 0 && dia
             ? `Todavía no hay ventas hoy; el ${dia} pasado a esta hora tampoco.`
@@ -1035,9 +1029,13 @@ function HourlySales({
     .join(" ")
 
   const refLabel = dia ? `${dia.charAt(0).toUpperCase()}${dia.slice(1)} pasado` : "Semana pasada"
+  // La hora en curso (la última que ya llegó) va en tinta; sólo hoy, no en
+  // el repaso de otro día. Elegir cuál es selección, no matemática.
+  const enCurso = recap ? undefined : [...hours].reverse().find((h) => !h.pending)
 
   return (
-    <section className="min-w-0 rounded-lg border bg-card p-4">
+    // Va dentro de la burbuja de la venta («Burbujas»): sin superficie propia.
+    <section className="min-w-0">
       <BlockHeader
         title={recap ? `Ventas por hora · ${recap.short}` : "Ventas por hora"}
         block="sales-by-hour"
@@ -1070,6 +1068,7 @@ function HourlySales({
           serieReferencia={serieReferencia}
           etiquetaSerie={recap ? recap.short : "Hoy"}
           etiquetaSerieReferencia={`${refLabel}, día completo`}
+          actual={enCurso ? String(enCurso.hour) : undefined}
           resumen={
             `Columnas de venta neta por hora de ${recap ? recap.label : "hoy"}${peak ? `; la más alta, las ${hourLabel(peak.hour)} con ${formatCOP(peak.net)}` : ", todavía sin ventas"}` +
             `${pendingCount > 0 ? `; ${pendingCount} horas todavía no llegan` : ""}. El detalle está en la tabla.`
@@ -1077,7 +1076,7 @@ function HourlySales({
         />
       </ChartFrame>
       {peak && c && c.delta_bp !== null && c.delta_bp !== undefined ? (
-        <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">
+        <p className="mt-3 text-[13px] text-muted-foreground">
           La hora más fuerte del día va siendo la de las <b className="text-foreground">{hourLabel(peak.hour)}</b>, con{" "}
           <b className="text-foreground">{formatCOP(peak.net)}</b> netos.
         </p>
@@ -1105,9 +1104,9 @@ function BlockHeader({
   children?: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
       <div className="min-w-0">
-        <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">{title}</h2>
+        <h2 className="text-[15px] font-semibold tracking-normal">{title}</h2>
         {children}
       </div>
       <a
@@ -1115,9 +1114,9 @@ function BlockHeader({
         target="_blank"
         rel="noreferrer"
         title={`Descargar «${title}» (CSV)`}
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+        className="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted px-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
-        <Download className="size-4 shrink-0" aria-hidden="true" />
+        <Download className="size-3.5 shrink-0" aria-hidden="true" />
         Descargar CSV
       </a>
     </div>
@@ -1139,13 +1138,13 @@ function IndicadorSinDato({
   icon?: LucideIcon
 }): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-l-[3px] border-border border-l-border p-4">
+    <Pozo>
       <div className="flex items-center gap-1.5">
-        {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
-        <p className="min-w-0 text-sm text-muted-foreground">{label}</p>
+        {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+        <p className="min-w-0 text-[13px] text-muted-foreground">{label}</p>
       </div>
       <SinDato forma="bloque" motivo={motivo} className="mt-1" />
-    </div>
+    </Pozo>
   )
 }
 
@@ -1168,34 +1167,31 @@ const CIFRAS_EXPLICADAS: readonly Definicion[] = [
 function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay | null }): React.JSX.Element {
   const cash = today.cash_sales ?? null
   const card = today.card_sales ?? null
-  const other = today.other_payment_sales ?? null
   return (
     <div className="space-y-2">
       {recap ? (
-        <p
-          className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
-          data-slot="repaso"
-        >
+        <p className="rounded-2xl bg-muted px-4 py-3 text-sm text-muted-foreground" data-slot="repaso">
           Todavía no hay ventas hoy: estas cifras y los bloques de abajo son de{" "}
           <b className="font-semibold text-foreground">{recap.label}</b>. Cambian solos con la primera venta de hoy.
         </p>
       ) : null}
-      {/* A 1440 cada tarjeta mide ~170 px: una cifra de siete dígitos a
-          `text-2xl` se partía en dos renglones. Baja a `text-xl` y no se parte. */}
-      <div className="grid min-w-0 grid-cols-2 gap-3 max-sm:[&>div]:p-3 lg:grid-cols-4 [&_.text-2xl]:text-xl [&_.text-2xl]:whitespace-nowrap">
+      {/* «Burbujas»: las cuatro cifras son cuatro pozos dentro de la burbuja
+          de la venta, 8 px entre ellos. */}
+      <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-4">
         {today.avg_ticket === null || today.avg_ticket === undefined ? (
           <IndicadorSinDato label="Ticket promedio" motivo="todavía sin tickets pagados hoy" />
         ) : (
-          <StatTile label="Ticket promedio" value={formatCOP(today.avg_ticket)} />
+          <Cifra label="Ticket promedio" value={formatCOP(today.avg_ticket)} hint="sin propina" />
         )}
-        <StatTile
+        <Cifra
           label="Número de tickets"
           value={today.orders !== undefined && today.orders !== null ? String(today.orders) : "—"}
+          hint="cobrados y cerrados"
         />
         {cash === null ? (
           <IndicadorSinDato label="Ventas en efectivo" motivo="sin el desglose por medio de pago" icon={Banknote} />
         ) : (
-          <StatTile
+          <Cifra
             label="Ventas en efectivo"
             value={formatCOP(cash.net)}
             hint={`${cash.payments} ${cash.payments === 1 ? "pago" : "pagos"}`}
@@ -1205,7 +1201,7 @@ function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay
         {card === null ? (
           <IndicadorSinDato label="Ventas en tarjeta" motivo="sin el desglose por medio de pago" icon={CreditCard} />
         ) : (
-          <StatTile
+          <Cifra
             label="Ventas en tarjeta"
             value={formatCOP(card.net)}
             hint={`${card.payments} ${card.payments === 1 ? "pago" : "pagos"}`}
@@ -1213,16 +1209,113 @@ function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay
           />
         )}
       </div>
-      {other !== null && other.payments > 0 ? (
-        <p className="px-1 text-xs text-muted-foreground">
-          Otros medios (transferencia, plataformas, bonos): <b className="text-foreground tabular-nums">{formatCOP(other.net)}</b>{" "}
-          en {other.payments} {other.payments === 1 ? "pago" : "pagos"}. Con efectivo y tarjeta completan la venta neta.
-        </p>
-      ) : null}
       <Plegable resumen="Cómo leer estas cifras" className="px-1">
         <Definiciones items={CIFRAS_EXPLICADAS} className="sm:grid-cols-2" />
       </Plegable>
     </div>
+  )
+}
+
+/** Una cifra secundaria en su pozo: rótulo, cifra y una línea de detalle. */
+function Cifra({
+  label,
+  value,
+  hint,
+  icon: Icon,
+}: {
+  label: string
+  value: string
+  hint?: string
+  icon?: LucideIcon
+}): React.JSX.Element {
+  return (
+    <Pozo className="min-w-0">
+      <div className="flex items-center gap-1.5">
+        {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+        <p className="min-w-0 text-[13px] leading-tight text-muted-foreground">{label}</p>
+      </div>
+      <p className="mt-0.5 text-[22px] leading-tight font-medium tracking-[-0.02em] whitespace-nowrap tabular-nums">{value}</p>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </Pozo>
+  )
+}
+
+/**
+ * **La venta del día, con todo lo que responde a la misma pregunta** (handoff
+ * «Burbujas», Hoy § 3): la cifra grande con su comparación en pastilla y el
+ * botón redondo que lleva a Ventas; las cuatro cifras en pozos; las ventas
+ * por hora; y al pie el libro en una línea. Todo del servidor.
+ */
+function VentaPrincipal({
+  etiqueta,
+  cifra,
+  nota,
+  comparacion,
+  deltaBp,
+  libro,
+  otros,
+  celular,
+  children,
+}: {
+  etiqueta: string
+  cifra: string
+  nota?: string
+  comparacion?: ReturnType<typeof todayComparison>
+  deltaBp?: number | null
+  libro: { label: string; value: string; resta?: boolean; total?: boolean }[]
+  otros: TodayOut["other_payment_sales"]
+  celular: boolean
+  children: React.ReactNode
+}): React.JSX.Element {
+  const tono = deltaBp === null || deltaBp === undefined || comparacion?.tono === "apagada"
+    ? "neutral"
+    : deltaBp > 0
+      ? "success"
+      : deltaBp < 0
+        ? "warning"
+        : "neutral"
+  return (
+    <Burbuja aria-label="Ventas de hoy" className="flex flex-col gap-5 md:p-7">
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-muted-foreground">{etiqueta}</p>
+          <p
+            className="mt-1 text-[44px] leading-none font-medium tracking-[-0.03em] whitespace-nowrap tabular-nums md:text-[64px]"
+            data-slot="cifra-venta"
+          >
+            {cifra}
+          </p>
+          {nota ? <p className="mt-2 text-[13px] text-muted-foreground">{nota}</p> : null}
+          {comparacion ? (
+            <p className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
+              <EstadoPastilla tono={tono}>{comparacion.delta}</EstadoPastilla>
+              <span>{comparacion.label}</span>
+              {comparacion.detail ? <span className="tabular-nums">{comparacion.detail}</span> : null}
+            </p>
+          ) : null}
+        </div>
+        {celular ? null : <IrRedondo to="/admin/ventas" label="Ver el día completo" grande />}
+      </div>
+      {children}
+      <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-t pt-4 text-sm" data-slot="libro">
+        {libro.map((r) => (
+          <div key={r.label} className="flex items-baseline gap-1.5">
+            <dt className={r.total ? "font-semibold" : "text-muted-foreground"}>{r.label}</dt>
+            <dd className="font-semibold whitespace-nowrap tabular-nums">
+              {r.resta ? "− " : ""}
+              {r.value}
+            </dd>
+          </div>
+        ))}
+        {otros !== null && otros !== undefined && otros.payments > 0 ? (
+          <p className="w-full text-[13px] text-muted-foreground">
+            Otros medios (transferencia, plataformas, bonos):{" "}
+            <b className="font-semibold text-foreground tabular-nums">{formatCOP(otros.net)}</b> en {otros.payments}{" "}
+            {otros.payments === 1 ? "pago" : "pagos"}. Con efectivo y tarjeta completan la venta neta.
+          </p>
+        ) : null}
+      </dl>
+    </Burbuja>
   )
 }
 
@@ -1244,14 +1337,14 @@ function TopProducts({
 }): React.JSX.Element {
   const products = today.top_products ?? []
   return (
-    <section className="min-w-0 rounded-lg border bg-card p-4">
+    <section className="burbuja min-w-0 rounded-[24px] bg-card p-6">
       <BlockHeader
         title={recap ? `Top productos vendidos · ${recap.short}` : "Top productos vendidos"}
         block="top-products"
         storeId={storeId}
         date={recap?.date}
       >
-        <p className="mt-0.5 text-xs text-muted-foreground">Por venta neta, sin impuesto ni propina. La descarga trae todos.</p>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">Por venta neta, sin impuesto ni propina. La descarga trae todos.</p>
       </BlockHeader>
       <DenseTable
         caption={`Productos más vendidos ${recap ? recap.label : "hoy"}, con unidades y venta neta.`}
@@ -1342,8 +1435,8 @@ function Receptions({
   const lines = today.receptions_today ?? []
   if (!today.receptions_enabled) {
     return (
-      <section className="min-w-0 rounded-lg border bg-card p-4" data-slot="entradas-apagadas">
-        <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">Entradas de mercancía</h2>
+      <section className="burbuja min-w-0 rounded-[24px] bg-card p-6" data-slot="entradas-apagadas">
+        <h2 className="text-[15px] font-semibold tracking-normal">Entradas de mercancía</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
           «Compras» está apagada en esta sede: no se registran recepciones.{" "}
           <Link to="/admin/features" className="font-medium text-primary underline-offset-4 hover:underline">
@@ -1355,14 +1448,14 @@ function Receptions({
   }
   const soon = lines.filter((l) => l.lot_status === "expiring" || l.lot_status === "expired").length
   return (
-    <section className="min-w-0 rounded-lg border bg-card p-4">
+    <section className="burbuja min-w-0 rounded-[24px] bg-card p-6">
       <BlockHeader
         title={recap ? `Entradas de mercancía · ${recap.short}` : "Entradas de mercancía"}
         block="receptions"
         storeId={storeId}
         date={recap?.date}
       >
-        <p className="mt-0.5 text-xs text-muted-foreground">
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
           Lo recibido {recap ? recap.label : "hoy"}, con su lote y vencimiento.
           {soon > 0 ? (
             <b className="font-semibold text-warning">
@@ -1466,18 +1559,12 @@ export function TodayPage(): React.JSX.Element {
                 la venta, las cuatro cifras, las ventas por hora y los dos
                 bloques, con el riel a la derecha en el escritorio. Si
                 esqueletea otra cosa, la pantalla salta al llegar los datos. */}
-            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <div className="flex min-w-0 flex-col gap-5 xl:col-start-1 xl:row-start-1">
-                <Skeleton className="h-[8.5rem] w-full rounded-lg" />
-                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                  {[0, 1, 2, 3].map((i) => (
-                    <Skeleton key={i} className="h-[7.5rem] rounded-lg" />
-                  ))}
-                </div>
-                <Skeleton className="h-60 w-full rounded-lg" />
-                <Skeleton className="h-52 w-full rounded-lg" />
+            <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+              <div className="flex min-w-0 flex-col gap-3 xl:col-start-1 xl:row-start-1">
+                <Skeleton className="h-[34rem] w-full rounded-[24px]" />
+                <Skeleton className="h-52 w-full rounded-[24px]" />
               </div>
-              <Skeleton className="h-48 rounded-lg xl:col-start-2 xl:row-start-1 xl:h-96" />
+              <Skeleton className="h-48 rounded-[24px] xl:col-start-2 xl:row-start-1 xl:h-96" />
             </div>
           </div>
         )}
@@ -1568,24 +1655,6 @@ export function TodayPage(): React.JSX.Element {
               ]
             : []),
         ]}
-        actions={
-          // `title` con el mismo texto que se ve, a propósito: el censo de
-          // controles lee el código y **no ve un rótulo que viene después de
-          // un `<svg>`** dentro de un `Button render={<Link/>}`.
-          // `nativeButton={false}`: el disparador es un `<a>`.
-          celular ? undefined : (
-            <Button
-              variant="outline"
-              size="sm"
-              nativeButton={false}
-              title="Ver el día completo"
-              render={<Link to="/admin/ventas" />}
-            >
-              <BarChart3 className="size-4 shrink-0" aria-hidden="true" />
-              Ver el día completo
-            </Button>
-          )
-        }
       />
 
       {/* Dos columnas en el escritorio: el día a la izquierda, en el orden
@@ -1593,57 +1662,54 @@ export function TodayPage(): React.JSX.Element {
           En el celular es una sola columna y los avisos van al final: el
           orden del código es el orden de lectura (foco y lector de
           pantalla incluidos). */}
-      <div className="grid items-start gap-[18px] xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="flex min-w-0 flex-col gap-5 xl:col-start-1 xl:row-start-1">
-          <section aria-label="Ventas de hoy" className="min-w-0">
-            {/* § 4 · La plata nunca es un número suelto: es una resta, y se
-                compara contra el mismo día de la semana pasada a la misma hora
-                (`comparison`, del servidor: acá no se calcula). */}
-            {beforeFirstSale && yesterday ? (
-              <HeadlineFigure
-                className={CIFRA_VENTA}
-                label={
-                  yesterdaySold
-                    ? "Todavía no hay ventas hoy · ayer cerró en"
-                    : "Todavía no hay ventas hoy · el último día con ventas cerró en"
-                }
-                value={formatCOP(yesterday.net)}
-                note={[
-                  formatFechaCorta(yesterday.business_date),
-                  `${yesterday.orders} ${yesterday.orders === 1 ? "ticket" : "tickets"}`,
-                  yesterday.avg_ticket !== null ? `ticket promedio ${formatCOP(yesterday.avg_ticket)}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-                ledger={{
-                  rows: [
+      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="flex min-w-0 flex-col gap-3 xl:col-start-1 xl:row-start-1">
+          {/* § 4 · La plata nunca es un número suelto: es una resta, y se
+              compara contra el mismo día de la semana pasada a la misma hora
+              (`comparison`, del servidor: acá no se calcula). Antes de la
+              primera venta la cifra grande es la de cómo cerró ayer (o el
+              último día con ventas), y el libro sigue siendo el de hoy. */}
+          <VentaPrincipal
+            etiqueta={
+              beforeFirstSale && yesterday
+                ? yesterdaySold
+                  ? "Todavía no hay ventas hoy · ayer cerró en"
+                  : "Todavía no hay ventas hoy · el último día con ventas cerró en"
+                : "Ventas netas de hoy"
+            }
+            cifra={formatCOP(beforeFirstSale && yesterday ? yesterday.net : today.net)}
+            nota={
+              beforeFirstSale && yesterday
+                ? [
+                    formatFechaCorta(yesterday.business_date),
+                    `${yesterday.orders} ${yesterday.orders === 1 ? "ticket" : "tickets"}`,
+                    yesterday.avg_ticket !== null ? `ticket promedio ${formatCOP(yesterday.avg_ticket)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : undefined
+            }
+            comparacion={comparison}
+            deltaBp={today.comparison?.delta_bp ?? null}
+            libro={
+              beforeFirstSale && yesterday
+                ? [
                     { label: "Cobrado hoy", value: formatCOP(today.gross) },
-                    { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
-                  ],
-                  total: { label: "Ventas netas de hoy", value: formatCOP(today.net) },
-                }}
-                comparison={comparison}
-              />
-            ) : (
-              <HeadlineFigure
-                className={CIFRA_VENTA}
-                label="Ventas netas de hoy"
-                value={formatCOP(today.net)}
-                ledger={{
-                  rows: [
+                    { label: "Impuesto discriminado", value: formatCOP(today.tax), resta: true },
+                    { label: "Ventas netas de hoy", value: formatCOP(today.net), total: true },
+                  ]
+                : [
                     { label: "Ventas cobradas", value: formatCOP(today.gross) },
-                    { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
-                  ],
-                  total: { label: "Ventas netas", value: formatCOP(today.net) },
-                }}
-                comparison={comparison}
-              />
-            )}
-          </section>
-
-          <DayFigures today={shown} recap={recap} />
-
-          <HourlySales today={shown} storeId={activeStoreId} recap={recap} />
+                    { label: "Impuesto discriminado", value: formatCOP(today.tax), resta: true },
+                    { label: "Ventas netas", value: formatCOP(today.net), total: true },
+                  ]
+            }
+            otros={shown.other_payment_sales ?? null}
+            celular={celular}
+          >
+            <DayFigures today={shown} recap={recap} />
+            <HourlySales today={shown} storeId={activeStoreId} recap={recap} />
+          </VentaPrincipal>
 
           <TopProducts today={shown} storeId={activeStoreId} recap={recap} />
 

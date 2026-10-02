@@ -1,4 +1,4 @@
-import { ChevronDown, CircleAlert } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 import { useState } from "react"
 
 import { FilterLink, type FilterLinkProps } from "@/components/admin/FilterLink"
@@ -64,75 +64,48 @@ const SEVERITY_ORDER: readonly NoticeSeverity[] = ["critical", "warning", "whene
 
 const SEVERITY_LABEL: Record<NoticeSeverity, string> = {
   critical: "Crítico",
-  warning: "Aviso",
-  whenever: "Para cuando puedas",
+  warning: "Atención",
+  whenever: "Cuando puedas",
 }
 
-/** El punto de gravedad de un aviso colapsado. Rojo y ámbar son ESTADO. */
-const SEVERITY_DOT: Record<NoticeSeverity, string> = {
-  critical: "bg-destructive",
-  warning: "bg-warning",
-  whenever: "bg-input",
-}
-
-/** El riel de gravedad de 3 px a la izquierda del aviso. Rojo y ámbar son ESTADO. */
-const SEVERITY_EDGE: Record<NoticeSeverity, string> = {
-  critical: "border-l-destructive",
-  warning: "border-l-warning",
-  whenever: "border-l-input",
-}
-
-/** El ícono de gravedad, y su color. */
-const SEVERITY_ICON: Record<NoticeSeverity, string> = {
+/** El color del rótulo de cada gravedad. Rojo y ámbar son ESTADO. */
+const SEVERITY_TEXT: Record<NoticeSeverity, string> = {
   critical: "text-destructive",
   warning: "text-warning",
   whenever: "text-muted-foreground",
 }
 
+/** La forma de cada gravedad (■ ▲ ●): el color nunca es la única señal. */
+const SEVERITY_SHAPE: Record<NoticeSeverity, string> = {
+  critical: "rounded-[1px]",
+  warning: "[clip-path:polygon(50%_0,100%_100%,0_100%)]",
+  whenever: "rounded-[1px]",
+}
+
 /**
  * **Un aviso, siempre desplegado**: título con la cifra adelante, una línea
- * de por qué duele, y el destino nombrado abajo.
- *
- * Antes el crítico iba desplegado y el resto colapsaba a una línea, con el
- * detalle apagado corriendo dentro del mismo renglón. La maqueta `a2` los
- * escribe todos con la misma forma (`.av`) y distingue la gravedad por el
- * **riel de color a la izquierda** y el ícono, no por la forma: a tres
- * columnas de texto, dos formas distintas hacían que la mitad de los avisos
- * pareciera un pie de página de la otra mitad. El teñido de fondo del
- * crítico también se va —`a2` deja el papel blanco y sólo colorea el
- * riel—: con tres críticos seguidos, el bloque rosado se leía como un
- * estado de error de la pantalla entera.
+ * de por qué duele, y el destino nombrado abajo. En el estilo «Burbujas» cada
+ * aviso es un pozo de radio 18 dentro de la burbuja del riel; la gravedad la
+ * dice el rótulo del grupo, con su color y su forma.
  */
 function NoticeItem({ notice, className }: { notice: Notice; className?: string }): React.JSX.Element {
   return (
-    <li
-      className={cn(
-        "grid grid-cols-[auto_minmax(0,1fr)] gap-2.5 border-t border-l-[3px] px-3 py-2",
-        SEVERITY_EDGE[notice.severity],
-        className,
+    <li className={cn("rounded-[18px] bg-muted px-3.5 py-3", className)} data-severity={notice.severity}>
+      {notice.amount !== undefined && notice.amount !== null ? (
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+          <p className="min-w-0 text-sm leading-snug font-semibold">{notice.title}</p>
+          <p className="shrink-0 text-sm font-semibold whitespace-nowrap tabular-nums" data-notice-amount="">
+            {notice.amount}
+          </p>
+        </div>
+      ) : (
+        <p className="text-sm leading-snug font-semibold">{notice.title}</p>
       )}
-    >
-      <CircleAlert
-        className={cn("mt-0.5 size-4 shrink-0", SEVERITY_ICON[notice.severity])}
-        aria-hidden="true"
-      />
-      <div className="min-w-0">
-        {notice.amount !== undefined && notice.amount !== null ? (
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-            <p className="min-w-0 text-sm leading-snug font-bold">{notice.title}</p>
-            <p className="shrink-0 text-sm font-bold whitespace-nowrap tabular-nums" data-notice-amount="">
-              {notice.amount}
-            </p>
-          </div>
-        ) : (
-          <p className="text-sm leading-snug font-bold">{notice.title}</p>
-        )}
-        {notice.consequence ? (
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{notice.consequence}</p>
-        ) : null}
-        {notice.actions ? <div className="mt-2 flex flex-col gap-2">{notice.actions}</div> : null}
-        {notice.link ? <FilterLink {...notice.link} className="mt-1.5" /> : null}
-      </div>
+      {notice.consequence ? (
+        <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{notice.consequence}</p>
+      ) : null}
+      {notice.actions ? <div className="mt-2.5 flex flex-col gap-2">{notice.actions}</div> : null}
+      {notice.link ? <FilterLink {...notice.link} className="mt-2" /> : null}
     </li>
   )
 }
@@ -156,13 +129,10 @@ function lastUrgent(groups: readonly { severity: NoticeSeverity }[]): NoticeSeve
 
 function GroupHeading({ severity, count }: { severity: NoticeSeverity; count: number }): React.JSX.Element {
   return (
-    <p className="flex items-center gap-2 border-t px-3 pt-2.5 pb-1 text-[0.65rem] tracking-widest text-muted-foreground uppercase first:border-t-0">
-      <span
-        aria-hidden="true"
-        className={cn("size-[7px] shrink-0 rounded-full", SEVERITY_DOT[severity])}
-      />
+    <p className={cn("flex items-center gap-2 px-1 pt-3 pb-2 text-xs font-semibold", SEVERITY_TEXT[severity])}>
+      <span aria-hidden="true" className={cn("size-[7px] shrink-0 bg-current", SEVERITY_SHAPE[severity])} />
       {SEVERITY_LABEL[severity]}
-      <b className="ml-auto text-xs font-bold tracking-normal text-foreground tabular-nums">{count}</b>
+      <b className="ml-auto text-xs font-semibold text-muted-foreground tabular-nums">{count}</b>
     </p>
   )
 }
@@ -203,18 +173,18 @@ export function NoticeRail({
   return (
     <aside
       aria-label={title}
-      className={cn("sticky top-4 self-start rounded-lg border bg-card", className)}
+      // «Burbujas»: el riel es una burbuja; cada aviso, un pozo.
+      className={cn("burbuja sticky top-4 self-start rounded-[24px] bg-card p-5", className)}
     >
-      {/* El filete bajo el título, como en `a2` (`.tarjeta-tit`): sin él el
-          encabezado del riel y el de la primera gravedad se leían como dos
-          renglones del mismo rótulo. */}
-      <div className="flex items-center gap-2 border-b px-3 py-2.5">
-        <h2 className="text-[0.7rem] tracking-wider text-muted-foreground uppercase">{title}</h2>
-        <b className="ml-auto text-sm font-bold tabular-nums">{notices.length}</b>
+      <div className="flex items-center gap-2 px-1 pb-1">
+        <h2 className="text-[17px] font-semibold tracking-normal">{title}</h2>
+        <b className="ml-auto grid h-6 min-w-6 place-items-center rounded-full bg-foreground px-2 text-xs font-semibold text-card tabular-nums">
+          {notices.length}
+        </b>
       </div>
 
       {notices.length === 0 ? (
-        <div className="px-3 pb-3">{empty}</div>
+        <div className="pt-2">{empty}</div>
       ) : (
         bySeverity.map((group) => (
           <div key={group.severity}>
@@ -232,7 +202,7 @@ export function NoticeRail({
                   type="button"
                   aria-expanded={foldedOpen}
                   onClick={() => setFoldedOpen((open) => !open)}
-                  className="flex w-full items-center gap-2 rounded-b-lg border-t bg-muted px-3 py-2 text-left text-sm font-bold text-primary hover:bg-accent"
+                  className="mt-3 flex min-h-10 w-full items-center gap-2 rounded-full bg-muted px-4 text-left text-sm font-semibold text-foreground hover:bg-accent hover:text-accent-foreground"
                 >
                   {whenever.length} {whenever.length === 1 ? "aviso más" : "avisos más"}, sin urgencia
                   <ChevronDown
@@ -241,7 +211,7 @@ export function NoticeRail({
                   />
                 </button>
                 {foldedOpen ? (
-                  <ul>
+                  <ul className="mt-2 flex flex-col gap-2">
                     {group.items.map((notice) => (
                       <NoticeItem key={notice.id} notice={notice} />
                     ))}
@@ -250,7 +220,7 @@ export function NoticeRail({
               </>
             ) : (
               <>
-                <ul>
+                <ul className="flex flex-col gap-2">
                   {group.items.map((notice, i) => (
                     <NoticeItem
                       key={notice.id}
@@ -278,7 +248,7 @@ export function NoticeRail({
                     type="button"
                     aria-expanded={warningsOpen}
                     onClick={() => setWarningsOpen((open) => !open)}
-                    className="flex min-h-10 w-full items-center gap-2 border-t px-3 text-left text-sm font-bold text-primary hover:bg-accent"
+                    className="mt-2 flex min-h-10 w-full items-center gap-2 rounded-full bg-muted px-4 text-left text-sm font-semibold text-foreground hover:bg-accent hover:text-accent-foreground"
                   >
                     {warningsOpen ? "Ver menos" : `Ver ${ocultos} más`}
                     <ChevronDown
@@ -291,7 +261,7 @@ export function NoticeRail({
                   <button
                     type="button"
                     onClick={() => setWarningsOpen(true)}
-                    className="flex min-h-11 w-full items-center border-t px-3 text-left text-sm font-bold text-primary hover:bg-accent md:hidden"
+                    className="mt-2 flex min-h-11 w-full items-center rounded-full bg-muted px-4 text-left text-sm font-semibold text-foreground hover:bg-accent md:hidden"
                   >
                     Ver {group.items.length - PHONE_WARNING_LIMIT} más de atención
                   </button>
@@ -303,7 +273,7 @@ export function NoticeRail({
       )}
 
       {footNote ? (
-        <p className="border-t px-3 py-2 text-right text-xs text-muted-foreground">{footNote}</p>
+        <p className="px-1 pt-3 text-xs text-muted-foreground">{footNote}</p>
       ) : null}
     </aside>
   )

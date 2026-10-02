@@ -35,6 +35,8 @@ export interface ColumnChartProps {
   etiquetaSerie?: string
   /** `key` de la columna que cuenta la historia: va en tinta llena y las demás se aclaran. */
   resaltar?: string
+  /** `key` de lo que está pasando ahora (la hora en curso): va en tinta. */
+  actual?: string
   /** Alto del área de dibujo en px (sin el eje X). */
   alto?: number
   /** Resumen para lectores de pantalla; por defecto se arma con el máximo. */
@@ -57,6 +59,7 @@ export function ColumnChart({
   etiquetaSerieReferencia = "Referencia",
   etiquetaSerie = "Actual",
   resaltar,
+  actual,
   alto = 180,
   resumen,
 }: ColumnChartProps): React.JSX.Element {
@@ -177,7 +180,7 @@ export function ColumnChart({
                 key={d.key}
                 data-columna={d.key}
                 d={barraV(x, w, yCero, y(d.valor))}
-                fill="var(--data-ink)"
+                fill={d.key === actual ? "var(--foreground)" : "var(--data-ink)"}
                 fillOpacity={apagado ? 0.4 : 1}
                 stroke={activo === i ? TINTA.texto : "none"}
                 strokeWidth={activo === i ? 1 : 0}

@@ -9,6 +9,12 @@
 @import "@fontsource-variable/archivo/wdth.css";
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "@fontsource/ibm-plex-mono/500.css";
+/* «Burbujas» (handoff `design_handoff_estilo_burbujas`): la letra del panel
+   del dueño. El salón sigue con Archivo. */
+@import "@fontsource/hanken-grotesk/400.css";
+@import "@fontsource/hanken-grotesk/500.css";
+@import "@fontsource/hanken-grotesk/600.css";
+@import "@fontsource/hanken-grotesk/700.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -45,6 +51,13 @@
     --color-success-foreground: var(--success-foreground);
     --color-warning: var(--warning);
     --color-warning-foreground: var(--warning-foreground);
+    /* Fondos de las pastillas de estado («Burbujas»). Sólo para pastillas:
+       el color nunca es la única señal, siempre va con ● ▲ ■ y la palabra. */
+    --color-success-soft: var(--success-soft);
+    --color-warning-soft: var(--warning-soft);
+    --color-destructive-soft: var(--destructive-soft);
+    --color-data-track: var(--data-track);
+    --color-data-bar: var(--data-1);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -282,8 +295,182 @@ html.oficina {
 }
 
 .oficina {
-    --radius: 8px;           /* m2b .oficina --r   */
+    --radius: 12px;          /* «Burbujas»: botón, pestaña e ítem en 10–12 px */
     --control-min-h: 34px;   /* m2b .oficina --tap */
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   «BURBUJAS» — la piel del panel del dueño (`design_handoff_estilo_burbujas`).
+   Fondo gris muy suave; cada área en una superficie blanca de esquinas
+   grandes, sin bordes ni sombras; casi todo en tinta y el cobalto sólo para
+   las acciones. Va en `html.oficina` (y no en el `<div>` del layout) por la
+   misma razón que la densidad: los diálogos se montan por portal.
+   El POS no se toca: `html.salon` tiene su propia paleta.
+   ───────────────────────────────────────────────────────────────────────── */
+html.oficina {
+    --background: #ECECE8;           /* página, detrás de las burbujas      */
+    --foreground: #111111;           /* tinta                               */
+    --card: #FFFFFF;                 /* burbuja                             */
+    --card-foreground: #111111;
+    --popover: #FFFFFF;
+    --popover-foreground: #111111;
+    --primary: #2F4BFF;              /* sólo acciones                       */
+    --primary-foreground: #FFFFFF;
+    --secondary: #F4F4F1;            /* pozo                                */
+    --secondary-foreground: #111111;
+    --muted: #F4F4F1;
+    --muted-foreground: #5E5E5B;     /* ≥ 4,5:1 sobre la burbuja y el pozo  */
+    --accent: #EEF0FF;
+    --accent-foreground: #2F4BFF;
+    --destructive: #C8261C;
+    --destructive-foreground: #FFFFFF;
+    --destructive-soft: #FBE6E3;
+    --success: #13795B;
+    --success-foreground: #FFFFFF;
+    --success-soft: #E3F2EC;
+    --warning: #A85A00;
+    --warning-foreground: #FFFFFF;
+    --warning-soft: #FBEEDD;
+    --border: #E9E9E5;               /* sólo separadores internos de 1 px   */
+    --input: #CFCFCA;
+    --ring: #2F4BFF;
+    --chart-1: #111111;
+    --chart-2: #5E5E5B;
+    --chart-3: #8C8C87;
+    --chart-4: #BDBDB7;
+    --chart-5: #E6E6E1;
+    --sidebar: #FFFFFF;
+    --sidebar-foreground: #111111;
+    --sidebar-primary: #111111;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #F4F4F1;
+    --sidebar-accent-foreground: #111111;
+    --sidebar-border: #E9E9E5;
+    --sidebar-ring: #2F4BFF;
+    /* Gráficos: la barra en gris, lo que viene en riel; lo que está pasando
+       ahora va en tinta (`--foreground`) y la referencia también. */
+    --data-1: #BDBDB7;
+    --data-track: #E6E6E1;
+    /* La raya de referencia: tinta al 55 %. */
+    --data-muted: color-mix(in oklab, #111111 55%, transparent);
+    --diverge-falta: #C8261C;
+    --diverge-mid: #E6E6E1;
+}
+
+/* `@theme inline` escribe la familia literal en `font-sans`: se pisa acá. */
+html.oficina,
+html.oficina .font-sans,
+html.oficina .font-heading {
+    font-family: 'Hanken Grotesk', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+html.oficina.dark {
+    --background: #060606;
+    --foreground: #F2F2EF;
+    --card: #151514;
+    --card-foreground: #F2F2EF;
+    --popover: #151514;
+    --popover-foreground: #F2F2EF;
+    --primary: #7B8CFF;
+    --primary-foreground: #0B1033;
+    --secondary: #1F1F1D;
+    --secondary-foreground: #F2F2EF;
+    --muted: #1F1F1D;
+    --muted-foreground: #A3A39E;
+    --accent: #1B2050;
+    --accent-foreground: #B4BEFF;
+    --destructive: #FF7A6E;
+    --destructive-foreground: #2A0C0A;
+    --destructive-soft: #331512;
+    --success: #4CC79C;
+    --success-foreground: #06231E;
+    --success-soft: #12291F;
+    --warning: #F0A848;
+    --warning-foreground: #2A1A03;
+    --warning-soft: #2E2210;
+    --border: #262624;
+    --input: #3A3A37;
+    --ring: #7B8CFF;
+    --chart-1: #F2F2EF;
+    --chart-2: #A3A39E;
+    --chart-3: #7D7D78;
+    --chart-4: #55554F;
+    --chart-5: #2A2A27;
+    --sidebar: #151514;
+    --sidebar-foreground: #F2F2EF;
+    --sidebar-primary: #F2F2EF;
+    --sidebar-primary-foreground: #151514;
+    --sidebar-accent: #1F1F1D;
+    --sidebar-accent-foreground: #F2F2EF;
+    --sidebar-border: #262624;
+    --sidebar-ring: #7B8CFF;
+    --data-1: #55554F;
+    --data-track: #2A2A27;
+    --data-muted: color-mix(in oklab, #F2F2EF 55%, transparent);
+    --diverge-falta: #FF7A6E;
+    --diverge-mid: #2A2A27;
+}
+
+/* Los títulos de Hanken no usan el eje de ancho de Archivo. */
+html.oficina h1,
+html.oficina h2 {
+    font-stretch: normal;
+    letter-spacing: -0.02em;
+}
+
+/* Una burbuja: superficie blanca, esquinas grandes, sin borde ni sombra.
+   Las áreas que ya existían como «tarjeta con borde» (`rounded-lg border
+   bg-card`) toman la misma piel sin tocar cada pantalla: el borde se va y el
+   radio crece. Los campos (`border-input`) no son áreas y no cambian. */
+html.oficina main .bg-card.border:not(.border-input):is(.rounded-lg, .rounded-xl, .rounded-2xl, .rounded-\[12px\], .rounded-\[14px\]),
+html.oficina main .burbuja {
+    border-color: transparent;
+    border-radius: 24px;
+}
+html.oficina main .bg-card.border:not(.border-input):is(.rounded-lg, .rounded-xl, .rounded-2xl).p-4 {
+    padding: 22px 24px;
+}
+/* Lo elegido en un filtro (`aria-pressed`) va en tinta, no en cobalto:
+   estar seleccionado no es una acción. Lo no elegido, sobre el pozo. */
+html.oficina main [data-slot=button][aria-pressed=true].bg-primary {
+    background: var(--foreground);
+    color: var(--card);
+}
+html.oficina main [role=group] > [data-slot=button][aria-pressed=false]:is(.border, .bg-background) {
+    border-color: transparent;
+    background: var(--muted);
+}
+
+/* Las pestañas internas (`Tabs`): el interruptor segmentado de la barra. */
+html.oficina [data-slot=tabs-list][data-variant=default] {
+    height: auto;
+    border-radius: 12px;
+    padding: 4px;
+    background: var(--muted);
+}
+html.oficina [data-slot=tabs-list][data-variant=default] [data-slot=tabs-trigger] {
+    height: 32px;
+    border-radius: 9px;
+    padding-inline: 14px;
+    border-color: transparent;
+}
+html.oficina [data-slot=tabs-list][data-variant=default] [data-slot=tabs-trigger][data-active] {
+    background: var(--card);
+    color: var(--foreground);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
+}
+
+/* Un vacío dentro de una burbuja es un pozo, sin raya punteada. */
+html.oficina main :is(.burbuja, .tabla-densa, .bg-card.border) .border-dashed:is(.rounded-lg, .rounded-md) {
+    border-color: transparent;
+    background: var(--muted);
+    border-radius: 16px;
+}
+/* Dentro de una burbuja, una tarjeta anidada es un pozo. */
+html.oficina main :is(.bg-card.border, .burbuja) .bg-card.border:not(.border-input):is(.rounded-lg, .rounded-xl, .rounded-2xl) {
+    background: var(--muted);
+    border-radius: 16px;
 }
 
 @layer base {

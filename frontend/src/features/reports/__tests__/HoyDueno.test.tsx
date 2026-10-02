@@ -101,14 +101,14 @@ describe("Hoy · lo que pidió el dueño", () => {
     getTodayMock.mockResolvedValue(today())
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    const efectivo = (await screen.findByText("Ventas en efectivo")).closest("div.rounded-lg") as HTMLElement
+    const efectivo = (await screen.findByText("Ventas en efectivo")).closest("div.rounded-2xl") as HTMLElement
     expect(within(efectivo).getByText("$ 61.111")).toBeInTheDocument()
     expect(within(efectivo).getByText("2 pagos")).toBeInTheDocument()
-    const tarjeta = screen.getByText("Ventas en tarjeta").closest("div.rounded-lg") as HTMLElement
+    const tarjeta = screen.getByText("Ventas en tarjeta").closest("div.rounded-2xl") as HTMLElement
     expect(within(tarjeta).getByText("$ 27.777")).toBeInTheDocument()
     expect(within(tarjeta).getByText("1 pago")).toBeInTheDocument()
     expect(screen.getByText("$ 11.112")).toBeInTheDocument()
-    const tickets = screen.getByText("Número de tickets").closest("div.rounded-lg") as HTMLElement
+    const tickets = screen.getByText("Número de tickets").closest("div.rounded-2xl") as HTMLElement
     expect(within(tickets).getByText("3")).toBeInTheDocument()
     expect(screen.getByText("$ 33.333")).toBeInTheDocument()
   })

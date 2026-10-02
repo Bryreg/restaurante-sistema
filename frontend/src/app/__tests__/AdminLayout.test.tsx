@@ -435,18 +435,19 @@ describe("AdminLayout: la barra superior de a2", () => {
     expect(within(franjas[0]).queryByRole("navigation")).toBeNull();
   });
 
-  it("los tres controles de cuenta viven en la barra: campana, tema y salida", async () => {
+  // «Burbujas» (handoff § 2): la campana y el tema van en la barra; la
+  // salida baja a la tercera burbuja del riel, junto a quién entró.
+  it("campana y tema viven en la barra; la salida, en el riel junto a quién entró", async () => {
     renderAdmin(buildMe());
     await screen.findByRole("link", { name: "Hoy" });
     const barra = document.querySelector("header") as HTMLElement;
 
-    expect(within(barra).getByRole("button", { name: /salir/i })).toBeInTheDocument();
     expect(within(barra).getByRole("button", { name: /modo (oscuro|claro)/i })).toBeInTheDocument();
     expect(within(barra).getByRole("button", { name: /Notificaciones/i })).toBeInTheDocument();
+    expect(within(barra).queryByRole("button", { name: /salir/i })).toBeNull();
 
-    // Y ya no están duplicados en la lateral del escritorio.
     const lateral = document.querySelector("aside") as HTMLElement;
-    expect(within(lateral).queryByRole("button", { name: /salir/i })).toBeNull();
+    expect(within(lateral).getByRole("button", { name: /salir/i })).toBeInTheDocument();
   });
 
   it("la sede baja de la lateral a la barra, y sigue siendo lo que alcanza a toda la app", async () => {
@@ -464,16 +465,13 @@ describe("AdminLayout: la barra superior de a2", () => {
     expect(within(lateral).queryByRole("combobox", { name: "Sede activa" })).toBeNull();
   });
 
-  it("las pestañas de la sección van pegadas a la barra, fuera del contenido (handoff, `AdminTop`)", async () => {
+  it("las pestañas de la sección son el interruptor de la barra, fuera del contenido (handoff «Burbujas»)", async () => {
     renderAdmin(buildMe({ features: { "inventory.perpetual": true, purchases: true } }), undefined, "/admin/compras");
 
     const tabs = await screen.findByRole("navigation", { name: "Pantallas de Inventario" });
-    // Antes vivían adentro de `main`, con margen negativo; ahora son una
-    // franja a todo el ancho entre la barra y el contenido.
     expect(screen.getByRole("main").contains(tabs)).toBe(false);
     const barra = document.querySelector("header") as HTMLElement;
-    expect(barra.compareDocumentPosition(tabs)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(tabs.compareDocumentPosition(screen.getByRole("main"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(barra.contains(tabs)).toBe(true);
   });
 
   it("con una sola sede la barra igual dice de dónde es lo que se mira", async () => {
@@ -487,7 +485,7 @@ describe("AdminLayout: la barra superior de a2", () => {
     expect(within(barra).queryByRole("combobox", { name: "Sede activa" })).toBeNull();
   });
 
-  it("la cabeza de la lateral dice la organización y la sede, y la persona vive en la barra", async () => {
+  it("la cabeza de la lateral dice la organización, y quién entró va al pie del riel", async () => {
     listStores.mockResolvedValue([{ id: 7, name: "Chapinero" }]);
     renderAdmin(buildMe());
     await screen.findByRole("link", { name: "Hoy" });
@@ -498,7 +496,8 @@ describe("AdminLayout: la barra superior de a2", () => {
     // La identidad va ANTES de la navegación: es de quién es el escritorio.
     expect(marca.compareDocumentPosition(nav)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
-    const barra = document.querySelector("header") as HTMLElement;
-    expect(within(barra).getByText(/Admin de prueba · administrador/)).toBeInTheDocument();
+    const persona = within(lateral).getByText("Admin de prueba");
+    expect(nav.compareDocumentPosition(persona)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(within(lateral).getByText("administrador")).toBeInTheDocument();
   });
 });
