@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Banknote, CalendarDays, Clock, CreditCard, Download, RefreshCw, type LucideIcon } from "lucide-react"
+import { Banknote, CalendarDays, Clock, CreditCard, Download, Package, type LucideIcon } from "lucide-react"
 import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 
@@ -22,7 +22,6 @@ import {
   type TodayBlock,
   type TodayOut,
   type TodayReceptionLineOut,
-  type TodayTopProductOut,
   type UnavailableProductOut,
   type UncostedProductOut,
 } from "@/api/reports"
@@ -32,14 +31,11 @@ import { useStoreSelection } from "@/app/storeContext"
 import {
   AllClearEmptyState,
   Burbuja,
-  DenseTable,
   EstadoPastilla,
   IrRedondo,
   NoticeRail,
   Pozo,
   PageHeader,
-  TimeAgo,
-  type DenseColumn,
   type FilterLinkProps,
   type Notice,
   type NoticeSeverity,
@@ -63,7 +59,7 @@ import { receptionDraftsTrayItem } from "@/features/purchases"
 import { Definiciones, Plegable, type Definicion } from "./Plegable"
 import { fichaTurnoHref } from "./fichas/rutas"
 import { avisoConEnlace, useAccionables } from "./hoy/Atencion"
-import { usePanelAhora } from "./PanelAhora"
+import { AhoraSede, SemaforoSedes, usePanelAhora } from "./PanelAhora"
 
 
 const REFRESH_MS = 30_000
@@ -74,6 +70,17 @@ const REFRESH_MS = 30_000
  * dos lados, y la prueba de esta pantalla lo fija.
  */
 const ANCLA_ATENCION = "requiere-atencion"
+
+/** «Buenas tardes, Óscar»: el saludo de Hoy, con el primer nombre de quien entró. */
+function saludo(ahora: Date, nombre?: string | null): string {
+  // La hora de la sede (Bogotá), no la del navegador.
+  const h = Number(
+    new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone: "America/Bogota" }).format(ahora),
+  )
+  const parte = h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches"
+  const primero = nombre?.trim().split(/\s+/)[0]
+  return primero ? `${parte}, ${primero}` : parte
+}
 
 function hourLabel(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
@@ -1319,13 +1326,12 @@ function VentaPrincipal({
   )
 }
 
-const TOP_PRODUCT_COLUMNS: readonly DenseColumn<TodayTopProductOut>[] = [
-  { key: "label", header: "Producto", kind: "name", cell: (p) => p.label },
-  { key: "units", header: "Unidades", kind: "number", cell: (p) => (p.units === null ? "—" : String(p.units)) },
-  { key: "net", header: "Venta neta", kind: "number", cell: (p) => formatCOP(p.net) },
-]
-
-/** «Top productos vendidos» de hoy: el orden y las cifras son del servidor. */
+/**
+ * «Lo más vendido» (handoff «Burbujas», Hoy § 5): cada plato con sus
+ * unidades y su venta neta, y una barra de 6 px que dice cuánto pesa contra
+ * el primero. El orden y las cifras son del servidor; el largo de la barra
+ * es dibujo, no una cifra.
+ */
 function TopProducts({
   today,
   storeId,
@@ -1336,23 +1342,45 @@ function TopProducts({
   recap?: RecapDay | null
 }): React.JSX.Element {
   const products = today.top_products ?? []
+  // El largo de la barra sale de la participación que manda el servidor
+  // (`share_bp`), relativa a la del primero: dibujo, no plata.
+  const mayor = Math.max(0, ...products.map((p) => p.share_bp ?? 0))
   return (
-    <section className="burbuja min-w-0 rounded-[24px] bg-card p-6">
+    <section className="burbuja min-w-0 rounded-[24px] bg-card p-6" data-slot="lo-mas-vendido">
       <BlockHeader
-        title={recap ? `Top productos vendidos · ${recap.short}` : "Top productos vendidos"}
+        title={recap ? `Lo más vendido · ${recap.short}` : "Lo más vendido hoy"}
         block="top-products"
         storeId={storeId}
         date={recap?.date}
-      >
-        <p className="mt-0.5 text-[13px] text-muted-foreground">Por venta neta, sin impuesto ni propina. La descarga trae todos.</p>
-      </BlockHeader>
-      <DenseTable
-        caption={`Productos más vendidos ${recap ? recap.label : "hoy"}, con unidades y venta neta.`}
-        columns={TOP_PRODUCT_COLUMNS}
-        rows={products}
-        rowKey={(p) => p.key}
-        empty={<EmptyState title="Todavía no se vendió nada hoy" description="Cuando se cobre la primera comanda, sus platos aparecen acá." />}
       />
+      {products.length === 0 ? (
+        <EmptyState title="Todavía no se vendió nada hoy" description="Cuando se cobre la primera comanda, sus platos aparecen acá." />
+      ) : (
+        <ul
+          className="flex flex-col gap-3.5"
+          aria-label={`Productos más vendidos ${recap ? recap.label : "hoy"}, con unidades y venta neta. Por venta neta, sin impuesto ni propina; la descarga trae todos.`}
+        >
+          {products.map((p) => (
+            <li key={p.key} className="flex flex-col gap-1.5">
+              <span className="flex items-baseline gap-3 text-sm">
+                <span className="min-w-0 flex-1 truncate">{p.label}</span>
+                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                  {p.units === null ? "—" : `${p.units} u.`}
+                </span>
+                <span className="w-[5.5rem] shrink-0 text-right tabular-nums">{formatCOP(p.net)}</span>
+              </span>
+              {p.share_bp !== null && mayor > 0 ? (
+                <span aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <span
+                    className="block h-full rounded-full bg-data-bar"
+                    style={{ width: `${Math.max(2, (p.share_bp / mayor) * 100)}%` }}
+                  />
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }
@@ -1371,57 +1399,12 @@ function receptionStatus(line: TodayReceptionLineOut): RowStatus {
   return "none"
 }
 
-const RECEPTION_COLUMNS: readonly DenseColumn<TodayReceptionLineOut>[] = [
-  {
-    key: "item",
-    header: "Insumo · proveedor",
-    kind: "name",
-    cell: (r) => (
-      <span className="flex flex-col">
-        <span className="font-medium">{r.ingredient_name}</span>
-        <span className="text-xs text-muted-foreground">{r.supplier_name}</span>
-      </span>
-    ),
-  },
-  { key: "qty", header: "Cantidad", kind: "number", cell: (r) => `${r.qty} ${r.purchase_unit}` },
-  {
-    key: "lot",
-    header: "Lote · vence",
-    cell: (r) => {
-      const word = expiryWord(r.days_to_expiry)
-      const soon = r.lot_status === "expiring" || r.lot_status === "expired"
-      return (
-        <span className="flex flex-col">
-          <span>{r.lot_code ?? <span className="text-muted-foreground">sin lote</span>}</span>
-          {r.expires_at ? (
-            <span className={cn("text-xs", soon ? "font-semibold text-warning" : "text-muted-foreground")}>
-              {formatFechaCorta(r.expires_at)}
-              {word ? ` · ${word}` : ""}
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground">sin vencimiento</span>
-          )}
-        </span>
-      )
-    },
-  },
-  {
-    key: "received",
-    header: "Recibió",
-    cell: (r) => (
-      <span className="flex flex-col">
-        <span>{r.received_by}</span>
-        <span className="text-xs text-muted-foreground">{formatClockTime(r.received_at)}</span>
-      </span>
-    ),
-  },
-]
-
 /**
- * «Entradas de mercancía del día»: lo que se recibió hoy, con su lote y
- * vencimiento. Un lote por vencer (≤ 7 días, la regla de Lotes, del
- * servidor) va con franja ámbar; uno vencido, roja. Sin «Compras», se dice
- * que la función está apagada: no es «no entró nada».
+ * «Lo que entró» (handoff «Burbujas», Hoy § 5): cada recepción en un pozo
+ * con su ícono — insumo y cantidad, proveedor, lote y hora, y a la derecha
+ * cuándo vence. Un lote por vencer (≤ 7 días, la regla de Lotes, del
+ * servidor) va en ámbar; uno vencido, en rojo. Sin «Compras», se dice que la
+ * función está apagada: no es «no entró nada».
  */
 function Receptions({
   today,
@@ -1436,7 +1419,7 @@ function Receptions({
   if (!today.receptions_enabled) {
     return (
       <section className="burbuja min-w-0 rounded-[24px] bg-card p-6" data-slot="entradas-apagadas">
-        <h2 className="text-[15px] font-semibold tracking-normal">Entradas de mercancía</h2>
+        <h2 className="text-[15px] font-semibold tracking-normal">Lo que entró hoy</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
           «Compras» está apagada en esta sede: no se registran recepciones.{" "}
           <Link to="/admin/features" className="font-medium text-primary underline-offset-4 hover:underline">
@@ -1448,39 +1431,68 @@ function Receptions({
   }
   const soon = lines.filter((l) => l.lot_status === "expiring" || l.lot_status === "expired").length
   return (
-    <section className="burbuja min-w-0 rounded-[24px] bg-card p-6">
+    <section className="burbuja min-w-0 rounded-[24px] bg-card p-6" data-slot="lo-que-entro">
       <BlockHeader
-        title={recap ? `Entradas de mercancía · ${recap.short}` : "Entradas de mercancía"}
+        title={recap ? `Lo que entró · ${recap.short}` : "Lo que entró hoy"}
         block="receptions"
         storeId={storeId}
         date={recap?.date}
       >
-        <p className="mt-0.5 text-[13px] text-muted-foreground">
-          Lo recibido {recap ? recap.label : "hoy"}, con su lote y vencimiento.
-          {soon > 0 ? (
-            <b className="font-semibold text-warning">
-              {" "}
-              {soon} {soon === 1 ? "lote vence pronto" : "lotes vencen pronto"}.
-            </b>
-          ) : null}
-        </p>
+        {soon > 0 ? (
+          <p className="mt-0.5 text-[13px] font-semibold text-warning">
+            {soon} {soon === 1 ? "lote vence pronto" : "lotes vencen pronto"}.
+          </p>
+        ) : null}
       </BlockHeader>
-      <DenseTable
-        caption={`Entradas de mercancía de ${recap ? recap.label : "hoy"}: insumo, proveedor, cantidad en unidad de compra, lote, vencimiento y quién recibió.`}
-        columns={RECEPTION_COLUMNS}
-        rows={lines}
-        rowKey={(r) => String(r.line_id)}
-        rowStatus={receptionStatus}
-        legend={
-          soon > 0
-            ? [
-                { term: "Franja ámbar", meaning: "el lote vence en 7 días o menos." },
-                { term: "Franja roja", meaning: "el lote ya venció." },
-              ]
-            : undefined
-        }
-        empty={<EmptyState title="Hoy no entró mercancía" description="Las recepciones confirmadas del día aparecen acá, con su lote." />}
-      />
+      {lines.length === 0 ? (
+        <EmptyState title="Hoy no entró mercancía" description="Las recepciones confirmadas del día aparecen acá, con su lote." />
+      ) : (
+        <ul
+          className="flex flex-col gap-2"
+          aria-label={`Lo que entró ${recap ? recap.label : "hoy"}: insumo, cantidad en unidad de compra, proveedor, lote, hora, quién recibió y vencimiento.`}
+        >
+          {lines.map((r) => {
+            const status = receptionStatus(r)
+            const word = expiryWord(r.days_to_expiry)
+            return (
+              <li
+                key={r.line_id}
+                data-status={status}
+                className="flex items-center gap-3 rounded-2xl bg-muted px-3.5 py-3"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-card">
+                  <Package className="size-4" aria-hidden="true" />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-sm">
+                    <span className="font-medium">{r.ingredient_name}</span> ·{" "}
+                    <span className="tabular-nums">{`${r.qty} ${r.purchase_unit}`}</span>
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    <span>{r.supplier_name}</span> · {r.lot_code ? <span>lote {r.lot_code}</span> : <span>sin lote</span>} ·{" "}
+                    {formatClockTime(r.received_at)} · <span>{r.received_by}</span>
+                  </span>
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 text-right text-xs font-semibold",
+                    status === "critical" ? "text-destructive" : status === "warning" ? "text-warning" : "text-muted-foreground",
+                  )}
+                >
+                  {r.expires_at ? (
+                    <>
+                      {word ? word.charAt(0).toUpperCase() + word.slice(1) : formatFechaCorta(r.expires_at)}
+                      <span className="block font-normal">{formatFechaCorta(r.expires_at)}</span>
+                    </>
+                  ) : (
+                    "Sin vencimiento"
+                  )}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </section>
   )
 }
@@ -1628,16 +1640,16 @@ export function TodayPage(): React.JSX.Element {
   return (
     <div className="space-y-4">
       <PageHeader
-        name="Hoy"
+        // «Burbujas» (Hoy § 1): en Hoy el título es un saludo.
+        name={saludo(new Date(query.dataUpdatedAt), me?.user?.name)}
         question="¿Cuánto se vendió hoy, qué se vendió, qué mercancía entró y qué necesita una decisión tuya?"
         // En el celular la barra de arriba ya dice «hace 14 s» (captura 13a):
         // la franja de contexto repetía lo mismo en dos renglones.
         context={celular ? [] : [
           {
-            label: "Se actualiza sola cada 30 s ·",
-            value: <TimeAgo iso={updatedIso} />,
+            label: "Así van las sedes a las",
+            value: formatClockTime(updatedIso),
             title: formatInstant(updatedIso),
-            icon: RefreshCw,
           },
           {
             label: "Día operativo",
@@ -1662,6 +1674,9 @@ export function TodayPage(): React.JSX.Element {
           En el celular es una sola columna y los avisos van al final: el
           orden del código es el orden de lectura (foco y lector de
           pantalla incluidos). */}
+      {/* El semáforo de las sedes, a todo el ancho (Hoy § 1). */}
+      <SemaforoSedes />
+
       <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex min-w-0 flex-col gap-3 xl:col-start-1 xl:row-start-1">
           {/* § 4 · La plata nunca es un número suelto: es una resta, y se
@@ -1711,9 +1726,13 @@ export function TodayPage(): React.JSX.Element {
             <HourlySales today={shown} storeId={activeStoreId} recap={recap} />
           </VentaPrincipal>
 
-          <TopProducts today={shown} storeId={activeStoreId} recap={recap} />
+          {/* «Ahora» de la sede activa: cinco burbujas en dos columnas. */}
+          <AhoraSede />
 
-          <Receptions today={shown} storeId={activeStoreId} recap={recap} />
+          <div className="grid min-w-0 items-start gap-3 lg:grid-cols-2">
+            <TopProducts today={shown} storeId={activeStoreId} recap={recap} />
+            <Receptions today={shown} storeId={activeStoreId} recap={recap} />
+          </div>
         </div>
 
         <div className="min-w-0 xl:col-start-2 xl:row-start-1 xl:self-stretch">

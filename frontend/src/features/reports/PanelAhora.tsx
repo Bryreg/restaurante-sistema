@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { ChefHat, ClipboardList, LayoutGrid, Users, Wallet } from "lucide-react"
+import { ArrowUpRight, ChefHat, ClipboardList, LayoutGrid, Users, Wallet } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { getPanel, type BulletOut, type PanelLight, type PanelOut, type StorePanelOut } from "@/api/panel"
@@ -34,18 +34,12 @@ export const LIGHT_WORD: Record<PanelLight, string> = {
   gray: "Cerrado",
 }
 
-const LIGHT_TEXT: Record<PanelLight, string> = {
-  red: "text-destructive",
-  amber: "text-warning",
-  green: "text-success",
-  gray: "text-muted-foreground",
-}
-
-const LIGHT_EDGE: Record<PanelLight, string> = {
-  red: "border-l-destructive",
-  amber: "border-l-warning",
-  green: "border-l-success",
-  gray: "border-l-input",
+/** El fondo suave de la pastilla de cada luz («Burbujas»). */
+const LIGHT_PILL: Record<PanelLight, string> = {
+  red: "bg-destructive-soft text-destructive",
+  amber: "bg-warning-soft text-warning",
+  green: "bg-success-soft text-success",
+  gray: "bg-muted text-muted-foreground",
 }
 
 /** La forma del semáforo: ● redondo, ▲ triángulo, ■ cuadrado; gris, cuadrado apagado. */
@@ -124,7 +118,7 @@ export function Semaforo({
       aria-label="Todas las sedes ahora"
       className={cn(
         "grid",
-        celular ? "grid-cols-2 gap-2" : "gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]",
+        celular ? "grid-cols-2 gap-2" : "gap-3 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]",
       )}
     >
       {stores.map((s) => {
@@ -137,20 +131,26 @@ export function Semaforo({
               onClick={() => onPick(s.store_id)}
               aria-pressed={activa}
               title={`Ver ${s.store_name}`}
+              // «Burbujas»: cada sede es una burbuja sin borde; la luz va en una
+              // pastilla con su forma y su palabra.
               className={cn(
-                "flex h-full w-full flex-col items-start gap-1.5 rounded-lg border border-l-4 bg-card text-left",
+                "flex h-full w-full flex-col items-start gap-2 rounded-[20px] bg-card text-left",
                 "hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                celular ? "min-h-[72px] px-2.5 py-2" : "px-3.5 py-3",
-                LIGHT_EDGE[s.light],
+                celular ? "min-h-[72px] px-3 py-2.5" : "px-5 py-4",
                 // El anillo dice cuál de varias es la activa; con una sola
                 // no elige nada y sólo sumaba un marco negro.
-                activa && stores.length > 1 && "border-foreground shadow-[0_0_0_1px_var(--foreground)]",
+                activa && stores.length > 1 && "shadow-[inset_0_0_0_2px_var(--foreground)]",
               )}
             >
               <span className="flex w-full min-w-0 items-center gap-2">
-                <Forma light={s.light} />
-                <b className={cn("min-w-0 truncate", celular ? "text-sm" : "text-base")}>{s.store_name}</b>
-                <span className={cn("ml-auto shrink-0 text-xs font-bold", LIGHT_TEXT[s.light])}>
+                <b className={cn("min-w-0 truncate font-semibold", celular ? "text-sm" : "text-base")}>{s.store_name}</b>
+                <span
+                  className={cn(
+                    "ml-auto inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold",
+                    LIGHT_PILL[s.light],
+                  )}
+                >
+                  <Forma light={s.light} className="size-[7px] bg-current" />
                   {LIGHT_WORD[s.light]}
                 </span>
               </span>
@@ -177,10 +177,11 @@ export function Semaforo({
 
 type Tono = "default" | "warning" | "critical"
 
-const TONO_BLOQUE: Record<Tono, string> = {
-  default: "border-border border-l-border bg-card",
-  warning: "border-warning/45 border-l-warning bg-warning/[0.08]",
-  critical: "border-destructive/30 border-l-destructive bg-destructive/5",
+/** La pastilla del estado de un bloque: fondo suave y texto del tono. */
+const TONO_PASTILLA: Record<Tono, string> = {
+  default: "bg-muted text-muted-foreground",
+  warning: "bg-warning-soft text-warning",
+  critical: "bg-destructive-soft text-destructive",
 }
 
 const TONO_TEXTO: Record<Tono, string> = {
@@ -189,7 +190,11 @@ const TONO_TEXTO: Record<Tono, string> = {
   critical: "text-destructive",
 }
 
-/** Un bloque de «Ahora»: ícono y título, el estado a la derecha, la cifra, el gráfico, el detalle y a dónde lleva. */
+/**
+ * Un bloque de «Ahora» en burbuja (handoff «Burbujas», Hoy § 4): ícono en su
+ * cuadro, título, el estado en pastilla y el botón redondo que lleva a su
+ * pantalla; la cifra grande, los gráficos en pozos y el detalle.
+ */
 function Bloque({
   icon: Icon,
   titulo,
@@ -216,7 +221,7 @@ function Bloque({
   const cifraNodo =
     cifra !== undefined ? (
       <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="text-[26px] leading-[1.1] font-semibold tabular-nums">{cifra}</span>
+        <span className="text-[30px] leading-[1.1] font-medium tracking-[-0.03em] tabular-nums">{cifra}</span>
         {cifraNota ? <span className="text-sm text-muted-foreground">{cifraNota}</span> : null}
       </span>
     ) : null
@@ -224,12 +229,28 @@ function Bloque({
     <section
       aria-label={titulo}
       data-tono={tono}
-      className={cn("flex min-w-0 flex-col gap-1.5 rounded-lg border border-l-[3px] p-3.5", TONO_BLOQUE[tono], className)}
+      className={cn("burbuja flex min-w-0 flex-col gap-3 rounded-[24px] bg-card p-6", className)}
     >
-      <h3 className="flex items-center gap-1.5 text-sm font-normal text-muted-foreground">
-        <Icon className="size-4 shrink-0" aria-hidden="true" />
-        {titulo}
-        {estado ? <span className={cn("ml-auto text-xs font-bold", TONO_TEXTO[tono])}>{estado}</span> : null}
+      <h3 className="flex items-center gap-3 text-[15px] font-semibold">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted">
+          <Icon className="size-[18px]" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1 truncate">{titulo}</span>
+        {estado ? (
+          <span className={cn("inline-flex h-[26px] shrink-0 items-center rounded-full px-2.5 text-xs font-semibold", TONO_PASTILLA[tono])}>
+            {estado}
+          </span>
+        ) : null}
+        {enlace ? (
+          <Link
+            to={enlace.to}
+            title={enlace.label}
+            className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <ArrowUpRight className="size-4" aria-hidden="true" />
+            <span className="sr-only">{enlace.label} →</span>
+          </Link>
+        ) : null}
       </h3>
       {cifraNodo && cifraHref ? (
         <Link to={cifraHref} className="min-w-0 rounded-sm text-foreground no-underline hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
@@ -239,14 +260,6 @@ function Bloque({
         cifraNodo
       )}
       {children}
-      {enlace ? (
-        <Link
-          to={enlace.to}
-          className="mt-auto w-fit pt-0.5 text-[13px] font-semibold text-primary no-underline hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          {enlace.label} →
-        </Link>
-      ) : null}
     </section>
   )
 }
@@ -268,7 +281,7 @@ function RenglonBullet({
   pie?: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-[3px]">
+    <div className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-2xl bg-muted px-4 py-3.5">
       <span className="flex justify-between gap-2 text-xs">
         <span className="min-w-0 truncate text-muted-foreground">{etiqueta}</span>
         <b className={cn("shrink-0 tabular-nums", fuera ? (tono === "destructive" ? "text-destructive" : "text-warning") : "text-foreground")}>
@@ -328,7 +341,7 @@ function Caja({ panel, orders }: { panel: StorePanelOut; orders: number | undefi
       enlace={cash ? { to: fichaTurnoHref(cash.shift_id), label: "Ficha del turno" } : { to: "/admin/dinero", label: "Dinero" }}
     >
       {sales ? (
-        <div className="mt-1 flex flex-col gap-2">
+        <div className="flex flex-col gap-2 md:flex-row">
           {sales.value === 0 && (sales.reference ?? 0) === 0 ? (
             // Nada vendido y nada contra qué comparar: una barra vacía con la
             // raya pegada al borde no dice nada; se dice en una línea.
@@ -445,8 +458,8 @@ function QuienTrabaja({ panel }: { panel: StorePanelOut }): React.JSX.Element {
       enlace={{ to: "/admin/nomina?tab=horas", label: "Asistencia" }}
     >
       {serieOk(serie) && serie.points.some((p) => (p.value ?? 0) > 0) ? (
-        <div className="mt-1 flex flex-col gap-[3px]">
-          <span className="text-xs font-semibold">Personas en turno por hora · lo claro es lo que viene</span>
+        <div className="flex flex-col gap-1.5 rounded-2xl bg-muted px-4 py-3.5">
+          <span className="text-xs text-muted-foreground">Personas en turno por hora · lo claro es lo que viene</span>
           <SerieMini
             puntos={serie.points}
             alto={64}
@@ -524,7 +537,7 @@ function Conteos({ panel }: { panel: StorePanelOut }): React.JSX.Element {
       enlace={{ to: "/admin/inventario?tab=por-area", label: "Conteos" }}
     >
       {areas.length > 0 ? (
-        <div className="mt-1 flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           {areas.map((ar) => (
             <RenglonBullet
               key={ar.area_id}
@@ -585,8 +598,8 @@ function Salon({ panel }: { panel: StorePanelOut }): React.JSX.Element {
       enlace={{ to: "/admin/pedidos", label: "Pedidos abiertos" }}
     >
       {serieOk(serie) ? (
-        <div className="mt-1 flex flex-col gap-[3px]">
-          <span className="text-xs font-semibold">Minutos que lleva cada mesa abierta</span>
+        <div className="flex flex-col gap-1.5 rounded-2xl bg-muted px-4 py-3.5">
+          <span className="text-xs text-muted-foreground">Minutos que lleva cada mesa abierta</span>
           <SerieMini
             puntos={serie.points}
             referencia={serie.reference}
@@ -630,8 +643,8 @@ function Cocina({ panel }: { panel: StorePanelOut }): React.JSX.Element {
       enlace={{ to: "/admin/pedidos", label: "Tiquetes" }}
     >
       {serieOk(serie) ? (
-        <div className="mt-1 flex flex-col gap-[3px]">
-          <span className="text-xs font-semibold">Minutos de cada tiquete</span>
+        <div className="flex flex-col gap-1.5 rounded-2xl bg-muted px-4 py-3.5">
+          <span className="text-xs text-muted-foreground">Minutos de cada tiquete</span>
           <SerieMini
             puntos={serie.points}
             referencia={serie.reference}
@@ -688,11 +701,11 @@ export function AhoraBloques({ data }: { data: PanelOut | undefined }): React.JS
   const orders = today.data?.orders
   if (celular) return <AhoraCelular panel={panel} orders={orders} />
   return (
-    <section aria-labelledby="ahora-titulo" className="flex min-w-0 flex-col gap-2.5">
-      <h2 id="ahora-titulo" className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+    <section aria-labelledby="ahora-titulo" className="flex min-w-0 flex-col gap-3">
+      <h2 id="ahora-titulo" className="sr-only">
         Ahora en {panel.store_name} · {formatClockTime(data.generated_at)}
       </h2>
-      <div className="grid gap-2.5 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Caja panel={panel} orders={orders} />
         <QuienTrabaja panel={panel} />
         <Conteos panel={panel} />
@@ -725,9 +738,8 @@ function BloqueCorto({
     <Link
       to={to}
       className={cn(
-        "flex min-h-[84px] min-w-0 flex-col gap-0.5 rounded-lg border border-l-[3px] px-3 py-2.5 text-foreground no-underline",
+        "flex min-h-[84px] min-w-0 flex-col gap-0.5 rounded-[20px] bg-card px-4 py-3 text-foreground no-underline",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-        TONO_BLOQUE[tono],
         className,
       )}
     >
@@ -761,12 +773,12 @@ function AhoraCelular({ panel, orders }: { panel: StorePanelOut; orders: number 
       </h2>
       <Link
         to="/admin/ventas"
-        className="flex flex-col gap-1 rounded-lg border bg-card px-3.5 py-3 text-foreground no-underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="flex flex-col gap-1 rounded-[24px] bg-card px-5 py-4 text-foreground no-underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
         <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
           Ventas netas de hoy · {panel.store_name}
         </span>
-        <b className="text-[34px] leading-none font-extrabold tracking-tight tabular-nums">
+        <b className="text-[34px] leading-none font-medium tracking-[-0.03em] tabular-nums">
           {sales?.value != null ? formatCOP(sales.value) : <span className="text-muted-foreground">—</span>}
         </b>
         <span className="text-xs text-muted-foreground">
@@ -837,7 +849,7 @@ export function SemaforoSedes(): React.JSX.Element | null {
   const { setActiveStoreId } = useStoreSelection()
   const celular = useEsCelular()
   if (activeStoreId === null) return null
-  if (query.isLoading) return <Skeleton aria-label="Cargando las sedes" className="h-[5.5rem] w-full rounded-lg" />
+  if (query.isLoading) return <Skeleton aria-label="Cargando las sedes" className="h-[5.5rem] w-full rounded-[20px]" />
   if (query.isError || !query.data) {
     // Hoy sigue funcionando sin la portada: el error se dice y no tapa lo demás.
     return (
@@ -856,7 +868,7 @@ export function SemaforoSedes(): React.JSX.Element | null {
 export function AhoraSede(): React.JSX.Element | null {
   const { query, activeStoreId } = usePanelAhora()
   if (activeStoreId === null) return null
-  if (query.isLoading) return <Skeleton aria-label="Cargando lo que pasa ahora" className="h-[28rem] w-full rounded-lg" />
+  if (query.isLoading) return <Skeleton aria-label="Cargando lo que pasa ahora" className="h-[28rem] w-full rounded-[24px]" />
   if (query.isError) return null
   return <AhoraBloques data={query.data} />
 }

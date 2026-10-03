@@ -288,8 +288,8 @@ describe("TodayPage", () => {
       screen.getByText("Ventas en efectivo"),
       screen.getByText("Ventas en tarjeta"),
       screen.getByText("Ventas por hora"),
-      screen.getByText("Top productos vendidos"),
-      screen.getByText("Entradas de mercancía"),
+      screen.getByText("Lo más vendido hoy"),
+      screen.getByText("Lo que entró hoy"),
       screen.getByRole("complementary", { name: "Requiere tu atención" }),
     ]
     const antes = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
@@ -535,7 +535,7 @@ describe("TodayPage", () => {
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
     expect(await screen.findByText(/estas cifras y los bloques de abajo son de/)).toBeInTheDocument()
-    expect(screen.getByText("Top productos vendidos · Ayer")).toBeInTheDocument()
+    expect(screen.getByText("Lo más vendido · Ayer")).toBeInTheDocument()
     expect(screen.getByText("Bandeja paisa")).toBeInTheDocument()
     expect(screen.getByText("30")).toBeInTheDocument()
     expect(screen.getByText("$ 655.000")).toBeInTheDocument()
