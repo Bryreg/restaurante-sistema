@@ -152,7 +152,7 @@ describe("Hoy · lo que pidió el dueño", () => {
     getTodayMock.mockResolvedValue(today())
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    const bloque = (await screen.findByText("Ventas por hora")).closest("section") as HTMLElement
+    const bloque = await screen.findByRole("region", { name: "Ventas por hora" })
     expect(within(bloque).getByRole("link", { name: /Descargar CSV/ })).toHaveAttribute(
       "href",
       "/api/v1/admin/today/sales-by-hour?store_id=1&format=csv",

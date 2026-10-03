@@ -42,7 +42,7 @@ import {
   type RowStatus,
 } from "@/components/admin"
 import { Cargando } from "@/components/Cargando"
-import { ChartFrame, ColumnChart, type ColumnDatum } from "@/components/charts"
+import { ColumnasHora, type ColumnaHora } from "@/components/charts"
 import { EmptyState } from "@/components/EmptyState"
 import { SinDato } from "@/components/SinDato"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -996,12 +996,6 @@ function HourlySales({
 
   const referenceByHour = new Map(reference.map((h) => [h.hour, h.net]))
   const hasReference = reference.length > 0
-  const datos: ColumnDatum[] = hours.map((h) => ({
-    key: String(h.hour),
-    etiqueta: hourTick(h.hour),
-    valor: h.pending ? null : h.net,
-  }))
-  const serieReferencia = hasReference ? hours.map((h) => referenceByHour.get(h.hour) ?? null) : undefined
   const pendingCount = hours.filter((h) => h.pending).length
   // Elegir la hora más alta de una serie que el servidor ya mandó es
   // selección, no matemática de negocio: no se suma ni se promedia nada.
@@ -1029,8 +1023,8 @@ function HourlySales({
 
   const detalle = [
     "Venta neta por hora de reloj, sin propina, desde el corte del día.",
-    hasReference && dia ? `La marca gris es el ${dia} pasado, día completo.` : null,
-    pendingCount > 0 ? "Rayado: horas que todavía no llegan (no son $ 0)." : null,
+    hasReference && dia ? `La raya es el ${dia} pasado, día completo.` : null,
+    pendingCount > 0 ? "Columna clara: horas que todavía no llegan (no son $ 0)." : null,
   ]
     .filter(Boolean)
     .join(" ")
@@ -1039,55 +1033,63 @@ function HourlySales({
   // La hora en curso (la última que ya llegó) va en tinta; sólo hoy, no en
   // el repaso de otro día. Elegir cuál es selección, no matemática.
   const enCurso = recap ? undefined : [...hours].reverse().find((h) => !h.pending)
+  const columnas: ColumnaHora[] = hours.map((h) => ({
+    key: String(h.hour),
+    etiqueta: hourTick(h.hour),
+    valor: h.pending ? null : h.net,
+    referencia: hasReference ? (referenceByHour.get(h.hour) ?? null) : null,
+  }))
 
   return (
-    // Va dentro de la burbuja de la venta («Burbujas»): sin superficie propia.
-    <section className="min-w-0">
-      <BlockHeader
-        title={recap ? `Ventas por hora · ${recap.short}` : "Ventas por hora"}
-        block="sales-by-hour"
-        storeId={storeId}
-        date={recap?.date}
+    // «Burbujas» (handoff `MinHoyC`): «Por hora» con su leyenda, columnas sin
+    // eje y la hora debajo. Va dentro de la burbuja de la venta, sin
+    // superficie propia. La conclusión y el método quedan para el lector de
+    // pantalla y en el `title` de cada columna.
+    <section className="flex min-w-0 flex-col gap-3" aria-label={recap ? `Ventas por hora · ${recap.short}` : "Ventas por hora"}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <h2 className="mr-auto text-sm font-semibold tracking-normal text-foreground">
+          {recap ? `Por hora · ${recap.short}` : "Por hora"}
+        </h2>
+        <p className="sr-only">{titular}</p>
+        <p className="sr-only">{detalle}</p>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="size-2.5 rounded-[3px] bg-data-bar" />
+          {recap ? recap.short : "Hoy"}
+        </span>
+        {hasReference ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className="w-3.5 border-t-2 border-foreground" />
+            {refLabel}, día completo
+          </span>
+        ) : null}
+        {enCurso ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className="size-2.5 rounded-[3px] bg-foreground" />
+            Hora en curso
+          </span>
+        ) : null}
+        <a
+          href={todayBlockCsvUrl("sales-by-hour", storeId, recap?.date)}
+          target="_blank"
+          rel="noreferrer"
+          title="Descargar «Ventas por hora» (CSV)"
+          className="grid size-7 place-items-center rounded-full bg-muted text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <Download className="size-3.5" aria-hidden="true" />
+          <span className="sr-only">Descargar CSV</span>
+        </a>
+      </div>
+      <ColumnasHora
+        datos={columnas}
+        actual={enCurso ? String(enCurso.hour) : undefined}
+        formato={formatCOP}
+        etiquetaSerie={recap ? recap.short : "Hoy"}
+        etiquetaReferencia={hasReference ? `${refLabel} (día completo)` : undefined}
+        resumen={
+          `Columnas de venta neta por hora de ${recap ? recap.label : "hoy"}${peak ? `; la más alta, las ${hourLabel(peak.hour)} con ${formatCOP(peak.net)}` : ", todavía sin ventas"}` +
+          `${pendingCount > 0 ? `; ${pendingCount} horas todavía no llegan` : ""}.`
+        }
       />
-      <ChartFrame
-        titular={titular}
-        // El método del gráfico se lee una vez: va plegado (regla 2), y a la
-        // vista queda el titular, que es la conclusión.
-        detalle={<Plegable resumen="Cómo leer esto">{detalle}</Plegable>}
-        tabla={{
-          columnas: [
-            { key: "hora", header: "Hora" },
-            { key: "hoy", header: recap ? recap.short : "Hoy", align: "right" },
-            ...(hasReference ? [{ key: "ref", header: `${refLabel} (día completo)`, align: "right" as const }] : []),
-            { key: "comandas", header: "Comandas", align: "right" },
-          ],
-          filas: hours.map((h) => ({
-            hora: hourLabel(h.hour),
-            hoy: h.pending ? <span className="text-muted-foreground italic">todavía no llega</span> : formatCOP(h.net),
-            ref: hasReference ? formatCOP(referenceByHour.get(h.hour)) : undefined,
-            comandas: h.pending ? "" : String(h.orders ?? "—"),
-          })),
-        }}
-      >
-        <ColumnChart
-          datos={datos}
-          formato={formatCOP}
-          serieReferencia={serieReferencia}
-          etiquetaSerie={recap ? recap.short : "Hoy"}
-          etiquetaSerieReferencia={`${refLabel}, día completo`}
-          actual={enCurso ? String(enCurso.hour) : undefined}
-          resumen={
-            `Columnas de venta neta por hora de ${recap ? recap.label : "hoy"}${peak ? `; la más alta, las ${hourLabel(peak.hour)} con ${formatCOP(peak.net)}` : ", todavía sin ventas"}` +
-            `${pendingCount > 0 ? `; ${pendingCount} horas todavía no llegan` : ""}. El detalle está en la tabla.`
-          }
-        />
-      </ChartFrame>
-      {peak && c && c.delta_bp !== null && c.delta_bp !== undefined ? (
-        <p className="mt-3 text-[13px] text-muted-foreground">
-          La hora más fuerte del día va siendo la de las <b className="text-foreground">{hourLabel(peak.hour)}</b>, con{" "}
-          <b className="text-foreground">{formatCOP(peak.net)}</b> netos.
-        </p>
-      ) : null}
     </section>
   )
 }

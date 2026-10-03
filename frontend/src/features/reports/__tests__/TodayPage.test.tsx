@@ -287,7 +287,7 @@ describe("TodayPage", () => {
       screen.getByText("Número de tickets"),
       screen.getByText("Ventas en efectivo"),
       screen.getByText("Ventas en tarjeta"),
-      screen.getByText("Ventas por hora"),
+      screen.getByRole("region", { name: "Ventas por hora" }),
       screen.getByText("Lo más vendido hoy"),
       screen.getByText("Lo que entró hoy"),
       screen.getByRole("complementary", { name: "Requiere tu atención" }),
@@ -373,7 +373,8 @@ describe("TodayPage", () => {
     expect(screen.getByText("entonces $ 82.450")).toBeInTheDocument()
     // El titular del gráfico concluye con la misma cifra, sin calcular otra.
     expect(
-      screen.getByRole("heading", { name: `Vas ${formatPct(1230)} arriba del martes pasado a esta hora` }),
+      // Sin normalizar: `formatPct` separa la cifra del «%» con espacio fino.
+      screen.getByText(`Vas ${formatPct(1230)} arriba del martes pasado a esta hora`, { normalizer: (t) => t }),
     ).toBeInTheDocument()
   })
 
@@ -396,7 +397,7 @@ describe("TodayPage", () => {
 
     await screen.findByText(`▼ ${pct(2284)}`)
     expect(
-      screen.getByRole("heading", { name: `Vas ${formatPct(2284)} abajo del martes pasado a esta hora` }),
+      screen.getByText(`Vas ${formatPct(2284)} abajo del martes pasado a esta hora`, { normalizer: (t) => t }),
     ).toBeInTheDocument()
   })
 
@@ -605,20 +606,21 @@ describe("TodayPage", () => {
     )
     const { container } = renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    await screen.findByRole("heading", { name: "Vas igual que el martes pasado a esta hora" })
-    // La hora con 0 real es columna; las que todavía no llegan son hueco.
+    await screen.findByText("Vas igual que el martes pasado a esta hora")
+    // La hora con 0 real es columna con dato; las que todavía no llegan van
+    // como columna clara a todo el alto («Burbujas»), nunca como $ 0.
+    const pendiente = (h: string) => container.querySelector(`[data-columna="${h}"] [data-pendiente]`)
     expect(container.querySelector('[data-columna="11"]')).not.toBeNull()
-    expect(container.querySelector('[data-hueco="11"]')).toBeNull()
-    expect(container.querySelector('[data-hueco="13"]')).not.toBeNull()
-    expect(container.querySelector('[data-columna="13"]')).toBeNull()
-    expect(container.querySelector('[data-hueco="0"]')).not.toBeNull()
+    expect(pendiente("11")).toBeNull()
+    expect(pendiente("13")).not.toBeNull()
+    expect(pendiente("0")).not.toBeNull()
     // Las 00 van después de las 13 (orden del día operativo, como llegan).
-    const hueco13 = container.querySelector('[data-hueco="13"]') as Element
-    const hueco0 = container.querySelector('[data-hueco="0"]') as Element
-    expect(hueco13.compareDocumentPosition(hueco0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // Una marca de referencia por hora con dato (4: la de las 00 es $ 0 real).
-    expect(container.querySelectorAll("[data-referencia-serie]")).toHaveLength(4)
-    expect(screen.getByText(/Rayado: horas que todavía no llegan/)).toBeInTheDocument()
+    const col13 = container.querySelector('[data-columna="13"]') as Element
+    const col0 = container.querySelector('[data-columna="0"]') as Element
+    expect(col13.compareDocumentPosition(col0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Una raya de referencia por hora con dato (4: la de las 00 es $ 0 real).
+    expect(container.querySelectorAll("[data-referencia]")).toHaveLength(4)
+    expect(screen.getByText(/Columna clara: horas que todavía no llegan/)).toBeInTheDocument()
   })
 
   it("el aviso resumen de caja lleva a Dinero › Historial, dice la plata en juego y quién lleva racha", async () => {
@@ -767,7 +769,9 @@ describe("TodayPage", () => {
 
     await screen.findByText("1 insumo en negativo")
     expect(screen.getByText(/cobradas y cerradas hoy: ya no cambian/).closest("details")).not.toBeNull()
-    expect(screen.getByText(/Venta neta por hora de reloj/).closest("details")).not.toBeNull()
+    // El método del gráfico se lee con lector de pantalla; a la vista queda
+    // el gráfico solo, como en el diseño («Burbujas»).
+    expect(screen.getByText(/Venta neta por hora de reloj/)).toHaveClass("sr-only")
     expect(screen.getByText(/Es deuda de registro/).closest("details")).not.toBeNull()
     // Que la propina no es venta (Ley 1935 de 2018) va plegado con las cifras.
     expect(screen.getByText(/Ley 1935 de 2018/).closest("details")).not.toBeNull()
