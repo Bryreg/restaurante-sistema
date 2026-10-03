@@ -101,28 +101,25 @@ describe("Hoy · lo que pidió el dueño", () => {
     getTodayMock.mockResolvedValue(today())
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    const efectivo = (await screen.findByText("Ventas en efectivo")).closest("div.rounded-lg") as HTMLElement
+    const efectivo = (await screen.findByText("Ventas en efectivo")).closest("div.rounded-2xl") as HTMLElement
     expect(within(efectivo).getByText("$ 61.111")).toBeInTheDocument()
     expect(within(efectivo).getByText("2 pagos")).toBeInTheDocument()
-    const tarjeta = screen.getByText("Ventas en tarjeta").closest("div.rounded-lg") as HTMLElement
+    const tarjeta = screen.getByText("Ventas en tarjeta").closest("div.rounded-2xl") as HTMLElement
     expect(within(tarjeta).getByText("$ 27.777")).toBeInTheDocument()
     expect(within(tarjeta).getByText("1 pago")).toBeInTheDocument()
-    expect(screen.getByText("$ 11.112")).toBeInTheDocument()
-    const tickets = screen.getByText("Número de tickets").closest("div.rounded-lg") as HTMLElement
+    expect(screen.getByText(/\$ 11\.112/)).toBeInTheDocument()
+    const tickets = screen.getByText("Número de tickets").closest("div.rounded-2xl") as HTMLElement
     expect(within(tickets).getByText("3")).toBeInTheDocument()
     expect(screen.getByText("$ 33.333")).toBeInTheDocument()
   })
 
-  it("top productos: el orden y las cifras del servidor, con su descarga", async () => {
+  it("lo más vendido: el orden y las cifras del servidor, con su descarga", async () => {
     getTodayMock.mockResolvedValue(today())
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    const bloque = (await screen.findByText("Top productos vendidos")).closest("section") as HTMLElement
-    const filas = within(bloque).getAllByRole("row").slice(1)
-    expect(filas.map((f) => within(f).getAllByRole("cell").map((c) => c.textContent))).toEqual([
-      ["Bandeja paisa", "2", "$ 55.556"],
-      ["Limonada de coco", "4", "$ 44.444"],
-    ])
+    const bloque = (await screen.findByText("Lo más vendido hoy")).closest("section") as HTMLElement
+    const filas = within(bloque).getAllByRole("listitem")
+    expect(filas.map((f) => f.textContent)).toEqual(["Bandeja paisa2 u.$ 55.556", "Limonada de coco4 u.$ 44.444"])
     expect(within(bloque).getByRole("link", { name: /Descargar CSV/ })).toHaveAttribute(
       "href",
       "/api/v1/admin/today/top-products?store_id=1&format=csv",
@@ -133,32 +130,21 @@ describe("Hoy · lo que pidió el dueño", () => {
     getTodayMock.mockResolvedValue(today())
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    const bloque = (await screen.findByText("Entradas de mercancía")).closest("section") as HTMLElement
-    const pollo = within(bloque).getByText("Pechuga de pollo").closest("tr") as HTMLElement
+    const bloque = (await screen.findByText("Lo que entró hoy")).closest("section") as HTMLElement
+    const pollo = within(bloque).getByText("Pechuga de pollo").closest("li") as HTMLElement
     expect(pollo).toHaveAttribute("data-status", "warning")
     expect(within(pollo).getByText("Avícola El Dorado")).toBeInTheDocument()
     expect(within(pollo).getByText("2.5 kg")).toBeInTheDocument()
-    expect(within(pollo).getByText("L-0301")).toBeInTheDocument()
-    expect(within(pollo).getByText(/vence en 3 días/)).toBeInTheDocument()
+    expect(within(pollo).getByText("lote L-0301")).toBeInTheDocument()
+    expect(within(pollo).getByText(/vence en 3 días/i)).toBeInTheDocument()
     expect(within(pollo).getByText("Luz Marina")).toBeInTheDocument()
-    const huevo = within(bloque).getByText("Huevo AA").closest("tr") as HTMLElement
+    const huevo = within(bloque).getByText("Huevo AA").closest("li") as HTMLElement
     expect(huevo).toHaveAttribute("data-status", "none")
     expect(within(huevo).getByText("sin lote")).toBeInTheDocument()
     expect(within(bloque).getByText(/1 lote vence pronto/)).toBeInTheDocument()
     expect(within(bloque).getByRole("link", { name: /Descargar CSV/ })).toHaveAttribute(
       "href",
       "/api/v1/admin/today/receptions?store_id=1&format=csv",
-    )
-  })
-
-  it("ventas por hora se descarga del servidor", async () => {
-    getTodayMock.mockResolvedValue(today())
-    renderWithProviders(<TodayPage />, { me: buildMe() })
-
-    const bloque = (await screen.findByText("Ventas por hora")).closest("section") as HTMLElement
-    expect(within(bloque).getByRole("link", { name: /Descargar CSV/ })).toHaveAttribute(
-      "href",
-      "/api/v1/admin/today/sales-by-hour?store_id=1&format=csv",
     )
   })
 

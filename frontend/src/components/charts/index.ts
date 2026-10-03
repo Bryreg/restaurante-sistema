@@ -82,3 +82,4 @@ export type {
 } from "./BarrasConReferencia"
 export { HorarioGantt } from "./HorarioGantt"
 export type { FilaHorario, HorarioGanttProps, MarcaRelevo, TramoHorario } from "./HorarioGantt"
+export { ColumnasHora, type ColumnaHora } from "./ColumnasHora"

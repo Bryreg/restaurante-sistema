@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query"
-import { Banknote, BarChart3, CalendarDays, Clock, CreditCard, Download, RefreshCw, type LucideIcon } from "lucide-react"
+import { Banknote, CalendarDays, Clock, CreditCard, Download, Package, type LucideIcon } from "lucide-react"
 import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 
 import type { PanelCashOut } from "@/api/panel"
+import type { OpeningHour } from "@/api/stores"
 import {
   CASH_DIFF_SUMMARY_ALERT_TYPE,
   getToday,
@@ -22,7 +23,6 @@ import {
   type TodayBlock,
   type TodayOut,
   type TodayReceptionLineOut,
-  type TodayTopProductOut,
   type UnavailableProductOut,
   type UncostedProductOut,
 } from "@/api/reports"
@@ -31,23 +31,21 @@ import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import {
   AllClearEmptyState,
-  DenseTable,
-  HeadlineFigure,
+  Burbuja,
+  EstadoPastilla,
+  IrRedondo,
   NoticeRail,
+  Pozo,
   PageHeader,
-  TimeAgo,
-  type DenseColumn,
   type FilterLinkProps,
   type Notice,
   type NoticeSeverity,
   type RowStatus,
 } from "@/components/admin"
 import { Cargando } from "@/components/Cargando"
-import { ChartFrame, ColumnChart, type ColumnDatum } from "@/components/charts"
+import { ColumnasHora, type ColumnaHora } from "@/components/charts"
 import { EmptyState } from "@/components/EmptyState"
 import { SinDato } from "@/components/SinDato"
-import { StatTile } from "@/components/StatTile"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatBusinessDate, formatClockTime, formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
@@ -62,17 +60,10 @@ import { receptionDraftsTrayItem } from "@/features/purchases"
 import { Definiciones, Plegable, type Definicion } from "./Plegable"
 import { fichaTurnoHref } from "./fichas/rutas"
 import { avisoConEnlace, useAccionables } from "./hoy/Atencion"
-import { usePanelAhora } from "./PanelAhora"
+import { AhoraSede, SemaforoSedes, usePanelAhora } from "./PanelAhora"
 
 
 const REFRESH_MS = 30_000
-
-/**
- * La cifra rectora en verde, que en este admin es el color de la venta (mapa
- * de pantallas, regla 1). `HeadlineFigure` dibuja la cifra en tinta y la usan
- * otras pantallas, así que el color se pone desde acá, sobre su `text-4xl`.
- */
-const CIFRA_VENTA = "xl:col-start-1 [&_.text-4xl]:text-success"
 
 /**
  * El ancla de «Requiere tu atención». La usa «Avisos» de la barra inferior
@@ -80,6 +71,43 @@ const CIFRA_VENTA = "xl:col-start-1 [&_.text-4xl]:text-success"
  * dos lados, y la prueba de esta pantalla lo fija.
  */
 const ANCLA_ATENCION = "requiere-atencion"
+
+/** «Buenas tardes, Óscar»: el saludo de Hoy, con el primer nombre de quien entró. */
+function saludo(ahora: Date, nombre?: string | null): string {
+  // La hora de la sede (Bogotá), no la del navegador.
+  const h = Number(
+    new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone: "America/Bogota" }).format(ahora),
+  )
+  const parte = h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches"
+  const primero = nombre?.trim().split(/\s+/)[0]
+  return primero ? `${parte}, ${primero}` : parte
+}
+
+/**
+ * Las horas de reloj del turno normal abierto según el horario de la sede
+ * para el día de la semana de `isoDate` («11:00»–«22:00» → 11 a 21). Si cierra
+ * pasada la medianoche, da la vuelta. `null` si ese día no tiene horario.
+ */
+/** La hora de reloj en Bogotá de un instante ISO. */
+function horaBogota(iso: string): number {
+  return Number(
+    new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone: "America/Bogota" }).format(new Date(iso)),
+  )
+}
+
+function horasDelTurno(horario: OpeningHour[], isoDate: string): Set<number> | null {
+  // `weekday` del servidor: 0 = lunes. `getUTCDay`: 0 = domingo.
+  const dia = (new Date(`${isoDate}T12:00:00Z`).getUTCDay() + 6) % 7
+  const h = horario.find((x) => x.weekday === dia)
+  if (!h) return null
+  const [ah] = h.open.split(":").map(Number)
+  const [ch, cm] = h.close.split(":").map(Number)
+  if (ah === undefined || ch === undefined || Number.isNaN(ah) || Number.isNaN(ch)) return null
+  const fin = cm ? ch + 1 : ch
+  const out = new Set<number>()
+  for (let i = 0, x = ah; i < 24 && x % 24 !== fin % 24; i++, x++) out.add(x % 24)
+  return out.size > 0 ? out : null
+}
 
 function hourLabel(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`
@@ -965,12 +993,16 @@ interface RecapDay {
 
 function HourlySales({
   today,
-  storeId,
   recap = null,
+  horario = [],
+  aperturaTurno = null,
 }: {
   today: TodayOut
-  storeId: number
   recap?: RecapDay | null
+  /** El horario de la sede (`opening_hours`): el turno normal abierto. */
+  horario?: OpeningHour[]
+  /** Cuándo se abrió el turno de hoy (ISO), si ya abrió: el turno puede abrir antes del horario. */
+  aperturaTurno?: string | null
 }): React.JSX.Element {
   const hours: HourBucketOut[] = today.sales_by_hour ?? []
   const reference = today.sales_by_hour_reference ?? []
@@ -982,8 +1014,8 @@ function HourlySales({
   // alguna hora trae venta no es calcular.
   if (hours.every((h) => h.pending || h.net === 0)) {
     return (
-      <section className="min-w-0 rounded-lg border bg-card p-4" data-slot="ventas-por-hora-vacio">
-        <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">Ventas por hora</h2>
+      <section className="min-w-0" data-slot="ventas-por-hora-vacio">
+        <h2 className="text-[15px] font-semibold tracking-normal">Ventas por hora</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
           {c && c.net === 0 && dia
             ? `Todavía no hay ventas hoy; el ${dia} pasado a esta hora tampoco.`
@@ -995,12 +1027,6 @@ function HourlySales({
 
   const referenceByHour = new Map(reference.map((h) => [h.hour, h.net]))
   const hasReference = reference.length > 0
-  const datos: ColumnDatum[] = hours.map((h) => ({
-    key: String(h.hour),
-    etiqueta: hourTick(h.hour),
-    valor: h.pending ? null : h.net,
-  }))
-  const serieReferencia = hasReference ? hours.map((h) => referenceByHour.get(h.hour) ?? null) : undefined
   const pendingCount = hours.filter((h) => h.pending).length
   // Elegir la hora más alta de una serie que el servidor ya mandó es
   // selección, no matemática de negocio: no se suma ni se promedia nada.
@@ -1028,60 +1054,72 @@ function HourlySales({
 
   const detalle = [
     "Venta neta por hora de reloj, sin propina, desde el corte del día.",
-    hasReference && dia ? `La marca gris es el ${dia} pasado, día completo.` : null,
-    pendingCount > 0 ? "Rayado: horas que todavía no llegan (no son $ 0)." : null,
+    hasReference && dia ? `La raya es el ${dia} pasado, día completo.` : null,
+    pendingCount > 0 ? "Columna clara: horas que todavía no llegan (no son $ 0)." : null,
   ]
     .filter(Boolean)
     .join(" ")
 
   const refLabel = dia ? `${dia.charAt(0).toUpperCase()}${dia.slice(1)} pasado` : "Semana pasada"
+  // La hora en curso (la última que ya llegó) va en tinta; sólo hoy, no en
+  // el repaso de otro día. Elegir cuál es selección, no matemática.
+  const enCurso = recap ? undefined : [...hours].reverse().find((h) => !h.pending)
+  // Las horas del turno normal abierto: las del horario de la sede para ese
+  // día de la semana, más cualquier hora fuera de él con venta (hoy o la
+  // semana pasada) y la hora en curso. Sin horario cargado, de la primera a
+  // la última hora con venta. Elegir qué horas se ven es selección.
+  const turno = horasDelTurno(horario, recap?.date ?? today.business_date)
+  const horaApertura = !recap && aperturaTurno ? horaBogota(aperturaTurno) : null
+  if (horaApertura !== null) turno?.add(horaApertura)
+  const conVenta = (h: HourBucketOut) =>
+    (!h.pending && h.net > 0) || (referenceByHour.get(h.hour) ?? 0) > 0 || h.hour === enCurso?.hour
+  const entra = (h: HourBucketOut) => conVenta(h) || (turno?.has(h.hour) ?? false)
+  const primera = hours.findIndex(entra)
+  const ultima = hours.length - 1 - [...hours].reverse().findIndex(entra)
+  const visibles = primera === -1 ? hours : hours.slice(primera, ultima + 1)
+  const columnas: ColumnaHora[] = visibles.map((h) => ({
+    key: String(h.hour),
+    etiqueta: hourTick(h.hour),
+    valor: h.pending ? null : h.net,
+    referencia: hasReference ? (referenceByHour.get(h.hour) ?? null) : null,
+  }))
 
   return (
-    <section className="min-w-0 rounded-lg border bg-card p-4">
-      <BlockHeader
-        title={recap ? `Ventas por hora · ${recap.short}` : "Ventas por hora"}
-        block="sales-by-hour"
-        storeId={storeId}
-        date={recap?.date}
+    // «Burbujas» (handoff `MinHoyC`): «Por hora» con su leyenda, columnas sin
+    // eje y la hora debajo. Va dentro de la burbuja de la venta, sin
+    // superficie propia. La conclusión y el método quedan para el lector de
+    // pantalla y en el `title` de cada columna.
+    <section className="flex min-w-0 flex-col gap-3" aria-label={recap ? `Ventas por hora · ${recap.short}` : "Ventas por hora"}>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <h2 className="mr-auto text-sm font-semibold tracking-normal text-foreground">
+          {recap ? `Por hora · ${recap.short}` : "Por hora"}
+        </h2>
+        <p className="sr-only">{titular}</p>
+        <p className="sr-only">{detalle}</p>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="size-2.5 rounded-[3px] bg-data-bar" />
+          {recap ? recap.short : "Hoy"}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="w-3.5 border-t-2 border-foreground" />
+          {refLabel}, día completo
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="size-2.5 rounded-[3px] bg-foreground" />
+          Hora en curso
+        </span>
+      </div>
+      <ColumnasHora
+        datos={columnas}
+        actual={enCurso ? String(enCurso.hour) : undefined}
+        formato={formatCOP}
+        etiquetaSerie={recap ? recap.short : "Hoy"}
+        etiquetaReferencia={hasReference ? `${refLabel} (día completo)` : undefined}
+        resumen={
+          `Columnas de venta neta por hora de ${recap ? recap.label : "hoy"}${peak ? `; la más alta, las ${hourLabel(peak.hour)} con ${formatCOP(peak.net)}` : ", todavía sin ventas"}` +
+          `${pendingCount > 0 ? `; ${pendingCount} horas todavía no llegan` : ""}.`
+        }
       />
-      <ChartFrame
-        titular={titular}
-        // El método del gráfico se lee una vez: va plegado (regla 2), y a la
-        // vista queda el titular, que es la conclusión.
-        detalle={<Plegable resumen="Cómo leer esto">{detalle}</Plegable>}
-        tabla={{
-          columnas: [
-            { key: "hora", header: "Hora" },
-            { key: "hoy", header: recap ? recap.short : "Hoy", align: "right" },
-            ...(hasReference ? [{ key: "ref", header: `${refLabel} (día completo)`, align: "right" as const }] : []),
-            { key: "comandas", header: "Comandas", align: "right" },
-          ],
-          filas: hours.map((h) => ({
-            hora: hourLabel(h.hour),
-            hoy: h.pending ? <span className="text-muted-foreground italic">todavía no llega</span> : formatCOP(h.net),
-            ref: hasReference ? formatCOP(referenceByHour.get(h.hour)) : undefined,
-            comandas: h.pending ? "" : String(h.orders ?? "—"),
-          })),
-        }}
-      >
-        <ColumnChart
-          datos={datos}
-          formato={formatCOP}
-          serieReferencia={serieReferencia}
-          etiquetaSerie={recap ? recap.short : "Hoy"}
-          etiquetaSerieReferencia={`${refLabel}, día completo`}
-          resumen={
-            `Columnas de venta neta por hora de ${recap ? recap.label : "hoy"}${peak ? `; la más alta, las ${hourLabel(peak.hour)} con ${formatCOP(peak.net)}` : ", todavía sin ventas"}` +
-            `${pendingCount > 0 ? `; ${pendingCount} horas todavía no llegan` : ""}. El detalle está en la tabla.`
-          }
-        />
-      </ChartFrame>
-      {peak && c && c.delta_bp !== null && c.delta_bp !== undefined ? (
-        <p className="mt-3 border-t pt-2 text-xs text-muted-foreground">
-          La hora más fuerte del día va siendo la de las <b className="text-foreground">{hourLabel(peak.hour)}</b>, con{" "}
-          <b className="text-foreground">{formatCOP(peak.net)}</b> netos.
-        </p>
-      ) : null}
     </section>
   )
 }
@@ -1105,9 +1143,9 @@ function BlockHeader({
   children?: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
       <div className="min-w-0">
-        <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">{title}</h2>
+        <h2 className="text-[15px] font-semibold tracking-normal">{title}</h2>
         {children}
       </div>
       <a
@@ -1115,9 +1153,9 @@ function BlockHeader({
         target="_blank"
         rel="noreferrer"
         title={`Descargar «${title}» (CSV)`}
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+        className="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted px-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
-        <Download className="size-4 shrink-0" aria-hidden="true" />
+        <Download className="size-3.5 shrink-0" aria-hidden="true" />
         Descargar CSV
       </a>
     </div>
@@ -1139,13 +1177,13 @@ function IndicadorSinDato({
   icon?: LucideIcon
 }): React.JSX.Element {
   return (
-    <div className="rounded-lg border border-l-[3px] border-border border-l-border p-4">
+    <Pozo>
       <div className="flex items-center gap-1.5">
-        {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
-        <p className="min-w-0 text-sm text-muted-foreground">{label}</p>
+        {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+        <p className="min-w-0 text-[13px] text-muted-foreground">{label}</p>
       </div>
       <SinDato forma="bloque" motivo={motivo} className="mt-1" />
-    </div>
+    </Pozo>
   )
 }
 
@@ -1168,34 +1206,31 @@ const CIFRAS_EXPLICADAS: readonly Definicion[] = [
 function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay | null }): React.JSX.Element {
   const cash = today.cash_sales ?? null
   const card = today.card_sales ?? null
-  const other = today.other_payment_sales ?? null
   return (
     <div className="space-y-2">
       {recap ? (
-        <p
-          className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
-          data-slot="repaso"
-        >
+        <p className="rounded-2xl bg-muted px-4 py-3 text-sm text-muted-foreground" data-slot="repaso">
           Todavía no hay ventas hoy: estas cifras y los bloques de abajo son de{" "}
           <b className="font-semibold text-foreground">{recap.label}</b>. Cambian solos con la primera venta de hoy.
         </p>
       ) : null}
-      {/* A 1440 cada tarjeta mide ~170 px: una cifra de siete dígitos a
-          `text-2xl` se partía en dos renglones. Baja a `text-xl` y no se parte. */}
-      <div className="grid min-w-0 grid-cols-2 gap-3 max-sm:[&>div]:p-3 lg:grid-cols-4 [&_.text-2xl]:text-xl [&_.text-2xl]:whitespace-nowrap">
+      {/* «Burbujas»: las cuatro cifras son cuatro pozos dentro de la burbuja
+          de la venta, 8 px entre ellos. */}
+      <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-4">
         {today.avg_ticket === null || today.avg_ticket === undefined ? (
           <IndicadorSinDato label="Ticket promedio" motivo="todavía sin tickets pagados hoy" />
         ) : (
-          <StatTile label="Ticket promedio" value={formatCOP(today.avg_ticket)} />
+          <Cifra label="Ticket promedio" value={formatCOP(today.avg_ticket)} hint="sin propina" />
         )}
-        <StatTile
+        <Cifra
           label="Número de tickets"
           value={today.orders !== undefined && today.orders !== null ? String(today.orders) : "—"}
+          hint="cobrados y cerrados"
         />
         {cash === null ? (
           <IndicadorSinDato label="Ventas en efectivo" motivo="sin el desglose por medio de pago" icon={Banknote} />
         ) : (
-          <StatTile
+          <Cifra
             label="Ventas en efectivo"
             value={formatCOP(cash.net)}
             hint={`${cash.payments} ${cash.payments === 1 ? "pago" : "pagos"}`}
@@ -1205,7 +1240,7 @@ function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay
         {card === null ? (
           <IndicadorSinDato label="Ventas en tarjeta" motivo="sin el desglose por medio de pago" icon={CreditCard} />
         ) : (
-          <StatTile
+          <Cifra
             label="Ventas en tarjeta"
             value={formatCOP(card.net)}
             hint={`${card.payments} ${card.payments === 1 ? "pago" : "pagos"}`}
@@ -1213,12 +1248,6 @@ function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay
           />
         )}
       </div>
-      {other !== null && other.payments > 0 ? (
-        <p className="px-1 text-xs text-muted-foreground">
-          Otros medios (transferencia, plataformas, bonos): <b className="text-foreground tabular-nums">{formatCOP(other.net)}</b>{" "}
-          en {other.payments} {other.payments === 1 ? "pago" : "pagos"}. Con efectivo y tarjeta completan la venta neta.
-        </p>
-      ) : null}
       <Plegable resumen="Cómo leer estas cifras" className="px-1">
         <Definiciones items={CIFRAS_EXPLICADAS} className="sm:grid-cols-2" />
       </Plegable>
@@ -1226,13 +1255,121 @@ function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay
   )
 }
 
-const TOP_PRODUCT_COLUMNS: readonly DenseColumn<TodayTopProductOut>[] = [
-  { key: "label", header: "Producto", kind: "name", cell: (p) => p.label },
-  { key: "units", header: "Unidades", kind: "number", cell: (p) => (p.units === null ? "—" : String(p.units)) },
-  { key: "net", header: "Venta neta", kind: "number", cell: (p) => formatCOP(p.net) },
-]
+/** Una cifra secundaria en su pozo: rótulo, cifra y una línea de detalle. */
+function Cifra({
+  label,
+  value,
+  hint,
+  icon: Icon,
+}: {
+  label: string
+  value: string
+  hint?: string
+  icon?: LucideIcon
+}): React.JSX.Element {
+  return (
+    <Pozo className="min-w-0">
+      <div className="flex items-center gap-1.5">
+        {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+        <p className="min-w-0 text-[13px] leading-tight text-muted-foreground">{label}</p>
+      </div>
+      <p className="mt-0.5 text-[22px] leading-tight font-medium tracking-[-0.02em] whitespace-nowrap tabular-nums">{value}</p>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </Pozo>
+  )
+}
 
-/** «Top productos vendidos» de hoy: el orden y las cifras son del servidor. */
+/**
+ * **La venta del día, con todo lo que responde a la misma pregunta** (handoff
+ * «Burbujas», Hoy § 3): la cifra grande con su comparación en pastilla y el
+ * botón redondo que lleva a Ventas; las cuatro cifras en pozos; las ventas
+ * por hora; y al pie el libro en una línea. Todo del servidor.
+ */
+function VentaPrincipal({
+  etiqueta,
+  cifra,
+  nota,
+  comparacion,
+  deltaBp,
+  libro,
+  otros,
+  celular,
+  children,
+}: {
+  etiqueta: string
+  cifra: string
+  nota?: string
+  comparacion?: ReturnType<typeof todayComparison>
+  deltaBp?: number | null
+  libro: { label: string; value: string; resta?: boolean }[]
+  otros: TodayOut["other_payment_sales"]
+  celular: boolean
+  children: React.ReactNode
+}): React.JSX.Element {
+  const tono = deltaBp === null || deltaBp === undefined || comparacion?.tono === "apagada"
+    ? "neutral"
+    : deltaBp > 0
+      ? "success"
+      : deltaBp < 0
+        ? "warning"
+        : "neutral"
+  return (
+    <Burbuja aria-label="Ventas de hoy" className="flex flex-col gap-5 md:p-7">
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-muted-foreground">{etiqueta}</p>
+          <p
+            className="mt-1 text-[44px] leading-none font-medium tracking-[-0.03em] whitespace-nowrap tabular-nums md:text-[64px]"
+            data-slot="cifra-venta"
+          >
+            {cifra}
+          </p>
+          {nota ? <p className="mt-2 text-[13px] text-muted-foreground">{nota}</p> : null}
+          {comparacion ? (
+            <p className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
+              <EstadoPastilla tono={tono} sinForma={/^[▲▼=]/.test(comparacion.delta)}>
+                {comparacion.delta}
+              </EstadoPastilla>
+              <span>{comparacion.label}</span>
+              {comparacion.detail ? <span className="tabular-nums">{comparacion.detail}</span> : null}
+            </p>
+          ) : null}
+        </div>
+        {celular ? null : <IrRedondo to="/admin/ventas" label="Ver el día completo" grande />}
+      </div>
+      {children}
+      <dl className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t pt-4 text-[13px] text-muted-foreground" data-slot="libro">
+        {libro.map((r) => (
+          <div key={r.label} className="flex items-baseline gap-1.5">
+            <dt>{r.label}</dt>
+            <dd className="font-medium whitespace-nowrap text-foreground tabular-nums">
+              {r.resta ? "− " : ""}
+              {r.value}
+            </dd>
+          </div>
+        ))}
+        {otros !== null && otros !== undefined && otros.payments > 0 ? (
+          <div
+            className="flex items-baseline gap-1.5 md:ml-auto"
+            title="Transferencia, plataformas y bonos: con efectivo y tarjeta completan la venta neta."
+          >
+            <dt>Otros medios</dt>
+            <dd className="whitespace-nowrap tabular-nums">
+              {formatCOP(otros.net)} · {otros.payments} {otros.payments === 1 ? "pago" : "pagos"}
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </Burbuja>
+  )
+}
+
+/**
+ * «Lo más vendido» (handoff «Burbujas», Hoy § 5): cada plato con sus
+ * unidades y su venta neta, y una barra de 6 px que dice cuánto pesa contra
+ * el primero. El orden y las cifras son del servidor; el largo de la barra
+ * es dibujo, no una cifra.
+ */
 function TopProducts({
   today,
   storeId,
@@ -1243,23 +1380,45 @@ function TopProducts({
   recap?: RecapDay | null
 }): React.JSX.Element {
   const products = today.top_products ?? []
+  // El largo de la barra sale de la participación que manda el servidor
+  // (`share_bp`), relativa a la del primero: dibujo, no plata.
+  const mayor = Math.max(0, ...products.map((p) => p.share_bp ?? 0))
   return (
-    <section className="min-w-0 rounded-lg border bg-card p-4">
+    <section className="burbuja min-w-0 rounded-[24px] bg-card p-6" data-slot="lo-mas-vendido">
       <BlockHeader
-        title={recap ? `Top productos vendidos · ${recap.short}` : "Top productos vendidos"}
+        title={recap ? `Lo más vendido · ${recap.short}` : "Lo más vendido hoy"}
         block="top-products"
         storeId={storeId}
         date={recap?.date}
-      >
-        <p className="mt-0.5 text-xs text-muted-foreground">Por venta neta, sin impuesto ni propina. La descarga trae todos.</p>
-      </BlockHeader>
-      <DenseTable
-        caption={`Productos más vendidos ${recap ? recap.label : "hoy"}, con unidades y venta neta.`}
-        columns={TOP_PRODUCT_COLUMNS}
-        rows={products}
-        rowKey={(p) => p.key}
-        empty={<EmptyState title="Todavía no se vendió nada hoy" description="Cuando se cobre la primera comanda, sus platos aparecen acá." />}
       />
+      {products.length === 0 ? (
+        <EmptyState title="Todavía no se vendió nada hoy" description="Cuando se cobre la primera comanda, sus platos aparecen acá." />
+      ) : (
+        <ul
+          className="flex flex-col gap-3.5"
+          aria-label={`Productos más vendidos ${recap ? recap.label : "hoy"}, con unidades y venta neta. Por venta neta, sin impuesto ni propina; la descarga trae todos.`}
+        >
+          {products.map((p) => (
+            <li key={p.key} className="flex flex-col gap-1.5">
+              <span className="flex items-baseline gap-3 text-sm">
+                <span className="min-w-0 flex-1 truncate">{p.label}</span>
+                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                  {p.units === null ? "—" : `${p.units} u.`}
+                </span>
+                <span className="w-[5.5rem] shrink-0 text-right tabular-nums">{formatCOP(p.net)}</span>
+              </span>
+              {p.share_bp !== null && mayor > 0 ? (
+                <span aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <span
+                    className="block h-full rounded-full bg-data-bar"
+                    style={{ width: `${Math.max(2, (p.share_bp / mayor) * 100)}%` }}
+                  />
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }
@@ -1278,57 +1437,12 @@ function receptionStatus(line: TodayReceptionLineOut): RowStatus {
   return "none"
 }
 
-const RECEPTION_COLUMNS: readonly DenseColumn<TodayReceptionLineOut>[] = [
-  {
-    key: "item",
-    header: "Insumo · proveedor",
-    kind: "name",
-    cell: (r) => (
-      <span className="flex flex-col">
-        <span className="font-medium">{r.ingredient_name}</span>
-        <span className="text-xs text-muted-foreground">{r.supplier_name}</span>
-      </span>
-    ),
-  },
-  { key: "qty", header: "Cantidad", kind: "number", cell: (r) => `${r.qty} ${r.purchase_unit}` },
-  {
-    key: "lot",
-    header: "Lote · vence",
-    cell: (r) => {
-      const word = expiryWord(r.days_to_expiry)
-      const soon = r.lot_status === "expiring" || r.lot_status === "expired"
-      return (
-        <span className="flex flex-col">
-          <span>{r.lot_code ?? <span className="text-muted-foreground">sin lote</span>}</span>
-          {r.expires_at ? (
-            <span className={cn("text-xs", soon ? "font-semibold text-warning" : "text-muted-foreground")}>
-              {formatFechaCorta(r.expires_at)}
-              {word ? ` · ${word}` : ""}
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground">sin vencimiento</span>
-          )}
-        </span>
-      )
-    },
-  },
-  {
-    key: "received",
-    header: "Recibió",
-    cell: (r) => (
-      <span className="flex flex-col">
-        <span>{r.received_by}</span>
-        <span className="text-xs text-muted-foreground">{formatClockTime(r.received_at)}</span>
-      </span>
-    ),
-  },
-]
-
 /**
- * «Entradas de mercancía del día»: lo que se recibió hoy, con su lote y
- * vencimiento. Un lote por vencer (≤ 7 días, la regla de Lotes, del
- * servidor) va con franja ámbar; uno vencido, roja. Sin «Compras», se dice
- * que la función está apagada: no es «no entró nada».
+ * «Lo que entró» (handoff «Burbujas», Hoy § 5): cada recepción en un pozo
+ * con su ícono — insumo y cantidad, proveedor, lote y hora, y a la derecha
+ * cuándo vence. Un lote por vencer (≤ 7 días, la regla de Lotes, del
+ * servidor) va en ámbar; uno vencido, en rojo. Sin «Compras», se dice que la
+ * función está apagada: no es «no entró nada».
  */
 function Receptions({
   today,
@@ -1342,8 +1456,8 @@ function Receptions({
   const lines = today.receptions_today ?? []
   if (!today.receptions_enabled) {
     return (
-      <section className="min-w-0 rounded-lg border bg-card p-4" data-slot="entradas-apagadas">
-        <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">Entradas de mercancía</h2>
+      <section className="burbuja min-w-0 rounded-[24px] bg-card p-6" data-slot="entradas-apagadas">
+        <h2 className="text-[15px] font-semibold tracking-normal">Lo que entró hoy</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
           «Compras» está apagada en esta sede: no se registran recepciones.{" "}
           <Link to="/admin/features" className="font-medium text-primary underline-offset-4 hover:underline">
@@ -1355,39 +1469,68 @@ function Receptions({
   }
   const soon = lines.filter((l) => l.lot_status === "expiring" || l.lot_status === "expired").length
   return (
-    <section className="min-w-0 rounded-lg border bg-card p-4">
+    <section className="burbuja min-w-0 rounded-[24px] bg-card p-6" data-slot="lo-que-entro">
       <BlockHeader
-        title={recap ? `Entradas de mercancía · ${recap.short}` : "Entradas de mercancía"}
+        title={recap ? `Lo que entró · ${recap.short}` : "Lo que entró hoy"}
         block="receptions"
         storeId={storeId}
         date={recap?.date}
       >
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Lo recibido {recap ? recap.label : "hoy"}, con su lote y vencimiento.
-          {soon > 0 ? (
-            <b className="font-semibold text-warning">
-              {" "}
-              {soon} {soon === 1 ? "lote vence pronto" : "lotes vencen pronto"}.
-            </b>
-          ) : null}
-        </p>
+        {soon > 0 ? (
+          <p className="mt-0.5 text-[13px] font-semibold text-warning">
+            {soon} {soon === 1 ? "lote vence pronto" : "lotes vencen pronto"}.
+          </p>
+        ) : null}
       </BlockHeader>
-      <DenseTable
-        caption={`Entradas de mercancía de ${recap ? recap.label : "hoy"}: insumo, proveedor, cantidad en unidad de compra, lote, vencimiento y quién recibió.`}
-        columns={RECEPTION_COLUMNS}
-        rows={lines}
-        rowKey={(r) => String(r.line_id)}
-        rowStatus={receptionStatus}
-        legend={
-          soon > 0
-            ? [
-                { term: "Franja ámbar", meaning: "el lote vence en 7 días o menos." },
-                { term: "Franja roja", meaning: "el lote ya venció." },
-              ]
-            : undefined
-        }
-        empty={<EmptyState title="Hoy no entró mercancía" description="Las recepciones confirmadas del día aparecen acá, con su lote." />}
-      />
+      {lines.length === 0 ? (
+        <EmptyState title="Hoy no entró mercancía" description="Las recepciones confirmadas del día aparecen acá, con su lote." />
+      ) : (
+        <ul
+          className="flex flex-col gap-2"
+          aria-label={`Lo que entró ${recap ? recap.label : "hoy"}: insumo, cantidad en unidad de compra, proveedor, lote, hora, quién recibió y vencimiento.`}
+        >
+          {lines.map((r) => {
+            const status = receptionStatus(r)
+            const word = expiryWord(r.days_to_expiry)
+            return (
+              <li
+                key={r.line_id}
+                data-status={status}
+                className="flex items-center gap-3 rounded-2xl bg-muted px-3.5 py-3"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-card">
+                  <Package className="size-4" aria-hidden="true" />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-sm">
+                    <span className="font-medium">{r.ingredient_name}</span> ·{" "}
+                    <span className="tabular-nums">{`${r.qty} ${r.purchase_unit}`}</span>
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    <span>{r.supplier_name}</span> · {r.lot_code ? <span>lote {r.lot_code}</span> : <span>sin lote</span>} ·{" "}
+                    {formatClockTime(r.received_at)} · <span>{r.received_by}</span>
+                  </span>
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 text-right text-xs font-semibold",
+                    status === "critical" ? "text-destructive" : status === "warning" ? "text-warning" : "text-muted-foreground",
+                  )}
+                >
+                  {r.expires_at ? (
+                    <>
+                      {word ? word.charAt(0).toUpperCase() + word.slice(1) : formatFechaCorta(r.expires_at)}
+                      <span className="block font-normal">{formatFechaCorta(r.expires_at)}</span>
+                    </>
+                  ) : (
+                    "Sin vencimiento"
+                  )}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </section>
   )
 }
@@ -1406,7 +1549,8 @@ function Receptions({
  * Inventario y los avisos del riel.
  */
 export function TodayPage(): React.JSX.Element {
-  const { activeStoreId, loading: storeLoading } = useStoreSelection()
+  const { activeStoreId, stores, loading: storeLoading } = useStoreSelection()
+  const { panel: panelAhora } = usePanelAhora()
   const { me } = useSession()
   const cutoffHour = me?.store?.cutoff_hour
   const celular = useEsCelular()
@@ -1466,18 +1610,12 @@ export function TodayPage(): React.JSX.Element {
                 la venta, las cuatro cifras, las ventas por hora y los dos
                 bloques, con el riel a la derecha en el escritorio. Si
                 esqueletea otra cosa, la pantalla salta al llegar los datos. */}
-            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <div className="flex min-w-0 flex-col gap-5 xl:col-start-1 xl:row-start-1">
-                <Skeleton className="h-[8.5rem] w-full rounded-lg" />
-                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                  {[0, 1, 2, 3].map((i) => (
-                    <Skeleton key={i} className="h-[7.5rem] rounded-lg" />
-                  ))}
-                </div>
-                <Skeleton className="h-60 w-full rounded-lg" />
-                <Skeleton className="h-52 w-full rounded-lg" />
+            <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+              <div className="flex min-w-0 flex-col gap-3 xl:col-start-1 xl:row-start-1">
+                <Skeleton className="h-[34rem] w-full rounded-[24px]" />
+                <Skeleton className="h-52 w-full rounded-[24px]" />
               </div>
-              <Skeleton className="h-48 rounded-lg xl:col-start-2 xl:row-start-1 xl:h-96" />
+              <Skeleton className="h-48 rounded-[24px] xl:col-start-2 xl:row-start-1 xl:h-96" />
             </div>
           </div>
         )}
@@ -1541,16 +1679,16 @@ export function TodayPage(): React.JSX.Element {
   return (
     <div className="space-y-4">
       <PageHeader
-        name="Hoy"
+        // «Burbujas» (Hoy § 1): en Hoy el título es un saludo.
+        name={saludo(new Date(query.dataUpdatedAt), me?.user?.name)}
         question="¿Cuánto se vendió hoy, qué se vendió, qué mercancía entró y qué necesita una decisión tuya?"
         // En el celular la barra de arriba ya dice «hace 14 s» (captura 13a):
         // la franja de contexto repetía lo mismo en dos renglones.
         context={celular ? [] : [
           {
-            label: "Se actualiza sola cada 30 s ·",
-            value: <TimeAgo iso={updatedIso} />,
+            label: "Así van las sedes a las",
+            value: formatClockTime(updatedIso),
             title: formatInstant(updatedIso),
-            icon: RefreshCw,
           },
           {
             label: "Día operativo",
@@ -1568,24 +1706,6 @@ export function TodayPage(): React.JSX.Element {
               ]
             : []),
         ]}
-        actions={
-          // `title` con el mismo texto que se ve, a propósito: el censo de
-          // controles lee el código y **no ve un rótulo que viene después de
-          // un `<svg>`** dentro de un `Button render={<Link/>}`.
-          // `nativeButton={false}`: el disparador es un `<a>`.
-          celular ? undefined : (
-            <Button
-              variant="outline"
-              size="sm"
-              nativeButton={false}
-              title="Ver el día completo"
-              render={<Link to="/admin/ventas" />}
-            >
-              <BarChart3 className="size-4 shrink-0" aria-hidden="true" />
-              Ver el día completo
-            </Button>
-          )
-        }
       />
 
       {/* Dos columnas en el escritorio: el día a la izquierda, en el orden
@@ -1593,61 +1713,70 @@ export function TodayPage(): React.JSX.Element {
           En el celular es una sola columna y los avisos van al final: el
           orden del código es el orden de lectura (foco y lector de
           pantalla incluidos). */}
-      <div className="grid items-start gap-[18px] xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="flex min-w-0 flex-col gap-5 xl:col-start-1 xl:row-start-1">
-          <section aria-label="Ventas de hoy" className="min-w-0">
-            {/* § 4 · La plata nunca es un número suelto: es una resta, y se
-                compara contra el mismo día de la semana pasada a la misma hora
-                (`comparison`, del servidor: acá no se calcula). */}
-            {beforeFirstSale && yesterday ? (
-              <HeadlineFigure
-                className={CIFRA_VENTA}
-                label={
-                  yesterdaySold
-                    ? "Todavía no hay ventas hoy · ayer cerró en"
-                    : "Todavía no hay ventas hoy · el último día con ventas cerró en"
-                }
-                value={formatCOP(yesterday.net)}
-                note={[
-                  formatFechaCorta(yesterday.business_date),
-                  `${yesterday.orders} ${yesterday.orders === 1 ? "ticket" : "tickets"}`,
-                  yesterday.avg_ticket !== null ? `ticket promedio ${formatCOP(yesterday.avg_ticket)}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-                ledger={{
-                  rows: [
-                    { label: "Cobrado hoy", value: formatCOP(today.gross) },
-                    { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
-                  ],
-                  total: { label: "Ventas netas de hoy", value: formatCOP(today.net) },
-                }}
-                comparison={comparison}
-              />
-            ) : (
-              <HeadlineFigure
-                className={CIFRA_VENTA}
-                label="Ventas netas de hoy"
-                value={formatCOP(today.net)}
-                ledger={{
-                  rows: [
-                    { label: "Ventas cobradas", value: formatCOP(today.gross) },
-                    { label: "Impuesto discriminado", value: formatCOP(today.tax), kind: "subtract" },
-                  ],
-                  total: { label: "Ventas netas", value: formatCOP(today.net) },
-                }}
-                comparison={comparison}
-              />
-            )}
-          </section>
+      {/* El semáforo de las sedes, a todo el ancho (Hoy § 1). */}
+      <SemaforoSedes />
 
-          <DayFigures today={shown} recap={recap} />
+      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="flex min-w-0 flex-col gap-3 xl:col-start-1 xl:row-start-1">
+          {/* § 4 · La plata nunca es un número suelto: es una resta, y se
+              compara contra el mismo día de la semana pasada a la misma hora
+              (`comparison`, del servidor: acá no se calcula). Antes de la
+              primera venta la cifra grande es la de cómo cerró ayer (o el
+              último día con ventas), y el libro sigue siendo el de hoy. */}
+          <VentaPrincipal
+            etiqueta={
+              beforeFirstSale && yesterday
+                ? yesterdaySold
+                  ? "Todavía no hay ventas hoy · ayer cerró en"
+                  : "Todavía no hay ventas hoy · el último día con ventas cerró en"
+                : "Ventas netas de hoy"
+            }
+            cifra={formatCOP(beforeFirstSale && yesterday ? yesterday.net : today.net)}
+            nota={
+              beforeFirstSale && yesterday
+                ? [
+                    formatFechaCorta(yesterday.business_date),
+                    `${yesterday.orders} ${yesterday.orders === 1 ? "ticket" : "tickets"}`,
+                    yesterday.avg_ticket !== null ? `ticket promedio ${formatCOP(yesterday.avg_ticket)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : undefined
+            }
+            comparacion={comparison}
+            deltaBp={today.comparison?.delta_bp ?? null}
+            // El pie del diseño: el libro de hoy en una línea.
+            libro={[
+              { label: beforeFirstSale && yesterday ? "Cobrado hoy" : "Cobrado", value: formatCOP(today.gross) },
+              { label: "Impuesto", value: formatCOP(today.tax), resta: true },
+              ...(today.tips_total !== undefined
+                ? [{ label: "Propinas, no son venta", value: formatCOP(today.tips_total) }]
+                : []),
+              // En el repaso la cifra grande es de otro día: la venta de hoy
+              // se dice aparte, para que el $ 0 de hoy no se pierda.
+              ...(beforeFirstSale && yesterday
+                ? [{ label: "Ventas netas de hoy", value: formatCOP(today.net) }]
+                : []),
+            ]}
+            otros={shown.other_payment_sales ?? null}
+            celular={celular}
+          >
+            <DayFigures today={shown} recap={recap} />
+            <HourlySales
+              today={shown}
+              recap={recap}
+              horario={stores.find((x) => x.id === activeStoreId)?.opening_hours ?? []}
+              aperturaTurno={panelAhora?.cash?.opened_at ?? null}
+            />
+          </VentaPrincipal>
 
-          <HourlySales today={shown} storeId={activeStoreId} recap={recap} />
+          {/* «Ahora» de la sede activa: cinco burbujas en dos columnas. */}
+          <AhoraSede />
 
-          <TopProducts today={shown} storeId={activeStoreId} recap={recap} />
-
-          <Receptions today={shown} storeId={activeStoreId} recap={recap} />
+          <div className="grid min-w-0 items-start gap-3 lg:grid-cols-2">
+            <TopProducts today={shown} storeId={activeStoreId} recap={recap} />
+            <Receptions today={shown} storeId={activeStoreId} recap={recap} />
+          </div>
         </div>
 
         <div className="min-w-0 xl:col-start-2 xl:row-start-1 xl:self-stretch">

@@ -62,22 +62,22 @@ export function NotificationBell({
           <Button
             type="button"
             variant="ghost"
-            className="h-8 min-h-0 gap-1.5 px-2.5 font-normal text-muted-foreground"
+            // «Burbujas»: campana de 40 × 40 sobre el pozo, con punto rojo si
+            // hay avisos sin leer; el recuento va en el nombre accesible.
+            className="relative size-10 min-h-0 rounded-xl bg-muted p-0 font-normal text-foreground hover:bg-accent"
             // El nombre empieza por lo que se ve («Avisos»): quien dicta por
             // voz nombra lo que lee (WCAG 2.5.3).
             aria-label={unreadCount > 0 ? `Avisos, ${unreadCount} sin leer` : "Avisos"}
           />
         }
       >
-        <Bell className="size-4 shrink-0" aria-hidden="true" />
-        Avisos
+        <Bell className="size-[18px] shrink-0" aria-hidden="true" />
+        <span className="sr-only">Avisos</span>
         {unreadCount > 0 ? (
           <span
             aria-hidden="true"
-            className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-destructive px-[5px] text-[11px] font-bold text-destructive-foreground tabular-nums"
-          >
-            {unreadCount}
-          </span>
+            className="absolute top-2 right-2 size-2 rounded-full bg-destructive ring-2 ring-muted"
+          />
         ) : null}
       </DropdownMenuTrigger>
     ) : null;

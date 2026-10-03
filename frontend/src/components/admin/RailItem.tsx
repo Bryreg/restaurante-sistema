@@ -43,23 +43,18 @@ export function railItemClass(
     // la campana (es el disparador del menú y trae su `aria-expanded`), y
     // `Button` viene centrado y con alto fijo. Puestos acá, `cn`
     // (tailwind-merge) los gana y la campana queda igual que las demás filas.
-    "flex h-auto w-full items-center justify-start gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors",
+    "flex h-auto w-full items-center justify-start gap-2.5 rounded-[11px] px-2.5 py-1.5 text-left text-sm transition-colors",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-    // El rail del escritorio va a la densidad `.oficina`; el mismo rail dentro
-    // del cajón del móvil necesita el objetivo táctil, que es otro usuario y
-    // otra mano (`docs/DISENO.md` § "Las dos densidades").
-    touch ? "min-h-11" : "min-h-8",
+    // El rail del escritorio va a la densidad `.oficina` (40 px, handoff
+    // «Burbujas»); el mismo rail dentro del cajón del móvil necesita el
+    // objetivo táctil, que es otro usuario y otra mano.
+    touch ? "min-h-11" : "min-h-10",
     active
-      ? // La maqueta `a2` marca la entrada activa con la marca **llena**
-        // (`.nav-i[aria-current="page"]{background:var(--brand);color:#fff}`)
-        // y no con el `accent` suave que `docs/DISENO.md` le asignaba a "la
-        // fila activa". El dueño eligió a2 mirándola, y la regla dura del
-        // color sigue intacta: la marca no está diciendo un estado —verde,
-        // ámbar y rojo siguen siendo los únicos que dicen cómo está algo—,
-        // está marcando el enlace en el que estás parado, que es de la misma
-        // familia de lo que se toca.
-        "bg-primary font-semibold text-primary-foreground"
-      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+      ? // «Burbujas»: la entrada en la que estás va en TINTA, no en cobalto.
+        // El cobalto queda sólo para las acciones; marcar dónde estás no es
+        // una acción. El recuento de la activa pasa a pastilla roja.
+        "bg-foreground font-semibold text-card [&_[data-slot=rail-count]]:bg-destructive [&_[data-slot=rail-count]]:text-destructive-foreground [&_[data-slot=rail-count]]:opacity-100"
+      : "font-medium text-foreground hover:bg-muted",
     className,
   )
 }
@@ -68,17 +63,17 @@ export function railItemClass(
 export function RailItemContent({ icon: Icon, label, count }: RailItemContentProps): React.JSX.Element {
   return (
     <>
-      <Icon className="size-4 shrink-0" aria-hidden="true" />
+      <Icon className="size-[17px] shrink-0" aria-hidden="true" />
       {/* `truncate` y no envolver: una entrada que crece a dos líneas mueve
           las diecinueve de abajo y el rail deja de ser una columna. */}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {count != null && count > 0 ? (
         <span
           aria-hidden="true"
-          // Sin color propio: hereda el de la fila y se apaga con opacidad.
-          // Un `text-muted-foreground` fijo desaparecía sobre el azul lleno
-          // de la entrada activa (a2 lo resuelve igual, con un azul claro).
-          className="shrink-0 text-xs font-normal tabular-nums opacity-70"
+          // Pastilla neutra; en la entrada activa (tinta) pasa a roja desde
+          // `railItemClass`, que es quien sabe cuál está activa.
+          data-slot="rail-count"
+          className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-muted px-1.5 text-xs font-semibold tabular-nums"
         >
           {count}
         </span>

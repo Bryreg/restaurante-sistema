@@ -218,7 +218,8 @@ export function DenseTable<R>({
   const ayudaAbierta = visibles.find((column) => column.key === ayuda && column.help !== undefined)
   const totalColumnas = visibles.length + (rowMenu ? 1 : 0)
   return (
-    <section className={cn("overflow-hidden rounded-lg border bg-card", className)}>
+    // «Burbujas»: la tabla entera es una burbuja de radio 24, sin borde.
+    <section className={cn("tabla-densa overflow-hidden rounded-[24px] bg-card", className)}>
       {bar}
       {rows.length === 0 && empty ? (
         <div className="p-3">{empty}</div>
@@ -248,7 +249,7 @@ export function DenseTable<R>({
                         ...KIND_STYLE[kind],
                         ...(column.widthPx === undefined ? {} : { width: `${column.widthPx}px` }),
                       }}
-                      className="sticky top-0 z-[1] border-b-2 bg-muted px-2 text-[0.65rem] font-semibold tracking-[0.06em] text-muted-foreground uppercase"
+                      className="sticky top-0 z-[1] h-[30px] border-b bg-card px-2 text-[0.65rem] font-semibold tracking-[0.06em] text-muted-foreground uppercase"
                     >
                       <span className="inline-flex items-center gap-1">
                         {column.sort ? (
@@ -289,7 +290,7 @@ export function DenseTable<R>({
                   <th
                     scope="col"
                     style={{ height: "30px", width: "1%" }}
-                    className="sticky top-0 z-[1] border-b-2 bg-muted px-1.5"
+                    className="sticky top-0 z-[1] h-[30px] border-b bg-card px-1.5"
                   >
                     <span className="sr-only">Acciones</span>
                   </th>
@@ -457,7 +458,7 @@ export function DenseTableBar({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-2 border-b bg-muted px-3 py-2",
+        "flex flex-wrap items-center gap-2 px-3 py-3",
         className,
       )}
     >
@@ -522,7 +523,7 @@ export function FilterPill({
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:outline-none",
         pressed
           ? "border-foreground bg-foreground text-background"
-          : "border-border bg-card text-foreground hover:bg-accent hover:text-accent-foreground",
+          : "border-transparent bg-muted text-foreground hover:bg-accent hover:text-accent-foreground",
       )}
     >
       {children}

@@ -287,9 +287,9 @@ describe("TodayPage", () => {
       screen.getByText("Número de tickets"),
       screen.getByText("Ventas en efectivo"),
       screen.getByText("Ventas en tarjeta"),
-      screen.getByText("Ventas por hora"),
-      screen.getByText("Top productos vendidos"),
-      screen.getByText("Entradas de mercancía"),
+      screen.getByRole("region", { name: "Ventas por hora" }),
+      screen.getByText("Lo más vendido hoy"),
+      screen.getByText("Lo que entró hoy"),
       screen.getByRole("complementary", { name: "Requiere tu atención" }),
     ]
     const antes = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
@@ -373,7 +373,8 @@ describe("TodayPage", () => {
     expect(screen.getByText("entonces $ 82.450")).toBeInTheDocument()
     // El titular del gráfico concluye con la misma cifra, sin calcular otra.
     expect(
-      screen.getByRole("heading", { name: `Vas ${formatPct(1230)} arriba del martes pasado a esta hora` }),
+      // Sin normalizar: `formatPct` separa la cifra del «%» con espacio fino.
+      screen.getByText(`Vas ${formatPct(1230)} arriba del martes pasado a esta hora`, { normalizer: (t) => t }),
     ).toBeInTheDocument()
   })
 
@@ -396,7 +397,7 @@ describe("TodayPage", () => {
 
     await screen.findByText(`▼ ${pct(2284)}`)
     expect(
-      screen.getByRole("heading", { name: `Vas ${formatPct(2284)} abajo del martes pasado a esta hora` }),
+      screen.getByText(`Vas ${formatPct(2284)} abajo del martes pasado a esta hora`, { normalizer: (t) => t }),
     ).toBeInTheDocument()
   })
 
@@ -535,7 +536,7 @@ describe("TodayPage", () => {
     renderWithProviders(<TodayPage />, { me: buildMe() })
 
     expect(await screen.findByText(/estas cifras y los bloques de abajo son de/)).toBeInTheDocument()
-    expect(screen.getByText("Top productos vendidos · Ayer")).toBeInTheDocument()
+    expect(screen.getByText("Lo más vendido · Ayer")).toBeInTheDocument()
     expect(screen.getByText("Bandeja paisa")).toBeInTheDocument()
     expect(screen.getByText("30")).toBeInTheDocument()
     expect(screen.getByText("$ 655.000")).toBeInTheDocument()
@@ -605,20 +606,23 @@ describe("TodayPage", () => {
     )
     const { container } = renderWithProviders(<TodayPage />, { me: buildMe() })
 
-    await screen.findByRole("heading", { name: "Vas igual que el martes pasado a esta hora" })
-    // La hora con 0 real es columna; las que todavía no llegan son hueco.
+    await screen.findByText("Vas igual que el martes pasado a esta hora")
+    // La hora con 0 real es columna con dato; las que todavía no llegan van
+    // como columna clara a todo el alto («Burbujas»), nunca como $ 0.
+    const pendiente = (h: string) => container.querySelector(`[data-columna="${h}"] [data-pendiente]`)
     expect(container.querySelector('[data-columna="11"]')).not.toBeNull()
-    expect(container.querySelector('[data-hueco="11"]')).toBeNull()
-    expect(container.querySelector('[data-hueco="13"]')).not.toBeNull()
-    expect(container.querySelector('[data-columna="13"]')).toBeNull()
-    expect(container.querySelector('[data-hueco="0"]')).not.toBeNull()
-    // Las 00 van después de las 13 (orden del día operativo, como llegan).
-    const hueco13 = container.querySelector('[data-hueco="13"]') as Element
-    const hueco0 = container.querySelector('[data-hueco="0"]') as Element
-    expect(hueco13.compareDocumentPosition(hueco0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // Una marca de referencia por hora con dato (4: la de las 00 es $ 0 real).
-    expect(container.querySelectorAll("[data-referencia-serie]")).toHaveLength(4)
-    expect(screen.getByText(/Rayado: horas que todavía no llegan/)).toBeInTheDocument()
+    expect(pendiente("11")).toBeNull()
+    expect(pendiente("13")).not.toBeNull()
+    // Las 11 van antes que las 13 (orden del día operativo, como llegan).
+    const col11 = container.querySelector('[data-columna="11"]') as Element
+    const col13 = container.querySelector('[data-columna="13"]') as Element
+    expect(col11.compareDocumentPosition(col13) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Como en el diseño, sólo las horas en que la sede opera: las 00 no
+    // tuvieron venta ni hoy ni la semana pasada y quedan fuera.
+    expect(container.querySelector('[data-columna="0"]')).toBeNull()
+    // Una raya de referencia por hora con dato.
+    expect(container.querySelectorAll("[data-referencia]")).toHaveLength(3)
+    expect(screen.getByText(/Columna clara: horas que todavía no llegan/)).toBeInTheDocument()
   })
 
   it("el aviso resumen de caja lleva a Dinero › Historial, dice la plata en juego y quién lleva racha", async () => {
@@ -767,7 +771,9 @@ describe("TodayPage", () => {
 
     await screen.findByText("1 insumo en negativo")
     expect(screen.getByText(/cobradas y cerradas hoy: ya no cambian/).closest("details")).not.toBeNull()
-    expect(screen.getByText(/Venta neta por hora de reloj/).closest("details")).not.toBeNull()
+    // El método del gráfico se lee con lector de pantalla; a la vista queda
+    // el gráfico solo, como en el diseño («Burbujas»).
+    expect(screen.getByText(/Venta neta por hora de reloj/)).toHaveClass("sr-only")
     expect(screen.getByText(/Es deuda de registro/).closest("details")).not.toBeNull()
     // Que la propina no es venta (Ley 1935 de 2018) va plegado con las cifras.
     expect(screen.getByText(/Ley 1935 de 2018/).closest("details")).not.toBeNull()
@@ -791,7 +797,7 @@ describe("TodayPage — consignar desde el POS (2026-09-24)", () => {
 
     await screen.findByText("2 consignaciones por confirmar")
     expect(noticeLink("2 consignaciones por confirmar")).toHaveAttribute("href", "/admin/banco?tab=consignaciones")
-    expect(noticeItem("2 consignaciones por confirmar").className).toContain("border-l-warning")
+    expect(noticeItem("2 consignaciones por confirmar")).toHaveAttribute("data-severity", "warning")
   })
 
   it("avisa de la plata sin consignar con el total del SERVIDOR y la fecha más vieja; aviso si tiene ≤ 3 días", async () => {
@@ -803,7 +809,7 @@ describe("TodayPage — consignar desde el POS (2026-09-24)", () => {
     const title = /\$ 350\.000 sin consignar desde el dom 13 sep/
     await screen.findByText(title)
     expect(noticeLink(title)).toHaveAttribute("href", "/admin/banco?tab=por-consignar")
-    expect(noticeItem(title).className).toContain("border-l-warning")
+    expect(noticeItem(title)).toHaveAttribute("data-severity", "warning")
   })
 
   it("con más de 3 días sin consignar, el aviso pasa a crítico", async () => {
@@ -814,7 +820,7 @@ describe("TodayPage — consignar desde el POS (2026-09-24)", () => {
 
     const title = /\$ 350\.000 sin consignar desde el/
     await screen.findByText(title)
-    expect(noticeItem(title).className).toContain("border-l-destructive")
+    expect(noticeItem(title)).toHaveAttribute("data-severity", "critical")
   })
 
   it("con Consignaciones apagada (0 y null) no hay ninguno de los dos avisos, ni un «$ 0»", async () => {

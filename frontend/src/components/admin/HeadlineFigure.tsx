@@ -83,7 +83,7 @@ export function HeadlineFigure({
     >
       <div className="min-w-0">
         <p className="text-[0.7rem] tracking-wider text-muted-foreground uppercase">{label}</p>
-        <p className="mt-0.5 text-4xl leading-none font-extrabold tracking-tight whitespace-nowrap tabular-nums [font-stretch:108%]">
+        <p className="mt-0.5 text-4xl leading-none font-medium tracking-[-0.03em] whitespace-nowrap tabular-nums">
           {value}
         </p>
         {note ? <p className="mt-1.5 text-xs text-muted-foreground">{note}</p> : null}

@@ -83,7 +83,7 @@ export function PageHeader({
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <h1 className="text-2xl leading-tight font-bold">{name}</h1>
+            <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.025em] md:text-[34px]">{name}</h1>
             <button
               type="button"
               aria-expanded={explicar}
@@ -104,7 +104,7 @@ export function PageHeader({
         ) : null}
       </div>
       {context && context.length > 0 ? (
-        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted-foreground">
           {context.map((item, i) => (
             <span key={i} className="inline-flex items-center gap-4">
               {/* El filete entre datos, como en `a2` (`.contexto .sep`): sin
@@ -118,7 +118,7 @@ export function PageHeader({
                 {item.icon ? <item.icon className="size-3.5 shrink-0" aria-hidden="true" /> : null}
                 <span>{item.label}</span>
                 {item.value !== undefined ? (
-                  <b className="font-bold text-foreground">{item.value}</b>
+                  <b className="font-semibold text-foreground">{item.value}</b>
                 ) : null}
               </span>
             </span>

@@ -513,10 +513,10 @@ function FormMotivo({
         />
       </label>
       <div className="flex flex-wrap gap-1.5">
-        <Button type="submit" size="sm" disabled={!listo || ocupado} className="h-8 px-3 text-[13px] font-semibold">
+        <Button type="submit" size="sm" disabled={!listo || ocupado} className="h-9 rounded-full px-4 text-[13px] font-semibold">
           {pide.confirmar}
         </Button>
-        <Button type="button" size="sm" variant="ghost" onClick={onCancelar} className="h-8 px-3 text-[13px]">
+        <Button type="button" size="sm" variant="ghost" onClick={onCancelar} className="h-9 rounded-full px-4 text-[13px]">
           Cancelar
         </Button>
       </div>
@@ -548,10 +548,16 @@ function AccionesAviso({
         {foto}
         <div
           role="status"
-          className={cn("flex flex-wrap items-center gap-1.5 text-xs font-semibold", ok ? "text-success" : "text-warning")}
+          className="flex flex-wrap items-center gap-2 text-xs font-semibold"
         >
-          <Icono className="size-3.5 shrink-0" aria-hidden="true" />
-          <span>
+          {/* «Burbujas»: lo resuelto es una pastilla suave del tono. */}
+          <span
+            className={cn(
+              "inline-flex h-[26px] items-center gap-1.5 rounded-full px-2.5",
+              ok ? "bg-success-soft text-success" : "bg-warning-soft text-warning",
+            )}
+          >
+            <Icono className="size-3.5 shrink-0" aria-hidden="true" />
             {ok ? "✓ " : ""}
             {resuelto.accion.hecho} · {horaDe(resuelto.en)}
           </span>
@@ -560,7 +566,7 @@ function AccionesAviso({
               type="button"
               disabled={resuelto.estado === "reversando"}
               onClick={() => setReversando(true)}
-              className="ml-auto rounded-sm text-xs font-normal text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-60"
+              className="rounded-sm text-xs font-medium text-foreground underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-60"
             >
               {resuelto.estado === "reversando" ? "Reversando…" : "Reversar con motivo"}
             </button>
@@ -606,7 +612,12 @@ function AccionesAviso({
               type="button"
               size="sm"
               variant={a.primaria ? "default" : "outline"}
-              className="h-8 px-3 text-[13px] font-semibold"
+              // «Burbujas»: pastillas de 36 px; la principal en cobalto, la
+              // otra sobre la burbuja.
+              className={cn(
+                "h-9 rounded-full px-4 text-[13px] font-semibold",
+                !a.primaria && "border-transparent bg-card hover:bg-accent",
+              )}
               onClick={() => (a.pide ? setPidiendo(a) : void onResolver(item, a, "", ""))}
             >
               {a.label}

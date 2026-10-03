@@ -17,7 +17,7 @@ import {
 } from "@/api/reports"
 import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
-import { DenseTable, HeadlineFigure, PageHeader, type DenseColumn } from "@/components/admin"
+import { DenseTable, HeadlineFigure, PageHeader, Segmentado, type DenseColumn } from "@/components/admin"
 import { Cargando } from "@/components/Cargando"
 import {
   BarList,
@@ -627,43 +627,6 @@ function Pregunta({
  * `card` con sombra). Es un grupo de botones con `aria-pressed`: se alcanza
  * con el teclado y se lee como un grupo con nombre.
  */
-function Segmentado<V extends string | number>({
-  etiqueta,
-  opciones,
-  valor,
-  onChange,
-  chico,
-}: {
-  etiqueta: string
-  opciones: readonly { value: V; label: string }[]
-  valor: V
-  onChange: (v: V) => void
-  chico?: boolean
-}): React.JSX.Element {
-  return (
-    <div role="group" aria-label={etiqueta} className="inline-flex flex-wrap gap-0.5 rounded-lg border bg-muted p-[3px]">
-      {opciones.map((o) => {
-        const activa = o.value === valor
-        return (
-          <button
-            key={String(o.value)}
-            type="button"
-            aria-pressed={activa}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              "rounded-md text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              chico ? "h-7 px-2.5 text-xs" : "h-[30px] px-3 text-[13px]",
-              activa ? "bg-card font-bold shadow-sm" : "font-medium hover:bg-card/60",
-            )}
-          >
-            {o.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 /** «▲ +4,1 %», «▼ −1,8 %», «= 0,0 %»: la variación que manda el servidor, con flecha y signo. */
 function deltaConFlecha(bp: number | null | undefined, decimales = 1): string | null {
   const texto = formatPctConSigno(bp, decimales)
