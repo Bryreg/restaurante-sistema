@@ -52,7 +52,8 @@ export function ColumnasHora({
               title={`${d.etiqueta}: ${pendiente ? "todavía no llega" : formato(d.valor as number)}${
                 d.referencia != null ? ` · ${etiquetaReferencia ?? "referencia"} ${formato(d.referencia)}` : ""
               }`}
-              className="relative flex h-full items-end"
+              // Ancho máximo: con pocas horas la columna no se vuelve un bloque.
+              className="relative mx-auto flex h-full w-full max-w-11 items-end"
             >
               <span
                 data-pendiente={pendiente ? "" : undefined}

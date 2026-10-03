@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 
 import type { PanelCashOut } from "@/api/panel"
+import type { OpeningHour } from "@/api/stores"
 import {
   CASH_DIFF_SUMMARY_ALERT_TYPE,
   getToday,
@@ -80,6 +81,32 @@ function saludo(ahora: Date, nombre?: string | null): string {
   const parte = h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches"
   const primero = nombre?.trim().split(/\s+/)[0]
   return primero ? `${parte}, ${primero}` : parte
+}
+
+/**
+ * Las horas de reloj del turno normal abierto según el horario de la sede
+ * para el día de la semana de `isoDate` («11:00»–«22:00» → 11 a 21). Si cierra
+ * pasada la medianoche, da la vuelta. `null` si ese día no tiene horario.
+ */
+/** La hora de reloj en Bogotá de un instante ISO. */
+function horaBogota(iso: string): number {
+  return Number(
+    new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone: "America/Bogota" }).format(new Date(iso)),
+  )
+}
+
+function horasDelTurno(horario: OpeningHour[], isoDate: string): Set<number> | null {
+  // `weekday` del servidor: 0 = lunes. `getUTCDay`: 0 = domingo.
+  const dia = (new Date(`${isoDate}T12:00:00Z`).getUTCDay() + 6) % 7
+  const h = horario.find((x) => x.weekday === dia)
+  if (!h) return null
+  const [ah] = h.open.split(":").map(Number)
+  const [ch, cm] = h.close.split(":").map(Number)
+  if (ah === undefined || ch === undefined || Number.isNaN(ah) || Number.isNaN(ch)) return null
+  const fin = cm ? ch + 1 : ch
+  const out = new Set<number>()
+  for (let i = 0, x = ah; i < 24 && x % 24 !== fin % 24; i++, x++) out.add(x % 24)
+  return out.size > 0 ? out : null
 }
 
 function hourLabel(hour: number): string {
@@ -967,9 +994,15 @@ interface RecapDay {
 function HourlySales({
   today,
   recap = null,
+  horario = [],
+  aperturaTurno = null,
 }: {
   today: TodayOut
   recap?: RecapDay | null
+  /** El horario de la sede (`opening_hours`): el turno normal abierto. */
+  horario?: OpeningHour[]
+  /** Cuándo se abrió el turno de hoy (ISO), si ya abrió: el turno puede abrir antes del horario. */
+  aperturaTurno?: string | null
 }): React.JSX.Element {
   const hours: HourBucketOut[] = today.sales_by_hour ?? []
   const reference = today.sales_by_hour_reference ?? []
@@ -1031,13 +1064,18 @@ function HourlySales({
   // La hora en curso (la última que ya llegó) va en tinta; sólo hoy, no en
   // el repaso de otro día. Elegir cuál es selección, no matemática.
   const enCurso = recap ? undefined : [...hours].reverse().find((h) => !h.pending)
-  // Como en el diseño, sólo las horas en que la sede opera: desde la primera
-  // con venta (hoy o la semana pasada) hasta la última, y siempre la hora en
-  // curso. Recortar los extremos vacíos es selección, no matemática.
+  // Las horas del turno normal abierto: las del horario de la sede para ese
+  // día de la semana, más cualquier hora fuera de él con venta (hoy o la
+  // semana pasada) y la hora en curso. Sin horario cargado, de la primera a
+  // la última hora con venta. Elegir qué horas se ven es selección.
+  const turno = horasDelTurno(horario, recap?.date ?? today.business_date)
+  const horaApertura = !recap && aperturaTurno ? horaBogota(aperturaTurno) : null
+  if (horaApertura !== null) turno?.add(horaApertura)
   const conVenta = (h: HourBucketOut) =>
     (!h.pending && h.net > 0) || (referenceByHour.get(h.hour) ?? 0) > 0 || h.hour === enCurso?.hour
-  const primera = hours.findIndex(conVenta)
-  const ultima = hours.length - 1 - [...hours].reverse().findIndex(conVenta)
+  const entra = (h: HourBucketOut) => conVenta(h) || (turno?.has(h.hour) ?? false)
+  const primera = hours.findIndex(entra)
+  const ultima = hours.length - 1 - [...hours].reverse().findIndex(entra)
   const visibles = primera === -1 ? hours : hours.slice(primera, ultima + 1)
   const columnas: ColumnaHora[] = visibles.map((h) => ({
     key: String(h.hour),
@@ -1511,7 +1549,8 @@ function Receptions({
  * Inventario y los avisos del riel.
  */
 export function TodayPage(): React.JSX.Element {
-  const { activeStoreId, loading: storeLoading } = useStoreSelection()
+  const { activeStoreId, stores, loading: storeLoading } = useStoreSelection()
+  const { panel: panelAhora } = usePanelAhora()
   const { me } = useSession()
   const cutoffHour = me?.store?.cutoff_hour
   const celular = useEsCelular()
@@ -1723,7 +1762,12 @@ export function TodayPage(): React.JSX.Element {
             celular={celular}
           >
             <DayFigures today={shown} recap={recap} />
-            <HourlySales today={shown} recap={recap} />
+            <HourlySales
+              today={shown}
+              recap={recap}
+              horario={stores.find((x) => x.id === activeStoreId)?.opening_hours ?? []}
+              aperturaTurno={panelAhora?.cash?.opened_at ?? null}
+            />
           </VentaPrincipal>
 
           {/* «Ahora» de la sede activa: cinco burbujas en dos columnas. */}
