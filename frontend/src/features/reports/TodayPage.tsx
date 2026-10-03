@@ -966,11 +966,9 @@ interface RecapDay {
 
 function HourlySales({
   today,
-  storeId,
   recap = null,
 }: {
   today: TodayOut
-  storeId: number
   recap?: RecapDay | null
 }): React.JSX.Element {
   const hours: HourBucketOut[] = today.sales_by_hour ?? []
@@ -1033,7 +1031,15 @@ function HourlySales({
   // La hora en curso (la última que ya llegó) va en tinta; sólo hoy, no en
   // el repaso de otro día. Elegir cuál es selección, no matemática.
   const enCurso = recap ? undefined : [...hours].reverse().find((h) => !h.pending)
-  const columnas: ColumnaHora[] = hours.map((h) => ({
+  // Como en el diseño, sólo las horas en que la sede opera: desde la primera
+  // con venta (hoy o la semana pasada) hasta la última, y siempre la hora en
+  // curso. Recortar los extremos vacíos es selección, no matemática.
+  const conVenta = (h: HourBucketOut) =>
+    (!h.pending && h.net > 0) || (referenceByHour.get(h.hour) ?? 0) > 0 || h.hour === enCurso?.hour
+  const primera = hours.findIndex(conVenta)
+  const ultima = hours.length - 1 - [...hours].reverse().findIndex(conVenta)
+  const visibles = primera === -1 ? hours : hours.slice(primera, ultima + 1)
+  const columnas: ColumnaHora[] = visibles.map((h) => ({
     key: String(h.hour),
     etiqueta: hourTick(h.hour),
     valor: h.pending ? null : h.net,
@@ -1056,28 +1062,14 @@ function HourlySales({
           <span aria-hidden="true" className="size-2.5 rounded-[3px] bg-data-bar" />
           {recap ? recap.short : "Hoy"}
         </span>
-        {hasReference ? (
-          <span className="inline-flex items-center gap-1.5">
-            <span aria-hidden="true" className="w-3.5 border-t-2 border-foreground" />
-            {refLabel}, día completo
-          </span>
-        ) : null}
-        {enCurso ? (
-          <span className="inline-flex items-center gap-1.5">
-            <span aria-hidden="true" className="size-2.5 rounded-[3px] bg-foreground" />
-            Hora en curso
-          </span>
-        ) : null}
-        <a
-          href={todayBlockCsvUrl("sales-by-hour", storeId, recap?.date)}
-          target="_blank"
-          rel="noreferrer"
-          title="Descargar «Ventas por hora» (CSV)"
-          className="grid size-7 place-items-center rounded-full bg-muted text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <Download className="size-3.5" aria-hidden="true" />
-          <span className="sr-only">Descargar CSV</span>
-        </a>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="w-3.5 border-t-2 border-foreground" />
+          {refLabel}, día completo
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="size-2.5 rounded-[3px] bg-foreground" />
+          Hora en curso
+        </span>
       </div>
       <ColumnasHora
         datos={columnas}
@@ -1271,7 +1263,7 @@ function VentaPrincipal({
   nota?: string
   comparacion?: ReturnType<typeof todayComparison>
   deltaBp?: number | null
-  libro: { label: string; value: string; resta?: boolean; total?: boolean }[]
+  libro: { label: string; value: string; resta?: boolean }[]
   otros: TodayOut["other_payment_sales"]
   celular: boolean
   children: React.ReactNode
@@ -1297,7 +1289,9 @@ function VentaPrincipal({
           {nota ? <p className="mt-2 text-[13px] text-muted-foreground">{nota}</p> : null}
           {comparacion ? (
             <p className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
-              <EstadoPastilla tono={tono}>{comparacion.delta}</EstadoPastilla>
+              <EstadoPastilla tono={tono} sinForma={/^[▲▼=]/.test(comparacion.delta)}>
+                {comparacion.delta}
+              </EstadoPastilla>
               <span>{comparacion.label}</span>
               {comparacion.detail ? <span className="tabular-nums">{comparacion.detail}</span> : null}
             </p>
@@ -1306,22 +1300,26 @@ function VentaPrincipal({
         {celular ? null : <IrRedondo to="/admin/ventas" label="Ver el día completo" grande />}
       </div>
       {children}
-      <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1 border-t pt-4 text-sm" data-slot="libro">
+      <dl className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t pt-4 text-[13px] text-muted-foreground" data-slot="libro">
         {libro.map((r) => (
           <div key={r.label} className="flex items-baseline gap-1.5">
-            <dt className={r.total ? "font-semibold" : "text-muted-foreground"}>{r.label}</dt>
-            <dd className="font-semibold whitespace-nowrap tabular-nums">
+            <dt>{r.label}</dt>
+            <dd className="font-medium whitespace-nowrap text-foreground tabular-nums">
               {r.resta ? "− " : ""}
               {r.value}
             </dd>
           </div>
         ))}
         {otros !== null && otros !== undefined && otros.payments > 0 ? (
-          <p className="w-full text-[13px] text-muted-foreground">
-            Otros medios (transferencia, plataformas, bonos):{" "}
-            <b className="font-semibold text-foreground tabular-nums">{formatCOP(otros.net)}</b> en {otros.payments}{" "}
-            {otros.payments === 1 ? "pago" : "pagos"}. Con efectivo y tarjeta completan la venta neta.
-          </p>
+          <div
+            className="flex items-baseline gap-1.5 md:ml-auto"
+            title="Transferencia, plataformas y bonos: con efectivo y tarjeta completan la venta neta."
+          >
+            <dt>Otros medios</dt>
+            <dd className="whitespace-nowrap tabular-nums">
+              {formatCOP(otros.net)} · {otros.payments} {otros.payments === 1 ? "pago" : "pagos"}
+            </dd>
+          </div>
         ) : null}
       </dl>
     </Burbuja>
@@ -1708,24 +1706,24 @@ export function TodayPage(): React.JSX.Element {
             }
             comparacion={comparison}
             deltaBp={today.comparison?.delta_bp ?? null}
-            libro={
-              beforeFirstSale && yesterday
-                ? [
-                    { label: "Cobrado hoy", value: formatCOP(today.gross) },
-                    { label: "Impuesto discriminado", value: formatCOP(today.tax), resta: true },
-                    { label: "Ventas netas de hoy", value: formatCOP(today.net), total: true },
-                  ]
-                : [
-                    { label: "Ventas cobradas", value: formatCOP(today.gross) },
-                    { label: "Impuesto discriminado", value: formatCOP(today.tax), resta: true },
-                    { label: "Ventas netas", value: formatCOP(today.net), total: true },
-                  ]
-            }
+            // El pie del diseño: el libro de hoy en una línea.
+            libro={[
+              { label: beforeFirstSale && yesterday ? "Cobrado hoy" : "Cobrado", value: formatCOP(today.gross) },
+              { label: "Impuesto", value: formatCOP(today.tax), resta: true },
+              ...(today.tips_total !== undefined
+                ? [{ label: "Propinas, no son venta", value: formatCOP(today.tips_total) }]
+                : []),
+              // En el repaso la cifra grande es de otro día: la venta de hoy
+              // se dice aparte, para que el $ 0 de hoy no se pierda.
+              ...(beforeFirstSale && yesterday
+                ? [{ label: "Ventas netas de hoy", value: formatCOP(today.net) }]
+                : []),
+            ]}
             otros={shown.other_payment_sales ?? null}
             celular={celular}
           >
             <DayFigures today={shown} recap={recap} />
-            <HourlySales today={shown} storeId={activeStoreId} recap={recap} />
+            <HourlySales today={shown} recap={recap} />
           </VentaPrincipal>
 
           {/* «Ahora» de la sede activa: cinco burbujas en dos columnas. */}

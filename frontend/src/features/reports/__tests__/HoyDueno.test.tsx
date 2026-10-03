@@ -107,7 +107,7 @@ describe("Hoy · lo que pidió el dueño", () => {
     const tarjeta = screen.getByText("Ventas en tarjeta").closest("div.rounded-2xl") as HTMLElement
     expect(within(tarjeta).getByText("$ 27.777")).toBeInTheDocument()
     expect(within(tarjeta).getByText("1 pago")).toBeInTheDocument()
-    expect(screen.getByText("$ 11.112")).toBeInTheDocument()
+    expect(screen.getByText(/\$ 11\.112/)).toBeInTheDocument()
     const tickets = screen.getByText("Número de tickets").closest("div.rounded-2xl") as HTMLElement
     expect(within(tickets).getByText("3")).toBeInTheDocument()
     expect(screen.getByText("$ 33.333")).toBeInTheDocument()
@@ -145,17 +145,6 @@ describe("Hoy · lo que pidió el dueño", () => {
     expect(within(bloque).getByRole("link", { name: /Descargar CSV/ })).toHaveAttribute(
       "href",
       "/api/v1/admin/today/receptions?store_id=1&format=csv",
-    )
-  })
-
-  it("ventas por hora se descarga del servidor", async () => {
-    getTodayMock.mockResolvedValue(today())
-    renderWithProviders(<TodayPage />, { me: buildMe() })
-
-    const bloque = await screen.findByRole("region", { name: "Ventas por hora" })
-    expect(within(bloque).getByRole("link", { name: /Descargar CSV/ })).toHaveAttribute(
-      "href",
-      "/api/v1/admin/today/sales-by-hour?store_id=1&format=csv",
     )
   })
 

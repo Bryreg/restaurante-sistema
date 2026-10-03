@@ -61,7 +61,7 @@ export function ColumnasHora({
                   "w-full rounded-md",
                   pendiente ? "bg-muted" : enCurso ? "bg-foreground" : "bg-data-bar",
                 )}
-                style={{ height: pendiente ? "100%" : pct(d.valor as number), minHeight: pendiente ? undefined : 3 }}
+                style={{ height: pendiente ? "100%" : pct(d.valor as number) }}
               />
               {d.referencia != null ? (
                 <span

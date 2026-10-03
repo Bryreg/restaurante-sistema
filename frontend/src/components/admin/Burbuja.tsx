@@ -38,10 +38,13 @@ export function EstadoPastilla({
   tono,
   children,
   className,
+  sinForma = false,
 }: {
   tono: Tono
   children: ReactNode
   className?: string
+  /** El texto ya trae su forma (▲ ▼ ■): no se repite. */
+  sinForma?: boolean
 }): React.JSX.Element {
   return (
     <span
@@ -51,7 +54,7 @@ export function EstadoPastilla({
         className,
       )}
     >
-      <span aria-hidden="true" className={cn("size-[7px] shrink-0 bg-current", FORMA[tono])} />
+      {sinForma ? null : <span aria-hidden="true" className={cn("size-[7px] shrink-0 bg-current", FORMA[tono])} />}
       {children}
     </span>
   )

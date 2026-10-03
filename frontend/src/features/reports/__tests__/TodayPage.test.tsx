@@ -613,13 +613,15 @@ describe("TodayPage", () => {
     expect(container.querySelector('[data-columna="11"]')).not.toBeNull()
     expect(pendiente("11")).toBeNull()
     expect(pendiente("13")).not.toBeNull()
-    expect(pendiente("0")).not.toBeNull()
-    // Las 00 van después de las 13 (orden del día operativo, como llegan).
+    // Las 11 van antes que las 13 (orden del día operativo, como llegan).
+    const col11 = container.querySelector('[data-columna="11"]') as Element
     const col13 = container.querySelector('[data-columna="13"]') as Element
-    const col0 = container.querySelector('[data-columna="0"]') as Element
-    expect(col13.compareDocumentPosition(col0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // Una raya de referencia por hora con dato (4: la de las 00 es $ 0 real).
-    expect(container.querySelectorAll("[data-referencia]")).toHaveLength(4)
+    expect(col11.compareDocumentPosition(col13) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Como en el diseño, sólo las horas en que la sede opera: las 00 no
+    // tuvieron venta ni hoy ni la semana pasada y quedan fuera.
+    expect(container.querySelector('[data-columna="0"]')).toBeNull()
+    // Una raya de referencia por hora con dato.
+    expect(container.querySelectorAll("[data-referencia]")).toHaveLength(3)
     expect(screen.getByText(/Columna clara: horas que todavía no llegan/)).toBeInTheDocument()
   })
 
