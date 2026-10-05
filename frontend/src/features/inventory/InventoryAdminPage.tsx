@@ -13,12 +13,13 @@ import { AreaCountsTab } from "./AreaCountsTab"
 import { ControlHealthTab } from "./ControlHealthTab"
 import { CountsTab } from "./CountsTab"
 import { IngredientsTab } from "./IngredientsTab"
+import { LineaDeTiempoTab } from "./LineaDeTiempoTab"
 import { LotsTab } from "./LotsTab"
 import { MovementsWasteTab } from "./MovementsWasteTab"
 import { StockTab } from "./StockTab"
 import { VarianceTab } from "./VarianceTab"
 
-const ALL_TABS = ["insumos", "stock", "movimientos", "conteos", "por-area", "varianza", "lotes", "etiquetas", "salud"] as const
+const ALL_TABS = ["insumos", "stock", "linea", "movimientos", "conteos", "por-area", "varianza", "lotes", "etiquetas", "salud"] as const
 type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
@@ -88,6 +89,7 @@ export function InventoryAdminPage(): React.JSX.Element {
   const tabAvailable: Record<TabValue, boolean> = {
     insumos: true,
     stock: true,
+    linea: true,
     movimientos: true,
     conteos: countsEnabled,
     "por-area": areaCountsEnabled,
@@ -136,6 +138,9 @@ export function InventoryAdminPage(): React.JSX.Element {
   // Las que no son de todos los días: movimientos (cuando hay conteos),
   // varianza, lotes y salud del control, cada una detrás de su flag.
   const masPestanas: PestanaDeMas[] = [
+    // La vida de cada insumo en el tiempo: cuándo entró, cuándo salió,
+    // cuánto estuvo en cero y qué vieron los conteos. Stock enlaza acá.
+    { value: "linea", label: "Línea de tiempo" },
     ...(countsEnabled ? [{ value: "movimientos", label: "Movimientos y mermas" }] : []),
     ...(areaCountsEnabled ? [{ value: "por-area", label: "Conteo por área" }] : []),
     ...(varianceEnabled ? [{ value: "varianza", label: "Varianza" }] : []),
@@ -211,6 +216,9 @@ export function InventoryAdminPage(): React.JSX.Element {
               setSearchParams(next, { replace: true })
             }}
           />
+        </TabsContent>
+        <TabsContent value="linea" className="pt-4">
+          <LineaDeTiempoTab storeId={activeStoreId} />
         </TabsContent>
         <TabsContent value="movimientos" className="pt-4">
           <MovementsWasteTab

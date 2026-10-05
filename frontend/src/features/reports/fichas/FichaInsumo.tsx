@@ -3,7 +3,7 @@ import { ArrowLeft, Package, RotateCcw, SlidersHorizontal } from "lucide-react"
 import { useState } from "react"
 import { Link, useParams } from "react-router-dom"
 
-import { getIngredientMovements, type MovementCause, type StockMovementOut } from "@/api/inventory"
+import { getIngredientMovements, getInventoryTimeline, type MovementCause, type StockMovementOut } from "@/api/inventory"
 import {
   getIngredientRecord,
   type IngredientCountLineOut,
@@ -26,6 +26,8 @@ import { formatCantidad, formatFechaCorta } from "@/lib/format"
 import { AdjustmentDialog } from "@/features/inventory/AdjustmentDialog"
 import { RecountDialog } from "@/features/inventory/RecountDialog"
 import { areaCountHref } from "@/features/inventory/areaCountLib"
+import { BarraVidaInsumo, EjeTiempo } from "@/features/inventory/BarraVidaInsumo"
+import { duracion, marcasEje } from "@/features/inventory/lineaDeTiempo"
 import { CAUSE_LABEL } from "@/features/inventory/lib"
 
 import { AvatarFicha, DetallePlegable, FilaDeTarjetas, PersonaLink, PreguntaFicha, SeccionFicha } from "./comun"
@@ -150,6 +152,83 @@ function CuandoSeAcaba({ serie, unidad }: { serie: StockByDaySeriesOut; unidad: 
  * las hace el servidor sobre el libro de movimientos, que es el único asiento
  * del inventario; acá sólo se escriben.
  */
+/**
+ * **«¿Cuándo entró y cuándo salió?»**: la misma barra de Inventario › Línea
+ * de tiempo, a todo el ancho y para el período de la ficha. Sale de la misma
+ * lectura (`GET /admin/inventory/timeline?ingredient_id=`), así que la ficha
+ * y la lista no pueden contar dos historias distintas del mismo insumo.
+ */
+function VidaEnElPeriodo({
+  storeId,
+  ingredientId,
+  from,
+  to,
+}: {
+  storeId: number
+  ingredientId: number
+  from: string
+  to: string
+}): React.JSX.Element | null {
+  const q = useQuery({
+    queryKey: ["inventory", "timeline", storeId, from, to, "insumo", ingredientId],
+    queryFn: () => getInventoryTimeline({ storeId, from, to, ingredientId }),
+  })
+  const data = q.data
+  const row = data?.rows[0]
+  if (q.isLoading) return <Cargando texto="Armando la línea de tiempo…" />
+  // Un período de más de dos meses no tiene barra: el resto de la ficha sigue.
+  if (!data || !row) return null
+  const unidad = row.base_unit === "unit" ? "und" : row.base_unit
+  const marcas = marcasEje(data.date_from, data.start_at, data.end_at)
+  return (
+    <PreguntaFicha titulo="¿Cuándo entró y cuándo salió?">
+      <div className="rounded-lg border bg-card px-4 py-4">
+        <EjeTiempo marcas={marcas} className="mb-3" />
+        <div role="img" aria-label={`Saldo de ${row.name} en el período, con ${row.arrivals.length} llegadas y ${row.counts.length} conteos.`} className="pb-3">
+          <BarraVidaInsumo row={row} startAt={data.start_at} endAt={data.end_at} nowAt={data.now_at} alto={96} />
+        </div>
+        <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-muted-foreground">
+          <span>
+            Arrancó <b className="font-semibold text-foreground">{formatCantidad(row.start_qty, unidad)}</b>
+          </span>
+          <span>
+            Entró <b className="font-semibold text-foreground">{formatCantidad(row.in_qty, unidad)}</b>
+          </span>
+          <span>
+            Salió <b className="font-semibold text-foreground">{formatCantidad(row.out_qty.replace("-", ""), unidad)}</b>
+          </span>
+          <span>
+            Queda <b className="font-semibold text-foreground">{formatCantidad(row.end_qty, unidad)}</b>
+          </span>
+          {row.seconds_at_zero > 0 ? (
+            <span className="font-semibold text-destructive">{duracion(row.seconds_at_zero)} en cero</span>
+          ) : null}
+          {row.seconds_below_min > 0 ? (
+            <span className="font-semibold text-warning">{duracion(row.seconds_below_min)} bajo el mínimo</span>
+          ) : null}
+        </p>
+        {row.counts.length ? (
+          <ul className="mt-3 flex flex-col gap-1 text-[13px]">
+            {row.counts.map((c) => (
+              <li key={`${c.at}-${c.label}`} className="flex flex-wrap gap-x-2">
+                <span className="text-muted-foreground">{formatInstant(c.at)}</span>
+                <span>{c.label}</span>
+                <span>
+                  contaron <b className="font-semibold">{formatCantidad(c.counted, unidad)}</b>, el libro decía{" "}
+                  {formatCantidad(c.expected, unidad)}
+                </span>
+                <b className={Number(c.diff) < 0 ? "font-semibold text-destructive" : "font-semibold"}>
+                  {Number(c.diff) === 0 ? "coincidió" : formatCantidad(c.diff, unidad)}
+                </b>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </PreguntaFicha>
+  )
+}
+
 export function FichaInsumo(): React.JSX.Element {
   const { ingredientId: raw } = useParams()
   const ingredientId = Number(raw)
@@ -271,6 +350,10 @@ export function FichaInsumo(): React.JSX.Element {
       </div>
 
       <TarjetasInsumo r={r} unit={unit} />
+
+      {r.stock !== null ? (
+        <VidaEnElPeriodo storeId={r.store_id} ingredientId={r.ingredient_id} from={r.date_from} to={r.date_to} />
+      ) : null}
 
       {r.stock_by_day ? <CuandoSeAcaba serie={r.stock_by_day} unidad={unit} /> : null}
 

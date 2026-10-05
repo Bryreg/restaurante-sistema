@@ -267,6 +267,116 @@ export function inventoryStockCsvUrl(params: StockQuery): string {
 }
 
 // ---------------------------------------------------------------------------
+// Línea de tiempo (`GET /admin/inventory/timeline`, `app.inventory.timeline`).
+// ---------------------------------------------------------------------------
+
+export interface TimelineCauseOut {
+  cause: MovementCause
+  movements: number
+  /** Cantidad neta con signo, texto decimal de la unidad base. */
+  qty: string
+  /** Pesos al costo de cada movimiento; `null` = ninguno tenía costo. */
+  value: number | null
+  uncosted: number
+}
+
+export interface TimelinePointOut {
+  at: string
+  /** El saldo después del último movimiento del tramo. */
+  qty: string
+}
+
+export interface TimelineArrivalOut {
+  at: string
+  cause: MovementCause
+  qty: string
+}
+
+export interface TimelineCountOut {
+  at: string
+  kind: "full" | "key_items" | "area"
+  label: string
+  employee_name: string | null
+  counted: string
+  /** Lo que el libro tenía en ese instante. */
+  expected: string
+  /** Contado − esperado: negativo es faltante. */
+  diff: string
+  diff_value: number | null
+}
+
+export interface TimelineRowOut {
+  ingredient_id: number
+  name: string
+  base_unit: BaseUnit
+  key_item: boolean
+  min_stock: string
+  cost: string | null
+  start_qty: string
+  in_qty: string
+  out_qty: string
+  count_adjustment_qty: string
+  end_qty: string
+  by_cause: TimelineCauseOut[]
+  /** La plata que salió del estante; `null` = lo que salió no tenía costo. */
+  value_out: number | null
+  value_out_partial: boolean
+  value_count_adjustment: number | null
+  seconds_below_min: number
+  seconds_at_zero: number
+  first_zero_at: string | null
+  points: TimelinePointOut[]
+  arrivals: TimelineArrivalOut[]
+  counts: TimelineCountOut[]
+}
+
+export interface TimelineSummaryOut {
+  ingredients: number
+  with_movement: number
+  value_out: number
+  value_out_partial: boolean
+  value_out_by_cause: TimelineCauseOut[]
+  value_count_shortage: number
+  value_count_surplus: number
+  counts: number
+  below_min: number
+  hit_zero: number
+  negative_now: number
+}
+
+export interface TimelineOut {
+  store_id: number
+  date_from: string
+  date_to: string
+  start_at: string
+  end_at: string
+  /** Hasta dónde llegó el período: lo que sigue todavía no pasó. */
+  now_at: string
+  summary: TimelineSummaryOut
+  rows: TimelineRowOut[]
+}
+
+export interface TimelineQuery {
+  storeId: number
+  from?: string
+  to?: string
+  ingredientId?: number
+  criticalOnly?: boolean
+}
+
+export function getInventoryTimeline(params: TimelineQuery): Promise<TimelineOut> {
+  return api<TimelineOut>("/admin/inventory/timeline", {
+    query: {
+      store_id: params.storeId,
+      from: params.from,
+      to: params.to,
+      ingredient_id: params.ingredientId,
+      critical_only: params.criticalOnly,
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Ajustes manuales.
 // ---------------------------------------------------------------------------
 
