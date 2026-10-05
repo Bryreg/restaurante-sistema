@@ -186,3 +186,25 @@ def test_no_time_in_zero_before_the_ingredient_existed(
     # En cero de 16:00 a 18:00, no desde las 11:00 en que arrancó el día.
     assert row["seconds_at_zero"] == 2 * 3600
     assert row["first_zero_at"].startswith("2026-01-14T16:00")
+
+
+def test_movements_before_created_at_mean_it_already_existed(
+    db: Any, store: Store, admin_client: TestClient, employees: dict[str, Employee],
+    create_ingredient: Callable[..., dict[str, Any]], set_feature: Callable[..., None], clock: Any,
+) -> None:
+    """Una carga que crea el insumo DESPUÉS de sus movimientos (`created_at`
+    posterior) no puede borrar el tiempo que pasó en cero."""
+    set_feature("inventory.perpetual", True)
+    clock.set(_utc(15, 12))  # creado después de todo el rango
+    iid = int(create_ingredient(name="Cargado", min_stock="100", official_cost="10")["id"])
+    admin = employees["admin"]
+    _move(db, store, admin, iid, "100", MovementCause.PURCHASE, _utc(13, 15))  # antes del rango
+    _move(db, store, admin, iid, "-100", MovementCause.SALE, _utc(14, 13))  # en cero desde las 13:00
+    db.commit()
+
+    row = next(
+        r for r in admin_client.get(f"{URL}?store_id={store.id}&from={DAY}&to={DAY}").json()["rows"]
+        if r["ingredient_id"] == iid
+    )
+    # De 13:00 a 11:00 del día siguiente: 22 h en cero.
+    assert row["seconds_at_zero"] == 22 * 3600

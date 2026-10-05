@@ -192,6 +192,9 @@ class _Cause:
 @dataclass
 class _Acc:
     start: int = 0
+    # Tuvo movimientos antes del rango: existía desde antes, diga lo que diga
+    # su `created_at` (una carga o una migración puede dejarlo posterior).
+    before: bool = False
     causes: dict[MovementCause, _Cause] = field(default_factory=lambda: defaultdict(_Cause))
     moves: list[tuple[datetime, int, MovementCause, int | None]] = field(default_factory=list)
 
@@ -321,6 +324,7 @@ def inventory_timeline(
             .group_by(StockMovement.ingredient_id)
         ).all():
             acc[int(iid)].start = int(qty)
+            acc[int(iid)].before = True
 
         for iid, at, qty, cause, cost in db.execute(
             select(
@@ -435,8 +439,12 @@ def inventory_timeline(
                     out_micros += line_cost_micros(-qty, cost)
 
         # Antes de que el insumo existiera no estuvo «en cero»: no estaba.
+        # Si tiene movimientos anteriores a su `created_at`, existía desde el
+        # primero de ellos.
         born = ingredient.created_at
-        since = start_at if born is None or born <= start_at else min(born, until)
+        if a.moves and (born is None or a.moves[0][0] < born):
+            born = a.moves[0][0]
+        since = start_at if a.before or born is None or born <= start_at else min(born, until)
         start_since = _saldo_at(a.start, a.moves, since) if since > start_at else a.start
         below, at_zero, first_zero = _durations(
             start_since, [m for m in a.moves if m[0] > since], min_stock=ingredient.min_stock,
