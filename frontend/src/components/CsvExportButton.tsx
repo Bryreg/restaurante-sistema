@@ -20,7 +20,8 @@ export function CsvExportButton({ href, label = "Exportar CSV" }: CsvExportButto
     <Button
       render={<a href={href} target="_blank" rel="noreferrer" />}
       variant="outline"
-      className="h-11 gap-2"
+      // En la oficina va al lado del selector de período, a su alto.
+      className="h-11 gap-2 in-[.oficina]:h-9"
     >
       <Download className="size-4" aria-hidden="true" />
       {label}

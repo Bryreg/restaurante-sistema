@@ -216,17 +216,17 @@ export function FichaPersona(): React.JSX.Element {
         <ArrowLeft className="size-3.5 shrink-0" aria-hidden="true" />
         Volver a Turnos y personal
       </Link>
-      <div className="flex justify-end">
-        <CsvExportButton
-          href={csvUrl(`/admin/records/employee/${employeeId}`, { store_id: activeStoreId, ...range })}
-          label="Descargar la ficha"
-        />
-      </div>
       <div className="flex items-start gap-3.5">
         <AvatarFicha forma="persona" texto={iniciales(r.employee.name)} />
         <PageHeader
           className="min-w-0 flex-1"
           name={r.employee.name}
+          actions={
+            <CsvExportButton
+              href={csvUrl(`/admin/records/employee/${employeeId}`, { store_id: activeStoreId, ...range })}
+              label="Descargar la ficha"
+            />
+          }
           question="Qué hizo esta persona en el período: lo que cobró, los turnos en que tuvo la caja, cuándo trabajó y lo que anuló, descontó o regaló."
           context={[
             { label: ROLE_LABEL[r.role] ?? r.role },

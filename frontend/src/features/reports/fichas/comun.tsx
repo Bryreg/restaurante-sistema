@@ -93,7 +93,7 @@ export function DetallePlegable({
         aria-expanded={abierto}
         aria-controls={id}
         onClick={() => setAbierto((v) => !v)}
-        className="inline-flex h-9 items-center gap-2 self-start rounded-md border bg-card px-3 text-sm font-semibold text-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="inline-flex h-10 items-center gap-2 self-start rounded-full bg-card px-4 text-sm font-semibold text-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
         <Icono className="size-4 shrink-0" aria-hidden="true" />
         {abierto ? "Ocultar el detalle" : texto}

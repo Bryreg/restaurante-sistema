@@ -461,6 +461,41 @@ html.oficina [data-slot=tabs-list][data-variant=default] [data-slot=tabs-trigger
     box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
 }
 
+/* La tarjeta de cifra (`StatTile`, handoff `BubFicha`): burbuja de radio 20,
+   blanca y sin borde; con tono, el suave del tono y su raya. Dentro de otra
+   burbuja, un pozo. */
+html.oficina main [data-stat-tile] {
+    border-radius: 20px;
+    border-width: 0;
+    padding: 18px 20px;
+    background: var(--card);
+}
+html.oficina main [data-stat-tile=warning] {
+    border: 1px solid color-mix(in oklab, var(--warning) 55%, transparent);
+    border-left: 3px solid var(--warning);
+    background: var(--color-warning-soft);
+}
+html.oficina main [data-stat-tile=critical] {
+    border: 1px solid color-mix(in oklab, var(--destructive) 45%, transparent);
+    border-left: 3px solid var(--destructive);
+    background: var(--color-destructive-soft);
+}
+html.oficina main :is(.burbuja, .bg-card.border) [data-stat-tile=default] {
+    background: var(--muted);
+}
+/* Los botones de contorno son píldoras blancas: sobre el gris de la página
+   el contorno sobra; dentro de una burbuja van sobre el pozo. */
+html.oficina main [data-slot=button].border-border.bg-background:not([aria-pressed]) {
+    border-color: transparent;
+    border-radius: 999px;
+    background: var(--card);
+    font-weight: 600;
+    padding-inline: 14px;
+}
+html.oficina main :is(.burbuja, .bg-card.border) [data-slot=button].border-border.bg-background:not([aria-pressed]) {
+    background: var(--muted);
+}
+
 /* Un vacío dentro de una burbuja es un pozo, sin raya punteada. */
 html.oficina main :is(.burbuja, .tabla-densa, .bg-card.border) .border-dashed:is(.rounded-lg, .rounded-md) {
     border-color: transparent;

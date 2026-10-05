@@ -1743,7 +1743,10 @@ export function TodayPage(): React.JSX.Element {
                     .join(" · ")
                 : undefined
             }
-            comparacion={comparison}
+            // Antes de la primera venta la cifra grande es de otro día: la
+            // comparación de hoy ($ 0 contra la semana pasada) no le
+            // corresponde y confunde. Vuelve con la primera venta.
+            comparacion={beforeFirstSale && yesterday ? undefined : comparison}
             deltaBp={today.comparison?.delta_bp ?? null}
             // El pie del diseño: el libro de hoy en una línea.
             libro={[
