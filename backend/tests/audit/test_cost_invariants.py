@@ -449,6 +449,7 @@ def test_no_quantity_ever_leaves_the_api_as_a_json_float(
     superficies = [
         admin_client.get(f"{API}/admin/ingredients?store_id={store.id}"),
         admin_client.get(f"{API}/admin/inventory/stock?store_id={store.id}"),
+        admin_client.get(f"{API}/admin/inventory/timeline?store_id={store.id}"),
         admin_client.get(f"{API}/admin/products/{product.id}/recipe"),
         admin_client.get(f"{API}/admin/preparations?store_id={store.id}"),
         device_client.get(f"{API}/device/ingredients"),

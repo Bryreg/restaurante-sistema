@@ -29,7 +29,7 @@ from app.core import features, tz
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.inventory import area_counts, hooks, service
+from app.inventory import area_counts, hooks, service, timeline
 from app.inventory.units import entry_spec
 from app.inventory.models import Ingredient, MovementCause, StockCountScope, WasteType
 from app.inventory.schemas import (
@@ -251,6 +251,31 @@ def get_inventory_stock(
             [r.model_dump(mode="json", exclude={"bullet_max"}) for r in rows], "inventory-stock.csv"
         )
     return rows
+
+
+@router.get("/admin/inventory/timeline", response_model=timeline.TimelineOut)
+def get_inventory_timeline(
+    store_id: int = Query(...),
+    date_from: date | None = Query(None, alias="from"),
+    date_to: date | None = Query(None, alias="to"),
+    ingredient_id: int | None = Query(None),
+    critical_only: bool = Query(False),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.perpetual")),
+) -> timeline.TimelineOut:
+    """Inventario › Línea de tiempo: la vida de cada insumo en el período
+    —su saldo en el tiempo, lo que llegó, lo que salió por causa y en plata,
+    el tiempo bajo el mínimo y en cero, y cada conteo contra el libro—
+    (`app.inventory.timeline`). Con `ingredient_id`, sólo esa fila: la
+    ficha del insumo dibuja la misma barra."""
+    store = admin_store(db, actor, store_id)
+    if ingredient_id is not None and hooks.get_ingredient(db, store_id=store.id, ingredient_id=ingredient_id) is None:
+        raise AppError("NOT_FOUND", "El insumo no existe en esta sede", status=404)
+    return timeline.inventory_timeline(
+        db, store=store, date_from=date_from, date_to=date_to,
+        ingredient_id=ingredient_id, critical_only=critical_only,
+    )
 
 
 @router.post("/admin/inventory/adjustments", status_code=201)

@@ -60,7 +60,7 @@ describe("InventoryAdminPage", () => {
     })
 
     await waitFor(() => expect(listIngredientsMock).toHaveBeenCalled())
-    expect(screen.getAllByRole("tab").map((t) => t.textContent?.trim())).toEqual(["Insumos", "Stock", "Conteos"])
+    expect(screen.getAllByRole("tab").map((t) => t.textContent?.trim())).toEqual(["Insumos", "Stock", "Línea de tiempo", "Conteos"])
 
     await user.click(screen.getByRole("button", { name: "Más" }))
     expect(await screen.findByRole("menuitem", { name: "Movimientos y mermas" })).toBeInTheDocument()
@@ -87,7 +87,7 @@ describe("InventoryAdminPage", () => {
     })
 
     await waitFor(() => expect(listIngredientsMock).toHaveBeenCalled())
-    expect(screen.getAllByRole("tab").map((t) => t.textContent?.trim())).toEqual(["Insumos", "Stock", "Movimientos y mermas"])
+    expect(screen.getAllByRole("tab").map((t) => t.textContent?.trim())).toEqual(["Insumos", "Stock", "Línea de tiempo", "Movimientos y mermas"])
     expect(screen.queryByRole("button", { name: "Más" })).not.toBeInTheDocument()
   })
 })

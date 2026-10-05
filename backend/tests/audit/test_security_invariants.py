@@ -1848,6 +1848,7 @@ def test_a_device_session_never_reaches_the_admin_routes_of_cost_and_inventory(
     lecturas = [
         (f"{API}/admin/ingredients", {"store_id": store.id}),
         (f"{API}/admin/inventory/stock", {"store_id": store.id}),
+        (f"{API}/admin/inventory/timeline", {"store_id": store.id}),
         (f"{API}/admin/preparations", {"store_id": store.id}),
         (f"{API}/admin/waste", {"store_id": store.id}),
         (f"{API}/admin/recipes/coverage", {"store_id": store.id}),
