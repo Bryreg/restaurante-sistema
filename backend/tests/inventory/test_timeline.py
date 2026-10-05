@@ -46,8 +46,11 @@ def _utc(day: int, hour: int) -> datetime:
 
 def _setup(
     db: Any, store: Store, employees: dict[str, Employee], create_ingredient: Callable[..., dict[str, Any]],
+    clock: Any,
 ) -> int:
+    clock.set(_utc(13, 12))  # el insumo existe desde antes del rango
     iid = int(create_ingredient(name="Pollo", min_stock="1000", official_cost="10")["id"])
+    clock.set(_utc(15, 12))
     admin = employees["admin"]
     _move(db, store, admin, iid, "2000", MovementCause.PURCHASE, _utc(13, 15))  # antes del rango
     _move(db, store, admin, iid, "-1500", MovementCause.SALE, _utc(14, 12))  # 500: bajo el mínimo
@@ -62,7 +65,7 @@ def test_timeline_curve_durations_and_money(
     create_ingredient: Callable[..., dict[str, Any]], set_feature: Callable[..., None], clock: Any,
 ) -> None:
     set_feature("inventory.perpetual", True)
-    iid = _setup(db, store, employees, create_ingredient)
+    iid = _setup(db, store, employees, create_ingredient, clock)
 
     resp = admin_client.get(f"{URL}?store_id={store.id}&from={DAY}&to={DAY}")
     assert resp.status_code == 200, resp.text
@@ -102,7 +105,7 @@ def test_a_count_is_compared_with_the_book_at_its_instant(
     set_feature("catalog.recipes", True)
     set_feature("inventory.perpetual", True)
     set_feature("inventory.counts", True)
-    iid = _setup(db, store, employees, create_ingredient)
+    iid = _setup(db, store, employees, create_ingredient, clock)
 
     # Se cuenta a las 15:00, cuando el libro tenía 500 g: alguien vio 400.
     clock.set(_utc(14, 15))
@@ -129,7 +132,9 @@ def test_a_count_adjustment_is_not_money_that_left(
     create_ingredient: Callable[..., dict[str, Any]], set_feature: Callable[..., None], clock: Any,
 ) -> None:
     set_feature("inventory.perpetual", True)
+    clock.set(_utc(13, 12))
     iid = int(create_ingredient(name="Arroz", min_stock="100", official_cost="10")["id"])
+    clock.set(_utc(15, 12))
     admin = employees["admin"]
     _move(db, store, admin, iid, "1000", MovementCause.PURCHASE, _utc(14, 12))
     _move(db, store, admin, iid, "-200", MovementCause.COUNT_ADJUSTMENT, _utc(14, 13))
@@ -160,3 +165,24 @@ def test_timeline_validations(
     assert too_long.status_code == 400
     missing = admin_client.get(f"{URL}?store_id={store.id}&ingredient_id=999999")
     assert missing.status_code == 404
+
+
+def test_no_time_in_zero_before_the_ingredient_existed(
+    db: Any, store: Store, admin_client: TestClient, employees: dict[str, Employee],
+    create_ingredient: Callable[..., dict[str, Any]], set_feature: Callable[..., None], clock: Any,
+) -> None:
+    set_feature("inventory.perpetual", True)
+    # Se crea a las 16:00 del día del rango y le entra mercancía a las 18:00.
+    clock.set(_utc(14, 16))
+    iid = int(create_ingredient(name="Nuevo", min_stock="100", official_cost="10")["id"])
+    _move(db, store, employees["admin"], iid, "500", MovementCause.PURCHASE, _utc(14, 18))
+    db.commit()
+    clock.set(_utc(15, 12))
+
+    row = next(
+        r for r in admin_client.get(f"{URL}?store_id={store.id}&from={DAY}&to={DAY}").json()["rows"]
+        if r["ingredient_id"] == iid
+    )
+    # En cero de 16:00 a 18:00, no desde las 11:00 en que arrancó el día.
+    assert row["seconds_at_zero"] == 2 * 3600
+    assert row["first_zero_at"].startswith("2026-01-14T16:00")

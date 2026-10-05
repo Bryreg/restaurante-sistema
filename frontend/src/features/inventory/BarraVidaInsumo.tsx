@@ -1,9 +1,8 @@
 import type { TimelineCountOut, TimelineRowOut } from "@/api/inventory"
 import { formatClockTime, formatInstant } from "@/lib/businessDate"
-import { formatCantidad } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-import { UNIDAD, type MarcaEje } from "./lineaDeTiempo"
+import { UNIDAD, cantidadCorta, type MarcaEje } from "./lineaDeTiempo"
 
 /**
  * **La vida de un insumo en una barra** (Inventario › Línea de tiempo y la
@@ -62,7 +61,7 @@ function tonoDiferencia(c: TimelineCountOut): string {
 function palabraDiferencia(c: TimelineCountOut, unidad: string): string {
   const d = Number(c.diff)
   if (d === 0) return "coincidió con el libro"
-  return `${d < 0 ? "faltaban" : "sobraban"} ${formatCantidad(c.diff.replace("-", ""), unidad)}`
+  return `${d < 0 ? "faltaban" : "sobraban"} ${cantidadCorta(c.diff.replace("-", ""), unidad)}`
 }
 
 export function BarraVidaInsumo({
@@ -121,7 +120,9 @@ export function BarraVidaInsumo({
         ) : null}
         {lista.map((t) => {
           const x = u(t.desde) * W
-          const w = Math.max(0.5, (u(t.hasta) - u(t.desde)) * W)
+          // +1.5: cada tramo se monta sobre el siguiente; sin eso el
+          // suavizado deja una rendija blanca entre dos escalones.
+          const w = Math.max(0.5, (u(t.hasta) - u(t.desde)) * W) + 1.5
           // En cero exacto no hay área: una franja de 2 px para que se vea.
           const top = t.saldo > 0 ? y(t.saldo) : t.saldo === 0 ? yCero - 2 : yCero
           const h = t.saldo === 0 ? 2 : Math.max(0.5, Math.abs(y(t.saldo) - yCero))
@@ -133,6 +134,7 @@ export function BarraVidaInsumo({
               y={top}
               width={w}
               height={h}
+              shapeRendering="crispEdges"
               className={t.saldo <= 0 ? "fill-destructive" : t.saldo < minimo ? "fill-warning" : "fill-data-bar"}
             />
           )
@@ -158,7 +160,7 @@ export function BarraVidaInsumo({
         <span
           key={`${a.at}-${a.qty}`}
           data-llegada=""
-          title={`Llegó ${formatCantidad(a.qty, unidad)} · ${formatInstant(a.at)}`}
+          title={`Llegó ${cantidadCorta(a.qty, unidad)} · ${formatInstant(a.at)}`}
           className="absolute -bottom-2.5 size-2 -translate-x-1/2 bg-foreground [clip-path:polygon(50%_0,100%_100%,0_100%)]"
           style={{ left: `${u(ms(a.at)) * 100}%` }}
         />
@@ -178,7 +180,7 @@ export function BarraVidaInsumo({
               style={{ top: Math.min(yc, ye), height: Math.max(1, Math.abs(yc - ye)) }}
             />
             <span
-              title={`${c.label} · ${formatClockTime(c.at)}: contaron ${formatCantidad(c.counted, unidad)}; el libro decía ${formatCantidad(c.expected, unidad)} — ${palabraDiferencia(c, unidad)}`}
+              title={`${c.label} · ${formatClockTime(c.at)}: contaron ${cantidadCorta(c.counted, unidad)}; el libro decía ${cantidadCorta(c.expected, unidad)} — ${palabraDiferencia(c, unidad)}`}
               className={cn(
                 "absolute size-[11px] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-card",
                 tono,

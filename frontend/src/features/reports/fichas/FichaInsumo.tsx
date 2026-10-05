@@ -27,7 +27,7 @@ import { AdjustmentDialog } from "@/features/inventory/AdjustmentDialog"
 import { RecountDialog } from "@/features/inventory/RecountDialog"
 import { areaCountHref } from "@/features/inventory/areaCountLib"
 import { BarraVidaInsumo, EjeTiempo } from "@/features/inventory/BarraVidaInsumo"
-import { duracion, marcasEje } from "@/features/inventory/lineaDeTiempo"
+import { cantidadCorta, duracion, marcasEje } from "@/features/inventory/lineaDeTiempo"
 import { CAUSE_LABEL } from "@/features/inventory/lib"
 
 import { AvatarFicha, DetallePlegable, FilaDeTarjetas, PersonaLink, PreguntaFicha, SeccionFicha } from "./comun"
@@ -189,16 +189,16 @@ function VidaEnElPeriodo({
         </div>
         <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-muted-foreground">
           <span>
-            Arrancó <b className="font-semibold text-foreground">{formatCantidad(row.start_qty, unidad)}</b>
+            Arrancó <b className="font-semibold text-foreground">{cantidadCorta(row.start_qty, unidad)}</b>
           </span>
           <span>
-            Entró <b className="font-semibold text-foreground">{formatCantidad(row.in_qty, unidad)}</b>
+            Entró <b className="font-semibold text-foreground">{cantidadCorta(row.in_qty, unidad)}</b>
           </span>
           <span>
-            Salió <b className="font-semibold text-foreground">{formatCantidad(row.out_qty.replace("-", ""), unidad)}</b>
+            Salió <b className="font-semibold text-foreground">{cantidadCorta(row.out_qty.replace("-", ""), unidad)}</b>
           </span>
           <span>
-            Queda <b className="font-semibold text-foreground">{formatCantidad(row.end_qty, unidad)}</b>
+            Queda <b className="font-semibold text-foreground">{cantidadCorta(row.end_qty, unidad)}</b>
           </span>
           {row.seconds_at_zero > 0 ? (
             <span className="font-semibold text-destructive">{duracion(row.seconds_at_zero)} en cero</span>
@@ -214,11 +214,11 @@ function VidaEnElPeriodo({
                 <span className="text-muted-foreground">{formatInstant(c.at)}</span>
                 <span>{c.label}</span>
                 <span>
-                  contaron <b className="font-semibold">{formatCantidad(c.counted, unidad)}</b>, el libro decía{" "}
-                  {formatCantidad(c.expected, unidad)}
+                  contaron <b className="font-semibold">{cantidadCorta(c.counted, unidad)}</b>, el libro decía{" "}
+                  {cantidadCorta(c.expected, unidad)}
                 </span>
                 <b className={Number(c.diff) < 0 ? "font-semibold text-destructive" : "font-semibold"}>
-                  {Number(c.diff) === 0 ? "coincidió" : formatCantidad(c.diff, unidad)}
+                  {Number(c.diff) === 0 ? "coincidió" : `${Number(c.diff) > 0 ? "+" : ""}${cantidadCorta(c.diff, unidad)}`}
                 </b>
               </li>
             ))}

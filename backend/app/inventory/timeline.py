@@ -434,8 +434,13 @@ def inventory_timeline(
                     out_costed += 1
                     out_micros += line_cost_micros(-qty, cost)
 
+        # Antes de que el insumo existiera no estuvo «en cero»: no estaba.
+        born = ingredient.created_at
+        since = start_at if born is None or born <= start_at else min(born, until)
+        start_since = _saldo_at(a.start, a.moves, since) if since > start_at else a.start
         below, at_zero, first_zero = _durations(
-            a.start, a.moves, min_stock=ingredient.min_stock, start_at=start_at, until=until
+            start_since, [m for m in a.moves if m[0] > since], min_stock=ingredient.min_stock,
+            start_at=since, until=until,
         )
 
         counts: list[TimelineCountOut] = []

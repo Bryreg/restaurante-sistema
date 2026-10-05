@@ -62,3 +62,18 @@ export function duracion(segundos: number): string {
   const resto = horas % 24
   return resto ? `${dias} d ${resto} h` : `${dias} d`
 }
+
+const CORTA = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0, useGrouping: "always" })
+const FINA = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2, useGrouping: "always" })
+
+/**
+ * Una cantidad para LEER de un vistazo: «19.287 g» y no «19.287,349 g»; los
+ * decimales sólo cuando el número es chico («0,5 und»). La cifra exacta
+ * sigue en la ficha y en el libro de movimientos.
+ */
+export function cantidadCorta(texto: string, unidad: string): string {
+  const n = Number(texto)
+  if (!Number.isFinite(n)) return "—"
+  const cifra = Math.abs(n) >= 100 ? CORTA.format(n) : FINA.format(n)
+  return `${cifra} ${unidad}`
+}

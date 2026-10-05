@@ -18,12 +18,11 @@ import {
 import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
 import { errorMessage } from "@/lib/errors"
-import { formatCantidad } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 import { fichaInsumoHref } from "@/features/reports/fichas/rutas"
 
 import { BarraVidaInsumo, EjeTiempo } from "./BarraVidaInsumo"
-import { UNIDAD, duracion, marcasEje } from "./lineaDeTiempo"
+import { UNIDAD, cantidadCorta, duracion, marcasEje } from "./lineaDeTiempo"
 import { CAUSE_LABEL, daysAgoLocal, todayLocal } from "./lib"
 
 /**
@@ -117,8 +116,8 @@ function unidad(row: TimelineRowOut): string {
 function resumenFila(row: TimelineRowOut): string {
   const u = unidad(row)
   const partes = [
-    `${row.name}: arrancó con ${formatCantidad(row.start_qty, u)} y queda con ${formatCantidad(row.end_qty, u)}`,
-    `entró ${formatCantidad(row.in_qty, u)}, salió ${formatCantidad(row.out_qty.replace("-", ""), u)}`,
+    `${row.name}: arrancó con ${cantidadCorta(row.start_qty, u)} y queda con ${cantidadCorta(row.end_qty, u)}`,
+    `entró ${cantidadCorta(row.in_qty, u)}, salió ${cantidadCorta(row.out_qty.replace("-", ""), u)}`,
   ]
   if (row.seconds_at_zero > 0) partes.push(`estuvo ${duracion(row.seconds_at_zero)} en cero`)
   if (row.seconds_below_min > 0) partes.push(`${duracion(row.seconds_below_min)} bajo el mínimo`)
@@ -262,7 +261,7 @@ function VistaBarras({ data, rows }: { data: TimelineOut; rows: TimelineRowOut[]
                   {row.name}
                 </Link>
                 <p className="text-xs text-muted-foreground tabular-nums">
-                  {formatCantidad(row.start_qty, u)} → <b className="font-semibold text-foreground">{formatCantidad(row.end_qty, u)}</b>
+                  {cantidadCorta(row.start_qty, u)} → <b className="font-semibold text-foreground">{cantidadCorta(row.end_qty, u)}</b>
                 </p>
               </div>
               <div role="img" aria-label={resumenFila(row)} className="pb-2.5">
@@ -292,17 +291,17 @@ function columnas(): DenseColumn<TimelineRowOut>[] {
         </Link>
       ),
     },
-    { key: "arranco", header: "Arrancó", kind: "number", cell: (r) => formatCantidad(r.start_qty, unidad(r)), secondary: true },
-    { key: "entro", header: "Entró", kind: "number", cell: (r) => formatCantidad(r.in_qty, unidad(r)) },
-    { key: "salio", header: "Salió", kind: "number", cell: (r) => formatCantidad(r.out_qty.replace("-", ""), unidad(r)) },
+    { key: "arranco", header: "Arrancó", kind: "number", cell: (r) => cantidadCorta(r.start_qty, unidad(r)), secondary: true },
+    { key: "entro", header: "Entró", kind: "number", cell: (r) => cantidadCorta(r.in_qty, unidad(r)) },
+    { key: "salio", header: "Salió", kind: "number", cell: (r) => cantidadCorta(r.out_qty.replace("-", ""), unidad(r)) },
     {
       key: "ajuste",
       header: "Ajuste por conteo",
       kind: "number",
       secondary: true,
-      cell: (r) => (Number(r.count_adjustment_qty) === 0 ? "—" : formatCantidad(r.count_adjustment_qty, unidad(r))),
+      cell: (r) => (Number(r.count_adjustment_qty) === 0 ? "—" : cantidadCorta(r.count_adjustment_qty, unidad(r))),
     },
-    { key: "queda", header: "Queda", kind: "number", cell: (r) => formatCantidad(r.end_qty, unidad(r)) },
+    { key: "queda", header: "Queda", kind: "number", cell: (r) => cantidadCorta(r.end_qty, unidad(r)) },
     { key: "plata", header: "Plata que salió", kind: "number", cell: (r) => <PlataFila row={r} /> },
     {
       key: "cero",
