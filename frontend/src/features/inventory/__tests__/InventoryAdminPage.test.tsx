@@ -60,11 +60,10 @@ describe("InventoryAdminPage", () => {
     })
 
     await waitFor(() => expect(listIngredientsMock).toHaveBeenCalled())
-    expect(screen.getAllByRole("tab").map((t) => t.textContent?.trim())).toEqual(["Insumos", "Stock", "Conteos"])
+    expect(screen.getAllByRole("tab").map((t) => t.textContent?.trim())).toEqual(["Insumos", "Stock", "Línea de tiempo", "Conteos"])
 
     await user.click(screen.getByRole("button", { name: "Más" }))
     expect(await screen.findByRole("menuitem", { name: "Movimientos y mermas" })).toBeInTheDocument()
-    expect(screen.getByRole("menuitem", { name: "Línea de tiempo" })).toBeInTheDocument()
     expect(screen.getByRole("menuitem", { name: "Lotes" })).toBeInTheDocument()
     // `inventory.variance` apagada: ni Varianza ni Salud del control.
     expect(screen.queryByRole("menuitem", { name: "Varianza" })).not.toBeInTheDocument()
@@ -88,10 +87,7 @@ describe("InventoryAdminPage", () => {
     })
 
     await waitFor(() => expect(listIngredientsMock).toHaveBeenCalled())
-    expect(screen.getAllByRole("tab").map((t) => t.textContent?.trim())).toEqual(["Insumos", "Stock", "Movimientos y mermas"])
-    // «Más» queda sólo con la línea de tiempo, que no depende de los conteos.
-    await userEvent.setup().click(screen.getByRole("button", { name: "Más" }))
-    expect(await screen.findByRole("menuitem", { name: "Línea de tiempo" })).toBeInTheDocument()
-    expect(screen.getAllByRole("menuitem")).toHaveLength(1)
+    expect(screen.getAllByRole("tab").map((t) => t.textContent?.trim())).toEqual(["Insumos", "Stock", "Línea de tiempo", "Movimientos y mermas"])
+    expect(screen.queryByRole("button", { name: "Más" })).not.toBeInTheDocument()
   })
 })

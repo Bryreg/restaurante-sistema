@@ -138,9 +138,6 @@ export function InventoryAdminPage(): React.JSX.Element {
   // Las que no son de todos los días: movimientos (cuando hay conteos),
   // varianza, lotes y salud del control, cada una detrás de su flag.
   const masPestanas: PestanaDeMas[] = [
-    // La vida de cada insumo en el tiempo: cuándo entró, cuándo salió,
-    // cuánto estuvo en cero y qué vieron los conteos. Stock enlaza acá.
-    { value: "linea", label: "Línea de tiempo" },
     ...(countsEnabled ? [{ value: "movimientos", label: "Movimientos y mermas" }] : []),
     ...(areaCountsEnabled ? [{ value: "por-area", label: "Conteo por área" }] : []),
     ...(varianceEnabled ? [{ value: "varianza", label: "Varianza" }] : []),
@@ -187,6 +184,10 @@ export function InventoryAdminPage(): React.JSX.Element {
             Insumos <TabCount n={ingredientsQuery.isSuccess ? ingredients.length : undefined} />
           </TabsTrigger>
           <TabsTrigger value="stock">Stock</TabsTrigger>
+          {/* Pedido del dueño (2026-10-05): la línea de tiempo va a la vista,
+              al lado de Stock, aunque eso deje cuatro pestañas visibles. Stock
+              dice CUÁNTO hay; esta, CUÁNDO entró y salió cada insumo. */}
+          <TabsTrigger value="linea">Línea de tiempo</TabsTrigger>
           {countsEnabled ? <TabsTrigger value="conteos">Conteos</TabsTrigger> : null}
           {/* Sin conteos, el tercer lugar a la vista es del libro de
               movimientos: siempre hay tres a la vista si hay tres. */}

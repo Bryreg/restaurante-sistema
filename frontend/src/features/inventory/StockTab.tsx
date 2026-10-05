@@ -415,15 +415,6 @@ export function StockTab({
               Sólo críticos
             </FilterPill>
             <DenseTableSearch value={busqueda} onChange={setBusqueda} placeholder="Buscar insumo" />
-            {/* El saldo de hoy dice CUÁNTO hay; la línea de tiempo, CUÁNDO
-                entró y salió cada insumo y cuánto estuvo en cero. */}
-            <Link
-              to="/admin/inventario?tab=linea"
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-[30px] gap-1.5")}
-            >
-              <History className="size-3.5" aria-hidden="true" />
-              Línea de tiempo
-            </Link>
             <CsvExportButton
               href={inventoryStockCsvUrl({
                 storeId,
