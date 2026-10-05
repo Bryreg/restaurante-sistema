@@ -83,7 +83,8 @@ export function PageHeader({
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.025em] md:text-[34px]">{name}</h1>
+            {/* «Burbujas»: el título de pantalla es de 26 px; la cifra es lo grande. */}
+            <h1 className="text-[22px] leading-tight font-semibold tracking-[-0.025em] md:text-[26px]">{name}</h1>
             <button
               type="button"
               aria-expanded={explicar}

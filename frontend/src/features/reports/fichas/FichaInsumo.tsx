@@ -223,12 +223,6 @@ export function FichaInsumo(): React.JSX.Element {
         <ArrowLeft className="size-3.5 shrink-0" aria-hidden="true" />
         Volver a Inventario › Stock
       </Link>
-      <div className="flex justify-end">
-        <CsvExportButton
-          href={csvUrl(`/admin/records/ingredient/${ingredientId}`, { from: from || undefined, to: to || undefined })}
-          label="Descargar la ficha"
-        />
-      </div>
       <div className="flex items-start gap-3.5">
         <AvatarFicha forma="cosa" icono={Package} />
         <PageHeader
@@ -241,20 +235,26 @@ export function FichaInsumo(): React.JSX.Element {
             { label: "Período", value: `${formatBusinessDate(r.date_from)} a ${formatBusinessDate(r.date_to)}` },
           ]}
           actions={
-            r.stock !== null ? (
-              <>
-                <Button type="button" variant="outline" size="sm" onClick={() => setAjustar(true)}>
-                  <SlidersHorizontal className="size-4 shrink-0" aria-hidden="true" />
-                  Ajustar con motivo
-                </Button>
-                {hasFeature("inventory.shift_counts") ? (
-                  <Button type="button" variant="outline" size="sm" onClick={() => setRecontar(true)}>
-                    <RotateCcw className="size-4 shrink-0" aria-hidden="true" />
-                    Pedir recuento
+            <>
+              {r.stock !== null ? (
+                <>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setAjustar(true)}>
+                    <SlidersHorizontal className="size-4 shrink-0" aria-hidden="true" />
+                    Ajustar con motivo
                   </Button>
-                ) : null}
-              </>
-            ) : null
+                  {hasFeature("inventory.shift_counts") ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => setRecontar(true)}>
+                      <RotateCcw className="size-4 shrink-0" aria-hidden="true" />
+                      Pedir recuento
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}
+              <CsvExportButton
+                href={csvUrl(`/admin/records/ingredient/${ingredientId}`, { from: from || undefined, to: to || undefined })}
+                label="Descargar la ficha"
+              />
+            </>
           }
         />
       </div>

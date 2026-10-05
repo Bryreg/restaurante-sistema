@@ -468,6 +468,9 @@ describe("TodayPage", () => {
     expect(screen.getByText(/lun 14 sep · 31 tickets · ticket promedio \$ 63\.042/)).toBeInTheDocument()
     // El libro sigue siendo el de hoy: lo de hoy es $ 0 de verdad (el día está abierto).
     expect(screen.getByText("Ventas netas de hoy")).toBeInTheDocument()
+    // La comparación de hoy contra la semana pasada no va bajo la cifra de
+    // otro día: vuelve con la primera venta.
+    expect(screen.queryByText(/pasado a esta hora/)).not.toBeInTheDocument()
   })
 
   it("si ayer la sede no abrió (o no vendió), su $ 0 no se muestra como cierre: queda la cifra de hoy", async () => {

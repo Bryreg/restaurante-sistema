@@ -104,6 +104,9 @@ export function StatTile(props: StatTileProps): React.JSX.Element {
   const isNull = value === null
   return (
     <div
+      // `data-stat-tile`: el estilo «Burbujas» (`index.css`) la vuelve una
+      // burbuja de radio 20 —blanca, o del suave de su tono— sin tocar acá.
+      data-stat-tile={tone}
       className={cn("rounded-lg border border-l-[3px] p-4", TONE_CONTAINER[tone], TONE_STRIPE[tone])}
     >
       {/* El ícono va **antes** del rótulo, como en `a2` (`.kpi .rotulo`), y

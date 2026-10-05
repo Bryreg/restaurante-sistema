@@ -352,7 +352,9 @@ function PasosDeCaja({ r, s }: { r: ShiftRecordOut; s: ShiftSummary }): React.JS
             <div
               data-paso={p.clave}
               className={cn(
-                "flex min-w-0 flex-1 flex-col gap-1 rounded-lg border border-t-[3px] bg-card p-3.5",
+                // «Burbujas» (`BubFichaTurno`): burbuja de radio 20 con sólo la
+                // franja de arriba, del tono de la diferencia.
+                "flex min-w-0 flex-1 flex-col gap-1 rounded-[20px] border-0 border-t-[3px] bg-card p-4",
                 FRANJA_TONO[tonoDiferencia(p.diferencia)],
               )}
             >

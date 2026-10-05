@@ -1246,14 +1246,14 @@ export function InformesPage(): React.JSX.Element {
                 ))}
               </SelectContent>
             </Select>
+            {sede !== null && rangoValido ? (
+              <CsvExportButton href={csvUrl("/admin/reports/overview", { store_id: sede, from, to })} />
+            ) : null}
           </>
         }
       >
         {periodo === "rango" ? (
           <DateRangeFilter idPrefix="informes" from={rango.from} to={rango.to} onChange={(r) => setRango(r)} />
-        ) : null}
-        {sede !== null && rangoValido ? (
-          <CsvExportButton href={csvUrl("/admin/reports/overview", { store_id: sede, from, to })} />
         ) : null}
       </PageHeader>
 
