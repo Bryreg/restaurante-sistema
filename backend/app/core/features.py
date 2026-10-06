@@ -369,7 +369,9 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "payroll",
         "Horas, recargos y nómina",
         [],
-        {"basic": False, "standard": False, "full": True},
+        # Auditoría 2026-10-06 (e13): un restaurante «estándar» también
+        # paga recargos y extras; la nómina no es sólo del perfil completo.
+        {"basic": False, "standard": True, "full": True},
         "3",
     ),
     FeatureDef(
