@@ -10,7 +10,7 @@ asistencia (llegadas tarde, no vino) y la tarjeta «Llegadas tarde».
 Una tabla nueva (`staff_schedule_shifts`).
 
 Revision ID: 0050
-Revises: 0048
+Revises: 0049
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0050"
-down_revision = "0048"
+down_revision = "0049"
 branch_labels: str | None = None
 depends_on: str | None = None
 

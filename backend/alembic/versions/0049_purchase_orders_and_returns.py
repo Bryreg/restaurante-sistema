@@ -6,17 +6,13 @@
 - `supplier_returns` (i4): mercancía de una línea de recepción devuelta al
   proveedor, con motivo; baja la cuenta por pagar o queda como saldo a favor.
 
-Tres tablas nuevas: 123 → 126.
-
-**Cuelga de `0045` a propósito**: `0046`–`0048` se escriben en paralelo en
-otras ramas y no existen en este árbol. Al juntar las ramas, `down_revision`
-pasa a `"0048"` (y los postes de `tests/audit/` suman las tablas de las tres).
+Tres tablas nuevas: 131 → 134.
 
 Igual que `0045`: en SQLite la FK de la columna nueva de `receptions` no se
 agrega (obligaría a recrear la tabla); en Postgres sí, por nombre.
 
 Revision ID: 0049
-Revises: 0045
+Revises: 0048
 """
 
 from __future__ import annotations
@@ -25,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0049"
-down_revision = "0045"
+down_revision = "0048"
 branch_labels: str | None = None
 depends_on: str | None = None
 

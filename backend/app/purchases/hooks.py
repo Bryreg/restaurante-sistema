@@ -155,14 +155,12 @@ def open_payables(db: Session, *, store_id: int) -> list[dict]:
     rows = db.execute(
         select(Payable).where(Payable.store_id == store_id, Payable.status != PayableStatus.CANCELLED)
     ).scalars().all()
+    from app.purchases.service import payable_balance
+
     result: list[dict] = []
     for payable in rows:
-        paid = db.execute(
-            select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.payable_id == payable.id, Payment.voided_at.is_(None)
-            )
-        ).scalar_one()
-        balance = payable.amount - int(paid)
+        # La misma regla que la pantalla: pagos vivos y devoluciones aplicadas.
+        balance = payable_balance(db, payable)
         if balance > 0:
             result.append({"payable_id": payable.id, "due_date": payable.due_date, "balance": balance})
     return result
