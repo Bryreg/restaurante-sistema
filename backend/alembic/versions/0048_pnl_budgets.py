@@ -4,11 +4,7 @@
   `cost`, `payroll`, `obligations`, `expenses`); `amount = NULL` es «sin
   presupuesto». La utilidad presupuestada se deriva, no se guarda.
 
-Una tabla nueva: 123 → 124.
-
-**`down_revision` provisional**: 0045–0047 se están escribiendo en paralelo.
-Esta migración cuelga de `0044` hasta que esas tres entren; al integrarlas,
-el `down_revision` pasa a `"0047"` y el poste de la cadena se mueve con él.
+Una tabla nueva: 130 → 131.
 
 Revision ID: 0048
 Revises: 0047

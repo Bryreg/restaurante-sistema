@@ -14,14 +14,10 @@
   la llave de idempotencia de «armar el mes»), `payroll_run_id` (único entre
   las vivas) y `tax_year` + `tax_bimester` (único por sede entre las vivas).
 
-Tres tablas nuevas: 123 → 126.
-
-**Encadenada provisoriamente detrás de `0044`**: `0045` y `0046` se escriben
-en paralelo y no existen en este árbol. Al integrar, `down_revision` pasa a
-`"0046"`.
+Tres tablas nuevas: 127 → 130.
 
 Revision ID: 0047
-Revises: 0045
+Revises: 0046
 """
 
 from __future__ import annotations
@@ -33,7 +29,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0047"
-down_revision = "0045"
+down_revision = "0046"
 branch_labels: str | None = None
 depends_on: str | None = None
 

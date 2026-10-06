@@ -13,7 +13,7 @@
 Cuatro tablas nuevas: 123 → 127.
 
 Revision ID: 0046
-Revises: 0044
+Revises: 0045
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0046"
-down_revision = "0044"
+down_revision = "0045"
 branch_labels: str | None = None
 depends_on: str | None = None
 

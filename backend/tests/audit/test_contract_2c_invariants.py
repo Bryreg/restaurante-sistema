@@ -546,19 +546,22 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
     - Con **`0044_admin_account_security`** la cadena llega a `"0044"` y el
       conteo pasa a **123**. Motivo declarado: verificación en dos pasos,
       límite de intentos y códigos de recuperación.
-    - Con **`0047_recurring_obligations`** (c5) la cadena llega a `"0047"`
-      y el conteo pasa a **126**. Motivo declarado: obligaciones
+    - Con **`0046_bank_book`** (c2) el conteo pasa a **127**: libro del
+      banco con cuentas, saldo del extracto y movimientos.
+    - Con **`0047_recurring_obligations`** (c5) el conteo pasa a **130**. Motivo declarado: obligaciones
       recurrentes, abonos y el día del INC (`obligation_templates`,
       `obligation_payments`, `store_obligation_settings`).
+    - Con **`0048_pnl_budgets`** la cadena llega a `"0048"` y el conteo pasa
+      a **131**: presupuesto mensual del estado de resultados.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0047"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0047 "
+    assert 'version == "0048"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0048 "
         "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031, "
-        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035, etiquetas de cocina 0036, anular conteo 0037, contar preparaciones 0038, ficha de chef 0039, nivel par 0040, recargos legales 0041, avisos resueltos 0042, contrato de nómina 0043, seguridad de la cuenta 0044 y obligaciones recurrentes 0047)"
+        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035, etiquetas de cocina 0036, anular conteo 0037, contar preparaciones 0038, ficha de chef 0039, nivel par 0040, recargos legales 0041, avisos resueltos 0042, contrato de nómina 0043, seguridad de la cuenta 0044, reversa de propinas 0045, libro del banco 0046, obligaciones recurrentes 0047 y presupuesto 0048)"
     )
-    assert "len(tablas) == 126" in fuente, (
-        "el conteo de tablas sigue en un número viejo: 0047 lo deja en 126 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1 + 2 + 1 + 1 + 3 + 2 + 3)"
+    assert "len(tablas) == 131" in fuente, (
+        "el conteo de tablas sigue en un número viejo: 0048 lo deja en 131 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1 + 2 + 1 + 1 + 3 + 2 + 4 + 3 + 1)"
     )
     assert ">=" not in fuente.split("def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory")[1].split("\ndef ")[0], (
         "el invariante de la cadena se aflojó a una desigualdad: un conjunto exacto se MUEVE, no se afloja"

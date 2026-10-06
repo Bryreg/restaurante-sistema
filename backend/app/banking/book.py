@@ -66,7 +66,8 @@ from app.banking.schemas import (
 from app.banking.service import TRANSFER_PAYMENT_METHODS
 from app.core import clock, tz
 from app.core.errors import AppError, ConflictError, NotFoundError
-from app.expenses.models import Expense, ExpenseSource, Obligation, ObligationStatus
+from app.expenses.models import Expense, ExpenseSource, Obligation, ObligationPayment, ObligationStatus
+from app.expenses.service import paid_amounts
 from app.payments.models import Payment
 from app.purchases import hooks as purchases_hooks
 from app.purchases.models import Payment as SupplierPayment
@@ -620,8 +621,12 @@ def _source_is_bank_entry(db: Session, *, store: Store, kind: str, source_id: in
         exp = db.get(Expense, source_id)
         return exp is not None and exp.store_id == store.id and exp.source == ExpenseSource.BANK
     if kind == "obligation":
-        obl = db.get(Obligation, source_id)
-        return obl is not None and obl.store_id == store.id and obl.settled_source == ExpenseSource.BANK
+        # Con abonos (c5) el renglón es cada pago, no la obligación.
+        pay_o = db.get(ObligationPayment, source_id)
+        return (
+            pay_o is not None and pay_o.store_id == store.id and pay_o.source == ExpenseSource.BANK
+            and pay_o.voided_at is None
+        )
     if kind == "supplier_payment":
         pay = db.get(SupplierPayment, source_id)
         return pay is not None and pay.store_id == store.id and pay.method in BANK_SUPPLIER_METHODS
@@ -859,33 +864,33 @@ def _raw_entries(db: Session, *, store: Store, date_from: date, date_to: date) -
             )
         )
 
-    for o in db.execute(
-        select(Obligation).where(
-            Obligation.organization_id == org,
-            Obligation.store_id == sid,
-            Obligation.status == ObligationStatus.PAID,
-            Obligation.settled_source == ExpenseSource.BANK,
-            Obligation.cancelled_at.is_(None),
-            Obligation.settled_at >= start,
-            Obligation.settled_at < end,
+    # Obligaciones (c5): cada abono vivo pagado desde el banco, por su fecha
+    # de pago. Una obligación pagada en dos abonos son dos renglones.
+    for pay_o, desc in db.execute(
+        select(ObligationPayment, Obligation.description)
+        .join(Obligation, Obligation.id == ObligationPayment.obligation_id)
+        .where(
+            ObligationPayment.organization_id == org,
+            ObligationPayment.store_id == sid,
+            ObligationPayment.source == ExpenseSource.BANK,
+            ObligationPayment.voided_at.is_(None),
+            ObligationPayment.paid_on >= date_from,
+            ObligationPayment.paid_on <= date_to,
         )
-    ).scalars():
-        assert o.settled_at is not None
-        bd = tz.business_date_for(o.settled_at, store.cutoff_hour)
-        if date_from <= bd <= date_to:
-            out.append(
-                (
-                    LedgerEntry(
-                        kind="obligation",
-                        id=o.id,
-                        business_date=bd,
-                        amount=o.amount,
-                        direction="out",
-                        description=o.description,
-                    ),
-                    None,
-                )
+    ).all():
+        out.append(
+            (
+                LedgerEntry(
+                    kind="obligation",
+                    id=pay_o.id,
+                    business_date=pay_o.paid_on,
+                    amount=pay_o.amount,
+                    direction="out",
+                    description=desc,
+                ),
+                None,
             )
+        )
 
     for sp in db.execute(
         select(SupplierPayment).where(
@@ -1212,12 +1217,15 @@ def bank_projection(db: Session, *, store: Store, months: int) -> dict[str, Any]
         select(Obligation).where(
             Obligation.organization_id == store.organization_id,
             Obligation.store_id == store.id,
-            Obligation.status == ObligationStatus.PENDING,
+            Obligation.status.in_([ObligationStatus.PENDING, ObligationStatus.PARTIAL]),
             Obligation.cancelled_at.is_(None),
         )
     ).scalars().all()
+    # Lo que falta de cada una (con abonos, no el monto original).
+    paid = paid_amounts(db, [o.id for o in obligations])
+    balance = {o.id: max(o.amount - paid.get(o.id, 0), 0) for o in obligations}
     payables = purchases_hooks.open_payables(db, store_id=store.id)
-    overdue_obligations = sum(o.amount for o in obligations if o.due_date <= today)
+    overdue_obligations = sum(balance[o.id] for o in obligations if o.due_date <= today)
     overdue_payables = sum(int(p["balance"]) for p in payables if p["due_date"] <= today)
 
     windows: list[tuple[int, int, date, date, int, int]] = []  # year, month, from, to, days, month_days
@@ -1235,7 +1243,7 @@ def bank_projection(db: Session, *, store: Store, months: int) -> dict[str, Any]
     closing = starting
     for idx, (y, m, w_from, w_to, days, month_days) in enumerate(windows):
         first = idx == 0
-        scheduled = sum(o.amount for o in obligations if w_from <= o.due_date <= w_to)
+        scheduled = sum(balance[o.id] for o in obligations if w_from <= o.due_date <= w_to)
         due = sum(int(p["balance"]) for p in payables if w_from <= p["due_date"] <= w_to)
         if first:
             scheduled += overdue_obligations
