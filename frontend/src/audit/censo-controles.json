@@ -640,9 +640,9 @@
   "Cocina",
   "Comanda de un día operativo anterior que sigue abierta",
   "Curso marchado",
-  "El KDS no está habilitado",
   "Estación",
   "Impresión por estación",
+  "La pantalla de cocina no está habilitada",
   "Marca listos de un golpe todos los ítems enviados de esta comanda, en todas sus rondas",
   "Nada para imprimir",
   "No hay rondas pendientes",
@@ -771,12 +771,6 @@
   "Otra nota",
   "Restar una unidad",
   "Sumar una unidad"
- ],
- "features/orders/KitchenPage.tsx": [
-  "Estación",
-  "La vista de cocina no está habilitada",
-  "No hay rondas pendientes",
-  "Todas"
  ],
  "features/orders/NewOrderPage.tsx": [
   "Canal de venta",
@@ -1372,6 +1366,7 @@
   "Descargar la ficha",
   "Esa persona no existe",
   "No se pudo cargar la ficha",
+  "Nómina › Horario de la semana",
   "Período",
   "Racha de cierres con diferencia",
   "Reintentar",
@@ -1444,7 +1439,6 @@
  ],
  "features/settings/CashSection.tsx": [
   "Base de respaldo",
-  "Base fija de apertura",
   "Con qué abre el cajón",
   "Cuánto puede desajustar un cierre",
   "Diferencia crítica",
@@ -1669,9 +1663,6 @@
   "PIN de administrador",
   "Todavía no hay movimientos en este turno"
  ],
- "features/shifts/OpenShiftForm.tsx": [
-  "Responsable de caja"
- ],
  "features/shifts/OpeningScreen.tsx": [
   "No se pudo consultar cómo abre la caja",
   "Reintentar"
@@ -1707,9 +1698,6 @@
  ],
  "features/shifts/ShiftStatusStrip.tsx": [
   "Abrir turno →"
- ],
- "features/shifts/SingleStepCloseForm.tsx": [
-  "Sin diferencia / elegí una causa"
  ],
  "features/shifts/admin/AuthorizationsTab.tsx": [
   "No se pudieron cargar las autorizaciones",
@@ -1763,6 +1751,12 @@
   "Sin turnos en este rango",
   "Turnos",
   "Ventas y ticket promedio"
+ ],
+ "features/shifts/admin/ReserveCard.tsx": [
+  "No se pudo cargar la base de respaldo",
+  "Reintentar",
+  "Reversar",
+  "Reversar este movimiento de la base"
  ],
  "features/shifts/admin/rescates.tsx": [
   "Ajustar apertura",
