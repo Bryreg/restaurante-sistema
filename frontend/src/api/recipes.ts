@@ -58,6 +58,8 @@ export interface PreparationIn {
   shelf_life_days?: number | null
   /** Entra al conteo de críticos (sólo cuenta en modo lote). */
   key_item?: boolean
+  /** Nivel par: cuánto debe haber al abrir (texto decimal, unidad de rendimiento). */
+  par_qty?: string | null
   lines: ComponentLineIn[]
 }
 
@@ -70,6 +72,8 @@ export interface PreparationUpdateIn {
   process_loss_pct?: number
   shelf_life_days?: number | null
   key_item?: boolean
+  par_qty?: string | null
+  clear_par?: boolean
   lines?: ComponentLineIn[]
   active?: boolean
 }
@@ -88,6 +92,7 @@ export interface PreparationAdminOut {
   process_loss_pct: number
   shelf_life_days: number | null
   key_item?: boolean
+  par_qty?: string | null
   active: boolean
   /** Sólo tiene sentido en modo `batch`; `null` en `exploded` (sin stock ni lotes). */
   current_stock: string | null
@@ -455,4 +460,40 @@ export function putRecipeSheet(owner: SheetOwner, data: RecipeSheetIn): Promise<
 
 export function getPrintableSheet(owner: SheetOwner, scale: number, costs: boolean): Promise<PrintableSheetOut> {
   return api<PrintableSheetOut>(`${sheetPath(owner)}/print`, { query: { scale, costs } })
+}
+
+// ---------------------------------------------------------------------------
+// Mise en place con nivel par (0040, `app.recipes.mise`). Sin costos.
+// ---------------------------------------------------------------------------
+
+export interface MiseRowOut {
+  preparation_id: number
+  name: string
+  unit: string
+  stock: string
+  par: string | null
+  avg_daily_use: string | null
+  days_of_cover: string | null
+  to_produce: string | null
+  batches: number | null
+  batch_yield: string
+  suggested_par: string | null
+  shelf_life_days: number | null
+  status: "producir" | "al_dia" | "sin_par"
+}
+
+export interface MiseOut {
+  business_date: string
+  window_from: string
+  window_to: string
+  to_produce_count: number
+  rows: MiseRowOut[]
+}
+
+export function getMiseEnPlace(storeId: number): Promise<MiseOut> {
+  return api<MiseOut>("/admin/mise-en-place", { query: { store_id: storeId } })
+}
+
+export function getMiseEnPlaceDevice(): Promise<MiseOut> {
+  return api<MiseOut>("/mise-en-place")
 }

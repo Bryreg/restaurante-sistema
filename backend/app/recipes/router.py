@@ -23,7 +23,7 @@ from app.core import tz
 from app.core.db import get_db
 from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.recipes import service, sheet
+from app.recipes import mise, service, sheet
 from app.recipes.hooks import uncosted_products
 from app.recipes.schemas import (
     CoverageItemOut,
@@ -127,6 +127,36 @@ def switch_preparation_mode(
         db, actor=actor, preparation=prep, new_mode=body.mode, authorizer_pin=body.authorizer_pin
     )
     return service.preparation_admin_out(db, prep)
+
+
+@router.get("/admin/mise-en-place", response_model=mise.MiseOut)
+def get_mise_en_place(
+    store_id: int,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(require_feature("catalog.preps")),
+) -> mise.MiseOut:
+    """Qué producir hoy: cada preparación en modo lote contra su nivel par,
+    con lo que se viene usando (`app.recipes.mise`). Sin costos."""
+    store = admin_store(db, actor, store_id)
+    return mise.mise_en_place(db, store=store)
+
+
+@router.get("/mise-en-place", response_model=mise.MiseOut)
+def get_mise_en_place_device(
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_operator),
+    _feature: None = Depends(require_feature("catalog.preps")),
+) -> mise.MiseOut:
+    """La misma lista en la tablet de cocina: sólo cantidades, nunca costos."""
+    from app.stores.models import Store
+
+    store = db.get(Store, actor.store_id)
+    if store is None:
+        from app.core.errors import AppError
+
+        raise AppError("NOT_FOUND", "La sede no existe", status=404)
+    return mise.mise_en_place(db, store=store)
 
 
 @router.get("/admin/preparations/{preparation_id}/batches", response_model=list[PrepBatchAdminOut])

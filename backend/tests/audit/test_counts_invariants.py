@@ -1009,6 +1009,9 @@ NO_SON_EL_UMBRAL: dict[tuple[str, str], str] = {
     ("app/reports/series.py", "SECTION_TREND_DAYS"): (
         "días de la tendencia de las tarjetas «por día» (cuadre, consignaciones, salidas olvidadas)"
     ),
+    ("app/recipes/mise.py", "WINDOW_DAYS"): (
+        "días cerrados sobre los que se promedia el uso diario de una preparación (par sugerido)"
+    ),
 }
 
 

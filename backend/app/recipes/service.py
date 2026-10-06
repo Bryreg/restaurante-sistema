@@ -213,6 +213,11 @@ def create_preparation(db: Session, *, actor: Actor, store_id: int, data: Prepar
         process_loss_pct=data.process_loss_pct,
         shelf_life_days=data.shelf_life_days,
         key_item=data.key_item,
+        par_qty=(
+            units.to_base_qty(data.par_qty, data.standard_yield_unit, data.standard_yield_unit, field="par_qty")
+            if data.par_qty
+            else None
+        ),
         active=True,
         created_at=now,
         updated_at=now,
@@ -250,6 +255,12 @@ def update_preparation(db: Session, *, actor: Actor, preparation: Preparation, d
         preparation.shelf_life_days = data.shelf_life_days
     if data.key_item is not None:
         preparation.key_item = data.key_item
+    if data.clear_par:
+        preparation.par_qty = None
+    elif data.par_qty:
+        preparation.par_qty = units.to_base_qty(
+            data.par_qty, preparation.standard_yield_unit, preparation.standard_yield_unit, field="par_qty"
+        )
     if data.active is not None:
         preparation.active = data.active
     preparation.updated_at = clock.now_utc()
@@ -551,6 +562,11 @@ def preparation_admin_out(db: Session, preparation: Preparation) -> PreparationA
         process_loss_pct=preparation.process_loss_pct,
         shelf_life_days=preparation.shelf_life_days,
         key_item=bool(preparation.key_item),
+        par_qty=(
+            str(units.base_qty_to_decimal(preparation.par_qty, preparation.standard_yield_unit))
+            if preparation.par_qty is not None
+            else None
+        ),
         active=preparation.active,
         current_stock=current_stock_display,
         unit_cost=format_cost_micros(unit_cost) if unit_cost is not None else None,

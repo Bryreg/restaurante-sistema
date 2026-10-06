@@ -40,6 +40,7 @@ import {
 } from "./PreparationForm"
 import { PrepBatchesPanel } from "./PrepBatchesPanel"
 import { FichaChefEditor } from "./FichaChefEditor"
+import { MiseEnPlace } from "./MiseEnPlace"
 import { PrepModeSwitchDialog } from "./PrepModeSwitchDialog"
 
 const MODE_LABEL: Record<string, string> = { batch: "Por lote", exploded: "Explotada" }
@@ -308,6 +309,8 @@ export function PreparationsAdminPage(): React.JSX.Element {
       {preparationsQuery.isSuccess ? (
         <CifraDeLotes label="Por lote en cero o negativo" value={negativeBatch} />
       ) : null}
+
+      {activeStoreId !== null ? <MiseEnPlace storeId={activeStoreId} /> : null}
 
       {/* Por qué «explotada» es el default, plegado (regla 2): se lee una
           vez, no cada vez que se abre la pantalla. */}

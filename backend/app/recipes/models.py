@@ -90,6 +90,10 @@ class Preparation(Base):
     # Entra al conteo de críticos (0038), como `Ingredient.key_item`. Sólo
     # cuenta en modo lote: en modo explotado la preparación no tiene stock.
     key_item: Mapped[bool] = mapped_column(sa.Boolean, default=False, server_default=sa.false())
+    # Nivel par (0040): cuánto de esta preparación debe haber al abrir, en
+    # milésimas de `standard_yield_unit`. La mise en place produce la
+    # diferencia. `NULL` = sin par definido (no se pide producir nada).
+    par_qty: Mapped[int | None] = mapped_column(sa.BigInteger, nullable=True)
 
     active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
 

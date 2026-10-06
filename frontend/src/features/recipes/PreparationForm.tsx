@@ -11,6 +11,7 @@ import { FormField, FormSection } from "@/components/admin"
 import { Button } from "@/components/ui/button"
 import { DialogClose, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 import {
@@ -31,6 +32,7 @@ export interface PreparationFormValues {
   processLossPct: number
   shelfLifeDays: number | null
   keyItem: boolean
+  parQty: string
   lines: LineDraft[]
 }
 
@@ -43,6 +45,7 @@ function toFormValues(preparation?: PreparationAdminOut): PreparationFormValues 
     processLossPct: preparation?.process_loss_pct ?? 0,
     shelfLifeDays: preparation?.shelf_life_days ?? null,
     keyItem: preparation?.key_item ?? false,
+    parQty: preparation?.par_qty ?? "",
     lines: preparation ? componentLinesToDrafts(preparation.lines) : [emptyLine()],
   }
 }
@@ -56,6 +59,7 @@ export function formValuesToPreparationIn(values: PreparationFormValues): Prepar
     process_loss_pct: values.processLossPct,
     shelf_life_days: values.shelfLifeDays,
     key_item: values.keyItem,
+    par_qty: values.parQty.trim() || null,
     lines: draftsToComponentLines(values.lines),
   }
 }
@@ -68,6 +72,7 @@ export function formValuesToPreparationUpdateIn(values: PreparationFormValues): 
     process_loss_pct: values.processLossPct,
     shelf_life_days: values.shelfLifeDays,
     key_item: values.keyItem,
+    ...(values.parQty.trim() ? { par_qty: values.parQty.trim() } : { clear_par: true }),
     lines: draftsToComponentLines(values.lines),
   }
 }
@@ -269,6 +274,21 @@ export function PreparationForm({
             />
           )}
         </FormField>
+        {values.mode === "batch" ? (
+          <div className="space-y-1">
+            <Label htmlFor="prep-par">Nivel par ({UNIT_WORD[values.standardYieldUnit]})</Label>
+            <Input
+              id="prep-par"
+              inputMode="decimal"
+              placeholder="Sin par"
+              value={values.parQty}
+              onChange={(event) => setValues((v) => ({ ...v, parQty: event.target.value }))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Cuánto debe haber al abrir. La mise en place de cada día produce la diferencia, en tandas enteras.
+            </p>
+          </div>
+        ) : null}
         {values.mode === "batch" ? (
           <label className="flex items-start gap-2 text-sm">
             <input
