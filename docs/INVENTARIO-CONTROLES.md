@@ -772,7 +772,7 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 | **Evidencia** (por fila) | Abre el diálogo con estado DIAN, CUDE, **enlace al QR**, fecha de validación y **el rango que amparó el consecutivo** | siempre |
 | **Reintentar** (por fila) | Reintenta la transmisión a la DIAN | **sólo si el documento tiene estado DIAN y no está «validado»** |
 | **Emitir nota** (por fila) | Enlaza a `/admin/fiscal/notas?document={id}` con el documento ya cargado | siempre |
-| **Exportar paquete de evidencia** | Manifiesto con hash por documento y hash del manifiesto entero (conservación 5 años) | **el botón aparece sólo con las dos fechas del rango puestas** |
+| **Exportar paquete de evidencia** | Aviso visible «Guardalo 5 años» (Estatuto Tributario art. 632; Res. DIAN 000165/2023); rango con atajos **Mes anterior** / **Año anterior**; **Ver qué lleva** (cuántos documentos y hash del manifiesto, del servidor); **Descargar paquete (.json)** y **Descargar lista (.csv)** | **los botones aparecen sólo con las dos fechas puestas y en orden**; un rango al revés se avisa |
 
 - Badges: estado DIAN y **«Contingencia vencida (48 h)»**.
 - **Estados:** cargando sedes, cargando, error, «Ningún documento coincide con estos filtros».

@@ -364,7 +364,6 @@
   "Estado ante la DIAN",
   "Evidencia",
   "Evidencia: estado DIAN, CUDE, QR y el rango que amparó el consecutivo",
-  "Exportar paquete de evidencia",
   "Exportar todos los documentos",
   "Ningún documento coincide con estos filtros",
   "No se pudieron cargar los documentos",
@@ -376,6 +375,13 @@
   "Sin flag: es ley",
   "Tipo de documento",
   "Todos"
+ ],
+ "features/fiscal/EvidenceExportSection.tsx": [
+  "Año anterior",
+  "Descargar lista (.csv)",
+  "Descargar paquete (.json)",
+  "Mes anterior",
+  "Ver qué lleva"
  ],
  "features/fiscal/NotesPage.tsx": [
   "Ajuste, crédito y débito llevan su propio rango de numeración.",
