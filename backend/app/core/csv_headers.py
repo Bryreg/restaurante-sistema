@@ -686,6 +686,7 @@ TOKENS: dict[str, str] = {
     "recent": "reciente",
     "reception": "recepción",
     "receptions": "recepciones",
+    "recommendation": "recomendación",
     "recommended": "recomendado",
     "recounted": "recontado",
     "recounts": "recuentos",

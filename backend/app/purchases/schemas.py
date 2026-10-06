@@ -511,6 +511,25 @@ class SupplierPriceRowOut(BaseModel):
     supplier_active: bool
     # Las últimas compras, la más nueva primero.
     purchases: list[SupplierPricePointOut]
+    # Comparación (i2). Precios en texto decimal (pesos): `*_unit_cost` por
+    # unidad base sin impuesto (lo que se compara), `*_purchase_unit_price`
+    # por unidad de compra (lo que se lee).
+    last_purchase_date: date
+    last_purchase_unit_price: str
+    last_unit_cost: str
+    # Promedio ponderado por cantidad en la ventana; `None` si no le compró
+    # en la ventana (`n_purchases_window == 0`).
+    avg_unit_cost: str | None
+    avg_purchase_unit_price: str | None
+    n_purchases_window: int
+    # Días que tarda en entregar. `orders` = medido en sus órdenes de compra
+    # (mediana de enviada → primera recepción); `ingredient` = el lead time
+    # cargado en el insumo (sólo si es su proveedor asignado). `None` con
+    # motivo cuando no hay con qué saberlo.
+    lead_time_days: int | None
+    lead_time_source: Literal["orders", "ingredient"] | None
+    lead_time_reason: str | None
+    recommended: bool
 
 
 class IngredientSupplierPricesOut(BaseModel):
@@ -520,6 +539,12 @@ class IngredientSupplierPricesOut(BaseModel):
     purchase_unit: str
     # El umbral vigente del aviso «Un proveedor subió el precio» (%).
     alert_threshold_pct: int
+    # Comparación (i2): ventana del promedio y de «reciente», y el proveedor
+    # recomendado (el activo más barato con compra reciente). `None` con
+    # motivo si ninguno califica.
+    window_days: int
+    recommended_supplier_id: int | None
+    recommendation_reason: str
     suppliers: list[SupplierPriceRowOut]
 
 

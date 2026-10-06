@@ -654,6 +654,19 @@ export interface SupplierPriceRowOut {
   supplier_active: boolean
   /** Las últimas compras, la más nueva primero. */
   purchases: SupplierPricePointOut[]
+  // Comparación (i2). `*_unit_cost` por unidad base sin impuesto; `*_purchase_unit_price` por unidad de compra.
+  last_purchase_date: string
+  last_purchase_unit_price: string
+  last_unit_cost: string
+  /** Promedio ponderado por cantidad en la ventana; `null` si no le compró en la ventana. */
+  avg_unit_cost: string | null
+  avg_purchase_unit_price: string | null
+  n_purchases_window: number
+  /** Días que tarda en entregar; `null` con `lead_time_reason` si no hay con qué saberlo. */
+  lead_time_days: number | null
+  lead_time_source: "orders" | "ingredient" | null
+  lead_time_reason: string | null
+  recommended: boolean
 }
 
 export interface IngredientSupplierPricesOut {
@@ -663,6 +676,11 @@ export interface IngredientSupplierPricesOut {
   purchase_unit: string
   /** Umbral vigente del aviso «Un proveedor subió el precio» (%). */
   alert_threshold_pct: number
+  /** Ventana del promedio y de «reciente», en días. */
+  window_days: number
+  /** El activo más barato con compra reciente; `null` con motivo si ninguno califica. */
+  recommended_supplier_id: number | null
+  recommendation_reason: string
   suppliers: SupplierPriceRowOut[]
 }
 

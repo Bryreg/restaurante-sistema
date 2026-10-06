@@ -22,12 +22,13 @@ comparación entre proveedores es otra pantalla (`supplier_comparison`).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import tz
 from app.core.money import format_cop
 from app.core.percent import format_pct_bp
 from app.core.quantity import format_cost_micros, format_qty_base, micros_to_pesos
@@ -40,6 +41,9 @@ from app.stores.models import Store
 PRICE_RISE_TYPE = "supplier_price_rise"
 #: Cuántas compras por proveedor muestra el historial.
 HISTORY_PER_SUPPLIER = 5
+#: La ventana de la comparación (i2): «reciente» es haberle comprado en
+#: estos días, y el promedio se calcula sobre ellos.
+COMPARISON_WINDOW_DAYS = 90
 
 
 def signed_bp(numerator: int, denominator: int) -> int:
@@ -173,19 +177,48 @@ def _confirmed_lines(db: Session, *, store_id: int, ingredient_id: int) -> list[
     ]
 
 
+def _median_int(values: list[int]) -> int:
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2:
+        return ordered[mid]
+    # Mitad hacia arriba, en días enteros.
+    return (ordered[mid - 1] + ordered[mid] + 1) // 2
+
+
 def supplier_price_history(db: Session, *, store: Store, ingredient: Ingredient) -> dict[str, Any]:
     """Las últimas compras del insumo por proveedor, la más nueva primero,
     cada una con su cambio contra la compra anterior AL MISMO proveedor
     (`change_bp`, con signo; `None` en la primera compra: no hay contra qué
-    medir). Proveedores ordenados por su compra más reciente."""
+    medir). Proveedores ordenados por su compra más reciente.
+
+    **Comparación (i2)**, por proveedor: último precio, promedio de los
+    últimos `COMPARISON_WINDOW_DAYS` días (ponderado por cantidad, sobre el
+    costo por unidad base sin impuesto, y publicado también por unidad de
+    compra con el factor de hoy) y cuánto tarda en entregar
+    (`lead_time_days`: la mediana de días entre «enviada» y la primera
+    recepción de sus órdenes de compra; sin órdenes, el lead time cargado
+    en el insumo si éste es su proveedor; si no, `None` con motivo). La
+    recomendación es el proveedor ACTIVO con compra en la ventana y el
+    último precio más bajo; `None` con motivo si ninguno califica."""
+    from app.purchases import orders as purchase_orders
+
+    today = tz.today_business_date(store.cutoff_hour)
+    since = today - timedelta(days=COMPARISON_WINDOW_DAYS - 1)
     per_supplier: dict[int, list[dict[str, Any]]] = {}
     last_cost: dict[int, int] = {}
     last_at: dict[int, tuple[Any, int]] = {}
+    last_line: dict[int, tuple[ReceptionLine, Reception]] = {}
+    window: dict[int, list[tuple[int, int]]] = {}
     for line, reception in _confirmed_lines(db, store_id=store.id, ingredient_id=ingredient.id):
         prev = last_cost.get(reception.supplier_id)
         change_bp = signed_bp(line.unit_cost_micros - prev, prev) if prev is not None and prev > 0 else None
         last_cost[reception.supplier_id] = line.unit_cost_micros
         last_at[reception.supplier_id] = (reception.at, reception.id)
+        last_line[reception.supplier_id] = (line, reception)
+        if reception.business_date >= since:
+            window.setdefault(reception.supplier_id, []).append((line.qty_received_base, line.unit_cost_micros))
         per_supplier.setdefault(reception.supplier_id, []).append(
             {
                 "reception_id": reception.id,
@@ -201,23 +234,87 @@ def supplier_price_history(db: Session, *, store: Store, ingredient: Ingredient)
         if per_supplier
         else {}
     )
+    delivery = purchase_orders.delivery_days_by_supplier(db, store_id=store.id)
+
     rows: list[dict[str, Any]] = []
+    candidates: list[tuple[int, Any, int]] = []
     for supplier_id in sorted(per_supplier, key=lambda sid: last_at[sid], reverse=True):
         supplier = suppliers.get(supplier_id)
         history = list(reversed(per_supplier[supplier_id]))[:HISTORY_PER_SUPPLIER]
+        line, reception = last_line[supplier_id]
+
+        pairs = window.get(supplier_id, [])
+        total_qty = sum(q for q, _c in pairs)
+        avg_micros: int | None = None
+        if total_qty > 0:
+            # Promedio ponderado por cantidad, mitad hacia arriba.
+            avg_micros = (sum(q * c for q, c in pairs) * 2 + total_qty) // (2 * total_qty)
+
+        days = delivery.get(supplier_id, [])
+        lead_time: int | None
+        if days:
+            lead_time, lead_source, lead_reason = _median_int(days), "orders", None
+        elif ingredient.supplier_id == supplier_id and ingredient.lead_time_days is not None:
+            lead_time, lead_source, lead_reason = ingredient.lead_time_days, "ingredient", None
+        else:
+            lead_time, lead_source, lead_reason = (
+                None,
+                None,
+                "Sin órdenes de compra recibidas de este proveedor para medirlo",
+            )
+
+        active = supplier.active if supplier is not None else False
+        if active and reception.business_date >= since:
+            candidates.append((line.unit_cost_micros, last_at[supplier_id], supplier_id))
         rows.append(
             {
                 "supplier_id": supplier_id,
                 "supplier_name": supplier.name if supplier is not None else f"Proveedor #{supplier_id}",
-                "supplier_active": supplier.active if supplier is not None else False,
+                "supplier_active": active,
                 "purchases": history,
+                "last_purchase_date": reception.business_date,
+                "last_purchase_unit_price": format_cost_micros(line.purchase_unit_price_micros),
+                "last_unit_cost": format_cost_micros(line.unit_cost_micros),
+                "avg_unit_cost": format_cost_micros(avg_micros) if avg_micros is not None else None,
+                "avg_purchase_unit_price": (
+                    format_cost_micros(avg_micros * ingredient.purchase_factor) if avg_micros is not None else None
+                ),
+                "n_purchases_window": len(pairs),
+                "lead_time_days": lead_time,
+                "lead_time_source": lead_source,
+                "lead_time_reason": lead_reason,
+                "recommended": False,
             }
         )
+
+    recommended_id: int | None = None
+    if candidates:
+        # El más barato; a igual precio, el de la compra más reciente.
+        best_cost = min(c for c, _at, _sid in candidates)
+        tied = [cand for cand in candidates if cand[0] == best_cost]
+        recommended_id = max(tied, key=lambda cand: cand[1])[2]
+        name = next(r["supplier_name"] for r in rows if r["supplier_id"] == recommended_id)
+        reason = (
+            f"{name} es el único proveedor activo que lo vendió en los últimos {COMPARISON_WINDOW_DAYS} días"
+            if len(candidates) == 1
+            else f"{name} tiene el último precio más bajo entre los {len(candidates)} proveedores activos "
+            f"que lo vendieron en los últimos {COMPARISON_WINDOW_DAYS} días"
+        )
+        for row in rows:
+            row["recommended"] = row["supplier_id"] == recommended_id
+    elif rows:
+        reason = f"Ningún proveedor activo le vendió este insumo en los últimos {COMPARISON_WINDOW_DAYS} días"
+    else:
+        reason = "Todavía no hay compras de este insumo"
+
     return {
         "ingredient_id": ingredient.id,
         "ingredient_name": ingredient.name,
         "base_unit": ingredient.base_unit.value,
         "purchase_unit": ingredient.purchase_unit,
         "alert_threshold_pct": rule_threshold(db, store.id, PRICE_RISE_TYPE),
+        "window_days": COMPARISON_WINDOW_DAYS,
+        "recommended_supplier_id": recommended_id,
+        "recommendation_reason": reason,
         "suppliers": rows,
     }

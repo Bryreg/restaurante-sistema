@@ -2,7 +2,11 @@ import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { listIngredients } from "@/api/inventory"
-import { getIngredientSupplierPrices, type SupplierPriceRowOut } from "@/api/purchases"
+import {
+  getIngredientSupplierPrices,
+  type IngredientSupplierPricesOut,
+  type SupplierPriceRowOut,
+} from "@/api/purchases"
 import { EmptyState } from "@/components/EmptyState"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -51,8 +55,65 @@ function HistorialProveedor({ row, purchaseUnit }: { row: SupplierPriceRowOut; p
   )
 }
 
+const LEAD_SOURCE: Record<"orders" | "ingredient", string> = {
+  orders: "medido en sus órdenes",
+  ingredient: "el cargado en el insumo",
+}
+
+/** La comparación (i2): un renglón por proveedor, el recomendado marcado. */
+function Comparacion({ data }: { data: IngredientSupplierPricesOut }): React.JSX.Element {
+  return (
+    <section className="space-y-2" aria-label="Comparación de proveedores">
+      <p className="text-sm" data-testid="recomendacion">
+        {data.recommended_supplier_id !== null ? <b>Recomendado: </b> : null}
+        {data.recommendation_reason}.
+      </p>
+      <table className="w-full text-sm">
+        <thead className="text-xs text-muted-foreground">
+          <tr>
+            <th className="px-3 py-1.5 text-left font-medium">Proveedor</th>
+            <th className="px-3 py-1.5 text-right font-medium">Último precio ({data.purchase_unit})</th>
+            <th className="px-3 py-1.5 text-right font-medium">Promedio {data.window_days} días</th>
+            <th className="px-3 py-1.5 text-right font-medium">Tarda en entregar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.suppliers.map((row) => (
+            <tr key={row.supplier_id} className={row.recommended ? "border-t bg-success/5" : "border-t"}>
+              <td className="px-3 py-1.5">
+                {row.supplier_name}
+                {row.recommended ? <span className="ml-2 text-xs font-semibold text-success">Recomendado</span> : null}
+              </td>
+              <td className="px-3 py-1.5 text-right tabular-nums" title={`Compra del ${formatFechaCorta(row.last_purchase_date)}`}>
+                {formatCOPDecimal(row.last_purchase_unit_price)}
+              </td>
+              <td
+                className="px-3 py-1.5 text-right tabular-nums"
+                title={row.avg_purchase_unit_price === null ? `Sin compras en los últimos ${data.window_days} días` : undefined}
+              >
+                {row.avg_purchase_unit_price === null ? (
+                  <span className="text-muted-foreground">Sin compras recientes</span>
+                ) : (
+                  formatCOPDecimal(row.avg_purchase_unit_price)
+                )}
+              </td>
+              <td className="px-3 py-1.5 text-right" title={row.lead_time_reason ?? (row.lead_time_source ? LEAD_SOURCE[row.lead_time_source] : undefined)}>
+                {row.lead_time_days === null ? (
+                  <span className="text-muted-foreground">Sin datos</span>
+                ) : (
+                  `${row.lead_time_days} ${row.lead_time_days === 1 ? "día" : "días"}`
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
 /**
- * Compras › Precios (tanda 5, i1): las últimas compras de un insumo por
+ * Compras › Precios (tanda 5, i1 e i2): las últimas compras de un insumo por
  * proveedor, con el cambio contra la compra anterior al mismo proveedor. El
  * cambio, el umbral del aviso y todo lo demás llegan del servidor; acá sólo
  * se escriben.
@@ -106,6 +167,7 @@ export function SupplierPricesTab({ storeId }: { storeId: number }): React.JSX.E
         />
       ) : (
         <>
+          <Comparacion data={data} />
           <p className="text-xs text-muted-foreground">
             Avisa cuando un proveedor sube el precio más de {data.alert_threshold_pct} % contra la compra anterior (el umbral se
             cambia en Notificaciones › Reglas).
