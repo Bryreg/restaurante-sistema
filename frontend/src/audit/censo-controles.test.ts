@@ -190,6 +190,20 @@
  *   movimientos de caja y los cuadres viven en la tarjeta.
  * - `features/shifts/EnvelopeOpeningForm.tsx` no estaba en la base; lo
  *   reemplaza `CashOpeningForm.tsx` (la apertura sin ciegas), que entra.
+ *
+ * **Bajas declaradas · una sola apertura y un solo cierre (decisión del
+ * dueño: el estilo del café).** La base se regeneró con
+ * `regenerar-censo.ts` y salen, a propósito, dos archivos enteros y un
+ * campo de Ajustes (las entradas `.ts` que el script no censa —
+ * `acciones.ts`, `cinta.ts`— se conservaron a mano):
+ *
+ * - `features/shifts/OpenShiftForm.tsx` — la apertura con base fija. El
+ *   cajón abre sólo «igual al café» (`CashOpeningForm.tsx`): días por
+ *   consignar, contados enteros, con la diferencia en vivo.
+ * - `features/shifts/SingleStepCloseForm.tsx` — el cierre en un paso. Se
+ *   cierra sólo a ciegas en tres pasos (`CloseWizard.tsx`).
+ * - «Base fija de apertura» (`features/settings/CashSection.tsx`) — ya no
+ *   hay base fija que configurar; la base de respaldo sigue.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

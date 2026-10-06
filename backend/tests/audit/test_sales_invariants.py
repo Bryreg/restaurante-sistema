@@ -69,8 +69,8 @@ def _assert_totals_close(payload: dict[str, Any], *, where: str) -> None:
 
 
 def _shift_view(admin_client: Any, shift_id: int) -> dict[str, Any]:
-    """El turno visto por el administrador: con `cash.blind_close` encendida
-    (default del perfil `full`) es el único actor que ve `sales`/`tips`."""
+    """El turno visto por el administrador: con el cierre a ciegas (la única
+    manera de cerrar) es el único actor que ve `sales`/`tips`."""
     resp = admin_client.get(f"{API}/shifts/{shift_id}")
     assert resp.status_code == 200, resp.text
     body: dict[str, Any] = resp.json()

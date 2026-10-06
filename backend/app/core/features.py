@@ -204,13 +204,9 @@ FEATURE_CATALOG: list[FeatureDef] = [
         {"basic": False, "standard": False, "full": True},
         "2",
     ),
-    FeatureDef(
-        "cash.blind_close",
-        "Cierre de turno a ciegas en tres pasos (si está apagado: cierre en un paso, igual con causa)",
-        [],
-        {"basic": False, "standard": True, "full": True},
-        "1a",
-    ),
+    # `cash.blind_close` ya no es una función: el cierre a ciegas en tres
+    # pasos es la única manera de cerrar (cierre «igual al café»). Una fila
+    # vieja de `FeatureState` con esa clave no cambia nada.
     FeatureDef(
         "cash.reserve",
         "Base de respaldo aparte del cajón: monto fijo por sede, tomar y devolver con autorización y verificación del custodio",

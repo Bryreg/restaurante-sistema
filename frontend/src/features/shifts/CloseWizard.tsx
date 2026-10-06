@@ -183,8 +183,8 @@ function ItemPrecheck({
 }
 
 /**
- * Cierre a ciegas en tres pasos (`cash.blind_close`, spec § "Business day &
- * shifts"): el paso 1 **nunca** muestra ni pide el esperado, y no dispara
+ * Cierre a ciegas en tres pasos, la única manera de cerrar (spec § "Business
+ * day & shifts"): el paso 1 **nunca** muestra ni pide el esperado, y no dispara
  * ningún pedido de review antes de tener `count_id` (por eso `getCloseReview`
  * vive en un `useQuery` con `enabled: step === 2`, nunca en un `useEffect`
  * disparado por otra cosa). El paso 3 manda `difference_seen` exactamente
@@ -366,7 +366,7 @@ export function CloseWizard({
       setConfirmError(null);
       // Primero se entrega el resultado a la página: cuando la invalidación
       // haga que `GET /shifts/current` devuelva `null`, `ShiftPage` ya va a
-      // tener qué mostrar en lugar de `OpenShiftForm`.
+      // tener qué mostrar en lugar de la apertura.
       onClosed(out);
       // El resto de la app no puede quedar con datos viejos: el turno dejó
       // de existir y el resumen cambió.

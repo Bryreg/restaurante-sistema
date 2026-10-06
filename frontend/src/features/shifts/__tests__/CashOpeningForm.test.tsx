@@ -32,12 +32,10 @@ const ME: Me = {
 };
 
 const INFO: OpeningInfo = {
-  mode: "envelopes",
   envelopes: [
     { shift_id: 11, business_date: "2026-09-21", outstanding: 50_000 },
     { shift_id: 12, business_date: "2026-09-22", outstanding: 74_000 },
   ],
-  pending_count: null,
   reserve_available: false,
 };
 
@@ -53,12 +51,10 @@ function servidor(body: OpeningPreviewIn): OpeningPreview {
   const counted = body.counted ? body.counted.total : null;
   const difference = counted === null ? null : counted - expected;
   return {
-    mode: "envelopes",
     days: [
       { shift_id: 11, business_date: "2026-09-21", outstanding: 50_000, selected: ids.includes(11) },
       { shift_id: 12, business_date: "2026-09-22", outstanding: 74_000, selected: ids.includes(12) },
     ],
-    fixed_base: 0,
     carried_total: expected,
     expected,
     counted,

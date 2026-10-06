@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from tests.conftest import opening_justification
 from tests.audit.conftest import (
     OPENING_FIXED,
     deep_contains_text,
@@ -69,18 +70,33 @@ def _confirm(client: Any, shift_id: int, count_id: int, difference_seen: int, **
 
 
 # ---------------------------------------------------------------------------
-# (a) La reserva declarada no entra al esperado ni a la ecuación
+# (a) Una reserva no entra al esperado ni a la ecuación
 # ---------------------------------------------------------------------------
 
 
 def test_declared_reserve_never_enters_expected_nor_the_equation(
-    device_client: Any, open_shift: Any, expected_of: Any
+    device_client: Any, identify: Any, employees: Any, expected_of: Any
 ) -> None:
     """§3.2 y §11.15: «la reserva no entra al cuadre» (Palmetto, 15-ago: una
-    reserva contada dentro de la base fabricó un sobrante de $500.000)."""
-    shift = open_shift(cash_reserve=100_000)
+    reserva contada dentro de la base fabricó un sobrante de $500.000). La
+    reserva ya no se declara al abrir (la base de respaldo vive aparte): un
+    cliente viejo que la mande no la deja en el turno ni en el esperado."""
+    cashier = employees["cashier"]
+    identify(device_client, cashier)
+    resp = device_client.post(
+        f"{API}/shifts/open",
+        json={
+            "opening_cash": denoms(OPENING_FIXED),
+            "cash_reserve": 100_000,
+            "cash_responsible_id": cashier.id,
+            **opening_justification(OPENING_FIXED),
+        },
+        headers=idem_headers(),
+    )
+    assert resp.status_code == 201, resp.text
+    shift = resp.json()
 
-    assert shift["cash_reserve"] == 100_000, "la reserva se declara y se guarda aparte"
+    assert shift["cash_reserve"] == 0, "la reserva ya no se declara al abrir"
     assert expected_of(shift["id"]) == OPENING_FIXED, "la reserva no puede sumar al esperado"
 
     count = _count(device_client, shift["id"], OPENING_FIXED)
@@ -311,27 +327,19 @@ def test_critical_difference_still_closes_and_raises_a_notification(
 # ---------------------------------------------------------------------------
 
 
-def test_the_one_step_close_is_refused_while_blind_close_is_on(
+def test_there_is_no_one_step_door_next_to_the_blind_close(
     device_client: Any, open_shift: Any, set_feature: Any
 ) -> None:
-    """§1.2 (`cash.blind_close`: «cierre a ciegas en tres pasos — **apagado**:
-    cierre en un paso, igual con causa») y §11.19 («toda función opcional vive
-    detrás de su flag, que hace cumplir el backend»).
-
-    El cierre en un paso es el camino de la sede que apagó el cierre a ciegas.
-    Si sigue abierto con la función encendida, cualquiera que hable con la API
-    cierra sin pasar por `count → review → confirm`: se saltea el conteo a
-    ciegas y el control de `DIFFERENCE_CHANGED`. Bloquear el camino de al lado
-    es lo único que hace real al cierre a ciegas.
-
-    Iteración 2 (veredicto del Maestro sobre CONFLICT-INTERPRETATION): los dos
-    cierres son **excluyentes por flag**, y el rechazo es tipado —
-    `400 BLIND_CLOSE_REQUIRED` con `feature: "cash.blind_close"`—, no un 4xx
-    cualquiera. Además el turno tiene que **seguir abierto**: un rechazo que
-    deja el turno a medio cerrar es peor que no rechazar.
-    """
+    """El cierre a ciegas en tres pasos es la **única** manera de cerrar
+    (decisión del dueño: el cierre del café). Si existiera un cierre en un
+    paso, cualquiera que hable con la API cerraría sin pasar por
+    `count → review → confirm`: se saltearía el conteo a ciegas y el control
+    de `DIFFERENCE_CHANGED`. La puerta de al lado ya no existe, el turno
+    sigue abierto sin conteo ni diferencia escritos, y una fila vieja de
+    `cash.blind_close` apagada no la reabre ni cierra los tres pasos."""
     shift = open_shift()
     sid = shift["id"]
+    set_feature("cash.blind_close", False)
 
     atajo = device_client.post(
         f"{API}/shifts/{sid}/close",
@@ -343,58 +351,16 @@ def test_the_one_step_close_is_refused_while_blind_close_is_on(
         },
         headers=idem_headers(),
     )
-    assert atajo.status_code == 400, (
-        "con `cash.blind_close` encendida, el cierre en un paso tiene que rechazarse "
-        f"con 400; respondió {atajo.status_code}: {atajo.text}"
-    )
-    error = atajo.json()["error"]
-    assert error["code"] == "BLIND_CLOSE_REQUIRED", (
-        f"el rechazo tiene que ser tipado, no genérico: {error}"
-    )
-    assert error["message"].strip(), "el mensaje tiene que nombrar la acción correctiva"
-    assert error.get("feature") == "cash.blind_close", (
-        "el error tiene que nombrar la función que lo exige, como todo gate de flag "
-        f"(§11.19): {error}"
-    )
+    assert atajo.status_code in (404, 405), f"el cierre en un paso no puede existir: {atajo.status_code} {atajo.text}"
 
-    actual = device_client.get(f"{API}/shifts/current").json()
-    assert actual is not None and actual["id"] == sid, "el turno rechazado no puede desaparecer"
     sigue = device_client.get(f"{API}/shifts/{sid}").json()
-    assert sigue["status"] == "open", (
-        f"el turno tiene que seguir abierto después del rechazo, no a medio cerrar: {sigue['status']}"
-    )
+    assert sigue["status"] == "open", f"el turno tiene que seguir abierto: {sigue['status']}"
     assert sigue["counted_cash"] is None and sigue["difference"] is None, (
-        "un cierre rechazado no puede dejar el conteo ni la diferencia escritos"
+        "un cierre que no existe no puede dejar el conteo ni la diferencia escritos"
     )
 
-
-def test_with_blind_close_off_the_one_step_close_is_the_way_and_the_three_steps_are_refused(
-    device_client: Any, open_shift: Any, set_feature: Any
-) -> None:
-    """La otra mitad de la misma regla: apagada la función, el cierre en un
-    paso es el camino y los tres pasos responden `400 FEATURE_DISABLED`
-    nombrando la función (checklist del pedido 1a)."""
-    shift = open_shift()
-    sid = shift["id"]
-    set_feature("cash.blind_close", False)
-
-    bloqueado = _count(device_client, sid, OPENING_FIXED)
-    assert bloqueado.status_code == 400, bloqueado.text
-    error = bloqueado.json()["error"]
-    assert error["code"] == "FEATURE_DISABLED", error
-    assert error.get("feature") == "cash.blind_close", error
-
-    un_paso = device_client.post(
-        f"{API}/shifts/{sid}/close",
-        json={
-            "counted_cash": denoms(OPENING_FIXED),
-            "tips_cash_out": 0,
-            "closes_day": True,
-            "photo": PHOTO,
-        },
-        headers=idem_headers(),
-    )
-    assert un_paso.status_code == 200, un_paso.text
+    paso_1 = _count(device_client, sid, OPENING_FIXED)
+    assert paso_1.status_code in (200, 201), paso_1.text
 
 
 # ---------------------------------------------------------------------------
@@ -433,19 +399,21 @@ def test_photo_required_on_close_is_enforced_by_the_backend(
 # ---------------------------------------------------------------------------
 
 
-def test_to_deposit_is_counted_minus_fixed_base_minus_cash_tips(
+def test_to_deposit_is_counted_minus_previous_days_minus_cash_tips(
     device_client: Any, open_shift: Any
 ) -> None:
-    """§6.1: «cada turno cerrado sabe cuánto debe consignarse = contado − base
-    fija − propinas en efectivo retiradas»."""
-    shift = open_shift()
+    """§6.1: «cada turno cerrado sabe cuánto debe consignarse = contado − lo
+    de días anteriores que sigue en el cajón − propinas en efectivo
+    retiradas». Sin base fija: la apertura es «igual al café», y un cajón que
+    abrió vacío consigna todo lo que contó menos las propinas."""
+    shift = open_shift(total=0)
     sid = shift["id"]
-    counted = OPENING_FIXED + 80_000
+    counted = 80_000
 
     count_id = _count(device_client, sid, counted, tips_cash_out=30_000).json()["count_id"]
     resp = _confirm(device_client, sid, count_id, 80_000, cause="change_error")
     assert resp.status_code == 200, resp.text
-    assert resp.json()["to_deposit"] == counted - OPENING_FIXED - 30_000
+    assert resp.json()["to_deposit"] == counted - 30_000
 
 
 # ---------------------------------------------------------------------------
@@ -481,8 +449,8 @@ def test_two_concurrent_opens_leave_exactly_one_winner(race_app: Any) -> None:
     client, employee_id = race_app
     payload = {
         "opening_cash": denoms(OPENING_FIXED),
-        "cash_reserve": 0,
         "cash_responsible_id": employee_id,
+        **opening_justification(OPENING_FIXED),
     }
 
     outcomes: list[str] = []
@@ -565,19 +533,20 @@ def test_cash_movement_without_idempotency_key_is_rejected(device_client: Any, o
 
 
 # ---------------------------------------------------------------------------
-# (l) Abrir con una base distinta de la fija exige causa tipada
+# (l) Abrir con algo distinto de lo que debería haber exige causa tipada
 # ---------------------------------------------------------------------------
 
 
 def test_opening_with_a_different_base_needs_a_typed_cause(
     device_client: Any, identify: Any, employees: dict[str, Any]
 ) -> None:
-    """§3.2 y §11.14: «si la contada difiere de la base fija: justificación con
-    causa tipada obligatoria», y el mensaje nombra la acción correctiva."""
+    """§3.2 y §11.14: «si lo contado difiere de lo que debería haber:
+    justificación con causa tipada obligatoria» (y, con la apertura «igual
+    al café», el motivo escrito), y el mensaje nombra la acción correctiva.
+    Sin días por consignar debería haber $0."""
     identify(device_client, employees["cashier"])
     base_payload: dict[str, Any] = {
         "opening_cash": denoms(150_000),
-        "cash_reserve": 0,
         "cash_responsible_id": employees["cashier"].id,
     }
 
@@ -587,9 +556,17 @@ def test_opening_with_a_different_base_needs_a_typed_cause(
     assert error["code"] == "OPENING_DIFFERENCE_NEEDS_CAUSE"
     assert "causa" in error["message"].lower(), f"el mensaje tiene que nombrar la acción: {error['message']}"
 
-    accepted = device_client.post(
+    sin_motivo = device_client.post(
         f"{API}/shifts/open",
         json={**base_payload, "opening_cause": "counting_error"},
+        headers=idem_headers(),
+    )
+    assert sin_motivo.status_code == 400, sin_motivo.text
+    assert sin_motivo.json()["error"]["code"] == "OPENING_DIFFERENCE_NEEDS_NOTE"
+
+    accepted = device_client.post(
+        f"{API}/shifts/open",
+        json={**base_payload, "opening_cause": "counting_error", "opening_note": "Sobró del día anterior"},
         headers=idem_headers(),
     )
     assert accepted.status_code in (200, 201), accepted.text
@@ -653,7 +630,9 @@ def test_adjust_opening_rewrites_everything_derived_with_the_same_formula(
     assert body["opening_cash_total"] == 190_000
     assert body["expected_cash"] == 190_000, "el esperado se recalcula con la base nueva"
     assert body["counted_cash"] - body["expected_cash"] == body["difference"], "la diferencia no queda vieja"
-    assert body["to_deposit"] == counted - OPENING_FIXED, "a consignar sigue siendo contado − base fija"
+    assert body["to_deposit"] == counted, (
+        "a consignar sigue siendo lo contado: sin base fija y sin días anteriores en el cajón"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -787,18 +766,18 @@ def test_the_expected_does_not_leak_to_a_non_responsible_operator_through_handov
         assert not leaked, f"el esperado se filtró por el relevo: {sorted(leaked)}"
 
 
-def test_with_blind_close_on_the_cash_responsible_does_not_see_the_expected(
+def test_the_cash_responsible_does_not_see_the_expected_before_the_close(
     device_client: Any, open_shift: Any, employees: dict[str, Any]
 ) -> None:
     """**O-1, resuelto por default en 1b-1** (`CONTRATO-INTERNO-1b-1.md §2.4
-    «Caja»`, §5.8): con `cash.blind_close` encendida el cierre es a ciegas, y
+    «Caja»`, §5.8): el cierre es a ciegas (hoy la única manera de cerrar), y
     un cierre a ciegas al que se llega mirando el esperado toda la noche no es
     a ciegas. El responsable de caja **no** ve `expected_cash`, ni `sales`, ni
     `tips` en `GET /shifts/current` ni en `GET /shifts/{id}`: lo ve recién en
     el paso 2 del cierre (`review`).
 
-    El `org` de los tests tiene perfil `full`, donde `cash.blind_close` viene
-    encendida: éste es el comportamiento por default del producto.
+    Éste es el comportamiento de todas las sedes: el cierre a ciegas ya no es
+    una función que se apaga.
 
     Invierte deliberadamente el invariante que 1a había escrito acá
     (`test_expected_cash_is_visible_to_the_cash_responsible`): la tensión
@@ -820,30 +799,25 @@ def test_with_blind_close_on_the_cash_responsible_does_not_see_the_expected(
     assert detalle["tips"] is None
 
 
-def test_with_blind_close_off_the_cash_responsible_sees_the_expected_again(
+def test_an_old_blind_close_flag_saved_off_does_not_show_the_expected_again(
     device_client: Any, open_shift: Any, employees: dict[str, Any], set_feature: Any
 ) -> None:
-    """La otra mitad de O-1: la sede que **no** cierra a ciegas (perfil
-    `basic`, o la flag apagada a mano) vuelve al contrato de 1a — el
-    responsable ve su esperado, sus ventas y sus propinas. La flag es la única
-    diferencia; no hay un segundo predicado escondido
-    (`app.shifts.router._can_see_expected`).
+    """La otra mitad de O-1 ya no existe: el cierre es a ciegas en tres pasos
+    para todas las sedes (decisión del dueño, el cierre del café). Una fila
+    vieja de `cash.blind_close` apagada no le devuelve al responsable el
+    esperado, las ventas ni las propinas: no hay un segundo predicado
+    escondido (`app.shifts.router._can_see_expected`).
     """
     set_feature("cash.blind_close", False)
     shift = open_shift(responsible=employees["cashier"])
 
     actual = device_client.get(f"{API}/shifts/current").json()
-    assert actual["expected_cash"] == OPENING_FIXED, (
-        "sin cierre a ciegas el responsable sí ve el esperado de su cajón"
-    )
-    assert actual["sales"] is not None and actual["sales"]["cash"] == 0, (
-        "y las ventas del turno, que todavía son cero"
-    )
-    assert actual["tips"] is not None and actual["tips"]["cash"] == 0
+    assert actual["expected_cash"] is None, "el responsable no ve el esperado antes del paso 2"
+    assert actual["sales"] is None and actual["tips"] is None
 
     detalle = device_client.get(f"{API}/shifts/{shift['id']}").json()
-    assert detalle["expected_cash"] == OPENING_FIXED
-    assert detalle["sales"] is not None
+    assert detalle["expected_cash"] is None
+    assert detalle["sales"] is None
 
 
 def test_the_expected_reaches_the_responsible_only_in_step_two_of_the_close(
@@ -894,9 +868,9 @@ def test_reading_the_current_shift_does_not_extend_the_person_session(
     la lectura. Verificado con el reloj controlado y leyendo la fila
     `device_sessions`, no la respuesta.
 
-    De paso encarna O-1 (`CONTRATO-INTERNO-1b-1.md §5.8`): con
-    `cash.blind_close` encendida —el default del perfil `full`, el de estos
-    tests— el responsable de caja **no** ve `expected_cash` en
+    De paso encarna O-1 (`CONTRATO-INTERNO-1b-1.md §5.8`): con el cierre a
+    ciegas —la única manera de cerrar— el responsable de caja **no** ve
+    `expected_cash` en
     `GET /shifts/current`; la lectura sigue siendo legítima (el turno, el
     roster, los movimientos) y sigue sin renovar la ventana.
     """
@@ -919,7 +893,7 @@ def test_reading_the_current_shift_does_not_extend_the_person_session(
     lectura = device_client.get(f"{API}/shifts/current")
     assert lectura.status_code == 200, lectura.text
     assert lectura.json()["expected_cash"] is None, (
-        "con `cash.blind_close` encendida el responsable no ve el esperado en "
+        "con el cierre a ciegas el responsable no ve el esperado en "
         "`/shifts/current` (O-1 resuelto en 1b-1)"
     )
     assert _expires_at() == vence_al_abrir, (
@@ -935,75 +909,12 @@ def test_reading_the_current_shift_does_not_extend_the_person_session(
     )
 
 
-def test_a_handover_moves_the_responsibility_and_with_blind_close_off_the_expected_moves_with_it(
-    device_client: Any, open_shift: Any, identify: Any, employees: dict[str, Any], set_feature: Any
-) -> None:
-    """§3.2: el relevo «cambia el responsable de caja» con conteo de por medio.
-
-    Dos mitades de la misma regla, y la segunda es la que importa para el
-    control: después del relevo el esperado es de quien **ahora** responde por
-    el cajón. Si el anterior siguiera viéndolo, el relevo sería papeleo; si el
-    nuevo no lo viera, respondería por una plata que no puede mirar.
-
-    Esta mitad se mide con `cash.blind_close` **apagada**, porque es la única
-    configuración en la que el responsable ve el esperado fuera del cierre
-    (O-1, `CONTRATO-INTERNO-1b-1.md §5.8`). La variante con la flag encendida
-    está en el test siguiente.
-    """
-    set_feature("cash.blind_close", False)
-    shift = open_shift(responsible=employees["cashier"])
-    sid = shift["id"]
-
-    relevo = device_client.post(
-        f"{API}/shifts/{sid}/handovers",
-        json={
-            "kind": "handover",
-            "counted_cash": denoms(OPENING_FIXED),
-            "new_responsible_id": employees["operator2"].id,
-            # Inicio por rol (0027): quien recibe el cajón confirma con su
-            # PIN. Se agrega el dato que el contrato ahora exige; no cambia
-            # ninguna aserción de este invariante.
-            "new_responsible_pin": "3333",
-        },
-        headers=idem_headers(),
-    )
-    assert relevo.status_code == 201, relevo.text
-    cuerpo = relevo.json()
-    assert cuerpo["kind"] == "handover", f"el tipo se guarda y se devuelve tal cual: {cuerpo}"
-    assert cuerpo["from_responsible"]["id"] == employees["cashier"].id
-    assert cuerpo["new_responsible"]["id"] == employees["operator2"].id
-
-    # El turno quedó a nombre del nuevo responsable.
-    admin_ajeno = device_client.get(f"{API}/shifts/{sid}").json()
-    assert admin_ajeno["cash_responsible"]["id"] == employees["operator2"].id
-
-    # El anterior responsable deja de ver el esperado…
-    identify(device_client, employees["cashier"])
-    anterior = device_client.get(f"{API}/shifts/current").json()
-    assert anterior["expected_cash"] is None, (
-        "quien entregó el cajón ya no responde por él y deja de ver el esperado"
-    )
-    detalle_anterior = device_client.get(f"{API}/shifts/{sid}").json()
-    assert detalle_anterior["expected_cash"] is None
-    assert all(h["breakdown"] is None for h in detalle_anterior["handovers"]), (
-        "ni por el desglose congelado del relevo (que trae `expected` y `difference`)"
-    )
-
-    # …y el nuevo pasa a verlo.
-    identify(device_client, employees["operator2"])
-    nuevo = device_client.get(f"{API}/shifts/current").json()
-    assert nuevo["expected_cash"] == OPENING_FIXED, (
-        "el nuevo responsable ve el esperado del cajón por el que ahora responde"
-    )
-    assert nuevo["cash_responsible"]["id"] == employees["operator2"].id
-
-
-def test_with_blind_close_on_a_handover_hides_the_expected_from_both_responsibles(
+def test_a_handover_moves_the_responsibility_and_hides_the_expected_from_both_responsibles(
     device_client: Any, admin_client: Any, open_shift: Any, identify: Any, employees: dict[str, Any]
 ) -> None:
-    """La misma regla bajo el default del producto (O-1, §5.8): el relevo
-    sigue moviendo la responsabilidad —eso no depende de ninguna flag— pero
-    con `cash.blind_close` encendida **ninguno de los dos** ve el esperado ni
+    """§3.2: el relevo «cambia el responsable de caja» con conteo de por
+    medio, y —el cierre es siempre a ciegas (O-1, §5.8)— **ninguno de los
+    dos** responsables ve el esperado ni
     el desglose congelado del relevo en `current`/`{id}`. El único que lo ve
     es el administrador, que no cuenta el cajón.
 

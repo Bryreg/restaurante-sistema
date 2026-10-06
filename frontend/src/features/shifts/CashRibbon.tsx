@@ -110,7 +110,7 @@ export function CashRibbon(): React.JSX.Element | null {
           <TarjetaTurnoCerrado
             resultado={closeResult}
             pastilla={
-              <PasoPastilla tono="listo">{hasFeature("cash.blind_close") ? "Paso 3 de 3 · hecho" : "Hecho"}</PasoPastilla>
+              <PasoPastilla tono="listo">Paso 3 de 3 · hecho</PasoPastilla>
             }
             etiquetaContinuar="Volver a Mesas"
             onContinuar={() => {
@@ -190,7 +190,6 @@ export function CashRibbon(): React.JSX.Element | null {
       <ShiftActionSheet
         accion={abierta}
         shift={shift}
-        showBlindClose={hasFeature("cash.blind_close")}
         volver={{ label: "Mesas", ariaLabel: "Volver a Mesas" }}
         onClose={cerrar}
         onClosed={setCloseResult}

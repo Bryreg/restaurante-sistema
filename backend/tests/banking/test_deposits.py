@@ -44,15 +44,15 @@ def test_pending_deposit_reads_shift_to_deposit_without_recalculating(
     store: Any,
 ) -> None:
     """§ 1a del entregable: el saldo por consignar se DERIVA de
-    `Shift.to_deposit`, nunca se resta otra vez acá. Con base fija $200.000 y
-    contado $250.000, `to_deposit` es exactamente $50.000
-    (`counted_cash_total - opening_cash_fixed - tips_cash_out`,
-    `app/shifts/service.py:1035`) — la prueba de que no hay una segunda
+    `Shift.to_deposit`, nunca se resta otra vez acá. Con el cajón abierto
+    vacío (sin días por consignar) y contado $50.000, `to_deposit` es
+    exactamente $50.000 (`counted_cash_total - tips_cash_out`, en
+    `app/shifts/service.py::_finalize_close`) — la prueba de que no hay una segunda
     fórmula es que el número que llega acá coincide EXACTO con el que
     devolvió `POST /shifts/{id}/close`."""
 
-    shift = open_shift(total=200_000)
-    close_body = close_shift(shift["id"], counted_cash=250_000, tips_cash_out=0)
+    shift = open_shift(total=0)
+    close_body = close_shift(shift["id"], counted_cash=50_000, tips_cash_out=0)
     assert close_body["to_deposit"] == 50_000
 
     bd = today_business_date(store)
@@ -69,9 +69,9 @@ def test_pending_deposit_subtracts_tips_cash_out_exactly_once(
     close_shift: Callable[..., dict],
     store: Any,
 ) -> None:
-    shift = open_shift(total=200_000)
-    close_body = close_shift(shift["id"], counted_cash=260_000, tips_cash_out=10_000)
-    assert close_body["to_deposit"] == 50_000  # 260.000 - 200.000 - 10.000
+    shift = open_shift(total=0)
+    close_body = close_shift(shift["id"], counted_cash=60_000, tips_cash_out=10_000)
+    assert close_body["to_deposit"] == 50_000  # 60.000 - 10.000
 
     row = _pending_row(admin_client, store.id, shift["id"], bd=today_business_date(store))
     assert row["to_deposit"] == 50_000
@@ -83,8 +83,8 @@ def test_create_deposit_allocates_to_shift_and_reduces_outstanding(
     close_shift: Callable[..., dict],
     store: Any,
 ) -> None:
-    shift = open_shift(total=200_000)
-    close_body = close_shift(shift["id"], counted_cash=250_000)
+    shift = open_shift(total=0)
+    close_body = close_shift(shift["id"], counted_cash=50_000)
     assert close_body["to_deposit"] == 50_000
     bd = today_business_date(store)
 
@@ -128,8 +128,8 @@ def test_deposit_allocation_cannot_exceed_shift_to_deposit(
     """La llave anti doble conteo: un mismo peso no puede imputarse más allá
     de lo que el turno tiene pendiente."""
 
-    shift = open_shift(total=200_000)
-    close_shift(shift["id"], counted_cash=250_000)  # to_deposit = 50.000
+    shift = open_shift(total=0)
+    close_shift(shift["id"], counted_cash=50_000)  # to_deposit = 50.000
     bd = today_business_date(store)
 
     resp = admin_client.post(
@@ -158,8 +158,8 @@ def test_two_deposits_cannot_together_exceed_shift_to_deposit(
     close_shift: Callable[..., dict],
     store: Any,
 ) -> None:
-    shift = open_shift(total=200_000)
-    close_shift(shift["id"], counted_cash=250_000)  # to_deposit = 50.000
+    shift = open_shift(total=0)
+    close_shift(shift["id"], counted_cash=50_000)  # to_deposit = 50.000
 
     first = admin_client.post(
         f"{API}/admin/deposits",
@@ -194,8 +194,8 @@ def test_deposit_allocation_amount_cannot_exceed_deposit_amount(
     close_shift: Callable[..., dict],
     store: Any,
 ) -> None:
-    shift = open_shift(total=200_000)
-    close_shift(shift["id"], counted_cash=250_000)
+    shift = open_shift(total=0)
+    close_shift(shift["id"], counted_cash=50_000)
 
     resp = admin_client.post(
         f"{API}/admin/deposits",
@@ -262,8 +262,8 @@ def test_reverse_deposit_frees_up_outstanding_again(
     close_shift: Callable[..., dict],
     store: Any,
 ) -> None:
-    shift = open_shift(total=200_000)
-    close_shift(shift["id"], counted_cash=250_000)  # to_deposit = 50.000
+    shift = open_shift(total=0)
+    close_shift(shift["id"], counted_cash=50_000)  # to_deposit = 50.000
     bd = today_business_date(store)
 
     created = admin_client.post(
@@ -396,12 +396,12 @@ def test_pending_deposit_distinguishes_administrative_null_from_counted_zero(
 
     # Caso B primero, con `closes_day=False`: dos turnos en el MISMO día de
     # negocio (`bd`), para poder pedir los dos en el mismo rango.
-    zero_shift = open_shift(total=200_000)
+    zero_shift = open_shift(total=0)
     bd = today_business_date(store)
-    zero_close = close_shift(zero_shift["id"], counted_cash=200_000, tips_cash_out=0, closes_day=False)
+    zero_close = close_shift(zero_shift["id"], counted_cash=0, tips_cash_out=0, closes_day=False)
     assert zero_close["to_deposit"] == 0
 
-    stale_shift = open_shift(total=200_000)
+    stale_shift = open_shift(total=0)
 
     # `is_shift_stale`: abierto pasada la hora de corte del día SIGUIENTE a
     # su fecha de negocio (`app/shifts/service.py::is_shift_stale`) — el
@@ -458,7 +458,7 @@ def test_create_deposit_rejects_allocation_to_shift_closed_without_count(
     sin poder consignarse: la misma consignación se registra igual con
     `allocations: []` (el monto es input del usuario)."""
 
-    stale_shift = open_shift(total=200_000)
+    stale_shift = open_shift(total=0)
     clock.advance(days=2)
     admin_resp = admin_client.post(
         f"{API}/admin/shifts/{stale_shift['id']}/close-administrative",

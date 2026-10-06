@@ -1,8 +1,10 @@
-"""Apertura de turno: base fija, causa de diferencia y la carrera de dos aperturas.
+"""Apertura de turno «igual al café» (la única): causa de diferencia y la
+carrera de dos aperturas.
 
 Corresponde al checklist de `features/fase-1a-cimientos/spec.md`:
 - "Dos `POST /shifts/open` concurrentes: uno `200`, otro `409`."
-- Apertura con total != base fija sin causa -> 400 con acción correctiva.
+- Apertura con lo contado distinto de lo que debería haber, sin causa ni
+  motivo -> 400 con acción correctiva. Sin días por consignar debería haber $0.
 """
 
 from __future__ import annotations
@@ -16,14 +18,16 @@ from app.shifts.models import Shift, ShiftRoster
 from tests.shifts.conftest import idem
 
 
-def _open_payload(employee_id: int, *, total: int = 200_000, cause: str | None = None) -> dict:
-    payload: dict = {
-        "opening_cash": {"denominations": [{"value": 50000, "count": total // 50000}], "total": total},
-        "cash_reserve": 0,
-        "cash_responsible_id": employee_id,
-    }
+def _open_payload(
+    employee_id: int, *, total: int = 0, cause: str | None = None, note: str | None = None
+) -> dict:
+    payload: dict = {"cash_responsible_id": employee_id}
+    if total:
+        payload["opening_cash"] = {"denominations": [{"value": 50000, "count": total // 50000}], "total": total}
     if cause is not None:
         payload["opening_cause"] = cause
+    if note is not None:
+        payload["opening_note"] = note
     return payload
 
 
@@ -33,7 +37,8 @@ def test_open_shift_creates_business_day_and_adds_opener_to_roster(device_client
 
     assert resp.status_code in (200, 201), resp.text
     body = resp.json()
-    assert body["opening_cash_total"] == 200_000
+    assert body["opening_cash_total"] == 0
+    assert body["opening_mode"] == "envelopes"
     assert body["cash_responsible"]["id"] == employees["cashier"].id
 
     shift = db.get(Shift, body["id"])
@@ -67,9 +72,17 @@ def test_open_shift_difference_needs_cause_then_accepts_with_cause(device_client
     assert without_cause.status_code == 400
     assert without_cause.json()["error"]["code"] == "OPENING_DIFFERENCE_NEEDS_CAUSE"
 
-    with_cause = device_client.post(
+    without_note = device_client.post(
         "/api/v1/shifts/open",
         json=_open_payload(employees["cashier"].id, total=150_000, cause="counting_error"),
+        headers=idem(),
+    )
+    assert without_note.status_code == 400
+    assert without_note.json()["error"]["code"] == "OPENING_DIFFERENCE_NEEDS_NOTE"
+
+    with_cause = device_client.post(
+        "/api/v1/shifts/open",
+        json=_open_payload(employees["cashier"].id, total=150_000, cause="counting_error", note="Sobró del día"),
         headers=idem(),
     )
     assert with_cause.status_code in (200, 201), with_cause.text

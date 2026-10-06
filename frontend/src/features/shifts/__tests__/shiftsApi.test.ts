@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   closeCount,
-  closeSingleStep,
   createCashMovement,
   createHandover,
   createPickup,
@@ -12,8 +11,7 @@ import {
 
 /**
  * "El cliente manda Idempotency-Key en open/close/movements/pickups/
- * handovers" (checklist del entregable). `close/count` y el cierre en un
- * solo paso también la exigen (`app/core/idempotency.py`, `run_idempotent`
+ * handovers" (checklist del entregable). `close/count` también la exige (`app/core/idempotency.py`, `run_idempotent`
  * responde `400 IDEMPOTENCY_KEY_REQUIRED` sin ella) aunque no aparezcan uno
  * por uno en la lista corta de `features/fase-1a-cimientos/spec.md`.
  */
@@ -50,11 +48,6 @@ describe("src/api/shifts.ts — Idempotency-Key", () => {
   it("closeCount (paso 1 del cierre) manda Idempotency-Key", async () => {
     await closeCount(1, { counted_cash: { denominations: [], total: 0 } }, "key-close-count");
     expect(headerFromLastCall()["Idempotency-Key"]).toBe("key-close-count");
-  });
-
-  it("closeSingleStep manda Idempotency-Key", async () => {
-    await closeSingleStep(1, { counted_cash: { denominations: [], total: 0 }, closes_day: false }, "key-close");
-    expect(headerFromLastCall()["Idempotency-Key"]).toBe("key-close");
   });
 
   it("createCashMovement manda Idempotency-Key", async () => {

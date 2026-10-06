@@ -25,30 +25,31 @@ from tests.audit.conftest import deep_contains_text, denoms, idem_headers
 API = "/api/v1"
 
 
-def _close_single_step(
+def _close_blind(
     device_client: Any,
-    set_feature: Any,
-    store: Any,
     *,
     shift_id: int,
     counted_cash: int,
     cause: str = "unrecorded_sale",
 ) -> dict:
-    """Cierre en un paso, mismo criterio que `tests/banking/conftest.py::
-    close_shift` (no se importa de ahí: es un dominio HERMANO, no un
-    ancestro en la jerarquía de `conftest.py` de pytest, y este archivo no
-    redefine ninguna fixture compartida)."""
+    """Cierre a ciegas en tres pasos (la única manera de cerrar), mismo
+    criterio que `tests/banking/conftest.py::close_shift` (no se importa de
+    ahí: es un dominio HERMANO, no un ancestro en la jerarquía de
+    `conftest.py` de pytest, y este archivo no redefine ninguna fixture
+    compartida)."""
 
-    set_feature("cash.blind_close", False, store_id=store.id)
-    resp = device_client.post(
-        f"{API}/shifts/{shift_id}/close",
-        json={
-            "counted_cash": denoms(counted_cash),
-            "tips_cash_out": 0,
-            "photo": "cierre.jpg",
-            "cause": cause,
-        },
+    count = device_client.post(
+        f"{API}/shifts/{shift_id}/close/count",
+        json={"counted_cash": denoms(counted_cash), "tips_cash_out": 0, "photo": "cierre.jpg"},
         headers=idem_headers(),
+    )
+    assert count.status_code == 201, count.text
+    count_id = count.json()["count_id"]
+    review = device_client.get(f"{API}/shifts/{shift_id}/close/{count_id}/review")
+    assert review.status_code == 200, review.text
+    resp = device_client.post(
+        f"{API}/shifts/{shift_id}/close/{count_id}/confirm",
+        json={"difference_seen": review.json()["difference"], "cause": cause},
     )
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -75,9 +76,9 @@ def test_deposit_never_touches_the_shift_close_snapshot(
     `app.banking` sólo lo lee. Si una consignación los tocara, sería la
     segunda matemática que las reglas duras del proyecto prohíben."""
 
-    open_shift(total=200_000)
+    open_shift(total=0)
     shift = db.execute(select(Shift).where(Shift.status == "open")).scalars().one()
-    _close_single_step(device_client, set_feature, store, shift_id=shift.id, counted_cash=260_000)
+    _close_blind(device_client, shift_id=shift.id, counted_cash=60_000)
 
     db.expire_all()
     closed = db.get(Shift, shift.id)
@@ -160,9 +161,9 @@ def test_anti_double_count_holds_across_many_small_deposits(
     que rechazarse igual que si fuera una sola imputación grande — la llave
     no distingue por tamaño."""
 
-    open_shift(total=200_000)
+    open_shift(total=0)
     shift = db.execute(select(Shift).where(Shift.status == "open")).scalars().one()
-    close_body = _close_single_step(device_client, set_feature, store, shift_id=shift.id, counted_cash=230_000)
+    close_body = _close_blind(device_client, shift_id=shift.id, counted_cash=30_000)
     assert close_body["to_deposit"] == 30_000
 
     for amount in (10_000, 10_000, 10_000):

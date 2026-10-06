@@ -130,7 +130,6 @@ def _fiscal_out(row: StoreFiscalConfig) -> FiscalOut:
 
 def _cash_settings_out(row: StoreCashSettings) -> CashSettingsOut:
     return CashSettingsOut(
-        opening_cash_fixed=row.opening_cash_fixed,
         cash_reserve_default=row.cash_reserve_default,
         tolerance_unknown_cause=row.tolerance_unknown_cause,
         critical_difference=row.critical_difference,
@@ -139,7 +138,6 @@ def _cash_settings_out(row: StoreCashSettings) -> CashSettingsOut:
         photo_required_on_close=row.photo_required_on_close,
         photo_required_on_pickup=row.photo_required_on_pickup,
         streak_alert_shifts=row.streak_alert_shifts,
-        opening_mode="envelopes" if row.opening_mode == "envelopes" else "fixed_base",
         deposit_overdue_days=row.deposit_overdue_days,
     )
 
@@ -542,11 +540,10 @@ def create_store(
     )
     db.add(store)
     db.flush()
-    # Una sede nueva abre el cajón con la regla del dueño (2026-09-26): sólo
-    # los sobres por consignar, y la base de respaldo aparte. El default del
-    # modelo es la regla anterior para no cambiarle la cuenta a nada que ya
-    # existía; acá la sede nace con la vigente.
-    db.add(StoreCashSettings(store_id=store.id, opening_mode="envelopes", updated_at=now))
+    # La regla de apertura no se guarda por sede: hay una sola, «igual al
+    # café» (`app.shifts.service.open_shift`). `opening_mode` y
+    # `opening_cash_fixed` quedaron como columnas de legado.
+    db.add(StoreCashSettings(store_id=store.id, updated_at=now))
     db.flush()
     # La sede nace con el calendario legal de recargos: sin él, la nómina
     # liquidaría sin nocturno, dominical ni extras.
@@ -726,7 +723,7 @@ def put_cash_settings_route(
     row = get_cash_settings(db, store_id)
     before = _cash_settings_out(row).model_dump()
     for field, value in body.model_dump().items():
-        if field in ("opening_mode", "deposit_overdue_days") and value is None:
+        if field == "deposit_overdue_days" and value is None:
             continue  # sin el campo, la sede conserva lo que tenía
         setattr(row, field, value)
     row.updated_at = clock.now_utc()

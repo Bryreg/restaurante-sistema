@@ -386,6 +386,26 @@ def idem() -> Callable[[], dict[str, str]]:
 # ---------------------------------------------------------------------------
 
 
+#: La justificación con que los tests abren con plata en el cajón y sin días
+#: por consignar (un sobrante al abrir, que la apertura «igual al café» pide
+#: justificar).
+OPENING_TEST_CAUSE = "counting_error"
+OPENING_TEST_NOTE = "Plata del test: el cajón abre con efectivo y sin días por consignar"
+
+
+def opening_justification(total: int, cause: str | None = None, note: str | None = None) -> dict[str, str]:
+    """La causa y la nota de una apertura de test: las que pase el test o,
+    con plata contada y sin causa, las de `OPENING_TEST_*`."""
+    out: dict[str, str] = {}
+    if cause is None and total:
+        cause, note = OPENING_TEST_CAUSE, note or OPENING_TEST_NOTE
+    if cause is not None:
+        out["opening_cause"] = cause
+    if note is not None:
+        out["opening_note"] = note
+    return out
+
+
 def _denominations_for(total: int) -> dict[str, Any]:
     from app.core.money import DENOMINATIONS
 
@@ -405,28 +425,27 @@ def open_shift(
 ) -> Callable[..., dict]:
     """Abre un turno y devuelve el cuerpo de `POST /shifts/open` (copia de
     `tests/audit/conftest.py`): identifica al responsable —cajero por
-    defecto, PIN "1111", `can_charge=True`— y abre con la base fija en
-    denominaciones reales."""
+    defecto, PIN "1111", `can_charge=True`— y abre «igual al café» (la única
+    apertura) con `total` contado en denominaciones reales.
+
+    Sin días por consignar debería haber $0, así que un `total` distinto de
+    cero es un sobrante al abrir: se justifica solo (`opening_shortfall_*`
+    del café) salvo que el test pase su propia causa. Ese sobrante se
+    consigna con el turno."""
 
     def _open(
         *,
         responsible: Employee | None = None,
         total: int = 200_000,
-        cash_reserve: int = 0,
         opening_cause: str | None = None,
         opening_note: str | None = None,
     ) -> dict:
         person = responsible if responsible is not None else employees["cashier"]
         identify(device_client, person)
-        payload: dict[str, Any] = {
-            "opening_cash": _denominations_for(total),
-            "cash_reserve": cash_reserve,
-            "cash_responsible_id": person.id,
-        }
-        if opening_cause is not None:
-            payload["opening_cause"] = opening_cause
-        if opening_note is not None:
-            payload["opening_note"] = opening_note
+        payload: dict[str, Any] = {"cash_responsible_id": person.id}
+        if total:
+            payload["opening_cash"] = _denominations_for(total)
+        payload.update(opening_justification(total, opening_cause, opening_note))
         resp = device_client.post(
             "/api/v1/shifts/open", json=payload, headers={"Idempotency-Key": str(uuid4())}
         )
@@ -519,13 +538,14 @@ class RaceEnv:
 
     def open_shift(self) -> dict:
         """Abre turno por API con `self.client` (la persona ya está
-        identificada por la fixture `race_env`). Base fija por defecto."""
+        identificada por la fixture `race_env`), «igual al café» con
+        $200.000 contados y justificados."""
         resp = self.client.post(
             "/api/v1/shifts/open",
             json={
                 "opening_cash": {"denominations": [{"value": 50000, "count": 4}], "total": 200_000},
-                "cash_reserve": 0,
                 "cash_responsible_id": self.employee_id,
+                **opening_justification(200_000),
             },
             headers={"Idempotency-Key": str(uuid4())},
         )

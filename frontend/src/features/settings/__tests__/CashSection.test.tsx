@@ -19,7 +19,6 @@ vi.mock("@/api/stores", async () => {
 })
 
 const DEFAULTS: CashSettings = {
-  opening_cash_fixed: 200_000,
   cash_reserve_default: 0,
   tolerance_unknown_cause: 20_000,
   critical_difference: 100_000,

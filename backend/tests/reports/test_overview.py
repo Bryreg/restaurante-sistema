@@ -25,7 +25,7 @@ from app.core import clock as clock_module
 from app.core import security
 from app.main import app
 from app.stores.models import Store
-from tests.conftest import STORE_PIN, _denominations_for, _seed_store_settings
+from tests.conftest import opening_justification, STORE_PIN, _denominations_for, _seed_store_settings
 from tests.reports.conftest import idem_headers, seed_fiscal_ranges
 
 API = "/api/v1"
@@ -135,7 +135,11 @@ def sell_in_second_store(db: Session, second_store: Store) -> Callable[..., dict
     assert resp.status_code == 200, resp.text
     resp = device.post(
         f"{API}/shifts/open",
-        json={"opening_cash": _denominations_for(200_000), "cash_reserve": 0, "cash_responsible_id": cashier.id},
+        json={
+            "opening_cash": _denominations_for(200_000),
+            "cash_responsible_id": cashier.id,
+            **opening_justification(200_000),
+        },
         headers={"Idempotency-Key": str(uuid4())},
     )
     assert resp.status_code in (200, 201), resp.text

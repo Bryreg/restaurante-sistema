@@ -15,9 +15,11 @@ from typing import Any
 import pytest
 
 from app.core.money import DENOMINATIONS
+from tests.conftest import opening_justification
 
-# Igual a `StoreCashSettings.opening_cash_fixed` por defecto: la base fija de
-# la sede (`docs/SPEC-NEGOCIO.md §3.2`).
+# La plata con que abren los tests por defecto. Ya no hay base fija: sin días
+# por consignar debería haber $0, así que es un sobrante al abrir, justificado
+# por `open_shift` (`docs/SPEC-NEGOCIO.md §3.2`, apertura «igual al café»).
 OPENING_FIXED = 200_000
 
 
@@ -76,29 +78,25 @@ def deep_contains_text(value: Any, needle: str) -> bool:
 def open_shift(device_client: Any, identify: Any, employees: dict[str, Any]) -> Callable[..., dict]:
     """Abre un turno y devuelve el cuerpo de `POST /shifts/open`.
 
-    Por defecto la base contada es la base fija (no hace falta causa) y el
-    responsable de caja es `cashier`.
+    Abre «igual al café» (la única apertura) con `total` contado; sin días
+    por consignar, un `total` distinto de cero es un sobrante al abrir y se
+    justifica solo (`tests.conftest.opening_justification`). El responsable
+    de caja es `cashier`.
     """
 
     def _open(
         *,
         responsible: Any = None,
         total: int = OPENING_FIXED,
-        cash_reserve: int = 0,
         opening_cause: str | None = None,
         opening_note: str | None = None,
     ) -> dict:
         person = responsible if responsible is not None else employees["cashier"]
         identify(device_client, person)
-        payload: dict[str, Any] = {
-            "opening_cash": denoms(total),
-            "cash_reserve": cash_reserve,
-            "cash_responsible_id": person.id,
-        }
-        if opening_cause is not None:
-            payload["opening_cause"] = opening_cause
-        if opening_note is not None:
-            payload["opening_note"] = opening_note
+        payload: dict[str, Any] = {"cash_responsible_id": person.id}
+        if total:
+            payload["opening_cash"] = denoms(total)
+        payload.update(opening_justification(total, opening_cause, opening_note))
         resp = device_client.post("/api/v1/shifts/open", json=payload, headers=idem_headers())
         assert resp.status_code in (200, 201), resp.text
         return resp.json()
@@ -186,8 +184,8 @@ def expected_of(admin_client: Any) -> Callable[[int], int]:
     deriva y el test tampoco (§11.13, una sola matemática).
 
     Por qué el admin y no el responsable (cambio de 1b-1, decisión O-1,
-    `CONTRATO-INTERNO-1b-1.md §2.4 «Caja»` y §5.8): con `cash.blind_close`
-    encendida —el default del perfil `full`, que es el de estos tests— el
+    `CONTRATO-INTERNO-1b-1.md §2.4 «Caja»` y §5.8): con el cierre a ciegas
+    —la única manera de cerrar— el
     responsable de caja **no** ve `expected_cash` fuera del paso 2 del cierre.
     El administrador lo ve siempre, así que es el único observador desde el
     que se puede medir la ecuación del esperado sin depender de una flag. Los

@@ -804,8 +804,20 @@ class Demo:
         set_local(day, "10:30")
         p.step = f"{day} apertura"
         self.identify(cashier)
-        shift = self.attempt(f"{day} abrir turno", p.post, "/shifts/open", {
-            "opening_cash": denominations(200_000), "cash_reserve": 0, "cash_responsible_id": cashier})
+        # Apertura «igual al café» (la única): el servidor dice cuánto
+        # debería haber —los días por consignar que siguen en el cajón,
+        # todos marcados— y la cajera cuenta el cajón entero.
+        preview = self.attempt(f"{day} apertura en vivo", p.post, "/shifts/opening/preview", {}) or {}
+        opening_expected = int(preview.get("expected") or 0)
+        carried = [int(d["shift_id"]) for d in preview.get("days", []) if d.get("selected")]
+        opening_counted = (opening_expected // 50) * 50
+        opening: dict[str, Any] = {"cash_responsible_id": cashier, "carried_shift_ids": carried}
+        if opening_counted:
+            opening["opening_cash"] = denominations(opening_counted)
+        if opening_counted != opening_expected:
+            opening["opening_cause"] = "counting_error"
+            opening["opening_note"] = "Monedas sueltas que no se contaron"
+        shift = self.attempt(f"{day} abrir turno", p.post, "/shifts/open", opening)
         if shift is None:
             return
         shift_id = int(shift["id"])
@@ -923,7 +935,7 @@ class Demo:
         p.step = f"{day} cierre"
         self.identify(cashier)
         diff = self.rng.choice([0, 0, 0, 0, -1_000, -2_000, 500, -5_000, 3_000]) if idx % 5 else -18_000
-        guess = max(0, 200_000 + self.cash_today - self.pickups_today - self.expenses_today)
+        guess = max(0, opening_counted + self.cash_today - self.pickups_today - self.expenses_today)
         # Primer conteo (lo que la cajera cree), revisión, y reconteo con lo que de verdad hay.
         count = self.attempt(f"{day} conteo de cierre", p.post, f"/shifts/{shift_id}/close/count", {
             "counted_cash": denominations((guess // 50) * 50), "counted_card": 0, "counted_transfer": 0,

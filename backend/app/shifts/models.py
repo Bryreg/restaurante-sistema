@@ -177,15 +177,19 @@ class Shift(Base):
 
     opening_cash_total: Mapped[int] = mapped_column(sa.Integer)
     opening_denominations: Mapped[list] = mapped_column(sa.JSON)
+    # Sólo lectura en los turnos nuevos (siempre 0): la reserva que se
+    # declaraba al abrir con la base fija. La base de respaldo vive aparte
+    # (`CashReserveMovement`); los turnos viejos conservan la suya y
+    # «Ajustar apertura» todavía la corrige.
     cash_reserve: Mapped[int] = mapped_column(sa.Integer, default=0)
     opening_cause: Mapped[CashDifferenceCause | None] = mapped_column(_enum(CashDifferenceCause), nullable=True)
     opening_note: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     # **La regla de apertura con la que abrió ESTE turno** (2026-09-26,
-    # migración 0029). El dueño decidió que el cajón abre SÓLO con los sobres
-    # por consignar que quien abre elige y cuenta (`envelopes`); la «base
-    # fija» de siempre (`fixed_base`) queda para los turnos anteriores al
-    # cambio y para las sedes que todavía no se pasaron. La regla vive en el
+    # migración 0029). Todo turno nuevo abre con `envelopes` (desde el
+    # 2026-09-29, «igual al café», la única manera de abrir); la «base fija»
+    # (`fixed_base`) sólo queda en turnos anteriores, que se siguen leyendo y
+    # reportando con su regla. La regla vive en el
     # turno —no se lee de la sede al cerrar— para que ningún cambio de
     # configuración reescriba la cuenta de un turno ya abierto o ya cerrado.
     opening_mode: Mapped[str] = mapped_column(sa.String(16), default="fixed_base", server_default="fixed_base")
@@ -615,7 +619,13 @@ class ShiftCarryIn(Base):
 
 
 class ShiftOpeningCount(Base):
-    """**El conteo de apertura por sobres, sellado a ciegas** (2026-09-26).
+    """**LEGADO, sólo lectura.** Ya no se sella ningún conteo: la apertura
+    es «igual al café» (`app.shifts.service.open_shift`) y
+    `POST /shifts/opening-counts` se quitó. La tabla queda (no se migra)
+    para que los turnos que abrieron así sigan mostrando su conteo
+    (`opening_count_view`, cuadres, ficha del turno).
+
+    **El conteo de apertura por sobres, sellado a ciegas** (2026-09-26).
 
     Con la regla de sobres (`StoreCashSettings.opening_mode == "envelopes"`)
     el cajón abre sólo con los sobres de días por consignar que quien abre

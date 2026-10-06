@@ -1,27 +1,23 @@
-"""El cajón abre SÓLO con los sobres por consignar (decisión del dueño, 2026-09-26).
+"""Las aperturas de antes se siguen leyendo; ya no se escriben.
 
-**Movido a propósito el 2026-09-29, por decisión del dueño** (apertura «igual
-al café», `docs/SPEC-NEGOCIO.md` §3.2): la apertura deja de ser a ciegas —quien
-abre ve cuánto debería haber, con todos los días marcados, y cuenta el cajón
-entero una vez (`tests/banking/test_opening_like_cafe.py`)—. Dos aserciones de
-acá cambian con esa decisión y se dicen en su test: los días ahora se listan
-CON su saldo, y la plata suelta sin días marcados ya no se rechaza como «sin
-conteo de sobres» sino como sobrante que pide causa y motivo. El conteo por
-sobres ya sellado sigue abriendo por su camino: lo cobran los demás tests.
+Hubo tres maneras de abrir el cajón: la **base fija** (`fixed_base`), el
+**conteo por sobres sellado a ciegas** (2026-09-26, `POST
+/shifts/opening-counts` + `opening_count_id`) y la apertura **«igual al
+café»** (2026-09-29). El dueño congeló una sola: la del café
+(`tests/banking/test_opening_like_cafe.py`). Lo que cobran estos tests:
 
-Lo que cobran estos tests, todo por HTTP:
+- las rutas de escritura de las otras dos ya no existen o ya no cambian
+  nada: sellar un conteo, listar `carry-candidates`, mandar
+  `opening_count_id` o una reserva al abrir, o una sede que quedó con
+  `opening_mode = fixed_base` en su columna de legado;
+- un turno que abrió con la base fija **sigue cerrando y reportando con su
+  base** (nunca se reescribe la historia);
+- un turno que abrió con un conteo sellado **sigue mostrando su conteo** por
+  sobre en el resumen y en la ficha del turno.
 
-- con la regla de sobres, la apertura lista los sobres **sin monto** (a
-  ciegas), y ni `carry-candidates` los publica;
-- el conteo se sella sobre por sobre y recién ahí el servidor revela lo
-  esperado, lo contado y la diferencia **de cada sobre**, atribuidos a quien
-  contó; con diferencia, abrir exige causa;
-- el esperado de apertura es la suma de los sobres elegidos, **sin base
-  fija**, y lo que el turno consigna al cerrar es sólo su venta;
-- un turno abierto con la base fija la conserva aunque la sede cambie de
-  regla (nunca se reescribe la historia);
-- sin sobres, el cajón abre vacío; una sede con base fija no acepta el
-  conteo por sobres.
+Los turnos viejos se arman abriendo «igual al café» y dejando por ORM las
+columnas como las escribía la regla de antes: es exactamente lo que queda
+en la base de datos de un turno de entonces.
 """
 
 from __future__ import annotations
@@ -32,8 +28,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.auth.models import Employee
-from app.shifts import service as shifts_service
+from app.core import clock
 from app.shifts.models import Shift, ShiftOpeningCount
 from app.stores import service as stores_service
 from tests.banking.conftest import denoms, idem
@@ -42,56 +37,74 @@ API = "/api/v1"
 BASE = 200_000
 
 
-def _envelopes_mode(db: Session, store: Any) -> None:
-    """La precondición, armada explícitamente: esta sede abre con sobres."""
-    settings = stores_service.get_cash_settings(db, store.id)
-    settings.opening_mode = "envelopes"
-    db.commit()
-
-
 def _yesterday_with(open_shift: Callable[..., dict], close_shift: Callable[..., dict], amount: int) -> int:
-    """Un turno (regla anterior) cerrado con `amount` por consignar."""
-    shift = open_shift(total=BASE)
-    body = close_shift(shift["id"], counted_cash=BASE + amount, closes_day=False)
+    """Un turno cerrado con `amount` por consignar: abrió vacío y contó `amount`."""
+    shift = open_shift(total=0)
+    body = close_shift(shift["id"], counted_cash=amount, closes_day=False)
     assert body["to_deposit"] == amount
     return int(shift["id"])
 
 
-def _seal(device_client: TestClient, identify: Any, who: Employee, counts: dict[int, int]) -> Any:
-    identify(device_client, who)
-    return device_client.post(
-        f"{API}/shifts/opening-counts",
-        json={"envelopes": [{"shift_id": sid, "counted": denoms(total)} for sid, total in counts.items()]},
+def test_the_write_paths_of_the_old_openings_are_gone(
+    db: Session, device_client: TestClient, identify: Any, employees: dict, store: Any
+) -> None:
+    cashier = employees["cashier"]
+    identify(device_client, cashier)
+
+    sellar = device_client.post(f"{API}/shifts/opening-counts", json={"envelopes": []}, headers=idem())
+    assert sellar.status_code in (404, 405), sellar.text
+    # `carry-candidates` ya no es una ruta propia (cae en `GET /shifts/{id}`).
+    assert device_client.get(f"{API}/shifts/carry-candidates").status_code != 200
+
+    info = device_client.get(f"{API}/shifts/opening").json()
+    assert "mode" not in info and "pending_count" not in info
+
+    # Una sede que quedó con la regla vieja en su columna de legado abre igual
+    # «igual al café», y los campos viejos del cuerpo no cambian nada.
+    settings = stores_service.get_cash_settings(db, store.id)
+    settings.opening_mode = "fixed_base"
+    db.commit()
+    abierto = device_client.post(
+        f"{API}/shifts/open",
+        json={"cash_responsible_id": cashier.id, "opening_count_id": 999, "cash_reserve": 50_000},
         headers=idem(),
     )
+    assert abierto.status_code == 201, abierto.text
+    body = abierto.json()
+    assert (body["opening_mode"], body["opening_cash_total"], body["cash_reserve"]) == ("envelopes", 0, 0)
+    shift = db.get(Shift, body["id"])
+    assert shift is not None
+    assert (shift.opening_fixed_base, shift.opening_expected) == (0, 0)
 
 
-def _open(device_client: TestClient, who: Employee, **extra: Any) -> Any:
-    return device_client.post(
-        f"{API}/shifts/open", json={"cash_responsible_id": who.id, **extra}, headers=idem()
-    )
-
-
-def test_the_opening_lists_the_days_by_date_with_their_amount(
-    db: Session, device_client: TestClient, open_shift: Any, close_shift: Any, store: Any
+def test_a_shift_opened_with_the_fixed_base_still_closes_and_reports_with_its_base(
+    db: Session, admin_client: TestClient, device_client: TestClient, open_shift: Any, close_shift: Any, store: Any
 ) -> None:
-    """Antes: «sin monto, a ciegas». Movido el 2026-09-29 por decisión del
-    dueño (apertura «igual al café»): quien abre ve «Debería haber en la
-    registradora», así que cada día viaja con su saldo por consignar."""
-    ayer = _yesterday_with(open_shift, close_shift, 50_000)
-    _envelopes_mode(db, store)
+    viejo = open_shift(total=BASE)
+    shift = db.get(Shift, viejo["id"])
+    assert shift is not None
+    # Las columnas como las dejaba la regla de antes.
+    shift.opening_mode = "fixed_base"
+    shift.opening_fixed_base = BASE
+    shift.opening_expected = None
+    shift.opening_cause = None
+    shift.opening_note = None
+    db.commit()
 
-    info = device_client.get(f"{API}/shifts/opening")
-    assert info.status_code == 200, info.text
-    body = info.json()
-    assert body["mode"] == "envelopes"
-    assert [(e["shift_id"], e["outstanding"]) for e in body["envelopes"]] == [(ayer, 50_000)]
+    summary = admin_client.get(f"{API}/shifts/{viejo['id']}").json()
+    assert summary["opening_mode"] == "fixed_base"
 
-    candidates = device_client.get(f"{API}/shifts/carry-candidates").json()
-    assert [(c["shift_id"], c["outstanding"]) for c in candidates] == [(ayer, 50_000)]
+    body = close_shift(viejo["id"], counted_cash=BASE + 40_000, closes_day=False)
+    assert body["to_deposit"] == 40_000, "la regla del turno se congeló al abrir: la base fija sigue restando"
+
+    cuadres = admin_client.get(f"{API}/admin/cuadres", params={"store_id": store.id, "status": "closed"}).json()
+    card = next(c for c in cuadres["shifts"] if c["shift_id"] == viejo["id"])
+    assert card["opening_mode"] == "fixed_base"
+    inicial = next(c for c in card["cuadres"] if c["kind"] == "opening")
+    assert (inicial["counted"], inicial["expected"], inicial["difference"]) == (BASE, BASE, 0)
 
 
-def test_sealing_reveals_the_difference_of_each_envelope_attributed_to_who_counted(
+def test_a_shift_opened_with_a_sealed_envelope_count_still_shows_it(
     db: Session,
     admin_client: TestClient,
     device_client: TestClient,
@@ -103,158 +116,65 @@ def test_sealing_reveals_the_difference_of_each_envelope_attributed_to_who_count
 ) -> None:
     lunes = _yesterday_with(open_shift, close_shift, 50_000)
     martes = _yesterday_with(open_shift, close_shift, 30_000)
-    _envelopes_mode(db, store)
     cashier = employees["cashier"]
-
-    sealed = _seal(device_client, identify, cashier, {lunes: 45_000, martes: 30_000})
-    assert sealed.status_code == 201, sealed.text
-    reveal = sealed.json()
-    por_sobre = {e["shift_id"]: (e["expected"], e["counted"], e["difference"]) for e in reveal["envelopes"]}
-    assert por_sobre == {lunes: (50_000, 45_000, -5_000), martes: (30_000, 30_000, 0)}
-    assert reveal["counted_by"] == {"id": cashier.id, "name": cashier.name}
-    assert reveal["requires_cause"] is True
-
-    # Con diferencia, abrir exige causa — y el rechazo no escribe nada.
-    sin_causa = _open(device_client, cashier, opening_count_id=reveal["id"])
-    assert sin_causa.status_code == 400
-    assert sin_causa.json()["error"]["code"] == "OPENING_DIFFERENCE_NEEDS_CAUSE"
-    assert shifts_service.get_current_shift(db, store=store) is None
-
-    abierto = _open(device_client, cashier, opening_count_id=reveal["id"], opening_cause="counting_error")
+    identify(device_client, cashier)
+    abierto = device_client.post(
+        f"{API}/shifts/open",
+        json={
+            "cash_responsible_id": cashier.id,
+            "carried_shift_ids": [lunes, martes],
+            "opening_cash": denoms(75_000),
+            "opening_cause": "counting_error",
+            "opening_note": "Faltaron cinco mil en un sobre",
+        },
+        headers=idem(),
+    )
     assert abierto.status_code == 201, abierto.text
-    assert abierto.json()["opening_cash_total"] == 75_000
-    assert abierto.json()["opening_mode"] == "envelopes"
+    shift_id = abierto.json()["id"]
+    # Como lo dejaba la regla del 2026-09-26: el conteo sellado, sin esperado
+    # de apertura en el turno.
+    shift = db.get(Shift, shift_id)
+    assert shift is not None
+    shift.opening_expected = None
+    db.add(
+        ShiftOpeningCount(
+            organization_id=store.organization_id,
+            store_id=store.id,
+            shift_id=shift_id,
+            envelopes=[
+                {"source_shift_id": lunes, "business_date": "2026-09-27", "expected": 50_000, "counted": 45_000,
+                 "difference": -5_000, "denominations": []},
+                {"source_shift_id": martes, "business_date": "2026-09-28", "expected": 30_000, "counted": 30_000,
+                 "difference": 0, "denominations": []},
+            ],
+            expected_total=80_000,
+            counted_total=75_000,
+            counted_by_employee_id=cashier.id,
+            counted_by_employee_name=cashier.name,
+            created_at=clock.now_utc(),
+            superseded=False,
+        )
+    )
+    db.commit()
 
-    summary = device_client.get(f"{API}/shifts/{abierto.json()['id']}").json()
+    summary = device_client.get(f"{API}/shifts/{shift_id}").json()
     assert summary["opening_count"]["counted_by"]["id"] == cashier.id
     assert {e["shift_id"]: e["difference"] for e in summary["opening_count"]["envelopes"]} == {
         lunes: -5_000,
         martes: 0,
     }
-    # La ficha del turno publica la diferencia de la apertura entera (contado
-    # menos esperado): «¿Cuadró en cada paso?» no resta en el cliente.
-    record = admin_client.get(f"{API}/admin/records/shift/{abierto.json()['id']}").json()
+    record = admin_client.get(f"{API}/admin/records/shift/{shift_id}").json()
     assert record["opening_count"]["expected_total"] == 80_000
     assert record["opening_count"]["counted_total"] == 75_000
     assert record["opening_count"]["difference_total"] == -5_000
 
-
-def test_the_drawer_opens_with_the_envelopes_only_and_the_shift_deposits_only_its_sale(
-    db: Session,
-    device_client: TestClient,
-    open_shift: Any,
-    close_shift: Any,
-    identify: Any,
-    employees: dict,
-    store: Any,
-) -> None:
-    ayer = _yesterday_with(open_shift, close_shift, 50_000)
-    _envelopes_mode(db, store)
-    cashier = employees["cashier"]
-
-    reveal = _seal(device_client, identify, cashier, {ayer: 50_000}).json()
-    assert reveal["requires_cause"] is False
-    hoy = _open(device_client, cashier, opening_count_id=reveal["id"]).json()
-
-    shift = db.get(Shift, hoy["id"])
-    assert shift is not None
-    assert shift.opening_fixed_base == 0
-    breakdown = shifts_service.compute_breakdown(db, shift)
-    assert breakdown["base"] == 50_000, "sin base fija: el cajón abre sólo con el sobre"
-    assert breakdown["expected"] == 50_000
-
-    resp = device_client.post(
-        f"{API}/shifts/{hoy['id']}/cash-movements",
-        json={"kind": "income", "cause": "other_income", "amount": 30_000, "note": "venta"},
-        headers=idem(),
-    )
-    assert resp.status_code == 201, resp.text
-    body = close_shift(hoy["id"], counted_cash=80_000, closes_day=False, cause=None)
-    # 80.000 contados − 0 de base − 50.000 que son de ayer = 30.000 de hoy.
-    assert body["to_deposit"] == 30_000
+    cuadres = admin_client.get(f"{API}/admin/cuadres", params={"store_id": store.id, "status": "open"}).json()
+    card = next(c for c in cuadres["shifts"] if c["shift_id"] == shift_id)
+    inicial = next(c for c in card["cuadres"] if c["kind"] == "opening")
+    assert (inicial["counted"], inicial["expected"], inicial["difference"]) == (75_000, 80_000, -5_000)
 
 
-def test_a_shift_opened_with_the_fixed_base_keeps_it_after_the_store_switches(
-    db: Session, open_shift: Any, close_shift: Any, store: Any
-) -> None:
-    viejo = open_shift(total=BASE)
-    _envelopes_mode(db, store)
-    shift = db.get(Shift, viejo["id"])
-    assert shift is not None
-    assert shift.opening_mode == "fixed_base"
-    assert shift.opening_fixed_base == BASE
-
-    body = close_shift(viejo["id"], counted_cash=BASE + 40_000, closes_day=False)
-    assert body["to_deposit"] == 40_000, "la regla del turno se congeló al abrir: la base fija sigue restando"
-
-
-def test_without_envelopes_the_drawer_opens_empty_and_loose_cash_needs_a_justification(
-    db: Session, device_client: TestClient, identify: Any, employees: dict, store: Any
-) -> None:
-    """Antes la plata suelta se rechazaba con `OPENING_COUNT_REQUIRED`.
-    Movido el 2026-09-29 por decisión del dueño (apertura «igual al café»):
-    contar plata que no es de ningún día marcado es un SOBRANTE —se consigna
-    con el turno— y pide causa y motivo como cualquier diferencia."""
-    _envelopes_mode(db, store)
-    cashier = employees["cashier"]
-    identify(device_client, cashier)
-
-    con_base = _open(device_client, cashier, opening_cash=denoms(BASE))
-    assert con_base.status_code == 400
-    assert con_base.json()["error"]["code"] == "OPENING_DIFFERENCE_NEEDS_CAUSE"
-    assert shifts_service.get_current_shift(db, store=store) is None
-
-    vacio = _open(device_client, cashier)
-    assert vacio.status_code == 201, vacio.text
-    assert vacio.json()["opening_cash_total"] == 0
-
-
-def test_counting_again_supersedes_the_previous_seal_which_can_no_longer_open(
-    db: Session,
-    device_client: TestClient,
-    open_shift: Any,
-    close_shift: Any,
-    identify: Any,
-    employees: dict,
-    store: Any,
-) -> None:
-    ayer = _yesterday_with(open_shift, close_shift, 50_000)
-    _envelopes_mode(db, store)
-    cashier = employees["cashier"]
-
-    primero = _seal(device_client, identify, cashier, {ayer: 40_000}).json()
-    segundo = _seal(device_client, identify, cashier, {ayer: 50_000}).json()
-    assert db.get(ShiftOpeningCount, primero["id"]).superseded is True  # type: ignore[union-attr]
-
-    info = device_client.get(f"{API}/shifts/opening").json()
-    assert info["pending_count"]["id"] == segundo["id"]
-
-    viejo = _open(device_client, cashier, opening_count_id=primero["id"], opening_cause="counting_error")
-    assert viejo.status_code == 409
-    assert viejo.json()["error"]["code"] == "OPENING_COUNT_USED"
-
-    ok = _open(device_client, cashier, opening_count_id=segundo["id"])
-    assert ok.status_code == 201, ok.text
-
-
-def test_a_fixed_base_store_does_not_take_an_envelope_count(
-    device_client: TestClient, identify: Any, employees: dict
-) -> None:
-    resp = _seal(device_client, identify, employees["cashier"], {})
-    assert resp.status_code == 400
-    assert resp.json()["error"]["code"] == "OPENING_MODE_MISMATCH"
-
-
-def test_a_person_without_cash_permission_cannot_seal_the_opening(
-    db: Session, device_client: TestClient, identify: Any, employees: dict, store: Any
-) -> None:
-    _envelopes_mode(db, store)
-    resp = _seal(device_client, identify, employees["operator"], {})
-    assert resp.status_code == 403
-    assert resp.json()["error"]["code"] == "CASH_PERMISSION_REQUIRED"
-
-
-def test_a_new_store_is_born_with_the_envelope_rule(admin_client: TestClient) -> None:
+def test_a_new_store_needs_no_opening_rule(admin_client: TestClient) -> None:
     resp = admin_client.post(
         f"{API}/admin/stores",
         json={
@@ -272,4 +192,4 @@ def test_a_new_store_is_born_with_the_envelope_rule(admin_client: TestClient) ->
     assert resp.status_code == 200, resp.text
     settings = admin_client.get(f"{API}/admin/stores/{resp.json()['id']}/cash-settings")
     assert settings.status_code == 200, settings.text
-    assert settings.json()["opening_mode"] == "envelopes"
+    assert "opening_mode" not in settings.json()

@@ -12,12 +12,10 @@ dominio ya las cubre por HTTP en su propia suite. Lo que SÍ es el flujo de
 este territorio —turnos abiertos y cerrados, consignaciones, liquidaciones,
 conciliación— entra siempre por la puerta real (HTTP).
 
-`close_shift` cierra en UN PASO (`POST /shifts/{id}/close`): apaga
-`cash.blind_close` para la sede de prueba porque el perfil `full` del `org`
-de referencia lo trae encendido por defecto, y probar el saldo por
-consignar no depende de si el cierre fue a ciegas o no — es
-`app.shifts.service._finalize_close` quien escribe `to_deposit` en los dos
-casos, con la MISMA fórmula.
+`close_shift` cierra con el cierre a ciegas en tres pasos (conteo →
+revisión → confirmación), la única manera de cerrar: probar el saldo por
+consignar no depende de los pasos — es `app.shifts.service._finalize_close`
+quien escribe `to_deposit`, con una sola fórmula.
 """
 
 from __future__ import annotations
@@ -222,12 +220,11 @@ def admin_client_basic(db: Session, org_basic: Organization) -> TestClient:
 
 
 @pytest.fixture()
-def close_shift(device_client: TestClient, set_feature: Callable[..., None], store: Store) -> Callable[..., dict]:
-    """Cierra el turno `shift_id` en un paso, con `counted_cash` exacto.
-
-    `set_feature("cash.blind_close", False, ...)` corre en CADA llamada (no
-    una vez en la fixture) porque algún test puede querer volver a
-    encenderlo entre medio; es barato y explícito."""
+def close_shift(device_client: TestClient) -> Callable[..., dict]:
+    """Cierra el turno `shift_id` a ciegas en tres pasos, con `counted_cash`
+    exacto: conteo, revisión (de donde sale la diferencia que se confirma) y
+    confirmación. Devuelve la confirmación más `expected` y `difference` de
+    la revisión."""
 
     def _close(
         shift_id: int,
@@ -239,22 +236,27 @@ def close_shift(device_client: TestClient, set_feature: Callable[..., None], sto
         closes_day: bool = True,
         cause: str | None = "unrecorded_sale",
     ) -> dict:
-        set_feature("cash.blind_close", False, store_id=store.id)
         payload: dict[str, Any] = {
             "counted_cash": denoms(counted_cash),
             "tips_cash_out": tips_cash_out,
             "photo": "cierre.jpg",
-            "closes_day": closes_day,
         }
         if counted_card is not None:
             payload["counted_card"] = counted_card
         if counted_transfer is not None:
             payload["counted_transfer"] = counted_transfer
+        count = device_client.post(f"{API}/shifts/{shift_id}/close/count", json=payload, headers=idem())
+        assert count.status_code == 201, count.text
+        count_id = count.json()["count_id"]
+        review = device_client.get(f"{API}/shifts/{shift_id}/close/{count_id}/review")
+        assert review.status_code == 200, review.text
+        seen = review.json()
+        confirm: dict[str, Any] = {"difference_seen": seen["difference"], "closes_day": closes_day}
         if cause is not None:
-            payload["cause"] = cause
-        resp = device_client.post(f"{API}/shifts/{shift_id}/close", json=payload, headers=idem())
+            confirm["cause"] = cause
+        resp = device_client.post(f"{API}/shifts/{shift_id}/close/{count_id}/confirm", json=confirm)
         assert resp.status_code == 200, resp.text
-        return resp.json()
+        return {**resp.json(), "expected": seen["expected"], "difference": seen["difference"]}
 
     return _close
 

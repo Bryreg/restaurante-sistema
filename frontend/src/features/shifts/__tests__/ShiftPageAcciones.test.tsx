@@ -72,9 +72,6 @@ vi.mock("../CloseWizard", () => ({
     </button>
   ),
 }));
-vi.mock("../SingleStepCloseForm", () => ({
-  SingleStepCloseForm: () => <p>cierre-en-un-paso</p>,
-}));
 
 const TODAS = {
   "cash.swaps": true,
@@ -215,20 +212,19 @@ describe("ShiftPage — deep link ?accion=", () => {
 });
 
 describe("ShiftPage — el cierre, aparte", () => {
-  it("con cash.blind_close apagada abre el cierre en un paso", async () => {
+  it("«Cerrar turno» abre siempre el asistente a ciegas: es la única manera de cerrar", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ShiftPage />, { me: deviceMe({ "cash.blind_close": false }) });
+    renderWithProviders(<ShiftPage />, { me: deviceMe({}) });
 
     await user.click(await screen.findByRole("button", { name: /Cerrar turno/ }));
     const hoja = await screen.findByRole("dialog", { name: "Cierre" });
-    expect(within(hoja).getByText("cierre-en-un-paso")).toBeInTheDocument();
-    expect(within(hoja).queryByText("asistente-a-ciegas")).not.toBeInTheDocument();
+    expect(within(hoja).getByText("asistente-a-ciegas")).toBeInTheDocument();
   });
 
-  it("?accion=cierre con cash.blind_close abre el asistente a ciegas, y al cerrar queda la tarjeta con «A consignar»", async () => {
+  it("?accion=cierre abre el asistente a ciegas, y al cerrar queda la tarjeta con «A consignar»", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ShiftPage />, {
-      me: deviceMe({ "cash.blind_close": true }),
+      me: deviceMe({}),
       route: "/pos/turno?accion=cierre",
     });
 

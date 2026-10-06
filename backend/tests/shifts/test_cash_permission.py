@@ -88,19 +88,23 @@ def test_an_operator_who_cannot_charge_gets_403_on_every_cash_operation(
     assert _current(db).cash_responsible_id == employees["cashier"].id
 
 
-def test_the_single_step_close_and_the_review_also_require_cash_permission(
-    device_client: Any, open_shift: Any, identify: Any, employees: dict, db: Session, set_feature: Any, store: Any
+def test_the_review_of_the_blind_close_also_requires_cash_permission(
+    device_client: Any, open_shift: Any, identify: Any, employees: dict, db: Session
 ) -> None:
-    set_feature("cash.blind_close", False, store_id=store.id)
+    """El paso 2 del cierre a ciegas (la única manera de cerrar) revela el
+    esperado: quien no puede tocar la caja no lo ve, aunque el conteo ya
+    esté sellado por quien sí."""
     open_shift()
     shift = _current(db)
-    identify(device_client, employees["operator"])
-
-    resp = device_client.post(
-        f"{API}/shifts/{shift.id}/close",
-        json={"counted_cash": CASH_200K, "tips_cash_out": 0, "closes_day": False},
+    count = device_client.post(
+        f"{API}/shifts/{shift.id}/close/count",
+        json={"counted_cash": CASH_200K, "tips_cash_out": 0, "photo": "x.jpg"},
         headers=idem(),
     )
+    assert count.status_code == 201, count.text
+    identify(device_client, employees["operator"])
+
+    resp = device_client.get(f"{API}/shifts/{shift.id}/close/{count.json()['count_id']}/review")
     assert resp.status_code == 403, resp.text
     assert resp.json()["error"]["code"] == "CASH_PERMISSION_REQUIRED"
     db.expire_all()
@@ -113,7 +117,7 @@ def test_only_someone_who_can_charge_opens_the_shift(
     identify(device_client, employees["operator"])
     resp = device_client.post(
         f"{API}/shifts/open",
-        json={"opening_cash": CASH_200K, "cash_reserve": 0, "cash_responsible_id": employees["operator"].id},
+        json={"opening_cash": CASH_200K, "cash_responsible_id": employees["operator"].id},
         headers=idem(),
     )
     assert resp.status_code == 403, resp.text

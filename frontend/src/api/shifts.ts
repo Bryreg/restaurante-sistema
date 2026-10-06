@@ -71,10 +71,10 @@ export type CashDifferenceCause =
   | "unknown";
 export type HandoverKind = "handover" | "spot_check";
 /**
- * Cómo abre el cajón (`OpeningModeLiteral` del backend): `envelopes` = sólo
- * con los días por consignar que están en el cajón, «igual al café» desde el
- * 2026-09-29 (se ve cuánto debería haber); `fixed_base` = la base fija de
- * siempre.
+ * Con qué regla abrió un turno (`OpeningModeLiteral` del backend):
+ * `envelopes` = con los días por consignar que están en el cajón, «igual al
+ * café» (la única manera de abrir hoy); `fixed_base` = la base fija de
+ * antes, que sólo queda en turnos viejos y se sigue mostrando así.
  */
 export type OpeningMode = "envelopes" | "fixed_base";
 /** El libro de la base de respaldo: tomar (entra al cajón) y devolver. */
@@ -118,7 +118,7 @@ export interface ShiftCurrent {
   /**
    * Efectivo de domicilios sin liquidar (pedido 2c, `pos.delivery`):
    * renglón PROPIO y separado del cajón, `null` (nunca `0`) cuando quien
-   * pregunta no puede verlo todavía (`cash.blind_close` antes del paso 2
+   * pregunta no puede verlo todavía (el cierre es a ciegas: antes del paso 2
    * del cierre) — "no te lo puedo mostrar" no es "no hay". NUNCA se suma a
    * `expected_cash`: es plata que todavía no está en el cajón.
    */
@@ -141,44 +141,23 @@ export function getCurrentShift(): Promise<ShiftCurrent | null> {
   return api<ShiftCurrent | null>("/shifts/current");
 }
 
+/**
+ * `POST /shifts/open`, la única apertura («igual al café»): el cajón entero
+ * contado una vez y los días por consignar cuya plata está en él.
+ */
 export interface OpenShiftIn {
-  /** Obligatorio con la base fija; con la apertura por sobres no se manda. */
+  /** El cajón contado por denominaciones; ausente = cajón vacío. */
   opening_cash?: DenominationCount;
-  /** Apertura por sobres: el conteo sellado con `sealOpeningCount`. */
-  opening_count_id?: number;
-  /** Sólo se manda si `cash.reserve` está encendida. */
-  cash_reserve?: number;
   cash_responsible_id: number;
   opening_cause?: CashDifferenceCause;
   opening_note?: string;
   /**
-   * Los días con saldo por consignar cuya plata está físicamente en el cajón
-   * (2026-09-24). Con la regla del cajón (2026-09-29, «igual al café») vienen
-   * todos marcados y se desmarca el que no está. El servidor recalcula el
-   * saldo de cada uno y compara el conteo contra lo que debería haber — esta
-   * pantalla no suma nada.
+   * Los días con saldo por consignar cuya plata está físicamente en el
+   * cajón: vienen todos marcados y se desmarca el que no está. El servidor
+   * recalcula el saldo de cada uno y compara el conteo contra lo que
+   * debería haber — esta pantalla no suma nada.
    */
   carried_shift_ids?: number[];
-  /**
-   * Base y sobres aparte (auditoría de tablet): `opening_cash` es sólo la
-   * base contada, y cada día marcado se confirmó entero («Está»). El servidor
-   * le suma a la base el saldo de cada día y mide la diferencia contra la
-   * base fija sola. Esta pantalla no suma nada.
-   */
-  carried_counted_apart?: boolean;
-}
-
-/** `GET /shifts/carry-candidates`: un día con plata por consignar. */
-export interface CarryCandidate {
-  shift_id: number;
-  business_date: string;
-  /** Saldo por consignar después de la cascada (desde 2026-09-29 también con la regla del cajón). */
-  outstanding: number | null;
-}
-
-/** Del más viejo al más nuevo; `[]` con «Consignaciones» (`money.deposits`) apagada. */
-export function getCarryCandidates(): Promise<CarryCandidate[]> {
-  return api<CarryCandidate[]>("/shifts/carry-candidates");
 }
 
 export interface OpenShiftResult {
@@ -228,9 +207,7 @@ export interface OpeningPreviewDay {
  * suma ni resta: pinta esto.
  */
 export interface OpeningPreview {
-  mode: OpeningMode;
   days: OpeningPreviewDay[];
-  fixed_base: number;
   carried_total: number;
   expected: number;
   counted: number | null;
@@ -254,7 +231,11 @@ export interface OpeningEnvelope {
   difference?: number;
 }
 
-/** `POST /shifts/opening-counts` (respuesta): la revelación por sobre, con quién contó. */
+/**
+ * El conteo de apertura por sobres sellado a ciegas (regla del 2026-09-26).
+ * Sólo lectura: ya no se sella ninguno, pero los turnos que abrieron así lo
+ * siguen mostrando.
+ */
 export interface OpeningCount {
   id: number;
   counted_by?: EmployeeRef;
@@ -269,23 +250,12 @@ export interface OpeningCount {
 
 /** `GET /shifts/opening`. */
 export interface OpeningInfo {
-  mode: OpeningMode;
   envelopes: OpeningEnvelopeCandidate[];
-  pending_count?: OpeningCount | null;
   reserve_available?: boolean;
 }
 
 export function getOpeningInfo(): Promise<OpeningInfo> {
   return api<OpeningInfo>("/shifts/opening");
-}
-
-export interface OpeningCountIn {
-  envelopes: { shift_id: number; counted: DenominationCount }[];
-}
-
-/** `POST /shifts/opening-counts` — sella el cuadre a ciegas y revela. Exige `Idempotency-Key`. */
-export function sealOpeningCount(body: OpeningCountIn, idempotencyKey: string): Promise<OpeningCount> {
-  return api<OpeningCount>("/shifts/opening-counts", { method: "POST", body, idempotencyKey });
 }
 
 /** `POST /shifts/open` — exige `Idempotency-Key` (spec § convenciones). */
@@ -512,7 +482,7 @@ export function reversePickup(
 }
 
 // ---------------------------------------------------------------------------
-// Cierre a ciegas en tres pasos (cash.blind_close encendido)
+// Cierre a ciegas en tres pasos: la única manera de cerrar
 // ---------------------------------------------------------------------------
 
 export interface CloseCountIn {
@@ -629,46 +599,6 @@ export interface CloseConfirmResult {
  */
 export function confirmClose(shiftId: number, countId: number, body: CloseConfirmIn): Promise<CloseConfirmResult> {
   return api<CloseConfirmResult>(`/shifts/${shiftId}/close/${countId}/confirm`, { method: "POST", body });
-}
-
-// ---------------------------------------------------------------------------
-// Cierre en un solo paso (cash.blind_close apagado)
-//
-// GAP: `features/fase-1a-cimientos/spec.md` sólo documenta el cierre en tres
-// pasos; no lista un endpoint de cierre de un solo paso. `backend/app/shifts/
-// router.py` (agente `backend-caja`, mismo pedido) sí expone `POST
-// /shifts/{id}/close` con este payload — se usa esa ruta porque la instrucción
-// de este agente permite "el endpoint que la spec/backends definan", pero
-// queda declarado como gap de conciliación en el entregable: si el Maestro
-// decide otra ruta, este archivo es el único lugar que hay que tocar.
-// ---------------------------------------------------------------------------
-
-export interface SingleStepCloseIn {
-  counted_cash: DenominationCount;
-  counted_card?: number | null;
-  counted_transfer?: number | null;
-  tips_cash_out?: number;
-  photo?: string | null;
-  cause?: CashDifferenceCause;
-  note?: string;
-  closes_day: boolean;
-  transfer_open_orders?: boolean;
-}
-
-export interface SingleStepCloseResult {
-  to_deposit?: number;
-  closes_day?: boolean;
-  expected?: number;
-  difference?: number;
-}
-
-/** `POST /shifts/{id}/close` — exige `Idempotency-Key`. Ver nota GAP arriba. */
-export function closeSingleStep(
-  shiftId: number,
-  body: SingleStepCloseIn,
-  idempotencyKey: string,
-): Promise<SingleStepCloseResult> {
-  return api<SingleStepCloseResult>(`/shifts/${shiftId}/close`, { method: "POST", body, idempotencyKey });
 }
 
 // ---------------------------------------------------------------------------

@@ -298,15 +298,18 @@ información de propina. **Bloquea el cobro hasta responderla.**
 **Dos pantallas en una.** Sin turno abierto, es un formulario; con turno abierto,
 un panel de pestañas.
 
-### 10.a Sin turno abierto — `OpenShiftForm`
+### 10.a Sin turno abierto — `OpeningScreen` → `CashOpeningForm`
+
+Una sola apertura, «igual al café» (decisión del dueño; la apertura con base
+fija `OpenShiftForm` y el conteo por sobres sellado se quitaron):
 
 | Acción | Condición |
 |---|---|
-| **Base contada por denominaciones** (una fila por billete/moneda) | siempre |
-| Campo **«Reserva de caja»** | **`cash.reserve`** |
+| **Días por consignar** con su saldo, todos marcados (desmarcables) | siempre (lista vacía sin `money.deposits`) |
+| **Cajón contado por denominaciones**, una vez, con «Debería haber» y la diferencia en vivo (las calcula el servidor) | siempre |
 | **EmployeePicker «Responsable de caja»** | siempre; por defecto quien opera |
+| **Causa** + **motivo escrito** | sólo si lo contado difiere de lo que debería haber |
 | **Abrir turno** | siempre |
-| Select **«Causa»** + nota | **aparece sólo si el servidor responde `OPENING_DIFFERENCE_NEEDS_CAUSE`** (la base contada no coincide con la fija) |
 
 ### 10.b Con turno abierto — pestañas
 
@@ -318,7 +321,7 @@ un panel de pestañas.
 | Retiros | `cash.pickups` |
 | Domicilios | `pos.delivery` |
 | Relevo | `cash.handovers` |
-| Cierre | siempre (pero **cambia de formulario** según `cash.blind_close`) |
+| Cierre | siempre: el asistente a ciegas de tres pasos |
 
 **Resumen** (`ShiftSummaryPanel`): día operativo, apertura, responsable, esperado,
 base fija, **reserva aparte**, y **«Efectivo de domicilios pendiente de liquidar»**
@@ -353,22 +356,15 @@ propina y total.
 - *Arqueo sorpresa*: **PinPad de administrador obligatorio**; no cambia al responsable.
 - Muestra el **desglose congelado** del último movimiento y la lista histórica; el desglose puede venir `null` (no autorizado) y entonces **no se dibuja**.
 
-**Cierre** — **dos formularios distintos según el flag `cash.blind_close`**:
+**Cierre** — **una sola manera: el asistente a ciegas** (el cierre en un paso, `SingleStepCloseForm`, y la función `cash.blind_close` se quitaron):
 
-*Con `cash.blind_close`* → **`CloseWizard`, tres pasos**:
+**`CloseWizard`, tres pasos**:
 1. Efectivo contado por denominaciones, datáfono, transferencias, **propinas en efectivo retiradas** (con una referencia de sólo lectura de lo que el sistema calcula), **foto** (obligatoria si el servidor lo exige) → **Continuar**. *El esperado no se muestra ni se pide en este paso.*
 2. Revela **esperado y diferencia**, la ecuación (base, ventas efectivo, ingresos, egresos, retiros), datáfono y transferencias contados vs. registrados, y el aviso **«Diferencia crítica: se va a notificar al administrador»** → **Continuar**.
 3. Select de **causa** + nota — **sólo si el servidor marca `requires_cause`**; si además marca `requires_identified_cause`, **la opción «Sin identificar» desaparece del desplegable**. Casilla **«Trasladar al turno siguiente las N comandas abiertas»** — **sólo si hay comandas abiertas**. Casilla **«Este cierre también cierra el día operativo»** (precargada con lo que sugiere el servidor) → **Confirmar cierre** (deshabilitado si falta la causa exigida).
 - Si la diferencia cambió entre el paso 2 y el 3 (`DIFFERENCE_CHANGED`), **vuelve al paso 2** con la revisión nueva.
 - Pantalla final: «Turno cerrado», **a consignar**, y si cerró o no el día operativo.
 
-*Sin `cash.blind_close`* → **`SingleStepCloseForm`**: todo en un formulario
-(conteo, datáfono, transferencias, propinas, foto, causa, nota, «cierra el día»)
-→ **Cerrar turno**. La casilla **«Trasladar comandas abiertas» aparece sólo
-después** de que el servidor responde `OPEN_ORDERS_EXIST`. Si la sede encendió
-el cierre a ciegas mientras la tablet tenía flags viejos, el servidor responde
-`BLIND_CLOSE_REQUIRED` y la pantalla **refresca la sesión y cambia sola al
-asistente de tres pasos**.
 
 ## 11. Producir — `/pos/produccion` — `features/recipes/QuickProductionPage.tsx`
 
@@ -938,7 +934,6 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 | `cash.swaps` | **Pestaña «Cambio»** del turno | 10 |
 | `cash.pickups` | **Pestaña «Retiros»** del turno (y con ella reversar un retiro) | 10 |
 | `cash.handovers` | **Pestaña «Relevo»** del turno (relevo y arqueo sorpresa) | 10 |
-| `cash.blind_close` | **Cambia el formulario de cierre entero**: asistente de tres pasos vs. formulario de un paso | 10 |
 
 **Sin flag, a propósito** (es ley o integridad, y el código lo dice explícitamente): Documentos fiscales, Rangos de numeración, Notas, Devoluciones pendientes, Historial, Notificaciones, Funciones, Configuración, Hoy, Ventas, Pedidos, Carta (Categorías y Productos), Dinero, Turnos y personal, Turno del POS, y la comanda misma.
 
@@ -1033,5 +1028,5 @@ La lista de 36 pantallas del pedido **coincide exactamente** con las rutas que m
 1. **Hay una ruta 37 que no es una pantalla:** el índice de `/pos` (`src/app/PosHome.tsx`) **no dibuja nada**: redirige a Mesas o a Comanda nueva según `pos.tables`. Y el índice de `/admin` redirige a `/admin/hoy`. Son decisiones de arranque, no pantallas, pero se pierden fácil.
 2. **Dos pantallas de admin son «una ruta, varias entradas de navegación»:** Nómina (`/admin/nomina` + `/admin/nomina?tab=propinas`) y Analítica (`/admin/analitica` + `?tab=varianza` + `?tab=reposicion`). En la barra lateral se ven como **cinco secciones distintas**; en el router son **dos**.
 3. **Seis pantallas guardan su pestaña en la URL** (`?tab=`): Inventario, Compras, Banco, Gastos, Nómina, Analítica. Y **varias tarjetas de «Hoy» y varios enlaces internos apuntan a una pestaña concreta, a veces con filtros** (`?tab=stock&below_min=1`). Si el rediseño renombra pestañas o parámetros, esos enlaces se rompen sin que nada falle visiblemente.
-4. **Dos pantallas cambian de forma según un flag, sin cambiar de ruta:** el cierre del Turno (asistente de tres pasos vs. formulario de un paso, según `cash.blind_close`) y Nómina (qué pestañas y cuál es la inicial, según `payroll` / `pos.tips`).
+4. **Una pantalla cambia de forma según un flag, sin cambiar de ruta:** Nómina (qué pestañas y cuál es la inicial, según `payroll` / `pos.tips`).
 5. **Hay un cruce admin → POS:** en Inventario → Lotes, un lote vencido ofrece **«Registrar merma (vencido)»**, que salta a `/pos/merma` — una ruta que el administrador, en su PC, normalmente no puede abrir.

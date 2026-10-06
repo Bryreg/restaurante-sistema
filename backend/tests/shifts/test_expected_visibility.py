@@ -5,10 +5,9 @@ CONTRATO-INTERNO-1b-1.md §2.4 «Caja»).
 desde 1b-1, `sales`/`tips` comparten un único predicado
 (`router._can_see_expected`, usado en `_shift_summary` y en
 `GET /shifts/current`): el admin siempre; el responsable de caja del turno
-SOLO si `cash.blind_close` está apagada en su sede (con la flag encendida
-—perfil `full`, el de estos tests, la deja encendida por defecto— el
-responsable recién ve el esperado en el paso 2 del cierre,
-`GET /shifts/{id}/close/{count_id}/review`, que no pasa por este predicado);
+nunca fuera del cierre —el cierre es a ciegas en tres pasos, la única
+manera de cerrar: lo ve recién en el paso 2,
+`GET /shifts/{id}/close/{count_id}/review`, que no pasa por este predicado—;
 cualquier otro operador identificado, nunca. Esto sólo verifica
 `GET /shifts/{id}` y `GET /shifts/current` — las respuestas de `POST
 /pickups` y `POST /handovers` siguen devolviendo el snapshot al actor que
@@ -76,10 +75,10 @@ def test_non_responsible_operator_sees_none_of_the_three_and_admin_sees_all(
         assert h["breakdown"] is not None, "el admin ve el desglose del relevo"
 
 
-def test_responsible_with_blind_close_on_sees_none_until_review(
+def test_responsible_sees_none_until_review(
     device_client, admin_client, identify, employees, open_shift, db: Session
 ) -> None:
-    """O-1 (decisión resuelta por default en 1b-1): con `cash.blind_close`
+    """O-1 (decisión resuelta por default en 1b-1; hoy el cierre siempre es a ciegas): con el cierre a ciegas
     encendida (perfil `full`, ya lo está), el RESPONSABLE de caja tampoco ve
     `expected_cash`/`sales`/`tips` en `current` ni en `{id}` — sólo el admin.
     El responsable lo ve recién en el paso 2 del cierre (`review`)."""
@@ -117,11 +116,12 @@ def test_responsible_with_blind_close_on_sees_none_until_review(
     assert review.json()["expected"] == admin_by_id["expected_cash"], "el paso 2 revela el mismo esperado que ve el admin"
 
 
-def test_responsible_with_blind_close_off_sees_expected(
-    device_client, admin_client, identify, employees, open_shift, set_feature, db: Session
+def test_the_old_blind_close_flag_saved_off_does_not_reveal_the_expected(
+    device_client, identify, employees, open_shift, set_feature, db: Session
 ) -> None:
-    """Con `cash.blind_close` apagada, el responsable ve el esperado (y
-    `sales`/`tips`) directamente en `current` y en `{id}`, como el admin."""
+    """El cierre a ciegas ya no es una función que se apaga: una fila vieja
+    de `cash.blind_close` apagada no le muestra el esperado (ni
+    `sales`/`tips`) al responsable en `current` ni en `{id}`."""
 
     set_feature("cash.blind_close", False)
     open_shift(cash_responsible=employees["cashier"])
@@ -129,12 +129,11 @@ def test_responsible_with_blind_close_off_sees_expected(
     identify(device_client, employees["cashier"])
 
     current = device_client.get("/api/v1/shifts/current").json()
-    assert current["expected_cash"] is not None
-    assert current["sales"] is not None
-    assert current["tips"] is not None
+    assert current["expected_cash"] is None
+    assert current["sales"] is None
+    assert current["tips"] is None
 
     by_id = device_client.get(f"/api/v1/shifts/{shift.id}").json()
-    assert by_id["expected_cash"] is not None
-    assert by_id["expected_cash"] == current["expected_cash"]
-    assert by_id["sales"] is not None
-    assert by_id["tips"] is not None
+    assert by_id["expected_cash"] is None
+    assert by_id["sales"] is None
+    assert by_id["tips"] is None

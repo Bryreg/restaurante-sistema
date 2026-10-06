@@ -135,16 +135,23 @@ def test_the_closing_count_waits_until_the_loan_is_returned(
     assert _give_back(device_client, shift["id"], 50_000).status_code == 201
     assert device_client.get(f"{API}/shifts/current").json()["reserve_loan"] == 0
 
-    set_feature("cash.blind_close", False, store_id=store.id)
-    closed = device_client.post(
-        f"{API}/shifts/{shift['id']}/close",
-        json={"counted_cash": _denoms(200_000), "photo": "cierre.jpg", "closes_day": False},
+    count = device_client.post(
+        f"{API}/shifts/{shift['id']}/close/count",
+        json={"counted_cash": _denoms(200_000), "photo": "cierre.jpg"},
         headers=idem(),
+    )
+    assert count.status_code == 201, count.text
+    count_id = count.json()["count_id"]
+    review = device_client.get(f"{API}/shifts/{shift['id']}/close/{count_id}/review").json()
+    assert review["difference"] == 0
+    closed = device_client.post(
+        f"{API}/shifts/{shift['id']}/close/{count_id}/confirm", json={"difference_seen": 0, "closes_day": False}
     )
     assert closed.status_code == 200, closed.text
     # Lo prestado volvió a la base: no aparece en lo que hay que consignar.
-    assert closed.json()["to_deposit"] == 0
-    assert closed.json()["difference"] == 0
+    # Se consignan sólo los $200.000 con que abrió el cajón sin días por
+    # consignar (el sobrante de la apertura «igual al café»).
+    assert closed.json()["to_deposit"] == 200_000
 
 
 def test_returning_without_a_loan_is_rejected(
