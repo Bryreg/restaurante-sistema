@@ -263,6 +263,12 @@ export function ReceptionDetailDialog({
               <p className="text-muted-foreground">Día operativo</p>
               <p>{formatBusinessDate(reception.business_date)}</p>
             </div>
+            {reception.invoice_total !== null && reception.invoice_total !== undefined ? (
+              <div>
+                <p className="text-muted-foreground">Total de la factura</p>
+                <p className="tabular-nums">{formatCOP(reception.invoice_total)}</p>
+              </div>
+            ) : null}
             <div>
               <p className="text-muted-foreground">Cuenta por pagar</p>
               <p>{reception.payable_id !== null ? `#${reception.payable_id}` : "—"}</p>

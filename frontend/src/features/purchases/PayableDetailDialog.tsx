@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -107,23 +108,100 @@ const PAYMENTS_LEGEND: readonly LegendEntry[] = [
   },
 ]
 
+/** ¿El servidor reporta una diferencia papel ≠ cálculo? `null` (sin papel)
+ * no es diferencia, y `0` tampoco. */
+function hasInvoiceDiscrepancy(payable: PayableOut): boolean {
+  return payable.invoice_discrepancy !== null && payable.invoice_discrepancy !== undefined && payable.invoice_discrepancy !== 0
+}
+
+/** Las dos cifras lado a lado y la diferencia, TAL COMO LAS DA EL SERVIDOR
+ * (`invoice_total`, `amount`, `invoice_discrepancy`): esta pantalla no resta
+ * nada. */
+function InvoiceDiscrepancyNotice({
+  payable,
+  serverMessage = null,
+}: {
+  payable: PayableOut
+  serverMessage?: string | null
+}): React.JSX.Element {
+  return (
+    <div role="alert" className="space-y-2 rounded-md border border-destructive/50 bg-destructive/5 p-3">
+      <p className="text-sm font-semibold text-destructive">La factura no coincide con lo calculado</p>
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div>
+          <p className="text-muted-foreground">Lo que dice el papel</p>
+          <p className="tabular-nums font-semibold">{formatCOP(payable.invoice_total ?? null)}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">Lo calculado (línea por línea)</p>
+          <p className="tabular-nums font-semibold">{formatCOP(payable.amount)}</p>
+        </div>
+      </div>
+      <p className="text-sm">
+        Diferencia (papel − cálculo):{" "}
+        <span className="font-semibold tabular-nums">{formatCOP(payable.invoice_discrepancy ?? null)}</span>
+      </p>
+      {serverMessage ? <p className="text-sm">{serverMessage}</p> : null}
+      <p className="text-xs text-muted-foreground">
+        El sistema no ajusta ninguna de las dos cifras. Revisá cantidades y precios de la recepción contra el papel
+        antes de aprobar.
+      </p>
+    </div>
+  )
+}
+
 function ApproveAction({ payable, onApproved }: { payable: PayableOut; onApproved: () => void }): React.JSX.Element {
+  // Reconocer la diferencia es un acto explícito, nunca un default: mismo
+  // patrón que `confirm_price` en la recepción.
+  const [confirmDiscrepancy, setConfirmDiscrepancy] = useState(false)
   const mutation = useMutation({
-    mutationFn: (pin: string) => approvePayable(payable.id, { authorizer_pin: pin }),
+    mutationFn: (pin: string) =>
+      approvePayable(payable.id, { authorizer_pin: pin, confirm_discrepancy: confirmDiscrepancy }),
     onSuccess: onApproved,
+    onError: (err) => {
+      // El servidor manda: si dice que hay diferencia, hay que reconocerla
+      // de nuevo, a conciencia.
+      if (err instanceof ApiError && err.code === "INVOICE_DISCREPANCY") setConfirmDiscrepancy(false)
+    },
   })
+  const serverDiscrepancy =
+    mutation.isError && mutation.error instanceof ApiError && mutation.error.code === "INVOICE_DISCREPANCY"
+      ? mutation.error.message
+      : null
+  const discrepancy = hasInvoiceDiscrepancy(payable) || serverDiscrepancy !== null
+  const otherError = mutation.isError && serverDiscrepancy === null ? errorMessage(mutation.error) : null
+  const blocked = discrepancy && !confirmDiscrepancy
+
   return (
     <div className="space-y-3 rounded-md border p-4">
       <p className="text-sm">
         Mientras está <strong>pendiente de revisión</strong> no se puede pagar: es el control mínimo entre quien
         recibió la mercancía y quien autoriza el pago.
       </p>
-      {mutation.isError ? (
+      {discrepancy ? (
+        <>
+          <InvoiceDiscrepancyNotice payable={payable} serverMessage={serverDiscrepancy} />
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={confirmDiscrepancy}
+              onCheckedChange={(checked) => setConfirmDiscrepancy(checked === true)}
+              disabled={mutation.isPending}
+            />
+            Revisé la diferencia y apruebo igual
+          </label>
+        </>
+      ) : null}
+      {otherError ? (
         <p role="alert" className="text-sm text-destructive">
-          {errorMessage(mutation.error)}
+          {otherError}
         </p>
       ) : null}
-      <PinPad length={4} label="PIN de administrador para aprobar" disabled={mutation.isPending} onSubmit={(pin) => mutation.mutate(pin)} />
+      <PinPad
+        length={4}
+        label="PIN de administrador para aprobar"
+        disabled={mutation.isPending || blocked}
+        onSubmit={(pin) => mutation.mutate(pin)}
+      />
     </div>
   )
 }
@@ -473,6 +551,25 @@ export function PayableDetailDialog({
                 {formatBusinessDate(payable.due_date)} {payable.overdue ? <Badge variant="destructive">Vencida</Badge> : null}
               </p>
             </div>
+            {payable.invoice_total !== null && payable.invoice_total !== undefined ? (
+              <div>
+                <p className="text-muted-foreground">Total de la factura</p>
+                <p className="tabular-nums">{formatCOP(payable.invoice_total)}</p>
+              </div>
+            ) : null}
+            {hasInvoiceDiscrepancy(payable) ? (
+              <div>
+                <p className="text-muted-foreground">Diferencia con la factura</p>
+                <p className="tabular-nums font-semibold text-destructive">
+                  {formatCOP(payable.invoice_discrepancy ?? null)}
+                </p>
+                {payable.discrepancy_confirmed ? (
+                  <p className="text-xs text-muted-foreground">
+                    Confirmada por {payable.discrepancy_confirmed_by_employee_name ?? "—"}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             {payable.approved_at ? (
               <div>
                 <p className="text-muted-foreground">Aprobada</p>

@@ -62,6 +62,7 @@ import { FormField, FormSection } from "@/components/admin"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { MoneyInput } from "@/components/MoneyInput"
 import { PhotoCaptureField } from "@/components/PhotoCaptureField"
 import { PinPad } from "@/components/PinPad"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -126,6 +127,9 @@ export function ReceptionForm({
   const [invoiceNumber, setInvoiceNumber] = useState(draft?.invoice_number ?? "")
   const [invoiceDate, setInvoiceDate] = useState(draft?.business_date ?? "")
   const [noInvoice, setNoInvoice] = useState(draft?.no_invoice ?? false)
+  // Lo que dice el PAPEL (pesos enteros), opcional. `null` = no se capturó,
+  // nunca 0: el servidor sólo compara cuando hay una cifra.
+  const [invoiceTotal, setInvoiceTotal] = useState<number | null>(null)
   const [photo, setPhoto] = useState<string | null>(draft?.photo ?? null)
   // Mientras la foto se achica no se envía: saldría sin la foto que ya se ve elegida.
   const [photoProcessing, setPhotoProcessing] = useState(false)
@@ -179,6 +183,8 @@ export function ReceptionForm({
       invoice_number: invoiceNumber.trim() === "" ? null : invoiceNumber.trim(),
       invoice_date: invoiceDate,
       no_invoice: noInvoice,
+      // Sin factura no hay papel que copiar: nunca se manda una cifra vieja.
+      invoice_total: noInvoice ? null : invoiceTotal,
       photo,
       received_by_pin: receivedByPin,
       confirm_price: confirmPrice,
@@ -293,6 +299,24 @@ export function ReceptionForm({
             />
           )}
         </FormField>
+
+        {!noInvoice ? (
+          <FormField
+            label="Total de la factura (opcional)"
+            help="El total a pagar tal como lo dice el papel, impuestos incluidos. No reemplaza el cálculo línea por línea: si no coinciden, la cuenta por pagar lo muestra y aprobarla exige confirmar la diferencia."
+          >
+            {({ fieldId, describedBy }) => (
+              <MoneyInput
+                id={fieldId}
+                aria-describedby={describedBy}
+                value={invoiceTotal}
+                onChange={setInvoiceTotal}
+                disabled={formsDisabled}
+                placeholder="Lo que dice el papel"
+              />
+            )}
+          </FormField>
+        ) : null}
 
         <FormField
           label="Sin factura (plaza de mercado)"

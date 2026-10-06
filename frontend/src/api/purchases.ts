@@ -181,6 +181,11 @@ export interface ReceptionIn {
   invoice_date: string
   no_invoice: boolean
   photo?: string | null
+  /** Lo que dice el PAPEL de la factura, en pesos enteros (opcional; `null`
+   * sin factura o si no se capturó). Nunca reemplaza el cálculo: el backend
+   * lo compara contra la cuenta por pagar y, si no coinciden, la aprobación
+   * corta con `409 INVOICE_DISCREPANCY`. */
+  invoice_total?: number | null
   received_by_pin: string
   /** Limpia las DOS guardas de tecleo a la vez, de forma EXPLÍCITA — nunca
    * se manda `true` de entrada: sólo tras mostrar la pregunta al operador
@@ -215,6 +220,8 @@ export interface ReceptionOut {
   invoice_number: string | null
   invoice_date: string
   no_invoice: boolean
+  /** Lo que dice el papel, si se capturó al recibir. */
+  invoice_total?: number | null
   photo: string | null
   received_by_employee_id: number
   received_by_employee_name: string
@@ -308,10 +315,21 @@ export interface PayableOut {
   approved_at: string | null
   approved_by_employee_name: string | null
   business_date: string
+  /** Lo que dice el papel (`Reception.invoice_total`); `null` si la recepción
+   * no lo capturó. */
+  invoice_total?: number | null
+  /** `invoice_total − amount`, DERIVADO por el servidor; `null` si no hay
+   * papel contra qué comparar. El cliente nunca lo recalcula. */
+  invoice_discrepancy?: number | null
+  discrepancy_confirmed?: boolean
+  discrepancy_confirmed_by_employee_name?: string | null
 }
 
 export interface PayableApproveIn {
   authorizer_pin: string
+  /** Reconoce explícitamente la diferencia papel ≠ cálculo. Sin esto y con
+   * diferencia, el servidor corta con `409 INVOICE_DISCREPANCY`. */
+  confirm_discrepancy?: boolean
 }
 
 export interface PaymentIn {

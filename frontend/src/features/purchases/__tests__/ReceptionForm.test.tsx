@@ -252,3 +252,47 @@ describe("ReceptionForm — las dos guardas de tecleo preguntan y NUNCA corrigen
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(CONFIRMED_RECEPTION))
   })
 })
+
+describe("ReceptionForm — «Total de la factura» viaja como invoice_total (u5)", () => {
+  it("lo tecleado sale como invoice_total en pesos enteros", async () => {
+    createReceptionMock.mockReset().mockResolvedValueOnce(CONFIRMED_RECEPTION)
+    const user = userEvent.setup()
+    renderForm()
+    await fillMinimalForm(user, "12000")
+    await user.type(screen.getByLabelText(/total de la factura/i), "125000")
+    await user.tab()
+    await continueToPin(user)
+    await typePin(user)
+
+    await waitFor(() => expect(createReceptionMock).toHaveBeenCalledTimes(1))
+    expect(createReceptionMock.mock.calls[0]![1].invoice_total).toBe(125000)
+  })
+
+  it("vacío es null, nunca 0", async () => {
+    createReceptionMock.mockReset().mockResolvedValueOnce(CONFIRMED_RECEPTION)
+    const user = userEvent.setup()
+    renderForm()
+    await fillMinimalForm(user, "12000")
+    await continueToPin(user)
+    await typePin(user)
+
+    await waitFor(() => expect(createReceptionMock).toHaveBeenCalledTimes(1))
+    expect(createReceptionMock.mock.calls[0]![1].invoice_total).toBeNull()
+  })
+
+  it("sin factura no hay papel: el campo desaparece y no se manda cifra", async () => {
+    createReceptionMock.mockReset().mockResolvedValueOnce(CONFIRMED_RECEPTION)
+    const user = userEvent.setup()
+    renderForm()
+    await fillMinimalForm(user, "12000")
+    await user.type(screen.getByLabelText(/total de la factura/i), "125000")
+    await user.tab()
+    await user.click(screen.getByRole("checkbox", { name: /sin factura/i }))
+    expect(screen.queryByLabelText(/total de la factura/i)).not.toBeInTheDocument()
+    await continueToPin(user)
+    await typePin(user)
+
+    await waitFor(() => expect(createReceptionMock).toHaveBeenCalledTimes(1))
+    expect(createReceptionMock.mock.calls[0]![1].invoice_total).toBeNull()
+  })
+})
