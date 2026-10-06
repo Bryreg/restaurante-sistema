@@ -500,6 +500,67 @@ export interface TipPayoutOut {
   total_amount: number
   created_at: string
   distribution: TipPayoutDistributionOut[]
+  /** c3: un reparto reversado sigue en el historial y deja de contar como
+   * entregado. `null` = vivo. */
+  reversed_at?: string | null
+  reversed_reason?: string | null
+  reversed_by?: { id: number; name: string } | null
+}
+
+/** Espejo de `app/shifts/schemas.py::TipPayoutStatusFilterLiteral`. */
+export type TipPayoutStatusFilter = "live" | "reversed" | "all"
+
+// GET /admin/tips/payouts — historial de repartos (c3).
+export function getTipPayouts(params: PeriodQuery & { status?: TipPayoutStatusFilter }): Promise<TipPayoutOut[]> {
+  return api<TipPayoutOut[]>("/admin/tips/payouts", {
+    query: { store_id: params.storeId, from: params.from, to: params.to, status: params.status ?? "all" },
+  })
+}
+
+// POST /admin/tips/payouts/{id}/reverse — reversa con motivo (c3).
+export function reverseTipPayout(
+  storeId: number,
+  payoutId: number,
+  data: { reason: string },
+  idempotencyKey: string,
+): Promise<TipPayoutOut> {
+  return api<TipPayoutOut>(`/admin/tips/payouts/${payoutId}/reverse`, {
+    method: "POST",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
+}
+
+/** Espejo de `app/shifts/schemas.py::ShiftTipBalanceOut`. */
+export interface ShiftTipBalanceOut {
+  shift_id: number
+  business_date: string
+  collected: number
+  paid: number
+  pending: number
+  overpaid: number
+}
+
+/** Espejo de `app/shifts/schemas.py::TipsBalanceOut`: recogido vs. entregado
+ * vs. pendiente, todo calculado por el servidor. `fully_delivered` es `null`
+ * cuando el período no tiene turnos cerrados (no hay nada que probar). */
+export interface TipsBalanceOut {
+  date_from: string
+  date_to: string
+  collected: number
+  paid: number
+  pending: number
+  overpaid: number
+  fully_delivered: boolean | null
+  shifts: ShiftTipBalanceOut[]
+}
+
+// GET /admin/tips/balance (c3).
+export function getTipsBalance(params: PeriodQuery): Promise<TipsBalanceOut> {
+  return api<TipsBalanceOut>("/admin/tips/balance", {
+    query: { store_id: params.storeId, from: params.from, to: params.to },
+  })
 }
 
 export function createTipPayout(storeId: number, data: TipPayoutIn, idempotencyKey: string): Promise<TipPayoutOut> {

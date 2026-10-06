@@ -86,6 +86,10 @@ from app.shifts.schemas import (
     ShiftTipsOut,
     TimelineEventOut,
     TipPayoutIn,
+    TipPayoutReverseIn,
+    TipPayoutStatusFilterLiteral,
+    TipPayoutMethodLiteral,
+    TipsBalanceOut,
     TipPayoutOut,
 )
 from app.stores.models import Store
@@ -996,6 +1000,88 @@ def admin_create_tip_payout(
     return _idempotent(
         db, organization_id=actor.organization_id, scope="tips.payouts", request=request, payload=payload, fn=_do
     )
+
+
+@router.get("/admin/tips/payouts")
+def admin_list_tip_payouts(
+    store_id: int,
+    date_from: date | None = Query(None, alias="from"),
+    date_to: date | None = Query(None, alias="to"),
+    status: TipPayoutStatusFilterLiteral = "all",
+    employee_id: int | None = None,
+    shift_id: int | None = None,
+    method: TipPayoutMethodLiteral | None = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[TipPayoutOut]:
+    """c3 — el historial de repartos (vivos y reversados: nada se borra).
+    El período es la fecha de negocio de la entrega; `employee_id` deja los
+    repartos donde esa persona recibió algo; `shift_id`, los que cubren ese
+    turno."""
+    store = admin_store(db, actor, store_id)
+    payouts = tips_service.list_tip_payouts(
+        db,
+        store=store,
+        date_from=date_from,
+        date_to=date_to,
+        status=status,
+        employee_id=employee_id,
+        shift_id=shift_id,
+        method=method,
+    )
+    return [tips_service.tip_payout_out(db, payout=p) for p in payouts]
+
+
+@router.post("/admin/tips/payouts/{payout_id}/reverse")
+def admin_reverse_tip_payout(
+    payout_id: int,
+    payload: TipPayoutReverseIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """c3 — reversa con motivo. El reparto queda en el historial y deja de
+    contar como entregado: su plata vuelve a quedar pendiente."""
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        payout = tips_service.reverse_tip_payout(
+            db,
+            actor=actor,
+            organization_id=actor.organization_id,
+            store_id=store.id,
+            payout_id=payout_id,
+            reason=payload.reason,
+            now=clock.now_utc(),
+        )
+        return 200, tips_service.tip_payout_out(db, payout=payout).model_dump(mode="json")
+
+    return _idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope=f"tips.payouts.{payout_id}.reverse",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+
+
+@router.get("/admin/tips/balance")
+def admin_tips_balance(
+    store_id: int,
+    date_from: date = Query(..., alias="from"),
+    date_to: date = Query(..., alias="to"),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> TipsBalanceOut:
+    """c3 — recogido vs. entregado vs. pendiente de repartir, por turno
+    cerrado del período y en total, con la prueba del «100 % entregado»
+    (Ley 1935 de 2018). Todo calculado acá: la pantalla no resta nada."""
+    store = admin_store(db, actor, store_id)
+    if date_from > date_to:
+        raise AppError("INVALID_PERIOD", "La fecha «desde» tiene que ser anterior o igual a «hasta»", status=400)
+    return tips_service.tips_balance(db, store=store, date_from=date_from, date_to=date_to)
 
 
 # ---------------------------------------------------------------------------

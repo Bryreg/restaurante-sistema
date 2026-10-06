@@ -286,6 +286,7 @@ def test_owner_hand_does_not_subtract_a_tip_payout_that_came_out_of_the_drawer(
     employees: dict[str, Any],
     open_shift: Callable[..., dict],
     close_shift: Callable[..., dict],
+    make_payment: Callable[..., dict],
     store: Any,
 ) -> None:
     """**A-3 del cierre de la fase 3: la misma plata restada dos veces.**
@@ -305,10 +306,15 @@ def test_owner_hand_does_not_subtract_a_tip_payout_that_came_out_of_the_drawer(
     bd = today_business_date(store)
 
     shift = open_shift(total=0)
+    # c3: un reparto no puede entregar más propina de la que se recogió; la
+    # propina sale de un cobro con datáfono, para no tocar el efectivo.
+    card = make_payment(shift=shift, method="card", amount=10_000, tip=20_000)
     # Contado 60.000 con 10.000 de propina en efectivo retirada al cierre:
     # `to_deposit = 60.000 - 10.000 = 50.000`. Esos 10.000 YA
     # salieron del cajón acá.
-    close_body = close_shift(shift["id"], counted_cash=60_000, tips_cash_out=10_000)
+    close_body = close_shift(
+        shift["id"], counted_cash=60_000, tips_cash_out=10_000, counted_card=card["_amount"] + 20_000
+    )
     assert close_body["to_deposit"] == 50_000
 
     def mano() -> dict:
@@ -367,6 +373,16 @@ def test_owner_hand_does_not_subtract_a_tip_payout_that_came_out_of_the_drawer(
     # Nada de esto vino de una fila vieja sin origen declarado.
     assert final["tip_payouts_unknown_source"] == 0
 
+    # c3: un reparto reversado no salió de ninguna mano.
+    reversa = admin_client.post(
+        f"{API}/admin/tips/payouts/{de_la_mano.json()['id']}/reverse",
+        params={"store_id": store.id},
+        json={"reason": "Se registró dos veces"},
+        headers=idem(),
+    )
+    assert reversa.status_code == 200, reversa.text
+    assert mano()["spent_on_tips"] == 0
+
 
 def test_owner_hand_says_how_many_tip_payouts_did_not_declare_their_source(
     admin_client: TestClient,
@@ -376,6 +392,7 @@ def test_owner_hand_says_how_many_tip_payouts_did_not_declare_their_source(
     open_shift: Callable[..., dict],
     close_shift: Callable[..., dict],
     db: Any,
+    make_payment: Callable[..., dict],
     store: Any,
 ) -> None:
     """La otra mitad de A-3: las filas que YA existían no tienen respuesta.
@@ -390,7 +407,8 @@ def test_owner_hand_says_how_many_tip_payouts_did_not_declare_their_source(
 
     bd = today_business_date(store)
     shift = open_shift(total=0)
-    close_shift(shift["id"], counted_cash=60_000, tips_cash_out=10_000)
+    card = make_payment(shift=shift, method="card", amount=10_000, tip=9_000)
+    close_shift(shift["id"], counted_cash=60_000, tips_cash_out=10_000, counted_card=card["_amount"] + 9_000)
 
     creado = admin_client.post(
         f"{API}/admin/tips/payouts",

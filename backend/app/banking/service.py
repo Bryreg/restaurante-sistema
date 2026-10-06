@@ -928,6 +928,8 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
             TipPayout.organization_id == store.organization_id,
             TipPayout.store_id == store.id,
             TipPayout.method == "cash",
+            # c3: un reparto reversado no salió de ninguna mano.
+            TipPayout.reversed_at.is_(None),
         )
     ).scalars().all()
     spent_on_tips = 0

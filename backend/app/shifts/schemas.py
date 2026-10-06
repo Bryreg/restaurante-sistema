@@ -906,6 +906,59 @@ class TipPayoutOut(OutModel):
     created_by: EmployeeRef
     created_at: datetime
     distribution: list[TipPayoutDistributionOut]
+    # c3 (0046): un reparto reversado sigue en el historial —nada se borra—
+    # pero deja de contar como entregado. `None` = vivo.
+    reversed_at: datetime | None = None
+    reversed_reason: str | None = None
+    reversed_by: EmployeeRef | None = None
+
+
+TipPayoutStatusFilterLiteral = Literal["live", "reversed", "all"]
+
+
+class TipPayoutReverseIn(BaseModel):
+    """`POST /admin/tips/payouts/{id}/reverse`: el motivo es obligatorio —
+    una reversa sin porqué no prueba nada ante un trabajador."""
+
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class ShiftTipBalanceOut(OutModel):
+    """Propina de UN turno: recogida, entregada y pendiente de repartir.
+
+    `collected` es la misma suma que reparte la propuesta
+    (`app.payroll.service._shift_tip_total`): todos los medios más la
+    propina de domicilio, liquidada o no (Ley 1935: se le debe a quien la
+    generó desde que se cobra). `paid` es lo que los repartos VIVOS le
+    imputan a este turno (`app.shifts.tips.allocate_payouts`).
+    `pending = max(collected − paid, 0)` y `overpaid = max(paid − collected, 0)`:
+    lo segundo sólo existe en repartos anteriores a la validación."""
+
+    shift_id: int
+    business_date: date
+    collected: int
+    paid: int
+    pending: int
+    overpaid: int
+
+
+class TipsBalanceOut(OutModel):
+    """`GET /admin/tips/balance`: recogida vs. entregada vs. pendiente de los
+    turnos CERRADOS del período (los mismos que usa la propuesta de reparto).
+
+    `fully_delivered` es la prueba del «100 % entregado»: `True` cuando no
+    queda nada pendiente en ningún turno del período. `None` (no `False`)
+    cuando el período no tiene turnos cerrados: no hay nada que probar, y
+    `null` no es `0`."""
+
+    date_from: date
+    date_to: date
+    collected: int
+    paid: int
+    pending: int
+    overpaid: int
+    fully_delivered: bool | None
+    shifts: list[ShiftTipBalanceOut]
 
 
 # ---------------------------------------------------------------------------

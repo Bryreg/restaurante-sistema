@@ -608,13 +608,13 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0044", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0044: 0027 → 0028 (asistencia separada del turno de caja) "
+    assert version == "0046", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0046: 0027 → 0028 (asistencia separada del turno de caja) "
         "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo) "
         "→ 0031 (avisos al celular) → 0032 (supuestos del panel) → 0033 (meta de ventas del mes) "
-        "→ 0034 (reversa de los días en el cajón) → 0035 (ajustes del panel) → 0036 (etiquetas de cocina) → 0037 (anular conteo) → 0038 (contar preparaciones) → 0039 (ficha de chef) → 0040 (nivel par) → 0041 (recargos legales) → 0042 (avisos resueltos) → 0043 (contrato y novedades de nómina) → 0044 (seguridad de la cuenta). "
+        "→ 0034 (reversa de los días en el cajón) → 0035 (ajustes del panel) → 0036 (etiquetas de cocina) → 0037 (anular conteo) → 0038 (contar preparaciones) → 0039 (ficha de chef) → 0040 (nivel par) → 0041 (recargos legales) → 0042 (avisos resueltos) → 0043 (contrato y novedades de nómina) → 0044 (seguridad de la cuenta) → 0046 (reversa del reparto de propinas; 0045 se escribe en paralelo y, mientras no exista en este árbol, 0046 cuelga de 0044). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037, 0038, 0039 y 0040"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037, 0038, 0039, 0040 y 0046"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -735,7 +735,8 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # (contar preparaciones) suma una: **117**. `0039` (ficha de chef) suma
     # una: **118**. `0040` (nivel par) agrega columnas: sigue 118. `0043`
     # (contrato y novedades de nómina) suma tres: **121**. `0044` (seguridad
-    # de la cuenta) suma dos: **123**.
+    # de la cuenta) suma dos: **123**. `0046` (reversa del reparto de
+    # propinas) agrega columnas, no tablas: sigue 123.
     assert len(tablas) == 123, (
         f"el esquema quedó con {len(tablas)} tablas de dominio; `0031` lo deja en 113, `0032` no lo mueve "
         f"`0033` suma la meta de ventas del mes: 114 `0036` las etiquetas de cocina: 116 `0038` el conteo de preparaciones: 117 `0039` la ficha de chef: 118 `0043` el contrato y las novedades de nómina: 121 y `0044` la seguridad de la cuenta: 123 "
@@ -916,8 +917,11 @@ def test_a3_a_tip_payout_that_predates_the_column_reads_back_as_unknown(tmp_path
         con.commit()
         con.close()
 
-        # Y ahora la migración que agrega la columna sobre esa fila.
-        command.upgrade(_alembic_config(url), "0021")
+        # Y ahora la migración que agrega la columna sobre esa fila. Hasta la
+        # cabeza, no sólo hasta `0021`: el modelo de hoy lee también las
+        # columnas que agregaron después (`0046`, la reversa del reparto), y
+        # lo que se prueba es que la fila respaldada se pueda leer HOY.
+        command.upgrade(_alembic_config(url), "head")
 
         engine = create_engine(url)
         try:
