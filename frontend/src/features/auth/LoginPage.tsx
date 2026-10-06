@@ -10,6 +10,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ApiError } from "@/api/client";
 import { errorMessage } from "@/lib/errors";
 
 import { useDensity } from "@/app/density";
@@ -31,6 +32,9 @@ export default function LoginPage(): React.JSX.Element {
   const enTablet = me?.kind === "device";
   const navigate = useNavigate();
   const [serverError, setServerError] = useState<string | null>(null);
+  // Verificación en dos pasos: aparece cuando el servidor la pide.
+  const [needsCode, setNeedsCode] = useState(false);
+  const [code, setCode] = useState("");
 
   const {
     register,
@@ -41,13 +45,18 @@ export default function LoginPage(): React.JSX.Element {
   async function onSubmit(values: FormValues) {
     setServerError(null);
     try {
-      await adminLogin(values);
+      await adminLogin(needsCode ? { ...values, totp_code: code.trim() } : values);
       await refresh();
       // A la raíz, no a una pantalla fija: el índice de `/admin` decide cuál es
       // la de entrada (hoy «Hoy», antes «Funciones»). Con la ruta escrita acá,
       // 1b-2 cambió el índice del router y el login siguió cayendo en Funciones.
       navigate("/admin", { replace: true });
     } catch (err) {
+      if (err instanceof ApiError && err.code === "TOTP_REQUIRED") {
+        setNeedsCode(true);
+        setServerError(null);
+        return;
+      }
       setServerError(errorMessage(err));
     }
   }
@@ -104,6 +113,24 @@ export default function LoginPage(): React.JSX.Element {
                   </p>
                 ) : null}
               </div>
+              {needsCode ? (
+                <div className="space-y-2">
+                  <Label htmlFor="totp-code">Código de verificación</Label>
+                  <Input
+                    id="totp-code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className="h-11"
+                    autoFocus
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="123456"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Los 6 dígitos de tu app de autenticación, o uno de tus códigos de recuperación.
+                  </p>
+                </div>
+              ) : null}
               {serverError ? (
                 <p role="alert" className="text-sm font-medium text-destructive">
                   {serverError}
@@ -112,6 +139,9 @@ export default function LoginPage(): React.JSX.Element {
               <Button type="submit" className="h-11 w-full" disabled={isSubmitting}>
                 {isSubmitting ? "Ingresando…" : "Ingresar"}
               </Button>
+              <Link to="/recuperar" className="block text-center text-sm text-primary underline-offset-4 hover:underline">
+                Olvidé mi contraseña
+              </Link>
             </form>
           </CardContent>
         </Card>

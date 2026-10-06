@@ -20,6 +20,42 @@ Puesto = Literal["caja", "salon", "cocina", "bar"]
 class AdminLoginIn(BaseModel):
     email: str
     password: str
+    # Con la verificación en dos pasos activa: el código de la app, o un
+    # código de recuperación.
+    totp_code: str | None = None
+
+
+class AccountSecurityOut(BaseModel):
+    totp_enabled: bool
+    recovery_codes_left: int
+
+
+class TotpSetupOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
+class TotpCodeIn(BaseModel):
+    code: str
+
+
+class PasswordConfirmIn(BaseModel):
+    password: str
+
+
+class RecoveryCodesOut(BaseModel):
+    recovery_codes: list[str]
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=10, max_length=200)
+
+
+class PasswordRecoverIn(BaseModel):
+    email: str
+    recovery_code: str
+    new_password: str = Field(min_length=10, max_length=200)
 
 
 class UserOut(BaseModel):

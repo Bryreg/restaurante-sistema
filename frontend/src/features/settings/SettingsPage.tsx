@@ -14,6 +14,7 @@ import { OrganizationSection } from "./OrganizationSection";
 import { SalesSection } from "./SalesSection";
 import { StoresSection } from "./StoresSection";
 import { UvtSection } from "./UvtSection";
+import { AccountSecuritySection } from "./AccountSecuritySection";
 import { ZonesTablesSection } from "./ZonesTablesSection";
 
 /**
@@ -49,6 +50,11 @@ const GROUPS: readonly { group: string; tabs: readonly SettingsTab[] }[] = [
         value: "organization",
         label: "Organización",
         question: "¿Cómo se llama el negocio en todo lo que el sistema imprime y exporta?",
+      },
+      {
+        value: "account",
+        label: "Mi cuenta",
+        question: "¿Cómo protejo mi ingreso: verificación en dos pasos, códigos de recuperación y contraseña?",
       },
       {
         value: "stores",
@@ -284,6 +290,9 @@ export default function SettingsPage(): React.JSX.Element {
         </TabsList>
 
         <div className="min-w-0 space-y-3 pt-4">
+          <TabsContent value="account">
+            <AccountSecuritySection />
+          </TabsContent>
           <TabsContent value="organization">
             <OrganizationSection />
           </TabsContent>

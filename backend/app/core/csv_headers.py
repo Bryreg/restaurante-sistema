@@ -149,6 +149,11 @@ KEYS: dict[str, str] = {
 TOKENS: dict[str, str] = {
     "allergens": "alérgenos",
     "absence": "novedad",
+    "otpauth": "otpauth",
+    "uri": "uri",
+    "recovery": "recuperación",
+    "secret": "secreto",
+    "totp": "2fa",
     "allowance": "auxilio",
     "arl": "arl",
     "benefits": "prestaciones",

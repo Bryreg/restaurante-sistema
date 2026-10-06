@@ -125,7 +125,13 @@
  ],
  "features/auth/LoginPage.tsx": [
   "Activá este dispositivo",
+  "Olvidé mi contraseña",
   "Volver al POS"
+ ],
+ "features/auth/RecoverPasswordPage.tsx": [
+  "ABCDE-FGHJK",
+  "Volver",
+  "Volver a entrar"
  ],
  "features/banking/BankingAdminPage.tsx": [
   "Banco no está habilitado",
@@ -1440,6 +1446,14 @@
   "Insumos que coinciden",
   "Quitar"
  ],
+ "features/settings/AccountSecuritySection.tsx": [
+  "Activar",
+  "Apagar la verificación",
+  "Cambiar contraseña",
+  "Configurar",
+  "Código QR para la app de autenticación",
+  "Generar códigos nuevos"
+ ],
  "features/settings/CashSection.tsx": [
   "Base de respaldo",
   "Base fija de apertura",
@@ -1564,6 +1578,7 @@
   "Empleados",
   "Fiscal",
   "Inventario",
+  "Mi cuenta",
   "No se quedan acá: cambian lo que el salón le exige a la gente. Las de la fila llevan un punto ámbar; debajo de cada una, plegado, dice a qué pantallas llega.",
   "Organización",
   "Secciones",
