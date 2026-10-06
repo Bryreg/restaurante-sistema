@@ -608,11 +608,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0040", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0040: 0027 → 0028 (asistencia separada del turno de caja) "
+    assert version == "0041", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0041: 0027 → 0028 (asistencia separada del turno de caja) "
         "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo) "
         "→ 0031 (avisos al celular) → 0032 (supuestos del panel) → 0033 (meta de ventas del mes) "
-        "→ 0034 (reversa de los días en el cajón) → 0035 (ajustes del panel) → 0036 (etiquetas de cocina) → 0037 (anular conteo) → 0038 (contar preparaciones) → 0039 (ficha de chef) → 0040 (nivel par). "
+        "→ 0034 (reversa de los días en el cajón) → 0035 (ajustes del panel) → 0036 (etiquetas de cocina) → 0037 (anular conteo) → 0038 (contar preparaciones) → 0039 (ficha de chef) → 0040 (nivel par) → 0041 (recargos legales). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
         "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037, 0038, 0039 y 0040"
     )

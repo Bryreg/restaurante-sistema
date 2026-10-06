@@ -137,6 +137,7 @@ def _surcharge_table_out(row: SurchargeTable) -> SurchargeTableOut:
         night_surcharge_bp=row.night_surcharge_bp,
         sunday_holiday_surcharge_bp=row.sunday_holiday_surcharge_bp,
         overtime_surcharge_bp=row.overtime_surcharge_bp,
+        night_overtime_surcharge_bp=row.night_overtime_surcharge_bp,
         weekly_ordinary_hours=row.weekly_ordinary_hours,
         confirmed_by_person=row.created_by_employee_id is not None,
         confirmed_by_name=row.created_by_employee_name,
@@ -184,6 +185,11 @@ def _run_out(db: Session, run: Any) -> PayrollRunOut:
         reason=run.reason,
         computed_at=run.computed_at,
         computed_by_employee_name=run.computed_by_employee_name,
+        calculation_method=(
+            "cst_categories"
+            if run.tables_used and all(s.get("night_overtime_surcharge_bp") is not None for s in run.tables_used)
+            else "additive_surcharges"
+        ),
         **service.run_comparison(db, run),
     )
 

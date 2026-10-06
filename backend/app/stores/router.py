@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.core.errors import AppError, NotFoundError
 from app.core.features import FEATURE_BY_KEY, FEATURE_CATALOG, enabled_map, profile_defaults
 from app.core.security import hash_secret
+from app.payroll import legal as payroll_legal
 from app.stores.models import (
     FeatureState,
     Organization,
@@ -462,6 +463,9 @@ def create_store(
     # existía; acá la sede nace con la vigente.
     db.add(StoreCashSettings(store_id=store.id, opening_mode="envelopes", updated_at=now))
     db.flush()
+    # La sede nace con el calendario legal de recargos: sin él, la nómina
+    # liquidaría sin nocturno, dominical ni extras.
+    payroll_legal.seed_store(db, store)
     record_audit(
         db,
         actor=actor,

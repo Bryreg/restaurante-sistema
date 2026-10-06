@@ -1051,9 +1051,6 @@ class Demo:
         self.attempt("costos fijos", a.patch, f"/admin/expenses/settings?store_id={sid}", {"fixed_costs": 14_500_000})
 
         a.step = "nómina"
-        self.attempt("tabla de recargos", a.post, f"/admin/payroll/surcharge-tables?store_id={sid}", {
-            "valid_from": "2025-07-15", "night_start_hour": 19, "night_end_hour": 6, "night_surcharge_bp": 3500,
-            "sunday_holiday_surcharge_bp": 8000, "overtime_surcharge_bp": 2500, "weekly_ordinary_hours": 44})
         for name, _role, _pin, _cc, area, wage in STAFF:
             eid = self.staff_id(name)
             self.attempt(f"salario {name}", a.post, f"/admin/payroll/wages?store_id={sid}", {

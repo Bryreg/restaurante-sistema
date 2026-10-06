@@ -111,6 +111,9 @@ class SurchargeTable(Base):
     night_surcharge_bp: Mapped[int] = mapped_column(sa.Integer)
     sunday_holiday_surcharge_bp: Mapped[int] = mapped_column(sa.Integer)
     overtime_surcharge_bp: Mapped[int] = mapped_column(sa.Integer)
+    # Hora extra NOCTURNA (CST art. 168: 75 %). Reemplaza, para los minutos
+    # extra dentro de la ventana nocturna, a extra (25 %) + nocturno (35 %).
+    night_overtime_surcharge_bp: Mapped[int] = mapped_column(sa.Integer, default=7500, server_default="7500")
 
     # Horas enteras (no hace falta media hora acá: la jornada legal siempre
     # se fijó en un número entero de horas semanales).
@@ -127,6 +130,7 @@ class SurchargeTable(Base):
         CheckConstraint("night_surcharge_bp >= 0", name="ck_payroll_surcharge_night_bp_nonneg"),
         CheckConstraint("sunday_holiday_surcharge_bp >= 0", name="ck_payroll_surcharge_sunday_bp_nonneg"),
         CheckConstraint("overtime_surcharge_bp >= 0", name="ck_payroll_surcharge_overtime_bp_nonneg"),
+        CheckConstraint("night_overtime_surcharge_bp >= 0", name="ck_payroll_surcharge_night_ot_bp_nonneg"),
         CheckConstraint("weekly_ordinary_hours > 0", name="ck_payroll_surcharge_weekly_hours_positive"),
         Index("ix_payroll_surcharge_store_valid_from", "store_id", "valid_from"),
     )

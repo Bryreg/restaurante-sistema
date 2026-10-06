@@ -149,6 +149,8 @@ export interface SurchargeTableOut {
   /** Un solo recargo para dominical Y festivo (Ley 2466 de 2025: 80/90/100 % según el año). */
   sunday_holiday_surcharge_bp: number
   overtime_surcharge_bp: number
+  /** Hora extra nocturna (CST art. 168: 75 %), propia: no es extra + nocturno. */
+  night_overtime_surcharge_bp: number
   /** Jornada semanal ordinaria en horas enteras (42 h desde jul-2026, Ley 2101 de 2021). */
   weekly_ordinary_hours: number
   /** A-4: `false` = la sembró la migración y **nadie con la norma adelante la
@@ -166,6 +168,7 @@ export interface SurchargeTableIn {
   night_surcharge_bp: number
   sunday_holiday_surcharge_bp: number
   overtime_surcharge_bp: number
+  night_overtime_surcharge_bp: number
   weekly_ordinary_hours: number
 }
 
@@ -199,6 +202,8 @@ export interface SurchargeTableUsedOut {
   night_surcharge_bp: number
   sunday_holiday_surcharge_bp: number
   overtime_surcharge_bp: number
+  /** `null` en liquidaciones calculadas antes de existir (pagaban extra + nocturno). */
+  night_overtime_surcharge_bp?: number | null
   weekly_ordinary_hours: number
 }
 
@@ -221,7 +226,7 @@ export interface PayrollRunLineOut {
 
 /** A-5: cómo se calculó una liquidación. Espejo de
  * `app/payroll/schemas.py::PayrollCalculationMethodLiteral`. */
-export type PayrollCalculationMethod = "additive_surcharges"
+export type PayrollCalculationMethod = "additive_surcharges" | "cst_categories"
 
 /** Informe de visualización #14: la liquidación en contexto. Todo lo calcula
  * el backend; `null` va con su motivo en `payroll_pct_reason` /
