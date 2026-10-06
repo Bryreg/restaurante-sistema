@@ -6,11 +6,8 @@ import { formatCOP } from "@/lib/money";
 import { cn } from "cn";
 
 /**
- * Piezas visuales compartidas por los **dos** formularios de cierre
- * (`CloseWizard` con `cash.blind_close` encendida, `SingleStepCloseForm` con
- * la función apagada). Viven acá y no adentro de uno de los dos porque el
- * riesgo declarado en `docs/INVENTARIO-CONTROLES.md` §10.b es justamente ese:
- * rediseñar uno y dejar al otro con la pantalla vieja.
+ * Piezas visuales del cierre a ciegas (`CloseWizard`, la única manera de
+ * cerrar) y de la tarjeta del turno cerrado (`ShiftPage`, `CashRibbon`).
  *
  * Nada de esto calcula: son rótulos, marcos y pastillas. Las cifras llegan
  * ya calculadas del servidor (`AGENTS.md` § «una sola matemática, en el

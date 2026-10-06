@@ -804,8 +804,20 @@ class Demo:
         set_local(day, "10:30")
         p.step = f"{day} apertura"
         self.identify(cashier)
-        shift = self.attempt(f"{day} abrir turno", p.post, "/shifts/open", {
-            "opening_cash": denominations(200_000), "cash_reserve": 0, "cash_responsible_id": cashier})
+        # Apertura «igual al café» (la única): el servidor dice cuánto
+        # debería haber —los días por consignar que siguen en el cajón,
+        # todos marcados— y la cajera cuenta el cajón entero.
+        preview = self.attempt(f"{day} apertura en vivo", p.post, "/shifts/opening/preview", {}) or {}
+        opening_expected = int(preview.get("expected") or 0)
+        carried = [int(d["shift_id"]) for d in preview.get("days", []) if d.get("selected")]
+        opening_counted = (opening_expected // 50) * 50
+        opening: dict[str, Any] = {"cash_responsible_id": cashier, "carried_shift_ids": carried}
+        if opening_counted:
+            opening["opening_cash"] = denominations(opening_counted)
+        if opening_counted != opening_expected:
+            opening["opening_cause"] = "counting_error"
+            opening["opening_note"] = "Monedas sueltas que no se contaron"
+        shift = self.attempt(f"{day} abrir turno", p.post, "/shifts/open", opening)
         if shift is None:
             return
         shift_id = int(shift["id"])
@@ -923,7 +935,7 @@ class Demo:
         p.step = f"{day} cierre"
         self.identify(cashier)
         diff = self.rng.choice([0, 0, 0, 0, -1_000, -2_000, 500, -5_000, 3_000]) if idx % 5 else -18_000
-        guess = max(0, 200_000 + self.cash_today - self.pickups_today - self.expenses_today)
+        guess = max(0, opening_counted + self.cash_today - self.pickups_today - self.expenses_today)
         # Primer conteo (lo que la cajera cree), revisión, y reconteo con lo que de verdad hay.
         count = self.attempt(f"{day} conteo de cierre", p.post, f"/shifts/{shift_id}/close/count", {
             "counted_cash": denominations((guess // 50) * 50), "counted_card": 0, "counted_transfer": 0,
@@ -1048,7 +1060,9 @@ class Demo:
             if ob and due <= last_day:
                 self.attempt(f"pagar {desc}", a.post, f"/admin/obligations/{ob['id']}/settle",
                              {"source": "bank", "note": "Pago PSE"})
-        self.attempt("costos fijos", a.patch, f"/admin/expenses/settings?store_id={sid}", {"fixed_costs": 14_500_000})
+        # Los costos fijos no se escriben a mano: el punto de equilibrio y la
+        # utilidad los toman de lo registrado —las obligaciones de arriba, la
+        # nómina de abajo y los gastos del período (`compute_fixed_costs`)—.
 
         a.step = "nómina"
         for name, _role, _pin, _cc, area, wage in STAFF:
@@ -1057,10 +1071,7 @@ class Demo:
                 "employee_id": eid, "hourly_wage_pesos": wage, "valid_from": self.first_day.isoformat()})
             self.attempt(f"área {name}", a.post, f"/admin/payroll/areas?store_id={sid}",
                          {"employee_id": eid, "area": area})
-        for hdate, hname in ((date(2026, 10, 12), "Día de la Raza"), (date(2026, 11, 2), "Todos los Santos"),
-                             (date(2026, 8, 17), "Asunción de la Virgen"), (date(2026, 8, 7), "Batalla de Boyacá")):
-            self.attempt(f"festivo {hname}", a.post, f"/admin/payroll/holidays?store_id={sid}",
-                         {"holiday_date": hdate.isoformat(), "name": hname})
+        # Los festivos de ley los calcula el sistema (app/core/holidays_co.py).
         mid = self.first_day + timedelta(days=min(13, self.days - 1))
         if self.attempt("liquidar quincena", a.post, f"/admin/payroll/runs?store_id={sid}", {
                 "date_from": self.first_day.isoformat(), "date_to": mid.isoformat()}):
@@ -1115,8 +1126,8 @@ class Demo:
                 self.report.counts["liquidaciones de plataforma"] += 1
 
         a.step = "reparto de propinas"
-        shifts = [sh for row in a.get(f"/admin/business-days?store_id={sid}") for sh in row["shifts"]
-                  if sh["status"] != "open"]
+        shifts = sorted((sh for sh in a.get(f"/admin/shifts?store_id={sid}") if sh["status"] != "open"),
+                        key=lambda sh: (sh["business_date"], sh["opened_at"]))
         first_week = [sh["id"] for sh in shifts if sh["business_date"] < (self.first_day + timedelta(days=7)).isoformat()]
         if first_week:
             proposal = self.attempt("propuesta de reparto", a.get,
@@ -1142,7 +1153,8 @@ class Demo:
         self.full_count(last_day)
 
         a.step = "nota crédito"
-        docs = a.get(f"/admin/documents?store_id={sid}&type=invoice") or []
+        docs = [d for d in (a.get(f"/admin/fiscal/documents?store_id={sid}") or [])
+                if d["document_type"] == "invoice"]
         if docs:
             doc = docs[-1]
             order = a.get(f"/admin/orders/{doc['order_id']}")

@@ -338,7 +338,7 @@ export function IngredientForm({
             checked={values.keyItem}
             onCheckedChange={(checked) => setValues((v) => ({ ...v, keyItem: checked === true }))}
           />
-          <Label htmlFor="ing-key-item">Crítico (entra al conteo rápido)</Label>
+          <Label htmlFor="ing-key-item">Crítico (entra al conteo de críticos)</Label>
         </div>
         <fieldset className="space-y-1.5">
           <legend className="text-sm font-medium">Alérgenos</legend>

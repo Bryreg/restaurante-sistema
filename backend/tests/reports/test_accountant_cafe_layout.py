@@ -225,8 +225,9 @@ def test_goal_crud_progress_inheritance_and_audit(
     assert goal["remaining"] == 25_000
     assert goal["met"] is False
 
-    # Abril no tiene la suya: hereda la de marzo, y lo dice.
-    april = admin_client.get(f"{API}/goal", params={"store_id": store.id, "year": 2026, "month": 4}).json()
+    # Abril no tiene la suya: hereda la de marzo, y lo dice. (Se lee del
+    # informe: `GET .../goal` suelto nadie lo usaba y se quitó.)
+    april = admin_client.get(API, params={"store_id": store.id, "year": 2026, "month": 4}).json()["goal"]
     assert april["amount"] == 100_000 and april["source"] == "inherited" and april["inherited_from"] == "2026-03"
 
     # Bajarla hasta cumplirla: la barra topa en 100 %, lo que falta es 0.
@@ -238,7 +239,7 @@ def test_goal_crud_progress_inheritance_and_audit(
     # 0 = sin meta para ese mes (y abril, que heredaba, se queda sin meta).
     cleared = admin_client.put(f"{API}/goal", json={"store_id": store.id, "year": 2026, "month": 3, "amount": 0})
     assert cleared.status_code == 200 and cleared.json()["amount"] is None
-    april = admin_client.get(f"{API}/goal", params={"store_id": store.id, "year": 2026, "month": 4}).json()
+    april = admin_client.get(API, params={"store_id": store.id, "year": 2026, "month": 4}).json()["goal"]
     assert april["amount"] is None
 
     rows = list(db.execute(select(SalesGoal).where(SalesGoal.store_id == store.id)).scalars())

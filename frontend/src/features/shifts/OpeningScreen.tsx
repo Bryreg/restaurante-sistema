@@ -6,22 +6,19 @@ import { errorMessage } from "@/lib/errors";
 
 import { CashOpeningForm } from "./CashOpeningForm";
 import { OPENING_INFO_QUERY_KEY } from "./hooks";
-import { OpenShiftForm } from "./OpenShiftForm";
 
 /**
  * Lo que ve quien puede manejar la caja cuando no hay turno abierto: el
- * cuadre de apertura. La regla la decide la SEDE en el servidor
- * (`GET /shifts/opening`): con `envelopes` el cajón abre con los días por
- * consignar que están en él, «igual al café» (decisión del dueño,
- * 2026-09-29: ve cuánto debería haber, cuenta el cajón entero y ve la
- * diferencia en vivo — `CashOpeningForm`); con `fixed_base`, la base fija
- * de siempre (`OpenShiftForm`).
+ * cuadre de apertura. Hay **una sola manera de abrir**, «igual al café»
+ * (decisión del dueño, 2026-09-29): el cajón abre con los días por consignar
+ * que están en él, quien abre ve cuánto debería haber, cuenta el cajón
+ * entero y ve la diferencia en vivo (`CashOpeningForm`). La base de respaldo
+ * vive aparte. `GET /shifts/opening` trae los días y si hay base.
  */
 export function OpeningScreen(): React.JSX.Element {
   const query = useQuery({ queryKey: OPENING_INFO_QUERY_KEY, queryFn: getOpeningInfo });
 
-  if (query.data?.mode === "envelopes") return <CashOpeningForm info={query.data} />;
-  if (query.data) return <OpenShiftForm />;
+  if (query.data) return <CashOpeningForm info={query.data} />;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">

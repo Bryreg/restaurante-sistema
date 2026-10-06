@@ -6,7 +6,7 @@
 import type { Puesto } from "./auth";
 import { api } from "./client";
 
-export type EmployeeRole = "operator" | "supervisor" | "admin";
+export type EmployeeRole = "operator" | "supervisor" | "admin" | "accountant";
 
 export interface Employee {
   id: number;

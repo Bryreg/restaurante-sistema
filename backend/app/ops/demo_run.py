@@ -34,16 +34,6 @@ import os
 from sqlalchemy import func, select
 
 
-def _set_opening_mode(mode: str) -> None:
-    from app.core.db import SessionLocal
-    from app.stores.models import StoreCashSettings
-
-    with SessionLocal() as db:
-        for cs in db.execute(select(StoreCashSettings)).scalars():
-            cs.opening_mode = mode
-        db.commit()
-
-
 def _already_loaded() -> bool:
     from app.core.db import SessionLocal
     from app.shifts.models import Shift
@@ -353,7 +343,6 @@ def main() -> None:
 
     sim.admin.c = TestClient(asgi_app, base_url="https://testserver")  # type: ignore[attr-defined]
     sim.pos.c = TestClient(asgi_app, base_url="https://testserver")  # type: ignore[attr-defined]
-    _set_opening_mode("fixed_base")
     try:
         if args.reabastecer:
             from datetime import datetime
@@ -380,7 +369,6 @@ def main() -> None:
         sim.issues.append(f"El simulador se detuvo: {exc!r}")
     finally:
         clock.set_clock(None)
-        _set_opening_mode("envelopes")
 
     for line in sim.day_summaries:
         print("demo_run: " + line, flush=True)

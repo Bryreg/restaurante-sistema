@@ -37,6 +37,26 @@ class ProfileSetIn(BaseModel):
     profile: Literal["basic", "standard", "full"]
 
 
+class PosProfileOut(BaseModel):
+    key: str
+    label: str
+    description: str
+    flags: dict[str, bool]
+
+
+class PosProfileSetIn(BaseModel):
+    profile: Literal["mostrador", "mesa", "mixto"]
+    store_id: int | None = None
+
+
+class PosProfileAppliedOut(BaseModel):
+    profile: str
+    changed: list[str]
+    # Funciones fuera del perfil que se apagaron porque dependían de algo que
+    # el perfil apagó (p. ej. `pos.seats` sin `pos.tables`).
+    turned_off_dependents: list[str]
+
+
 class OpeningHourIn(BaseModel):
     weekday: int = Field(ge=0, le=6)
     open: str
@@ -106,7 +126,10 @@ class FiscalOut(FiscalIn):
 
 
 class CashSettingsIn(BaseModel):
-    opening_cash_fixed: int = Field(ge=0)
+    # `opening_cash_fixed` y `opening_mode` ya no se configuran: hay una sola
+    # manera de abrir el cajón («igual al café», con los días por consignar
+    # que están en él). Un cliente viejo que los mande no cambia nada: se
+    # ignoran. La base de respaldo es `cash_reserve_default`.
     cash_reserve_default: int = Field(ge=0)
     tolerance_unknown_cause: int = Field(ge=0)
     critical_difference: int = Field(ge=0)
@@ -118,16 +141,9 @@ class CashSettingsIn(BaseModel):
     # Días de plata de cierres sin consignar antes del aviso (0035). Sin el
     # campo, la sede conserva el que tenía.
     deposit_overdue_days: int | None = Field(default=None, ge=1, le=60)
-    # Cómo abre el cajón (2026-09-26): `envelopes` (sólo los sobres por
-    # consignar, contados a ciegas; la base de respaldo aparte con el monto
-    # de `cash_reserve_default`) o `fixed_base` (la base fija de siempre).
-    # Opcional al guardar: sin él, la sede conserva el que tenía (un cliente
-    # escrito antes del campo no la cambia de regla sin querer).
-    opening_mode: Literal["envelopes", "fixed_base"] | None = None
 
 
 class CashSettingsOut(CashSettingsIn):
-    opening_mode: Literal["envelopes", "fixed_base"] | None = "fixed_base"
     deposit_overdue_days: int | None = 3
 
 

@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.csv import CsvFormat, csv_response, sectioned_rows
+from app.core.csv import CsvFormat, csv_response
 from app.auth.deps import Actor, admin_store, current_admin, current_device, current_operator
 from app.core import tz
 from app.core.db import get_db
@@ -221,15 +221,13 @@ def produce(
 @router.get("/admin/products/{product_id}/recipe", response_model=ProductRecipeOut)
 def get_product_recipe(
     product_id: int,
-    format: CsvFormat = None,
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
     _feature: None = Depends(require_feature("catalog.recipes")),
-) -> ProductRecipeOut | Response:
-    result = service.get_product_recipe(db, actor=actor, product_id=product_id)
-    if format == "csv":
-        return csv_response(sectioned_rows(result), "receta.csv")
-    return result
+) -> ProductRecipeOut:
+    # Sin `?format=csv`: la receta se descarga como ficha de chef
+    # (`GET .../sheet/print`, `/imprimir/ficha` en el frontend).
+    return service.get_product_recipe(db, actor=actor, product_id=product_id)
 
 
 @router.put("/admin/products/{product_id}/recipe")

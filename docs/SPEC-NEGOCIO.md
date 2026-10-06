@@ -101,11 +101,10 @@ tiene cursos, división de cuenta y recetas con preparaciones. Por eso:
 | `pos.daily_count` | contador de porciones del día | no | sí | sí | |
 | `kitchen.view` | vista de cocina mínima por estación | no | sí | sí | |
 | `kitchen.kds` | KDS con «bump», expedición e impresión (fase 2) | no | no | sí | `kitchen.view` |
-| `cash.blind_close` | cierre a ciegas en tres pasos (apagado: cierre en un paso, igual con causa) | no | sí | sí | |
 | `cash.reserve` | reserva de caja declarada aparte | sí | sí | sí | |
 | `cash.pickups` | retiros de efectivo con snapshot | sí | sí | sí | |
 | `cash.handovers` | relevo del responsable y arqueo sorpresa | no | sí | sí | |
-| `cash.photo_required` | foto obligatoria en cierre y retiro | no | sí | sí | |
+| ~~`cash.photo_required`~~ | **retirada** (limpieza e16): la foto la deciden sólo las casillas de la sede en Ajustes › Caja | — | — | — | |
 | `cash.swaps` | cambio de denominaciones | sí | sí | sí | |
 | `roles.supervisor` | rol supervisor con PIN propio | no | sí | sí | |
 | `fiscal.dee_pos` | documento equivalente electrónico vía proveedor | sí* | sí* | sí* | |
@@ -123,7 +122,7 @@ tiene cursos, división de cuenta y recetas con preparaciones. Por eso:
 | `money.bank` | libro del banco y mano del dueño (fase 3) | no | no | sí | `money.deposits` |
 | `money.obligations` | gastos, obligaciones, punto de equilibrio (fase 3) | no | no | sí | |
 | `payroll` | horas, recargos y nómina (fase 3) | no | no | sí | |
-| `multi_store` | selector de sede y comparativo | no | no | sí | |
+| ~~`multi_store`~~ | **retirada** (limpieza e16): el selector de sede aparece cuando hay más de una sede | — | — | — | |
 | `notifications.push` | push al administrador (fase 2) | no | sí | sí | |
 
 \* `fiscal.dee_pos` se apaga sólo si la organización declara **no estar obligada a
@@ -285,9 +284,10 @@ la carrera (la referencia lo tiene: `caja.py:296-303`).
 > Lo que sigue en esta sección sobre la «base fija» describe la regla anterior; queda
 > para los turnos abiertos antes del cambio (cada turno congela su regla al abrir:
 > `shifts.opening_mode` y `shifts.opening_fixed_base`, así que ningún número
-> histórico se reescribe) y para una sede con `opening_mode = fixed_base`. Toda sede
-> existente pasó a la regla nueva con la migración `0029`, y toda sede nueva nace
-> con ella.
+> histórico se reescribe). Las dos reglas anteriores (base fija y conteo por sobres
+> sellado) **ya no abren turnos**: sus rutas de escritura se quitaron y
+> `store_cash_settings.opening_mode` / `opening_cash_fixed` quedaron como columnas de
+> legado sin uso. Los turnos que abrieron así se siguen leyendo y reportando.
 >
 > 1. *(Reemplazado el 2026-09-29 por la apertura sin ciegas del recuadro de arriba;
 >    queda para un conteo ya sellado.)* **Apertura = cuadre de los sobres** (como café-sistema). Para quien puede

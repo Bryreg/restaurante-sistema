@@ -119,36 +119,6 @@ class ObligationCancelIn(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Configuración (costos fijos) — TU tabla, no `app.stores.models`.
-#
-# **Obsoleta para el cálculo** (decisión del dueño, informe de visualización
-# #2): el punto de equilibrio ya no usa este número escrito a mano, sino los
-# costos fijos que el sistema registra (obligaciones + nómina + gastos del
-# período, ver `service.compute_fixed_costs`). Un costo fijo escrito a mano
-# ($14,5 M) contra los registrados ($19,6 M) hacía que «ya pasaste el
-# equilibrio» conviviera con una pérdida en Utilidad. La tabla y la ruta
-# quedan (sin migración, y la pantalla vieja todavía la lee), pero nada la
-# suma: se lee, se guarda y se ignora.
-# ---------------------------------------------------------------------------
-
-
-class ExpensesSettingsOut(OutModel):
-    store_id: int
-    fixed_costs: int | None = Field(
-        description="OBSOLETO: ya no entra al punto de equilibrio; los costos fijos se calculan solos."
-    )
-    updated_at: datetime | None
-
-
-class ExpensesSettingsIn(BaseModel):
-    fixed_costs: int | None = Field(
-        default=None,
-        ge=0,
-        description="OBSOLETO: se guarda pero no entra a ningún cálculo; el punto de equilibrio usa los costos fijos registrados.",
-    )
-
-
-# ---------------------------------------------------------------------------
 # Punto de equilibrio y utilidad del período.
 #
 # Los dos leen EXACTAMENTE los mismos costos fijos (`fixed_costs` +

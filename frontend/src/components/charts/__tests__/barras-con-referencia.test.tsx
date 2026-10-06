@@ -378,33 +378,6 @@ describe("HorarioGantt", () => {
     expect(etiquetaHora(24)).toBe("12 a. m.")
     expect(etiquetaHora(6)).toBe("6 a. m.")
   })
-
-  it("variante persona: programado punteado y la llegada tarde en ámbar", () => {
-    const { container } = renderRouter(
-      <HorarioGantt
-        variante="persona"
-        filas={[
-          {
-            key: "2026-09-19",
-            etiqueta: "sáb 19",
-            detalle: "8 min tarde",
-            programado: { entrada: "2026-09-19T12:00:00Z", salida: "2026-09-19T20:00:00Z" },
-            tramos: [{ entrada: "2026-09-19T12:08:00Z", salida: "2026-09-19T20:00:00Z" }],
-            tardanza: { entrada: "2026-09-19T12:00:00Z", salida: "2026-09-19T12:08:00Z" },
-          },
-        ]}
-      />,
-    )
-    const prog = container.querySelector<HTMLElement>("[data-programado]")!
-    expect(prog.className).toContain("border-dashed")
-    const tarde = container.querySelector<HTMLElement>("[data-tardanza]")!
-    expect(tarde.className).toContain("bg-warning")
-    expect(Number.parseFloat(tarde.style.width)).toBeCloseTo((8 / (18 * 60)) * 100, 3)
-    expect(screen.getByText(/llegó tarde: 7:00 a\.\s?m\. a 7:08 a\.\s?m\./)).toBeInTheDocument()
-    const leyenda = container.querySelector('ul[aria-hidden="true"]')!
-    expect(leyenda).toHaveTextContent("Turno programado")
-    expect(leyenda).toHaveTextContent("Llegó tarde")
-  })
 })
 
 describe("QuadrantScatter — variante mix («Mix de platos»)", () => {
@@ -521,23 +494,6 @@ describe("Extensiones para las fichas del panel", () => {
   it("el sobrante sigue en --diverge-sobra por defecto (caja)", () => {
     render(<DivergingBars datos={[{ key: "x", etiqueta: "Turno", valor: 2_000 }]} formato={formatCOP} />)
     expect(document.querySelector<HTMLElement>("[data-barra]")!.style.background).toBe("var(--diverge-sobra)")
-  })
-
-  it("HorarioGantt persona sin programado ni tardanza no los promete en la leyenda", () => {
-    const { container } = render(
-      <MemoryRouter>
-        <HorarioGantt
-          variante="persona"
-          filas={[
-            { key: "d", etiqueta: "sáb 27", tramos: [{ entrada: "2026-09-27T12:00:00Z", salida: "2026-09-27T20:00:00Z" }] },
-          ]}
-        />
-      </MemoryRouter>,
-    )
-    const leyenda = container.querySelector('ul[aria-hidden="true"]')!
-    expect(leyenda).toHaveTextContent("Lo que trabajó")
-    expect(leyenda).not.toHaveTextContent("Turno programado")
-    expect(leyenda).not.toHaveTextContent("Llegó tarde")
   })
 })
 

@@ -34,15 +34,14 @@ export interface PersonaPuesto {
 
 /**
  * Los destinos de cada puesto, en el orden en que se dibujan (cinco como
- * máximo). «Cocina» (`/pos/cocina`, la vista de sólo lectura) aparece en el
- * de cocina como respaldo del KDS: si `kitchen.kds` está apagada, esa es la
- * pantalla de la cocina.
+ * máximo). «Cocina» (`/pos/kds`, la única pantalla de cocina, gateada por
+ * `kitchen.view`) aparece también en caja.
  */
 const DESTINOS: Record<Puesto, readonly string[]> = {
   salon: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno"],
-  caja: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno", "/pos/cocina"],
-  cocina: ["/pos/kds", "/pos/conteo", "/pos/cocina", "/pos/produccion", "/pos/etiquetas", "/pos/merma", "/pos/turno"],
-  bar: ["/pos/kds", "/pos/conteo", "/pos/cocina", "/pos/produccion", "/pos/etiquetas", "/pos/merma", "/pos/turno"],
+  caja: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno", "/pos/kds"],
+  cocina: ["/pos/kds", "/pos/conteo", "/pos/produccion", "/pos/etiquetas", "/pos/merma", "/pos/turno"],
+  bar: ["/pos/kds", "/pos/conteo", "/pos/produccion", "/pos/etiquetas", "/pos/merma", "/pos/turno"],
 };
 
 function esPuesto(value: string | null | undefined): value is Puesto {
@@ -125,8 +124,7 @@ export function inicioParaPuesto(
       if (!opciones.sinConteo && hasFeature("inventory.perpetual") && hasFeature("inventory.shift_counts")) {
         return "/pos/conteo?inicio=1";
       }
-      if (hasFeature("kitchen.kds")) return "/pos/kds";
-      if (hasFeature("kitchen.view")) return "/pos/cocina";
+      if (hasFeature("kitchen.view") || hasFeature("kitchen.kds")) return "/pos/kds";
       return "/pos/turno";
     default:
       return venta;
@@ -178,7 +176,6 @@ export function barraDelSalon(
   if (soloAutoriza(persona)) return [];
   const conFlags = all
     .filter((item) => !item.feature || hasFeature(item.feature))
-    .filter((item) => !item.hiddenWithFeature || !hasFeature(item.hiddenWithFeature))
     .map((item, index) => ({ item, index }))
     .sort((a, b) => GROUP_RANK[a.item.posGroup ?? "venta"] - GROUP_RANK[b.item.posGroup ?? "venta"] || a.index - b.index)
     .map(({ item }) => item);

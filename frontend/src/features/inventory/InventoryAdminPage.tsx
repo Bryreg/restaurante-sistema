@@ -5,8 +5,10 @@ import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { listIngredients } from "@/api/inventory"
 import { Cargando } from "@/components/Cargando"
-import { FeatureOffEmptyState, MasPestanas, PageHeader, type PestanaDeMas } from "@/components/admin"
+import { FeatureOffEmptyState, GroupLabel, MasPestanas, PageHeader, type PestanaDeMas } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { SustainedHealthTab } from "@/features/analytics/SustainedHealthTab"
+import { VarianceByDishTab } from "@/features/analytics/VarianceByDishTab"
 import { LabelsAdminTab } from "@/features/labels/LabelsAdminTab"
 
 import { AreaCountsTab } from "./AreaCountsTab"
@@ -245,8 +247,15 @@ export function InventoryAdminPage(): React.JSX.Element {
           </TabsContent>
         ) : null}
         {varianceEnabled ? (
-          <TabsContent value="varianza" className="pt-4">
+          <TabsContent value="varianza" className="space-y-8 pt-4">
+            {/* El único lugar de la varianza (limpieza 2026-10): por insumo
+                entre dos conteos y, debajo, la misma varianza repartida por
+                plato. Antes «Varianza por plato» era otra pestaña en
+                Analítica, con su propia entrada del rail. */}
             <VarianceTab storeId={activeStoreId} />
+            <GroupLabel label="Por plato" says="la varianza del último conteo completo, repartida entre los platos que usan cada insumo">
+              <VarianceByDishTab storeId={activeStoreId} />
+            </GroupLabel>
           </TabsContent>
         ) : null}
         {lotsEnabled ? (
@@ -260,8 +269,13 @@ export function InventoryAdminPage(): React.JSX.Element {
           </TabsContent>
         ) : null}
         {varianceEnabled ? (
-          <TabsContent value="salud" className="pt-4">
+          <TabsContent value="salud" className="space-y-8 pt-4">
             <ControlHealthTab storeId={activeStoreId} />
+            {/* La brecha de food cost a lo largo de varias ventanas: antes
+                «Salud sostenida», pestaña aparte en Analítica. */}
+            <GroupLabel label="¿Se sostiene la brecha?" says="las últimas ventanas entre conteos completos, no un conteo malo">
+              <SustainedHealthTab storeId={activeStoreId} />
+            </GroupLabel>
           </TabsContent>
         ) : null}
       </Tabs>

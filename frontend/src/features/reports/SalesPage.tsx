@@ -6,13 +6,15 @@ import { Cargando } from "@/components/Cargando"
 import { PageHeader } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-import { AccountantReportTab } from "./AccountantReportTab"
 import { SalesTab } from "./SalesTab"
 import { UnavailableLogTab } from "./UnavailableLogTab"
 
 /**
- * "Ventas" (SPEC-NEGOCIO §9.3): ¿qué vendí y cómo me pagaron?, con el
- * informe para el contador y los agotados del período. "Documentos con
+ * "Ventas" (SPEC-NEGOCIO §9.3): ¿qué vendí y cómo me pagaron?, con los
+ * agotados del período. El informe del contador tiene su propia pantalla
+ * (`/admin/contador`, decisión del dueño 2026-09); antes también era una
+ * pestaña de acá, y se quitó para que se vea en un solo lugar (limpieza
+ * 2026-10): la cabecera enlaza a él. "Documentos con
  * detalle" y "notas" ya tienen su propia pantalla completa en Documentos
  * fiscales/Notas (`fiscalFeature`, territorio de `frontend-fiscal`) — acá no
  * se duplican, sólo se agrupan/exportan las ventas y se enlaza a esas
@@ -39,6 +41,13 @@ export function SalesPage(): React.JSX.Element {
         question="Qué se vendió en el período, cómo te lo pagaron y qué parte de eso tuvo ficha técnica de verdad."
         actions={
           <>
+            <Link
+              to="/admin/contador"
+              className="inline-flex items-center gap-1 text-sm font-bold text-primary hover:underline"
+            >
+              Informe del contador
+              <ArrowRight className="size-3.5" aria-hidden="true" />
+            </Link>
             <Link
               to="/admin/fiscal/documentos"
               className="inline-flex items-center gap-1 text-sm font-bold text-primary hover:underline"
@@ -67,14 +76,10 @@ export function SalesPage(): React.JSX.Element {
             title="El período y la agrupación se eligen en cada pestaña; la sede, en la lateral."
           >
             <TabsTrigger value="sales">Ventas</TabsTrigger>
-            <TabsTrigger value="accountant">Informe del contador</TabsTrigger>
             <TabsTrigger value="unavailable">Agotados</TabsTrigger>
           </TabsList>
           <TabsContent value="sales" className="pt-4">
             <SalesTab storeId={activeStoreId} />
-          </TabsContent>
-          <TabsContent value="accountant" className="pt-4">
-            <AccountantReportTab storeId={activeStoreId} />
           </TabsContent>
           <TabsContent value="unavailable" className="pt-4">
             <UnavailableLogTab storeId={activeStoreId} />

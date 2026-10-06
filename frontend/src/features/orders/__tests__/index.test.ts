@@ -5,7 +5,7 @@ import { ordersFeature } from "../index"
 describe("ordersFeature", () => {
   it("expone posRoutes, adminRoutes, adminNav y posNav con las rutas del contrato", () => {
     const posPaths = ordersFeature.posRoutes.map((r) => r.path)
-    expect(posPaths).toEqual(["mesas", "mostrador", "comanda/nueva", "comanda/:orderId", "cocina"])
+    expect(posPaths).toEqual(["mesas", "mostrador", "comanda/nueva", "comanda/:orderId"])
 
     const adminPaths = ordersFeature.adminRoutes.map((r) => r.path)
     expect(adminPaths).toEqual(["pedidos"])
@@ -20,15 +20,6 @@ describe("ordersFeature", () => {
       // en «Nuevo pedido».
       { to: "/pos/mostrador", label: "Mostrador", feature: "pos.counter" },
       { to: "/pos/comanda/nueva", label: "Nuevo pedido" },
-      // Con `kitchen.kds` encendida la vista mínima se va de la barra: la
-      // cocina tiene UNA pantalla (el KDS), no dos.
-      {
-        to: "/pos/cocina",
-        label: "Cocina",
-        feature: "kitchen.view",
-        hiddenWithFeature: "kitchen.kds",
-        posGroup: "cocina",
-      },
     ])
   })
 })

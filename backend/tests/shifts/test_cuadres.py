@@ -24,7 +24,9 @@ from app.shifts import hooks
 from tests.shifts.conftest import idem
 
 API = "/api/v1"
-BASE = 200_000
+# El cajón abre vacío: sin días por consignar no debería haber nada
+# («igual al café», la única apertura), así que el cuadre inicial cuadra.
+BASE = 0
 
 
 def _denoms(total: int) -> dict[str, Any]:
@@ -102,18 +104,18 @@ def _setup_day(db: Session, device_client: TestClient, open_shift: Any, employee
         headers=idem(),
     )
     assert resp.status_code == 201, resp.text
-    # Esperado: 200.000 − 30.000 − 10.000 + 50.000 = 210.000; cuenta 205.000.
-    close = device_client.post(
-        f"{API}/shifts/{shift['id']}/close",
-        json={
-            "counted_cash": _denoms(205_000),
-            "tips_cash_out": 0,
-            "photo": "cierre.jpg",
-            "closes_day": True,
-            "cause": "counting_error",
-            "note": "faltaron cinco mil",
-        },
+    # Esperado: 0 − 30.000 − 10.000 + 50.000 = 10.000; cuenta 5.000. Cierre
+    # a ciegas en tres pasos, la única manera de cerrar.
+    count = device_client.post(
+        f"{API}/shifts/{shift['id']}/close/count",
+        json={"counted_cash": _denoms(5_000), "tips_cash_out": 0, "photo": "cierre.jpg"},
         headers=idem(),
+    )
+    assert count.status_code == 201, count.text
+    count_id = count.json()["count_id"]
+    close = device_client.post(
+        f"{API}/shifts/{shift['id']}/close/{count_id}/confirm",
+        json={"difference_seen": -5_000, "closes_day": True, "cause": "counting_error", "note": "faltaron cinco mil"},
     )
     assert close.status_code == 200, close.text
     return int(shift["id"])
@@ -122,7 +124,6 @@ def _setup_day(db: Session, device_client: TestClient, open_shift: Any, employee
 def test_the_timeline_says_who_was_paid_with_note_and_photo(
     db: Session, admin_client: TestClient, device_client: TestClient, open_shift: Any, employees: dict, set_feature: Any, store: Any
 ) -> None:
-    set_feature("cash.blind_close", False, store_id=store.id)
     shift_id = _setup_day(db, device_client, open_shift, employees)
 
     events = admin_client.get(f"{API}/admin/shifts/{shift_id}/timeline").json()
@@ -138,7 +139,6 @@ def test_the_timeline_says_who_was_paid_with_note_and_photo(
 def test_the_cuadres_card_has_counts_desglose_movements_and_performance(
     db: Session, admin_client: TestClient, device_client: TestClient, open_shift: Any, employees: dict, set_feature: Any, store: Any
 ) -> None:
-    set_feature("cash.blind_close", False, store_id=store.id)
     shift_id = _setup_day(db, device_client, open_shift, employees)
 
     resp = admin_client.get(f"{API}/admin/cuadres", params={"store_id": store.id, "status": "closed"})
@@ -153,14 +153,14 @@ def test_the_cuadres_card_has_counts_desglose_movements_and_performance(
     assert kinds == ["opening", "close"]
     inicial, cierre = card["cuadres"]
     assert (inicial["counted"], inicial["expected"], inicial["difference"]) == (BASE, BASE, 0)
-    assert (cierre["counted"], cierre["expected"], cierre["difference"]) == (205_000, 210_000, -5_000)
+    assert (cierre["counted"], cierre["expected"], cierre["difference"]) == (5_000, 10_000, -5_000)
     d = cierre["desglose"]
     assert (d["base"], d["incomes"], d["expenses"], d["expected"], d["counted"], d["difference"]) == (
         BASE,
         50_000,
         40_000,
-        210_000,
-        205_000,
+        10_000,
+        5_000,
         -5_000,
     )
     assert sorted(line["amount"] for line in d["expense_lines"]) == [10_000, 30_000]
@@ -187,7 +187,6 @@ def test_the_cuadres_card_has_counts_desglose_movements_and_performance(
 def test_the_downloads_are_csv_for_excel_in_spanish(
     db: Session, admin_client: TestClient, device_client: TestClient, open_shift: Any, employees: dict, set_feature: Any, store: Any
 ) -> None:
-    set_feature("cash.blind_close", False, store_id=store.id)
     _setup_day(db, device_client, open_shift, employees)
 
     for export, header in (

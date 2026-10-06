@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -1017,46 +1017,6 @@ def _document_fiscal_out(db: Session, document: FiscalDocument) -> DocumentFisca
 # ---------------------------------------------------------------------------
 # Admin
 # ---------------------------------------------------------------------------
-
-
-def admin_list_documents(
-    db: Session,
-    *,
-    store_id: int,
-    date_from: date | None,
-    date_to: date | None,
-    document_type: str | None = None,
-    status: str | None = None,
-) -> list[dict[str, Any]]:
-    """`GET /admin/documents?from&to&type&status` (+ `format=csv`, pedido
-    1b-2 punto 9: la ruta ya existía desde 1b-1 con `from`/`to`; acá se
-    amplía con `type` (`document_type`) y `status` (`dian_status`)."""
-    stmt = select(FiscalDocument).where(FiscalDocument.store_id == store_id, FiscalDocument.status == "issued")
-    if date_from is not None:
-        stmt = stmt.where(FiscalDocument.business_date >= date_from)
-    if date_to is not None:
-        stmt = stmt.where(FiscalDocument.business_date <= date_to)
-    if document_type is not None:
-        stmt = stmt.where(FiscalDocument.document_type == FiscalDocumentType(document_type))
-    if status is not None:
-        stmt = stmt.where(FiscalDocument.dian_status == DianStatus(status))
-    stmt = stmt.order_by(FiscalDocument.issued_at.desc())
-    rows = list(db.execute(stmt).scalars())
-    return [
-        {
-            "id": d.id,
-            "full_number": _full_number(d.prefix, d.number),
-            "document_type": d.document_type.value,
-            "dian_status": d.dian_status.value if d.dian_status else None,
-            "business_date": d.business_date.isoformat(),
-            "issued_at": d.issued_at.isoformat(),
-            "order_id": d.order_id,
-            "total": d.total,
-            "tip_amount": d.tip_amount,
-            "charged_by": d.charged_by_employee_name,
-        }
-        for d in rows
-    ]
 
 
 # ---------------------------------------------------------------------------

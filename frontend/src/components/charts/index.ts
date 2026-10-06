@@ -33,8 +33,8 @@
  *    tiempo o filas por categoría) y `BulletReferencia`, el mini de 90 × 10
  *    para celdas y bloques de Hoy. La barra va en ámbar del lado malo de la
  *    raya, con ▲/▼ y texto.
- * 9. Quién estuvo y cuándo (asistencia de un turno, 12 días de una
- *    persona) → `HorarioGantt`.
+ * 9. Quién estuvo en un turno → `HorarioGantt`. (El horario de la semana
+ *    del equipo es Nómina › Horario de la semana, no una pieza de acá.)
  *
  * REGLAS QUE ESTAS PIEZAS YA CUMPLEN (y que quien las usa no debe romper):
  * · Ninguna calcula plata ni porcentajes: reciben cifras del backend y sólo

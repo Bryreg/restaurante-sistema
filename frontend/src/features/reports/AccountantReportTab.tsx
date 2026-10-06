@@ -27,7 +27,6 @@ import {
   type AccountantMethodGroup,
   type AccountantReportOut,
 } from "@/api/reports"
-import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
@@ -373,7 +372,6 @@ export function AccountantReportTab({
   conTitulo?: boolean
 }): React.JSX.Element {
   const { stores } = useStoreSelection()
-  const { hasFeature } = useSession()
   const queryClient = useQueryClient()
   const nowParts = todayInBogota().split("-")
   const anioActual = Number(nowParts[0])
@@ -385,7 +383,7 @@ export function AccountantReportTab({
   const [sedeElegida, setSedeElegida] = useState<Sede | null>(null)
   const [errorMeta, setErrorMeta] = useState<string | null>(null)
 
-  const conSelector = stores.length > 1 || hasFeature("multi_store")
+  const conSelector = stores.length > 1
   const sede: Sede = sedeElegida ?? storeId
   const params = {
     storeId: sede,

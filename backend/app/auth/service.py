@@ -28,9 +28,9 @@ SUPERVISOR_ACTIONS: set[str] = {
     "void_order",
     "after_bill_change",
     # Base de respaldo (2026-09-26, `app.shifts.reserve`): el supervisor
-    # autoriza en el piso tomar de la base y reversar un movimiento de ella.
+    # autoriza en el piso tomar de la base. Reversar un movimiento de ella
+    # lo hace el administrador desde Caja › Dinero.
     "reserve_take",
-    "reserve_reverse",
 }
 
 

@@ -134,7 +134,7 @@ describe("Caja en el celular", () => {
     getPanelSection.mockResolvedValue(CAJA)
     renderWithProviders(<CajaMovil />, { me: buildMe() })
 
-    const grupo = await screen.findByRole("group", { name: "Las cuatro preguntas de Caja" })
+    const grupo = await screen.findByRole("group", { name: "Las preguntas de Caja" })
     // Con dos sedes, todas juntas.
     expect(getPanelSection).toHaveBeenCalledWith("caja", "all")
     const tarjetas = within(grupo).getAllByRole("button")
@@ -173,7 +173,7 @@ describe("Caja en el celular", () => {
     const user = userEvent.setup()
     renderWithProviders(<CajaMovil />, { me: buildMe() })
 
-    const grupo = await screen.findByRole("group", { name: "Las cuatro preguntas de Caja" })
+    const grupo = await screen.findByRole("group", { name: "Las preguntas de Caja" })
     await user.click(within(grupo).getByRole("button", { name: /Consignaciones/ }))
     expect(within(grupo).getByRole("button", { name: /Consignaciones/ })).toHaveAttribute("aria-pressed", "true")
     const detalle = screen.getByRole("region", { name: "¿Qué consignaciones faltan por confirmar?" })
@@ -185,13 +185,13 @@ describe("Caja en el celular", () => {
     )
   })
 
-  it("una tarjeta sin dato dice por qué (no hay horario programado para las llegadas tarde)", async () => {
+  it("una tarjeta sin dato dice por qué (Consignaciones apagada)", async () => {
     stubMatchMedia(true)
     getPanelSection.mockResolvedValue({
       ...CAJA,
       section: "equipo",
       cards: [
-        card({ key: "late", available: false, reason: "No hay horario programado en el sistema.", tone: "muted" }),
+        card({ key: "deposits", unit: "cop", available: false, reason: "La función «Consignaciones» está apagada en estas sedes.", tone: "muted" }),
         card({ key: "staff", unit: "people", value: 15, status: "Nadie en pausa" }),
         card({ key: "exits", value: 1, tone: "warning", status: "Jhon Pérez" }),
         card({ key: "hours", unit: "minutes", value: 29_160, status: "Sin horas programadas para comparar" }),
@@ -199,11 +199,14 @@ describe("Caja en el celular", () => {
     })
     renderWithProviders(<EquipoMovil />, { me: buildMe() })
 
-    const detalle = await screen.findByRole("region", { name: "¿Quién llegó tarde hoy?" })
-    expect(within(detalle).getByText(/No hay horario programado/).closest(".sin-dato")).not.toBeNull()
-    const grupo = screen.getByRole("group", { name: "Las cuatro preguntas de Equipo" })
+    const detalle = await screen.findByRole("region", { name: "¿Qué consignaciones faltan por confirmar?" })
+    expect(within(detalle).getByText(/Consignaciones» está apagada/).closest(".sin-dato")).not.toBeNull()
+    const grupo = screen.getByRole("group", { name: "Las preguntas de Equipo" })
     // Las horas se escriben en horas, no en minutos.
     expect(within(grupo).getByText("486 h")).toBeInTheDocument()
+    // Cambio intencional (limpieza 2026-10): «Llegadas tarde» nunca tenía
+    // dato (no hay horario programado) y se quitó.
+    expect(within(grupo).queryByText("Llegadas tarde")).not.toBeInTheDocument()
   })
 
   it("una serie toda vacía no dibuja un eje de marcas: dice en una línea que no hay nada que dibujar", async () => {
@@ -229,7 +232,7 @@ describe("Caja en el celular", () => {
     expect(within(detalle).queryByRole("img")).not.toBeInTheDocument()
     expect(within(detalle).getByText(/Nada que dibujar en estos días/)).toBeInTheDocument()
     // La tarjeta tampoco lleva mini tendencia de huecos.
-    const grupo = screen.getByRole("group", { name: "Las cuatro preguntas de Caja" })
+    const grupo = screen.getByRole("group", { name: "Las preguntas de Caja" })
     expect(within(grupo).getAllByRole("button")[0]!.querySelector('[data-slot="serie-mini"]')).toBeNull()
   })
 

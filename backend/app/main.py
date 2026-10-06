@@ -13,7 +13,7 @@ import importlib
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.responses import Response
 
 from app.core.errors import register_error_handlers
@@ -126,6 +126,13 @@ def _mount_frontend(app: FastAPI, frontend_dist: Path | None = None) -> None:
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> Response:
+        # Una ruta de la API que no existe es un 404 de la API, no la
+        # pantalla de la app: si no, una ruta retirada «respondía» 200 con
+        # HTML y el cliente no se enteraba.
+        if full_path == "api" or full_path.startswith("api/"):
+            return JSONResponse(
+                {"error": {"code": "NOT_FOUND", "message": "Esa ruta de la API no existe"}}, status_code=404
+            )
         candidate = (dist_root / full_path).resolve()
         try:
             candidate.relative_to(dist_root)

@@ -45,7 +45,7 @@ import { cn } from "@/lib/utils";
  */
 export const BLUE_AND_SECONDARY = "border-primary/40 text-primary hover:bg-accent hover:text-primary";
 
-function ReasonRescueButton({
+export function ReasonRescueButton({
   label,
   title,
   description,

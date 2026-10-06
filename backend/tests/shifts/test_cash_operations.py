@@ -1,4 +1,4 @@
-"""Movimientos, cambio y retiros: la reserva y el cambio no tocan el esperado,
+"""Movimientos, cambio y retiros: la reserva vieja y el cambio no tocan el esperado,
 el retiro sí y guarda el snapshot, el límite de gasto menor exige PIN de
 administrador, y el replay de `Idempotency-Key` no duplica.
 """
@@ -18,12 +18,24 @@ def _open(db: Session) -> Shift:
     return shift
 
 
-def test_cash_reserve_does_not_change_expected(device_client, open_shift, db: Session) -> None:
-    open_shift(cash_reserve=100_000)
+def test_a_reserve_declared_at_opening_is_ignored_and_does_not_change_expected(
+    device_client, identify, employees, db: Session
+) -> None:
+    """La reserva que se declaraba al abrir con la base fija ya no existe (la
+    base de respaldo vive aparte): un cliente viejo que la mande no la deja
+    en el turno ni mueve el esperado."""
+    identify(device_client, employees["cashier"])
+    resp = device_client.post(
+        "/api/v1/shifts/open",
+        json={"cash_responsible_id": employees["cashier"].id, "cash_reserve": 100_000},
+        headers=idem(),
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["cash_reserve"] == 0
     shift = _open(db)
     breakdown = service.compute_breakdown(db, shift)
-    assert breakdown["expected"] == shift.opening_cash_total
-    assert shift.cash_reserve == 100_000
+    assert breakdown["expected"] == shift.opening_cash_total == 0
+    assert shift.cash_reserve == 0
 
 
 def test_cash_swap_is_net_zero_and_does_not_change_expected(device_client, open_shift, db: Session) -> None:

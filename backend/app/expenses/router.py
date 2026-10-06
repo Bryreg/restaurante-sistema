@@ -25,8 +25,6 @@ from app.expenses.schemas import (
     DrawerExpenseMovementOut,
     ExpenseIn,
     ExpenseOut,
-    ExpensesSettingsIn,
-    ExpensesSettingsOut,
     ExpenseVoidIn,
     ObligationCancelIn,
     ObligationIn,
@@ -265,37 +263,6 @@ def post_cancel_obligation(
         db, organization_id=actor.organization_id, scope="obligations.cancel", request=request, payload=payload, fn=_do
     )
     return ObligationOut.model_validate(body)
-
-
-# ---------------------------------------------------------------------------
-# Configuración (costos fijos) — OBSOLETA para el cálculo: el punto de
-# equilibrio usa los costos fijos registrados (`service.compute_fixed_costs`),
-# no este número escrito a mano. Las dos rutas siguen vivas (sin migración, y
-# la pantalla vieja todavía las llama), marcadas `deprecated` en el OpenAPI.
-# ---------------------------------------------------------------------------
-
-
-@router.get("/admin/expenses/settings", deprecated=True)
-def get_settings(
-    store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
-) -> ExpensesSettingsOut:
-    store = admin_store(db, actor, store_id)
-    row = service.get_settings(db, store_id=store.id)
-    if row is None:
-        return ExpensesSettingsOut(store_id=store.id, fixed_costs=None, updated_at=None)
-    return ExpensesSettingsOut.model_validate(row)
-
-
-@router.patch("/admin/expenses/settings", deprecated=True)
-def patch_settings(
-    payload: ExpensesSettingsIn,
-    store_id: int,
-    actor: Actor = Depends(current_admin),
-    db: Session = Depends(get_db),
-) -> ExpensesSettingsOut:
-    store = admin_store(db, actor, store_id)
-    row = service.update_settings(db, store=store, actor=actor, fixed_costs=payload.fixed_costs)
-    return ExpensesSettingsOut.model_validate(row)
 
 
 # ---------------------------------------------------------------------------

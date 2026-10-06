@@ -48,23 +48,6 @@ function cambiosDeVentas(guardado: SalesSettings, actual: SalesSettings): Pendin
     { key: "period_low_base_orders", field: "Muestra chica del período", sufijo: " comandas", leaks: "Cambia Informes" },
     { key: "daily_low_base_orders", field: "Muestra chica del día", sufijo: " comandas", leaks: "Cambia Informes" },
   ];
-  const seguridad: { key: keyof SalesSettings; field: string; sufijo: string }[] = [
-    { key: "employee_session_minutes", field: "Sesión de la persona", sufijo: " min" },
-    { key: "pin_lock_attempts", field: "Intentos antes del bloqueo", sufijo: "" },
-    { key: "pin_lock_minutes", field: "Bloqueo del PIN", sufijo: " min" },
-  ];
-  for (const { key, field, sufijo } of seguridad) {
-    const antes = guardado[key] as number | null;
-    const ahora = actual[key] as number | null;
-    if (antes !== ahora) {
-      cambios.push({
-        field,
-        from: antes === null ? "el de fábrica" : `${antes}${sufijo}`,
-        to: ahora === null ? "el de fábrica" : `${ahora}${sufijo}`,
-        leaks: "Cambia Quién opera en las tablets",
-      });
-    }
-  }
   if (JSON.stringify(guardado.station_target_minutes) !== JSON.stringify(actual.station_target_minutes)) {
     cambios.push({ field: "Tiempo objetivo por estación", from: "antes", to: "ahora", leaks: "Cambia Cocina y KDS" });
   }
@@ -175,7 +158,10 @@ export function SalesSection({ storeId }: { storeId: number | null }): React.JSX
     setSaving(true);
     setError(null);
     try {
-      await setSalesSettings(storeId as number, values);
+      // Sin los de seguridad: viven en Ajustes › Seguridad y el servidor
+      // conserva lo guardado cuando faltan.
+      const { employee_session_minutes: _s, pin_lock_attempts: _a, pin_lock_minutes: _m, ...ventas } = values;
+      await setSalesSettings(storeId as number, ventas);
       await queryClient.invalidateQueries({ queryKey: ["admin-sales-settings", storeId] });
     } catch (err) {
       setError(errorMessage(err));
@@ -684,64 +670,6 @@ export function SalesSection({ storeId }: { storeId: number | null }): React.JSX
               className="h-11"
               value={values.invoice_threshold_uvt}
               onChange={(e) => patch({ invoice_threshold_uvt: Number(e.target.value) })}
-            />
-          )}
-        </FormField>
-      </FormSection>
-
-      <FormSection
-        title="Seguridad de las tablets"
-        governs="Cuánto dura la identificación de una persona en la tablet sin usarla, y cuántos PIN equivocados la bloquean y por cuánto tiempo."
-        reading={
-          <>
-            Vacío = el valor de fábrica ({values.employee_session_minutes_default ?? 3} min de sesión,{" "}
-            {values.pin_lock_attempts_default ?? 5} intentos, {values.pin_lock_minutes_default ?? 15} min de bloqueo).
-          </>
-        }
-        doesNotDo="No toca el PIN de nadie ni desbloquea a quien ya está bloqueado: el cambio rige desde el próximo intento."
-      >
-        <FormField label="Sesión de la persona (minutos sin usar)" help="Pasado este tiempo sin tocar la tablet, pide el PIN otra vez.">
-          {({ fieldId, describedBy }) => (
-            <Input
-              id={fieldId}
-              aria-describedby={describedBy}
-              type="number"
-              min={1}
-              max={240}
-              className="h-11"
-              placeholder={String(values.employee_session_minutes_default ?? 3)}
-              value={values.employee_session_minutes ?? ""}
-              onChange={(e) => patch({ employee_session_minutes: e.target.value === "" ? null : Number(e.target.value) })}
-            />
-          )}
-        </FormField>
-        <FormField label="PIN equivocados antes del bloqueo" help="Al llegar a este número el PIN se bloquea y el administrador recibe un aviso.">
-          {({ fieldId, describedBy }) => (
-            <Input
-              id={fieldId}
-              aria-describedby={describedBy}
-              type="number"
-              min={2}
-              max={20}
-              className="h-11"
-              placeholder={String(values.pin_lock_attempts_default ?? 5)}
-              value={values.pin_lock_attempts ?? ""}
-              onChange={(e) => patch({ pin_lock_attempts: e.target.value === "" ? null : Number(e.target.value) })}
-            />
-          )}
-        </FormField>
-        <FormField label="Minutos de bloqueo del PIN" help="Cuánto queda bloqueado el PIN; ni el PIN correcto entra mientras tanto.">
-          {({ fieldId, describedBy }) => (
-            <Input
-              id={fieldId}
-              aria-describedby={describedBy}
-              type="number"
-              min={1}
-              max={1440}
-              className="h-11"
-              placeholder={String(values.pin_lock_minutes_default ?? 15)}
-              value={values.pin_lock_minutes ?? ""}
-              onChange={(e) => patch({ pin_lock_minutes: e.target.value === "" ? null : Number(e.target.value) })}
             />
           )}
         </FormField>

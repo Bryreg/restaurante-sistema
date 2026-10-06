@@ -301,35 +301,27 @@ const PERSONA: EmployeeRecordOut = {
 }
 
 describe("Ficha de persona", () => {
-  it("avatar, cuatro tarjetas con tono y 12 días de asistencia: sin horario programado lo dice, no lo inventa", async () => {
+  it("avatar, cuatro tarjetas con tono y el horario en un solo lugar: Nómina › Horario de la semana", async () => {
     mocks.getEmployeeRecord.mockResolvedValue(PERSONA)
     mocks.getEmployeeActivity.mockResolvedValue({ difference_streak: 2, authorizations_given: [] })
     const { container } = renderWithProviders(
       <Routes>
         <Route path="/admin/personal/persona/:employeeId" element={<FichaPersona />} />
       </Routes>,
-      { me: buildMe(), route: "/admin/personal/persona/3" },
+      { me: buildMe({ features: { payroll: true } }), route: "/admin/personal/persona/3" },
     )
 
     expect(await screen.findByRole("heading", { name: "Kevin Ruiz" })).toBeInTheDocument()
     expect(screen.getByText("KR")).toBeInTheDocument()
     expect(await screen.findByText("Racha de cierres con diferencia")).toBeInTheDocument()
 
+    // Un solo gráfico de horario en Equipo: la ficha no dibuja otro, enlaza.
     const seccion = screen.getByText("¿Llega y sale a su hora?").closest("section") as HTMLElement
-    const filas = [...seccion.querySelectorAll<HTMLElement>("[data-fila]")]
-    expect(filas).toHaveLength(12)
-    expect(filas[0]!.dataset.fila).toBe("2026-09-27")
-    expect(filas[11]!.dataset.fila).toBe("2026-09-16")
-    // Nada programado ni tardanza: no se dibujan ni se prometen en la leyenda.
-    expect(container.querySelector("[data-programado]")).toBeNull()
-    expect(container.querySelector("[data-tardanza]")).toBeNull()
-    expect(within(seccion).queryByText("Turno programado")).not.toBeInTheDocument()
-    expect(within(seccion).getByText("Sin horario programado")).toBeInTheDocument()
-    expect(within(seccion).getByText("3 de 12 días con entrada")).toBeInTheDocument()
-    expect(within(seccion).getByText("1 salida sin marcar")).toBeInTheDocument()
-    expect(within(seccion).getByText("8 h 10 min")).toBeInTheDocument()
-    expect(within(seccion).getByText("en turno")).toBeInTheDocument()
-    expect(within(seccion).getAllByText("Sin entrada")).toHaveLength(9)
+    expect(container.querySelector('[data-slot="horario-gantt"]')).toBeNull()
+    expect(within(seccion).getByRole("link", { name: "Nómina › Horario de la semana" })).toHaveAttribute(
+      "href",
+      "/admin/nomina?tab=semana",
+    )
 
     // Las tablas, detrás de «Ver…».
     expect(screen.queryByRole("region", { name: "Turnos con la caja" })).not.toBeInTheDocument()

@@ -25,13 +25,15 @@ export interface AuditFilters {
   employeeId?: number;
 }
 
-export function listAudit(filters: AuditFilters = {}): Promise<AuditRow[]> {
+/** Los más recientes primero; `limit` filas (el servidor tope 2000). */
+export function listAudit(filters: AuditFilters = {}, limit = 200): Promise<AuditRow[]> {
   return api<AuditRow[]>("/admin/audit", {
     query: {
       from: filters.from,
       to: filters.to,
       entity: filters.entity,
       employee_id: filters.employeeId,
+      limit,
     },
   });
 }

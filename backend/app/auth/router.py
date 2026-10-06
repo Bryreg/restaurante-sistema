@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.audit.service import record_audit
 from app.auth import service as auth_service
 from app.auth.deps import (
+    ESCRITORIO_ROLES,
     Actor,
     _read_admin_actor,
     _read_device_session,
@@ -26,8 +27,10 @@ from app.auth.deps import (
     current_device,
     current_device_session,
 )
+from app.auth import account_security
 from app.auth.models import Authorization, DeviceSession, Employee
 from app.auth.schemas import (
+    AccountSecurityOut,
     AdminLoginIn,
     AdminLoginOut,
     AttendanceBriefOut,
@@ -46,7 +49,14 @@ from app.auth.schemas import (
     EmployeeUpdateIn,
     MeOut,
     OrganizationOut,
+    PasswordChangeIn,
+    PermissionRowOut,
+    PasswordConfirmIn,
+    PasswordRecoverIn,
+    RecoveryCodesOut,
     StoreBriefOut,
+    TotpCodeIn,
+    TotpSetupOut,
     UserOut,
 )
 from app.core import clock
@@ -129,14 +139,42 @@ def _store_brief(store: Store) -> StoreBriefOut:
 def admin_login(
     body: AdminLoginIn, request: Request, response: Response, db: Session = Depends(get_db)
 ) -> AdminLoginOut:
+    ip = request.client.host if request.client else None
+    account_security.check_not_locked(db, email=body.email, ip=ip)
     stmt = select(Employee).where(
-        Employee.role == "admin", Employee.email == body.email, Employee.active.is_(True)
+        Employee.role.in_(ESCRITORIO_ROLES), Employee.email == body.email, Employee.active.is_(True)
     )
     employee = db.execute(stmt).scalars().first()
     if employee is None or employee.password_hash is None or not verify_secret(
         body.password, employee.password_hash
     ):
+        account_security.record_attempt(db, email=body.email, ip=ip, success=False)
+        if employee is not None:
+            # Un intento fallido contra una cuenta que existe queda en la
+            # auditoría (sin la contraseña, claro). El correo desconocido no
+            # tiene organización a la cual anotarlo.
+            record_audit(
+                db, actor=None, organization_id=employee.organization_id, store_id=None,
+                entity="admin_login", entity_id=employee.id, action="login_failed",
+                before=None, after={"ip": request.client.host if request.client else None},
+            )
         raise AppError(code="INVALID_CREDENTIALS", message="Correo o contraseña incorrectos")
+
+    # Verificación en dos pasos: la contraseña ya está bien; falta el código.
+    if employee.totp_enabled_at is not None and employee.totp_secret:
+        if not body.totp_code:
+            raise AppError(
+                code="TOTP_REQUIRED",
+                message="Escribí el código de 6 dígitos de tu app de autenticación (o un código de recuperación).",
+                status=401,
+            )
+        if not (
+            account_security.verify_totp(employee.totp_secret, body.totp_code)
+            or account_security.consume_recovery_code(db, employee=employee, code=body.totp_code)
+        ):
+            account_security.record_attempt(db, email=body.email, ip=ip, success=False)
+            raise AppError(code="INVALID_TOTP", message="El código no es válido o ya venció. Probá con el siguiente.", status=401)
+    account_security.record_attempt(db, email=body.email, ip=ip, success=True)
 
     org = db.get(Organization, employee.organization_id)
     if org is None:
@@ -156,6 +194,16 @@ def admin_login(
         ttl = timedelta(hours=settings.ADMIN_SESSION_HOURS)
         token = make_token({"employee_id": employee.id}, ttl=ttl)
     set_session_cookie(response, COOKIE_ADMIN, token, max_age=int(ttl.total_seconds()))
+    record_audit(
+        db, actor=None, organization_id=employee.organization_id, store_id=None,
+        entity="admin_login", entity_id=employee.id, action="login",
+        before=None,
+        after={
+            "employee_name": employee.name,
+            "on_device": on_device,
+            "ip": request.client.host if request.client else None,
+        },
+    )
 
     return AdminLoginOut(
         user=UserOut(id=employee.id, name=employee.name, role=employee.role),
@@ -231,6 +279,7 @@ def device_identify(
         or not employee.active
         or employee.organization_id != session.organization_id
         or (employee.store_id is not None and employee.store_id != session.store_id)
+        or employee.role == "accountant"
     ):
         raise NotFoundError("El empleado no existe en esta sede")
 
@@ -329,6 +378,8 @@ def list_device_employees(
         .where(
             Employee.organization_id == actor.organization_id,
             Employee.active.is_(True),
+            # El contador no opera el POS.
+            Employee.role != "accountant",
             or_(Employee.store_id == actor.store_id, Employee.store_id.is_(None)),
         )
         .order_by(Employee.name)
@@ -630,3 +681,145 @@ def list_authorizations(
     if wants_csv(request):
         return csv_response([o.model_dump() for o in out], "authorizations.csv")
     return out
+
+
+
+# ---------------------------------------------------------------------------
+# Seguridad de la cuenta (0044, auditoría e5): 2FA, códigos de recuperación
+# y cambio de contraseña.
+# ---------------------------------------------------------------------------
+
+
+def _me(db: Session, actor: Actor) -> Employee:
+    employee = db.get(Employee, actor.employee_id) if actor.employee_id is not None else None
+    if employee is None or employee.organization_id != actor.organization_id:
+        raise NotFoundError("La cuenta no existe")
+    return employee
+
+
+def _check_password(employee: Employee, password: str) -> None:
+    if employee.password_hash is None or not verify_secret(password, employee.password_hash):
+        raise AppError(code="INVALID_CREDENTIALS", message="La contraseña no es correcta", status=401)
+
+
+def _security_audit(db: Session, actor: Actor | None, employee: Employee, action: str) -> None:
+    record_audit(
+        db, actor=actor, organization_id=employee.organization_id, store_id=None,
+        entity="admin_security", entity_id=employee.id, action=action, before=None,
+        after={"employee_name": employee.name},
+    )
+
+
+@router.get("/auth/admin/security")
+def get_account_security(db: Session = Depends(get_db), actor: Actor = Depends(current_admin)) -> AccountSecurityOut:
+    employee = _me(db, actor)
+    return AccountSecurityOut(
+        totp_enabled=employee.totp_enabled_at is not None,
+        recovery_codes_left=account_security.remaining_recovery_codes(db, employee_id=employee.id),
+    )
+
+
+@router.post("/auth/admin/2fa/setup")
+def post_totp_setup(db: Session = Depends(get_db), actor: Actor = Depends(current_admin)) -> TotpSetupOut:
+    employee = _me(db, actor)
+    org = db.get(Organization, employee.organization_id)
+    secret = account_security.new_totp_secret()
+    employee.totp_pending_secret = secret
+    db.flush()
+    return TotpSetupOut(
+        secret=secret,
+        otpauth_uri=account_security.otpauth_uri(secret, employee.email or employee.name, org.name if org else ""),
+    )
+
+
+@router.post("/auth/admin/2fa/enable")
+def post_totp_enable(
+    body: TotpCodeIn, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> RecoveryCodesOut:
+    employee = _me(db, actor)
+    if not employee.totp_pending_secret:
+        raise AppError(code="TOTP_NOT_SETUP", message="Primero generá el código QR con «Configurar».")
+    if not account_security.verify_totp(employee.totp_pending_secret, body.code):
+        raise AppError(code="INVALID_TOTP", message="El código no coincide. Revisá la hora del teléfono y probá con el siguiente.")
+    employee.totp_secret = employee.totp_pending_secret
+    employee.totp_pending_secret = None
+    employee.totp_enabled_at = clock.now_utc()
+    codes = account_security.regenerate_recovery_codes(db, employee=employee)
+    _security_audit(db, actor, employee, "totp_enabled")
+    return RecoveryCodesOut(recovery_codes=codes)
+
+
+@router.post("/auth/admin/2fa/disable")
+def post_totp_disable(
+    body: PasswordConfirmIn, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> AccountSecurityOut:
+    employee = _me(db, actor)
+    _check_password(employee, body.password)
+    employee.totp_secret = None
+    employee.totp_pending_secret = None
+    employee.totp_enabled_at = None
+    _security_audit(db, actor, employee, "totp_disabled")
+    return AccountSecurityOut(
+        totp_enabled=False,
+        recovery_codes_left=account_security.remaining_recovery_codes(db, employee_id=employee.id),
+    )
+
+
+@router.post("/auth/admin/recovery-codes")
+def post_recovery_codes(
+    body: PasswordConfirmIn, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> RecoveryCodesOut:
+    employee = _me(db, actor)
+    _check_password(employee, body.password)
+    codes = account_security.regenerate_recovery_codes(db, employee=employee)
+    _security_audit(db, actor, employee, "recovery_codes_regenerated")
+    return RecoveryCodesOut(recovery_codes=codes)
+
+
+@router.post("/auth/admin/password")
+def post_password_change(
+    body: PasswordChangeIn, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> dict[str, bool]:
+    employee = _me(db, actor)
+    _check_password(employee, body.current_password)
+    employee.password_hash = hash_secret(body.new_password)
+    employee.updated_at = clock.now_utc()
+    _security_audit(db, actor, employee, "password_changed")
+    return {"ok": True}
+
+
+@router.post("/auth/recover")
+def post_password_recover(body: PasswordRecoverIn, request: Request, db: Session = Depends(get_db)) -> dict[str, bool]:
+    """Olvidé mi contraseña: correo + un código de recuperación (de los que
+    se guardaron al activar el 2FA o al generarlos). Cuenta como intento de
+    ingreso para el límite."""
+    ip = request.client.host if request.client else None
+    account_security.check_not_locked(db, email=body.email, ip=ip)
+    employee = db.execute(
+        select(Employee).where(
+            Employee.role.in_(ESCRITORIO_ROLES), Employee.email == body.email, Employee.active.is_(True)
+        )
+    ).scalars().first()
+    if employee is None or not account_security.consume_recovery_code(db, employee=employee, code=body.recovery_code):
+        account_security.record_attempt(db, email=body.email, ip=ip, success=False)
+        raise AppError(code="INVALID_RECOVERY", message="El correo o el código de recuperación no son válidos.", status=401)
+    employee.password_hash = hash_secret(body.new_password)
+    employee.updated_at = clock.now_utc()
+    account_security.record_attempt(db, email=body.email, ip=ip, success=True)
+    _security_audit(db, None, employee, "password_recovered")
+    return {"ok": True}
+
+
+
+@router.get("/admin/permissions")
+def get_permissions(actor: Actor = Depends(current_admin)) -> list[PermissionRowOut]:
+    """La matriz de quién puede qué (auditoría e11). Ver `permissions.py`."""
+    from app.auth import permissions
+
+    return [
+        PermissionRowOut(
+            area=r["area"], capability=r["capacidad"], operator=r["operator"],
+            supervisor=r["supervisor"], admin=r["admin"], accountant=r["accountant"],
+        )
+        for r in permissions.matrix()
+    ]

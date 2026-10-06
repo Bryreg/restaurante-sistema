@@ -107,23 +107,28 @@ class StoreCashSettings(Base):
     __tablename__ = "store_cash_settings"
 
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), primary_key=True)
+    # LEGADO (sin uso): la base fija con que abría el cajón antes de la
+    # apertura «igual al café». Ya no se lee ni se escribe; la columna queda
+    # porque no se migra. Los turnos viejos congelaron la suya en
+    # `Shift.opening_fixed_base`.
     opening_cash_fixed: Mapped[int] = mapped_column(Integer, nullable=False, default=200_000)
     # **Monto fijo de la base de respaldo** (2026-09-26). El nombre viene de
     # cuando era «la reserva por defecto» que se declaraba al abrir; hoy es
     # la plata aparte del cajón que el custodio verifica y de la que el
     # cajero toma prestado con autorización (`app.shifts.reserve`).
     cash_reserve_default: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # Cómo abre el cajón esta sede (2026-09-26): `envelopes` (sólo los sobres
-    # por consignar que se eligen y se cuentan; decisión del dueño) o
-    # `fixed_base` (la base fija de siempre, `opening_cash_fixed`). El default
-    # del modelo es la regla anterior para que nada existente cambie de
-    # cuenta en silencio; la migración 0029 pasa las sedes existentes a
-    # `envelopes` y `POST /admin/stores` crea las nuevas así.
+    # LEGADO (sin uso): cómo abría el cajón la sede cuando había dos reglas
+    # (`envelopes` o `fixed_base`). Hoy hay una sola, «igual al café»
+    # (`app.shifts.service.open_shift`), y esta columna ya no se lee ni se
+    # escribe; queda porque no se migra. La regla con que abrió CADA turno
+    # sigue en `Shift.opening_mode`.
     opening_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="fixed_base", server_default="fixed_base")
     tolerance_unknown_cause: Mapped[int] = mapped_column(Integer, nullable=False, default=20_000)
     critical_difference: Mapped[int] = mapped_column(Integer, nullable=False, default=100_000)
     cash_pickup_threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=500_000)
     petty_cash_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=50_000)
+    # Única fuente de la foto obligatoria (la función `cash.photo_required`
+    # se retiró y se plegó acá: `app.stores.service.fold_legacy_photo_flag`).
     photo_required_on_close: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     photo_required_on_pickup: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     streak_alert_shifts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
@@ -224,7 +229,13 @@ class Table(Base):
 
 class FeatureState(Base):
     """Override de un flag, a nivel de organización (`store_id is None`) o de
-    una sede puntual. Lo que no tiene fila acá usa el default del perfil."""
+    una sede puntual. Lo que no tiene fila acá usa el default del perfil.
+
+    Legado: puede haber filas de claves retiradas del catálogo
+    (`multi_store`, `cash.photo_required`, ver
+    `app.core.features.RETIRED_FEATURE_KEYS`). No se borran (sin migración);
+    `enabled_map` las ignora, y la de `cash.photo_required` a nivel de sede
+    sólo marca que la foto vieja ya se plegó en `StoreCashSettings`."""
 
     __tablename__ = "feature_states"
     __table_args__ = (

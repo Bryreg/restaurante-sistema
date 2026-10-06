@@ -125,7 +125,7 @@ describe("PanelAhora (la portada)", () => {
     expect(screen.getByText(/Nadie marcó entrada hoy/)).toBeInTheDocument()
     expect(screen.getByText(/1 salida olvidada a revisar: Operador 1/)).toBeInTheDocument()
     // El bloque «Quién trabaja» lleva a «Asistencia →» (Nómina › Horas).
-    expect(screen.getByRole("link", { name: /Asistencia/ })).toHaveAttribute("href", "/admin/nomina?tab=horas")
+    expect(screen.getByRole("link", { name: /Asistencia/ })).toHaveAttribute("href", "/admin/nomina?tab=semana")
     expect(screen.getByText(/1 préstamo de la base sin devolver/)).toBeInTheDocument()
     expect(screen.getByText(/1 área sin apertura/)).toBeInTheDocument()
     expect(screen.getByText(/2 platos atrasados/)).toBeInTheDocument()

@@ -16,6 +16,7 @@ import { formatDuracion, formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
+import { HORARIO_SEMANA_HREF } from "../fichas/rutas"
 import { SerieMini } from "../hoy/SerieMini"
 import { businessDateOfInstant } from "../lib"
 
@@ -53,8 +54,7 @@ const TARJETAS: Record<string, TarjetaConfig> = {
   pickups: { corto: "Retiros hoy", pregunta: "¿Cuánto salió en retiros hoy?", accion: "Ver retiros", href: "/admin/dinero" },
   expenses: { corto: "Gastos de caja", pregunta: "¿Cuánto se gastó de la caja hoy?", accion: "Ver gastos", href: "/admin/dinero" },
   // Equipo
-  staff: { corto: "En turno ahora", pregunta: "¿Quién trabaja hoy?", accion: "Ver asistencia de hoy", href: "/admin/nomina?tab=horas" },
-  late: { corto: "Llegadas tarde", pregunta: "¿Quién llegó tarde hoy?", accion: "Ver asistencia", href: "/admin/nomina?tab=horas" },
+  staff: { corto: "En turno ahora", pregunta: "¿Quién trabaja hoy?", accion: "Ver el horario de la semana", href: HORARIO_SEMANA_HREF },
   exits: {
     corto: "Salidas olvidadas",
     pregunta: "¿Quién no marcó salida?",
@@ -315,7 +315,7 @@ function Detalle({ card }: { card: SectionCardOut }): React.JSX.Element {
 
 /**
  * **Caja, Equipo e Informes en el celular**, variante A del handoff
- * (`MovilSecciones`, capturas 14a–14c): cuatro tarjetas de 112 px con su
+ * (`MovilSecciones`, capturas 14a–14c): tres o cuatro tarjetas de 112 px con su
  * mini tendencia; la elegida lleva borde de 2 px y abre su detalle debajo
  * —la pregunta, la cifra de 32 px, el gráfico de 120 px con su raya, las
  * excepciones en renglones de 44 px y la acción de 48 px—. Tocar otra
@@ -371,7 +371,7 @@ export function SeccionMovil({ section }: { section: SectionKey }): React.JSX.El
         </div>
       ) : (
         <>
-          <div role="group" aria-label={`Las cuatro preguntas de ${titulo}`} className="grid grid-cols-2 gap-2">
+          <div role="group" aria-label={`Las preguntas de ${titulo}`} className="grid grid-cols-2 gap-2">
             {data.cards.map((c, i) => (
               <Tarjeta key={c.key} card={c} elegida={c.key === card?.key} onElegir={() => setElegida(i)} />
             ))}

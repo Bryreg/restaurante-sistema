@@ -184,10 +184,11 @@ class Obligation(Base):
 
 
 class StoreExpensesSettings(Base):
-    """Costos fijos mensuales declarados por la sede, para `GET
-    /admin/break-even`. `fixed_costs is None` (nunca cargados) es el caso
-    explícito de "sin datos" — el endpoint responde `null` con motivo, jamás
-    `0` (`AGENTS.md`, "null no es 0")."""
+    """**LEGADO, sin uso.** Los costos fijos mensuales que la sede escribía
+    a mano. El punto de equilibrio y la utilidad usan los costos fijos
+    registrados (obligaciones + nómina + gastos del período,
+    `service.compute_fixed_costs`), y `GET`/`PATCH /admin/expenses/settings`
+    se quitaron. Nada lee ni escribe esta tabla; queda porque no se migra."""
 
     __tablename__ = "store_expenses_settings"
 

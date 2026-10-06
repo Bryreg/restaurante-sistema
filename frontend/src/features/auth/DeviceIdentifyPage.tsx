@@ -54,6 +54,7 @@ const ROLE_LABEL: Record<EmployeeRole, string> = {
   operator: "Operador",
   supervisor: "Supervisor",
   admin: "Administrador",
+  accountant: "Contador (sólo lectura)",
 };
 
 function initials(name: string): string {
@@ -110,8 +111,7 @@ function nombreDestino(ruta: string, puesto: string | null | undefined, turnoAbi
     if (puesto === "cocina") return "Conteo de cocina";
     return "Conteo";
   }
-  if (path === "/pos/kds") return "Tiquetes de cocina";
-  if (path === "/pos/cocina") return "Cocina";
+  if (path === "/pos/kds" || path === "/pos/cocina") return "Cocina";
   if (path === "/pos/autorizar") return "Modo autorización";
   return "tu pantalla";
 }

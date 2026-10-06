@@ -4,7 +4,7 @@
  * (`features/fase-1b-venta/spec.md` «Admin reports», tipado contra
  * `backend/app/reports/schemas.py` y `backend/app/reports/service.py`
  * — territorio de `backend-reportes`, ya escrito cuando este archivo se
- * creó). `GET /admin/documents` y `GET /admin/notes` (documentos con
+ * creó). `GET /admin/fiscal/documents` y `GET /admin/notes` (documentos con
  * detalle, notas) y `GET /admin/employees/{id}/activity` viven en
  * `app/payments`, `app/fiscal` y `app/shifts` respectivamente — no son
  * territorio de este archivo; las pantallas de "Ventas" enlazan a las

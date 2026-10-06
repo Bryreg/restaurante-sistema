@@ -21,7 +21,7 @@ La matemática (una sola, acá; la pantalla la pinta como llega):
   de la misma área y el mismo día operativo.
 - En los dos: ``esperado = contado_antes + entradas − salidas`` en la ventana
   ``(instante_antes, instante_ahora]``, con entradas y salidas leídas del
-  libro de movimientos por `service._movement_sum` (la misma suma que usa
+  libro de movimientos por `hooks.movement_sum` (la misma suma que usa
   la varianza) — recepciones, traslados recibidos, producción, consumo
   teórico de ventas por receta, merma, consumo interno y traslados enviados.
   Se excluye `count_adjustment`: el ajuste de un conteo completo corrige el
@@ -83,7 +83,7 @@ from app.core.errors import AppError, NotFoundError
 from app.core.money import format_cop
 from app.core.percent import format_pct_bp
 from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
-from app.inventory import hooks, service
+from app.inventory import hooks
 from app.notifications.service import notify
 from app.inventory.units import entry_qty_to_base, entry_spec
 from app.inventory.models import (
@@ -1424,11 +1424,11 @@ def _line_result(
         ref_line = reference_lines[ingredient.id]
         ref_qty, null_reason = ref_line.qty_base, None
         window_from = _entry_time(ref_line, reference)
-        inflow = service._movement_sum(
+        inflow = hooks.movement_sum(
             db, store_id=store.id, ingredient_id=ingredient.id, window_from=window_from,
             window_to=counted_at, positive=True, exclude_causes=_NOT_A_FLOW,
         )
-        outflow = -service._movement_sum(
+        outflow = -hooks.movement_sum(
             db, store_id=store.id, ingredient_id=ingredient.id, window_from=window_from,
             window_to=counted_at, positive=False, exclude_causes=_NOT_A_FLOW,
         )

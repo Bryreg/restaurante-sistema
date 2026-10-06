@@ -67,7 +67,6 @@ from app.expenses.models import (
     Obligation,
     ObligationCategory,
     ObligationStatus,
-    StoreExpensesSettings,
 )
 from app.expenses.schemas import (
     BreakEvenOut,
@@ -463,47 +462,10 @@ def _sum_obligations(db: Session, *, store_id: int, date_from: date, date_to: da
 
 
 # ---------------------------------------------------------------------------
-# Configuración por sede (costos fijos) — TU tabla, no `app.stores.models`.
-# ---------------------------------------------------------------------------
-
-
-def get_settings(db: Session, *, store_id: int) -> StoreExpensesSettings | None:
-    return db.get(StoreExpensesSettings, store_id)
-
-
-def update_settings(db: Session, *, store: Store, actor: Actor, fixed_costs: int | None) -> StoreExpensesSettings:
-    employee_id, _name = _actor_identity(actor)
-    row = db.get(StoreExpensesSettings, store.id)
-    now = clock.now_utc()
-    before = {"fixed_costs": row.fixed_costs} if row is not None else None
-    if row is None:
-        row = StoreExpensesSettings(
-            store_id=store.id, fixed_costs=fixed_costs, updated_at=now, updated_by_employee_id=employee_id
-        )
-        db.add(row)
-    else:
-        row.fixed_costs = fixed_costs
-        row.updated_at = now
-        row.updated_by_employee_id = employee_id
-    db.flush()
-    record_audit(
-        db,
-        actor=actor,
-        organization_id=store.organization_id,
-        store_id=store.id,
-        entity="store_expenses_settings",
-        entity_id=store.id,
-        action="update",
-        before=before,
-        after={"fixed_costs": row.fixed_costs},
-    )
-    return row
-
-
-# ---------------------------------------------------------------------------
 # Costos fijos AUTOMÁTICOS del período (decisión del dueño, informe de
 # visualización #2). Antes el punto de equilibrio usaba un número escrito a
-# mano en `StoreExpensesSettings.fixed_costs` y Utilidad restaba lo
+# mano en `StoreExpensesSettings.fixed_costs` (hoy legado sin uso: sus
+# rutas se quitaron) y Utilidad restaba lo
 # registrado: con $14,5 M escritos contra $19,6 M registrados, la pantalla
 # decía «ya pasaste el equilibrio» al lado de una pérdida. Ahora los dos leen
 # ESTA función, y el número escrito a mano no entra a ninguna cuenta.

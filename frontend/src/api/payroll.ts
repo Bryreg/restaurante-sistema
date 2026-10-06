@@ -222,6 +222,15 @@ export interface PayrollRunLineOut {
   total: number | null
   /** `null` con este motivo cuando la línea no se pudo liquidar (p. ej. sin tarifa por hora cargada). */
   pay_reason: string | null
+  /** 0043 · Con contrato cargado: novedades, auxilio, recobros y costo del
+   * empleador. `null` sin contrato o en liquidaciones anteriores. */
+  absence_days?: number | null
+  absence_pay?: number | null
+  transport_allowance?: number | null
+  recoverable?: number | null
+  employer_contributions?: number | null
+  benefits_provision?: number | null
+  employer_total?: number | null
 }
 
 /** A-5: cómo se calculó una liquidación. Espejo de
@@ -262,6 +271,8 @@ export interface PayrollRunOut extends PayrollRunComparison {
   tables_used?: SurchargeTableUsedOut[]
   lines?: PayrollRunLineOut[]
   total_amount: number | null
+  /** Lo pagado + aportes + provisión de prestaciones − recobros EPS/ARL. */
+  employer_total_amount?: number | null
   available: boolean
   reason: string | null
   computed_at?: string
@@ -356,10 +367,12 @@ export function createWage(
 }
 
 export interface HolidayOut {
-  id: number
+  /** `null` en los festivos de ley: los calcula el servidor (Ley 51 de 1983). */
+  id: number | null
   store_id: number
   holiday_date: string
   name: string
+  source?: "ley" | "sede"
 }
 
 export interface HolidayIn {
@@ -367,8 +380,8 @@ export interface HolidayIn {
   name: string
 }
 
-export function getHolidays(storeId: number): Promise<HolidayOut[]> {
-  return api<HolidayOut[]>("/admin/payroll/holidays", { query: { store_id: storeId } })
+export function getHolidays(storeId: number, year?: number): Promise<HolidayOut[]> {
+  return api<HolidayOut[]>("/admin/payroll/holidays", { query: { store_id: storeId, year } })
 }
 
 export function createHoliday(
@@ -512,4 +525,121 @@ export function getTipsSettings(storeId: number): Promise<TipsSettingsOut> {
 
 export function updateTipsSettings(storeId: number, data: TipsSettingsIn): Promise<TipsSettingsOut> {
   return api<TipsSettingsOut>("/admin/tips/settings", { method: "PATCH", query: { store_id: storeId }, body: data })
+}
+
+
+// ---------------------------------------------------------------------------
+// 0043 · Contrato, novedades y parámetros legales.
+// ---------------------------------------------------------------------------
+
+export type ContractKind = "indefinite" | "fixed_term" | "part_time" | "apprentice" | "services"
+export type SalaryType = "monthly" | "hourly"
+export type AbsenceKind =
+  | "sick_leave"
+  | "work_accident"
+  | "maternity"
+  | "paternity"
+  | "vacation"
+  | "paid_leave"
+  | "bereavement"
+  | "unpaid_leave"
+  | "suspension"
+
+export interface ContractIn {
+  employee_id: number
+  kind: ContractKind
+  salary_type: SalaryType
+  monthly_salary_pesos: number | null
+  start_date: string
+  end_date: string | null
+  arl_risk_class: number
+}
+
+export interface ContractOut extends ContractIn {
+  id: number
+  store_id: number
+  employee_name: string
+  created_by_employee_name: string | null
+}
+
+export interface AbsenceIn {
+  employee_id: number
+  kind: AbsenceKind
+  date_from: string
+  date_to: string
+  note: string | null
+}
+
+export interface AbsenceOut extends AbsenceIn {
+  id: number
+  store_id: number
+  employee_name: string
+  days: number
+  created_by_employee_name: string | null
+  voided_at: string | null
+  voided_by_employee_name: string | null
+  void_reason: string | null
+}
+
+export interface LegalParamsOut {
+  valid_from: string
+  smmlv_pesos: number
+  transport_allowance_pesos: number
+  health_employer_ppm: number
+  pension_employer_ppm: number
+  family_fund_ppm: number
+  icbf_ppm: number
+  sena_ppm: number
+  severance_ppm: number
+  severance_interest_ppm: number
+  service_bonus_ppm: number
+  vacation_ppm: number
+  exonerated_114_1: boolean
+  source: "ley" | "organizacion"
+  confirmed_by_name: string | null
+}
+
+export type LegalParamsIn = Omit<LegalParamsOut, "source" | "confirmed_by_name">
+
+export function getContracts(storeId: number): Promise<ContractOut[]> {
+  return api<ContractOut[]>("/admin/payroll/contracts", { query: { store_id: storeId } })
+}
+
+export function createContract(storeId: number, data: ContractIn, idempotencyKey: string): Promise<ContractOut> {
+  return api<ContractOut>("/admin/payroll/contracts", {
+    method: "POST",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
+}
+
+export function getAbsences(storeId: number): Promise<AbsenceOut[]> {
+  return api<AbsenceOut[]>("/admin/payroll/absences", { query: { store_id: storeId } })
+}
+
+export function createAbsence(storeId: number, data: AbsenceIn, idempotencyKey: string): Promise<AbsenceOut> {
+  return api<AbsenceOut>("/admin/payroll/absences", {
+    method: "POST",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
+}
+
+export function voidAbsence(storeId: number, absenceId: number, reason: string, idempotencyKey: string): Promise<AbsenceOut> {
+  return api<AbsenceOut>(`/admin/payroll/absences/${absenceId}/void`, {
+    method: "POST",
+    query: { store_id: storeId },
+    body: { reason },
+    idempotencyKey,
+  })
+}
+
+export function getLegalParams(): Promise<LegalParamsOut[]> {
+  return api<LegalParamsOut[]>("/admin/payroll/legal-params")
+}
+
+export function confirmLegalParams(data: LegalParamsIn, idempotencyKey: string): Promise<LegalParamsOut> {
+  return api<LegalParamsOut>("/admin/payroll/legal-params", { method: "POST", body: data, idempotencyKey })
 }

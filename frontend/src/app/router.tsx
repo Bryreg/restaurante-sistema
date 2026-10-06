@@ -4,6 +4,7 @@ import { RouteError } from "@/app/RouteError";
 import DeviceActivatePage from "@/features/auth/DeviceActivatePage";
 import DeviceIdentifyPage from "@/features/auth/DeviceIdentifyPage";
 import LoginPage from "@/features/auth/LoginPage";
+import RecoverPasswordPage from "@/features/auth/RecoverPasswordPage";
 import { analyticsFeature } from "@/features/analytics";
 import { bankingFeature } from "@/features/banking";
 import { catalogFeature } from "@/features/catalog";
@@ -90,6 +91,7 @@ function RequireDevice({ children }: { children: React.ReactElement }): React.Re
 const routes: RouteObject[] = [
   { path: "/", element: <HomePage /> },
   { path: "/login", element: <LoginPage /> },
+  { path: "/recuperar", element: <RecoverPasswordPage /> },
   { path: "/pos/activate", element: <DeviceActivatePage /> },
   // La ficha técnica para imprimir: hoja A4 sin el marco del panel.
   {

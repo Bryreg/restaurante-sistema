@@ -20,6 +20,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 
+const PAGE = 200;
+
 interface FieldDiff {
   field: string;
   before: unknown;
@@ -115,12 +117,16 @@ export default function AuditPage(): React.JSX.Element {
     employeeId: employeeId.trim() !== "" ? Number(employeeId) : undefined,
   };
 
+  // De a páginas: se pide una fila de más para saber si hay más atrás.
+  const [pageSize, setPageSize] = useState(PAGE);
   const query = useQuery({
-    queryKey: ["admin-audit", filters],
-    queryFn: () => listAudit(filters),
+    queryKey: ["admin-audit", filters, pageSize],
+    queryFn: () => listAudit(filters, pageSize + 1),
+    placeholderData: (prev) => prev,
   });
 
-  const rows = query.data ?? [];
+  const hasMore = (query.data ?? []).length > pageSize;
+  const rows = (query.data ?? []).slice(0, pageSize);
 
   // Los filtros puestos, **en palabras**: es lo que el vacío tiene que
   // nombrar, porque el dueño pudo llegar acá desde un enlace y no saber qué
@@ -255,7 +261,7 @@ export default function AuditPage(): React.JSX.Element {
             <DenseTableBar
               shown={rows.length}
               total={rows.length}
-              noun="cambios"
+              noun={hasMore ? "cambios más recientes" : "cambios"}
               hidden={filtrosPuestos.length > 0 ? `filtrados por ${filtrosPuestos.join(" · ")}` : undefined}
             >
               <div className="flex flex-wrap items-center gap-2">
@@ -335,6 +341,13 @@ export default function AuditPage(): React.JSX.Element {
           }
         />
       )}
+      {hasMore ? (
+        <div className="flex justify-center">
+          <Button type="button" variant="outline" onClick={() => setPageSize((n) => Math.min(n + PAGE, 2000))}>
+            Ver {PAGE} más antiguos
+          </Button>
+        </div>
+      ) : null}
 
       <ChangeDialog row={detail} onOpenChange={(open) => !open && setDetail(null)} />
     </div>

@@ -17,7 +17,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, UTCDateTime
 
-ROLE_VALUES = ("operator", "supervisor", "admin")
+# «accountant» (auditoría e11): el contador entra al escritorio como un
+# administrador pero de SOLO LECTURA (`deps.current_admin` le niega toda
+# escritura); no entra al POS.
+ROLE_VALUES = ("operator", "supervisor", "admin", "accountant")
 # Dónde trabaja la persona en el POS: decide a qué pantalla llega al
 # identificarse y qué destinos ve en la barra. `None` = ve todo (el
 # comportamiento de siempre); supervisores y admins lo ignoran.
@@ -50,6 +53,12 @@ class Employee(Base):
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     failed_pin_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pin_locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # 0044 · Verificación en dos pasos (TOTP, RFC 6238) del administrador.
+    # `totp_pending_secret` vive entre «configurar» y «activar» (cuando la
+    # persona prueba un código); `totp_enabled_at` dice si está activa.
+    totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    totp_pending_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
@@ -101,3 +110,33 @@ class Authorization(Base):
     at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
     reference_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     reference_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+
+class LoginAttempt(Base):
+    """Cada intento de ingreso de administrador (0044), para el límite de
+    intentos: 5 fallidos seguidos contra un correo lo frenan 15 minutos, y
+    30 fallidos desde una misma IP en 15 minutos también. Nunca guarda la
+    contraseña."""
+
+    __tablename__ = "auth_login_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
+
+
+class RecoveryCode(Base):
+    """Códigos de recuperación de un administrador (0044): de un solo uso,
+    guardados con hash. Sirven para entrar sin el teléfono del 2FA y para
+    poner una contraseña nueva si se olvidó (no hay correo saliente)."""
+
+    __tablename__ = "auth_recovery_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), nullable=False, index=True)
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

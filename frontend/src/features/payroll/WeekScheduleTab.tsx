@@ -16,7 +16,6 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useState } from "react"
 
 import { getWeekSchedule, weekScheduleCsvUrl, type WeekScheduleOut } from "@/api/payroll"
-import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { Cargando } from "@/components/Cargando"
 import { CsvExportButton } from "@/components/CsvExportButton"
@@ -220,7 +219,6 @@ function WeekTable({ data, visible }: { data: WeekScheduleOut; visible: boolean 
 export function WeekScheduleTab({ storeId }: { storeId: number }): React.JSX.Element {
   const [weekOf, setWeekOf] = useState<string | null>(null)
   const [verTabla, setVerTabla] = useState(false)
-  const { hasFeature } = useSession()
   const { stores, setActiveStoreId } = useStoreSelection()
 
   const query = useQuery({
@@ -246,7 +244,7 @@ export function WeekScheduleTab({ storeId }: { storeId: number }): React.JSX.Ele
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {hasFeature("multi_store") && stores.length > 1 ? (
+          {stores.length > 1 ? (
             <label className="flex items-center gap-1.5 text-sm">
               <span className="text-muted-foreground">Sede</span>
               <select

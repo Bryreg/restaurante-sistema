@@ -12,7 +12,6 @@ import { useCallback, useRef, useState } from "react"
 import { getCatalog } from "@/api/catalog"
 import { ApiError } from "@/api/client"
 import { listFavorites, listTablesStatus, getOrder, type OrderOut } from "@/api/orders"
-import { listKitchenRounds } from "@/api/kitchen"
 import { errorMessage } from "@/lib/errors"
 
 export const TABLES_STATUS_QUERY_KEY = ["tables", "status"] as const
@@ -23,13 +22,8 @@ export function orderQueryKey(orderId: number | null | undefined) {
   return ["orders", orderId] as const
 }
 
-export function kitchenRoundsQueryKey(station: string | undefined) {
-  return ["kitchen", station ?? "__all__"] as const
-}
-
 const TABLES_POLL_MS = 5_000
 const ORDER_POLL_MS = 5_000
-const KITCHEN_POLL_MS = 4_000
 
 export function useTablesStatus(enabled: boolean) {
   return useQuery({
@@ -44,8 +38,8 @@ export function useCatalog() {
   return useQuery({ queryKey: CATALOG_QUERY_KEY, queryFn: () => getCatalog() })
 }
 
-export function useFavorites(enabled: boolean) {
-  return useQuery({ queryKey: FAVORITES_QUERY_KEY, queryFn: listFavorites, enabled })
+export function useFavorites() {
+  return useQuery({ queryKey: FAVORITES_QUERY_KEY, queryFn: listFavorites })
 }
 
 export function useOrder(orderId: number | null | undefined) {
@@ -54,15 +48,6 @@ export function useOrder(orderId: number | null | undefined) {
     queryFn: () => getOrder(orderId as number),
     enabled: orderId !== null && orderId !== undefined,
     refetchInterval: ORDER_POLL_MS,
-  })
-}
-
-export function useKitchenRounds(station: string | undefined, enabled: boolean) {
-  return useQuery({
-    queryKey: kitchenRoundsQueryKey(station),
-    queryFn: () => listKitchenRounds(station),
-    enabled,
-    refetchInterval: KITCHEN_POLL_MS,
   })
 }
 

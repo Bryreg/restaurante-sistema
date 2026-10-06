@@ -1,6 +1,6 @@
 """`GET /admin/break-even` con costos fijos AUTOMÁTICOS (decisión del dueño,
-informe de visualización #2) y `GET`/`PATCH /admin/expenses/settings`, que
-queda obsoleta: se guarda, se lee y no entra a ninguna cuenta.
+informe de visualización #2). `GET`/`PATCH /admin/expenses/settings`, el
+número escrito a mano que ya no entraba a ninguna cuenta, se quitó.
 
 `break_even_amount` sigue siendo `null` **con motivo**, jamás `0`, sin
 costos fijos registrados o sin margen de contribución calculable. Las cifras
@@ -53,22 +53,12 @@ def _sales_total(admin_client: TestClient, store: Store, period: dict[str, str])
     return dict(resp.json()["total"])
 
 
-def test_settings_default_is_none(admin_client: TestClient, store: Store) -> None:
-    resp = admin_client.get(f"/api/v1/admin/expenses/settings?store_id={store.id}")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["fixed_costs"] is None
-
-
-def test_patch_settings_still_stores_the_deprecated_value(admin_client: TestClient, store: Store) -> None:
-    resp = admin_client.patch(f"/api/v1/admin/expenses/settings?store_id={store.id}", json={"fixed_costs": 3_000_000})
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["fixed_costs"] == 3_000_000
-    assert admin_client.get(f"/api/v1/admin/expenses/settings?store_id={store.id}").json()["fixed_costs"] == 3_000_000
-
-
-def test_settings_reject_negative_fixed_costs(admin_client: TestClient, store: Store) -> None:
-    resp = admin_client.patch(f"/api/v1/admin/expenses/settings?store_id={store.id}", json={"fixed_costs": -1})
-    assert resp.status_code == 400, resp.text
+def test_the_manual_fixed_costs_routes_are_gone(admin_client: TestClient, store: Store) -> None:
+    """Los costos fijos se calculan solos: no hay número escrito a mano que
+    leer ni guardar."""
+    url = f"/api/v1/admin/expenses/settings?store_id={store.id}"
+    assert admin_client.get(url).status_code in (404, 405)
+    assert admin_client.patch(url, json={"fixed_costs": 3_000_000}).status_code in (404, 405)
 
 
 def test_break_even_without_registered_fixed_costs_is_null_with_reason_even_with_a_manual_value(
@@ -78,7 +68,6 @@ def test_break_even_without_registered_fixed_costs_is_null_with_reason_even_with
     fijos registrados: el equilibrio es `null` con motivo, jamás `$0`. El
     número escrito a mano en la configuración vieja NO lo rescata."""
     set_feature("payroll", False)
-    admin_client.patch(f"/api/v1/admin/expenses/settings?store_id={store.id}", json={"fixed_costs": 9_000_000})
 
     body = admin_client.get("/api/v1/admin/break-even", params={"store_id": store.id, **_WIDE_RANGE}).json()
     assert body["fixed_costs"] == 0
@@ -96,7 +85,6 @@ def test_break_even_fixed_costs_are_obligations_plus_expenses_of_the_period_neve
     admin_client: TestClient, store: Store, set_feature: Callable[..., None]
 ) -> None:
     set_feature("payroll", False)
-    admin_client.patch(f"/api/v1/admin/expenses/settings?store_id={store.id}", json={"fixed_costs": 9_000_000})
     _obligation(admin_client, store, amount=1_000_000, due="2026-01-05", category="rent")
     _obligation(admin_client, store, amount=300_000, due="2026-01-20", category="taxes")
     _expense(admin_client, store, amount=200_000, day="2026-01-10", category="utilities")

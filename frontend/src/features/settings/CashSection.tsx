@@ -191,7 +191,6 @@ const ERROR_ORDEN =
  */
 function cambiosPendientes(guardado: CashSettings, actual: CashSettings): PendingChange[] {
   const plata: { key: keyof CashSettings; field: string; leaks?: string }[] = [
-    { key: "opening_cash_fixed", field: "Base fija de apertura", leaks: "Cambia Dinero › Abrir turno" },
     { key: "cash_reserve_default", field: "Base de respaldo", leaks: "Cambia Salón › Turno › Tomar de la base" },
     {
       key: "tolerance_unknown_cause",
@@ -292,9 +291,6 @@ export function CashSection({ storeId }: { storeId: number | null }): React.JSX.
   }
 
   const guardado = query.data as CashSettings;
-  // La regla de apertura la decide el servidor por sede; con sobres la base
-  // fija ya no existe en el cajón y su campo no se muestra.
-  const sobres = values.opening_mode === "envelopes";
   const cambios = cambiosPendientes(guardado, values);
   const invertidas = fronterasInvertidas(values);
 
@@ -320,46 +316,16 @@ export function CashSection({ storeId }: { storeId: number | null }): React.JSX.
     <div className="space-y-3">
       <FormSection
         title="Con qué abre el cajón"
-        governs={
-          sobres
-            ? "El cajón abre sólo con los sobres por consignar que el cajero elige y cuenta a ciegas. La base de respaldo se guarda aparte."
-            : "Con cuánto arranca el cajón cada vez que alguien abre turno en esta sede. El POS lo propone y el cajero puede corregirlo."
-        }
+        governs="El cajón abre con la plata de los días por consignar que sigue en él: quien abre ve cuánto debería haber, lo cuenta entero y justifica la diferencia. La base de respaldo se guarda aparte."
         reading={
-          sobres ? (
-            <>
-              Cada turno abre con los sobres de días por consignar que recibe el cajero, contados uno por uno. La base
-              de respaldo —{" "}
-              <b className="font-bold text-foreground tabular-nums">{formatCOP(values.cash_reserve_default)}</b>— no
-              entra al cajón: se presta con autorización y vuelve antes del cierre.
-            </>
-          ) : (
-            <>
-              Cada turno de esta sede abre proponiendo{" "}
-              <b className="font-bold text-foreground tabular-nums">{formatCOP(values.opening_cash_fixed)}</b> en
-              el cajón. El cierre se mide contra ese monto; si el cajero lo corrige al abrir, la diferencia queda
-              registrada con su nombre.
-            </>
-          )
+          <>
+            Cada turno abre con los días por consignar que están en el cajón, contados de una vez. La base de
+            respaldo —{" "}
+            <b className="font-bold text-foreground tabular-nums">{formatCOP(values.cash_reserve_default)}</b>— no
+            entra al cajón: se presta con autorización y vuelve antes del cierre.
+          </>
         }
       >
-        {sobres ? null : (
-        <FormField
-          label="Base fija de apertura"
-          help="El efectivo con el que empieza cada turno. El cierre se mide contra esto; si el cajero la corrige, queda la diferencia registrada."
-          scope={{ affects: [{ screen: "Dinero › Abrir turno", verb: "Aparece en" }] }}
-        >
-          {({ fieldId, describedBy }) => (
-            <MoneyInput
-              id={fieldId}
-              aria-describedby={describedBy}
-              value={values.opening_cash_fixed}
-              onChange={(next) => patch({ opening_cash_fixed: next ?? 0 })}
-            />
-          )}
-        </FormField>
-        )}
-
         <FormField
           label="Base de respaldo"
           help={

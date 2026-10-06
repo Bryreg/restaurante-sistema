@@ -10,6 +10,7 @@ describe("inventoryFeature", () => {
 
     expect(inventoryFeature.adminNav).toEqual([
       { to: "/admin/inventario", label: "Inventario", feature: "inventory.perpetual" },
+      { to: "/admin/inventario?tab=varianza", label: "Varianza y salud", feature: "inventory.variance" },
     ])
     // Cada entrada del salón lleva su ícono propio (el genérico era el mismo para todas).
     for (const item of inventoryFeature.posNav) expect(item.icon).toBeDefined()

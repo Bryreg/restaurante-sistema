@@ -18,7 +18,6 @@ import { HandoverPanel } from "./HandoverPanel";
 import { MovementsPanel } from "./MovementsPanel";
 import { PickupsPanel } from "./PickupsPanel";
 import { RosterPanel } from "./RosterPanel";
-import { SingleStepCloseForm } from "./SingleStepCloseForm";
 import type { ResultadoCierre } from "./closeUi";
 
 /**
@@ -34,14 +33,12 @@ import type { ResultadoCierre } from "./closeUi";
 export function ShiftActionSheet({
   accion,
   shift,
-  showBlindClose,
   volver,
   onClose,
   onClosed,
 }: {
   accion: Accion | null;
   shift: ShiftCurrent;
-  showBlindClose: boolean;
   volver: { label: string; ariaLabel: string };
   onClose: () => void;
   onClosed: (resultado: ResultadoCierre) => void;
@@ -85,7 +82,6 @@ export function ShiftActionSheet({
             <PanelDeAccion
               clave={accion.clave}
               shift={shift}
-              showBlindClose={showBlindClose}
               onClosed={onClosed}
               onDone={onClose}
             />
@@ -100,13 +96,11 @@ export function ShiftActionSheet({
 function PanelDeAccion({
   clave,
   shift,
-  showBlindClose,
   onClosed,
   onDone,
 }: {
   clave: ClaveAccion;
   shift: ShiftCurrent;
-  showBlindClose: boolean;
   onClosed: (resultado: ResultadoCierre) => void;
   onDone: () => void;
 }): React.JSX.Element | null {
@@ -146,10 +140,7 @@ function PanelDeAccion({
       return Panel ? <Panel onDone={onDone} /> : null;
     }
     case "cierre":
-      return showBlindClose ? (
-        <CloseWizard shiftId={shift.id} onClosed={onClosed} />
-      ) : (
-        <SingleStepCloseForm shiftId={shift.id} onClosed={onClosed} />
-      );
+      // Una sola manera de cerrar: a ciegas, en tres pasos.
+      return <CloseWizard shiftId={shift.id} onClosed={onClosed} />;
   }
 }

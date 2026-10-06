@@ -46,6 +46,10 @@ def list_audit(
     # `app.reports.router.get_sales`: declarado sólo para el contrato, el chequeo
     # real sigue siendo `wants_csv(request)`.
     format: str | None = Query(None, description='"csv" exporta como CSV'),
+    # Los más recientes primero, de a páginas: con meses de operación el
+    # historial son miles de filas. El CSV no pagina (exporta todo).
+    limit: int = Query(200, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
 ) -> Any:
@@ -59,8 +63,8 @@ def list_audit(
         stmt = stmt.where(AuditLog.at >= from_)
     if to is not None:
         stmt = stmt.where(AuditLog.at <= to)
-    stmt = stmt.order_by(AuditLog.at.desc())
-    out = [_row_out(r) for r in db.execute(stmt).scalars().all()]
+    stmt = stmt.order_by(AuditLog.at.desc(), AuditLog.id.desc())
     if wants_csv(request):
+        out = [_row_out(r) for r in db.execute(stmt).scalars().all()]
         return csv_response([o.model_dump() for o in out], "audit.csv")
-    return out
+    return [_row_out(r) for r in db.execute(stmt.offset(offset).limit(limit)).scalars().all()]

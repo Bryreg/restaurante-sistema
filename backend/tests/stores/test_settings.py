@@ -8,15 +8,20 @@ from app.stores.models import Store
 
 
 def test_cash_settings_defaults_and_update(admin_client: TestClient, store: Store) -> None:
+    """La caja no tiene regla de apertura que configurar: el cajón abre
+    «igual al café». La base fija y `opening_mode` de antes ya no viajan, y
+    un cliente viejo que los mande no cambia nada."""
     resp = admin_client.get(f"/api/v1/admin/stores/{store.id}/cash-settings")
     assert resp.status_code == 200
-    assert resp.json()["opening_cash_fixed"] == 200_000
+    assert "opening_cash_fixed" not in resp.json()
+    assert "opening_mode" not in resp.json()
 
     put_resp = admin_client.put(
         f"/api/v1/admin/stores/{store.id}/cash-settings",
         json={
             "opening_cash_fixed": 300_000,
-            "cash_reserve_default": 0,
+            "opening_mode": "fixed_base",
+            "cash_reserve_default": 150_000,
             "tolerance_unknown_cause": 20000,
             "critical_difference": 100000,
             "cash_pickup_threshold": 500000,
@@ -27,7 +32,8 @@ def test_cash_settings_defaults_and_update(admin_client: TestClient, store: Stor
         },
     )
     assert put_resp.status_code == 200
-    assert put_resp.json()["opening_cash_fixed"] == 300_000
+    assert put_resp.json()["cash_reserve_default"] == 150_000
+    assert "opening_cash_fixed" not in put_resp.json()
 
 
 def test_cash_settings_no_exponen_la_tolerancia_muerta(admin_client: TestClient, store: Store) -> None:

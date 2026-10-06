@@ -15,7 +15,14 @@ from app.core.csv import CsvFormat, csv_response, wants_csv
 from app.core.db import get_db
 from app.core.config import settings
 from app.core.errors import AppError, NotFoundError
-from app.core.features import FEATURE_BY_KEY, FEATURE_CATALOG, enabled_map, profile_defaults
+from app.core.features import (
+    FEATURE_BY_KEY,
+    FEATURE_CATALOG,
+    POS_PROFILE_BY_KEY,
+    POS_PROFILES,
+    enabled_map,
+    profile_defaults,
+)
 from app.core.security import hash_secret
 from app.payroll import legal as payroll_legal
 from app.stores.models import (
@@ -39,6 +46,9 @@ from app.stores.schemas import (
     FiscalOut,
     OrganizationOut,
     OrganizationUpdateIn,
+    PosProfileAppliedOut,
+    PosProfileOut,
+    PosProfileSetIn,
     CONFIG_FIELDS_KEPT_WHEN_ABSENT,
     CONFIG_FIELDS_NOT_NULL,
     PANEL_ASSUMPTION_FIELDS,
@@ -120,7 +130,6 @@ def _fiscal_out(row: StoreFiscalConfig) -> FiscalOut:
 
 def _cash_settings_out(row: StoreCashSettings) -> CashSettingsOut:
     return CashSettingsOut(
-        opening_cash_fixed=row.opening_cash_fixed,
         cash_reserve_default=row.cash_reserve_default,
         tolerance_unknown_cause=row.tolerance_unknown_cause,
         critical_difference=row.critical_difference,
@@ -129,7 +138,6 @@ def _cash_settings_out(row: StoreCashSettings) -> CashSettingsOut:
         photo_required_on_close=row.photo_required_on_close,
         photo_required_on_pickup=row.photo_required_on_pickup,
         streak_alert_shifts=row.streak_alert_shifts,
-        opening_mode="envelopes" if row.opening_mode == "envelopes" else "fixed_base",
         deposit_overdue_days=row.deposit_overdue_days,
     )
 
@@ -295,6 +303,110 @@ def list_features(
     return result
 
 
+def _write_feature_state(db: Session, actor: Actor, *, store_id: int | None, key: str, enabled: bool) -> None:
+    """Guarda el estado de UN flag (organización o sede) y lo audita. Lo usan
+    el interruptor individual y el perfil de salón: los dos escriben lo mismo."""
+    stmt = select(FeatureState).where(
+        FeatureState.organization_id == actor.organization_id,
+        FeatureState.store_id == store_id,
+        FeatureState.key == key,
+    )
+    state = db.execute(stmt).scalars().first()
+    before = {"enabled": state.enabled} if state is not None else None
+    now = clock.now_utc()
+    if state is None:
+        state = FeatureState(
+            organization_id=actor.organization_id,
+            store_id=store_id,
+            key=key,
+            enabled=enabled,
+            updated_at=now,
+            updated_by=actor.employee_name,
+        )
+        db.add(state)
+    else:
+        state.enabled = enabled
+        state.updated_at = now
+        state.updated_by = actor.employee_name
+    db.flush()
+
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=actor.organization_id,
+        store_id=store_id,
+        entity="feature",
+        entity_id=key,
+        action="set",
+        before=before,
+        after={"enabled": enabled},
+    )
+
+
+@router.get("/admin/features/pos-profiles", response_model=list[PosProfileOut])
+def list_pos_profiles(actor: Actor = Depends(current_admin)) -> list[PosProfileOut]:
+    """Los perfiles de salón y los `pos.*` que cada uno deja. La pantalla de
+    Funciones los usa para mostrar cuál está puesto (si alguno coincide)."""
+    return [PosProfileOut(key=p.key, label=p.label, description=p.description, flags=dict(p.flags)) for p in POS_PROFILES]
+
+
+@router.post("/admin/features/pos-profile", response_model=PosProfileAppliedOut)
+def apply_pos_profile(
+    body: PosProfileSetIn, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
+) -> PosProfileAppliedOut:
+    """Aplica un perfil de salón: escribe cada `pos.*` del perfil como si se
+    hubiera movido su interruptor (mismo `FeatureState`, misma auditoría).
+    Lo que queda fuera del perfil no se toca, salvo que dependa de algo que
+    el perfil apaga: eso se apaga también y se devuelve en
+    `turned_off_dependents`."""
+    profile = POS_PROFILE_BY_KEY[body.profile]
+    store_id = body.store_id
+    if store_id is not None:
+        admin_store(db, actor, store_id)
+
+    flags_now = enabled_map(db, actor.organization_id, store_id)
+    current = {f.key: flags_now.get(f.key, False) for f in FEATURE_CATALOG}
+    target = dict(current)
+    target.update(profile.flags)
+
+    turned_off: list[str] = []
+    changed_any = True
+    while changed_any:
+        changed_any = False
+        for f in FEATURE_CATALOG:
+            if not target[f.key]:
+                continue
+            missing = [dep for dep in f.requires if not target.get(dep, False)]
+            if not missing:
+                continue
+            if f.key in profile.flags:
+                raise AppError(
+                    code="FEATURE_DEPENDENCY",
+                    message=f'El perfil enciende "{f.key}", que necesita "{missing[0]}" habilitada primero',
+                    extra={"feature": f.key, "requires": missing[0]},
+                )
+            target[f.key] = False
+            turned_off.append(f.key)
+            changed_any = True
+
+    changed = [f.key for f in FEATURE_CATALOG if target[f.key] != current[f.key]]
+    for key in changed:
+        _write_feature_state(db, actor, store_id=store_id, key=key, enabled=target[key])
+
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=actor.organization_id,
+        store_id=store_id,
+        entity="feature",
+        entity_id="pos_profile",
+        action="set_pos_profile",
+        before={k: current[k] for k in changed},
+        after={"profile": profile.key, **{k: target[k] for k in changed}},
+    )
+    return PosProfileAppliedOut(profile=profile.key, changed=changed, turned_off_dependents=turned_off)
+
+
 @router.put("/admin/features/{key}")
 def set_feature(
     key: str, body: FeatureSetIn, db: Session = Depends(get_db), actor: Actor = Depends(current_admin)
@@ -333,41 +445,7 @@ def set_feature(
                 extra={"feature": key, "requires": dependents[0]},
             )
 
-    stmt = select(FeatureState).where(
-        FeatureState.organization_id == actor.organization_id,
-        FeatureState.store_id == store_id,
-        FeatureState.key == key,
-    )
-    state = db.execute(stmt).scalars().first()
-    before = {"enabled": state.enabled} if state is not None else None
-    now = clock.now_utc()
-    if state is None:
-        state = FeatureState(
-            organization_id=actor.organization_id,
-            store_id=store_id,
-            key=key,
-            enabled=body.enabled,
-            updated_at=now,
-            updated_by=actor.employee_name,
-        )
-        db.add(state)
-    else:
-        state.enabled = body.enabled
-        state.updated_at = now
-        state.updated_by = actor.employee_name
-    db.flush()
-
-    record_audit(
-        db,
-        actor=actor,
-        organization_id=actor.organization_id,
-        store_id=store_id,
-        entity="feature",
-        entity_id=key,
-        action="set",
-        before=before,
-        after={"enabled": body.enabled},
-    )
+    _write_feature_state(db, actor, store_id=store_id, key=key, enabled=body.enabled)
 
     refreshed = enabled_map(db, actor.organization_id, store_id)
     source = "store_override" if store_id is not None else "org"
@@ -389,6 +467,11 @@ def set_profile(
     if org is None:
         raise NotFoundError("La organización no existe")
     before = {"profile": org.profile}
+    # Antes de borrar las filas de la organización: la foto vieja
+    # (`cash.photo_required`, retirada) se lee con el perfil y las filas de
+    # ahora; se pliega en cada sede para que el cambio de perfil no la mueva.
+    for store_row in db.execute(select(Store).where(Store.organization_id == org.id)).scalars():
+        stores_service.get_cash_settings(db, store_row.id)
     org.profile = body.profile
     org.updated_at = clock.now_utc()
     db.execute(
@@ -457,11 +540,10 @@ def create_store(
     )
     db.add(store)
     db.flush()
-    # Una sede nueva abre el cajón con la regla del dueño (2026-09-26): sólo
-    # los sobres por consignar, y la base de respaldo aparte. El default del
-    # modelo es la regla anterior para no cambiarle la cuenta a nada que ya
-    # existía; acá la sede nace con la vigente.
-    db.add(StoreCashSettings(store_id=store.id, opening_mode="envelopes", updated_at=now))
+    # La regla de apertura no se guarda por sede: hay una sola, «igual al
+    # café» (`app.shifts.service.open_shift`). `opening_mode` y
+    # `opening_cash_fixed` quedaron como columnas de legado.
+    db.add(StoreCashSettings(store_id=store.id, updated_at=now))
     db.flush()
     # La sede nace con el calendario legal de recargos: sin él, la nómina
     # liquidaría sin nocturno, dominical ni extras.
@@ -641,7 +723,7 @@ def put_cash_settings_route(
     row = get_cash_settings(db, store_id)
     before = _cash_settings_out(row).model_dump()
     for field, value in body.model_dump().items():
-        if field in ("opening_mode", "deposit_overdue_days") and value is None:
+        if field == "deposit_overdue_days" and value is None:
             continue  # sin el campo, la sede conserva lo que tenía
         setattr(row, field, value)
     row.updated_at = clock.now_utc()

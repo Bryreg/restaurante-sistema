@@ -28,23 +28,15 @@ from app.audit.models import AuditLog
 from app.auth.models import Employee
 from app.shifts import service as shifts_service
 from app.shifts.models import Shift, ShiftCarryIn
-from app.stores import service as stores_service
 from tests.banking.conftest import denoms, idem, today_business_date
 
 API = "/api/v1"
-BASE = 200_000
-
-
-def _envelopes_mode(db: Session, store: Any) -> None:
-    settings = stores_service.get_cash_settings(db, store.id)
-    settings.opening_mode = "envelopes"
-    db.commit()
 
 
 def _day_with(open_shift: Callable[..., dict], close_shift: Callable[..., dict], amount: int) -> int:
-    """Un turno (regla anterior, base fija) cerrado con `amount` por consignar."""
-    shift = open_shift(total=BASE)
-    body = close_shift(shift["id"], counted_cash=BASE + amount, closes_day=False)
+    """Un turno cerrado con `amount` por consignar: abrió vacío y contó `amount`."""
+    shift = open_shift(total=0)
+    body = close_shift(shift["id"], counted_cash=amount, closes_day=False)
     assert body["to_deposit"] == amount
     return int(shift["id"])
 
@@ -84,7 +76,6 @@ def test_the_opening_shows_what_should_be_in_the_drawer_with_every_day_marked(
 ) -> None:
     lunes = _day_with(open_shift, close_shift, 50_000)
     martes = _day_with(open_shift, close_shift, 30_000)
-    _envelopes_mode(db, store)
     identify(device_client, employees["cashier"])
 
     info = device_client.get(f"{API}/shifts/opening").json()
@@ -114,7 +105,6 @@ def test_opening_exactly_needs_no_justification_and_the_shift_deposits_only_its_
     db: Session, device_client: TestClient, open_shift: Any, close_shift: Any, identify: Any, employees: dict, store: Any
 ) -> None:
     ayer = _day_with(open_shift, close_shift, 50_000)
-    _envelopes_mode(db, store)
 
     resp = _open(device_client, identify, employees["cashier"], carried_shift_ids=[ayer], opening_cash=denoms(50_000))
     assert resp.status_code == 201, resp.text
@@ -131,7 +121,6 @@ def test_a_difference_needs_cause_and_written_reason_and_the_rejection_writes_no
     db: Session, device_client: TestClient, open_shift: Any, close_shift: Any, identify: Any, employees: dict, store: Any
 ) -> None:
     ayer = _day_with(open_shift, close_shift, 50_000)
-    _envelopes_mode(db, store)
     cashier = employees["cashier"]
 
     sin_causa = _open(device_client, identify, cashier, carried_shift_ids=[ayer], opening_cash=denoms(45_000))
@@ -162,7 +151,6 @@ def test_it_cannot_open_with_zero_when_there_should_be_money(
     db: Session, device_client: TestClient, open_shift: Any, close_shift: Any, identify: Any, employees: dict, store: Any
 ) -> None:
     ayer = _day_with(open_shift, close_shift, 50_000)
-    _envelopes_mode(db, store)
 
     resp = _open(
         device_client,
@@ -193,7 +181,6 @@ def test_the_surplus_at_opening_is_deposited_with_this_shift(
     store: Any,
 ) -> None:
     ayer = _day_with(open_shift, close_shift, 50_000)
-    _envelopes_mode(db, store)
     hoy = _open(
         device_client,
         identify,
@@ -222,7 +209,6 @@ def test_the_shortfall_at_opening_stays_a_novelty_and_does_not_lower_the_sale(
     store: Any,
 ) -> None:
     ayer = _day_with(open_shift, close_shift, 50_000)
-    _envelopes_mode(db, store)
     hoy = _open(
         device_client,
         identify,
@@ -260,7 +246,6 @@ def test_adjust_opening_redoes_the_days_like_the_cafe_697900_to_197900(
     estaban en el cajón), los contó como sobrante y el día pasó a pedir
     $697.900 en vez de $197.900 — la misma plata pedida dos veces."""
     viernes = _day_with(open_shift, close_shift, 500_000)
-    _envelopes_mode(db, store)
     sabado = _open(
         device_client,
         identify,
@@ -328,7 +313,6 @@ def test_adjust_opening_offers_neither_the_shift_itself_nor_later_days_and_needs
     employees: dict,
     store: Any,
 ) -> None:
-    _envelopes_mode(db, store)
     primero = _open(device_client, identify, employees["cashier"], carried_shift_ids=[], opening_cash=denoms(0)).json()
     _income(device_client, primero["id"], 40_000)
     close_shift(primero["id"], counted_cash=40_000, closes_day=False, cause=None)
@@ -368,7 +352,6 @@ def test_adjust_opening_takes_the_real_total_without_denominations(
     store: Any,
 ) -> None:
     ayer = _day_with(open_shift, close_shift, 50_000)
-    _envelopes_mode(db, store)
     hoy = _open(
         device_client, identify, employees["cashier"], carried_shift_ids=[ayer], opening_cash=denoms(50_000)
     ).json()

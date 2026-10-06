@@ -28,7 +28,7 @@ import { useAccionEnUrl, useCurrentShift } from "./hooks";
 const VOLVER = { label: "Resumen" } as const;
 
 /**
- * `/pos/turno` (spec § 9.1 "Turno"): sin turno abierto muestra `OpenShiftForm`;
+ * `/pos/turno` (spec § 9.1 "Turno"): sin turno abierto muestra la apertura (`OpeningScreen`);
  * con turno abierto, **un solo panel** (pedido del dueño, 2026-09-25, a
  * imagen de la «Gestión de turno» del café): arriba el estado del turno
  * (`ShiftSummaryPanel`) y el equipo (`ShiftTeamCard`); debajo, una grilla de
@@ -44,10 +44,10 @@ const VOLVER = { label: "Resumen" } as const;
  * mismos, en `ACCIONES` y `CIERRE` (`acciones.ts`) y en `VOLVER`.
  *
  * **Tercera pantalla: el turno recién cerrado.** El resultado del cierre lo
- * guarda esta página (`closeResult`), no el formulario que lo produjo —los
- * dos formularios sólo avisan por `onClosed`—. Mientras haya un resultado
+ * guarda esta página (`closeResult`), no el formulario que lo produjo —el
+ * asistente de cierre sólo avisa por `onClosed`—. Mientras haya un resultado
  * sin acusar recibo se muestra `TarjetaTurnoCerrado` en lugar de
- * `OpenShiftForm`, con «A consignar» a la vista y una acción explícita para
+ * la apertura, con «A consignar» a la vista y una acción explícita para
  * seguir. Antes ese dato lo dibujaba el formulario, que la invalidación de
  * `CURRENT_SHIFT_QUERY_KEY` desmontaba en el mismo parpadeo: quien cerraba
  * la caja nunca llegaba a ver cuánto tenía que consignar. Con la hoja pasa
@@ -64,7 +64,6 @@ export default function ShiftPage(): React.JSX.Element {
   const conteoEncendido = hasFeature("inventory.shift_counts");
   const area = useQuery({ queryKey: AREA_COUNT_QUERY_KEY, queryFn: getDeviceAreaCount, enabled: conteoEncendido });
   const sinArea = area.data !== undefined && area.data.area_id === null;
-  const showBlindClose = hasFeature("cash.blind_close");
   const { claveAbierta, abrir, cerrar: cerrarAccion } = useAccionEnUrl();
 
   /**
@@ -94,7 +93,7 @@ export default function ShiftPage(): React.JSX.Element {
       <TarjetaTurnoCerrado
         resultado={closeResult}
         pastilla={
-          <PasoPastilla tono="listo">{showBlindClose ? "Paso 3 de 3 · hecho" : "Hecho"}</PasoPastilla>
+          <PasoPastilla tono="listo">Paso 3 de 3 · hecho</PasoPastilla>
         }
         etiquetaContinuar={shift || !conCaja ? "Listo" : "Abrir turno"}
         onContinuar={() => {
@@ -176,9 +175,7 @@ export default function ShiftPage(): React.JSX.Element {
             Cerrar turno
           </Button>
           <p className="mt-2 text-sm text-muted-foreground">
-            {showBlindClose
-              ? "Cierre a ciegas en 3 pasos: contás el cajón antes de ver lo esperado."
-              : "Contás el cajón y cerrás en un paso."}
+            Cierre a ciegas en 3 pasos: contás el cajón antes de ver lo esperado.
           </p>
         </section>
       ) : null}
@@ -186,7 +183,6 @@ export default function ShiftPage(): React.JSX.Element {
       <ShiftActionSheet
         accion={abierta}
         shift={shift}
-        showBlindClose={showBlindClose}
         volver={{ label: VOLVER.label, ariaLabel: "Volver al resumen del turno" }}
         onClose={cerrarAccion}
         onClosed={setCloseResult}

@@ -2,7 +2,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { useStoreSelection } from "@/app/storeContext";
-import { listFeatures, setFeature, setProfile, type Feature, type Profile } from "@/api/features";
+import {
+  applyPosProfile,
+  listFeatures,
+  listPosProfiles,
+  setFeature,
+  setProfile,
+  type Feature,
+  type PosProfile,
+  type Profile,
+} from "@/api/features";
 import { getOrganization } from "@/api/stores";
 import {
   AlertDialog,
@@ -76,12 +85,25 @@ function consecuenciasDeApagar(
   return lista as unknown as readonly [string, ...string[]];
 }
 
+/** Las funciones del salón (`pos.*`): las maneja el perfil de salón y viven en «Avanzado». */
+const esDelSalon = (feature: Feature): boolean => feature.key.startsWith("pos.");
+
+/** El perfil de salón que coincide con los flags vigentes, o `null` si están a mano. */
+function perfilVigente(perfiles: readonly PosProfile[], features: readonly Feature[]): PosProfile | null {
+  const estado = new Map(features.map((f) => [f.key, f.enabled]));
+  return (
+    perfiles.find((p) => Object.entries(p.flags).every(([key, value]) => estado.get(key) === value)) ?? null
+  );
+}
+
 export default function FeaturesPage(): React.JSX.Element {
   const queryClient = useQueryClient();
   const { stores } = useStoreSelection();
   const [scope, setScope] = useState<"org" | number>("org");
   const [pendingProfile, setPendingProfile] = useState<Profile | null>(null);
   const [pendingOff, setPendingOff] = useState<Feature | null>(null);
+  const [pendingPos, setPendingPos] = useState<PosProfile | null>(null);
+  const [avanzado, setAvanzado] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
 
   const storeIdForScope = scope === "org" ? null : scope;
@@ -93,6 +115,11 @@ export default function FeaturesPage(): React.JSX.Element {
   const featuresQuery = useQuery({
     queryKey: ["admin-features", storeIdForScope],
     queryFn: () => listFeatures(storeIdForScope),
+  });
+  const posProfilesQuery = useQuery({
+    queryKey: ["admin-pos-profiles"],
+    queryFn: listPosProfiles,
+    staleTime: Infinity,
   });
 
   async function refetchAll() {
@@ -141,6 +168,19 @@ export default function FeaturesPage(): React.JSX.Element {
     }
   }
 
+  async function confirmPosProfile() {
+    if (!pendingPos) return;
+    const profile = pendingPos;
+    setPendingPos(null);
+    setMutationError(null);
+    try {
+      await applyPosProfile(profile.key, storeIdForScope);
+      await refetchAll();
+    } catch (err) {
+      setMutationError(errorMessage(err));
+    }
+  }
+
   const organization = organizationQuery.data;
   const features = featuresQuery.data ?? [];
   const encendidas = features.filter((f) => f.enabled).length;
@@ -153,6 +193,17 @@ export default function FeaturesPage(): React.JSX.Element {
    * en la confirmación.
    */
   const nombreCorto = (feature: Feature): string => feature.description.split(/[:(—]/)[0].trim();
+
+  const perfilesSalon = posProfilesQuery.data ?? [];
+  const perfilSalon = perfilVigente(perfilesSalon, features);
+  const filas = avanzado ? features : features.filter((f) => !esDelSalon(f));
+  const delSalon = features.filter(esDelSalon).length;
+  // Lo que el perfil elegido movería: se nombra en la confirmación.
+  const cambiosDelPerfil = pendingPos
+    ? features.filter((f) => f.key in pendingPos.flags && pendingPos.flags[f.key] !== f.enabled)
+    : [];
+  const seEncienden = cambiosDelPerfil.filter((f) => !f.enabled).map(nombreCorto);
+  const seApagan = cambiosDelPerfil.filter((f) => f.enabled).map(nombreCorto);
 
   const dependientes = pendingOff
     ? features.filter((f) => f.enabled && f.requires.includes(pendingOff.key)).map((f) => f.key)
@@ -264,6 +315,85 @@ export default function FeaturesPage(): React.JSX.Element {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Perfil de salón: un toque en vez de veinte interruptores `pos.*`.
+          El perfil sólo escribe esos flags (el servidor los sigue haciendo
+          cumplir uno por uno); los interruptores siguen en «Avanzado». */}
+      <section aria-labelledby="perfil-salon" className="space-y-2 rounded-lg border p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 id="perfil-salon" className="text-sm font-semibold">
+            Cómo atiende el salón
+          </h2>
+          <Badge variant="secondary" className="font-normal">
+            {perfilSalon ? `Perfil: ${perfilSalon.label}` : "Personalizado"}
+          </Badge>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            aria-expanded={avanzado}
+            onClick={() => setAvanzado((v) => !v)}
+          >
+            {avanzado ? "Ocultar los interruptores del salón" : `Avanzado: cada interruptor del salón (${delSalon})`}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Elegí cómo se vende y el perfil enciende y apaga las funciones del salón de un toque para{" "}
+          {scopeLabel}. Domicilio, plataformas, asiento y curso por ítem no los toca: se eligen en «Avanzado».
+        </p>
+        {posProfilesQuery.isError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {errorMessage(posProfilesQuery.error)}
+          </p>
+        ) : (
+          <div role="radiogroup" aria-label="Perfil del salón" className="grid gap-2 sm:grid-cols-3">
+            {perfilesSalon.map((perfil) => {
+              const activo = perfilSalon?.key === perfil.key;
+              return (
+                <button
+                  key={perfil.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={activo}
+                  onClick={() => {
+                    if (activo) return;
+                    setMutationError(null);
+                    setPendingPos(perfil);
+                  }}
+                  className={
+                    "flex min-h-11 flex-col items-start gap-0.5 rounded-md border p-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none " +
+                    (activo ? "border-primary bg-primary/5" : "hover:bg-muted")
+                  }
+                >
+                  <span className="text-sm font-medium">{perfil.label}</span>
+                  <span className="text-xs text-muted-foreground">{perfil.description}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <AlertDialog open={pendingPos !== null} onOpenChange={(open) => !open && setPendingPos(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Poner el salón en «{pendingPos?.label ?? ""}»?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Para {scopeLabel}.{" "}
+              {seEncienden.length > 0 ? `Se encienden: ${seEncienden.join(", ")}. ` : ""}
+              {seApagan.length > 0 ? `Se apagan: ${seApagan.join(", ")}. ` : ""}
+              {cambiosDelPerfil.length === 0 ? "No cambia ningún interruptor. " : ""}
+              Lo que dependa de algo que se apaga se apaga también. Nada de lo registrado se borra y cada cambio
+              queda en el historial.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmPosProfile()}>Aplicar perfil</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Patrón 11 · zona ROJA. Apagar una función no se deshace solo: hasta
           que alguien vuelva acá, la capacidad no existe para nadie. El
           peligro va en el MARCO; el botón sigue siendo azul y secundario,
@@ -320,7 +450,7 @@ export default function FeaturesPage(): React.JSX.Element {
         <DenseTable
           caption="Funciones del restaurante, con su estado, su origen y sus dependencias"
           columns={columns}
-          rows={features}
+          rows={filas}
           rowKey={(feature) => feature.key}
           // 45 funciones: la cabecera se queda fija dentro de la tabla.
           maxBodyHeightPx={560}
@@ -328,10 +458,16 @@ export default function FeaturesPage(): React.JSX.Element {
           rowInactive={(feature) => !feature.enabled}
           bar={
             <DenseTableBar
-              shown={features.length}
+              shown={filas.length}
               total={features.length}
               noun="funciones"
-              hidden={features.length > 0 ? `${encendidas} encendidas · ${features.length - encendidas} apagadas` : undefined}
+              hidden={
+                features.length > 0
+                  ? `${encendidas} encendidas · ${features.length - encendidas} apagadas${
+                      avanzado ? "" : ` · las ${delSalon} del salón, en «Avanzado»`
+                    }`
+                  : undefined
+              }
             >
               <CsvExportButton href={csvUrl("/admin/features", { store_id: storeIdForScope ?? undefined })} />
               <span className="text-xs text-muted-foreground">Editando:</span>

@@ -19,8 +19,9 @@ from app.core import clock as clock_module
 from app.fiscal import service as fiscal_service
 from app.fiscal.models import FiscalDocumentType
 from app.stores.models import Store
+from tests.conftest import opening_justification
 
-DEFAULT_OPENING_TOTAL = 200_000  # == StoreCashSettings.opening_cash_fixed por defecto
+DEFAULT_OPENING_TOTAL = 200_000  # plata con que abren los tests: un sobrante justificado (ver `open_shift`)
 
 # Prefijo corto por tipo (`fiscal_ranges.prefix` es `String(10)`). Duplicada a
 # propósito de `tests/payments`, `tests/fiscal` y `tests/reports`: cada carpeta
@@ -70,9 +71,11 @@ def default_fiscal_range(db: Session, store: Store) -> None:
 def open_shift(device_client: Any, identify: Any, employees: dict) -> Callable[..., dict]:
     """Abre un turno en `store` y devuelve el JSON de `POST /shifts/open`.
 
-    Por defecto la base contada coincide con `opening_cash_fixed` (200.000 en
-    denominaciones de 50.000) para no necesitar causa; los tests que quieren
-    una diferencia pasan `total`/`denominations`/`opening_cause` explícitos.
+    Abre «igual al café» (la única apertura) con 200.000 en denominaciones
+    de 50.000 por defecto. Sin días por consignar debería haber $0: lo
+    contado es un sobrante al abrir y se justifica solo
+    (`tests.conftest.opening_justification`); los tests que quieren otra
+    causa pasan `opening_cause`/`opening_note` explícitos.
     """
 
     def _open(
@@ -80,25 +83,19 @@ def open_shift(device_client: Any, identify: Any, employees: dict) -> Callable[.
         cash_responsible: Any = None,
         total: int = DEFAULT_OPENING_TOTAL,
         denominations: list[dict] | None = None,
-        cash_reserve: int = 0,
         opening_cause: str | None = None,
         opening_note: str | None = None,
     ) -> dict:
         responsible = cash_responsible or employees["cashier"]
         identify(device_client, responsible)
 
-        payload: dict[str, Any] = {
-            "opening_cash": {
+        payload: dict[str, Any] = {"cash_responsible_id": responsible.id}
+        if total:
+            payload["opening_cash"] = {
                 "denominations": denominations or [{"value": 50000, "count": total // 50000}],
                 "total": total,
-            },
-            "cash_reserve": cash_reserve,
-            "cash_responsible_id": responsible.id,
-        }
-        if opening_cause is not None:
-            payload["opening_cause"] = opening_cause
-        if opening_note is not None:
-            payload["opening_note"] = opening_note
+            }
+        payload.update(opening_justification(total, opening_cause, opening_note))
 
         resp = device_client.post("/api/v1/shifts/open", json=payload, headers=idem())
         assert resp.status_code in (200, 201), resp.text

@@ -38,11 +38,15 @@ from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
 from app.auth.deps import Actor
-from app.core import clock, tz
+from app.core import clock, holidays_co, tz
 from app.core import hours as hours_mod
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.orders.money import prorate
+from app.payroll import legal_costs
 from app.payroll.models import (
+    EmployeeContract,
+    PayrollAbsence,
+    PayrollLegalParams,
     PayrollAreaAssignment,
     PayrollHoliday,
     PayrollRun,
@@ -163,7 +167,25 @@ def list_holidays(db: Session, *, store_id: int) -> list[PayrollHoliday]:
 
 
 def _holiday_dates(db: Session, *, store_id: int) -> set[date]:
-    return {row.holiday_date for row in list_holidays(db, store_id=store_id)}
+    """Festivos de ley (calculados) más los que la sede declaró a mano (un
+    día cívico local, por ejemplo)."""
+    legal: set[date] = set()
+    for year in range(2020, clock.now_utc().year + 3):
+        legal.update(holidays_co.colombian_holidays(year))
+    return legal | {row.holiday_date for row in list_holidays(db, store_id=store_id)}
+
+
+def holidays_for_year(db: Session, *, store_id: int, year: int) -> list[tuple[date, str, PayrollHoliday | None]]:
+    """Calendario del año para la pantalla: los de ley y los declarados por
+    la sede, en orden. Un declarado que coincide con uno de ley gana (es el
+    nombre que la persona escribió)."""
+    out: dict[date, tuple[date, str, PayrollHoliday | None]] = {
+        d: (d, name, None) for d, name in holidays_co.colombian_holidays(year).items()
+    }
+    for row in list_holidays(db, store_id=store_id):
+        if row.holiday_date.year == year:
+            out[row.holiday_date] = (row.holiday_date, row.name, row)
+    return [out[d] for d in sorted(out)]
 
 
 def create_holiday(db: Session, *, actor: Actor, store: Store, payload: Any) -> PayrollHoliday:
@@ -174,6 +196,12 @@ def create_holiday(db: Session, *, actor: Actor, store: Store, payload: Any) -> 
     ).scalar_one_or_none()
     if existing is not None:
         raise ConflictError(f"{payload.holiday_date} ya está declarado como festivo", code="HOLIDAY_DUPLICATE")
+    legal_name = holidays_co.colombian_holidays(payload.holiday_date.year).get(payload.holiday_date)
+    if legal_name is not None:
+        raise ConflictError(
+            f"{payload.holiday_date} ya es festivo de ley ({legal_name}); el sistema lo calcula solo",
+            code="HOLIDAY_DUPLICATE",
+        )
     row = PayrollHoliday(
         organization_id=store.organization_id,
         store_id=store.id,
@@ -186,6 +214,17 @@ def create_holiday(db: Session, *, actor: Actor, store: Store, payload: Any) -> 
         db.flush()
     except IntegrityError as exc:
         raise ConflictError(f"{payload.holiday_date} ya está declarado como festivo", code="HOLIDAY_DUPLICATE") from exc
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="payroll_holiday",
+        entity_id=row.id,
+        action="create",
+        before=None,
+        after={"holiday_date": str(row.holiday_date), "name": row.name},
+    )
     return row
 
 
@@ -230,6 +269,7 @@ def create_wage_rate(db: Session, *, actor: Actor, store: Store, payload: Any) -
             f"Ya existe una tarifa vigente desde {payload.valid_from} para este empleado",
             code="WAGE_RATE_DUPLICATE",
         )
+    previous = _wage_for(list_wage_rates(db, store_id=store.id, employee_id=employee.id), payload.valid_from)
     creator_id, creator_name = _actor_identity(actor)
     row = PayrollWageRate(
         organization_id=store.organization_id,
@@ -250,6 +290,27 @@ def create_wage_rate(db: Session, *, actor: Actor, store: Store, payload: Any) -
             f"Ya existe una tarifa vigente desde {payload.valid_from} para este empleado",
             code="WAGE_RATE_DUPLICATE",
         ) from exc
+    # Un cambio de salario es plata de una persona: queda quién, cuándo y
+    # de cuánto a cuánto.
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="payroll_wage_rate",
+        entity_id=row.id,
+        action="create",
+        before=(
+            {"hourly_wage_pesos": previous.hourly_wage_pesos, "valid_from": str(previous.valid_from)}
+            if previous is not None else None
+        ),
+        after={
+            "employee_id": employee.id,
+            "employee_name": employee.name,
+            "hourly_wage_pesos": row.hourly_wage_pesos,
+            "valid_from": str(row.valid_from),
+        },
+    )
     return row
 
 
@@ -590,8 +651,13 @@ def _employee_pieces(
     vigentes en algún día del período (para `tables_used`)."""
     tables_sorted = list_surcharge_tables(db, store_id=store.id)
     holidays = _holiday_dates(db, store_id=store.id)
+    # La jornada semanal se mide con la semana COMPLETA: si el período
+    # empieza un miércoles, el lunes y el martes de esa semana cuentan para
+    # el umbral de extras (no se pagan acá: ya se pagaron en el período
+    # anterior). Por eso se lee desde el lunes de la primera semana.
+    week_start = date_from - timedelta(days=date_from.weekday())
     intervals_by_employee, names = _employee_intervals(
-        db, store=store, date_from=date_from, date_to=date_to, employee_id=employee_id, until=until
+        db, store=store, date_from=week_start, date_to=date_to, employee_id=employee_id, until=until
     )
 
     by_employee: dict[int, list[_Piece]] = {}
@@ -614,11 +680,11 @@ def _employee_pieces(
                 if minutes <= 0:
                     continue
                 business_date = tz.business_date_for(p_start, store.cutoff_hour)
-                if business_date < date_from or business_date > date_to:
+                if business_date < week_start or business_date > date_to:
                     continue
                 calendar_date = tz.to_bogota(p_start).date()
                 table = _table_for(tables_sorted, calendar_date)
-                if table is not None:
+                if table is not None and business_date >= date_from:
                     used_tables[table.id] = table
                     local_hour = tz.to_bogota(p_start).hour
                     is_night = _in_night_window(local_hour, table.night_start_hour, table.night_end_hour)
@@ -640,8 +706,13 @@ def _employee_pieces(
                 )
                 by_employee.setdefault(row_employee_id, []).append(piece)
 
-    for pieces in by_employee.values():
-        _split_ordinary_overtime(pieces)
+    for emp_id in list(by_employee):
+        _split_ordinary_overtime(by_employee[emp_id])
+        in_period = [p for p in by_employee[emp_id] if p.business_date >= date_from]
+        if in_period:
+            by_employee[emp_id] = in_period
+        else:
+            del by_employee[emp_id]
 
     tables_used = sorted(used_tables.values(), key=lambda t: t.valid_from)
     return by_employee, tables_used
@@ -650,10 +721,10 @@ def _employee_pieces(
 def _split_ordinary_overtime(pieces: list[_Piece]) -> None:
     """Ordinarias vs extras: jornada ordinaria semanal vigente en la fecha
     de cada pieza (`SurchargeTable.weekly_ordinary_hours`), por semana ISO
-    (lunes a domingo), cronológico. **Simplificación declarada en el
-    entregable**: el umbral se mide sólo con las horas de la pieza que caen
-    DENTRO del período consultado, no con la semana completa si el período
-    empieza o termina a mitad de una semana ISO."""
+    (lunes a domingo), cronológico. Recibe también las piezas de los días
+    de la primera semana anteriores al período (`_employee_pieces` las lee
+    y las descarta después), para que el umbral se mida con la semana
+    completa."""
     ordered = sorted(pieces, key=lambda p: p.start)
     week_totals: dict[tuple[int, int], int] = {}
     for piece in ordered:
@@ -973,6 +1044,123 @@ def _wage_rates_by_employee(db: Session, *, store_id: int) -> dict[int, list[Pay
     return result
 
 
+@dataclass(frozen=True)
+class _FixedRate:
+    """Tarifa sintética para quien tiene sueldo fijo: el valor de la hora
+    ordinaria con el que se pagan sus recargos y extras."""
+
+    valid_from: date
+    hourly_wage_pesos: int
+
+
+@dataclass
+class PeriodLine:
+    employee_id: int
+    employee_name: str
+    pay: _EmployeePay
+    legal: legal_costs.LegalPay | None
+    contract: EmployeeContract | None
+
+    @property
+    def total(self) -> int | None:
+        if self.pay.total is None:
+            return None
+        return self.legal.employee_total if self.legal is not None else self.pay.total
+
+    @property
+    def employer_total(self) -> int | None:
+        """Costo para la sede. Sin contrato cargado se sabe sólo lo de las
+        horas (no si es formal): se devuelve eso, y la línea lo dice."""
+        if self.pay.total is None:
+            return None
+        return self.legal.employer_total if self.legal is not None else self.pay.total
+
+
+def contract_for(contracts_sorted: list[EmployeeContract], on: date) -> EmployeeContract | None:
+    current: EmployeeContract | None = None
+    for c in contracts_sorted:
+        if c.start_date <= on:
+            current = c
+    return current
+
+
+def compute_period(db: Session, *, store: Store, date_from: date, date_to: date) -> tuple[list[PeriodLine], list[SurchargeTable]]:
+    """El motor único de la nómina de un período: horas (`_employee_pieces`
+    + `_compute_employee_pay`) y, encima, contrato, novedades y costo del
+    empleador (`legal_costs`). Lo usan la liquidación y la utilidad."""
+    tables_sorted = list_surcharge_tables(db, store_id=store.id)
+    by_employee, tables_used = _employee_pieces(
+        db, store=store, date_from=date_from, date_to=date_to, employee_id=None, until=clock.now_utc()
+    )
+    wage_rates_by_employee = _wage_rates_by_employee(db, store_id=store.id)
+    contracts: dict[int, list[EmployeeContract]] = {}
+    for c in db.execute(
+        select(EmployeeContract).where(EmployeeContract.store_id == store.id).order_by(
+            EmployeeContract.start_date, EmployeeContract.id
+        )
+    ).scalars():
+        contracts.setdefault(c.employee_id, []).append(c)
+    absences: dict[int, list[PayrollAbsence]] = {}
+    for a in db.execute(
+        select(PayrollAbsence).where(
+            PayrollAbsence.store_id == store.id,
+            PayrollAbsence.voided_at.is_(None),
+            PayrollAbsence.date_from <= date_to,
+            PayrollAbsence.date_to >= date_from,
+        )
+    ).scalars():
+        absences.setdefault(a.employee_id, []).append(a)
+    params_rows = list(
+        db.execute(
+            select(PayrollLegalParams).where(PayrollLegalParams.organization_id == store.organization_id)
+        ).scalars()
+    )
+    params = legal_costs.params_for(date_to, params_rows)
+    holidays = _holiday_dates(db, store_id=store.id)
+    table_at_end = _table_for(tables_sorted, date_to)
+    weekly_hours = table_at_end.weekly_ordinary_hours if table_at_end is not None else 42
+
+    def active_contract(emp_id: int) -> EmployeeContract | None:
+        c = contract_for(contracts.get(emp_id, []), date_to)
+        if c is None or (c.end_date is not None and c.end_date < date_from):
+            return None
+        return c
+
+    employee_ids = set(by_employee) | {e for e in contracts if active_contract(e) is not None}
+    lines: list[PeriodLine] = []
+    for emp_id in employee_ids:
+        pieces = by_employee.get(emp_id, [])
+        contract = active_contract(emp_id)
+        name = pieces[0].employee_name if pieces else (contract.employee_name if contract else str(emp_id))
+        monthly = contract is not None and contract.salary_type.value == "monthly"
+        if monthly:
+            assert contract is not None
+            hourly_equiv = _round_half_up(int(contract.monthly_salary_pesos or 0), weekly_hours * 5)
+            rates: list[Any] = [_FixedRate(valid_from=date.min, hourly_wage_pesos=hourly_equiv)]
+        else:
+            rates = wage_rates_by_employee.get(emp_id, [])
+        pay = _compute_employee_pay(pieces, rates)
+        legal: legal_costs.LegalPay | None = None
+        if contract is not None and params is not None and pay.total is not None:
+            wage = _wage_for(rates, date_to)
+            legal = legal_costs.compute(
+                contract=contract,
+                params=params,
+                date_from=date_from,
+                date_to=date_to,
+                hours_base_pay=pay.base_pay or 0,
+                surcharges=(pay.night_surcharge or 0) + (pay.sunday_holiday_surcharge or 0) + (pay.overtime_pay or 0),
+                hourly_wage=wage.hourly_wage_pesos if wage is not None else None,
+                weekly_ordinary_hours=weekly_hours,
+                absences=absences.get(emp_id, []),
+                worked_dates={p.business_date for p in pieces},
+                holidays=holidays,
+            )
+        lines.append(PeriodLine(employee_id=emp_id, employee_name=name, pay=pay, legal=legal, contract=contract))
+    lines.sort(key=lambda line: line.employee_name)
+    return lines, tables_used
+
+
 def create_run(db: Session, *, actor: Actor, store: Store, date_from: date, date_to: date) -> PayrollRun:
     _validate_range(date_from, date_to)
     tables_sorted = list_surcharge_tables(db, store_id=store.id)
@@ -983,10 +1171,7 @@ def create_run(db: Session, *, actor: Actor, store: Store, date_from: date, date
             "cargá una en Admin → Nómina y propinas → Tablas de recargos antes de liquidar.",
         )
 
-    by_employee, tables_used = _employee_pieces(
-        db, store=store, date_from=date_from, date_to=date_to, employee_id=None, until=clock.now_utc()
-    )
-    wage_rates_by_employee = _wage_rates_by_employee(db, store_id=store.id)
+    period_lines, tables_used = compute_period(db, store=store, date_from=date_from, date_to=date_to)
 
     computed_id, computed_name = _actor_identity(actor)
     run = PayrollRun(
@@ -1006,38 +1191,52 @@ def create_run(db: Session, *, actor: Actor, store: Store, date_from: date, date
     db.flush()
 
     total_amount = 0
+    employer_total_amount = 0
     all_available = True
     missing_wage_for: list[str] = []
 
-    for emp_id, pieces in sorted(by_employee.items(), key=lambda kv: kv[1][0].employee_name):
-        rates_sorted = wage_rates_by_employee.get(emp_id, [])
-        pay = _compute_employee_pay(pieces, rates_sorted)
-        if pay.total is None:
+    for line in period_lines:
+        pay, legal = line.pay, line.legal
+        if line.total is None:
             all_available = False
-            missing_wage_for.append(pieces[0].employee_name)
+            missing_wage_for.append(line.employee_name)
         else:
-            total_amount += pay.total
+            total_amount += line.total
+            employer_total_amount += line.employer_total or 0
+        reason = pay.pay_reason
+        if reason is None and line.contract is None:
+            reason = "Sin contrato cargado: sólo horas, sin auxilio, aportes ni prestaciones."
+        elif reason is None and legal is not None and legal.notes:
+            reason = " ".join(legal.notes)
         db.add(
             PayrollRunLine(
                 run_id=run.id,
-                employee_id=emp_id,
-                employee_name=pieces[0].employee_name,
+                employee_id=line.employee_id,
+                employee_name=line.employee_name,
                 ordinary_minutes=pay.ordinary_minutes,
                 night_minutes=pay.night_minutes,
                 sunday_minutes=pay.sunday_minutes,
                 holiday_minutes=pay.holiday_minutes,
                 overtime_minutes=pay.overtime_minutes,
-                base_pay=pay.base_pay,
+                base_pay=legal.base_pay if legal is not None else pay.base_pay,
                 night_surcharge=pay.night_surcharge,
                 sunday_holiday_surcharge=pay.sunday_holiday_surcharge,
                 overtime_pay=pay.overtime_pay,
-                total=pay.total,
-                pay_reason=pay.pay_reason,
+                total=line.total,
+                pay_reason=reason,
+                absence_days=legal.absence_days if legal is not None else None,
+                absence_pay=legal.absence_pay if legal is not None else None,
+                transport_allowance=legal.transport_allowance if legal is not None else None,
+                recoverable=legal.recoverable if legal is not None else None,
+                employer_contributions=legal.employer_contributions if legal is not None else None,
+                benefits_provision=legal.benefits_provision if legal is not None else None,
+                employer_total=line.employer_total if legal is not None else None,
             )
         )
 
     if all_available:
         run.total_amount = total_amount
+        run.employer_total_amount = employer_total_amount
         run.all_available = True
         run.reason = None
     else:
@@ -1365,3 +1564,176 @@ def compute_tip_proposal(
                 )
             )
     return TipProposalResult(method=resolved_method, rows=rows, total=total, available=True, reason=None)
+
+
+# ---------------------------------------------------------------------------
+# 0043 · Contrato, novedades y parámetros legales (e2/e3).
+# ---------------------------------------------------------------------------
+
+
+def list_contracts(db: Session, *, store_id: int, employee_id: int | None = None) -> list[EmployeeContract]:
+    stmt = select(EmployeeContract).where(EmployeeContract.store_id == store_id)
+    if employee_id is not None:
+        stmt = stmt.where(EmployeeContract.employee_id == employee_id)
+    return list(db.execute(stmt.order_by(EmployeeContract.employee_name, EmployeeContract.start_date)).scalars())
+
+
+def create_contract(db: Session, *, actor: Actor, store: Store, payload: Any) -> EmployeeContract:
+    from app.auth.models import Employee
+    from app.payroll.models import ContractKind, SalaryType
+
+    employee = db.get(Employee, payload.employee_id)
+    if employee is None or employee.organization_id != store.organization_id:
+        raise NotFoundError(f"El empleado {payload.employee_id} no existe en esta organización")
+    if payload.salary_type == "monthly" and payload.monthly_salary_pesos is None:
+        raise AppError("VALIDATION_ERROR", "Un contrato de sueldo fijo necesita el sueldo mensual")
+    if payload.salary_type == "hourly" and payload.monthly_salary_pesos is not None:
+        raise AppError("VALIDATION_ERROR", "Un contrato por hora no lleva sueldo mensual: la tarifa va en «Tarifa por hora»")
+    if payload.end_date is not None and payload.end_date < payload.start_date:
+        raise AppError("VALIDATION_ERROR", "La fecha de terminación es anterior a la de inicio")
+    previous = contract_for(list_contracts(db, store_id=store.id, employee_id=employee.id), payload.start_date)
+    creator_id, creator_name = _actor_identity(actor)
+    row = EmployeeContract(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        employee_id=employee.id,
+        employee_name=employee.name,
+        kind=ContractKind(payload.kind),
+        salary_type=SalaryType(payload.salary_type),
+        monthly_salary_pesos=payload.monthly_salary_pesos,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        arl_risk_class=payload.arl_risk_class,
+        created_at=clock.now_utc(),
+        created_by_employee_id=creator_id,
+        created_by_employee_name=creator_name,
+    )
+    db.add(row)
+    db.flush()
+    record_audit(
+        db, actor=actor, organization_id=store.organization_id, store_id=store.id,
+        entity="payroll_contract", entity_id=row.id, action="create",
+        before=(
+            {"kind": previous.kind.value, "salary_type": previous.salary_type.value,
+             "monthly_salary_pesos": previous.monthly_salary_pesos, "start_date": str(previous.start_date)}
+            if previous is not None else None
+        ),
+        after={"employee_name": employee.name, "kind": row.kind.value, "salary_type": row.salary_type.value,
+               "monthly_salary_pesos": row.monthly_salary_pesos, "start_date": str(row.start_date),
+               "end_date": str(row.end_date) if row.end_date else None},
+    )
+    return row
+
+
+def list_absences(
+    db: Session, *, store_id: int, date_from: date | None = None, date_to: date | None = None,
+    employee_id: int | None = None,
+) -> list[PayrollAbsence]:
+    stmt = select(PayrollAbsence).where(PayrollAbsence.store_id == store_id)
+    if date_from is not None:
+        stmt = stmt.where(PayrollAbsence.date_to >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(PayrollAbsence.date_from <= date_to)
+    if employee_id is not None:
+        stmt = stmt.where(PayrollAbsence.employee_id == employee_id)
+    return list(db.execute(stmt.order_by(PayrollAbsence.date_from.desc(), PayrollAbsence.id.desc())).scalars())
+
+
+def create_absence(db: Session, *, actor: Actor, store: Store, payload: Any) -> PayrollAbsence:
+    from app.auth.models import Employee
+    from app.payroll.models import AbsenceKind
+
+    employee = db.get(Employee, payload.employee_id)
+    if employee is None or employee.organization_id != store.organization_id:
+        raise NotFoundError(f"El empleado {payload.employee_id} no existe en esta organización")
+    if payload.date_to < payload.date_from:
+        raise AppError("VALIDATION_ERROR", "La novedad termina antes de empezar")
+    overlapping = [
+        a for a in list_absences(db, store_id=store.id, date_from=payload.date_from, date_to=payload.date_to,
+                                 employee_id=employee.id)
+        if a.voided_at is None
+    ]
+    if overlapping:
+        raise ConflictError(
+            f"{employee.name} ya tiene una novedad que se cruza con esas fechas", code="ABSENCE_OVERLAP"
+        )
+    creator_id, creator_name = _actor_identity(actor)
+    row = PayrollAbsence(
+        organization_id=store.organization_id,
+        store_id=store.id,
+        employee_id=employee.id,
+        employee_name=employee.name,
+        kind=AbsenceKind(payload.kind),
+        date_from=payload.date_from,
+        date_to=payload.date_to,
+        note=(payload.note or "").strip() or None,
+        created_at=clock.now_utc(),
+        created_by_employee_id=creator_id,
+        created_by_employee_name=creator_name,
+    )
+    db.add(row)
+    db.flush()
+    record_audit(
+        db, actor=actor, organization_id=store.organization_id, store_id=store.id,
+        entity="payroll_absence", entity_id=row.id, action="create", before=None,
+        after={"employee_name": employee.name, "kind": row.kind.value,
+               "date_from": str(row.date_from), "date_to": str(row.date_to)},
+    )
+    return row
+
+
+def void_absence(db: Session, *, actor: Actor, store: Store, absence_id: int, reason: str) -> PayrollAbsence:
+    row = db.get(PayrollAbsence, absence_id)
+    if row is None or row.store_id != store.id:
+        raise NotFoundError(f"La novedad {absence_id} no existe en esta sede")
+    if row.voided_at is not None:
+        raise ConflictError("La novedad ya estaba anulada", code="ABSENCE_ALREADY_VOIDED")
+    reason = reason.strip()
+    if len(reason) < 5:
+        raise AppError("VALIDATION_ERROR", "Escribí el motivo de la anulación (al menos 5 caracteres)")
+    _, name = _actor_identity(actor)
+    row.voided_at = clock.now_utc()
+    row.voided_by_employee_name = name
+    row.void_reason = reason
+    db.flush()
+    record_audit(
+        db, actor=actor, organization_id=store.organization_id, store_id=store.id,
+        entity="payroll_absence", entity_id=row.id, action="void",
+        before={"voided": False}, after={"voided": True}, reason=reason,
+    )
+    return row
+
+
+def legal_params_rows(db: Session, *, organization_id: int) -> list[PayrollLegalParams]:
+    return list(
+        db.execute(
+            select(PayrollLegalParams)
+            .where(PayrollLegalParams.organization_id == organization_id)
+            .order_by(PayrollLegalParams.valid_from)
+        ).scalars()
+    )
+
+
+def create_legal_params(db: Session, *, actor: Actor, organization_id: int, payload: Any) -> PayrollLegalParams:
+    existing = [r for r in legal_params_rows(db, organization_id=organization_id) if r.valid_from == payload.valid_from]
+    if existing:
+        raise ConflictError(
+            f"Ya hay parámetros cargados desde {payload.valid_from}", code="LEGAL_PARAMS_DUPLICATE"
+        )
+    creator_id, creator_name = _actor_identity(actor)
+    row = PayrollLegalParams(
+        organization_id=organization_id,
+        created_at=clock.now_utc(),
+        created_by_employee_id=creator_id,
+        created_by_employee_name=creator_name,
+        **payload.model_dump(),
+    )
+    db.add(row)
+    db.flush()
+    record_audit(
+        db, actor=actor, organization_id=organization_id, store_id=None,
+        entity="payroll_legal_params", entity_id=row.id, action="create", before=None,
+        after={"valid_from": str(row.valid_from), "smmlv_pesos": row.smmlv_pesos,
+               "transport_allowance_pesos": row.transport_allowance_pesos},
+    )
+    return row

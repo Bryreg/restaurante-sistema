@@ -10,7 +10,6 @@ import type {
   ShiftCurrent,
   ShiftSummary,
   ShiftTips,
-  SingleStepCloseResult,
 } from "@/api/shifts";
 import { renderWithProviders } from "@/test/utils";
 
@@ -20,16 +19,14 @@ import ShiftPage from "../ShiftPage";
  * Regresión del defecto: **la pantalla final del cierre era inalcanzable**.
  *
  * Confirmar el cierre invalida `CURRENT_SHIFT_QUERY_KEY`; el refetch trae
- * `null` y el `if (!shift) return <OpenShiftForm />` de `ShiftPage`
+ * `null` y el `if (!shift)` de `ShiftPage` (que muestra la apertura)
  * desmontaba el formulario con su pantalla de «Turno cerrado» adentro. Quien
  * cerraba la caja nunca alcanzaba a leer **cuánto tenía que consignar** — la
  * plata que sale del cajón para el banco.
  *
- * El centinela de los dos tests es el botón «Abrir turno»: aparece
- * únicamente cuando la consulta del turno YA devolvió `null` **y ya se
- * pintó**. Sirve igual en las dos versiones del código (con el defecto es el
- * botón de `OpenShiftForm`; arreglado es el de continuar de la pantalla de
- * resultado), así que la aserción de «A consignar» se hace siempre después
+ * El centinela de los tests es el botón «Abrir turno»: aparece únicamente
+ * cuando la consulta del turno YA devolvió `null` **y ya se pintó** (es el
+ * de continuar de la pantalla de resultado), así que la aserción de «A consignar» se hace siempre después
  * de que el turno desapareció de verdad, y no en la ventana de carrera en
  * que el refetch todavía no llegó.
  */
@@ -69,7 +66,6 @@ const {
   closeCountMock,
   getCloseReviewMock,
   confirmCloseMock,
-  closeSingleStepMock,
   getShiftTipsMock,
 } = vi.hoisted(() => ({
   getCurrentShiftMock: vi.fn(),
@@ -77,7 +73,6 @@ const {
   closeCountMock: vi.fn(),
   getCloseReviewMock: vi.fn(),
   confirmCloseMock: vi.fn(),
-  closeSingleStepMock: vi.fn(),
   getShiftTipsMock: vi.fn(),
 }));
 
@@ -90,7 +85,6 @@ vi.mock("@/api/shifts", async () => {
     closeCount: closeCountMock,
     getCloseReview: getCloseReviewMock,
     confirmClose: confirmCloseMock,
-    closeSingleStep: closeSingleStepMock,
     getShiftTips: getShiftTipsMock,
   };
 });
@@ -137,6 +131,27 @@ async function abrirCierre(user: ReturnType<typeof userEvent.setup>): Promise<vo
   await screen.findByRole("dialog", { name: "Cierre" });
 }
 
+/** El cierre a ciegas entero, con el turno que deja de existir al confirmar. */
+async function cerrarConElAsistente(user: ReturnType<typeof userEvent.setup>, closesDay: boolean): Promise<void> {
+  closeCountMock.mockResolvedValueOnce({ count_id: 7 } satisfies CloseCountResult);
+  getCloseReviewMock.mockResolvedValue(REVIEW_SIN_CAUSA);
+  confirmCloseMock.mockImplementation(async () => {
+    // El turno deja de existir en el servidor, como en el cierre real.
+    estado.turnoAbierto = false;
+    return { to_deposit: A_CONSIGNAR, closes_day: closesDay } satisfies CloseConfirmResult;
+  });
+  await abrirCierre(user);
+  // Paso 1 → 2 → 3 → confirmar.
+  await user.click(await screen.findByRole("button", { name: /continuar/i }));
+  // Dentro de la hoja del cierre: el «Esperado» del estado del turno queda
+  // detrás (y en «—», porque el servidor no lo manda a este operador).
+  const hoja = screen.getByRole("dialog", { name: "Cierre" });
+  await waitFor(() => expect(within(hoja).getByText(/^esperado$/i)).toBeInTheDocument());
+  await user.click(screen.getByRole("button", { name: /continuar/i }));
+  await user.click(await screen.findByRole("button", { name: /confirmar cierre/i }));
+  await waitFor(() => expect(confirmCloseMock).toHaveBeenCalledTimes(1));
+}
+
 /** El renglón entero de «A consignar», para leer rótulo y cifra juntos. */
 function renglonAConsignar(): HTMLElement {
   return screen.getByText("A consignar").closest("div") as HTMLElement;
@@ -151,34 +166,15 @@ describe("ShiftPage — la pantalla de «Turno cerrado» sobrevive a que el turn
     getShiftTipsMock.mockResolvedValue({ cash_out: 0 } satisfies ShiftTips);
   });
 
-  it("CloseWizard (cash.blind_close encendida): «A consignar» y su cifra siguen en pantalla", async () => {
-    closeCountMock.mockResolvedValueOnce({ count_id: 7 } satisfies CloseCountResult);
-    getCloseReviewMock.mockResolvedValue(REVIEW_SIN_CAUSA);
-    confirmCloseMock.mockImplementation(async () => {
-      // El turno deja de existir en el servidor, como en el cierre real.
-      estado.turnoAbierto = false;
-      return { to_deposit: A_CONSIGNAR, closes_day: true } satisfies CloseConfirmResult;
-    });
-
+  it("CloseWizard: «A consignar» y su cifra siguen en pantalla", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ShiftPage />, { me: deviceMe({ "cash.blind_close": true }) });
+    renderWithProviders(<ShiftPage />, { me: deviceMe({}) });
 
-    await abrirCierre(user);
-
-    // Paso 1 → 2 → 3 → confirmar.
-    await user.click(await screen.findByRole("button", { name: /continuar/i }));
-    // Dentro de la hoja del cierre: el «Esperado» del estado del turno queda
-    // detrás (y en «—», porque el servidor no lo manda a este operador).
-    const hoja = screen.getByRole("dialog", { name: "Cierre" });
-    await waitFor(() => expect(within(hoja).getByText(/^esperado$/i)).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: /continuar/i }));
-    await user.click(await screen.findByRole("button", { name: /confirmar cierre/i }));
-
-    await waitFor(() => expect(confirmCloseMock).toHaveBeenCalledTimes(1));
+    await cerrarConElAsistente(user, true);
 
     // CENTINELA: sólo aparece cuando `GET /shifts/current` ya devolvió
     // `null` y ese estado ya se pintó. Antes del arreglo, acá el asistente
-    // ya había sido reemplazado por `OpenShiftForm`.
+    // ya había sido reemplazado por la apertura.
     await screen.findByRole("button", { name: "Abrir turno" });
 
     // Lo que el defecto se llevaba: el rótulo y la plata que hay que llevar
@@ -193,42 +189,11 @@ describe("ShiftPage — la pantalla de «Turno cerrado» sobrevive a que el turn
     await expect(getCurrentShiftMock.mock.results.at(-1)?.value).resolves.toBeNull();
   });
 
-  it("SingleStepCloseForm (cash.blind_close apagada): «A consignar» y su cifra siguen en pantalla", async () => {
-    closeSingleStepMock.mockImplementation(async () => {
-      estado.turnoAbierto = false;
-      return {
-        to_deposit: A_CONSIGNAR,
-        closes_day: false,
-        expected: 250_000,
-        difference: 0,
-      } satisfies SingleStepCloseResult;
-    });
-
-    const user = userEvent.setup();
-    renderWithProviders(<ShiftPage />, { me: deviceMe({ "cash.blind_close": false }) });
-
-    await abrirCierre(user);
-    await user.click(await screen.findByRole("button", { name: /cerrar turno/i }));
-
-    await waitFor(() => expect(closeSingleStepMock).toHaveBeenCalledTimes(1));
-
-    await screen.findByRole("button", { name: "Abrir turno" });
-
-    expect(screen.getByText("A consignar")).toBeInTheDocument();
-    expect(renglonAConsignar().textContent).toMatch(A_CONSIGNAR_TEXTO);
-  });
-
   it("la pantalla de resultado no se va sola: sólo la borra la acción explícita", async () => {
-    closeSingleStepMock.mockImplementation(async () => {
-      estado.turnoAbierto = false;
-      return { to_deposit: A_CONSIGNAR, closes_day: false } satisfies SingleStepCloseResult;
-    });
-
     const user = userEvent.setup();
-    renderWithProviders(<ShiftPage />, { me: deviceMe({ "cash.blind_close": false }) });
+    renderWithProviders(<ShiftPage />, { me: deviceMe({}) });
 
-    await abrirCierre(user);
-    await user.click(await screen.findByRole("button", { name: /cerrar turno/i }));
+    await cerrarConElAsistente(user, false);
 
     const continuar = await screen.findByRole("button", { name: "Abrir turno" });
 

@@ -94,10 +94,10 @@ def test_sales_totals_keeps_the_old_buckets_untouched(db: Session, open_shift: A
 def test_the_shift_summary_hides_the_pending_row_from_whoever_cannot_see_the_expected(
     db: Session, device_client: Any, open_shift: Any, set_feature: Any, employees: Any, identify: Any
 ) -> None:
-    """`cash.blind_close` encendida: el responsable de caja no ve el
-    esperado, y tampoco el renglón derivado. `None`, no `0` — "no te lo
-    puedo mostrar" no es "no hay"."""
-    set_feature("cash.blind_close", True)
+    """El cierre es a ciegas (la única manera de cerrar): el responsable de
+    caja no ve el esperado, y tampoco el renglón derivado. `None`, no `0` —
+    "no te lo puedo mostrar" no es "no hay". Una fila vieja de
+    `cash.blind_close` apagada no se lo vuelve a mostrar."""
     open_shift()
 
     resp = device_client.get("/api/v1/shifts/current")
@@ -110,8 +110,8 @@ def test_the_shift_summary_hides_the_pending_row_from_whoever_cannot_see_the_exp
     resp = device_client.get("/api/v1/shifts/current")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["expected_cash"] is not None
-    assert body["delivery_cash_pending"] == 0
+    assert body["expected_cash"] is None
+    assert body["delivery_cash_pending"] is None
 
 
 def test_the_close_review_shows_the_pending_delivery_cash_next_to_the_expected(

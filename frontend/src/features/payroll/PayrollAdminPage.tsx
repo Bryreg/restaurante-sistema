@@ -23,6 +23,7 @@ import { MasPestanas, PageHeader } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+import { ContractsTab } from "./ContractsTab"
 import { HoursTab } from "./HoursTab"
 import { RunsTab } from "./RunsTab"
 import { SurchargeTablesTab } from "./SurchargeTablesTab"
@@ -30,7 +31,7 @@ import { WagesCalendarTab } from "./WagesCalendarTab"
 import { TipsTab } from "./TipsTab"
 import { WeekScheduleTab } from "./WeekScheduleTab"
 
-const ALL_TABS = ["semana", "horas", "tarifas", "recargos", "liquidaciones", "propinas"] as const
+const ALL_TABS = ["semana", "horas", "tarifas", "contratos", "recargos", "liquidaciones", "propinas"] as const
 type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
@@ -52,6 +53,7 @@ export function PayrollAdminPage(): React.JSX.Element {
     semana: payrollEnabled,
     horas: payrollEnabled,
     tarifas: payrollEnabled,
+    contratos: payrollEnabled,
     recargos: payrollEnabled,
     liquidaciones: payrollEnabled,
     propinas: tipsEnabled,
@@ -122,6 +124,7 @@ export function PayrollAdminPage(): React.JSX.Element {
                 { value: "horas", label: "Horas" },
                 { value: "liquidaciones", label: "Liquidaciones" },
                 { value: "tarifas", label: "Tarifas y calendario" },
+                { value: "contratos", label: "Contratos y novedades" },
                 { value: "recargos", label: "Tablas de recargos" },
                 ...(tipsEnabled ? [{ value: "propinas", label: "Propinas" }] : []),
               ]}
@@ -141,6 +144,11 @@ export function PayrollAdminPage(): React.JSX.Element {
         {payrollEnabled ? (
           <TabsContent value="tarifas" className="pt-4">
             <WagesCalendarTab storeId={activeStoreId} />
+          </TabsContent>
+        ) : null}
+        {payrollEnabled ? (
+          <TabsContent value="contratos" className="pt-4">
+            <ContractsTab storeId={activeStoreId} />
           </TabsContent>
         ) : null}
         {payrollEnabled ? (

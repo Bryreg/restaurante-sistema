@@ -190,7 +190,6 @@ def test_no_expenses_route_is_reachable_under_a_device_session(device_client: An
         ("post", f"{API}/admin/obligations/1/settle"),
         ("get", f"{API}/admin/break-even?store_id={store.id}&from=2026-01-01&to=2026-01-31"),
         ("get", f"{API}/admin/profit?store_id={store.id}&from=2026-01-01&to=2026-01-31"),
-        ("get", f"{API}/admin/expenses/settings?store_id={store.id}"),
     ]
     alcanzables: list[str] = []
     for metodo, ruta in rutas:
@@ -215,7 +214,6 @@ def test_no_expenses_route_is_reachable_under_a_device_session(device_client: An
         ("get", "/admin/obligations"),
         ("get", "/admin/break-even"),
         ("get", "/admin/profit"),
-        ("get", "/admin/expenses/settings"),
     ],
 )
 def test_each_expenses_capability_answers_400_feature_disabled_when_its_flag_is_off(
@@ -284,9 +282,7 @@ def test_no_float_in_new_money_or_percentage_fields(admin_client: Any, store: An
                 _walk(v, f"{path}[{i}]", offenders)
 
     offenders: list[str] = []
-    admin_client.patch(f"{API}/admin/expenses/settings?store_id={store.id}", json={"fixed_costs": 1_000_000})
     for resp in (
-        admin_client.get(f"{API}/admin/expenses/settings?store_id={store.id}"),
         admin_client.get(f"{API}/admin/break-even", params={"store_id": store.id, "from": "2020-01-01", "to": "2099-12-31"}),
         admin_client.get(f"{API}/admin/profit", params={"store_id": store.id, "from": "2020-01-01", "to": "2099-12-31"}),
     ):

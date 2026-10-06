@@ -204,24 +204,20 @@ La pantalla con más controles del salón.
 - **Estados:** comanda inválida, cargando, «No se pudo cargar la comanda», lista de ítems vacía («Todavía no hay ítems en esta comanda»), conflicto de versión (`STALE_VERSION`) que recarga la comanda y avisa.
 - **Badges informativos:** estado de la comanda y **«Cuenta presentada · {hora}»**.
 
-## 6. Cocina — `/pos/cocina` — `features/orders/KitchenPage.tsx`
+## 6. Cocina — `/pos/cocina` (borrada)
 
-Vista de cocina mínima (`kitchen.view`).
-
-| Acción | Qué hace | Condición |
-|---|---|---|
-| **Todas** / botón por estación | Filtra las rondas por estación | las estaciones se descubren de los datos |
-| **Listo** (por ítem) | `markReady` | sólo si el ítem no está ya `ready`; si lo está, se ve «Listo» sin botón |
-
-- **Sin función:** `EmptyState` «La vista de cocina no está habilitada · Activá «Cocina» (kitchen.view)».
-- **Estados:** cargando, vacío («No hay rondas pendientes»), error por ítem debajo del botón.
-- Semáforo por ítem (A tiempo / Por vencer / Demorado) con el tiempo transcurrido — **el texto acompaña al color siempre**.
+La vista mínima de cocina se borró en la limpieza p17: había dos pantallas de
+cocina. `/pos/cocina` redirige a `/pos/kds` (sección 7), que ahora es la única y
+funciona también con sólo `kitchen.view`.
 
 ## 7. KDS — `/pos/kds` — `features/kitchen/KdsPage.tsx`
 
-KDS completo (`kitchen.kds`). **Dos pestañas.**
+La única pantalla de cocina (`kitchen.view`; en la barra, «Cocina»). Con
+`kitchen.kds` encendida suma deshacer, expedir y la pestaña de impresión; con
+sólo `kitchen.view`, «Listo» marca por `markReady` y no se deshace.
+**Dos pestañas** (la segunda, sólo con `kitchen.kds`).
 
-**Filtro de estación** (igual que Cocina): «Todas» + una por estación.
+**Filtro de estación**: «Todas» + una por estación.
 
 **Pestaña «Cocina»** — tarjetas agrupadas **por comanda** (no por ronda):
 
@@ -237,7 +233,7 @@ KDS completo (`kitchen.kds`). **Dos pestañas.**
 |---|---|---|
 | **Confirmar impresión** / **Reimprimir** | **Registra** que la estación imprimió (no manda nada a una impresora física) | el rótulo cambia a «Reimprimir» si ya estaba registrada |
 
-- **Sin función:** `EmptyState` que nombra el flag `kitchen.kds`.
+- **Sin función:** `EmptyState` que nombra el flag `kitchen.view`.
 - **Estados por pestaña:** cargando, **error con botón «Reintentar»**, vacío («No hay rondas pendientes» / «Nada para imprimir»).
 - Badge **«Marchado»** por ítem si su curso fue marchado; «Bumpeado por {persona}» en los ya listos.
 
@@ -302,15 +298,18 @@ información de propina. **Bloquea el cobro hasta responderla.**
 **Dos pantallas en una.** Sin turno abierto, es un formulario; con turno abierto,
 un panel de pestañas.
 
-### 10.a Sin turno abierto — `OpenShiftForm`
+### 10.a Sin turno abierto — `OpeningScreen` → `CashOpeningForm`
+
+Una sola apertura, «igual al café» (decisión del dueño; la apertura con base
+fija `OpenShiftForm` y el conteo por sobres sellado se quitaron):
 
 | Acción | Condición |
 |---|---|
-| **Base contada por denominaciones** (una fila por billete/moneda) | siempre |
-| Campo **«Reserva de caja»** | **`cash.reserve`** |
+| **Días por consignar** con su saldo, todos marcados (desmarcables) | siempre (lista vacía sin `money.deposits`) |
+| **Cajón contado por denominaciones**, una vez, con «Debería haber» y la diferencia en vivo (las calcula el servidor) | siempre |
 | **EmployeePicker «Responsable de caja»** | siempre; por defecto quien opera |
+| **Causa** + **motivo escrito** | sólo si lo contado difiere de lo que debería haber |
 | **Abrir turno** | siempre |
-| Select **«Causa»** + nota | **aparece sólo si el servidor responde `OPENING_DIFFERENCE_NEEDS_CAUSE`** (la base contada no coincide con la fija) |
 
 ### 10.b Con turno abierto — pestañas
 
@@ -322,7 +321,7 @@ un panel de pestañas.
 | Retiros | `cash.pickups` |
 | Domicilios | `pos.delivery` |
 | Relevo | `cash.handovers` |
-| Cierre | siempre (pero **cambia de formulario** según `cash.blind_close`) |
+| Cierre | siempre: el asistente a ciegas de tres pasos |
 
 **Resumen** (`ShiftSummaryPanel`): día operativo, apertura, responsable, esperado,
 base fija, **reserva aparte**, y **«Efectivo de domicilios pendiente de liquidar»**
@@ -357,22 +356,15 @@ propina y total.
 - *Arqueo sorpresa*: **PinPad de administrador obligatorio**; no cambia al responsable.
 - Muestra el **desglose congelado** del último movimiento y la lista histórica; el desglose puede venir `null` (no autorizado) y entonces **no se dibuja**.
 
-**Cierre** — **dos formularios distintos según el flag `cash.blind_close`**:
+**Cierre** — **una sola manera: el asistente a ciegas** (el cierre en un paso, `SingleStepCloseForm`, y la función `cash.blind_close` se quitaron):
 
-*Con `cash.blind_close`* → **`CloseWizard`, tres pasos**:
+**`CloseWizard`, tres pasos**:
 1. Efectivo contado por denominaciones, datáfono, transferencias, **propinas en efectivo retiradas** (con una referencia de sólo lectura de lo que el sistema calcula), **foto** (obligatoria si el servidor lo exige) → **Continuar**. *El esperado no se muestra ni se pide en este paso.*
 2. Revela **esperado y diferencia**, la ecuación (base, ventas efectivo, ingresos, egresos, retiros), datáfono y transferencias contados vs. registrados, y el aviso **«Diferencia crítica: se va a notificar al administrador»** → **Continuar**.
 3. Select de **causa** + nota — **sólo si el servidor marca `requires_cause`**; si además marca `requires_identified_cause`, **la opción «Sin identificar» desaparece del desplegable**. Casilla **«Trasladar al turno siguiente las N comandas abiertas»** — **sólo si hay comandas abiertas**. Casilla **«Este cierre también cierra el día operativo»** (precargada con lo que sugiere el servidor) → **Confirmar cierre** (deshabilitado si falta la causa exigida).
 - Si la diferencia cambió entre el paso 2 y el 3 (`DIFFERENCE_CHANGED`), **vuelve al paso 2** con la revisión nueva.
 - Pantalla final: «Turno cerrado», **a consignar**, y si cerró o no el día operativo.
 
-*Sin `cash.blind_close`* → **`SingleStepCloseForm`**: todo en un formulario
-(conteo, datáfono, transferencias, propinas, foto, causa, nota, «cierra el día»)
-→ **Cerrar turno**. La casilla **«Trasladar comandas abiertas» aparece sólo
-después** de que el servidor responde `OPEN_ORDERS_EXIST`. Si la sede encendió
-el cierre a ciegas mientras la tablet tenía flags viejos, el servidor responde
-`BLIND_CLOSE_REQUIRED` y la pantalla **refresca la sesión y cambia sola al
-asistente de tres pasos**.
 
 ## 11. Producir — `/pos/produccion` — `features/recipes/QuickProductionPage.tsx`
 
@@ -418,7 +410,7 @@ Ruta de dispositivo: **sin costo ni margen**.
 |---|---|---|
 | Barra lateral de navegación | Una entrada por sección | **cada entrada filtrada por su flag** (ver la lista transversal) |
 | **Botón de menú (hamburguesa)** | Abre la navegación en un **`Sheet` lateral** | **sólo en ancho de teléfono/tablet (`md:hidden`)** — en escritorio la barra está fija |
-| **Selector de sede** (`StoreSwitcher`) | Cambia la sede activa de todo el admin | **sólo con `multi_store` encendida Y más de una sede**; si no, no se dibuja |
+| **Selector de sede** (`StoreSwitcher`) | Cambia la sede activa de todo el admin | **sólo con más de una sede**; si no, se ve el nombre de la sede sin desplegable |
 | **Campana de notificaciones** | Ver abajo, pantalla 34 | siempre |
 | **Cambiar tema** (`ThemeToggle`) | Claro / oscuro | siempre |
 | **Salir** | Cierra sesión (`logout`) y vuelve a `/login` | siempre |
@@ -858,14 +850,16 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 | Select **«Elegir perfil…»** (Básico / Estándar / Full) | Abre la confirmación de cambio de perfil | siempre |
 | **Confirmar** el cambio de perfil | **Reinicia los flags de toda la organización** a los defaults del perfil. Queda en el historial | `AlertDialog` que explica que **los overrides por sede no se tocan** |
 | Select **«Editando:»** | **Toda la organización** o **Override de {sede}** | las sedes salen del selector global |
-| **Switch por función** | Enciende o apaga esa función en el alcance elegido | siempre |
+| **Switch por función** | Enciende o apaga esa función en el alcance elegido | siempre; los `pos.*` sólo con «Avanzado» abierto |
+| **Perfil del salón** (Mostrador / Mesa / Mixto) | Confirma nombrando lo que se enciende y se apaga y escribe cada `pos.*` del perfil (`POST /admin/features/pos-profile`), auditado flag por flag; lo que dependa de algo apagado se apaga también | siempre; marca el que coincide con los flags o dice «Personalizado» |
+| **Avanzado: cada interruptor del salón** | Muestra en la tabla las funciones `pos.*` (escondidas por defecto) | siempre |
 
 - La tabla muestra, por función: **clave**, descripción, estado, **Origen** (Organización / Override de sede / Default del perfil) y **Dependencias** (`requires`).
 - **Estados:** esqueletos, error con Reintentar, «Todavía no hay funciones para mostrar».
 
 ## 36. Ajustes — `/admin/settings` — `features/settings/SettingsPage.tsx`
 
-**Sin flag.** **Diez pestañas**, ninguna gateada por flag a nivel de pestaña (aunque dos secciones de adentro sí consultan flags).
+**Sin flag.** **Once pestañas**, ninguna gateada por flag a nivel de pestaña (aunque dos secciones de adentro sí consultan flags).
 
 **Organización:** nombre de la organización → **Guardar** (deshabilitado si no se cambió nada).
 
@@ -889,6 +883,8 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 
 **Empleados:** **Nuevo empleado**; por fila **Editar** y **Desactivar** (*sólo si está activo* — los empleados **se desactivan, nunca se borran*). El formulario tiene nombre, **rol**, **PIN de 4 dígitos** (al editar: «Nuevo PIN (opcional)»), documento, correo, **contraseña** (al editar: «Nueva contraseña (opcional)»), una casilla de **puede cobrar** y **límite de descuento (%)** por persona. *Ese límite por persona es lo que dispara el `AuthorizerDialog` del POS.*
 
+**Seguridad:** sesión de la persona en la tablet (minutos sin usar), **PIN equivocados antes del bloqueo** y **minutos de bloqueo del PIN**; vacío = el valor de fábrica. *Antes vivían dentro de Ventas (limpieza e16); se guardan en el mismo recurso de la sede (`sales-settings`) y Ventas ya no los manda.*
+
 ---
 
 # Listas transversales
@@ -899,7 +895,6 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 
 | Flag | Qué habilita | Dónde |
 |---|---|---|
-| `multi_store` | El **selector de sede** del chrome del admin (además exige > 1 sede) | Chrome admin (13–36) |
 | `pos.tables` | Entrada «Mesas»; **la pantalla 3 entera**; el canal «Mesa» en 4; **a dónde vuelve** Cobro y Documento | 3, 4, 8, 9, índice de `/pos` |
 | `pos.counter` | Canal «Mostrador» | 4 |
 | `pos.takeout` | Canal «Para llevar» y sus campos (nombre, teléfono, hora prometida) | 4 |
@@ -917,8 +912,8 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 | `pos.tips` | La **pregunta de propina** antes de cobrar; **pestaña Propinas** y su entrada de navegación | 8, 27 |
 | `pos.daily_menu` | Pestaña **Menú del día** de la carta del POS; **pestaña Menú del día** del admin | 5, 17 |
 | `pos.daily_count` | Badge **«Quedan N»** por producto | 5 |
-| `kitchen.view` | Entrada «Cocina»; **la pantalla 6 entera**; el botón **Enviar (N)** de la comanda | 5, 6 |
-| `kitchen.kds` | Entrada «KDS»; **la pantalla 7 entera** (bump, expedir, impresión) | 7 |
+| `kitchen.view` | Entrada «Cocina» (`/pos/kds`); **la pantalla 7** en su versión básica; el botón **Enviar (N)** de la comanda | 5, 7 |
+| `kitchen.kds` | En la pantalla 7: deshacer listo, expedir y la pestaña de impresión | 7 |
 | `catalog.preps` | Entradas «Producir» y «Preparaciones»; **pantallas 11 y 23 enteras** | 11, 23 |
 | `catalog.recipes` | **Pestaña Recetas** de la carta; el botón **«Efecto en receta»** de cada opción de modificador | 17 |
 | `catalog.preps` + `catalog.recipes` | (dependencia declarada: preparaciones depende de fichas técnicas) | 23 |
@@ -939,7 +934,6 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 | `cash.swaps` | **Pestaña «Cambio»** del turno | 10 |
 | `cash.pickups` | **Pestaña «Retiros»** del turno (y con ella reversar un retiro) | 10 |
 | `cash.handovers` | **Pestaña «Relevo»** del turno (relevo y arqueo sorpresa) | 10 |
-| `cash.blind_close` | **Cambia el formulario de cierre entero**: asistente de tres pasos vs. formulario de un paso | 10 |
 
 **Sin flag, a propósito** (es ley o integridad, y el código lo dice explícitamente): Documentos fiscales, Rangos de numeración, Notas, Devoluciones pendientes, Historial, Notificaciones, Funciones, Configuración, Hoy, Ventas, Pedidos, Carta (Categorías y Productos), Dinero, Turnos y personal, Turno del POS, y la comanda misma.
 
@@ -1034,5 +1028,5 @@ La lista de 36 pantallas del pedido **coincide exactamente** con las rutas que m
 1. **Hay una ruta 37 que no es una pantalla:** el índice de `/pos` (`src/app/PosHome.tsx`) **no dibuja nada**: redirige a Mesas o a Comanda nueva según `pos.tables`. Y el índice de `/admin` redirige a `/admin/hoy`. Son decisiones de arranque, no pantallas, pero se pierden fácil.
 2. **Dos pantallas de admin son «una ruta, varias entradas de navegación»:** Nómina (`/admin/nomina` + `/admin/nomina?tab=propinas`) y Analítica (`/admin/analitica` + `?tab=varianza` + `?tab=reposicion`). En la barra lateral se ven como **cinco secciones distintas**; en el router son **dos**.
 3. **Seis pantallas guardan su pestaña en la URL** (`?tab=`): Inventario, Compras, Banco, Gastos, Nómina, Analítica. Y **varias tarjetas de «Hoy» y varios enlaces internos apuntan a una pestaña concreta, a veces con filtros** (`?tab=stock&below_min=1`). Si el rediseño renombra pestañas o parámetros, esos enlaces se rompen sin que nada falle visiblemente.
-4. **Dos pantallas cambian de forma según un flag, sin cambiar de ruta:** el cierre del Turno (asistente de tres pasos vs. formulario de un paso, según `cash.blind_close`) y Nómina (qué pestañas y cuál es la inicial, según `payroll` / `pos.tips`).
+4. **Una pantalla cambia de forma según un flag, sin cambiar de ruta:** Nómina (qué pestañas y cuál es la inicial, según `payroll` / `pos.tips`).
 5. **Hay un cruce admin → POS:** en Inventario → Lotes, un lote vencido ofrece **«Registrar merma (vencido)»**, que salta a `/pos/merma` — una ruta que el administrador, en su PC, normalmente no puede abrir.

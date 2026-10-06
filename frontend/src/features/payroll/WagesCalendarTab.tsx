@@ -9,8 +9,8 @@
  *   —lo más caro— arrastra a `GET /admin/profit`, que es el objetivo textual
  *   de la fase: con `payroll` encendida, `compute_profit` corta con
  *   `available: false` si a alguien le falta tarifa.
- * - **Festivos** (`GET`/`POST /admin/payroll/holidays`). Sin ellos la columna
- *   «festivas» de las horas es siempre cero, en silencio.
+ * - **Festivos** (`GET`/`POST /admin/payroll/holidays`). Los de ley los
+ *   calcula el servidor (Ley Emiliani); acá sólo se agregan los locales.
  * - **Área por persona** (`GET`/`POST /admin/payroll/areas`). Sin ellas el
  *   reparto de propinas `by_area` —uno de los tres métodos de D-3— no tiene
  *   con qué agrupar.
@@ -197,11 +197,12 @@ function HolidaysSection({ storeId }: { storeId: number }): React.JSX.Element {
   const queryClient = useQueryClient()
   const [holidayDate, setHolidayDate] = useState(todayLocal())
   const [name, setName] = useState("")
+  const [year, setYear] = useState(() => new Date().getFullYear())
   const idemRef = useRef(newIdempotencyKey())
 
   const query = useQuery({
-    queryKey: ["payroll", "holidays", storeId],
-    queryFn: () => getHolidays(storeId),
+    queryKey: ["payroll", "holidays", storeId, year],
+    queryFn: () => getHolidays(storeId, year),
   })
 
   const mutation = useMutation({
@@ -220,13 +221,14 @@ function HolidaysSection({ storeId }: { storeId: number }): React.JSX.Element {
       governs="Qué días cuentan como festivo para la jornada de esta sede."
       reading={
         <>
-          Cada día cargado acá hace que las horas de ese día se cuenten como <b>festivas</b> en «Horas». El{" "}
-          <b>porcentaje</b> que se les aplica no sale de acá: sale de la tabla de recargos vigente ese día.
+          Los festivos de ley (Ley Emiliani, con su traslado al lunes y los de Semana Santa) los calcula el
+          sistema solo. Acá se agrega un día local extra, si la sede lo tiene. El <b>porcentaje</b> que se les
+          aplica no sale de acá: sale de la tabla de recargos vigente ese día.
         </>
       }
       doesNotDo="Cargar un festivo no recalcula una liquidación ya hecha, y no le avisa a nadie del salón."
     >
-      <FormField label="Fecha" help="El día exacto. Si falta, esas horas se cuentan como ordinarias y nadie se entera.">
+      <FormField label="Fecha" help="Un día festivo local que no esté en el calendario de ley.">
         {({ fieldId }) => (
           <Input id={fieldId} type="date" value={holidayDate} onChange={(e) => setHolidayDate(e.target.value)} />
         )}
@@ -251,7 +253,7 @@ function HolidaysSection({ storeId }: { storeId: number }): React.JSX.Element {
           onClick={() => mutation.mutate()}
           disabled={name.trim() === "" || holidayDate.trim() === "" || mutation.isPending}
         >
-          {mutation.isPending ? "Guardando…" : "Agregar festivo"}
+          {mutation.isPending ? "Guardando…" : "Agregar festivo local"}
         </Button>
       </div>
 
@@ -273,23 +275,33 @@ function HolidaysSection({ storeId }: { storeId: number }): React.JSX.Element {
           description={errorMessage(query.error)}
           action={{ label: "Reintentar", onClick: () => void query.refetch() }}
         />
-      ) : (query.data ?? []).length === 0 ? (
-        <EmptyState
-          reason="dependency"
-          title="Todavía no hay festivos cargados"
-          description="Sin festivos, la columna «festivas» de las horas queda en cero y nadie se entera."
-        />
       ) : (
         <DenseTable
-          caption="Festivos cargados para esta sede."
+          caption={`Festivos de ${year} para esta sede.`}
           columns={[
             { key: "date", header: "Fecha", kind: "name", cell: (h) => formatBusinessDate(h.holiday_date) },
             { key: "name", header: "Nombre", cell: (h) => h.name },
+            { key: "source", header: "Origen", cell: (h) => (h.source === "ley" ? "De ley" : "De la sede") },
           ]}
           rows={query.data ?? []}
-          rowKey={(h) => String(h.id)}
+          rowKey={(h) => h.holiday_date}
           maxBodyHeightPx={300}
-          bar={<DenseTableBar shown={(query.data ?? []).length} total={(query.data ?? []).length} noun="festivos cargados" />}
+          bar={
+            <DenseTableBar
+              shown={(query.data ?? []).length}
+              total={(query.data ?? []).length}
+              noun="festivos"
+            >
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setYear((y) => y - 1)}>
+                  Ver {year - 1}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setYear((y) => y + 1)}>
+                  Ver {year + 1}
+                </Button>
+              </div>
+            </DenseTableBar>
+          }
         />
       )}
       </div>

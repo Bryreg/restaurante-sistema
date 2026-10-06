@@ -37,7 +37,7 @@ const A_LA_VISTA = 3
 
 export function CatalogAdminPage() {
   const { hasFeature } = useSession()
-  // La sede activa (con selector cuando `multi_store` está encendida) ya la
+  // La sede activa (con selector cuando hay más de una sede) ya la
   // resuelve `AdminLayout` vía `StoreSelectionProvider`; esta pantalla sólo
   // la consume (`app/storeContext.tsx`, no es territorio de este módulo).
   const { activeStoreId, loading } = useStoreSelection()

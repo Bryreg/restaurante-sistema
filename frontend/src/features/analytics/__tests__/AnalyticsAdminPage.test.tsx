@@ -1,6 +1,8 @@
 import { screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
+import { Route, Routes, useLocation } from "react-router-dom"
+
 import { buildMe, renderWithProviders } from "@/test/utils"
 
 import { AnalyticsAdminPage } from "../AnalyticsAdminPage"
@@ -33,17 +35,33 @@ const TODO = {
   "inventory.replenishment": true,
 }
 
+function UbicacionActual() {
+  const { pathname, search } = useLocation()
+  return <p data-testid="ubicacion">{`${pathname}${search}`}</p>
+}
+
 function renderEn(route: string) {
   return renderWithProviders(<AnalyticsAdminPage />, { me: buildMe({ features: TODO }), route })
 }
 
 describe("AnalyticsAdminPage — sólo las pestañas de la sección del armazón por la que se entró", () => {
-  it("en Varianza y salud: Varianza por plato · Salud sostenida, y nada de Ingeniería ni Reposición", () => {
-    renderEn("/admin/analitica?tab=salud-sostenida")
-
-    expect(screen.getByRole("heading", { level: 1, name: "Varianza y salud" })).toBeInTheDocument()
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Varianza por plato", "Salud sostenida"])
-    expect(screen.getByRole("tab", { name: "Salud sostenida" })).toHaveAttribute("aria-selected", "true")
+  it("los `?tab=` viejos de la varianza redirigen a Inventario, su único lugar", async () => {
+    // Cambio intencional (limpieza 2026-10): Varianza por plato y Salud
+    // sostenida se mudaron a Inventario › Varianza y › Salud del control.
+    for (const [viejo, nuevo] of [
+      ["varianza", "/admin/inventario?tab=varianza"],
+      ["salud-sostenida", "/admin/inventario?tab=salud"],
+    ] as const) {
+      const { unmount } = renderWithProviders(
+        <Routes>
+          <Route path="/admin/analitica" element={<AnalyticsAdminPage />} />
+          <Route path="/admin/inventario" element={<UbicacionActual />} />
+        </Routes>,
+        { me: buildMe({ features: TODO }), route: `/admin/analitica?tab=${viejo}` },
+      )
+      expect(await screen.findByTestId("ubicacion")).toHaveTextContent(nuevo)
+      unmount()
+    }
   })
 
   it("en Ingeniería de menú y en Reposición no hay fila de pestañas: las pone el armazón", () => {

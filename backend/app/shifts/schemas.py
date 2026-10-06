@@ -53,9 +53,10 @@ CashDifferenceCauseLiteral = Literal[
     "change_error", "expense_without_voucher", "tips_mixed", "unrecorded_sale", "counting_error", "unknown"
 ]
 HandoverKindLiteral = Literal["handover", "spot_check"]
-# Cómo abre el cajón (2026-09-26): `envelopes` = sólo los sobres por
-# consignar elegidos y contados a ciegas (decisión del dueño); `fixed_base` =
-# la base fija de siempre (turnos anteriores y sedes que no se pasaron).
+# Con qué regla abrió un turno: `envelopes` = el cajón con los días por
+# consignar (la única manera de abrir hoy, «igual al café»); `fixed_base` =
+# la base fija de antes, que sólo queda en turnos viejos y se sigue
+# mostrando tal cual abrieron.
 OpeningModeLiteral = Literal["envelopes", "fixed_base"]
 # El libro de la base de respaldo: tomar (entra al cajón) y devolver.
 CashReserveMovementKindLiteral = Literal["take", "return"]
@@ -120,9 +121,9 @@ class ShiftCurrentOut(BaseModel):
     sales: SalesByMethodOut | None = None
     tips: SalesByMethodOut | None = None
     # Pedido 2c: el efectivo de domicilios sin liquidar, aparte del cajón.
-    # `None` (no `0`) cuando quien pregunta no puede ver el esperado — con
-    # `cash.blind_close` encendida el responsable de caja no ve plata
-    # derivada hasta el paso 2 del cierre. `null` ≠ 0: "no te lo puedo
+    # `None` (no `0`) cuando quien pregunta no puede ver el esperado — el
+    # cierre es a ciegas: el responsable de caja no ve plata derivada hasta
+    # el paso 2 del cierre. `null` ≠ 0: "no te lo puedo
     # mostrar" no es "no hay".
     delivery_cash_pending: int | None = None
     is_stale: bool
@@ -134,21 +135,6 @@ class ShiftCurrentOut(BaseModel):
     reserve_loan: int | None = None
 
 
-class OpeningEnvelopeCountIn(BaseModel):
-    """Un sobre elegido y contado por denominaciones, aparte de los demás."""
-
-    shift_id: int
-    counted: DenominationCountIn
-
-
-class OpeningCountIn(BaseModel):
-    """`POST /shifts/opening-counts`: el cuadre de apertura por sobres,
-    sellado a ciegas. Ningún monto esperado viaja desde la pantalla: el
-    servidor calcula el saldo de cada sobre."""
-
-    envelopes: list[OpeningEnvelopeCountIn] = Field(default_factory=list)
-
-
 class OpeningEnvelopeOut(BaseModel):
     shift_id: int
     business_date: date
@@ -158,8 +144,11 @@ class OpeningEnvelopeOut(BaseModel):
 
 
 class OpeningCountOut(BaseModel):
-    """Lo que se revela DESPUÉS de sellar: por sobre, lo esperado, lo contado y
-    la diferencia, atribuidos a quien contó."""
+    """**Sólo lectura (legado).** El conteo de apertura por sobres sellado a
+    ciegas de la regla del 2026-09-26: por sobre, lo esperado, lo contado y
+    la diferencia, atribuidos a quien contó. Ya no se sella ninguno (la
+    apertura es «igual al café»); los turnos que abrieron así lo siguen
+    mostrando."""
 
     id: int
     counted_by: EmployeeRef
@@ -206,8 +195,8 @@ class OpeningPreviewOut(BaseModel):
     """Lo que la pantalla de apertura muestra EN VIVO, calculado acá una vez:
     «Debería haber», lo contado y la diferencia. La pantalla no suma ni resta.
 
-    - `expected`: base fija de la sede (0 con la regla del cajón) + la suma de
-      los días marcados.
+    - `expected`: la suma de los días marcados (el cajón no tiene base fija:
+      la base de respaldo vive aparte).
     - `difference`: contado − esperado; `None` mientras no se contó.
     - `surplus_consignable`: el sobrante al abrir se consigna con este turno
       (`max(0, diferencia)`, como el café); `None` sin conteo.
@@ -216,9 +205,7 @@ class OpeningPreviewOut(BaseModel):
     - `blocks_empty`: debería haber plata y lo contado es $0 → no se abre.
     """
 
-    mode: OpeningModeLiteral
     days: list[OpeningPreviewDayOut]
-    fixed_base: int
     carried_total: int
     expected: int
     counted: int | None
@@ -230,40 +217,30 @@ class OpeningPreviewOut(BaseModel):
 
 
 class OpeningInfoOut(BaseModel):
-    """`GET /shifts/opening`: lo que la pantalla de apertura necesita."""
+    """`GET /shifts/opening`: lo que la pantalla de apertura necesita. Hay
+    una sola manera de abrir (decisión del dueño, «igual al café»): los días
+    por consignar que están en el cajón, contados enteros una vez."""
 
-    mode: OpeningModeLiteral
     envelopes: list[OpeningEnvelopeCandidateOut]
-    # Un conteo sellado de esta sede que todavía no abrió turno: la pantalla
-    # retoma en la revelación en vez de volver a contar.
-    pending_count: OpeningCountOut | None = None
     # La base de respaldo existe en esta sede (función encendida y monto > 0).
     reserve_available: bool = False
 
 
 class OpenShiftIn(BaseModel):
-    # Con la regla de sobres puede faltar: el cajón abre con lo que dice el
-    # conteo sellado (`opening_count_id`), o vacío si no se eligió ningún
-    # sobre. Con la base fija es obligatorio (`OPENING_CASH_REQUIRED`).
+    """`POST /shifts/open`, la única manera de abrir (decisión del dueño,
+    2026-09-29, «igual al café»): el cajón entero contado una vez por
+    denominaciones (puede faltar si el cajón está vacío y no debería haber
+    nada) y los días por consignar cuya plata está físicamente en él. El
+    servidor recalcula el saldo de cada día y compara lo contado contra lo
+    que debería haber. La base fija, el conteo por sobres sellado y la
+    reserva declarada al abrir ya no existen: un campo viejo que llegue se
+    ignora."""
+
     opening_cash: DenominationCountIn | None = None
-    opening_count_id: int | None = None
-    cash_reserve: int = 0
     cash_responsible_id: int
     opening_cause: CashDifferenceCauseLiteral | None = None
     opening_note: str | None = None
-    # Los turnos con saldo por consignar cuya plata está físicamente en el
-    # cajón (`ShiftCarryIn`). Con la regla del cajón (2026-09-29, «igual al
-    # café») la pantalla los manda todos marcados salvo los que se
-    # desmarcaron; con la base fija se marcan uno por uno. El conteo de
-    # apertura los incluye y el servidor recalcula el saldo de cada uno.
     carried_shift_ids: list[int] = Field(default_factory=list)
-    # Los sobres de días anteriores se confirman ENTEROS, aparte de la base:
-    # con `True`, `opening_cash` es sólo la base contada y el servidor le
-    # suma el saldo de cada día marcado (el que él mismo publica en
-    # `carry-candidates`). La diferencia de apertura se mide entonces
-    # contra la base fija sola. Sin la marca, el comportamiento de siempre:
-    # lo contado incluye los días marcados.
-    carried_counted_apart: bool = False
 
 
 class OpenShiftOut(BaseModel):
@@ -275,7 +252,7 @@ class OpenShiftOut(BaseModel):
     cash_responsible: EmployeeRef
     opening_cash_total: int
     cash_reserve: int
-    opening_mode: OpeningModeLiteral = "fixed_base"
+    opening_mode: OpeningModeLiteral = "envelopes"
 
 
 # ---------------------------------------------------------------------------
@@ -545,30 +522,6 @@ class CloseConfirmOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Cierre en un paso (cash.blind_close apagado)
-# ---------------------------------------------------------------------------
-
-
-class SingleStepCloseIn(BaseModel):
-    counted_cash: DenominationCountIn
-    counted_card: int | None = None
-    counted_transfer: int | None = None
-    tips_cash_out: int = 0
-    photo: PhotoIn | None = None
-    cause: CashDifferenceCauseLiteral | None = None
-    note: str | None = None
-    closes_day: bool = False
-    transfer_open_orders: bool = False
-
-
-class SingleStepCloseOut(BaseModel):
-    to_deposit: int
-    closes_day: bool
-    expected: int
-    difference: int
-
-
-# ---------------------------------------------------------------------------
 # Resumen completo del turno
 # ---------------------------------------------------------------------------
 
@@ -757,12 +710,6 @@ class AdjustOpeningPreviewOut(BaseModel):
     close_difference_after: int | None
     to_deposit_before: int | None
     to_deposit_after: int | None
-
-
-class BusinessDayListItem(BaseModel):
-    business_date: date
-    status: str
-    shifts: list[AdminShiftListItem]
 
 
 class EmployeeActivityShift(BaseModel):
@@ -979,8 +926,10 @@ class ReserveReturnIn(BaseModel):
 
 
 class ReserveReverseIn(BaseModel):
+    """Reversar un movimiento de la base desde Caja › Dinero: el
+    administrador que lo hace es quien lo autoriza; sólo pide el motivo."""
+
     reason: str = Field(min_length=1)
-    authorizer_pin: str | None = None
 
 
 class ReserveMovementOut(OutModel):
@@ -1044,14 +993,22 @@ class ReserveOpenLoanOut(BaseModel):
     shift_open: bool
 
 
+class AdminReserveMovementOut(ReserveMovementOut):
+    # Sólo se reversa mientras el turno sigue abierto (después, el préstamo
+    # ya quedó en el cierre): la tarjeta ofrece «Reversar» con esto.
+    shift_open: bool
+
+
 class AdminReserveOut(BaseModel):
     """`GET /admin/stores/{id}/reserve`: la base de respaldo de una sede para
-    el administrador —monto, prestado sin devolver y las verificaciones—."""
+    el administrador (Caja › Dinero) —monto, prestado sin devolver, los
+    movimientos recientes y las verificaciones—."""
 
     enabled: bool
     amount: int
     loans_outstanding: int
     open_loans: list[ReserveOpenLoanOut]
+    movements: list[AdminReserveMovementOut]
     checks: list[ReserveCheckOut]
 
 

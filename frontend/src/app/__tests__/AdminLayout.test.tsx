@@ -234,7 +234,7 @@ describe("AdminLayout: las pestañas de la sección", () => {
     );
   });
 
-  it("Salud sostenida es de «Varianza y salud»: la sección es Inventario, no Informes", async () => {
+  it("Salud del control es de «Varianza y salud», que lleva al único lugar de la varianza: Inventario", async () => {
     renderAdmin(
       buildMe({
         features: {
@@ -244,12 +244,15 @@ describe("AdminLayout: las pestañas de la sección", () => {
         },
       }),
       undefined,
-      "/admin/analitica?tab=salud-sostenida",
+      "/admin/inventario?tab=salud",
     );
 
+    // Cambio intencional (limpieza 2026-10): antes la entrada iba a Analítica.
     const tabs = await screen.findByRole("navigation", { name: "Pantallas de Inventario" });
-    expect(within(tabs).getByRole("link", { name: "Varianza y salud" })).toHaveAttribute("aria-current", "page");
-    expect(screen.queryByRole("navigation", { name: "Pantallas de Informes" })).not.toBeInTheDocument();
+    const varianza = within(tabs).getByRole("link", { name: "Varianza y salud" });
+    expect(varianza).toHaveAttribute("aria-current", "page");
+    expect(varianza).toHaveAttribute("href", "/admin/inventario?tab=varianza");
+    expect(within(tabs).getByRole("link", { name: "Inventario" })).not.toHaveAttribute("aria-current");
   });
 });
 
@@ -455,7 +458,7 @@ describe("AdminLayout: la barra superior de a2", () => {
       { id: 7, name: "Chapinero" },
       { id: 8, name: "Usaquén" },
     ]);
-    renderAdmin(buildMe({ features: { multi_store: true } }));
+    renderAdmin(buildMe());
 
     const barra = document.querySelector("header") as HTMLElement;
     const sede = await within(barra).findByRole("combobox", { name: "Sede activa" });

@@ -111,7 +111,7 @@ describe("PreparationsAdminPage", () => {
 
   it("un costo null se dice «Sin costo»; un costo con origen se ve formateado", async () => {
     listPreparationsMock.mockResolvedValue([CALDO, HOGAO])
-    renderPage({ "catalog.preps": true, multi_store: false })
+    renderPage({ "catalog.preps": true })
 
     await waitFor(() => expect(screen.getByText("Caldo base")).toBeInTheDocument())
     expect(screen.getByText("Hogao")).toBeInTheDocument()
@@ -131,7 +131,7 @@ describe("PreparationsAdminPage", () => {
 
   it("un costo sub-peso con origen oficial (la sal, $0,003) no se pinta «$ 0»", async () => {
     listPreparationsMock.mockResolvedValue([SAL])
-    renderPage({ "catalog.preps": true, multi_store: false })
+    renderPage({ "catalog.preps": true })
 
     await waitFor(() => expect(screen.getByText("Sal de mesa")).toBeInTheDocument())
     expect(within(screen.getByRole("table")).queryByText("$ 0")).not.toBeInTheDocument()

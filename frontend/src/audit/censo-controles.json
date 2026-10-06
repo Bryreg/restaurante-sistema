@@ -60,10 +60,7 @@
   "Analítica no está habilitada",
   "Encenderla en Funciones",
   "Ingeniería de menú",
-  "Reposición sugerida",
-  "Salud sostenida",
-  "Varianza por plato",
-  "Varianza y salud"
+  "Reposición sugerida"
  ],
  "features/analytics/MenuEngineeringTab.tsx": [
   "Ingeniería de menú no disponible",
@@ -125,7 +122,13 @@
  ],
  "features/auth/LoginPage.tsx": [
   "Activá este dispositivo",
+  "Olvidé mi contraseña",
   "Volver al POS"
+ ],
+ "features/auth/RecoverPasswordPage.tsx": [
+  "ABCDE-FGHJK",
+  "Volver",
+  "Volver a entrar"
  ],
  "features/banking/BankingAdminPage.tsx": [
   "Banco no está habilitado",
@@ -240,7 +243,6 @@
   "Nombre del producto"
  ],
  "features/catalog/RecipeEditor.tsx": [
-  "Descargar receta",
   "Elegí un plato",
   "Guardar ficha",
   "No se pudo cargar la ficha de este plato"
@@ -328,6 +330,7 @@
  ],
  "features/features/FeaturesPage.tsx": [
   "Alcance de la edición",
+  "Aplicar perfil",
   "Básico",
   "Cancelar",
   "Confirmar",
@@ -341,6 +344,7 @@
   "Full",
   "No se pudieron cargar las funciones",
   "Perfil",
+  "Perfil del salón",
   "Reintentar",
   "Toda la organización",
   "Todavía no hay funciones para mostrar",
@@ -532,9 +536,11 @@
   "Lotes",
   "Línea de tiempo",
   "Movimientos y mermas",
+  "Por plato",
   "Salud del control",
   "Stock",
-  "Varianza"
+  "Varianza",
+  "¿Se sostiene la brecha?"
  ],
  "features/inventory/LineaDeTiempoTab.tsx": [
   "30 días",
@@ -634,9 +640,9 @@
   "Cocina",
   "Comanda de un día operativo anterior que sigue abierta",
   "Curso marchado",
-  "El KDS no está habilitado",
   "Estación",
   "Impresión por estación",
+  "La pantalla de cocina no está habilitada",
   "Marca listos de un golpe todos los ítems enviados de esta comanda, en todas sus rondas",
   "Nada para imprimir",
   "No hay rondas pendientes",
@@ -766,12 +772,6 @@
   "Restar una unidad",
   "Sumar una unidad"
  ],
- "features/orders/KitchenPage.tsx": [
-  "Estación",
-  "La vista de cocina no está habilitada",
-  "No hay rondas pendientes",
-  "Todas"
- ],
  "features/orders/NewOrderPage.tsx": [
   "Canal de venta",
   "Consumo de personal",
@@ -883,6 +883,30 @@
   "Confirmar",
   "Propina"
  ],
+ "features/payroll/ContractsTab.tsx": [
+  "Anular",
+  "Anular novedad",
+  "Clase de riesgo ARL",
+  "Confirmar",
+  "Contratos",
+  "Cómo se paga",
+  "Desde",
+  "Elegí a quién",
+  "Hasta",
+  "Inicio",
+  "Nota",
+  "Novedades",
+  "Parámetros legales",
+  "Persona",
+  "Por hora trabajada",
+  "Sin novedades registradas",
+  "Sueldo fijo mensual",
+  "Sueldo mensual",
+  "Terminación",
+  "Tipo de contrato",
+  "Tipo de novedad",
+  "Todavía no hay contratos cargados"
+ ],
  "features/payroll/HoursTab.tsx": [
   "Jornada no disponible",
   "No hay jornada registrada en este período",
@@ -891,6 +915,7 @@
   "Ver los turnos en Dinero"
  ],
  "features/payroll/PayrollAdminPage.tsx": [
+  "Contratos y novedades",
   "Encenderla en Funciones",
   "Horario de la semana",
   "Horas",
@@ -963,7 +988,6 @@
   "Rige desde",
   "Salón",
   "Tarifa por hora",
-  "Todavía no hay festivos cargados",
   "Todavía no hay tarifas cargadas",
   "Todavía no hay áreas asignadas",
   "Área",
@@ -1225,34 +1249,22 @@
   "Todas"
  ],
  "features/reports/InformesPage.tsx": [
-  "Caballos de batalla",
   "Clientes identificados",
-  "Cobertura de receta",
   "Cobrado en caja y medios",
-  "Comandas",
   "Comandas del período",
-  "Costo teórico",
   "Esta semana",
   "Este mes",
-  "Estrellas",
   "Filtrar en Pedidos",
   "Hoy",
   "Hoy no entra: el día sigue abierto",
   "Impuesto discriminado",
-  "Indicadores",
-  "Margen bruto teórico",
   "No se pudieron cargar los informes",
-  "Perros",
   "Período",
   "Propinas · pasan a los meseros, no son venta",
   "Rango…",
   "Reintentar",
-  "Rompecabezas",
-  "Ticket por comensal",
-  "Ticket promedio",
   "Todas",
   "Todas las sedes",
-  "Venta neta",
   "Ventas netas",
   "Ver la matriz completa",
   "Últimos 7 días"
@@ -1354,6 +1366,7 @@
   "Descargar la ficha",
   "Esa persona no existe",
   "No se pudo cargar la ficha",
+  "Nómina › Horario de la semana",
   "Período",
   "Racha de cierres con diferencia",
   "Reintentar",
@@ -1416,9 +1429,16 @@
   "Insumos que coinciden",
   "Quitar"
  ],
+ "features/settings/AccountSecuritySection.tsx": [
+  "Activar",
+  "Apagar la verificación",
+  "Cambiar contraseña",
+  "Configurar",
+  "Código QR para la app de autenticación",
+  "Generar códigos nuevos"
+ ],
  "features/settings/CashSection.tsx": [
   "Base de respaldo",
-  "Base fija de apertura",
   "Con qué abre el cajón",
   "Cuánto puede desajustar un cierre",
   "Diferencia crítica",
@@ -1516,20 +1536,25 @@
   "Margen meta por categoría (%)",
   "Medios de pago",
   "Mesa larga (minutos)",
-  "Minutos de bloqueo del PIN",
   "Motivos de anulación (uno por línea)",
   "Motivos de cortesía (uno por línea)",
   "Motivos de descuento (uno por línea)",
   "No se pudo cargar la configuración de ventas",
   "Notas rápidas del POS",
-  "PIN equivocados antes del bloqueo",
   "Propina sugerida (%, máx. 10)",
   "Qué puede hacer el salón con el precio",
   "Reintentar",
-  "Seguridad de las tablets",
-  "Sesión de la persona (minutos sin usar)",
   "Tiquete demorado (minutos)",
   "Umbral de factura (UVT)"
+ ],
+ "features/settings/SecuritySection.tsx": [
+  "Elegí una sede",
+  "Minutos de bloqueo del PIN",
+  "No se pudo cargar la seguridad de las tablets",
+  "PIN equivocados antes del bloqueo",
+  "Reintentar",
+  "Seguridad de las tablets",
+  "Sesión de la persona (minutos sin usar)"
  ],
  "features/settings/SettingsPage.tsx": [
   "Aplica a",
@@ -1540,10 +1565,12 @@
   "Empleados",
   "Fiscal",
   "Inventario",
+  "Mi cuenta",
   "No se quedan acá: cambian lo que el salón le exige a la gente. Las de la fila llevan un punto ámbar; debajo de cada una, plegado, dice a qué pantallas llega.",
   "Organización",
   "Secciones",
   "Sedes",
+  "Seguridad",
   "UVT",
   "Ventas",
   "Zonas y mesas"
@@ -1636,9 +1663,6 @@
   "PIN de administrador",
   "Todavía no hay movimientos en este turno"
  ],
- "features/shifts/OpenShiftForm.tsx": [
-  "Responsable de caja"
- ],
  "features/shifts/OpeningScreen.tsx": [
   "No se pudo consultar cómo abre la caja",
   "Reintentar"
@@ -1674,9 +1698,6 @@
  ],
  "features/shifts/ShiftStatusStrip.tsx": [
   "Abrir turno →"
- ],
- "features/shifts/SingleStepCloseForm.tsx": [
-  "Sin diferencia / elegí una causa"
  ],
  "features/shifts/admin/AuthorizationsTab.tsx": [
   "No se pudieron cargar las autorizaciones",
@@ -1730,6 +1751,12 @@
   "Sin turnos en este rango",
   "Turnos",
   "Ventas y ticket promedio"
+ ],
+ "features/shifts/admin/ReserveCard.tsx": [
+  "No se pudo cargar la base de respaldo",
+  "Reintentar",
+  "Reversar",
+  "Reversar este movimiento de la base"
  ],
  "features/shifts/admin/rescates.tsx": [
   "Ajustar apertura",

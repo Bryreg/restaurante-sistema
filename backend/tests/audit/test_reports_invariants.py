@@ -336,7 +336,6 @@ def test_every_admin_report_of_another_organization_is_a_404(
         (f"{API}/admin/fiscal/export", {"store_id": ajena, "from": "2020-01-01", "to": "2099-12-31"}),
         (f"{API}/admin/notes", {"store_id": ajena}),
         (f"{API}/admin/pending-refunds", {"store_id": ajena}),
-        (f"{API}/admin/documents", {"store_id": ajena, "from": "2020-01-01", "to": "2099-12-31"}),
         (f"{API}/admin/orders", {"store_id": ajena, "from": "2020-01-01", "to": "2099-12-31"}),
     ]
     for ruta, params in rutas:
@@ -392,7 +391,6 @@ def test_every_new_admin_list_exports_csv(
         (f"{API}/admin/accountant-report", {"store_id": store.id, "year": 2026, "month": 1}),
         (f"{API}/admin/unavailable-log", {"store_id": store.id, **rango}),
         (f"{API}/admin/orders", {"store_id": store.id, **rango}),
-        (f"{API}/admin/documents", {"store_id": store.id, **rango}),
         (f"{API}/admin/notes", {"store_id": store.id, **rango}),
         (f"{API}/admin/fiscal/ranges", {"store_id": store.id}),
         (f"{API}/admin/fiscal/documents", {"store_id": store.id}),

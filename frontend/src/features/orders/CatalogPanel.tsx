@@ -220,8 +220,7 @@ export function CatalogPanel({
 }: CatalogPanelProps): React.JSX.Element {
   const { hasFeature } = useSession()
   const catalog = useCatalog()
-  const favoritesEnabled = true
-  const favorites = useFavorites(favoritesEnabled)
+  const favorites = useFavorites()
   const [search, setSearch] = useState("")
   // «Elegir opciones» vale para UN plato, como la tecla de mayúsculas: el
   // toque siguiente vuelve a sumar directo, que es lo que pasa casi siempre.

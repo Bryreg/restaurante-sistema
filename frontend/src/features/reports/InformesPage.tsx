@@ -7,12 +7,9 @@ import { adminListOrders, type AdminOrderListItem } from "@/api/orders"
 import {
   getReportsOverview,
   type DishMixGroup,
-  type MenuSummaryOut,
   type PeakHoursSeriesOut,
-  type PreviousPeriodOut,
   type ReportsOverviewOut,
   type SalesBucketOut,
-  type StoreRowOut,
   type StoresWeekSeriesOut,
 } from "@/api/reports"
 import { useSession } from "@/app/session"
@@ -30,7 +27,7 @@ import {
 } from "@/components/charts"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
-import { StatTile, cifraOSinDato } from "@/components/StatTile"
+import { StatTile } from "@/components/StatTile"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errorMessage } from "@/lib/errors"
@@ -44,9 +41,7 @@ import { CHANNEL_LABEL, ORDER_STATUS_LABEL } from "@/features/orders/lib"
 
 import {
   formatCompacto,
-  formatDelta,
   formatPctConSigno,
-  formatPercentInt,
   formatPuntos,
   formatRangoConDia,
   formatRangoCorto,
@@ -70,10 +65,14 @@ import { csvUrl } from "@/api/client"
  * raya y de qué lado quedó cada punto (`app/reports/series.py`). Acá sólo se
  * formatea, se eligen filas y se escriben frases con lo que ya vino.
  *
- * Lo que había antes en la página (medios de pago, ventas por hora, top de
- * productos, por persona, canal y zona, domicilios, ingeniería de menú,
- * costo y margen, historial de comandas) no se borró: se movió a «Más del
- * período», plegado al pie.
+ * Lo que había antes en la página y no tiene pregunta propia arriba (medios
+ * de pago, ventas por hora, top de productos, por persona, canal y zona,
+ * domicilios, historial de comandas) vive en «Más del período», plegado al
+ * pie. Lo que repetía una pregunta de arriba se quitó de ahí (limpieza
+ * 2026-10): los indicadores (los dice la banda de Ventas), la tabla por sede
+ * (la dice «Por sede»), la ingeniería de menú (la dice «Mix de platos», que
+ * enlaza a la matriz) y costo y margen (lo dice «Margen»). Cada sección, una
+ * vez.
  */
 
 const PERIODOS: readonly { value: Periodo; label: string }[] = [
@@ -120,15 +119,6 @@ function SinDato({ motivo }: { motivo: string }): React.JSX.Element {
   )
 }
 
-/** El pie de una tarjeta de indicador: la variación que manda el servidor. */
-function contraAnterior(delta: number | null | undefined, p: PreviousPeriodOut | null | undefined): string | undefined {
-  if (!p) return undefined
-  if (p.net === null) return p.null_reason ?? "Sin período anterior con qué comparar."
-  const d = formatDelta(delta)
-  const cuando = `${formatRangoCorto(p.date_from, p.date_to)}${p.partial ? ", parcial" : ""}`
-  return d === null ? `Sin variación: el período anterior (${cuando}) no tiene base.` : `${d} vs ${cuando}`
-}
-
 function channelLabel(key: string): string {
   return CHANNEL_LABEL[key] ?? key
 }
@@ -136,54 +126,6 @@ function channelLabel(key: string): string {
 // ---------------------------------------------------------------------------
 // Secciones.
 // ---------------------------------------------------------------------------
-
-function Indicadores({ total }: { total: SalesBucketOut }): React.JSX.Element {
-  const p = total.previous_period
-  return (
-    <section aria-label="Indicadores" className="space-y-2">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile label="Venta neta" value={formatCOP(total.net)} hint={contraAnterior(p?.delta_bp, p)} />
-        <StatTile
-          label="Comandas"
-          value={total.orders !== undefined ? String(total.orders) : "—"}
-          hint={contraAnterior(p?.orders_delta_bp, p)}
-        />
-        <StatTile
-          label="Ticket promedio"
-          {...cifraOSinDato(total.avg_ticket, "No hay comandas pagadas en el período.")}
-          hint={total.avg_ticket === null || total.avg_ticket === undefined ? undefined : contraAnterior(p?.avg_ticket_delta_bp, p)}
-        />
-        <StatTile
-          label="Ticket por comensal"
-          {...cifraOSinDato(total.avg_per_cover, "Ninguna comanda del período contó comensales. No es cero.")}
-        />
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Propinas {formatCOP(total.tips)} — no son venta, no entran en la venta neta.
-      </p>
-    </section>
-  )
-}
-
-function PorSede({ rows }: { rows: StoreRowOut[] }): React.JSX.Element {
-  const columns: readonly DenseColumn<StoreRowOut>[] = [
-    { key: "sede", header: "Sede", kind: "name", cell: (r) => r.store_name },
-    { key: "net", header: "Venta neta", kind: "number", cell: (r) => formatCOP(r.net) },
-    { key: "share", header: "Participación", kind: "number", cell: (r) => formatPct(r.share_bp) },
-    { key: "orders", header: "Comandas", kind: "number", cell: (r) => r.orders },
-    { key: "avg", header: "Ticket prom.", kind: "number", cell: (r) => formatCOP(r.avg_ticket) },
-  ]
-  return (
-    <Seccion titulo="Por sede">
-      <DenseTable
-        caption="Venta, comandas y ticket de cada sede en el período"
-        columns={columns}
-        rows={rows}
-        rowKey={(r) => String(r.store_id)}
-      />
-    </Seccion>
-  )
-}
 
 function MetodoDePago({ rows }: { rows: SalesBucketOut[] }): React.JSX.Element {
   return (
@@ -421,83 +363,6 @@ function SinDatoEnLinea({ motivo }: { motivo: string }): React.JSX.Element {
   )
 }
 
-const CUADRANTES: readonly { key: keyof MenuSummaryOut; label: string }[] = [
-  { key: "star", label: "Estrellas" },
-  { key: "plowhorse", label: "Caballos de batalla" },
-  { key: "puzzle", label: "Rompecabezas" },
-  { key: "dog", label: "Perros" },
-]
-
-function IngenieriaDeMenu({ menu }: { menu: MenuSummaryOut }): React.JSX.Element {
-  return (
-    <Seccion
-      titulo="Ingeniería de menú"
-      acciones={
-        <Link
-          to="/admin/analitica"
-          className="inline-flex items-center gap-1 text-sm font-bold text-primary hover:underline"
-        >
-          Ver la matriz completa
-          <ArrowRight className="size-3.5" aria-hidden="true" />
-        </Link>
-      }
-    >
-      {menu.available ? (
-        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {CUADRANTES.map((c) => (
-            <div key={c.key}>
-              <dt className="text-sm text-muted-foreground">{c.label}</dt>
-              <dd className="text-2xl font-semibold tabular-nums">{String(menu[c.key] ?? "—")}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <SinDato motivo={menu.reason ?? "No hay datos suficientes para clasificar los platos."} />
-      )}
-    </Seccion>
-  )
-}
-
-function CostoYMargen({ data }: { data: ReportsOverviewOut }): React.JSX.Element {
-  const cost = data.cost
-  const columns: readonly DenseColumn<SalesBucketOut>[] = [
-    { key: "cat", header: "Categoría", kind: "name", cell: (r) => r.label ?? r.key },
-    { key: "net", header: "Venta neta", kind: "number", cell: (r) => formatCOP(r.net) },
-    { key: "cost", header: "Costo teórico", kind: "number", cell: (r) => formatCOP(r.theoretical_cost) },
-    { key: "margin", header: "Margen bruto", kind: "number", cell: (r) => formatCOP(r.gross_margin) },
-    { key: "coverage", header: "Cobertura", kind: "number", cell: (r) => formatPercentInt(r.costed_pct) },
-  ]
-  return (
-    <details className="group rounded-lg border bg-card p-4">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-bold tracking-wide text-muted-foreground uppercase select-none">
-        <ChevronRight className="size-4 transition-transform group-open:rotate-90" aria-hidden="true" />
-        Costo y margen
-      </summary>
-      <div className="mt-3 space-y-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <StatTile
-            label="Costo teórico"
-            {...cifraOSinDato(cost.theoretical_cost, "Ninguna venta del período tuvo ficha técnica con costo.")}
-          />
-          <StatTile
-            label="Margen bruto teórico"
-            {...cifraOSinDato(cost.gross_margin, "Ninguna venta del período tuvo ficha técnica con costo.")}
-          />
-          <StatTile label="Cobertura de receta" value={formatPercentInt(cost.costed_pct)} />
-        </div>
-        {cost.by_category.length > 0 ? (
-          <DenseTable
-            caption="Costo teórico y margen por categoría"
-            columns={columns}
-            rows={cost.by_category}
-            rowKey={(r) => r.key}
-          />
-        ) : null}
-      </div>
-    </details>
-  )
-}
-
 function FilaDeComanda({ row }: { row: AdminOrderListItem }): React.JSX.Element {
   const [abierta, setAbierta] = useState(false)
   const idDetalle = useId()
@@ -718,6 +583,10 @@ function Ventas({
         note={[
           `${(t.orders ?? 0).toLocaleString("es-CO")} ${t.orders === 1 ? "comanda" : "comandas"}`,
           t.avg_ticket !== null && t.avg_ticket !== undefined ? `ticket promedio ${formatCOP(t.avg_ticket)}` : null,
+          // Sin comensales contados no se escribe nada: null no es 0.
+          t.avg_per_cover !== null && t.avg_per_cover !== undefined
+            ? `por comensal ${formatCOP(t.avg_per_cover)}`
+            : null,
         ]
           .filter(Boolean)
           .join(" · ")}
@@ -876,6 +745,16 @@ function Margen({ data }: { data: ReportsOverviewOut }): React.JSX.Element | nul
   )
 }
 
+/** La matriz completa de ingeniería de menú vive en Analítica. */
+function VerMatriz(): React.JSX.Element {
+  return (
+    <Link to="/admin/analitica" className="inline-flex items-center gap-1 text-sm font-bold text-primary hover:underline">
+      Ver la matriz completa
+      <ArrowRight className="size-3.5" aria-hidden="true" />
+    </Link>
+  )
+}
+
 const GRUPO_MIX: Record<DishMixGroup, { titulo: string; accion: string; tono: RenglonResumen["tono"] }> = {
   keep: { titulo: "Venden y dejan", accion: "Cuidarlos: que nunca falten.", tono: "success" },
   reprice: { titulo: "Venden, pero dejan poco", accion: "Revisar receta o precio.", tono: "data" },
@@ -890,7 +769,7 @@ function MixDePlatos({ data }: { data: ReportsOverviewOut }): React.JSX.Element 
   const umbralMargen = mix.avg_margin_per_unit ?? null
   if (!mix.available || mix.avg_units === null || umbralMargen === null) {
     return (
-      <Pregunta titulo="Mix de platos">
+      <Pregunta titulo="Mix de platos" acciones={<VerMatriz />}>
         <SinDato motivo={mix.reason ?? "No hay platos con costo en el período."} />
       </Pregunta>
     )
@@ -904,7 +783,7 @@ function MixDePlatos({ data }: { data: ReportsOverviewOut }): React.JSX.Element 
       tono: GRUPO_MIX[g].tono,
     }))
   return (
-    <Pregunta titulo="Mix de platos">
+    <Pregunta titulo="Mix de platos" acciones={<VerMatriz />}>
       <section aria-labelledby={id} className="flex min-w-0 flex-col rounded-lg border bg-card md:flex-row">
         <div className="flex min-w-0 flex-1 flex-col gap-2 p-4">
           <h3 id={id} className="m-0 text-[15px] leading-snug font-bold">
@@ -1119,18 +998,16 @@ function PorSedeBarras({
   )
 }
 
-/** Lo que había antes en Informes, intacto y plegado al pie: nada se borró. */
+/** Lo de antes que no repite ninguna pregunta de arriba, plegado al pie. */
 function MasDelPeriodo({
   data,
   consolidado,
-  esAdmin,
   storeId,
   from,
   to,
 }: {
   data: ReportsOverviewOut
   consolidado: boolean
-  esAdmin: boolean
   storeId: number | null
   from: string
   to: string
@@ -1142,8 +1019,6 @@ function MasDelPeriodo({
         Más del período: medios de pago, horas, productos, personas, canales, clientes y comandas
       </summary>
       <div className="space-y-5 border-t p-4">
-        <Indicadores total={data.total} />
-        {data.by_store ? <PorSede rows={data.by_store} /> : null}
         <MetodoDePago rows={data.by_method} />
         <VentasPorHora data={data} />
         <div className="grid gap-5 lg:grid-cols-2">
@@ -1152,8 +1027,6 @@ function MasDelPeriodo({
         </div>
         <CanalYZona channels={data.by_channel} zones={data.by_zone} />
         <DomiciliosYClientes data={data} />
-        <IngenieriaDeMenu menu={data.menu_engineering} />
-        {esAdmin ? <CostoYMargen data={data} /> : null}
         <HistorialDeComandas storeId={storeId} from={from} to={to} />
       </div>
     </details>
@@ -1166,7 +1039,7 @@ function MasDelPeriodo({
 
 export function InformesPage(): React.JSX.Element {
   const { stores, activeStoreId, loading: storeLoading } = useStoreSelection()
-  const { me, hasFeature } = useSession()
+  const { me } = useSession()
   const hoy = todayInBogota()
   const [periodo, setPeriodo] = useState<Periodo>("ultimos7")
   const [rango, setRango] = useState(() => rangoDePeriodo("ultimos7", hoy))
@@ -1174,7 +1047,7 @@ export function InformesPage(): React.JSX.Element {
   // `null` = la de entrada: todas si hay más de una, la activa si no.
   const [sedeElegida, setSedeElegida] = useState<number | "all" | null>(null)
 
-  const conSelector = stores.length > 1 || hasFeature("multi_store")
+  const conSelector = stores.length > 1
   const sede: number | "all" | null = !conSelector
     ? activeStoreId
     : (sedeElegida ?? (stores.length > 1 ? "all" : activeStoreId))
@@ -1297,7 +1170,6 @@ export function InformesPage(): React.JSX.Element {
           <MasDelPeriodo
             data={data}
             consolidado={consolidado}
-            esAdmin={esAdmin}
             storeId={consolidado ? null : (sede as number)}
             from={from}
             to={to}

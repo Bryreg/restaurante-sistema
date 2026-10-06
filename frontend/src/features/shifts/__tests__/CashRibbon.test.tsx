@@ -79,7 +79,6 @@ const TODAS = {
   "money.deposits": true,
   "cash.handovers": true,
   "pos.requests": true,
-  "cash.blind_close": true,
 };
 
 function me(employee: { id: number; role?: string; can_charge?: boolean }, features: Record<string, boolean> = TODAS): Me {

@@ -54,7 +54,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, admin_store, current_admin
 from app.core import hours as hours_mod
-from app.core import tz
+from app.core import clock, tz
 from app.core.csv import wants_csv
 from app.core.csv_es import csv_es_response
 from app.core.errors import AppError
@@ -64,6 +64,16 @@ from app.core.idempotency import hash_request_body, idempotency_key, run_idempot
 from app.payroll import service
 from app.payroll.models import PayrollHoliday, PayrollWageRate, SurchargeTable
 from app.payroll.schemas import (
+    AbsenceIn,
+    AbsenceOut,
+    AbsenceVoidIn,
+    ContractIn,
+    ContractOut,
+    LegalParamsIn,
+    LegalParamsOut,
+    OrganizationPayrollOut,
+    OrganizationPayrollPersonOut,
+    OrganizationPayrollStoreOut,
     AreaAssignmentIn,
     AreaAssignmentOut,
     HolidayIn,
@@ -168,6 +178,13 @@ def _run_line_out(line: Any) -> PayrollRunLineOut:
         overtime_pay=line.overtime_pay,
         total=line.total,
         pay_reason=line.pay_reason,
+        absence_days=line.absence_days,
+        absence_pay=line.absence_pay,
+        transport_allowance=line.transport_allowance,
+        recoverable=line.recoverable,
+        employer_contributions=line.employer_contributions,
+        benefits_provision=line.benefits_provision,
+        employer_total=line.employer_total,
     )
 
 
@@ -181,6 +198,7 @@ def _run_out(db: Session, run: Any) -> PayrollRunOut:
         tables_used=[SurchargeTableUsedOut(**snapshot) for snapshot in run.tables_used],
         lines=[_run_line_out(line) for line in lines],
         total_amount=run.total_amount,
+        employer_total_amount=run.employer_total_amount,
         available=run.all_available,
         reason=run.reason,
         computed_at=run.computed_at,
@@ -334,10 +352,20 @@ def post_surcharge_table(
 
 @router.get("/admin/payroll/holidays", dependencies=[Depends(require_feature("payroll"))])
 def list_holidays(
-    store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+    store_id: int,
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
 ) -> list[HolidayOut]:
+    """El calendario del año (por defecto el actual): los festivos de ley,
+    calculados, y los que la sede declaró."""
     store = admin_store(db, actor, store_id)
-    return [_holiday_out(r) for r in service.list_holidays(db, store_id=store.id)]
+    year = year or clock.now_utc().year
+    return [
+        _holiday_out(row) if row is not None
+        else HolidayOut(id=None, store_id=store.id, holiday_date=d, name=name, source="ley")
+        for d, name, row in service.holidays_for_year(db, store_id=store.id, year=year)
+    ]
 
 
 @router.post("/admin/payroll/holidays", status_code=201, dependencies=[Depends(require_feature("payroll"))])
@@ -575,3 +603,195 @@ def patch_tip_settings(
         db, organization_id=actor.organization_id, scope="payroll.tip_settings", request=request, payload=payload, fn=_do
     )
     return TipSettingsOut.model_validate(body)
+
+
+
+# ---------------------------------------------------------------------------
+# 0043 · Contrato, novedades y parámetros legales (e2/e3).
+# ---------------------------------------------------------------------------
+
+
+def _absence_out(row: Any) -> AbsenceOut:
+    return AbsenceOut(
+        id=row.id, store_id=row.store_id, employee_id=row.employee_id, employee_name=row.employee_name,
+        kind=row.kind.value, date_from=row.date_from, date_to=row.date_to,
+        days=(row.date_to - row.date_from).days + 1, note=row.note,
+        created_by_employee_name=row.created_by_employee_name, voided_at=row.voided_at,
+        voided_by_employee_name=row.voided_by_employee_name, void_reason=row.void_reason,
+    )
+
+
+@router.get("/admin/payroll/contracts", dependencies=[Depends(require_feature("payroll"))])
+def get_contracts(
+    store_id: int, employee_id: int | None = None,
+    actor: Actor = Depends(current_admin), db: Session = Depends(get_db),
+) -> list[ContractOut]:
+    store = admin_store(db, actor, store_id)
+    return [ContractOut.model_validate(c) for c in service.list_contracts(db, store_id=store.id, employee_id=employee_id)]
+
+
+@router.post("/admin/payroll/contracts", status_code=201, dependencies=[Depends(require_feature("payroll"))])
+def post_contract(
+    payload: ContractIn, store_id: int, request: Request,
+    actor: Actor = Depends(current_admin), db: Session = Depends(get_db),
+) -> ContractOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = service.create_contract(db, actor=actor, store=store, payload=payload)
+        return 201, ContractOut.model_validate(row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="payroll.contracts", request=request, payload=payload, fn=_do
+    )
+    return ContractOut.model_validate(body)
+
+
+@router.get("/admin/payroll/absences", dependencies=[Depends(require_feature("payroll"))])
+def get_absences(
+    store_id: int,
+    from_: date | None = Query(default=None, alias="from"),
+    to: date | None = None,
+    employee_id: int | None = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[AbsenceOut]:
+    store = admin_store(db, actor, store_id)
+    rows = service.list_absences(db, store_id=store.id, date_from=from_, date_to=to, employee_id=employee_id)
+    return [_absence_out(r) for r in rows]
+
+
+@router.post("/admin/payroll/absences", status_code=201, dependencies=[Depends(require_feature("payroll"))])
+def post_absence(
+    payload: AbsenceIn, store_id: int, request: Request,
+    actor: Actor = Depends(current_admin), db: Session = Depends(get_db),
+) -> AbsenceOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = service.create_absence(db, actor=actor, store=store, payload=payload)
+        return 201, _absence_out(row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="payroll.absences", request=request, payload=payload, fn=_do
+    )
+    return AbsenceOut.model_validate(body)
+
+
+@router.post("/admin/payroll/absences/{absence_id}/void", dependencies=[Depends(require_feature("payroll"))])
+def post_absence_void(
+    absence_id: int, payload: AbsenceVoidIn, store_id: int, request: Request,
+    actor: Actor = Depends(current_admin), db: Session = Depends(get_db),
+) -> AbsenceOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = service.void_absence(db, actor=actor, store=store, absence_id=absence_id, reason=payload.reason)
+        return 200, _absence_out(row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope=f"payroll.absences.void.{absence_id}",
+        request=request, payload=payload, fn=_do,
+    )
+    return AbsenceOut.model_validate(body)
+
+
+@router.get("/admin/payroll/legal-params", dependencies=[Depends(require_feature("payroll"))])
+def get_legal_params(actor: Actor = Depends(current_admin), db: Session = Depends(get_db)) -> list[LegalParamsOut]:
+    """Las vigencias que rigen: las del decreto que trae el sistema y las
+    que cargó la organización (en la misma fecha gana la de la organización)."""
+    from app.payroll import legal_costs
+
+    rows = {r.valid_from: r for r in service.legal_params_rows(db, organization_id=actor.organization_id)}
+    out: dict[date, LegalParamsOut] = {}
+    for p in legal_costs.LEGAL_PARAMS:
+        out[p.valid_from] = LegalParamsOut(
+            source="ley", **{k: getattr(p, k) for k in LegalParamsOut.model_fields if hasattr(p, k)}
+        )
+    for d, r in rows.items():
+        out[d] = LegalParamsOut(
+            source="organizacion", confirmed_by_name=r.created_by_employee_name,
+            **{k: getattr(r, k) for k in LegalParamsOut.model_fields if k not in ("source", "confirmed_by_name")},
+        )
+    return [out[d] for d in sorted(out, reverse=True)]
+
+
+@router.post("/admin/payroll/legal-params", status_code=201, dependencies=[Depends(require_feature("payroll"))])
+def post_legal_params(
+    payload: LegalParamsIn, request: Request,
+    actor: Actor = Depends(current_admin), db: Session = Depends(get_db),
+) -> LegalParamsOut:
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = service.create_legal_params(db, actor=actor, organization_id=actor.organization_id, payload=payload)
+        body = LegalParamsOut(
+            source="organizacion", confirmed_by_name=row.created_by_employee_name,
+            **{k: getattr(row, k) for k in LegalParamsOut.model_fields if k not in ("source", "confirmed_by_name")},
+        )
+        return 201, body.model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="payroll.legal_params", request=request, payload=payload, fn=_do
+    )
+    return LegalParamsOut.model_validate(body)
+
+
+# ---------------------------------------------------------------------------
+# Nómina de toda la organización (auditoría e8).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/payroll/organization", dependencies=[Depends(require_feature("payroll"))])
+def get_organization_payroll(
+    from_: date = Query(alias="from"),
+    to: date = Query(),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> OrganizationPayrollOut:
+    """La nómina del período en todas las sedes, con el mismo motor que la
+    liquidación (`service.compute_period`), sin guardar nada: por sede y por
+    persona (quien trabaja en dos sedes sale sumada)."""
+    from sqlalchemy import select as sa_select
+
+    from app.stores.models import Store
+
+    if from_ > to:
+        raise AppError("VALIDATION_ERROR", "La fecha inicial es posterior a la final")
+    stores = db.execute(
+        sa_select(Store).where(Store.organization_id == actor.organization_id, Store.active.is_(True)).order_by(Store.name)
+    ).scalars().all()
+    store_rows: list[OrganizationPayrollStoreOut] = []
+    people: dict[int, dict[str, Any]] = {}
+    total: int | None = 0
+    employer_total: int | None = 0
+    for store in stores:
+        if not service.list_surcharge_tables(db, store_id=store.id):
+            store_rows.append(OrganizationPayrollStoreOut(
+                store_id=store.id, store_name=store.name, people=0, total=None, employer_total=None,
+                reason="Sin tabla de recargos"))
+            total = employer_total = None
+            continue
+        lines, _ = service.compute_period(db, store=store, date_from=from_, date_to=to)
+        s_total = None if any(l.total is None for l in lines) else sum(l.total or 0 for l in lines)
+        s_emp = None if any(l.employer_total is None for l in lines) else sum(l.employer_total or 0 for l in lines)
+        store_rows.append(OrganizationPayrollStoreOut(
+            store_id=store.id, store_name=store.name, people=len(lines), total=s_total, employer_total=s_emp,
+            reason=None if s_total is not None else "Alguien sin tarifa por hora"))
+        total = None if total is None or s_total is None else total + s_total
+        employer_total = None if employer_total is None or s_emp is None else employer_total + s_emp
+        for l in lines:
+            p = people.setdefault(l.employee_id, {"name": l.employee_name, "stores": [], "total": 0, "employer_total": 0})
+            p["stores"].append(store.name)
+            p["total"] = None if p["total"] is None or l.total is None else p["total"] + l.total
+            p["employer_total"] = (
+                None if p["employer_total"] is None or l.employer_total is None else p["employer_total"] + l.employer_total
+            )
+    return OrganizationPayrollOut(
+        date_from=from_, date_to=to, total=total, employer_total=employer_total, stores=store_rows,
+        people=[
+            OrganizationPayrollPersonOut(
+                employee_id=eid, employee_name=p["name"], stores=p["stores"], total=p["total"],
+                employer_total=p["employer_total"],
+            )
+            for eid, p in sorted(people.items(), key=lambda kv: kv[1]["name"])
+        ],
+    )

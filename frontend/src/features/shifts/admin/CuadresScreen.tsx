@@ -29,7 +29,9 @@ import { cn } from "@/lib/utils";
 
 import { CashSummary } from "./CashSummary";
 import { conSigno, monthStartInBogota, todayInBogota } from "./lib";
+import { ReserveCard } from "./ReserveCard";
 import { AdjustOpeningButton, CancelButton, CloseAdministrativeButton, ReopenButton } from "./rescates";
+import { ShiftTimeline } from "./ShiftTimeline";
 
 const STATUS_CHIPS: { value: CuadresStatus; label: string }[] = [
   { value: "all", label: "Todos" },
@@ -45,7 +47,8 @@ const CUADRES_QUERY_KEY = ["admin-cuadres"] as const;
  * Historial y el detalle del turno. Una tarjeta por turno con sus cuadres
  * (Inicial, Relevo, Arqueo, Cierre) «contó / debía», el desglose de cada
  * uno, quién estuvo, los movimientos de caja y los rescates; al pie, el
- * desempeño por responsable. Todas las cifras las manda el servidor
+ * desempeño por responsable; arriba, la base de respaldo (`ReserveCard`) y
+ * en cada tarjeta la cronología del turno, plegada. Todas las cifras las manda el servidor
  * (`GET /admin/cuadres`): acá no se suma ni se resta plata.
  */
 export function CuadresScreen({
@@ -116,6 +119,8 @@ export function CuadresScreen({
           ))}
         </div>
       ) : null}
+
+      <ReserveCard storeId={storeId} />
 
       <details className="rounded-[12px] border bg-card p-3">
         <summary className="cursor-pointer text-sm font-bold">¿La caja cuadra en el período?</summary>
@@ -261,6 +266,8 @@ export function CuadreCard({ shift, onChanged }: { shift: CuadreShift; onChanged
 
         <Movements rows={shift.movements} />
       </div>
+
+      <ShiftTimeline shiftId={shift.shift_id} />
     </article>
   );
 }

@@ -25,7 +25,7 @@ def test_bank_ledger_lists_deposit_and_card_settlement_and_transfer(
     store: Any,
 ) -> None:
     bd = today_business_date(store)
-    shift = open_shift(total=200_000)
+    shift = open_shift(total=0)
     make_payment(shift=shift, method="transfer", amount=40_000)
 
     deposit = admin_client.post(
@@ -92,7 +92,7 @@ def test_owner_hand_balances_withdrawn_minus_deposited_minus_spent(
 
     bd = today_business_date(store)
 
-    shift = open_shift(total=200_000)
+    shift = open_shift(total=0)
     pickup = device_client.post(
         f"{API}/shifts/{shift['id']}/pickups",
         json={"amount": 20_000, "authorizer_pin": "9999", "photo": "retiro.jpg"},
@@ -101,11 +101,12 @@ def test_owner_hand_balances_withdrawn_minus_deposited_minus_spent(
     assert pickup.status_code == 201, pickup.text
 
     # `to_deposit` sale de lo CONTADO al cierre, no de restarle el retiro al
-    # esperado (`app/shifts/service.py:1035`): contar $250.000 dice
-    # `to_deposit = 250.000 - 200.000 - 0 = 50.000`, **independiente** del
+    # esperado (`app/shifts/service.py::_finalize_close`): con el cajón
+    # abierto vacío, contar $50.000 dice `to_deposit = 50.000 - 0 = 50.000`,
+    # **independiente** del
     # retiro de $20.000 ya hecho — son dos salidas de plata distintas del
     # mismo turno, y las dos alimentan `withdrawn` acá.
-    close_body = close_shift(shift["id"], counted_cash=250_000)
+    close_body = close_shift(shift["id"], counted_cash=50_000)
     assert close_body["to_deposit"] == 50_000
 
     deposit = admin_client.post(
@@ -161,7 +162,7 @@ def test_owner_hand_counts_refunds_settled_from_owner_as_spent(
     bd = today_business_date(store)
     now = datetime.now(timezone.utc)
 
-    shift = open_shift(total=200_000)
+    shift = open_shift(total=0)
     sale = make_payment(shift=shift, method="cash", amount=50_000)
     document_id = sale["document"]["id"]
     assert document_id is not None
@@ -232,11 +233,11 @@ def test_owner_hand_does_not_count_cash_that_nobody_counted(
     bd = today_business_date(store)
 
     # Turno 1: cerrado con conteo de verdad. SÍ entra.
-    contado = open_shift(total=200_000)
-    close_shift(contado["id"], counted_cash=260_000)
+    contado = open_shift(total=0)
+    close_shift(contado["id"], counted_cash=60_000)
 
     # Turno 2: abierto el mismo día operativo y abandonado. NO entra.
-    sin_contar = open_shift(total=200_000)
+    sin_contar = open_shift(total=0)
     clock.advance(days=1)
     rescate = admin_client.post(
         f"{API}/admin/shifts/{sin_contar['id']}/close-administrative",
@@ -252,7 +253,7 @@ def test_owner_hand_does_not_count_cash_that_nobody_counted(
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
-    # Sólo el turno contado aporta: 260.000 - 200.000 = 60.000.
+    # Sólo el turno contado aporta: los 60.000 que contó (abrió vacío).
     assert body["withdrawn_from_shift_close"] == 60_000, (
         "la mano del dueño está contando plata de un turno que nadie contó: "
         f"{body['withdrawn_from_shift_close']}"
@@ -303,11 +304,11 @@ def test_owner_hand_does_not_subtract_a_tip_payout_that_came_out_of_the_drawer(
     """
     bd = today_business_date(store)
 
-    shift = open_shift(total=200_000)
-    # Contado 260.000 con 10.000 de propina en efectivo retirada al cierre:
-    # `to_deposit = 260.000 - 200.000 - 10.000 = 50.000`. Esos 10.000 YA
+    shift = open_shift(total=0)
+    # Contado 60.000 con 10.000 de propina en efectivo retirada al cierre:
+    # `to_deposit = 60.000 - 10.000 = 50.000`. Esos 10.000 YA
     # salieron del cajón acá.
-    close_body = close_shift(shift["id"], counted_cash=260_000, tips_cash_out=10_000)
+    close_body = close_shift(shift["id"], counted_cash=60_000, tips_cash_out=10_000)
     assert close_body["to_deposit"] == 50_000
 
     def mano() -> dict:
@@ -388,8 +389,8 @@ def test_owner_hand_says_how_many_tip_payouts_did_not_declare_their_source(
     from app.shifts.models import TipPayout, TipPayoutSource
 
     bd = today_business_date(store)
-    shift = open_shift(total=200_000)
-    close_shift(shift["id"], counted_cash=260_000, tips_cash_out=10_000)
+    shift = open_shift(total=0)
+    close_shift(shift["id"], counted_cash=60_000, tips_cash_out=10_000)
 
     creado = admin_client.post(
         f"{API}/admin/tips/payouts",
@@ -444,8 +445,8 @@ def test_owner_hand_says_how_many_days_the_oldest_undeposited_cash_has_been_wait
     from app.shifts.models import BusinessDay, Shift
 
     bd = today_business_date(store)
-    shift = open_shift(total=200_000)
-    assert close_shift(shift["id"], counted_cash=250_000)["to_deposit"] == 50_000
+    shift = open_shift(total=0)
+    assert close_shift(shift["id"], counted_cash=50_000)["to_deposit"] == 50_000
 
     # El cierre queda en un día de negocio de hace 4 días.
     row = db.get(Shift, shift["id"])

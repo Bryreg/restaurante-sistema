@@ -77,18 +77,18 @@ describe("SalesSection — los supuestos del panel viven en Ajustes", () => {
     await user.click(within(dialogo).getByRole("button", { name: "Guardar" }))
     await waitFor(() => expect(setSalesSettingsMock).toHaveBeenCalled())
     expect(setSalesSettingsMock.mock.calls[0]![1]).toMatchObject({ long_table_minutes: 90, margin_target_pct: 65 })
+    // Ventas no manda los de seguridad: el servidor conserva lo que guardó Seguridad.
+    expect(setSalesSettingsMock.mock.calls[0]![1]).not.toHaveProperty("pin_lock_attempts")
   })
 })
 
 describe("SalesSection — lo que estaba quemado en el código ahora se configura acá (0035)", () => {
-  it("muestra el umbral de factura, la seguridad con los valores de fábrica y la muestra chica", async () => {
+  it("muestra el umbral de factura y la muestra chica; la seguridad ya no vive acá", async () => {
     getSalesSettingsMock.mockResolvedValue(DEFAULTS)
     renderWithProviders(<SalesSection storeId={1} />, { me: buildMe() })
 
     expect(await screen.findByLabelText("Umbral de factura (UVT)")).toHaveValue(5)
-    const sesion = screen.getByLabelText("Sesión de la persona (minutos sin usar)")
-    expect(sesion).toHaveValue(null)
-    expect(sesion).toHaveAttribute("placeholder", "3")
+    expect(screen.queryByLabelText("Sesión de la persona (minutos sin usar)")).not.toBeInTheDocument()
     expect(screen.getByLabelText("Comandas mínimas del período")).toHaveValue(20)
     expect(screen.getByLabelText("Para el resto (una por línea)")).toHaveValue("Sin cebolla\nSin sal\nAparte\nPara llevar")
   })

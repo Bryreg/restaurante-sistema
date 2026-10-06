@@ -20,7 +20,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
-from app.banking import hooks as banking_hooks
 from app.auth.deps import Actor, admin_store, current_actor, current_admin, current_device, current_operator
 from app.auth.models import Employee
 from app.core import clock, features, money
@@ -43,7 +42,6 @@ from app.shifts.schemas import (
     AdminReopenIn,
     AdminReviewIn,
     AdminShiftListItem,
-    BusinessDayListItem,
     CashMovementIn,
     CashMovementOut,
     CashPickupIn,
@@ -64,8 +62,8 @@ from app.shifts.schemas import (
     HandoverIn,
     HandoverKindLiteral,
     HandoverOut,
+    AdminReserveMovementOut,
     AdminReserveOut,
-    OpeningCountIn,
     OpeningCountOut,
     OpeningEnvelopeCandidateOut,
     OpeningInfoOut,
@@ -86,8 +84,6 @@ from app.shifts.schemas import (
     ShiftCurrentOut,
     ShiftSummaryOut,
     ShiftTipsOut,
-    SingleStepCloseIn,
-    SingleStepCloseOut,
     TimelineEventOut,
     TipPayoutIn,
     TipPayoutOut,
@@ -154,18 +150,14 @@ def _can_see_expected(db: Session, actor: Actor, shift: Shift) -> bool:
     """Único lugar que decide quién ve el esperado y todo lo derivado de él
     (`expected_cash`, `pickups[].expected_at_pickup`, `handovers[].breakdown`,
     y desde 1b-1 también `sales`/`tips`): el admin (por tipo de actor o por
-    rol) siempre; el responsable de caja del turno SOLO si `cash.blind_close`
-    está apagada en su sede (O-1, CONTRATO-INTERNO-1b-1.md §2.4 «Caja»); el
-    operador que no es responsable, nunca. Con la flag encendida el
-    responsable ve el esperado recién en el paso 2 del cierre
-    (`GET /shifts/{id}/close/{count_id}/review`, que no pasa por esta
-    función: llama directo a `service.review_close`)."""
+    rol) siempre; el operador, nunca —tampoco el responsable de caja—. El
+    cierre es **a ciegas en tres pasos** (la única manera de cerrar desde
+    que se congeló el cierre «igual al café»): el responsable ve el
+    esperado recién en el paso 2 (`GET /shifts/{id}/close/{count_id}/review`,
+    que no pasa por esta función: llama directo a `service.review_close`)."""
 
-    if actor.kind == "admin" or actor.role == "admin":
-        return True
-    if actor.employee_id is None or actor.employee_id != shift.cash_responsible_id:
-        return False
-    return not features.is_enabled(db, shift.organization_id, shift.store_id, "cash.blind_close")
+    del db, shift
+    return actor.kind == "admin" or actor.role == "admin"
 
 
 def _sales_and_tips(db: Session, shift: Shift) -> tuple[SalesByMethodOut, SalesByMethodOut]:
@@ -354,54 +346,20 @@ def get_current(actor: Actor = Depends(current_device), db: Session = Depends(ge
     )
 
 
-class CarryCandidateOut(BaseModel):
-    shift_id: int
-    business_date: date
-    # Con monto también con la regla del cajón desde el 2026-09-29 (apertura
-    # «igual al café»: quien abre ve cuánto debería haber). Saldo después
-    # de la cascada (`app.banking.hooks.store_balances`).
-    outstanding: int | None
-
-
-@router.get("/shifts/carry-candidates")
-def get_carry_candidates(actor: Actor = Depends(current_device), db: Session = Depends(get_db)) -> list[CarryCandidateOut]:
-    """Los días con plata por consignar, para que quien abre marque cuáles
-    están físicamente en el cajón (`OpenShiftIn.carried_shift_ids`). Con
-    «Consignaciones» apagada no hay saldo publicado: lista vacía, y la
-    apertura sigue siendo sólo la base."""
-    store = _store_of(db, actor)
-    if not features.is_enabled(db, store.organization_id, store.id, "money.deposits"):
-        return []
-    return [
-        CarryCandidateOut(shift_id=p.shift_id, business_date=p.business_date, outstanding=p.outstanding)
-        for p in banking_hooks.pending_shifts(db, organization_id=store.organization_id, store_id=store.id)
-    ]
-
-
 @router.get("/shifts/opening")
 def get_opening_info(actor: Actor = Depends(current_device), db: Session = Depends(get_db)) -> OpeningInfoOut:
-    """Lo que necesita la pantalla de apertura: la regla de la sede, los
-    días por consignar que pueden estar en el cajón **con su saldo** (desde
-    el 2026-09-29 la apertura es «igual al café»: se ve cuánto debería
-    haber; todos arrancan marcados) y un conteo por sobres ya sellado sin
-    usar, de la regla anterior, para retomarlo."""
+    """Lo que necesita la pantalla de apertura «igual al café»: los días
+    por consignar que pueden estar en el cajón **con su saldo** (se ve
+    cuánto debería haber; todos arrancan marcados) y si la sede tiene base
+    de respaldo."""
     store = _store_of(db, actor)
-    mode = service.opening_mode_of(db, store)
-    envelopes: list[OpeningEnvelopeCandidateOut] = []
-    pending: OpeningCountOut | None = None
-    if mode == service.ENVELOPES:
-        envelopes = [
-            OpeningEnvelopeCandidateOut(shift_id=p.shift_id, business_date=p.business_date, outstanding=p.outstanding)
-            for p in service.opening_envelope_candidates(db, store=store)
-        ]
-        count = service.pending_opening_count(db, store=store)
-        if count is not None:
-            pending = OpeningCountOut(**service.opening_count_view(count))
+    envelopes = [
+        OpeningEnvelopeCandidateOut(shift_id=p.shift_id, business_date=p.business_date, outstanding=p.outstanding)
+        for p in service.opening_envelope_candidates(db, store=store)
+    ]
     reserve_on = features.is_enabled(db, store.organization_id, store.id, reserve_service.FEATURE)
     return OpeningInfoOut(
-        mode="envelopes" if mode == service.ENVELOPES else "fixed_base",
         envelopes=envelopes,
-        pending_count=pending,
         reserve_available=reserve_on and reserve_service.reserve_amount(db, store.id) > 0,
     )
 
@@ -423,31 +381,13 @@ def post_opening_preview(
     )
 
 
-@router.post("/shifts/opening-counts", status_code=201)
-def post_opening_count(
-    payload: OpeningCountIn, request: Request, actor: Actor = Depends(current_operator), db: Session = Depends(get_db)
-) -> JSONResponse:
-    """Sella el cuadre de apertura por sobres (a ciegas) y **recién ahí**
-    revela, por sobre, lo esperado, lo contado y la diferencia, con quién
-    contó. Abrir el turno con este conteo es `POST /shifts/open`."""
-    store = _store_of(db, actor)
-    shifts_hooks.require_cash_permission(db, actor=actor, shift=None)
-
-    def _do() -> tuple[int, dict[str, Any]]:
-        count = service.seal_opening_count(db, actor=actor, store=store, payload=payload)
-        return 201, OpeningCountOut(**service.opening_count_view(count)).model_dump(mode="json")
-
-    return _idempotent(
-        db, organization_id=actor.organization_id, scope="shifts.opening_count", request=request, payload=payload, fn=_do
-    )
-
-
 @router.post("/shifts/open", status_code=201)
 def post_open_shift(
     payload: OpenShiftIn, request: Request, actor: Actor = Depends(current_operator), db: Session = Depends(get_db)
 ) -> JSONResponse:
+    """La única manera de abrir: «igual al café» (`service.open_shift`)."""
     store = _store_of(db, actor)
-    # Abrir es contar la base: sólo quien puede tocar la caja (sin turno
+    # Abrir es contar el cajón: sólo quien puede tocar la caja (sin turno
     # todavía, eso es `can_charge`, supervisor o admin).
     shifts_hooks.require_cash_permission(db, actor=actor, shift=None)
 
@@ -488,8 +428,8 @@ def get_shift_summary(shift_id: int, actor: Actor = Depends(current_actor), db: 
 
 @router.get("/shifts/{shift_id}/tips")
 def get_shift_tips(shift_id: int, actor: Actor = Depends(current_actor), db: Session = Depends(get_db)) -> ShiftTipsOut:
-    """A diferencia de `expected_cash` (oculto al responsable con
-    `cash.blind_close`, O-1), la propina no arma el cuadre de caja: no hay
+    """A diferencia de `expected_cash` (oculto al responsable por el cierre
+    a ciegas, O-1), la propina no arma el cuadre de caja: no hay
     razón de integridad para esconderla, así que esta ruta no aplica
     `_can_see_expected` (decisión declarada en el entregable)."""
 
@@ -699,7 +639,7 @@ def post_pickup_reverse(
 
 
 # ---------------------------------------------------------------------------
-# Cierre a ciegas en tres pasos (cash.blind_close encendido)
+# Cierre a ciegas en tres pasos: la única manera de cerrar
 # ---------------------------------------------------------------------------
 
 
@@ -725,7 +665,6 @@ def post_close_count(
     request: Request,
     actor: Actor = Depends(current_operator),
     db: Session = Depends(get_db),
-    _feature: None = Depends(features.require_feature("cash.blind_close")),
 ) -> JSONResponse:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
@@ -746,7 +685,6 @@ def get_close_review(
     count_id: int,
     actor: Actor = Depends(current_operator),
     db: Session = Depends(get_db),
-    _feature: None = Depends(features.require_feature("cash.blind_close")),
 ) -> CloseReviewOut:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
@@ -767,7 +705,6 @@ def post_close_confirm(
     payload: CloseConfirmIn,
     actor: Actor = Depends(current_operator),
     db: Session = Depends(get_db),
-    _feature: None = Depends(features.require_feature("cash.blind_close")),
 ) -> CloseConfirmOut:
     store = _store_of(db, actor)
     shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
@@ -786,42 +723,6 @@ def post_close_confirm(
         transfer_open_orders=payload.transfer_open_orders,
     )
     return CloseConfirmOut(**result)
-
-
-# ---------------------------------------------------------------------------
-# Cierre en un solo paso (cash.blind_close apagado)
-# ---------------------------------------------------------------------------
-
-
-@router.post("/shifts/{shift_id}/close")
-def post_close_single(
-    shift_id: int,
-    payload: SingleStepCloseIn,
-    request: Request,
-    actor: Actor = Depends(current_operator),
-    db: Session = Depends(get_db),
-) -> JSONResponse:
-    store = _store_of(db, actor)
-    shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
-    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
-
-    # `cash.blind_close` es mutuamente excluyente por flag, no dos rutas que
-    # conviven (veredicto del Conciliador, iteración 2): con la flag encendida
-    # este endpoint de un solo paso queda cerrado y el cliente tiene que usar
-    # count → review → confirm. Se resuelve ANTES de `_idempotent`/`_do` para
-    # que el rechazo no quede grabado como respuesta idempotente resuelta.
-    if features.is_enabled(db, actor.organization_id, actor.store_id, "cash.blind_close"):
-        raise AppError(
-            code="BLIND_CLOSE_REQUIRED",
-            message="Esta sede cierra a ciegas en tres pasos; usá el conteo de cierre del turno",
-            extra={"feature": "cash.blind_close"},
-        )
-
-    def _do() -> tuple[int, dict[str, Any]]:
-        result = service.close_single_step(db, actor=actor, shift=shift, store=store, payload=payload)
-        return 200, SingleStepCloseOut(**result).model_dump(mode="json")
-
-    return _idempotent(db, organization_id=actor.organization_id, scope="shifts.close", request=request, payload=payload, fn=_do)
 
 
 # ---------------------------------------------------------------------------
@@ -1012,29 +913,6 @@ def admin_cuadres(
     return CuadresOut(**body)
 
 
-@router.get("/admin/business-days")
-def admin_business_days(
-    store_id: int,
-    date_from: date | None = Query(None, alias="from"),
-    date_to: date | None = Query(None, alias="to"),
-    actor: Actor = Depends(current_admin),
-    db: Session = Depends(get_db),
-) -> list[BusinessDayListItem]:
-    store = admin_store(db, actor, store_id)
-    days = service.list_business_days(db, store_id=store.id, date_from=date_from, date_to=date_to)
-    day_ids = [d.id for d in days]
-    shifts_by_day: dict[int, list[Shift]] = {}
-    if day_ids:
-        for s in db.execute(select(Shift).where(Shift.business_day_id.in_(day_ids))).scalars():
-            shifts_by_day.setdefault(s.business_day_id, []).append(s)
-    return [
-        BusinessDayListItem(
-            business_date=d.business_date, status=d.status, shifts=[_admin_shift_item(db, s) for s in shifts_by_day.get(d.id, [])]
-        )
-        for d in days
-    ]
-
-
 @router.get("/admin/employees/{employee_id}/activity")
 def admin_employee_activity(
     employee_id: int,
@@ -1212,33 +1090,6 @@ def post_reserve_return(
     )
 
 
-@router.post("/shifts/{shift_id}/reserve/movements/{movement_id}/reverse")
-def post_reserve_reverse(
-    shift_id: int,
-    movement_id: int,
-    payload: ReserveReverseIn,
-    actor: Actor = Depends(current_operator),
-    db: Session = Depends(get_db),
-    _feature: None = Depends(features.require_feature("cash.reserve")),
-) -> ReserveMovementOut:
-    """Reversar un movimiento de la base equivocado: motivo y PIN de
-    supervisor o administrador. Los dos quedan."""
-    store = _store_of(db, actor)
-    shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
-    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
-    movement = reserve_service.get_movement_or_404(db, shift=shift, movement_id=movement_id)
-    movement = reserve_service.reverse(
-        db,
-        actor=actor,
-        shift=shift,
-        store=store,
-        movement=movement,
-        reason=payload.reason,
-        authorizer_pin=payload.authorizer_pin,
-    )
-    return ReserveMovementOut.model_validate(movement)
-
-
 @router.post("/reserve/checks", status_code=201)
 def post_reserve_check(
     payload: ReserveCheckIn,
@@ -1275,17 +1126,57 @@ def post_reserve_check(
 def get_admin_reserve(
     store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
 ) -> AdminReserveOut:
-    """La base de respaldo de una sede para el administrador: monto fijo,
-    préstamos sin devolver (por turno) y las verificaciones del custodio."""
+    """La base de respaldo de una sede para el administrador (la tarjeta
+    de Caja › Dinero): monto fijo, préstamos sin devolver (por turno), los
+    movimientos recientes y las verificaciones del custodio."""
     store = admin_store(db, actor, store_id)
     loans = reserve_service.open_loans(db, store_id=store.id)
+    movements = reserve_service.list_store_movements(db, store_id=store.id)
+    open_ids = {
+        sid
+        for sid in db.execute(
+            select(Shift.id).where(Shift.id.in_({m.shift_id for m in movements}), Shift.status == ShiftStatus.OPEN)
+        ).scalars()
+    }
     return AdminReserveOut(
         enabled=features.is_enabled(db, store.organization_id, store.id, reserve_service.FEATURE),
         amount=reserve_service.reserve_amount(db, store.id),
         loans_outstanding=sum(loan.amount for loan in loans),
         open_loans=[ReserveOpenLoanOut(shift_id=loan.shift_id, amount=loan.amount, shift_open=loan.shift_open) for loan in loans],
+        movements=[
+            AdminReserveMovementOut(
+                **ReserveMovementOut.model_validate(m).model_dump(), shift_open=m.shift_id in open_ids
+            )
+            for m in movements
+        ],
         checks=[ReserveCheckOut.model_validate(c) for c in reserve_service.list_checks(db, store_id=store.id)],
     )
+
+
+@router.post("/admin/stores/{store_id}/reserve/movements/{movement_id}/reverse")
+def admin_reverse_reserve_movement(
+    store_id: int,
+    movement_id: int,
+    payload: ReserveReverseIn,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+    _feature: None = Depends(features.require_feature("cash.reserve")),
+) -> ReserveMovementOut:
+    """Reversar un movimiento de la base equivocado, desde la tarjeta de la
+    base de respaldo en Caja › Dinero: el administrador lo autoriza al
+    hacerlo y deja el motivo. Los dos quedan; sólo mientras el turno sigue
+    abierto."""
+    store = admin_store(db, actor, store_id)
+    movement = reserve_service.get_store_movement_or_404(db, store=store, movement_id=movement_id)
+    shift = db.get(Shift, movement.shift_id)
+    assert shift is not None
+    authorizer = db.get(Employee, actor.employee_id) if actor.employee_id is not None else None
+    if authorizer is None:
+        raise AppError("NOT_AUTHENTICATED", "Iniciá sesión como administrador", status=401)
+    movement = reserve_service.reverse(
+        db, actor=actor, shift=shift, store=store, movement=movement, reason=payload.reason, authorizer=authorizer
+    )
+    return ReserveMovementOut.model_validate(movement)
 
 
 # Asistencia del día (0028): rutas propias en su módulo, montadas con las del

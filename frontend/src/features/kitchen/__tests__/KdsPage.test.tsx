@@ -25,6 +25,13 @@ const {
   registerPrintJobMock: vi.fn(),
 }))
 
+const { markReadyMock } = vi.hoisted(() => ({ markReadyMock: vi.fn() }))
+
+vi.mock("@/api/orders", async () => {
+  const actual = await vi.importActual<typeof import("@/api/orders")>("@/api/orders")
+  return { ...actual, markReady: markReadyMock }
+})
+
 const { deviceIdentifyMock } = vi.hoisted(() => ({ deviceIdentifyMock: vi.fn() }))
 
 vi.mock("@/api/auth", async () => {
@@ -57,11 +64,48 @@ vi.mock("@/api/kitchen", async () => {
 })
 
 describe("KdsPage", () => {
-  it("sin kitchen.kds muestra el mensaje de función apagada y no pide datos", () => {
-    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": false }) })
+  it("sin kitchen.view ni kitchen.kds muestra el mensaje de función apagada y no pide datos", () => {
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.view": false, "kitchen.kds": false }) })
 
-    expect(screen.getByText(/el kds no está habilitado/i)).toBeInTheDocument()
+    expect(screen.getByText(/la pantalla de cocina no está habilitada/i)).toBeInTheDocument()
     expect(listKitchenRoundsMock).not.toHaveBeenCalled()
+  })
+
+  // Era la vista mínima de `/pos/cocina` (borrada): con sólo `kitchen.view`
+  // la misma pantalla marca listo por la ruta de la comanda, sin deshacer,
+  // sin expedir y sin impresión (esas rutas exigen `kitchen.kds`).
+  describe("con sólo kitchen.view (sin KDS completo)", () => {
+    it("pinta la ronda y marca listo por la ruta de la comanda, con Idempotency-Key", async () => {
+      listKitchenRoundsMock.mockResolvedValue([buildKdsRound()])
+      markReadyMock.mockResolvedValue({})
+
+      const user = userEvent.setup()
+      renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.view": true, "kitchen.kds": false }) })
+
+      await waitFor(() => expect(screen.getByText(/bandeja paisa/i)).toBeInTheDocument())
+      await user.click(screen.getByRole("button", { name: /marcar listo: bandeja paisa/i }))
+
+      await waitFor(() => expect(markReadyMock).toHaveBeenCalledWith(501, 101, expect.any(String)))
+      expect(bumpItemMock).not.toHaveBeenCalled()
+    })
+
+    it("no ofrece expedir, impresión ni deshacer, y no pide las rutas del KDS", async () => {
+      listKitchenRoundsMock.mockResolvedValue([
+        buildKdsRound({
+          items: [{ ...buildKdsRound().items![0]!, status: "ready" }],
+        }),
+      ])
+
+      renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.view": true, "kitchen.kds": false }) })
+
+      await waitFor(() => expect(screen.getByText(/bandeja paisa/i)).toBeInTheDocument())
+      expect(screen.queryByRole("button", { name: /expedir/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole("tab", { name: /impresión/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: /deshacer listo/i })).not.toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /listo: bandeja paisa/i })).toBeDisabled()
+      expect(listKitchenStationsMock).not.toHaveBeenCalled()
+      expect(listPrintJobsMock).not.toHaveBeenCalled()
+    })
   })
 
   it("pinta la ronda, respeta el semáforo tal cual llega, y bumpea con Idempotency-Key nueva por click", async () => {

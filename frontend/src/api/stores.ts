@@ -118,8 +118,13 @@ export function getFiscalHistory(storeId: number): Promise<FiscalConfig[]> {
   return api<FiscalConfig[]>(`/admin/stores/${storeId}/fiscal/history`);
 }
 
+/**
+ * La configuración de caja de la sede. No hay regla de apertura que elegir:
+ * el cajón abre «igual al café», con los días por consignar que están en él
+ * (la base fija y `opening_mode` de antes ya no se configuran).
+ * `cash_reserve_default` es el monto fijo de la base de respaldo.
+ */
 export interface CashSettings {
-  opening_cash_fixed: number;
   cash_reserve_default: number;
   tolerance_unknown_cause: number;
   critical_difference: number;
@@ -130,13 +135,6 @@ export interface CashSettings {
   streak_alert_shifts: number;
   /** Días que la plata de un cierre puede quedarse sin consignar antes del aviso ámbar (0035). */
   deposit_overdue_days?: number | null;
-  /**
-   * Cómo abre el cajón (2026-09-26): `envelopes` = sólo los sobres por
-   * consignar, y `cash_reserve_default` es el monto fijo de la base de
-   * respaldo; `fixed_base` = la base fija de siempre (`opening_cash_fixed`).
-   * Ausente al guardar = la sede conserva la que tenía.
-   */
-  opening_mode?: "envelopes" | "fixed_base" | null;
 }
 
 export function getCashSettings(storeId: number): Promise<CashSettings> {
@@ -203,7 +201,18 @@ export function getSalesSettings(storeId: number): Promise<SalesSettings> {
   return api<SalesSettings>(`/admin/stores/${storeId}/sales-settings`);
 }
 
-export function setSalesSettings(storeId: number, body: SalesSettings): Promise<SalesSettings> {
+/** Los tres de seguridad de las tablets: los edita Ajustes › Seguridad, no Ventas. */
+export const SECURITY_SETTINGS_KEYS = ["employee_session_minutes", "pin_lock_attempts", "pin_lock_minutes"] as const;
+export type SecuritySettingsKey = (typeof SECURITY_SETTINGS_KEYS)[number];
+
+/**
+ * El `PUT` de la configuración de ventas. Los de seguridad pueden faltar: el
+ * servidor conserva lo guardado (`CONFIG_FIELDS_KEPT_WHEN_ABSENT`), así Ventas
+ * guarda lo suyo sin pisar lo que se cambió en Seguridad.
+ */
+export type SalesSettingsUpdate = Omit<SalesSettings, SecuritySettingsKey> & Partial<Pick<SalesSettings, SecuritySettingsKey>>;
+
+export function setSalesSettings(storeId: number, body: SalesSettingsUpdate): Promise<SalesSettings> {
   return api<SalesSettings>(`/admin/stores/${storeId}/sales-settings`, { method: "PUT", body });
 }
 

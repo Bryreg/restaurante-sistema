@@ -38,6 +38,7 @@ const leer = (ruta: string): string => readFileSync(join(SRC, ruta), "utf8")
  */
 const RAIZ = [
   { ruta: "/login", archivo: "features/auth/LoginPage.tsx", superficie: "escritorio" },
+  { ruta: "/recuperar", archivo: "features/auth/RecoverPasswordPage.tsx", superficie: "escritorio" },
   { ruta: "/pos/activate", archivo: "features/auth/DeviceActivatePage.tsx", superficie: "tablet" },
   { ruta: "/pos/identify", archivo: "features/auth/DeviceIdentifyPage.tsx", superficie: "tablet" },
   { ruta: "/admin", archivo: "app/AdminLayout.tsx", superficie: "escritorio" },

@@ -73,6 +73,8 @@ export function getMe(): Promise<Me> {
 export interface AdminLoginIn {
   email: string;
   password: string;
+  /** Con verificación en dos pasos: el código de la app o uno de recuperación. */
+  totp_code?: string;
 }
 
 export interface AdminLoginOut {
@@ -144,4 +146,41 @@ export interface AuthorizeOut {
 /** Autorización de un solo uso (PIN de supervisor o admin, según la acción). */
 export function authorize(body: AuthorizeIn): Promise<AuthorizeOut> {
   return api<AuthorizeOut>("/auth/authorize", { method: "POST", body });
+}
+
+// ---------------------------------------------------------------------------
+// Seguridad de la cuenta (0044): 2FA, códigos de recuperación, contraseña.
+// ---------------------------------------------------------------------------
+
+export interface AccountSecurity {
+  totp_enabled: boolean;
+  recovery_codes_left: number;
+}
+
+export function getAccountSecurity(): Promise<AccountSecurity> {
+  return api<AccountSecurity>("/auth/admin/security");
+}
+
+export function setupTotp(): Promise<{ secret: string; otpauth_uri: string }> {
+  return api("/auth/admin/2fa/setup", { method: "POST" });
+}
+
+export function enableTotp(code: string): Promise<{ recovery_codes: string[] }> {
+  return api("/auth/admin/2fa/enable", { method: "POST", body: { code } });
+}
+
+export function disableTotp(password: string): Promise<AccountSecurity> {
+  return api("/auth/admin/2fa/disable", { method: "POST", body: { password } });
+}
+
+export function regenerateRecoveryCodes(password: string): Promise<{ recovery_codes: string[] }> {
+  return api("/auth/admin/recovery-codes", { method: "POST", body: { password } });
+}
+
+export function changePassword(current_password: string, new_password: string): Promise<{ ok: boolean }> {
+  return api("/auth/admin/password", { method: "POST", body: { current_password, new_password } });
+}
+
+export function recoverPassword(email: string, recovery_code: string, new_password: string): Promise<{ ok: boolean }> {
+  return api("/auth/recover", { method: "POST", body: { email, recovery_code, new_password } });
 }

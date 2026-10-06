@@ -193,7 +193,7 @@ export const RAIL: Record<string, FilaDelRail> = {
   "/admin/informes": { seccion: "Informes", label: "Informes", title: "Informes" },
   "/admin/ventas": { seccion: "Informes", label: "Ventas", title: "Ventas" },
   // Entrada propia del informe del contador (decisión del dueño 2026-09,
-  // «igual que café-sistema»); sigue también como pestaña de Ventas.
+  // «igual que café-sistema»); es el único lugar donde se ve (Ventas enlaza).
   "/admin/contador": { seccion: "Informes", label: "Informe del contador", title: "Informe del contador" },
   "/admin/analitica": {
     seccion: "Informes",
@@ -224,7 +224,7 @@ export const RAIL: Record<string, FilaDelRail> = {
     cuenta: "inventario",
   },
   "/admin/compras": { seccion: "Inventario", label: "Compras", title: "Compras", cuenta: "compras" },
-  "/admin/analitica?tab=varianza": {
+  "/admin/inventario?tab=varianza": {
     seccion: "Inventario",
     label: "Varianza y salud",
     title: "Varianza y salud",
@@ -352,12 +352,12 @@ export function entradaActiva(to: string, rutaActiva: boolean, search: string, t
 
 /**
  * Pestañas que una entrada reclama además de la de su `?tab=`: «Varianza y
- * salud» abre en Varianza por plato pero también es suya la pestaña Salud
- * sostenida. Sin esto, en Salud sostenida se encendía «Ingeniería de menú»
- * (la entrada sin pestaña de la misma ruta) y la sección saltaba a Informes.
+ * salud» abre en Inventario › Varianza pero también es suya la pestaña Salud
+ * del control. Sin esto, en Salud del control se encendía «Inventario» (la
+ * entrada sin pestaña de la misma ruta).
  */
 const PESTANAS_HERMANAS: Record<string, readonly string[]> = {
-  "/admin/analitica?tab=varianza": ["salud-sostenida"],
+  "/admin/inventario?tab=varianza": ["salud"],
 };
 
 function pestanasDe(to: string): string[] {
@@ -485,6 +485,7 @@ function PestanasDeSeccion({
  */
 const ROL_EN_PALABRAS: Record<string, string> = {
   admin: "administrador",
+  accountant: "contador (sólo lectura)",
   owner: "administrador",
   supervisor: "supervisor",
   cashier: "responsable de caja",
@@ -567,14 +568,14 @@ function QuienEntro(): React.JSX.Element | null {
  * dónde.
  */
 function StoreSwitcher({ celular = false }: { celular?: boolean } = {}): React.JSX.Element | null {
-  const { hasFeature, me } = useSession();
+  const { me } = useSession();
   const { stores, activeStoreId, setActiveStoreId } = useStoreSelection();
 
   // En el celular (handoff, `AdminMovil`) la pastilla mide 34 px, redondeada
   // a 8, y dice sólo el nombre: el ancho de 390 px no alcanza para «Sede».
   const alto = celular ? "h-[34px] rounded-lg" : "h-10 rounded-xl";
 
-  if (!hasFeature("multi_store") || stores.length <= 1) {
+  if (stores.length <= 1) {
     const sola = stores.find((s) => s.id === activeStoreId)?.name ?? me?.store?.name;
     if (!sola) return null;
     return (
@@ -1136,6 +1137,11 @@ function AdminChrome(): React.JSX.Element {
             celular && "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-10",
           )}
         >
+          {me?.user?.role === "accountant" ? (
+            <p role="status" className="mb-3 rounded-md border border-l-[3px] border-l-primary bg-muted px-3 py-2 text-xs">
+              <b>Modo contador:</b> podés ver y exportar todo; para cambiar algo, pedíselo a un administrador.
+            </p>
+          ) : null}
           <Outlet />
         </main>
       </div>

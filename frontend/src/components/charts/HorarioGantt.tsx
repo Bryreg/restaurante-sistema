@@ -1,16 +1,17 @@
 /**
  * Barras de horario (gantt), `docs/diseno/handoff-pos-y-panel/README.md` §
- * «Barras de horario»: una fila de 30 px por persona (o por día) sobre un
- * eje de 6 a. m. a 12 a. m. con marcas cada hora.
+ * «Barras de horario»: una fila de 30 px por persona sobre un eje de 6 a. m.
+ * a 12 a. m. con marcas cada hora — quién estuvo en un turno (ficha de
+ * turno). La barra en `--data-1` va de la entrada a la salida; el relevo es
+ * una línea vertical punteada de 2 px.
  *
- * - `variante="turno"` (ficha de turno): la barra en `--data-1` va de la
- *   entrada a la salida; el relevo es una línea vertical punteada de 2 px.
- * - `variante="persona"` (ficha de persona, 12 días): el turno programado
- *   es un recuadro punteado; el tramo de llegada tarde, un segmento ámbar.
+ * El horario de Equipo (la semana de todo el equipo) no es este componente:
+ * vive en Nómina › Horario de la semana (`features/payroll/WeekScheduleTab`).
+ * La variante «persona» de 12 días que tenía la ficha de persona se quitó
+ * para que haya un solo gráfico de horario en Equipo.
  *
  * Los instantes llegan del backend (ISO UTC) y se ubican en la hora de
- * reloj de Bogotá —la zona la pone el sistema, nunca el navegador—. El
- * componente no decide quién llegó tarde: dibuja el tramo que le mandan.
+ * reloj de Bogotá —la zona la pone el sistema, nunca el navegador—.
  */
 import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
@@ -29,14 +30,10 @@ export interface TramoHorario {
 export interface FilaHorario {
   key: string
   etiqueta: string
-  /** Renglón chico bajo la etiqueta (puesto, «8 min tarde»…). */
+  /** Renglón chico bajo la etiqueta (puesto, duración…). */
   detalle?: string
   href?: string
   tramos: TramoHorario[]
-  /** Turno programado (variante persona): recuadro punteado. */
-  programado?: TramoHorario
-  /** Tramo de llegada tarde (variante persona): segmento ámbar. */
-  tardanza?: TramoHorario
 }
 
 export interface MarcaRelevo {
@@ -47,7 +44,6 @@ export interface MarcaRelevo {
 
 export interface HorarioGanttProps {
   filas: FilaHorario[]
-  variante?: "turno" | "persona"
   relevos?: MarcaRelevo[]
   /** Instante ISO de «ahora»: hasta dónde llega un tramo abierto. */
   ahora?: string
@@ -102,7 +98,6 @@ function posicion(iso: string, desde: number, hasta: number): number | null {
 
 export function HorarioGantt({
   filas,
-  variante = "turno",
   relevos = [],
   ahora,
   desdeHora = 6,
@@ -121,33 +116,15 @@ export function HorarioGantt({
     <section
       aria-label={typeof titulo === "string" ? titulo : "Horario"}
       data-slot="horario-gantt"
-      data-variante={variante}
       className={cn("flex min-w-0 flex-col gap-2", className)}
     >
       {titulo ? <h3 className="m-0 text-[15px] leading-snug font-bold">{titulo}</h3> : null}
       <ul aria-hidden="true" className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-xs text-muted-foreground">
         <li className="inline-flex items-center gap-1.5">
           <span className="inline-block size-3 rounded-[2px] bg-(--data-1)" />
-          {variante === "persona" ? "Lo que trabajó" : "Entrada a salida"}
+          Entrada a salida
         </li>
-        {variante === "persona" ? (
-          <>
-            {/* Sólo lo que se dibuja: sin horario programado, la leyenda no
-                promete un recuadro punteado ni una tardanza que no están. */}
-            {filas.some((f) => f.programado) ? (
-              <li className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-3 w-4 rounded-[2px] border-2 border-dashed border-muted-foreground" />
-                Turno programado
-              </li>
-            ) : null}
-            {filas.some((f) => f.tardanza) ? (
-              <li className="inline-flex items-center gap-1.5">
-                <span className="inline-block size-3 rounded-[2px] bg-warning" />
-                Llegó tarde
-              </li>
-            ) : null}
-          </>
-        ) : relevos.length ? (
+        {relevos.length ? (
           <li className="inline-flex items-center gap-1.5">
             <span className="inline-block h-3.5 w-0 border-l-2 border-dashed border-foreground" />
             Relevo
@@ -160,13 +137,9 @@ export function HorarioGantt({
           const tramos = f.tramos
             .map((t) => ({ t, s: segmento(t, desde, hasta, ahora) }))
             .filter((x): x is { t: TramoHorario; s: Segmento } => x.s !== null)
-          const prog = f.programado ? segmento(f.programado, desde, hasta, ahora) : null
-          const tarde = f.tardanza ? segmento(f.tardanza, desde, hasta, ahora) : null
           const lectura = [
             f.etiqueta,
             ...f.tramos.map((t) => `entrada ${horaTexto(t.entrada)}, salida ${t.salida ? horaTexto(t.salida) : "sigue adentro"}`),
-            f.programado ? `programado ${horaTexto(f.programado.entrada)} a ${horaTexto(f.programado.salida)}` : null,
-            f.tardanza ? `llegó tarde: ${horaTexto(f.tardanza.entrada)} a ${horaTexto(f.tardanza.salida)}` : null,
             f.tramos.length === 0 ? "sin asistencia" : null,
             f.detalle ?? null,
           ]
@@ -206,13 +179,6 @@ export function HorarioGantt({
                     style={{ left: `${pctHora(h)}%` }}
                   />
                 ))}
-                {prog ? (
-                  <span
-                    data-programado=""
-                    className="absolute inset-y-[3px] rounded-[3px] border-2 border-dashed border-muted-foreground"
-                    style={{ left: `${prog.izq}%`, width: `${prog.ancho}%` }}
-                  />
-                ) : null}
                 {tramos.map(({ t, s }, i) => (
                   <span
                     key={i}
@@ -225,13 +191,6 @@ export function HorarioGantt({
                     style={{ left: `${s.izq}%`, width: `${s.ancho}%` }}
                   />
                 ))}
-                {tarde ? (
-                  <span
-                    data-tardanza=""
-                    className="absolute inset-y-[7px] rounded-l-[3px] bg-warning"
-                    style={{ left: `${tarde.izq}%`, width: `${tarde.ancho}%` }}
-                  />
-                ) : null}
                 {relevos.map((r, i) => {
                   const x = posicion(r.hora, desde, hasta)
                   return x === null ? null : (

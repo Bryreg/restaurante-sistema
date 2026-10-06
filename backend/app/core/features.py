@@ -204,13 +204,9 @@ FEATURE_CATALOG: list[FeatureDef] = [
         {"basic": False, "standard": False, "full": True},
         "2",
     ),
-    FeatureDef(
-        "cash.blind_close",
-        "Cierre de turno a ciegas en tres pasos (si está apagado: cierre en un paso, igual con causa)",
-        [],
-        {"basic": False, "standard": True, "full": True},
-        "1a",
-    ),
+    # `cash.blind_close` ya no es una función: el cierre a ciegas en tres
+    # pasos es la única manera de cerrar (cierre «igual al café»). Una fila
+    # vieja de `FeatureState` con esa clave no cambia nada.
     FeatureDef(
         "cash.reserve",
         "Base de respaldo aparte del cajón: monto fijo por sede, tomar y devolver con autorización y verificación del custodio",
@@ -228,13 +224,6 @@ FEATURE_CATALOG: list[FeatureDef] = [
     FeatureDef(
         "cash.handovers",
         "Relevo del responsable de caja y arqueo sorpresa",
-        [],
-        {"basic": False, "standard": True, "full": True},
-        "1a",
-    ),
-    FeatureDef(
-        "cash.photo_required",
-        "Foto obligatoria en cierre y retiro de caja",
         [],
         {"basic": False, "standard": True, "full": True},
         "1a",
@@ -369,7 +358,9 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "payroll",
         "Horas, recargos y nómina",
         [],
-        {"basic": False, "standard": False, "full": True},
+        # Auditoría 2026-10-06 (e13): un restaurante «estándar» también
+        # paga recargos y extras; la nómina no es sólo del perfil completo.
+        {"basic": False, "standard": True, "full": True},
         "3",
     ),
     FeatureDef(
@@ -396,13 +387,6 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "3",
     ),
     FeatureDef(
-        "multi_store",
-        "Selector de sede y comparativo entre sedes",
-        [],
-        {"basic": False, "standard": False, "full": True},
-        "1a",
-    ),
-    FeatureDef(
         "notifications.push",
         "Notificaciones push al administrador",
         [],
@@ -412,6 +396,100 @@ FEATURE_CATALOG: list[FeatureDef] = [
 ]
 
 FEATURE_BY_KEY: dict[str, FeatureDef] = {f.key: f for f in FEATURE_CATALOG}
+
+#: Claves que salieron del catálogo. Sus filas viejas de `feature_states` se
+#: quedan en la base (sin migración) y `enabled_map` las ignora:
+#: - `multi_store`: nadie la hacía cumplir; el selector de sede aparece
+#:   cuando hay más de una sede.
+#: - `cash.photo_required`: repetía las casillas de la sede
+#:   (`StoreCashSettings.photo_required_on_close/_on_pickup`), que son la
+#:   única fuente. Lo que decía se pliega en esas casillas una vez por sede
+#:   (`app.stores.service.fold_legacy_photo_flag`), así nada cambia para los
+#:   datos de antes.
+RETIRED_FEATURE_KEYS: frozenset[str] = frozenset({"multi_store", "cash.photo_required"})
+
+
+@dataclass(frozen=True)
+class PosProfileDef:
+    """Un perfil de salón: cómo atiende el restaurante, en un solo toque.
+
+    El perfil NO es un flag nuevo ni se guarda: sólo escribe los `pos.*` de
+    `flags` con el mismo `FeatureState` que el interruptor individual, así que
+    el backend sigue haciendo cumplir cada flag por separado
+    (`require_feature`). Quedan fuera, para elegirse una por una en
+    «Avanzado», las funciones que necesitan algo más que un sí: domicilio y
+    plataformas (configuración propia), asiento por ítem (montaje de mesa) y
+    curso por ítem (depende de la cocina).
+    """
+
+    key: str
+    label: str
+    description: str
+    flags: dict[str, bool]
+
+
+# Lo que los tres perfiles tienen en común: lo de cualquier venta.
+_POS_COMMON: dict[str, bool] = {
+    "pos.takeout": True,
+    "pos.modifiers": True,
+    "pos.combos": True,
+    "pos.tips": True,
+    "pos.tips_counter": False,
+    "pos.discounts": True,
+    "pos.staff_meal": True,
+    "pos.daily_count": True,
+    "pos.novelties": True,
+}
+
+POS_PROFILES: list[PosProfileDef] = [
+    PosProfileDef(
+        "mostrador",
+        "Mostrador",
+        "Se pide y se cobra en la caja, sin mesas: café, panadería, comida rápida.",
+        {
+            **_POS_COMMON,
+            "pos.tables": False,
+            "pos.counter": True,
+            "pos.pre_bill": False,
+            "pos.split_bill": False,
+            "pos.daily_menu": False,
+            "pos.courtesies": False,
+            "pos.requests": False,
+        },
+    ),
+    PosProfileDef(
+        "mesa",
+        "Mesa",
+        "Servicio a la mesa con mesero, precuenta y división de cuenta.",
+        {
+            **_POS_COMMON,
+            "pos.tables": True,
+            "pos.counter": False,
+            "pos.pre_bill": True,
+            "pos.split_bill": True,
+            "pos.daily_menu": True,
+            "pos.courtesies": True,
+            "pos.requests": True,
+        },
+    ),
+    PosProfileDef(
+        "mixto",
+        "Mixto",
+        "Mesas y mostrador a la vez: se atiende en el salón y también se vende en la caja.",
+        {
+            **_POS_COMMON,
+            "pos.tables": True,
+            "pos.counter": True,
+            "pos.pre_bill": True,
+            "pos.split_bill": True,
+            "pos.daily_menu": True,
+            "pos.courtesies": True,
+            "pos.requests": True,
+        },
+    ),
+]
+
+POS_PROFILE_BY_KEY: dict[str, PosProfileDef] = {p.key: p for p in POS_PROFILES}
 
 
 def profile_defaults(profile: str) -> dict[str, bool]:
@@ -436,7 +514,8 @@ def enabled_map(db: Session, organization_id: int, store_id: int | None) -> dict
         )
     ).scalars().all()
     for state in org_states:
-        result[state.key] = state.enabled
+        if state.key in FEATURE_BY_KEY:
+            result[state.key] = state.enabled
 
     if store_id is not None:
         store_states = db.execute(
@@ -446,7 +525,8 @@ def enabled_map(db: Session, organization_id: int, store_id: int | None) -> dict
             )
         ).scalars().all()
         for state in store_states:
-            result[state.key] = state.enabled
+            if state.key in FEATURE_BY_KEY:
+                result[state.key] = state.enabled
 
     return result
 

@@ -84,12 +84,14 @@ from sqlalchemy.orm import Session
 from app.auth.deps import Actor
 from app.core import clock, tz
 from app.core.errors import AppError, NotFoundError
+from app.core.quantity import line_cost_micros, micros_to_pesos
 from app.inventory.models import (
     CostSource,
     Ingredient,
     MovementCause,
     StockBatch,
     StockCount,
+    StockCountLine,
     StockCountScope,
     StockCountStatus,
     StockMovement,
@@ -1064,6 +1066,180 @@ def explained_outflow_qty(
         Waste.at <= window_to,
     )
     return int(db.execute(stmt).scalar_one())
+
+
+# ---------------------------------------------------------------------------
+# Valoración y varianza entre dos conteos: UNA sola implementación.
+#
+# `app.inventory.service` (varianza por insumo, food cost real) y
+# `app.analytics.service` (varianza por plato, salud sostenida) las usan las
+# dos. Antes analítica tenía un «espejo literal» de cada función, que podía
+# desincronizarse en silencio (limpieza 2026-10).
+# ---------------------------------------------------------------------------
+
+
+def movement_sum(
+    db: Session,
+    *,
+    store_id: int,
+    ingredient_id: int,
+    window_from: datetime,
+    window_to: datetime,
+    positive: bool,
+    causes: tuple[MovementCause, ...] | None = None,
+    exclude_causes: tuple[MovementCause, ...] = (),
+) -> int:
+    """Σ `qty_base` de los movimientos de un insumo en `(window_from,
+    window_to]`, sólo las entradas (`positive`) o sólo las salidas, con
+    filtro opcional de causas."""
+    stmt = select(func.coalesce(func.sum(StockMovement.qty_base), 0)).where(
+        StockMovement.store_id == store_id,
+        StockMovement.ingredient_id == ingredient_id,
+        StockMovement.at > window_from,
+        StockMovement.at <= window_to,
+    )
+    if causes is not None:
+        stmt = stmt.where(StockMovement.cause.in_(causes))
+    if exclude_causes:
+        stmt = stmt.where(StockMovement.cause.notin_(exclude_causes))
+    stmt = stmt.where(StockMovement.qty_base > 0 if positive else StockMovement.qty_base < 0)
+    return int(db.execute(stmt).scalar_one())
+
+
+def counted_quantities(db: Session, *, count_id: int) -> dict[int, int]:
+    """`ingredient_id -> cantidad contada` de los renglones CONTADOS de un
+    conteo (un renglón sin contar no es 0: no está)."""
+    rows = db.execute(
+        select(StockCountLine.ingredient_id, StockCountLine.qty_counted, StockCountLine.was_counted).where(
+            StockCountLine.count_id == count_id
+        )
+    ).all()
+    return {ing_id: int(qty) for ing_id, qty, was_counted in rows if was_counted and qty is not None}
+
+
+def count_inventory_value(db: Session, *, store_id: int, count_id: int) -> int:
+    """Valoriza, en pesos, los renglones CONTADOS de un conteo al costo
+    resuelto de HOY (`resolve_ingredient_cost`). No revalora una VENTA
+    pasada (prohibido por `AGENTS.md`): esto valoriza un CONTEO, que es una
+    foto de stock, no una venta -- el snapshot que la spec protege es el de
+    `order_items`, no éste. Un insumo sin costo no suma (no se inventa)."""
+    total_micros = 0
+    for ingredient_id, qty in counted_quantities(db, count_id=count_id).items():
+        ingredient = get_ingredient(db, store_id=store_id, ingredient_id=ingredient_id)
+        if ingredient is None:
+            continue
+        cost_micros, _source = resolve_ingredient_cost(db, ingredient)
+        if cost_micros is None:
+            continue
+        total_micros += line_cost_micros(qty, cost_micros)
+    return micros_to_pesos(total_micros)
+
+
+def purchases_value(db: Session, *, store_id: int, window_from: datetime, window_to: datetime) -> int:
+    """Pesos de las compras (`cause=PURCHASE`, al costo del movimiento) en
+    `(window_from, window_to]`."""
+    total_micros = 0
+    stmt = select(StockMovement).where(
+        StockMovement.store_id == store_id,
+        StockMovement.cause == MovementCause.PURCHASE,
+        StockMovement.at > window_from,
+        StockMovement.at <= window_to,
+    )
+    for movement in db.execute(stmt).scalars():
+        if movement.cost_micros is not None:
+            total_micros += line_cost_micros(movement.qty_base, movement.cost_micros)
+    return micros_to_pesos(total_micros)
+
+
+def purchase_movement_count(db: Session, *, store_id: int, window_from: datetime, window_to: datetime) -> int:
+    """Cuántos movimientos de compra hubo en la ventana (con o sin costo):
+    compras en $0 con movimientos es «falta el costo», no «no se compró»."""
+    stmt = select(func.count(StockMovement.id)).where(
+        StockMovement.store_id == store_id,
+        StockMovement.cause == MovementCause.PURCHASE,
+        StockMovement.at > window_from,
+        StockMovement.at <= window_to,
+    )
+    return int(db.execute(stmt).scalar_one())
+
+
+@dataclass(frozen=True)
+class IngredientVariance:
+    """La identidad de un insumo entre dos conteos, ya resuelta. Signo:
+    `variance_qty > 0` = se usó más de lo esperado (faltante)."""
+
+    ingredient: Ingredient
+    opening_qty: int
+    inflow_qty: int
+    closing_qty: int
+    real_usage_qty: int
+    theoretical_usage_qty: int
+    variance_qty: int
+    cost_micros: int | None
+    cost_source: CostSource
+    #: Pesos de la varianza al costo de hoy; `None` sin costo (nunca `0`).
+    variance_value: int | None
+
+
+def ingredient_variance(
+    db: Session, *, store_id: int, opening: StockCount, closing: StockCount
+) -> list[IngredientVariance]:
+    """Identidad `inicial + entradas − final − salidas explicadas = uso real`
+    contra el uso teórico del libro (`cause=SALE` + `cause=PRODUCTION_OUT`,
+    SPEC-NEGOCIO §5.3), para cada insumo contado en los DOS conteos, en
+    orden de id.
+
+    `entradas` EXCLUYE `count_adjustment` a propósito: el ajuste del conteo
+    anterior ya quedó absorbido en `inicial` (que es el valor CONTADO), así
+    que sumarlo de nuevo lo contaría dos veces. Lo que salió EXPLICADO
+    (consumo interno, traslado a otra sede, `explained_outflow_qty`) no es
+    uso de la cocina ni pérdida: se descuenta del uso real.
+
+    Sin semáforo: el color lo pone quien publica la varianza por insumo
+    (`app.inventory.service.variance_report`); la varianza por plato sólo
+    reparte pesos."""
+    opening_lines = counted_quantities(db, count_id=opening.id)
+    closing_lines = counted_quantities(db, count_id=closing.id)
+    w_from, w_to = opening.opened_at, closing.opened_at
+    out: list[IngredientVariance] = []
+    for ing_id in sorted(set(opening_lines) & set(closing_lines)):
+        ingredient = get_ingredient(db, store_id=store_id, ingredient_id=ing_id)
+        if ingredient is None:
+            continue
+        opening_qty = opening_lines[ing_id]
+        closing_qty = closing_lines[ing_id]
+        inflow = movement_sum(
+            db, store_id=store_id, ingredient_id=ing_id, window_from=w_from, window_to=w_to,
+            positive=True, exclude_causes=(MovementCause.COUNT_ADJUSTMENT,),
+        )
+        explained_out = explained_outflow_qty(
+            db, store_id=store_id, ingredient_id=ing_id, window_from=w_from, window_to=w_to
+        )
+        real_usage = opening_qty + inflow - closing_qty - explained_out
+        theoretical = -movement_sum(
+            db, store_id=store_id, ingredient_id=ing_id, window_from=w_from, window_to=w_to,
+            positive=False, causes=(MovementCause.SALE, MovementCause.PRODUCTION_OUT),
+        )
+        variance_qty = real_usage - theoretical
+        cost_micros, cost_source = resolve_ingredient_cost(db, ingredient)
+        variance_value = (
+            micros_to_pesos(line_cost_micros(variance_qty, cost_micros)) if cost_micros is not None else None
+        )
+        out.append(
+            IngredientVariance(
+                ingredient=ingredient,
+                opening_qty=opening_qty,
+                inflow_qty=inflow,
+                closing_qty=closing_qty,
+                real_usage_qty=real_usage,
+                theoretical_usage_qty=theoretical,
+                variance_qty=variance_qty,
+                cost_micros=cost_micros,
+                cost_source=cost_source,
+                variance_value=variance_value,
+            )
+        )
+    return out
 
 
 def pending_incoming_transfers(db: Session, *, store_id: int) -> int:
