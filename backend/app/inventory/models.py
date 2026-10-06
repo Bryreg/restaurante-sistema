@@ -461,6 +461,9 @@ class StockCountScope(str, enum.Enum):
 class StockCountStatus(str, enum.Enum):
     OPEN = "open"
     APPLIED = "applied"
+    # Anulado con motivo (0037): sus ajustes se revirtieron con movimientos
+    # que los compensan. Nada se borra; deja de contar como conteo.
+    VOIDED = "voided"
 
 
 class StockCount(Base):
@@ -491,6 +494,11 @@ class StockCount(Base):
     applied_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     applied_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     applied_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    voided_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    voided_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    voided_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    void_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     __table_args__ = (
         Index("ix_stock_counts_store_status", "store_id", "status"),

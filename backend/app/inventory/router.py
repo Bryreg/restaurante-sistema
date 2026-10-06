@@ -55,6 +55,7 @@ from app.inventory.schemas import (
     CountAreaUpdateIn,
     DeviceAreaCountBoardOut,
     CountApplyIn,
+    CountVoidIn,
     CountDetailOut,
     CountLinesIn,
     CountOpenIn,
@@ -678,6 +679,37 @@ def post_apply_count(
 
     return _idempotent(
         db, organization_id=actor.organization_id, scope="inventory.count_apply", request=request, payload=body, fn=_do
+    )
+
+
+@router.post("/admin/counts/{count_id}/void")
+def post_void_count(
+    count_id: int,
+    body: CountVoidIn,
+    request: Request,
+    store_id: int = Query(...),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.counts")),
+) -> JSONResponse:
+    """Anula un conteo con reversa de sus ajustes (`service.void_count`)."""
+    store = admin_store(db, actor, store_id)
+    count = service.count_or_404(db, store, count_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        before = service.count_out(count, lines_total=0, lines_counted=0).model_dump(mode="json")
+        out = service.void_count(
+            db, count=count, store=store, actor=actor, authorizer_pin=body.authorizer_pin, reason=body.reason
+        )
+        record_audit(
+            db, actor=actor, organization_id=actor.organization_id, store_id=store.id,
+            entity="stock_count", entity_id=count.id, action="void", before=before,
+            after=out.model_dump(mode="json"), reason=body.reason,
+        )
+        return 200, out.model_dump(mode="json")
+
+    return _idempotent(
+        db, organization_id=actor.organization_id, scope="inventory.count_void", request=request, payload=body, fn=_do
     )
 
 

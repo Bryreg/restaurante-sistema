@@ -717,7 +717,7 @@ export function getLots(params: LotsQuery): Promise<LotOut[]> {
 // ---------------------------------------------------------------------------
 
 export type CountScope = "key_items" | "full"
-export type CountStatus = "open" | "applied"
+export type CountStatus = "open" | "applied" | "voided"
 
 export interface CountLineRefIn {
   ingredient_id: number
@@ -767,6 +767,10 @@ export interface CountOut {
   applied_at: string | null
   applied_by_employee_id: number | null
   applied_by_employee_name: string | null
+  /** Anulado con reversa: quién, cuándo y por qué. */
+  voided_at?: string | null
+  voided_by_employee_name?: string | null
+  void_reason?: string | null
   lines_total: number
   lines_counted: number
 }
@@ -851,6 +855,21 @@ export function postApplyCount(
     method: "POST",
     query: { store_id: storeId },
     body: { authorizer_pin: authorizerPin },
+    idempotencyKey,
+  })
+}
+
+/** Anula un conteo: revierte sus ajustes con movimientos contrarios; nada se borra. */
+export function voidCount(
+  countId: number,
+  storeId: number,
+  body: { reason: string; authorizer_pin: string },
+  idempotencyKey: string,
+): Promise<CountOut> {
+  return api<CountOut>(`/admin/counts/${countId}/void`, {
+    method: "POST",
+    query: { store_id: storeId },
+    body,
     idempotencyKey,
   })
 }

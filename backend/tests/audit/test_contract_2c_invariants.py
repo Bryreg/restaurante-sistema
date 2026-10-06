@@ -523,12 +523,15 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       a **116**. Motivo declarado: etiquetas de cocina con QR (lo recibido,
       lo abierto y lo producido con su «usar antes de»): `food_labels` y
       `label_settings`.
+    - Con **`0037_void_stock_count`** la cadena llega a `"0037"` y el conteo
+      **sigue en 116**. Motivo declarado: anular un conteo con reversa de sus
+      ajustes, sin borrar nada (columnas de `stock_counts`).
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0036"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0036 "
+    assert 'version == "0037"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0037 "
         "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031, "
-        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035 y etiquetas de cocina 0036)"
+        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035, etiquetas de cocina 0036 y anular conteo 0037)"
     )
     assert "len(tablas) == 116" in fuente, (
         "el conteo de tablas sigue en un número viejo: 0036 lo deja en 116 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1 + 2)"

@@ -1305,6 +1305,9 @@ def count_out(count: StockCount, *, lines_total: int, lines_counted: int) -> Cou
         applied_at=count.applied_at,
         applied_by_employee_id=count.applied_by_employee_id,
         applied_by_employee_name=count.applied_by_employee_name,
+        voided_at=count.voided_at,
+        voided_by_employee_name=count.voided_by_employee_name,
+        void_reason=count.void_reason,
         lines_total=lines_total,
         lines_counted=lines_counted,
     )
@@ -1393,6 +1396,8 @@ def apply_count(db: Session, *, count: StockCount, store: Store, actor: Actor, a
         raise AppError(
             code="COUNT_ALREADY_APPLIED", message="Este conteo ya se aplicó; no se puede aplicar dos veces", status=409
         )
+    if count.status == StockCountStatus.VOIDED:
+        raise AppError(code="COUNT_VOIDED", message="Este conteo está anulado; abrí uno nuevo", status=409)
 
     authorizer = _verify_self_authorizer(db, actor=actor, pin=authorizer_pin)
     now = clock.now_utc()
@@ -1461,6 +1466,77 @@ def apply_count(db: Session, *, count: StockCount, store: Store, actor: Actor, a
         id=count.id, applied_at=now, applied_by_employee_id=authorizer.id, applied_by_employee_name=authorizer.name,
         lines=out_lines,
     )
+
+
+def void_count(
+    db: Session, *, count: StockCount, store: Store, actor: Actor, authorizer_pin: str, reason: str
+) -> CountOut:
+    """`POST /admin/counts/{id}/void`: anula un conteo **sin borrar nada**.
+
+    Por cada ajuste que el conteo escribió en el libro (`count_adjustment`
+    con `ref_type="stock_count"`, `ref_id=count.id`) se escribe el movimiento
+    contrario, con la misma causa, el mismo costo congelado y
+    `ref_type="stock_count_void"`: el saldo vuelve a lo que el libro decía
+    sin ese conteo, y el rastro de los dos asientos queda. El conteo pasa a
+    `voided` con quién, cuándo y por qué; deja de contar como «último conteo
+    aplicado» y no aparece en la línea de tiempo ni en la varianza.
+
+    Un conteo abierto (sin ajustes) se anula sin reversa. `409` si ya estaba
+    anulado; motivo obligatorio y PIN del administrador, como al aplicar."""
+    if count.status == StockCountStatus.VOIDED:
+        raise AppError(code="COUNT_ALREADY_VOIDED", message="Este conteo ya está anulado", status=409)
+    reason = reason.strip()
+    if len(reason) < 5:
+        raise AppError(code="VALIDATION_ERROR", message="Escribí el motivo de la anulación (al menos 5 letras)")
+
+    authorizer = _verify_self_authorizer(db, actor=actor, pin=authorizer_pin)
+    now = clock.now_utc()
+    business_date = tz.business_date_for(now, store.cutoff_hour)
+    authorizer_actor = Actor(
+        kind="admin",
+        organization_id=store.organization_id,
+        store_id=store.id,
+        employee_id=authorizer.id,
+        employee_name=authorizer.name,
+        role=authorizer.role,
+    )
+    adjustments = db.execute(
+        select(StockMovement)
+        .where(
+            StockMovement.store_id == store.id,
+            StockMovement.cause == MovementCause.COUNT_ADJUSTMENT,
+            StockMovement.ref_type == "stock_count",
+            StockMovement.ref_id == count.id,
+        )
+        .order_by(StockMovement.id)
+    ).scalars().all()
+    for mv in adjustments:
+        hooks.record_movement(
+            db,
+            organization_id=store.organization_id,
+            store_id=store.id,
+            ingredient_id=mv.ingredient_id,
+            preparation_id=mv.preparation_id,
+            qty_base=-mv.qty_base,
+            cause=MovementCause.COUNT_ADJUSTMENT,
+            cost_micros=mv.cost_micros,
+            cost_source=mv.cost_source,
+            actor=authorizer_actor,
+            business_date=business_date,
+            at=now,
+            ref_type="stock_count_void",
+            ref_id=count.id,
+            note=f"Anula el conteo #{count.id}: {reason}",
+        )
+
+    count.status = StockCountStatus.VOIDED
+    count.voided_at = now
+    count.voided_by_employee_id = authorizer.id
+    count.voided_by_employee_name = authorizer.name
+    count.void_reason = reason
+    db.flush()
+    total, counted = count_lines_summary(db, count)
+    return count_out(count, lines_total=total, lines_counted=counted)
 
 
 # ---------------------------------------------------------------------------
