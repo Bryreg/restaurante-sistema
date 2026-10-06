@@ -139,7 +139,7 @@ describe("PreparationsAdminPage", () => {
     expect(screen.getByText("oficial")).toBeInTheDocument()
   })
 
-  it("las acciones de la fila van en «⋯»: Editar, Cambiar modo y, sólo por lote, Ver lotes", async () => {
+  it("las acciones de la fila van en «⋯»: Editar, Ficha de chef, Cambiar modo y, sólo por lote, Ver lotes", async () => {
     listPreparationsMock.mockResolvedValue([CALDO, HOGAO])
     const user = userEvent.setup()
     renderPage({ "catalog.preps": true })
@@ -147,13 +147,14 @@ describe("PreparationsAdminPage", () => {
     await screen.findByText("Caldo base")
     // Explotada: no hay lotes que ver.
     await user.click(screen.getByRole("button", { name: "Acciones de Hogao" }))
-    expect((await screen.findAllByRole("menuitem")).map((i) => i.textContent)).toEqual(["Editar", "Cambiar modo"])
+    expect((await screen.findAllByRole("menuitem")).map((i) => i.textContent)).toEqual(["Editar", "Ficha de chef y descarga", "Cambiar modo"])
     await user.keyboard("{Escape}")
     await waitFor(() => expect(screen.queryByRole("menuitem")).not.toBeInTheDocument())
 
     await user.click(screen.getByRole("button", { name: "Acciones de Caldo base" }))
     expect((await screen.findAllByRole("menuitem")).map((i) => i.textContent)).toEqual([
       "Editar",
+      "Ficha de chef y descarga",
       "Cambiar modo",
       "Ver lotes",
     ])

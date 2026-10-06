@@ -2,6 +2,7 @@ import { useState } from "react"
 
 import type { BaseUnit, IngredientIn, IngredientOut, IngredientUpdateIn } from "@/api/inventory"
 import { Button } from "@/components/ui/button"
+import { ALLERGEN_CODES, ALLERGEN_LABEL } from "@/features/recipes/fichaChef"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DialogClose, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -22,6 +23,7 @@ export interface IngredientFormValues {
   perishable: boolean
   openedShelfLifeDays: string
   keyItem: boolean
+  allergens: string[]
   consumptionUntracked: boolean
   substituteIngredientId: number | null
   active: boolean
@@ -45,6 +47,7 @@ function toFormValues(ingredient?: IngredientOut): IngredientFormValues {
         ? String(ingredient.opened_shelf_life_days)
         : "",
     keyItem: ingredient?.key_item ?? false,
+    allergens: ingredient?.allergens ?? [],
     consumptionUntracked: ingredient?.consumption_untracked ?? false,
     substituteIngredientId: ingredient?.substitute_ingredient_id ?? null,
     active: ingredient?.active ?? true,
@@ -76,6 +79,7 @@ export function formValuesToIngredientIn(values: IngredientFormValues): Ingredie
     perishable: values.perishable,
     opened_shelf_life_days: values.openedShelfLifeDays.trim() === "" ? null : Number(values.openedShelfLifeDays),
     key_item: values.keyItem,
+    allergens: values.allergens,
     consumption_untracked: values.consumptionUntracked,
     substitute_ingredient_id: values.substituteIngredientId,
     active: values.active,
@@ -100,6 +104,7 @@ export function formValuesToIngredientUpdateIn(values: IngredientFormValues): In
     opened_shelf_life_days: values.openedShelfLifeDays.trim() === "" ? null : Number(values.openedShelfLifeDays),
     clear_opened_shelf_life: values.openedShelfLifeDays.trim() === "",
     key_item: values.keyItem,
+    allergens: values.allergens,
     consumption_untracked: values.consumptionUntracked,
     substitute_ingredient_id: values.substituteIngredientId,
     clear_substitute: values.substituteIngredientId === null,
@@ -335,6 +340,32 @@ export function IngredientForm({
           />
           <Label htmlFor="ing-key-item">Crítico (entra al conteo rápido)</Label>
         </div>
+        <fieldset className="space-y-1.5">
+          <legend className="text-sm font-medium">Alérgenos</legend>
+          <p className="text-xs text-muted-foreground">
+            Las fichas de chef de los platos y preparaciones que lo usan los muestran solos.
+          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {ALLERGEN_CODES.map((code) => (
+              <span key={code} className="flex items-center gap-1.5">
+                <Checkbox
+                  id={`ing-allergen-${code}`}
+                  checked={values.allergens.includes(code)}
+                  onCheckedChange={(checked) =>
+                    setValues((v) => ({
+                      ...v,
+                      allergens:
+                        checked === true ? [...v.allergens, code] : v.allergens.filter((a) => a !== code),
+                    }))
+                  }
+                />
+                <Label htmlFor={`ing-allergen-${code}`} className="font-normal">
+                  {ALLERGEN_LABEL[code]}
+                </Label>
+              </span>
+            ))}
+          </div>
+        </fieldset>
         <div className="flex items-start gap-2">
           <Checkbox
             id="ing-untracked"

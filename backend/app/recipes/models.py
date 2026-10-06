@@ -266,6 +266,50 @@ class RecipeLine(Base):
 
 
 # ---------------------------------------------------------------------------
+# Ficha de chef (0039): lo que la cocina necesita además de los componentes.
+# ---------------------------------------------------------------------------
+
+
+class RecipeSheet(Base):
+    """La ficha técnica para la cocina de un plato **o** de una preparación:
+    el método paso a paso, la porción que se sirve, la estación, el tiempo,
+    el montaje y la foto. No toca el costo ni el descuento de inventario —eso
+    lo deciden las líneas de la receta, versionadas—; por eso vive aparte y
+    no versiona. Los alérgenos no se escriben acá: se heredan de los insumos
+    (`app.recipes.sheet`)."""
+
+    __tablename__ = "recipe_sheets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id"), nullable=True, unique=True)
+    preparation_id: Mapped[int | None] = mapped_column(ForeignKey("preparations.id"), nullable=True, unique=True)
+
+    # Un paso por renglón, en orden (JSON: lista de textos).
+    method_steps: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    portion: Mapped[str | None] = mapped_column(sa.String(120), nullable=True)
+    station: Mapped[str | None] = mapped_column(sa.String(20), nullable=True)
+    prep_minutes: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    plating_notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    chef_notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    photo_url: Mapped[str | None] = mapped_column(sa.String(500), nullable=True)
+
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    updated_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    updated_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(product_id IS NOT NULL AND preparation_id IS NULL) OR "
+            "(product_id IS NULL AND preparation_id IS NOT NULL)",
+            name="ck_recipe_sheets_exactly_one_owner",
+        ),
+        CheckConstraint("prep_minutes IS NULL OR prep_minutes >= 0", name="ck_recipe_sheets_minutes_nonneg"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # `recipe_effect` de las opciones de modificador (§4.3) — tabla propia de
 # este dominio: `app/catalog/**` es de sólo lectura para este pedido, así que
 # el efecto no vive en la columna JSON `ModifierOption.recipe_effect` (que

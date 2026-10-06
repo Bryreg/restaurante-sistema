@@ -39,6 +39,7 @@ import {
   PreparationForm,
 } from "./PreparationForm"
 import { PrepBatchesPanel } from "./PrepBatchesPanel"
+import { FichaChefEditor } from "./FichaChefEditor"
 import { PrepModeSwitchDialog } from "./PrepModeSwitchDialog"
 
 const MODE_LABEL: Record<string, string> = { batch: "Por lote", exploded: "Explotada" }
@@ -87,6 +88,7 @@ function PreparationActions({
   const [editing, setEditing] = useState(false)
   const [switching, setSwitching] = useState(false)
   const [batches, setBatches] = useState(false)
+  const [ficha, setFicha] = useState(false)
 
   const updateMutation = useMutation({
     mutationFn: (values: Parameters<typeof formValuesToPreparationUpdateIn>[0]) =>
@@ -101,6 +103,7 @@ function PreparationActions({
     <>
       <MenuDeFila nombre={preparation.name}>
         <DropdownMenuItem onClick={() => setEditing(true)}>Editar</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setFicha(true)}>Ficha de chef y descarga</DropdownMenuItem>
         <DropdownMenuItem onClick={() => setSwitching(true)}>Cambiar modo</DropdownMenuItem>
         {/* «Ver lotes» SÓLO existe en modo «por lote»: un control que aparece y
             desaparece con el estado de la fila (`docs/INVENTARIO-CONTROLES.md`
@@ -127,6 +130,14 @@ function PreparationActions({
               {errorMessage(updateMutation.error)}
             </p>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={ficha} onOpenChange={setFicha}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Ficha de chef · {preparation.name}</DialogTitle>
+          </DialogHeader>
+          {ficha ? <FichaChefEditor owner={{ kind: "preparation", id: preparation.id }} /> : null}
         </DialogContent>
       </Dialog>
       {switching && (
