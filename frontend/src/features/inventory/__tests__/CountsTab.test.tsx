@@ -7,11 +7,11 @@ import type { CountOut } from "@/api/inventory"
 
 import { CountsTab } from "../CountsTab"
 
-const { listCountsMock } = vi.hoisted(() => ({ listCountsMock: vi.fn() }))
+const { listCountsMock, voidCountMock } = vi.hoisted(() => ({ listCountsMock: vi.fn(), voidCountMock: vi.fn() }))
 
 vi.mock("@/api/inventory", async () => {
   const actual = await vi.importActual<typeof import("@/api/inventory")>("@/api/inventory")
-  return { ...actual, listCounts: listCountsMock }
+  return { ...actual, listCounts: listCountsMock, voidCount: voidCountMock }
 })
 
 const OPEN_COUNT: CountOut = {
@@ -67,5 +67,30 @@ describe("CountsTab", () => {
     listCountsMock.mockResolvedValue([])
     renderWithProviders(<CountsTab storeId={5} />)
     await waitFor(() => expect(listCountsMock).toHaveBeenCalledWith(expect.objectContaining({ storeId: 5 })))
+  })
+
+  it("un conteo se anula con motivo y PIN desde el «⋯», y el anulado lo dice con su motivo", async () => {
+    const applied: CountOut = { ...OPEN_COUNT, id: 5, status: "applied", lines_counted: 10 }
+    listCountsMock.mockResolvedValue([applied, { ...OPEN_COUNT, id: 3, status: "voided", void_reason: "Demo duplicada" }])
+    voidCountMock.mockResolvedValue({ ...applied, status: "voided" })
+    const user = userEvent.setup()
+    renderWithProviders(<CountsTab storeId={1} />)
+
+    await waitFor(() => expect(screen.getByText("#5")).toBeInTheDocument())
+    expect(within(screen.getByRole("table")).getByText("Anulado")).toBeInTheDocument()
+    expect(screen.getByText(/Demo duplicada/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: /conteo #5/ }))
+    await user.click(await screen.findByRole("menuitem", { name: /Anular con motivo/ }))
+    await user.type(screen.getByLabelText("Motivo"), "Conteo cargado dos veces")
+    for (const d of "9999") await user.click(screen.getByRole("button", { name: `Dígito ${d}` }))
+    await waitFor(() =>
+      expect(voidCountMock).toHaveBeenCalledWith(
+        5,
+        1,
+        { reason: "Conteo cargado dos veces", authorizer_pin: "9999" },
+        expect.any(String),
+      ),
+    )
   })
 })

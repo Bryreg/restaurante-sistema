@@ -354,7 +354,7 @@ class LotOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 CountScopeLiteral = Literal["key_items", "full"]
-CountStatusLiteral = Literal["open", "applied"]
+CountStatusLiteral = Literal["open", "applied", "voided"]
 
 
 class CountOpenIn(BaseModel):
@@ -411,6 +411,10 @@ class CountOut(BaseModel):
     applied_at: datetime | None
     applied_by_employee_id: int | None
     applied_by_employee_name: str | None
+    # Anulado (`POST /admin/counts/{id}/void`): quién, cuándo y por qué.
+    voided_at: datetime | None = None
+    voided_by_employee_name: str | None = None
+    void_reason: str | None = None
     lines_total: int
     lines_counted: int
 
@@ -420,6 +424,11 @@ class CountDetailOut(CountOut):
 
 
 class CountApplyIn(BaseModel):
+    authorizer_pin: str = Field(min_length=1, max_length=20)
+
+
+class CountVoidIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
     authorizer_pin: str = Field(min_length=1, max_length=20)
 
 

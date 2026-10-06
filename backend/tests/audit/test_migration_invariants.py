@@ -574,6 +574,12 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     `food_labels` (cada recipiente etiquetado, con su QR) y `label_settings`
     (el tamaño del rollo de la impresora), más la columna
     `ingredients.opened_shelf_life_days`.
+
+    **Re-apuntado con «Anular conteo»** (`0037_void_stock_count`): la cabeza
+    pasa a **`0037`**; columnas, no tablas: sigue 116. Motivo declarado: el
+    dueño pidió quitar dos conteos de la demo aplicados en el mismo instante;
+    borrarlos rompería el libro, así que se anulan con reversa y quedan
+    marcados con quién, cuándo y por qué.
     """
     from sqlalchemy import text
 
@@ -585,13 +591,13 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0036", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0036: 0027 → 0028 (asistencia separada del turno de caja) "
+    assert version == "0037", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0037: 0027 → 0028 (asistencia separada del turno de caja) "
         "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo) "
         "→ 0031 (avisos al celular) → 0032 (supuestos del panel) → 0033 (meta de ventas del mes) "
-        "→ 0034 (reversa de los días en el cajón) → 0035 (ajustes del panel) → 0036 (etiquetas de cocina). "
+        "→ 0034 (reversa de los días en el cajón) → 0035 (ajustes del panel) → 0036 (etiquetas de cocina) → 0037 (anular conteo). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032, 0033, 0034, 0035 y 0036"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032, 0033, 0034, 0035, 0036 y 0037"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -708,7 +714,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # mes) suma una: **114**. `0034` (reversa de los días en el cajón) agrega
     # columnas, no tablas: sigue 114. `0035` (ajustes del panel) también
     # agrega sólo columnas: sigue 114. `0036` (etiquetas de cocina) suma dos:
-    # **116**.
+    # **116**. `0037` (anular conteo) agrega columnas: sigue 116.
     assert len(tablas) == 116, (
         f"el esquema quedó con {len(tablas)} tablas de dominio; `0031` lo deja en 113, `0032` no lo mueve "
         f"`0033` suma la meta de ventas del mes: 114 y `0036` las etiquetas de cocina: 116 "

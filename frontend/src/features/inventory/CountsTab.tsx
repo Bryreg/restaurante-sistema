@@ -15,11 +15,13 @@ import { CsvExportButton } from "@/components/CsvExportButton"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
 import { Label } from "@/components/ui/label"
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errorMessage } from "@/lib/errors"
 
 import { daysAgoLocal, todayLocal } from "./lib"
 import { OpenCountDialog } from "./OpenCountDialog"
+import { VoidCountDialog } from "./VoidCountDialog"
 
 const SCOPE_LABEL: Record<CountScope, string> = {
   key_items: "Críticos",
@@ -35,8 +37,17 @@ const LEGEND: readonly LegendEntry[] = [
     term: "Aplicado",
     meaning: (
       <>
-        ya movió el stock, y <b>no se deshace</b>: se hace una sola vez y queda el ajuste por conteo en el
-        libro de movimientos.
+        ya movió el stock: se hace una sola vez y queda el ajuste por conteo en el libro de movimientos. Si
+        quedó mal, se anula con motivo y el ajuste se revierte.
+      </>
+    ),
+  },
+  {
+    term: "Anulado",
+    meaning: (
+      <>
+        se revirtió con motivo y PIN: cada ajuste que hizo tiene su movimiento contrario en el libro. <b>Nada se
+        borra</b>; deja de contar como conteo.
       </>
     ),
   },
@@ -61,6 +72,7 @@ export function CountsTab({ storeId }: { storeId: number }): React.JSX.Element {
   const [from, setFrom] = useState(daysAgoLocal(90))
   const [to, setTo] = useState(todayLocal())
   const queryClient = useQueryClient()
+  const [anular, setAnular] = useState<CountOut | null>(null)
 
   const query = useQuery({
     queryKey: ["inventory", "counts", storeId, scope, from, to],
@@ -74,12 +86,12 @@ export function CountsTab({ storeId }: { storeId: number }): React.JSX.Element {
   })
 
   const counts = query.data ?? []
-  const open = counts.filter((c) => c.status !== "applied").length
+  const open = counts.filter((c) => c.status === "open").length
 
   // Un conteo abierto es lo único que pide algo del dueño; el aplicado ya no
   // cambia. Es la distinción del patrón 3 llevada a la franja de la fila.
   function statusOf(count: CountOut): RowStatus {
-    return count.status === "applied" ? "none" : "warning"
+    return count.status === "open" ? "warning" : "none"
   }
 
   const columns: readonly DenseColumn<CountOut>[] = [
@@ -102,11 +114,20 @@ export function CountsTab({ storeId }: { storeId: number }): React.JSX.Element {
         <span className="inline-flex items-center gap-1.5">
           <span
             className={
-              c.status === "applied" ? "size-1.5 rounded-full bg-success" : "size-1.5 rounded-full bg-warning"
+              c.status === "applied"
+                ? "size-1.5 rounded-full bg-success"
+                : c.status === "voided"
+                  ? "size-1.5 rounded-[1px] bg-muted-foreground"
+                  : "size-1.5 rounded-full bg-warning"
             }
             aria-hidden="true"
           />
-          {c.status === "applied" ? "Aplicado" : "Abierto"}
+          {c.status === "applied" ? "Aplicado" : c.status === "voided" ? "Anulado" : "Abierto"}
+          {c.status === "voided" && c.void_reason ? (
+            <span className="text-xs text-muted-foreground" title={c.void_reason}>
+              · {c.void_reason}
+            </span>
+          ) : null}
         </span>
       ),
     },
@@ -208,12 +229,22 @@ export function CountsTab({ storeId }: { storeId: number }): React.JSX.Element {
 
   return (
     <div className="space-y-3">
+      <VoidCountDialog storeId={storeId} count={anular} onClose={() => setAnular(null)} />
       <DenseTable
         caption="Conteos de inventario"
         columns={columns}
         rows={counts}
         rowKey={(c) => String(c.id)}
         rowStatus={statusOf}
+        rowInactive={(c) => c.status === "voided"}
+        rowLabel={(c) => `conteo #${c.id}`}
+        rowMenu={(c) =>
+          c.status === "voided" ? (
+            <DropdownMenuItem disabled>Ya está anulado</DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={() => setAnular(c)}>Anular con motivo…</DropdownMenuItem>
+          )
+        }
         legend={LEGEND}
         bar={
           <DenseTableBar
@@ -228,8 +259,8 @@ export function CountsTab({ storeId }: { storeId: number }): React.JSX.Element {
         note={
           <>
             El conteo se captura <b>a ciegas</b>: la pantalla de captura no muestra el stock del sistema, para
-            que lo contado no se parezca a lo esperado. <b>Aplicarlo no se deshace</b> y pide PIN de
-            administrador.
+            que lo contado no se parezca a lo esperado. Aplicarlo pide PIN de administrador; si quedó mal, se
+            <b> anula con motivo</b> desde el «⋯» y sus ajustes se revierten en el libro.
           </>
         }
         empty={

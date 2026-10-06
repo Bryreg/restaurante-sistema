@@ -49,6 +49,7 @@ from app.inventory.models import (
     StockCount,
     StockCountLine,
     StockCountScope,
+    StockCountStatus,
     StockMovement,
 )
 from app.stores.models import Store
@@ -359,6 +360,8 @@ def inventory_timeline(
                 StockCount.store_id == store.id,
                 StockCountLine.ingredient_id.in_(ids),
                 StockCountLine.was_counted.is_(True),
+                # Un conteo anulado no dice lo que había: su reversa ya está en el libro.
+                StockCount.status != StockCountStatus.VOIDED,
                 StockCountLine.qty_counted.is_not(None),
                 StockCount.opened_at >= start_at,
                 StockCount.opened_at < end_at,
