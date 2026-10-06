@@ -192,6 +192,9 @@ export interface ReceptionIn {
    * (ver `ReceptionForm.tsx`). */
   confirm_price: boolean
   lines: ReceptionLineIn[]
+  /** Los pedidos de insumos (aprobados y por comprar) que esta recepción
+   * cubre: el servidor los marca «comprado» en la misma transacción. */
+  supply_request_ids?: number[]
 }
 
 export interface ReceptionLineOut {

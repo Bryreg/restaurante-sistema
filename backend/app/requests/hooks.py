@@ -9,6 +9,9 @@
 - `mark_supply_request_bought(...)` — para que Compras, al recibir, cierre
   el pedido que originó la compra. Valida antes de escribir y levanta
   `AppError` si el pedido no está aprobado y por comprar.
+- `assert_supply_requests_buyable(...)` — la misma validación, sin escribir,
+  para que Compras la corra en la fase 1 de la recepción (antes de mover
+  stock) y nunca deje una recepción a medias por un pedido ya cerrado.
 
 Este dominio no importa `app.purchases` ni `app.reports`: la dependencia va
 en un solo sentido (ellos leen acá).
@@ -23,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor
-from app.core.errors import NotFoundError
+from app.core.errors import AppError, NotFoundError
 from app.requests import service
 from app.requests.models import StaffRequest, StaffRequestKind, StaffRequestLine, StaffRequestStatus
 
@@ -86,3 +89,19 @@ def mark_supply_request_bought(
     if request is None or request.store_id != store_id:
         raise NotFoundError("La solicitud de insumos no existe")
     service.mark_bought(db, actor=actor, request=request, note=note)
+
+
+def assert_supply_requests_buyable(db: Session, *, store_id: int, request_ids: list[int]) -> None:
+    """Cada id es un pedido de insumos de esta sede, aprobado y todavía por
+    comprar. No escribe nada: `404` si no existe (o es de otra sede, o no es
+    de insumos), `400 SUPPLY_REQUEST_NOT_OPEN` si ya no está por comprar."""
+    for request_id in request_ids:
+        request = db.get(StaffRequest, request_id)
+        if request is None or request.store_id != store_id or request.kind != StaffRequestKind.SUPPLY.value:
+            raise NotFoundError(f"La solicitud de insumos #{request_id} no existe en esta sede")
+        if request.status != StaffRequestStatus.APPROVED:
+            raise AppError(
+                "SUPPLY_REQUEST_NOT_OPEN",
+                f"La solicitud de insumos #{request_id} ya no está aprobada y por comprar; "
+                "recargá la lista de solicitudes y quitala de esta recepción",
+            )

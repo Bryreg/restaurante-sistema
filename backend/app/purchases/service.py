@@ -34,7 +34,7 @@ from app.audit.service import record_audit
 from app.auth import service as auth_service
 from app.auth.deps import Actor
 from app.auth.models import Employee
-from app.core import clock, tz
+from app.core import clock, features, tz
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.core.money import format_cop
 from app.core.percent import format_pct_bp
@@ -336,6 +336,16 @@ def _validate_reception(
             status=400,
         )
 
+    supply_request_ids = list(dict.fromkeys(payload.supply_request_ids or []))
+    if supply_request_ids:
+        # u6: los pedidos que esta recepción cierra se validan ANTES de
+        # escribir nada (fase 1): un pedido ya cerrado no deja la recepción
+        # a medias.
+        features.assert_feature(db, store.organization_id, store.id, "pos.requests")
+        from app.requests import hooks as requests_hooks
+
+        requests_hooks.assert_supply_requests_buyable(db, store_id=store.id, request_ids=supply_request_ids)
+
     if received_by is None:
         received_by = _verify_received_by(db, organization_id=store.organization_id, store_id=store.id, pin=payload.received_by_pin)
 
@@ -379,6 +389,7 @@ def _validate_reception(
 
     return {
         "supplier": supplier,
+        "supply_request_ids": supply_request_ids,
         "received_by": received_by,
         "now": now,
         "business_date": business_date,
@@ -492,6 +503,15 @@ def _write_reception(
     db.add(payable)
     db.flush()
 
+    supply_request_ids: list[int] = validated.get("supply_request_ids", [])
+    if supply_request_ids:
+        from app.requests import hooks as requests_hooks
+
+        for request_id in supply_request_ids:
+            requests_hooks.mark_supply_request_bought(
+                db, store_id=store.id, request_id=request_id, actor=actor, note=f"Recibido en la recepción #{reception.id}"
+            )
+
     record_audit(
         db,
         actor=actor,
@@ -501,7 +521,13 @@ def _write_reception(
         entity_id=reception.id,
         action="create",
         before=None,
-        after={"supplier_id": supplier.id, "lines": len(prepared), "payable_id": payable.id, "amount": payable_amount},
+        after={
+            "supplier_id": supplier.id,
+            "lines": len(prepared),
+            "payable_id": payable.id,
+            "amount": payable_amount,
+            "supply_request_ids": supply_request_ids,
+        },
     )
     return reception, payable
 
@@ -1448,6 +1474,7 @@ def complete_reception_draft(
         received_by_pin="",
         confirm_price=payload.confirm_price,
         lines=payload.lines,
+        supply_request_ids=payload.supply_request_ids,
     )
     validated = _validate_reception(db, store=store, payload=reception_in, received_by=received_by)
 

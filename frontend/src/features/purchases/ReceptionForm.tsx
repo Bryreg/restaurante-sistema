@@ -44,7 +44,7 @@
  * `create_reception` del backend.
  */
 
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
 
 import { useSession } from "@/app/session"
@@ -66,6 +66,7 @@ import { MoneyInput } from "@/components/MoneyInput"
 import { PhotoCaptureField } from "@/components/PhotoCaptureField"
 import { PinPad } from "@/components/PinPad"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { REQUESTS_QUERY_KEYS } from "@/features/requests"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
@@ -76,6 +77,7 @@ import {
   ReceptionLinesEditor,
   type ReceptionLineDraft,
 } from "./ReceptionLinesEditor"
+import { SupplyRequestsPicker } from "./SupplyRequestsPicker"
 
 const GUARD_CODES = new Set(["PRICE_LOOKS_LIKE_PACKAGE", "PRICE_JUMP"])
 
@@ -120,7 +122,11 @@ export function ReceptionForm({
   /** Una recepción registrada en el POS para completar con precios. */
   draft?: ReceptionDraftAdminOut | null
 }): React.JSX.Element {
-  const { me } = useSession()
+  const { me, hasFeature } = useSession()
+  const queryClient = useQueryClient()
+  const requestsOn = hasFeature("pos.requests")
+  // u6: los pedidos del salón que esta compra cubre; se cierran al confirmar.
+  const [supplyRequestIds, setSupplyRequestIds] = useState<number[]>([])
   const [supplierId, setSupplierId] = useState<number | null>(() =>
     draft && suppliers.some((s) => s.id === draft.supplier_id) ? draft.supplier_id : null,
   )
@@ -162,6 +168,9 @@ export function ReceptionForm({
     },
     onSuccess: (reception) => {
       setGuard(null)
+      if (supplyRequestIds.length > 0) {
+        void queryClient.invalidateQueries({ queryKey: REQUESTS_QUERY_KEYS.adminApprovedSupplies(storeId) })
+      }
       onSuccess(reception)
     },
     onError: (err) => {
@@ -189,6 +198,7 @@ export function ReceptionForm({
       received_by_pin: receivedByPin,
       confirm_price: confirmPrice,
       lines: draftsToReceptionLines(lines),
+      supply_request_ids: requestsOn ? supplyRequestIds : [],
     }
   }
 
@@ -379,6 +389,31 @@ export function ReceptionForm({
           highlightIndex={guard?.lineIndex ?? null}
         />
       </FormSection>
+
+      {requestsOn ? (
+        <FormSection
+          title="Qué pedidos del salón cubre"
+          governs="Los pedidos de insumos aprobados que llegan con esta compra. Al confirmar la recepción quedan como «comprado» y salen de la lista de lo que hay que traer."
+          columns="one"
+          reading={
+            supplyRequestIds.length > 0 ? (
+              <>
+                Al confirmar se cierran <b>{supplyRequestIds.length === 1 ? "1 pedido" : `${supplyRequestIds.length} pedidos`}</b>.
+                Si alguno ya no está por comprar, el servidor rechaza la recepción entera y no mueve stock.
+              </>
+            ) : (
+              <>Ningún pedido marcado: la recepción entra igual, y los pedidos siguen por comprar.</>
+            )
+          }
+        >
+          <SupplyRequestsPicker
+            storeId={storeId}
+            selected={supplyRequestIds}
+            onChange={setSupplyRequestIds}
+            disabled={formsDisabled}
+          />
+        </FormSection>
+      ) : null}
 
       {guard ? (
         <div role="alert" className="space-y-3 rounded-md border border-destructive/50 bg-destructive/5 p-4">

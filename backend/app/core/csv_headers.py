@@ -706,6 +706,7 @@ TOKENS: dict[str, str] = {
     "sunday": "domingo",
     "superseded": "reemplazado",
     "supplier": "proveedor",
+    "supply": "insumos",
     "surcharge": "recargo",
     "surplus": "sobrante",
     "sustained": "sostenido",
