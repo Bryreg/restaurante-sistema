@@ -56,6 +56,8 @@ export interface PreparationIn {
   standard_yield_unit: BaseUnit
   process_loss_pct?: number
   shelf_life_days?: number | null
+  /** Entra al conteo de críticos (sólo cuenta en modo lote). */
+  key_item?: boolean
   lines: ComponentLineIn[]
 }
 
@@ -67,6 +69,7 @@ export interface PreparationUpdateIn {
   standard_yield_unit?: BaseUnit
   process_loss_pct?: number
   shelf_life_days?: number | null
+  key_item?: boolean
   lines?: ComponentLineIn[]
   active?: boolean
 }
@@ -84,6 +87,7 @@ export interface PreparationAdminOut {
   standard_yield_unit: string
   process_loss_pct: number
   shelf_life_days: number | null
+  key_item?: boolean
   active: boolean
   /** Sólo tiene sentido en modo `batch`; `null` en `exploded` (sin stock ni lotes). */
   current_stock: string | null

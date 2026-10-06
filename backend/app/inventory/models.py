@@ -534,6 +534,30 @@ class StockCountLine(Base):
     )
 
 
+class StockCountPrepLine(Base):
+    """Un renglón de conteo para una **preparación en modo lote** (0038): la
+    salsa, el caldo, la masa que se producen y se guardan. Misma regla que
+    `StockCountLine` —renglón por renglón, sin «todo coincide»— en su propia
+    tabla para que la varianza y la analítica, que leen insumos, no cambien.
+    `preparation_id` sin FK dura, como en `stock_movements`. Cantidad en
+    milésimas de la unidad de rendimiento de la preparación."""
+
+    __tablename__ = "stock_count_prep_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    count_id: Mapped[int] = mapped_column(ForeignKey("stock_counts.id"), index=True)
+    preparation_id: Mapped[int] = mapped_column(sa.Integer, index=True)
+
+    qty_counted: Mapped[int | None] = mapped_column(sa.BigInteger, nullable=True)
+    was_counted: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    counted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    __table_args__ = (
+        sa.UniqueConstraint("count_id", "preparation_id", name="uq_stock_count_prep_lines_count_prep"),
+        CheckConstraint("qty_counted IS NULL OR qty_counted >= 0", name="ck_stock_count_prep_lines_qty_nonneg"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Umbrales de varianza (configuración de sede que vive en `inventory` —
 # decisión de arquitectura #4 del pedido 2b: NO toca `app.stores`, que es el

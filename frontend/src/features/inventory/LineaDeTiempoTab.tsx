@@ -108,6 +108,30 @@ function ordenar(rows: TimelineRowOut[], orden: Orden): TimelineRowOut[] {
   return copia
 }
 
+/** La clave de una fila: insumo (`i12`) o preparación (`p3`). */
+function claveFila(row: TimelineRowOut): string {
+  return row.preparation_id != null ? `p${row.preparation_id}` : `i${row.ingredient_id}`
+}
+
+/** A dónde lleva el nombre: la ficha del insumo, o la lista de preparaciones. */
+function NombreFila({ row, className }: { row: TimelineRowOut; className?: string }): React.JSX.Element {
+  if (row.preparation_id != null) {
+    return (
+      <span className={className}>
+        <Link to="/admin/preparaciones" className="text-primary hover:underline">
+          {row.name}
+        </Link>{" "}
+        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground">preparación</span>
+      </span>
+    )
+  }
+  return (
+    <Link to={fichaInsumoHref(row.ingredient_id as number)} className={`text-primary hover:underline ${className ?? ""}`}>
+      {row.name}
+    </Link>
+  )
+}
+
 function unidad(row: TimelineRowOut): string {
   return UNIDAD[row.base_unit] ?? row.base_unit
 }
@@ -252,14 +276,13 @@ function VistaBarras({ data, rows }: { data: TimelineOut; rows: TimelineRowOut[]
           const u = unidad(row)
           return (
             <li
-              key={row.ingredient_id}
-              data-insumo={row.ingredient_id}
+              key={claveFila(row)}
+              data-insumo={row.ingredient_id ?? undefined}
+              data-preparacion={row.preparation_id ?? undefined}
               className="grid items-center gap-x-4 gap-y-2 border-t border-border/60 py-3 first:border-t-0 md:grid-cols-[200px_minmax(0,1fr)_150px]"
             >
               <div className="min-w-0">
-                <Link to={fichaInsumoHref(row.ingredient_id)} className="block truncate text-sm font-semibold text-primary hover:underline">
-                  {row.name}
-                </Link>
+                <NombreFila row={row} className="block truncate text-sm font-semibold" />
                 <p className="text-xs text-muted-foreground tabular-nums">
                   {cantidadCorta(row.start_qty, u)} → <b className="font-semibold text-foreground">{cantidadCorta(row.end_qty, u)}</b>
                 </p>
@@ -285,11 +308,7 @@ function columnas(): DenseColumn<TimelineRowOut>[] {
       key: "insumo",
       header: "Insumo",
       kind: "name",
-      cell: (r) => (
-        <Link to={fichaInsumoHref(r.ingredient_id)} className="font-semibold text-primary hover:underline">
-          {r.name}
-        </Link>
-      ),
+      cell: (r) => <NombreFila row={r} className="font-semibold" />,
     },
     { key: "arranco", header: "Arrancó", kind: "number", cell: (r) => cantidadCorta(r.start_qty, unidad(r)), secondary: true },
     { key: "entro", header: "Entró", kind: "number", cell: (r) => cantidadCorta(r.in_qty, unidad(r)) },
@@ -477,7 +496,7 @@ export function LineaDeTiempoTab({ storeId }: { storeId: number }): React.JSX.El
           caption="Movimiento de cada insumo en el período"
           columns={columnas()}
           rows={filas}
-          rowKey={(r) => String(r.ingredient_id)}
+          rowKey={claveFila}
           rowStatus={(r) => (r.seconds_at_zero > 0 ? "critical" : r.seconds_below_min > 0 ? "warning" : "none")}
           bar={barra}
           empty={vacio}

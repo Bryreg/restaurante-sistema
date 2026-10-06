@@ -87,6 +87,9 @@ class Preparation(Base):
     standard_yield_unit: Mapped[str] = mapped_column(sa.String(8))
     process_loss_pct: Mapped[int] = mapped_column(sa.Integer, default=0)
     shelf_life_days: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    # Entra al conteo de críticos (0038), como `Ingredient.key_item`. Sólo
+    # cuenta en modo lote: en modo explotado la preparación no tiene stock.
+    key_item: Mapped[bool] = mapped_column(sa.Boolean, default=False, server_default=sa.false())
 
     active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
 

@@ -81,7 +81,7 @@ const LEGEND: readonly LegendEntry[] = [
  *   RENGLÓN POR RENGLÓN con el botón "Confirmar" de esa fila — es la única
  *   acción que manda `was_counted: true`, y siempre para un solo insumo.
  * - **Un borrador local nunca pisa un valor confirmado**: lo que la persona
- *   tipea vive en `drafts` (estado local, por `ingredient_id`) hasta que se
+ *   tipea vive en `drafts` (estado local, por renglón: insumo o preparación) hasta que se
  *   guarda. "Guardar avance" manda TODOS los renglones tocados con
  *   `was_counted: false` — el servidor ignora en silencio los que ya
  *   estaban confirmados (`was_counted: true`) en vez de pisarlos, y esta
@@ -99,14 +99,24 @@ const LEGEND: readonly LegendEntry[] = [
  * dejaría de querer decir «esto no se deshace» y pasaría a querer decir
  * «botón importante».
  */
+/** La clave de un renglón: un insumo (`i12`) o una preparación (`p3`). */
+function lineKey(line: { ingredient_id: number | null; preparation_id?: number | null }): string {
+  return line.preparation_id != null ? `p${line.preparation_id}` : `i${line.ingredient_id}`
+}
+
+function refOf(key: string): Pick<CountLineRefIn, "ingredient_id" | "preparation_id"> {
+  const id = Number(key.slice(1))
+  return key.startsWith("p") ? { preparation_id: id } : { ingredient_id: id }
+}
+
 export function CountCapturePage(): React.JSX.Element {
   const params = useParams<{ countId: string }>()
   const countId = Number(params.countId)
   const { activeStoreId, loading: storeLoading } = useStoreSelection()
   const queryClient = useQueryClient()
 
-  const [drafts, setDrafts] = useState<Record<number, string>>({})
-  const [rowError, setRowError] = useState<Record<number, string>>({})
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [rowError, setRowError] = useState<Record<string, string>>({})
   const [applyOpen, setApplyOpen] = useState(false)
   const [applyResult, setApplyResult] = useState<CountApplyOut | null>(null)
   const [alreadyApplied, setAlreadyApplied] = useState(false)
@@ -138,12 +148,12 @@ export function CountCapturePage(): React.JSX.Element {
       // valor confirmado.
       setDrafts((prev) => {
         const next = { ...prev }
-        for (const line of sentLines) delete next[line.ingredient_id]
+        for (const line of sentLines) delete next[lineKey({ ingredient_id: line.ingredient_id ?? null, preparation_id: line.preparation_id })]
         return next
       })
       setRowError((prev) => {
         const next = { ...prev }
-        for (const line of sentLines) delete next[line.ingredient_id]
+        for (const line of sentLines) delete next[lineKey({ ingredient_id: line.ingredient_id ?? null, preparation_id: line.preparation_id })]
         return next
       })
     },
@@ -203,11 +213,11 @@ export function CountCapturePage(): React.JSX.Element {
   }
 
   function draftFor(line: CountLineOut): string {
-    return drafts[line.ingredient_id] ?? line.qty_counted ?? ""
+    return drafts[lineKey(line)] ?? line.qty_counted ?? ""
   }
 
-  function updateDraft(ingredientId: number, text: string): void {
-    setDrafts((prev) => ({ ...prev, [ingredientId]: text }))
+  function updateDraft(key: string, text: string): void {
+    setDrafts((prev) => ({ ...prev, [key]: text }))
   }
 
   function confirmLine(line: CountLineOut): void {
@@ -216,13 +226,13 @@ export function CountCapturePage(): React.JSX.Element {
     if (!parsed.valid || parsed.value === null) {
       setRowError((prev) => ({
         ...prev,
-        [line.ingredient_id]: "Cantidad inválida — revisá el valor.",
+        [lineKey(line)]: "Cantidad inválida — revisá el valor.",
       }))
       return
     }
     saveMutation.mutate([
       {
-        ingredient_id: line.ingredient_id,
+        ...refOf(lineKey(line)),
         qty_counted: parsed.value,
         was_counted: true,
       },
@@ -231,19 +241,18 @@ export function CountCapturePage(): React.JSX.Element {
 
   function saveDraftProgress(): void {
     const lines: CountLineRefIn[] = []
-    const nextErrors: Record<number, string> = {}
-    for (const [idText, text] of Object.entries(drafts)) {
-      const ingredientId = Number(idText)
+    const nextErrors: Record<string, string> = {}
+    for (const [key, text] of Object.entries(drafts)) {
       if (text.trim() === "") continue
       const parsed = parseCountInput(text)
       if (parsed.valid && parsed.value !== null) {
         lines.push({
-          ingredient_id: ingredientId,
+          ...refOf(key),
           qty_counted: parsed.value,
           was_counted: false,
         })
       } else {
-        nextErrors[ingredientId] = "Cantidad inválida — revisá el valor."
+        nextErrors[key] = "Cantidad inválida — revisá el valor."
       }
     }
     setRowError((prev) => ({ ...prev, ...nextErrors }))
@@ -260,9 +269,17 @@ export function CountCapturePage(): React.JSX.Element {
   const columns: readonly DenseColumn<CountLineOut>[] = [
     {
       key: "name",
-      header: "Insumo",
+      header: "Insumo o preparación",
       kind: "name",
-      cell: (l) => l.ingredient_name,
+      cell: (l) =>
+        l.preparation_id != null ? (
+          <span>
+            {l.ingredient_name}{" "}
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">preparación</span>
+          </span>
+        ) : (
+          l.ingredient_name
+        ),
     },
     {
       key: "previous",
@@ -283,7 +300,7 @@ export function CountCapturePage(): React.JSX.Element {
         const draft = draftFor(line)
         const parsed = parseCountInput(draft)
         const invalid = draft.trim() !== "" && !parsed.valid
-        const error = rowError[line.ingredient_id]
+        const error = rowError[lineKey(line)]
         return (
           <Input
             inputMode="decimal"
@@ -295,11 +312,11 @@ export function CountCapturePage(): React.JSX.Element {
             aria-label={`Cantidad contada — ${line.ingredient_name}`}
             title={error ?? (invalid ? "Cantidad inválida — no se envía." : undefined)}
             onChange={(event) => {
-              updateDraft(line.ingredient_id, event.target.value)
+              updateDraft(lineKey(line), event.target.value)
               setRowError((prev) => {
-                if (!(line.ingredient_id in prev)) return prev
+                if (!(lineKey(line) in prev)) return prev
                 const next = { ...prev }
-                delete next[line.ingredient_id]
+                delete next[lineKey(line)]
                 return next
               })
             }}
@@ -345,9 +362,17 @@ export function CountCapturePage(): React.JSX.Element {
   const applyColumns: readonly DenseColumn<CountApplyLineOut>[] = [
     {
       key: "name",
-      header: "Insumo",
+      header: "Insumo o preparación",
       kind: "name",
-      cell: (l) => l.ingredient_name,
+      cell: (l) =>
+        l.preparation_id != null ? (
+          <span>
+            {l.ingredient_name}{" "}
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">preparación</span>
+          </span>
+        ) : (
+          l.ingredient_name
+        ),
     },
     {
       key: "counted",
@@ -444,7 +469,7 @@ export function CountCapturePage(): React.JSX.Element {
         caption={`Renglones del conteo #${count.id}`}
         columns={columns}
         rows={count.lines}
-        rowKey={(l) => String(l.ingredient_id)}
+        rowKey={lineKey}
         rowStatus={lineStatus}
         legend={LEGEND}
         bar={
@@ -582,7 +607,7 @@ export function CountCapturePage(): React.JSX.Element {
             caption="Ajuste aplicado por el conteo"
             columns={applyColumns}
             rows={applyResult.lines}
-            rowKey={(l) => String(l.ingredient_id)}
+            rowKey={lineKey}
             rowStatus={(l) => (l.adjustment.startsWith("-") ? "critical" : "none")}
             note="Un ajuste negativo es stock que el sistema creía tener y no estaba. Queda explicado en el libro de movimientos de cada insumo, con causa «Ajuste por conteo»."
           />

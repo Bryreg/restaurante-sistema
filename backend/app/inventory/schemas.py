@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import model_validator, BaseModel, Field
 
 from app.photos.hooks import PhotoIn
 
@@ -366,9 +366,17 @@ class CountLineRefIn(BaseModel):
     renglón por renglón — **no existe un atajo que la ponga en `True` para
     todos los renglones a la vez** (SPEC-NEGOCIO §5.4)."""
 
-    ingredient_id: int
+    # Un insumo **o** una preparación en modo lote (0038), nunca los dos.
+    ingredient_id: int | None = None
+    preparation_id: int | None = None
     qty_counted: str  # texto decimal (`parse_qty_base`); un número JSON crudo se rechaza
     was_counted: bool = True
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> "CountLineRefIn":
+        if (self.ingredient_id is None) == (self.preparation_id is None):
+            raise ValueError("cada renglón nombra un insumo o una preparación, exactamente uno")
+        return self
 
 
 class CountLinesIn(BaseModel):
@@ -382,7 +390,10 @@ class CountLineOut(BaseModel):
     el conteo anterior") — el valor que una persona escribió en el conteo
     anterior, nunca un cálculo del libro."""
 
-    ingredient_id: int
+    # Insumo, o preparación en modo lote (0038): uno de los dos ids. El nombre
+    # y la unidad van en los mismos campos para que la captura sea una sola.
+    ingredient_id: int | None
+    preparation_id: int | None = None
     ingredient_name: str
     base_unit: BaseUnitLiteral
     qty_counted: str | None
@@ -433,7 +444,8 @@ class CountVoidIn(BaseModel):
 
 
 class CountApplyLineOut(BaseModel):
-    ingredient_id: int
+    ingredient_id: int | None
+    preparation_id: int | None = None
     ingredient_name: str
     qty_counted: str
     stock_before: str

@@ -31,7 +31,7 @@ from app.core.quantity import (
     parse_qty_base,
 )
 from app.core.security import verify_secret
-from app.inventory import hooks
+from app.inventory import hooks, prep_counts
 from app.inventory.units import entry_qty_to_base, entry_spec
 from app.inventory.models import (
     BaseUnit,
@@ -1198,6 +1198,8 @@ def open_count(db: Session, *, store: Store, actor: Actor, scope: StockCountScop
                 count_id=count.id, ingredient_id=ingredient.id, qty_counted=None, was_counted=False, counted_at=None
             )
         )
+    # Las preparaciones en modo lote también se cuentan (0038).
+    prep_counts.add_lines(db, count=count, store=store)
     db.flush()
     return count
 
@@ -1218,7 +1220,8 @@ def count_lines_summary(db: Session, count: StockCount) -> tuple[int, int]:
     """`(lines_total, lines_counted)` -- lo que necesita `GET /admin/counts`
     (el listado) sin traer el detalle completo de cada renglón."""
     lines = _count_lines(db, count)
-    return len(lines), sum(1 for l in lines if l.was_counted)
+    preps = prep_counts.lines(db, count)
+    return len(lines) + len(preps), sum(1 for l in lines if l.was_counted) + sum(1 for p in preps if p.was_counted)
 
 
 def _previous_line_qty(
@@ -1275,7 +1278,8 @@ def count_detail_out(db: Session, count: StockCount) -> CountDetailOut:
     lines = _count_lines(db, count)
     ingredients = _ingredient_map(db, [l.ingredient_id for l in lines])
     line_outs = [count_line_out(db, count, l, ingredients[l.ingredient_id]) for l in lines if l.ingredient_id in ingredients]
-    counted = sum(1 for l in lines if l.was_counted)
+    line_outs += prep_counts.line_outs(db, count)
+    total, counted = count_lines_summary(db, count)
     return CountDetailOut(
         id=count.id,
         scope=count.scope.value,  # type: ignore[arg-type]
@@ -1287,7 +1291,10 @@ def count_detail_out(db: Session, count: StockCount) -> CountDetailOut:
         applied_at=count.applied_at,
         applied_by_employee_id=count.applied_by_employee_id,
         applied_by_employee_name=count.applied_by_employee_name,
-        lines_total=len(lines),
+        voided_at=count.voided_at,
+        voided_by_employee_name=count.voided_by_employee_name,
+        void_reason=count.void_reason,
+        lines_total=total,
         lines_counted=counted,
         lines=line_outs,
     )
@@ -1350,7 +1357,18 @@ def save_count_lines(db: Session, *, count: StockCount, data: CountLinesIn) -> C
     now = clock.now_utc()
     lines_by_ingredient = {l.ingredient_id: l for l in _count_lines(db, count)}
     for line_in in data.lines:
-        row = lines_by_ingredient.get(line_in.ingredient_id)
+        if line_in.preparation_id is not None:
+            prep_qty = parse_qty_base(line_in.qty_counted, field="qty_counted")
+            if not prep_counts.save(
+                db, count=count, preparation_id=line_in.preparation_id, qty=prep_qty,
+                was_counted=line_in.was_counted, now=now,
+            ):
+                raise AppError(
+                    code="VALIDATION_ERROR",
+                    message=f"preparation_id {line_in.preparation_id}: no está en el alcance de este conteo",
+                )
+            continue
+        row = lines_by_ingredient.get(line_in.ingredient_id) if line_in.ingredient_id is not None else None
         if row is None:
             raise AppError(
                 code="VALIDATION_ERROR",
@@ -1368,8 +1386,9 @@ def save_count_lines(db: Session, *, count: StockCount, data: CountLinesIn) -> C
     lines = _count_lines(db, count)
     ingredients = _ingredient_map(db, [l.ingredient_id for l in lines])
     line_outs = [count_line_out(db, count, l, ingredients[l.ingredient_id]) for l in lines if l.ingredient_id in ingredients]
-    counted = sum(1 for l in lines if l.was_counted)
-    return CountLinesSaveOut(lines=line_outs, lines_counted=counted, lines_total=len(lines), partial=counted < len(lines))
+    line_outs += prep_counts.line_outs(db, count)
+    total, counted = count_lines_summary(db, count)
+    return CountLinesSaveOut(lines=line_outs, lines_counted=counted, lines_total=total, partial=counted < total)
 
 
 def apply_count(db: Session, *, count: StockCount, store: Store, actor: Actor, authorizer_pin: str) -> CountApplyOut:
@@ -1450,6 +1469,48 @@ def apply_count(db: Session, *, count: StockCount, store: Store, actor: Actor, a
                 ingredient_id=ingredient.id,
                 ingredient_name=ingredient.name,
                 qty_counted=format_qty_base(line.qty_counted),
+                stock_before=format_qty_base(stock_now),
+                adjustment=format_qty_base(adjustment),
+                stock_after=format_qty_base(stock_now + adjustment),
+            )
+        )
+
+    # Las preparaciones en modo lote: la misma cuenta contra el libro de la
+    # preparación en el instante del conteo, al costo de su último lote.
+    preps = prep_counts.preparation_map(db, [p.preparation_id for p in prep_counts.lines(db, count)])
+    for pline in prep_counts.lines(db, count):
+        prep = preps.get(pline.preparation_id)
+        if prep is None or not pline.was_counted or pline.qty_counted is None:
+            continue
+        stock_at_count_instant = hooks.current_stock(
+            db, store_id=store.id, preparation_id=prep.id, as_of=count.opened_at
+        )
+        stock_now = hooks.current_stock(db, store_id=store.id, preparation_id=prep.id)
+        adjustment = pline.qty_counted - stock_at_count_instant
+        if adjustment != 0:
+            cost = prep_counts.last_batch_cost(db, preparation_id=prep.id)
+            hooks.record_movement(
+                db,
+                organization_id=store.organization_id,
+                store_id=store.id,
+                preparation_id=prep.id,
+                qty_base=adjustment,
+                cause=MovementCause.COUNT_ADJUSTMENT,
+                cost_micros=cost.cost_micros,
+                cost_source=cost.cost_source,
+                actor=authorizer_actor,
+                business_date=business_date,
+                at=now,
+                ref_type="stock_count",
+                ref_id=count.id,
+                note=f"Conteo #{count.id} ({scope_label})",
+            )
+        out_lines.append(
+            CountApplyLineOut(
+                ingredient_id=None,
+                preparation_id=prep.id,
+                ingredient_name=prep.name,
+                qty_counted=format_qty_base(pline.qty_counted),
                 stock_before=format_qty_base(stock_now),
                 adjustment=format_qty_base(adjustment),
                 stock_after=format_qty_base(stock_now + adjustment),
