@@ -833,6 +833,7 @@ TOKENS: dict[str, str] = {
     "unattributed": "sin atribuir",
     "unavailable": "agotado",
     "unclassified": "sin clasificar",
+    "uncosted": "sin costo",
     "uncounted": "sin contar",
     "undeposited": "sin consignar",
     "unit": "unitario",

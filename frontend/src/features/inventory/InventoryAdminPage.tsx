@@ -20,8 +20,9 @@ import { LotsTab } from "./LotsTab"
 import { MovementsWasteTab } from "./MovementsWasteTab"
 import { StockTab } from "./StockTab"
 import { VarianceTab } from "./VarianceTab"
+import { WasteAnalysisTab } from "./WasteAnalysisTab"
 
-const ALL_TABS = ["insumos", "stock", "linea", "movimientos", "conteos", "por-area", "varianza", "lotes", "etiquetas", "salud"] as const
+const ALL_TABS = ["insumos", "stock", "linea", "movimientos", "conteos", "por-area", "varianza", "lotes", "etiquetas", "salud", "mermas"] as const
 type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
@@ -85,6 +86,8 @@ export function InventoryAdminPage(): React.JSX.Element {
   const areaCountsEnabled = hasFeature("inventory.shift_counts")
   // Etiquetas de cocina (0036): requiere `inventory.lots`.
   const labelsEnabled = hasFeature("inventory.labels")
+  // Análisis de mermas (tanda 5, i6): detrás de `inventory.waste`.
+  const wasteEnabled = hasFeature("inventory.waste")
 
   const tabParam = searchParams.get("tab")
   const requestedTab: TabValue = isTabValue(tabParam) ? tabParam : "insumos"
@@ -99,6 +102,7 @@ export function InventoryAdminPage(): React.JSX.Element {
     lotes: lotsEnabled,
     etiquetas: labelsEnabled,
     salud: varianceEnabled,
+    mermas: wasteEnabled,
   }
   const tab: TabValue = tabAvailable[requestedTab] ? requestedTab : "insumos"
 
@@ -146,6 +150,7 @@ export function InventoryAdminPage(): React.JSX.Element {
     ...(lotsEnabled ? [{ value: "lotes", label: "Lotes" }] : []),
     ...(labelsEnabled ? [{ value: "etiquetas", label: "Etiquetas" }] : []),
     ...(varianceEnabled ? [{ value: "salud", label: "Salud del control" }] : []),
+    ...(wasteEnabled ? [{ value: "mermas", label: "Análisis de mermas" }] : []),
   ]
 
   return (
@@ -266,6 +271,11 @@ export function InventoryAdminPage(): React.JSX.Element {
         {labelsEnabled ? (
           <TabsContent value="etiquetas" className="pt-4">
             <LabelsAdminTab storeId={activeStoreId} />
+          </TabsContent>
+        ) : null}
+        {wasteEnabled ? (
+          <TabsContent value="mermas" className="pt-4">
+            <WasteAnalysisTab storeId={activeStoreId} />
           </TabsContent>
         ) : null}
         {varianceEnabled ? (
