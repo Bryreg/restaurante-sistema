@@ -37,7 +37,12 @@ export interface NotificationBellProps {
   touch?: boolean;
 }
 
-/** Campana: sondea `GET /admin/notifications` y marca leídas al abrir. */
+/**
+ * Campana: sondea `GET /admin/notifications` y **marca leídas al abrir** las
+ * que muestra. Leído no es resuelto (0042): el aviso deja de contar como
+ * nuevo en el recuento, pero sigue en «Requiere tu atención» de Hoy hasta
+ * que alguien lo resuelve allá o la condición que lo disparó se apaga.
+ */
 export function NotificationBell({
   storeId,
   variant = "icon",
@@ -52,6 +57,16 @@ export function NotificationBell({
 
   async function handleMarkRead(id: number) {
     await markNotificationRead(id);
+    await queryClient.invalidateQueries({ queryKey: ["admin-notifications", storeId] });
+  }
+
+  const shown = notifications.slice(0, 8);
+
+  /** Al abrir: las que se ven quedan leídas (no resueltas). */
+  async function handleOpen() {
+    const unread = shown.filter((n) => n.read_at === null);
+    if (unread.length === 0) return;
+    await Promise.allSettled(unread.map((n) => markNotificationRead(n.id)));
     await queryClient.invalidateQueries({ queryKey: ["admin-notifications", storeId] });
   }
 
@@ -83,7 +98,11 @@ export function NotificationBell({
     ) : null;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (open) void handleOpen();
+      }}
+    >
       {trigger ?? (
       <DropdownMenuTrigger
         render={
@@ -128,7 +147,7 @@ export function NotificationBell({
         ) : notifications.length === 0 ? (
           <div className="px-2 py-3 text-sm text-muted-foreground">Sin notificaciones.</div>
         ) : (
-          notifications.slice(0, 8).map((n) => (
+          shown.map((n) => (
             <DropdownMenuItem
               key={n.id}
               className={cn("flex flex-col items-start gap-0.5 whitespace-normal", n.read_at === null && "font-medium")}
@@ -141,7 +160,10 @@ export function NotificationBell({
             >
               <span className="text-sm font-medium">{n.title}</span>
               <span className="text-xs text-muted-foreground">{n.body}</span>
-              <span className="text-xs text-muted-foreground">{formatInstant(n.created_at)}</span>
+              <span className="text-xs text-muted-foreground">
+                {formatInstant(n.created_at)}
+                {n.resolved_at ? ` · Resuelto${n.resolved_by_name ? ` por ${n.resolved_by_name}` : ""}` : ""}
+              </span>
             </DropdownMenuItem>
           ))
         )}

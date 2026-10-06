@@ -190,6 +190,14 @@ class ReceptionIn(BaseModel):
         description="Limpia las guardas de tecleo (PRICE_LOOKS_LIKE_PACKAGE/PRICE_JUMP) de forma explícita",
     )
     lines: list[ReceptionLineIn] = Field(min_length=1)
+    # u6: los pedidos de insumos (aprobados y por comprar) que esta
+    # recepción cubre. Al confirmarla se marcan comprados, en la misma
+    # transacción. Opcional: una compra sin pedido detrás sigue valiendo.
+    supply_request_ids: list[int] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Pedidos de insumos aprobados que esta recepción cubre; se marcan comprados",
+    )
 
 
 class ReceptionLineOut(OutModel):
@@ -465,6 +473,7 @@ class ReceptionDraftCompleteIn(BaseModel):
     invoice_total: int | None = Field(default=None, ge=0)
     confirm_price: bool = False
     lines: list[ReceptionLineIn] = Field(min_length=1)
+    supply_request_ids: list[int] = Field(default_factory=list, max_length=50)
 
 
 class ReceptionDraftRejectIn(BaseModel):

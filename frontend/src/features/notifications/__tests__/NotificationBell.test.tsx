@@ -45,6 +45,26 @@ describe("NotificationBell", () => {
     expect(await screen.findByText("Diferencia de caja al cierre")).toBeInTheDocument();
   });
 
+  // Leído ≠ resuelto (0042): abrir la campana marca vistas las que muestra
+  // (dejan de contar como nuevas); del riel de Hoy salen sólo al resolverse.
+  it("abrir la campana marca leídas las que muestra, sin resolverlas", async () => {
+    const VISTO = { ...AVISO, id: 8, title: "Ya visto", read_at: "2026-09-22T03:20:00Z" };
+    listNotifications.mockResolvedValue([AVISO, VISTO]);
+    renderWithProviders(<NotificationBell storeId={1} />, { me: buildMe() });
+    await userEvent.click(await screen.findByRole("button", { name: /Notificaciones, 1 sin leer/ }));
+    await waitFor(() => expect(markNotificationRead).toHaveBeenCalledWith(7));
+    expect(markNotificationRead).not.toHaveBeenCalledWith(8);
+  });
+
+  it("un aviso resuelto dice quién lo resolvió", async () => {
+    listNotifications.mockResolvedValue([
+      { ...AVISO, read_at: "2026-09-22T04:00:00Z", resolved_at: "2026-09-22T04:00:00Z", resolved_by_name: "Sistema" },
+    ]);
+    renderWithProviders(<NotificationBell storeId={1} />, { me: buildMe() });
+    await userEvent.click(await screen.findByRole("button", { name: /Notificaciones/ }));
+    expect(await screen.findByText(/Resuelto por Sistema/)).toBeInTheDocument();
+  });
+
   // Base UI no tiene `onSelect` (es de Radix): el clic nunca marcaba el aviso.
   it("tocar un aviso lo marca leído", async () => {
     renderWithProviders(<NotificationBell storeId={1} />, { me: buildMe() });

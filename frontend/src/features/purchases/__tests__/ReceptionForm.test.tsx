@@ -5,15 +5,24 @@ import { describe, expect, it, vi } from "vitest"
 import { ApiError } from "@/api/client"
 import type { IngredientOut } from "@/api/inventory"
 import type { ReceptionOut, SupplierOut } from "@/api/purchases"
+import type { StaffRequest } from "@/api/requests"
 import { buildMe, renderWithProviders } from "@/test/utils"
 
 import { ReceptionForm } from "../ReceptionForm"
 
-const { createReceptionMock } = vi.hoisted(() => ({ createReceptionMock: vi.fn() }))
+const { createReceptionMock, listApprovedSupplyRequestsMock } = vi.hoisted(() => ({
+  createReceptionMock: vi.fn(),
+  listApprovedSupplyRequestsMock: vi.fn(),
+}))
 
 vi.mock("@/api/purchases", async () => {
   const actual = await vi.importActual<typeof import("@/api/purchases")>("@/api/purchases")
   return { ...actual, createReception: createReceptionMock }
+})
+
+vi.mock("@/api/requests", async () => {
+  const actual = await vi.importActual<typeof import("@/api/requests")>("@/api/requests")
+  return { ...actual, listApprovedSupplyRequests: listApprovedSupplyRequestsMock }
 })
 
 const PECHUGA: IngredientOut = {
@@ -250,5 +259,120 @@ describe("ReceptionForm — las dos guardas de tecleo preguntan y NUNCA corrigen
     await user.click(screen.getByRole("button", { name: "Confirmar que el precio es correcto" }))
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(CONFIRMED_RECEPTION))
+  })
+})
+
+describe("ReceptionForm — los pedidos del salón que cubre viajan como supply_request_ids (u6)", () => {
+  const APPROVED_REQUEST: StaffRequest = {
+    id: 31,
+    kind: "supply",
+    status: "approved",
+    shift_id: 1,
+    business_date: "2026-09-16",
+    requested_by: { id: 4, name: "Cocinera Ana" },
+    requested_at: "2026-09-16T08:00:00Z",
+    note: null,
+    reason: null,
+    lines: [
+      {
+        id: 1,
+        ingredient_id: 5,
+        ingredient_name: "Pechuga",
+        base_unit: "g",
+        qty_requested: "10000",
+        qty_approved: "10000",
+        suggested_qty: null,
+        entry_unit: "kg",
+        qty_requested_entry: "10",
+        qty_approved_entry: "10",
+      },
+    ],
+    requested_denominations: null,
+    requested_total: null,
+    approved_denominations: null,
+    approved_total: null,
+    resolved_by: { id: 1, name: "Admin" },
+    resolved_at: "2026-09-16T09:00:00Z",
+    resolution_note: null,
+    closed_by: null,
+    closed_at: null,
+    cash_swap_id: null,
+  }
+
+  it("con pos.requests, el pedido marcado sale en supply_request_ids", async () => {
+    listApprovedSupplyRequestsMock.mockReset().mockResolvedValue([APPROVED_REQUEST])
+    createReceptionMock.mockReset().mockResolvedValueOnce(CONFIRMED_RECEPTION)
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ReceptionForm storeId={1} suppliers={[AVICOLA]} ingredients={[PECHUGA]} onSuccess={vi.fn()} />,
+      { me: buildMe({ features: { "pos.requests": true } }) },
+    )
+    await fillMinimalForm(user, "12000")
+    await user.click(await screen.findByRole("checkbox", { name: /Pedido #31 · Cocinera Ana/ }))
+    expect(listApprovedSupplyRequestsMock).toHaveBeenCalledWith(1)
+    await continueToPin(user)
+    await typePin(user)
+
+    await waitFor(() => expect(createReceptionMock).toHaveBeenCalledTimes(1))
+    expect(createReceptionMock.mock.calls[0]![1].supply_request_ids).toEqual([31])
+  })
+
+  it("sin pos.requests no se ofrece ni se consulta, y no se manda ningún pedido", async () => {
+    listApprovedSupplyRequestsMock.mockReset().mockResolvedValue([APPROVED_REQUEST])
+    createReceptionMock.mockReset().mockResolvedValueOnce(CONFIRMED_RECEPTION)
+    const user = userEvent.setup()
+    renderForm()
+    await fillMinimalForm(user, "12000")
+    expect(screen.queryByText("Qué pedidos del salón cubre")).not.toBeInTheDocument()
+    await continueToPin(user)
+    await typePin(user)
+
+    await waitFor(() => expect(createReceptionMock).toHaveBeenCalledTimes(1))
+    expect(createReceptionMock.mock.calls[0]![1].supply_request_ids).toEqual([])
+    expect(listApprovedSupplyRequestsMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("ReceptionForm — «Total de la factura» viaja como invoice_total (u5)", () => {
+  it("lo tecleado sale como invoice_total en pesos enteros", async () => {
+    createReceptionMock.mockReset().mockResolvedValueOnce(CONFIRMED_RECEPTION)
+    const user = userEvent.setup()
+    renderForm()
+    await fillMinimalForm(user, "12000")
+    await user.type(screen.getByLabelText(/total de la factura/i), "125000")
+    await user.tab()
+    await continueToPin(user)
+    await typePin(user)
+
+    await waitFor(() => expect(createReceptionMock).toHaveBeenCalledTimes(1))
+    expect(createReceptionMock.mock.calls[0]![1].invoice_total).toBe(125000)
+  })
+
+  it("vacío es null, nunca 0", async () => {
+    createReceptionMock.mockReset().mockResolvedValueOnce(CONFIRMED_RECEPTION)
+    const user = userEvent.setup()
+    renderForm()
+    await fillMinimalForm(user, "12000")
+    await continueToPin(user)
+    await typePin(user)
+
+    await waitFor(() => expect(createReceptionMock).toHaveBeenCalledTimes(1))
+    expect(createReceptionMock.mock.calls[0]![1].invoice_total).toBeNull()
+  })
+
+  it("sin factura no hay papel: el campo desaparece y no se manda cifra", async () => {
+    createReceptionMock.mockReset().mockResolvedValueOnce(CONFIRMED_RECEPTION)
+    const user = userEvent.setup()
+    renderForm()
+    await fillMinimalForm(user, "12000")
+    await user.type(screen.getByLabelText(/total de la factura/i), "125000")
+    await user.tab()
+    await user.click(screen.getByRole("checkbox", { name: /sin factura/i }))
+    expect(screen.queryByLabelText(/total de la factura/i)).not.toBeInTheDocument()
+    await continueToPin(user)
+    await typePin(user)
+
+    await waitFor(() => expect(createReceptionMock).toHaveBeenCalledTimes(1))
+    expect(createReceptionMock.mock.calls[0]![1].invoice_total).toBeNull()
   })
 })

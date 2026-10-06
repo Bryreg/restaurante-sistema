@@ -44,7 +44,7 @@ from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.fiscal import service as fiscal_service
 from app.fiscal.models import FiscalDocument, FiscalDocumentType
 from app.notifications.models import Notification
-from app.notifications.service import notify, rule_threshold
+from app.notifications.service import notify, resolve_open, rule_threshold
 from app.orders import money
 from app.orders import service as orders_service
 from app.orders.models import (
@@ -385,6 +385,44 @@ def low_base_orders(db: Session, scope: StoreScope, field: str, default: int) ->
     return max(values) if values else default
 
 
+def average_ticket(net: int, orders: int) -> int | None:
+    """**El ticket promedio del sistema** — la única fórmula (auditoría u9:
+    el informe del contador dividía lo cobrado CON impuesto entre facturas y
+    no coincidía con «Hoy»). La usan «Hoy», «Ventas», «Informes», el cierre
+    de ayer, la comparación contra el período anterior, el informe del
+    contador y la actividad por persona.
+
+    - **Qué venta cuenta** (`net`): la venta NETA de los comprobantes de
+      venta emitidos (`SALE_DOCUMENT_TYPES`, `status="issued"`): `total −
+      tax_total` de cada uno, es decir **sin impuesto (INC/IVA) y sin
+      propina** (la propina nunca entra en `total`, Ley 1935 de 2018). Lo
+      anulado no está: el ítem anulado no llega al comprobante y el
+      comprobante que una nota corrige queda `reversed` y deja de sumar; las
+      notas no se netean acá. Una cortesía suma lo que se cobró de ella
+      (normalmente $0) y su comanda cuenta si tuvo comprobante.
+    - **Entre qué** (`orders`): las COMANDAS distintas con al menos un
+      comprobante de venta en el período (`len({doc.order_id})`): una cuenta
+      dividida en varias facturas es un solo ticket. No son pagos ni
+      documentos.
+    - Redondeo half-up a peso entero (`money.round_half_up`). `None` sin
+      comandas o con neto negativo: sin divisor no hay promedio, nunca $0.
+
+    `ticket_basis` arma `(net, orders)` desde los comprobantes; quien ya
+    los tiene acumulados (`aggregate_sales`) llama directo a esta función.
+    """
+    if orders <= 0 or net < 0:
+        return None
+    return money.round_half_up(net, orders)
+
+
+def ticket_basis(documents: Sequence[FiscalDocument]) -> tuple[int, int]:
+    """`(venta neta, comandas distintas)` de unos comprobantes de venta: los
+    dos lados de `average_ticket`. Los comprobantes son los de
+    `_sale_documents` (emitidos, no reversados)."""
+    net = sum(int(d.total) - int(d.tax_total) for d in documents)
+    return net, len({d.order_id for d in documents})
+
+
 def _delta_bp(current: int | None, previous: int | None) -> int | None:
     """Variación de `current` contra `previous`, en puntos básicos con signo.
     `None` sin valor anterior o con anterior `<= 0`: sin divisor no hay
@@ -607,9 +645,7 @@ def aggregate_sales(
         # En una fila por medio, `orders` cuenta pagos (científico #10): el
         # ticket promedio es por pago, no por una comanda contada dos veces.
         count_for_ticket = bucket.payments if method_row else orders_count
-        avg_ticket = (
-            money.round_half_up(net, count_for_ticket) if count_for_ticket > 0 and net >= 0 and not (by_line and not is_total) else None
-        )
+        avg_ticket = None if (by_line and not is_total) else average_ticket(net, count_for_ticket)
         # Científico #1: el ticket por comensal divide el neto de las
         # comandas QUE TIENEN comensales por esos comensales — antes dividía
         # el neto de TODAS (mostrador y domicilio incluidos) y lo inflaba.
@@ -792,6 +828,11 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
     unpaid_limit = rule_threshold(db, store.id, "order_unpaid_too_long")
     unsent_count = 0
     unpaid_count = 0
+    # Las claves que siguen vigentes en este barrido: el aviso de una comanda
+    # que ya se envió, se cobró o se cerró se resuelve solo (0042), y deja de
+    # pedir atención en Hoy aunque nadie lo haya tocado.
+    unsent_keys: set[str] = set()
+    unpaid_keys: set[str] = set()
     for order in open_orders:
         if order.kitchen_view_enabled:
             has_pending = db.execute(
@@ -803,6 +844,7 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
                 minutes = int((now - order.opened_at).total_seconds() // 60)
                 if minutes > unsent_limit:
                     unsent_count += 1
+                    unsent_keys.add(f"order_unsent_too_long:{order.id}")
                     notify(
                         db,
                         organization_id=order.organization_id,
@@ -819,6 +861,7 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
             minutes_bill = int((now - order.bill_presented_at).total_seconds() // 60)
             if minutes_bill > unpaid_limit:
                 unpaid_count += 1
+                unpaid_keys.add(f"order_unpaid_too_long:{order.id}")
                 notify(
                     db,
                     organization_id=order.organization_id,
@@ -830,6 +873,8 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
                     payload={"order_id": order.id, "minutes": minutes_bill},
                     dedupe_key=f"order_unpaid_too_long:{order.id}",
                 )
+    resolve_open(db, store_id=store.id, type="order_unsent_too_long", keep_keys=unsent_keys)
+    resolve_open(db, store_id=store.id, type="order_unpaid_too_long", keep_keys=unpaid_keys)
     return unsent_count, unpaid_count
 
 
@@ -1083,7 +1128,9 @@ def _recent_alerts(db: Session, store: Store, *, limit: int = 30) -> list[AlertO
             select(Notification)
             .where(
                 Notification.store_id == store.id,
-                Notification.read_at.is_(None),
+                # Leído ≠ resuelto (0042): mirar el aviso en la campana no lo
+                # saca de acá; lo saca «Resolver» o que la condición se apague.
+                Notification.resolved_at.is_(None),
                 Notification.type.not_in(CASH_DIFF_NOTIFICATION_TYPES),
             )
             .order_by(Notification.created_at.desc())
@@ -1091,7 +1138,10 @@ def _recent_alerts(db: Session, store: Store, *, limit: int = 30) -> list[AlertO
         ).scalars()
     )
     alerts = [
-        AlertOut(type=n.type, level=n.level, title=n.title, body=n.body, created_at=n.created_at, payload=n.payload)
+        AlertOut(
+            type=n.type, level=n.level, title=n.title, body=n.body, created_at=n.created_at, payload=n.payload,
+            notification_ids=[n.id],
+        )
         for n in rows
     ]
     summary = _cash_diff_summary(db, store)
@@ -1121,7 +1171,7 @@ def _cash_diff_summary(db: Session, store: Store) -> AlertOut | None:
         db.execute(
             select(Notification).where(
                 Notification.store_id == store.id,
-                Notification.read_at.is_(None),
+                Notification.resolved_at.is_(None),
                 Notification.type.in_(CASH_DIFF_NOTIFICATION_TYPES),
             )
         ).scalars()
@@ -1203,6 +1253,7 @@ def _cash_diff_summary(db: Session, store: Store) -> AlertOut | None:
         body=body,
         created_at=max(n.created_at for n in notifications),
         amount=(shortage_total + surplus_total) if count else None,
+        notification_ids=sorted(n.id for n in notifications),
         payload={
             "count": count,
             "shortage_count": len(shortage),
@@ -1635,7 +1686,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     net = gross - tax
     covers_sum = sum(c for oid in order_ids if (c := covers_map.get(oid)) is not None)
     orders_count = len(order_ids)
-    avg_ticket = money.round_half_up(net, orders_count) if orders_count > 0 else None
+    avg_ticket = average_ticket(net, orders_count)
     # Científico #1: neto de las comandas CON comensales ÷ esos comensales
     # (mismo arreglo que `aggregate_sales`); antes el numerador era el neto
     # de todas las comandas, mostrador y domicilio incluidos.

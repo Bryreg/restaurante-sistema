@@ -101,6 +101,19 @@ class ObligationSettleIn(BaseModel):
     note: str | None = Field(default=None, max_length=300)
 
 
+class DrawerExpenseMovementOut(OutModel):
+    """Un egreso del cajón que todavía no respalda ningún gasto ni
+    obligación: lo que se elige al saldar con `source == "cash_drawer"`."""
+
+    id: int
+    shift_id: int
+    cause: Literal["petty_expense", "emergency_purchase", "other_expense"]
+    amount: int
+    note: str | None
+    employee_name: str
+    at: datetime
+
+
 class ObligationCancelIn(BaseModel):
     reason: str = Field(min_length=1)
 

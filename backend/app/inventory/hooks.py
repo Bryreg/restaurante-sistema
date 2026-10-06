@@ -213,6 +213,8 @@ def record_movement(
             qty_base=qty_base,
             cause=cause,
         )
+        if ingredient_id is not None:
+            evaluate_stock_alerts(db, organization_id=organization_id, store_id=store_id, ingredient_id=ingredient_id)
         return existing
 
     movement = StockMovement(
@@ -242,6 +244,8 @@ def record_movement(
         qty_base=qty_base,
         cause=cause,
     )
+    if ingredient_id is not None:
+        evaluate_stock_alerts(db, organization_id=organization_id, store_id=store_id, ingredient_id=ingredient_id)
     return movement
 
 
@@ -275,6 +279,93 @@ def _maybe_consume_fefo(
     if not features.is_enabled(db, organization_id, store_id, "inventory.lots"):
         return
     consume_lots_fefo(db, store_id=store_id, ingredient_id=ingredient_id, qty_base=-qty_base)
+
+
+def _qty_text(ingredient: Ingredient, qty_base: int) -> str:
+    """«-0,4 kg», «12 unidad»: la cantidad del libro en la unidad cómoda del
+    insumo (`units.entry_spec`, la misma del conteo), para el texto del aviso."""
+    from app.core.quantity import format_qty_base
+    from app.inventory.units import base_to_entry_milli, entry_spec
+
+    milli = base_to_entry_milli(ingredient, qty_base)
+    return f"{format_qty_base(milli).replace('.', ',')} {entry_spec(ingredient).unit}"
+
+
+def evaluate_stock_alerts(db: Session, *, organization_id: int, store_id: int, ingredient_id: int) -> None:
+    """El motor de las reglas `ingredient_below_min` e `ingredient_negative`
+    (declaradas en `app.notifications.service.NOTIFICATION_TYPES` desde 2a,
+    configurables en Notificaciones, y que hasta acá nadie evaluaba).
+
+    Corre después de cada movimiento de un insumo (`record_movement`) y
+    cuando cambia su mínimo o se activa/desactiva (`app.inventory.service.
+    update_ingredient`/`deactivate_ingredient`). Usa LAS MISMAS condiciones
+    que las tarjetas de Hoy (`low_stock_alerts`: saldo < mínimo;
+    `negative_stock_alerts`: saldo < 0), así el aviso de la campana y la
+    tarjeta no pueden decir cosas distintas. Son alertas distintas: un
+    insumo en negativo también está bajo el mínimo, y salen las dos.
+
+    - **Sin spam**: un aviso por insumo mientras la condición siga
+      (`dedupe_while_open`): vender diez veces un insumo bajo el mínimo no
+      repite el aviso ni cada día.
+    - **Se resuelve solo** cuando el insumo se recupera (o se desactiva): el
+      aviso sale de «Requiere tu atención» firmado por «Sistema». Si vuelve a
+      caer, sale uno nuevo.
+    - Con `inventory.perpetual` apagada no hace nada: no hay inventario que
+      vigilar (mismo criterio que `app.reports.service._hooks_if_enabled`).
+    - La regla apagada en Notificaciones no emite, pero lo abierto igual se
+      resuelve cuando la condición se apaga.
+    """
+    from app.core import features
+    from app.notifications import service as notifications
+
+    if not features.is_enabled(db, organization_id, store_id, "inventory.perpetual"):
+        return
+    ingredient = get_ingredient(db, store_id=store_id, ingredient_id=ingredient_id)
+    if ingredient is None:
+        return
+    qty = current_stock(db, store_id=store_id, ingredient_id=ingredient_id)
+    below_key = f"ingredient_below_min:{ingredient_id}"
+    negative_key = f"ingredient_negative:{ingredient_id}"
+    below = ingredient.active and qty < ingredient.min_stock
+    negative = ingredient.active and qty < 0
+
+    if below:
+        notifications.notify(
+            db,
+            organization_id=organization_id,
+            store_id=store_id,
+            type="ingredient_below_min",
+            level=notifications.default_level("ingredient_below_min"),
+            title="Insumo bajo el mínimo",
+            body=(
+                f'"{ingredient.name}" quedó en {_qty_text(ingredient, qty)}, por debajo de su mínimo de '
+                f"{_qty_text(ingredient, ingredient.min_stock)}: hay que reponer."
+            ),
+            payload={"ingredient_id": ingredient.id, "qty_base": qty, "min_stock": ingredient.min_stock},
+            dedupe_key=below_key,
+            dedupe_while_open=True,
+        )
+    else:
+        notifications.resolve_open(db, store_id=store_id, type="ingredient_below_min", dedupe_key=below_key)
+
+    if negative:
+        notifications.notify(
+            db,
+            organization_id=organization_id,
+            store_id=store_id,
+            type="ingredient_negative",
+            level=notifications.default_level("ingredient_negative"),
+            title="Insumo en negativo",
+            body=(
+                f'"{ingredient.name}" quedó en {_qty_text(ingredient, qty)}: se descontó más de lo que había. '
+                "Falta registrar una compra o hay un error de receta."
+            ),
+            payload={"ingredient_id": ingredient.id, "qty_base": qty},
+            dedupe_key=negative_key,
+            dedupe_while_open=True,
+        )
+    else:
+        notifications.resolve_open(db, store_id=store_id, type="ingredient_negative", dedupe_key=negative_key)
 
 
 def resolve_ingredient_cost(db: Session, ingredient: Ingredient) -> tuple[int | None, CostSource]:

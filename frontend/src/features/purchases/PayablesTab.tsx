@@ -118,8 +118,17 @@ export function PayablesTab({ storeId, suppliers }: { storeId: number; suppliers
           {p.overdue ? (
             <span className="rounded border border-destructive/40 px-1 text-[0.7rem] text-destructive">Vencida</span>
           ) : null}
+          {p.invoice_discrepancy !== null && p.invoice_discrepancy !== undefined && p.invoice_discrepancy !== 0 ? (
+            <span className="rounded border border-destructive/40 px-1 text-[0.7rem] text-destructive">
+              Factura ≠ cálculo
+            </span>
+          ) : null}
         </span>
       ),
+      cellTitle: (p) =>
+        p.invoice_discrepancy !== null && p.invoice_discrepancy !== undefined && p.invoice_discrepancy !== 0
+          ? `La factura dice ${formatCOP(p.invoice_total ?? null)} y el cálculo da ${formatCOP(p.amount)} (diferencia ${formatCOP(p.invoice_discrepancy)})`
+          : undefined,
     },
     { key: "due", header: "Vencimiento", cell: (p) => formatBusinessDate(p.due_date) },
     // El total original, detrás de «Más columnas» (regla 3): lo que decide

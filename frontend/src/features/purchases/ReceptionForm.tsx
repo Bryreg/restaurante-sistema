@@ -44,7 +44,7 @@
  * `create_reception` del backend.
  */
 
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
 
 import { useSession } from "@/app/session"
@@ -62,9 +62,11 @@ import { FormField, FormSection } from "@/components/admin"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { MoneyInput } from "@/components/MoneyInput"
 import { PhotoCaptureField } from "@/components/PhotoCaptureField"
 import { PinPad } from "@/components/PinPad"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { REQUESTS_QUERY_KEYS } from "@/features/requests"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
@@ -75,6 +77,7 @@ import {
   ReceptionLinesEditor,
   type ReceptionLineDraft,
 } from "./ReceptionLinesEditor"
+import { SupplyRequestsPicker } from "./SupplyRequestsPicker"
 
 const GUARD_CODES = new Set(["PRICE_LOOKS_LIKE_PACKAGE", "PRICE_JUMP"])
 
@@ -119,13 +122,20 @@ export function ReceptionForm({
   /** Una recepción registrada en el POS para completar con precios. */
   draft?: ReceptionDraftAdminOut | null
 }): React.JSX.Element {
-  const { me } = useSession()
+  const { me, hasFeature } = useSession()
+  const queryClient = useQueryClient()
+  const requestsOn = hasFeature("pos.requests")
+  // u6: los pedidos del salón que esta compra cubre; se cierran al confirmar.
+  const [supplyRequestIds, setSupplyRequestIds] = useState<number[]>([])
   const [supplierId, setSupplierId] = useState<number | null>(() =>
     draft && suppliers.some((s) => s.id === draft.supplier_id) ? draft.supplier_id : null,
   )
   const [invoiceNumber, setInvoiceNumber] = useState(draft?.invoice_number ?? "")
   const [invoiceDate, setInvoiceDate] = useState(draft?.business_date ?? "")
   const [noInvoice, setNoInvoice] = useState(draft?.no_invoice ?? false)
+  // Lo que dice el PAPEL (pesos enteros), opcional. `null` = no se capturó,
+  // nunca 0: el servidor sólo compara cuando hay una cifra.
+  const [invoiceTotal, setInvoiceTotal] = useState<number | null>(null)
   const [photo, setPhoto] = useState<string | null>(draft?.photo ?? null)
   // Mientras la foto se achica no se envía: saldría sin la foto que ya se ve elegida.
   const [photoProcessing, setPhotoProcessing] = useState(false)
@@ -158,6 +168,9 @@ export function ReceptionForm({
     },
     onSuccess: (reception) => {
       setGuard(null)
+      if (supplyRequestIds.length > 0) {
+        void queryClient.invalidateQueries({ queryKey: REQUESTS_QUERY_KEYS.adminApprovedSupplies(storeId) })
+      }
       onSuccess(reception)
     },
     onError: (err) => {
@@ -179,10 +192,13 @@ export function ReceptionForm({
       invoice_number: invoiceNumber.trim() === "" ? null : invoiceNumber.trim(),
       invoice_date: invoiceDate,
       no_invoice: noInvoice,
+      // Sin factura no hay papel que copiar: nunca se manda una cifra vieja.
+      invoice_total: noInvoice ? null : invoiceTotal,
       photo,
       received_by_pin: receivedByPin,
       confirm_price: confirmPrice,
       lines: draftsToReceptionLines(lines),
+      supply_request_ids: requestsOn ? supplyRequestIds : [],
     }
   }
 
@@ -294,6 +310,24 @@ export function ReceptionForm({
           )}
         </FormField>
 
+        {!noInvoice ? (
+          <FormField
+            label="Total de la factura (opcional)"
+            help="El total a pagar tal como lo dice el papel, impuestos incluidos. No reemplaza el cálculo línea por línea: si no coinciden, la cuenta por pagar lo muestra y aprobarla exige confirmar la diferencia."
+          >
+            {({ fieldId, describedBy }) => (
+              <MoneyInput
+                id={fieldId}
+                aria-describedby={describedBy}
+                value={invoiceTotal}
+                onChange={setInvoiceTotal}
+                disabled={formsDisabled}
+                placeholder="Lo que dice el papel"
+              />
+            )}
+          </FormField>
+        ) : null}
+
         <FormField
           label="Sin factura (plaza de mercado)"
           help="Cambia el rótulo de los dos campos de arriba y vuelve opcional el número. Un proveedor obligado a facturar lo rechaza igual."
@@ -355,6 +389,31 @@ export function ReceptionForm({
           highlightIndex={guard?.lineIndex ?? null}
         />
       </FormSection>
+
+      {requestsOn ? (
+        <FormSection
+          title="Qué pedidos del salón cubre"
+          governs="Los pedidos de insumos aprobados que llegan con esta compra. Al confirmar la recepción quedan como «comprado» y salen de la lista de lo que hay que traer."
+          columns="one"
+          reading={
+            supplyRequestIds.length > 0 ? (
+              <>
+                Al confirmar se cierran <b>{supplyRequestIds.length === 1 ? "1 pedido" : `${supplyRequestIds.length} pedidos`}</b>.
+                Si alguno ya no está por comprar, el servidor rechaza la recepción entera y no mueve stock.
+              </>
+            ) : (
+              <>Ningún pedido marcado: la recepción entra igual, y los pedidos siguen por comprar.</>
+            )
+          }
+        >
+          <SupplyRequestsPicker
+            storeId={storeId}
+            selected={supplyRequestIds}
+            onChange={setSupplyRequestIds}
+            disabled={formsDisabled}
+          />
+        </FormSection>
+      ) : null}
 
       {guard ? (
         <div role="alert" className="space-y-3 rounded-md border border-destructive/50 bg-destructive/5 p-4">

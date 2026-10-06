@@ -155,6 +155,7 @@ function RunDetail({ runId }: { runId: number }): React.JSX.Element {
             <Badge key={`${table.valid_from}-${index}`} variant="secondary">
               Tabla vigente desde {formatBusinessDate(table.valid_from)}: nocturno {formatBasisPoints(table.night_surcharge_bp)}, dominical/festivo{" "}
               {formatBasisPoints(table.sunday_holiday_surcharge_bp)}, extra {formatBasisPoints(table.overtime_surcharge_bp)}
+              {table.night_overtime_surcharge_bp != null ? `, extra nocturna ${formatBasisPoints(table.night_overtime_surcharge_bp)}` : ""}
             </Badge>
           ))}
         </div>
@@ -220,9 +221,10 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
         </p>
         <Explicacion resumen="¿Por qué?">
           <p>
-            Paga la base más cada recargo (nocturno, dominical y festivo, hora extra) por separado, que es lo que la
-            hace auditable renglón por renglón. La fórmula del Código Sustantivo del Trabajo los combina en ocho
-            categorías, y esa todavía no está implementada.
+            Paga la base más cada recargo por separado, que es lo que la hace auditable renglón por renglón. La hora
+            extra nocturna tiene su propio 75 % y el dominical o festivo se suma encima, así que salen las ocho
+            categorías del Código Sustantivo del Trabajo. Lo que no incluye: prestaciones, aportes a seguridad social
+            ni el tope diario de horas extra.
           </p>
         </Explicacion>
       </div>

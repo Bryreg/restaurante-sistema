@@ -124,6 +124,7 @@ def create_surcharge_table(
         night_surcharge_bp=payload.night_surcharge_bp,
         sunday_holiday_surcharge_bp=payload.sunday_holiday_surcharge_bp,
         overtime_surcharge_bp=payload.overtime_surcharge_bp,
+        night_overtime_surcharge_bp=payload.night_overtime_surcharge_bp,
         weekly_ordinary_hours=payload.weekly_ordinary_hours,
         created_at=clock.now_utc(),
         created_by_employee_id=employee_id,
@@ -860,6 +861,7 @@ def _table_snapshot(table: SurchargeTable) -> dict[str, Any]:
         "night_surcharge_bp": table.night_surcharge_bp,
         "sunday_holiday_surcharge_bp": table.sunday_holiday_surcharge_bp,
         "overtime_surcharge_bp": table.overtime_surcharge_bp,
+        "night_overtime_surcharge_bp": table.night_overtime_surcharge_bp,
         "weekly_ordinary_hours": table.weekly_ordinary_hours,
         # A-4: la liquidación guarda si la tabla con la que se calculó la
         # había confirmado una persona. Es parte del snapshot a propósito: si
@@ -909,9 +911,18 @@ def _compute_employee_pay(pieces: list[_Piece], rates_sorted: list[PayrollWageRa
         hourly = wage.hourly_wage_pesos
         base_raw += hours_mod.wage_minutes(piece.minutes, hourly)
         if piece.table is not None:
-            overtime_raw += hours_mod.wage_minutes(piece.overtime_minutes, hourly) * piece.table.overtime_surcharge_bp
+            # CST art. 168: la extra nocturna tiene su propio 75 %, que
+            # reemplaza a extra (25 %) + nocturno (35 %). El nocturno sólo
+            # recae sobre los minutos ORDINARIOS de la ventana nocturna.
             if piece.is_night:
-                night_raw += hours_mod.wage_minutes(piece.minutes, hourly) * piece.table.night_surcharge_bp
+                overtime_raw += (
+                    hours_mod.wage_minutes(piece.overtime_minutes, hourly) * piece.table.night_overtime_surcharge_bp
+                )
+                night_raw += hours_mod.wage_minutes(piece.ordinary_minutes, hourly) * piece.table.night_surcharge_bp
+            else:
+                overtime_raw += (
+                    hours_mod.wage_minutes(piece.overtime_minutes, hourly) * piece.table.overtime_surcharge_bp
+                )
             if piece.is_sunday or piece.is_holiday:
                 sunday_holiday_raw += (
                     hours_mod.wage_minutes(piece.minutes, hourly) * piece.table.sunday_holiday_surcharge_bp

@@ -49,17 +49,17 @@ function informe(extra: Partial<AccountantReportOut> = {}): AccountantReportOut 
     days: [
       {
         business_date: "2026-03-03", cash: 25_000, card: 25_000, transfer: 0, other: 0, total: 50_000,
-        cumulative: 50_000, documents_count: 2, avg_ticket: 25_000, base: 46_296, tax: 3_704, credit_notes: 0, tips: 2_000,
+        cumulative: 50_000, documents_count: 2, orders_count: 2, avg_ticket: 23_148, base: 46_296, tax: 3_704, credit_notes: 0, tips: 2_000,
       },
       {
         business_date: "2026-03-10", cash: 25_000, card: 0, transfer: 0, other: 0, total: 25_000,
-        cumulative: 75_000, documents_count: 1, avg_ticket: 25_000, base: 23_148, tax: 1_852, credit_notes: 0, tips: 0,
+        cumulative: 75_000, documents_count: 1, orders_count: 1, avg_ticket: 23_148, base: 23_148, tax: 1_852, credit_notes: 0, tips: 0,
       },
     ],
     summary: {
-      total: 75_000, cash: 50_000, card: 25_000, transfer: 0, other: 0, documents_count: 3,
+      total: 75_000, cash: 50_000, card: 25_000, transfer: 0, other: 0, documents_count: 3, orders_count: 3,
       days_with_sales: 2, days_in_period: 31, avg_daily_with_sales: 37_500, avg_daily_calendar: 2_419,
-      avg_ticket: 25_000, base: 69_444, tax: 5_556, credit_notes: 0, tips: 2_000,
+      avg_ticket: 23_148, base: 69_444, tax: 5_556, credit_notes: 0, tips: 2_000,
       shares: [
         { method: "cash", label: "Efectivo", amount: 50_000, share_bp: 6_667 },
         { method: "card", label: "Tarjeta", amount: 25_000, share_bp: 3_333 },
@@ -75,7 +75,7 @@ function informe(extra: Partial<AccountantReportOut> = {}): AccountantReportOut 
       total: { previous: 25_000, pct: 200 },
       avg_daily_calendar: { previous: 893, pct: 171 },
       avg_daily_with_sales: { previous: 25_000, pct: 50 },
-      avg_ticket: { previous: 25_000, pct: 0 },
+      avg_ticket: { previous: 23_148, pct: 0 },
     },
     goal: { ...sinMeta },
     ...extra,
@@ -114,6 +114,8 @@ describe("Informe del contador (como café-sistema)", () => {
     expect(screen.getByText(norm(`${formatPct(6_667, 0)} / ${formatPct(3_333, 0)}`))).toBeInTheDocument()
     expect(screen.getByText("03/03 · $ 50.000")).toBeInTheDocument()
     expect(screen.getByText("10/03 · $ 25.000")).toBeInTheDocument()
+    // El ticket promedio es el de «Hoy»: neto sin impuesto ni propina ÷ comandas.
+    expect(screen.getByText("sin impuesto ni propina · 3 comandas")).toBeInTheDocument()
 
     // Tabla diaria con tfoot TOTAL.
     const tabla = screen.getByRole("table", { name: /por día operativo/ })

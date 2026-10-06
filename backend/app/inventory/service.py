@@ -259,6 +259,12 @@ def update_ingredient(db: Session, ingredient: Ingredient, data: IngredientUpdat
 
     ingredient.updated_at = clock.now_utc()
     db.flush()
+    if min_stock is not None or data.active is not None:
+        # Otro mínimo (o el insumo vuelve/sale) cambia la respuesta de
+        # «¿está bajo el mínimo?» sin que se mueva el stock.
+        hooks.evaluate_stock_alerts(
+            db, organization_id=ingredient.organization_id, store_id=ingredient.store_id, ingredient_id=ingredient.id
+        )
     return ingredient
 
 
@@ -267,6 +273,10 @@ def deactivate_ingredient(db: Session, ingredient: Ingredient) -> Ingredient:
     ingredient.active = False
     ingredient.updated_at = clock.now_utc()
     db.flush()
+    # Un insumo dado de baja no pide reponer: sus avisos abiertos se resuelven.
+    hooks.evaluate_stock_alerts(
+        db, organization_id=ingredient.organization_id, store_id=ingredient.store_id, ingredient_id=ingredient.id
+    )
     return ingredient
 
 

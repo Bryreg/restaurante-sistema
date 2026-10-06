@@ -60,6 +60,7 @@ import { receptionDraftsTrayItem } from "@/features/purchases"
 import { Definiciones, Plegable, type Definicion } from "./Plegable"
 import { fichaTurnoHref } from "./fichas/rutas"
 import { avisoConEnlace, useAccionables } from "./hoy/Atencion"
+import { ResolverAviso } from "./hoy/ResolverAviso"
 import { AhoraSede, SemaforoSedes, usePanelAhora } from "./PanelAhora"
 
 
@@ -175,6 +176,11 @@ interface AttentionItem {
   amount?: number | null
   /** Cómo se escribe `amount` en el riel, si no es un `formatCOP` pelado. */
   amountText?: string
+  /**
+   * Los avisos de la campana detrás de esta tarjeta (`AlertOut.notification_ids`):
+   * con ellos el riel ofrece «Resolver». Leído no es resuelto (0042).
+   */
+  notificationIds?: number[]
 }
 
 /**
@@ -742,6 +748,10 @@ const DEDUPED_ALERT_TYPES = new Set([
   "pending_refund",
   // «Turno abandonado» ya es un aviso directo, con la fecha y el responsable.
   "shift_stale",
+  // Bajo el mínimo y en negativo ya tienen sus tarjetas, con la lista viva
+  // de insumos; sus avisos de la campana se resuelven solos al reponer.
+  "ingredient_below_min",
+  "ingredient_negative",
 ])
 
 /**
@@ -785,6 +795,7 @@ function alertToItem(alert: AlertOut): AttentionItem {
     filter: route.filter,
     amount,
     amountText: summary && amount !== null ? cashSummaryAmount(amount) : undefined,
+    notificationIds: alert.notification_ids ?? [],
   }
 }
 
@@ -857,6 +868,12 @@ function toNotice(item: AttentionItem): Notice {
     link,
     amount:
       item.amount === null || item.amount === undefined ? undefined : (item.amountText ?? formatCOP(item.amount)),
+    // Un aviso de la campana sale del riel cuando se resuelve, no cuando se
+    // lee (0042): «Resolver» acá, o solo cuando la condición se apaga.
+    actions:
+      item.notificationIds && item.notificationIds.length > 0 ? (
+        <ResolverAviso notificationIds={item.notificationIds} />
+      ) : undefined,
   }
 }
 

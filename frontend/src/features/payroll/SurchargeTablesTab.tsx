@@ -9,7 +9,8 @@
  * exige "con `valid_from`"): `night_start_hour`/`night_end_hour` delimitan
  * la franja nocturna, `night_surcharge_bp` es su recargo; `sunday_holiday_
  * surcharge_bp` es UN SOLO recargo para dominical y festivo (Ley 2466 de
- * 2025); `overtime_surcharge_bp` la hora extra; `weekly_ordinary_hours` la
+ * 2025); `overtime_surcharge_bp` la hora extra diurna y
+ * `night_overtime_surcharge_bp` la nocturna (75 %, propia); `weekly_ordinary_hours` la
  * jornada semanal ordinaria (42 h desde jul-2026, Ley 2101 de 2021).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -73,6 +74,7 @@ function CreateSurchargeTableDialog({ storeId, onCreated }: { storeId: number; o
   const [night, setNight] = useState("")
   const [sundayHoliday, setSundayHoliday] = useState("")
   const [overtime, setOvertime] = useState("")
+  const [nightOvertime, setNightOvertime] = useState("75")
   const [weeklyHours, setWeeklyHours] = useState("46")
 
   const mutation = useMutation({
@@ -84,6 +86,7 @@ function CreateSurchargeTableDialog({ storeId, onCreated }: { storeId: number; o
         night_surcharge_bp: pctToBp(night) as number,
         sunday_holiday_surcharge_bp: pctToBp(sundayHoliday) as number,
         overtime_surcharge_bp: pctToBp(overtime) as number,
+        night_overtime_surcharge_bp: pctToBp(nightOvertime) as number,
         weekly_ordinary_hours: Number(weeklyHours),
       }),
     onSuccess: () => {
@@ -99,7 +102,8 @@ function CreateSurchargeTableDialog({ storeId, onCreated }: { storeId: number; o
     weeklyHours.trim() !== "" &&
     pctToBp(night) !== null &&
     pctToBp(sundayHoliday) !== null &&
-    pctToBp(overtime) !== null
+    pctToBp(overtime) !== null &&
+    pctToBp(nightOvertime) !== null
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -118,7 +122,8 @@ function CreateSurchargeTableDialog({ storeId, onCreated }: { storeId: number; o
             <HourInput id="surcharge-night-end" label="Nocturno hasta (hora)" value={nightEnd} onChange={setNightEnd} />
             <PercentInput id="surcharge-night" label="Recargo nocturno" value={night} onChange={setNight} />
             <PercentInput id="surcharge-sunday-holiday" label="Recargo dominical y festivo" value={sundayHoliday} onChange={setSundayHoliday} />
-            <PercentInput id="surcharge-overtime" label="Hora extra" value={overtime} onChange={setOvertime} />
+            <PercentInput id="surcharge-overtime" label="Hora extra diurna" value={overtime} onChange={setOvertime} />
+            <PercentInput id="surcharge-night-overtime" label="Hora extra nocturna" value={nightOvertime} onChange={setNightOvertime} />
             <div className="space-y-1">
               <Label htmlFor="surcharge-weekly-hours">Jornada semanal ordinaria (h)</Label>
               <Input id="surcharge-weekly-hours" type="number" inputMode="numeric" min={1} className="h-11" value={weeklyHours} onChange={(event) => setWeeklyHours(event.target.value)} />
@@ -161,7 +166,13 @@ const SURCHARGE_COLUMNS: readonly DenseColumn<SurchargeTableOut>[] = [
     kind: "number",
     cell: (t) => formatBasisPoints(t.sunday_holiday_surcharge_bp),
   },
-  { key: "overtime", header: "Hora extra", kind: "number", cell: (t) => formatBasisPoints(t.overtime_surcharge_bp) },
+  { key: "overtime", header: "Hora extra diurna", kind: "number", cell: (t) => formatBasisPoints(t.overtime_surcharge_bp) },
+  {
+    key: "night-overtime",
+    header: "Hora extra nocturna",
+    kind: "number",
+    cell: (t) => formatBasisPoints(t.night_overtime_surcharge_bp),
+  },
   { key: "weekly", header: "Jornada semanal", kind: "number", secondary: true, cell: (t) => `${t.weekly_ordinary_hours} h` },
   {
     key: "reviewed",

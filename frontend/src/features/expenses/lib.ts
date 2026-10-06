@@ -5,7 +5,7 @@
  * `todayInBogota`/`daysAgoInBogota` de `features/reports/lib.ts` en vez de
  * duplicarlas (mismo patrón que `features/inventory/lib.ts`).
  */
-import type { ExpenseCategory, ObligationCategory, ObligationStatus } from "@/api/expenses"
+import type { ExpenseCategory, ExpenseSource, ObligationCategory, ObligationStatus } from "@/api/expenses"
 import { daysAgoInBogota, todayInBogota } from "@/features/reports/lib"
 
 export const todayLocal = todayInBogota
@@ -25,6 +25,26 @@ export const EXPENSE_CATEGORY_LABEL: Record<ExpenseCategory, string> = {
 
 export function expenseCategoryLabel(category: string): string {
   return EXPENSE_CATEGORY_LABEL[category as ExpenseCategory] ?? category
+}
+
+/** Espejo de `app/expenses/schemas.py::ExpenseSourceLiteral`: de dónde salió
+ * la plata de un gasto o de una obligación saldada. */
+export const EXPENSE_SOURCE_LABEL: Record<ExpenseSource, string> = {
+  bank: "Banco (transferencia o débito)",
+  cash_drawer: "Cajón (egreso ya registrado en el turno)",
+  other: "Otro (fuera del banco y del cajón)",
+}
+
+export function expenseSourceLabel(source: string): string {
+  return EXPENSE_SOURCE_LABEL[source as ExpenseSource] ?? source
+}
+
+/** Las causas de egreso del cajón que respaldan un gasto (espejo de
+ * `app/expenses/service.py::_EXPENSE_CASH_MOVEMENT_CAUSES`). */
+export const DRAWER_EXPENSE_CAUSE_LABEL: Record<string, string> = {
+  petty_expense: "Gasto menor",
+  emergency_purchase: "Compra de emergencia",
+  other_expense: "Otro egreso",
 }
 
 /** Espejo de `app/expenses/schemas.py::ObligationCategoryLiteral`. */

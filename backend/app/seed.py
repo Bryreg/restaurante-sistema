@@ -23,6 +23,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.payroll import legal as payroll_legal
 from app.auth.models import Employee
 from app.catalog import service as catalog_service
 from app.catalog.models import Product
@@ -279,6 +280,7 @@ def seed(db: Session) -> None:
         )
     )
     db.add(StoreCashSettings(store_id=store.id, updated_at=now))
+    payroll_legal.seed_store(db, store)
     db.add(
         StoreSalesSettings(
             store_id=store.id,

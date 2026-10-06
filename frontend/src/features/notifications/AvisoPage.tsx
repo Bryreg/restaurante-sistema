@@ -185,6 +185,19 @@ export default function AvisoPage(): React.JSX.Element {
         </p>
       ) : null}
 
+      {aviso.resolved_at ? (
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-lg border border-success bg-success/10 p-3 text-sm font-semibold"
+        >
+          <CircleCheck className="size-5 shrink-0 text-success" aria-hidden="true" />
+          <span>
+            Resuelto{aviso.resolved_by_name ? ` por ${aviso.resolved_by_name}` : ""} ·{" "}
+            {formatClockTime(aviso.resolved_at)}. Salió de Hoy › Requiere tu atención.
+          </span>
+        </p>
+      ) : null}
+
       {marcar.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(marcar.error)}

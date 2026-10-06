@@ -391,6 +391,28 @@ def test_completing_creates_reception_lot_and_payable_through_the_usual_path(
     assert len(admin_client.get(f"{API}/admin/receptions?store_id={store.id}").json()) == 1
 
 
+def test_completing_with_invoice_total_reports_the_discrepancy_on_the_payable(
+    pos: TestClient, admin_client: TestClient, supplier: dict[str, Any], ingredient_seeded: Any, store: Store
+) -> None:
+    """u5: lo que dice el papel viaja al completar y la cuenta por pagar
+    reporta la diferencia contra el cálculo (29.000)."""
+    draft = _create_draft(pos, supplier, ingredient_seeded.id)
+    resp = admin_client.post(
+        f"{API}/admin/reception-drafts/{draft['id']}/complete",
+        json=_complete_payload(supplier["id"], ingredient_seeded.id, invoice_total=30_000),
+        headers=_idem(),
+    )
+    assert resp.status_code == 201, resp.text
+    reception = resp.json()
+    assert reception["invoice_total"] == 30_000
+
+    payables = admin_client.get(f"{API}/admin/payables?store_id={store.id}").json()
+    payable = next(p for p in payables if p["id"] == reception["payable_id"])
+    assert payable["amount"] == 29_000
+    assert payable["invoice_total"] == 30_000
+    assert payable["invoice_discrepancy"] == 1_000
+
+
 def test_cash_paid_in_the_pos_is_one_expense_and_the_payable_shows_it_paid(
     device_client: TestClient, open_shift: Any, admin_client: TestClient, supplier: dict[str, Any], ingredient_seeded: Any, store: Store, db: Session
 ) -> None:

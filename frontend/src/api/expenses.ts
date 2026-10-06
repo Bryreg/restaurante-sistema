@@ -22,9 +22,7 @@ import { api } from "@/api/client"
 
 export type ExpenseCategory = "supplies" | "maintenance" | "utilities" | "marketing" | "transport" | "other"
 /** De dónde salió la plata. `"cash_drawer"` exige `cash_movement_id` de un
- * movimiento YA registrado por `shifts` — esta pantalla no ofrece esa
- * opción (necesitaría un selector de movimientos de caja, fuera de este
- * territorio) y siempre manda `"other"`. Ver gaps del entregable. */
+ * movimiento YA registrado por `shifts` (ver `getDrawerExpenseMovements`). */
 export type ExpenseSource = "cash_drawer" | "bank" | "other"
 
 export interface ExpenseOut {
@@ -87,6 +85,8 @@ export interface ObligationOut {
   overdue?: boolean
   settled_at?: string | null
   settled_by_employee_name?: string | null
+  settled_source?: ExpenseSource | string | null
+  cash_movement_id?: number | null
   cancelled_at?: string | null
   cancelled_reason?: string | null
 }
@@ -116,11 +116,30 @@ export function createObligation(storeId: number, data: ObligationIn): Promise<O
 }
 
 export interface ObligationSettleIn {
-  /** Mismo criterio que `ExpenseIn.source`: siempre `"other"` desde esta
-   * pantalla, nunca `"cash_drawer"` (necesitaría un `cash_movement_id` que
-   * esta pantalla no puede elegir). */
-  source?: ExpenseSource
+  /** De dónde salió la plata (`app/expenses/schemas.py::ObligationSettleIn`).
+   * `"cash_drawer"` exige `cash_movement_id`: el egreso del cajón que el
+   * turno YA registró (se elige de `getDrawerExpenseMovements`). Igual que
+   * un gasto: el backend sólo lo referencia, nunca saca la plata otra vez. */
+  source: ExpenseSource
+  cash_movement_id?: number | null
   note?: string | null
+}
+
+/** `GET /admin/expenses/drawer-movements` — los egresos del cajón (gasto
+ * menor, compra de emergencia, otro egreso) de los últimos 30 días que
+ * todavía no respaldan ningún gasto ni obligación. */
+export interface DrawerExpenseMovementOut {
+  id: number
+  shift_id: number
+  cause: "petty_expense" | "emergency_purchase" | "other_expense" | string
+  amount: number
+  note: string | null
+  employee_name: string
+  at: string
+}
+
+export function getDrawerExpenseMovements(storeId: number): Promise<DrawerExpenseMovementOut[]> {
+  return api<DrawerExpenseMovementOut[]>("/admin/expenses/drawer-movements", { query: { store_id: storeId } })
 }
 
 export function settleObligation(

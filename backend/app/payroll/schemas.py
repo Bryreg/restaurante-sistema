@@ -135,6 +135,7 @@ class SurchargeTableIn(BaseModel):
     night_surcharge_bp: int = Field(ge=0, le=10_000)
     sunday_holiday_surcharge_bp: int = Field(ge=0, le=10_000)
     overtime_surcharge_bp: int = Field(ge=0, le=10_000)
+    night_overtime_surcharge_bp: int = Field(default=7500, ge=0, le=10_000)
     weekly_ordinary_hours: int = Field(gt=0, le=100)
 
 
@@ -147,6 +148,7 @@ class SurchargeTableOut(OutModel):
     night_surcharge_bp: int
     sunday_holiday_surcharge_bp: int
     overtime_surcharge_bp: int
+    night_overtime_surcharge_bp: int
     weekly_ordinary_hours: int
     # A-4: una tabla SEMBRADA por la migración `0020` no tiene
     # `created_by_employee_id`; una que cargó una persona sí. Ese es el
@@ -230,7 +232,7 @@ class AreaAssignmentOut(OutModel):
 # A-5: cómo se calculó una liquidación. Hoy sólo existe la forma aditiva; el
 # día que se implemente la fórmula legal completa del CST, esta lista crece y
 # las liquidaciones viejas siguen diciendo con cuál se calcularon.
-PayrollCalculationMethodLiteral = Literal["additive_surcharges"]
+PayrollCalculationMethodLiteral = Literal["additive_surcharges", "cst_categories"]
 
 
 class SurchargeTableUsedOut(BaseModel):
@@ -240,6 +242,9 @@ class SurchargeTableUsedOut(BaseModel):
     night_surcharge_bp: int
     sunday_holiday_surcharge_bp: int
     overtime_surcharge_bp: int
+    # `None` en las liquidaciones calculadas antes de existir la extra
+    # nocturna propia (0041): esas pagaron extra + nocturno sumados.
+    night_overtime_surcharge_bp: int | None = None
     weekly_ordinary_hours: int
     # A-4: si la liquidación se calculó con una tabla que nadie confirmó, la
     # liquidación lo dice. Una nómina es plata de una persona; que descanse
@@ -303,7 +308,12 @@ class PayrollRunOut(BaseModel):
     # A-5: **qué fórmula se usó**, publicado en la respuesta y no sólo
     # anotado en un docstring.
     #
-    # `additive_surcharges` paga, por cada minuto, la base más los recargos
+    # `cst_categories` (desde 0041): la extra nocturna tiene su propio 75 %
+    # y el dominical/festivo se suma encima, lo que reproduce las ocho
+    # categorías del CST. Sigue siendo una cifra de control: no incluye
+    # prestaciones, aportes ni el límite diario de horas.
+    #
+    # `additive_surcharges` (liquidaciones viejas) paga, por cada minuto, la base más los recargos
     # que apliquen (nocturno, dominical/festivo, extra) de forma **aditiva e
     # independiente**. Es transparente y auditable recargo por recargo, y
     # sirve para control interno — pero **no es la liquidación legal**: la

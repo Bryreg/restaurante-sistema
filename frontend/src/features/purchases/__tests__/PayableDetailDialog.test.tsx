@@ -78,7 +78,9 @@ describe("PayableDetailDialog — el botón de pagar NO EXISTE mientras está pe
       await user.click(screen.getByRole("button", { name: `Dígito ${digit}` }))
     }
 
-    await waitFor(() => expect(approvePayableMock).toHaveBeenCalledWith(7, { authorizer_pin: "1234" }))
+    await waitFor(() =>
+      expect(approvePayableMock).toHaveBeenCalledWith(7, { authorizer_pin: "1234", confirm_discrepancy: false }),
+    )
   })
 
   it("approved con saldo: el formulario de pago existe y muestra el saldo del servidor, nunca uno propio", async () => {
@@ -257,5 +259,80 @@ describe("PayableDetailDialog — el historial de pagos viene del servidor, no d
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/no se pudieron cargar los pagos/i)
     expect(screen.queryByText(/todavía no se registró ningún pago/i)).not.toBeInTheDocument()
+  })
+})
+
+describe("PayableDetailDialog — factura ≠ cálculo (INVOICE_DISCREPANCY, u5)", () => {
+  const WITH_DISCREPANCY: PayableOut = {
+    ...PENDING,
+    invoice_total: 125000,
+    invoice_discrepancy: 5000,
+    discrepancy_confirmed: false,
+    discrepancy_confirmed_by_employee_name: null,
+  }
+
+  async function typePin(user: ReturnType<typeof userEvent.setup>) {
+    for (const digit of "1234") {
+      await user.click(screen.getByRole("button", { name: `Dígito ${digit}` }))
+    }
+  }
+
+  it("muestra las dos cifras del servidor y no deja aprobar sin reconocer la diferencia", async () => {
+    approvePayableMock.mockReset().mockResolvedValue({ ...WITH_DISCREPANCY, status: "approved" })
+    const user = userEvent.setup()
+    renderWithProviders(<PayableDetailDialog payable={WITH_DISCREPANCY} supplierLabel="Avícola del Valle" />)
+
+    await openDialog(user)
+    expect(screen.getByText("La factura no coincide con lo calculado")).toBeInTheDocument()
+    expect(screen.getAllByText(formatCOP(125000)).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(formatCOP(5000)).length).toBeGreaterThan(0)
+    expect(screen.getByRole("button", { name: "Dígito 1" })).toBeDisabled()
+
+    await user.click(screen.getByRole("checkbox", { name: "Revisé la diferencia y apruebo igual" }))
+    await typePin(user)
+
+    await waitFor(() =>
+      expect(approvePayableMock).toHaveBeenCalledWith(7, { authorizer_pin: "1234", confirm_discrepancy: true }),
+    )
+  })
+
+  it("un 409 INVOICE_DISCREPANCY del servidor se muestra como la pregunta, no como error mudo", async () => {
+    approvePayableMock
+      .mockReset()
+      .mockRejectedValueOnce(
+        new ApiError(409, "INVOICE_DISCREPANCY", "La factura del proveedor dice $ 125.000 pero el cálculo da $ 120.000"),
+      )
+    const user = userEvent.setup()
+    // La lista estaba vieja: sin diferencia conocida, el servidor la descubre.
+    renderWithProviders(<PayableDetailDialog payable={PENDING} supplierLabel="Avícola del Valle" />)
+
+    await openDialog(user)
+    await typePin(user)
+
+    expect(await screen.findByText("La factura no coincide con lo calculado")).toBeInTheDocument()
+    expect(screen.getByText(/La factura del proveedor dice \$ 125\.000/)).toBeInTheDocument()
+    expect(screen.getByRole("checkbox", { name: "Revisé la diferencia y apruebo igual" })).not.toBeChecked()
+    expect(screen.getByRole("button", { name: "Dígito 1" })).toBeDisabled()
+  })
+
+  it("aprobada con la diferencia confirmada: dice quién la confirmó", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <PayableDetailDialog
+        payable={{
+          ...WITH_DISCREPANCY,
+          status: "approved",
+          approved_at: "2026-09-16T11:00:00Z",
+          approved_by_employee_name: "Admin",
+          discrepancy_confirmed: true,
+          discrepancy_confirmed_by_employee_name: "Admin",
+        }}
+        supplierLabel="Avícola del Valle"
+      />,
+    )
+
+    await openDialog(user)
+    expect(screen.getByText("Diferencia con la factura")).toBeInTheDocument()
+    expect(screen.getByText("Confirmada por Admin")).toBeInTheDocument()
   })
 })
