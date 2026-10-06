@@ -306,7 +306,10 @@ export interface TimelineCountOut {
 }
 
 export interface TimelineRowOut {
-  ingredient_id: number
+  /** Un insumo, o una preparación en modo lote (con su propio stock). */
+  kind?: "ingredient" | "preparation"
+  ingredient_id: number | null
+  preparation_id?: number | null
   name: string
   base_unit: BaseUnit
   key_item: boolean
@@ -361,6 +364,7 @@ export interface TimelineQuery {
   from?: string
   to?: string
   ingredientId?: number
+  preparationId?: number
   criticalOnly?: boolean
 }
 
@@ -371,6 +375,7 @@ export function getInventoryTimeline(params: TimelineQuery): Promise<TimelineOut
       from: params.from,
       to: params.to,
       ingredient_id: params.ingredientId,
+      preparation_id: params.preparationId,
       critical_only: params.criticalOnly,
     },
   })
@@ -720,7 +725,9 @@ export type CountScope = "key_items" | "full"
 export type CountStatus = "open" | "applied" | "voided"
 
 export interface CountLineRefIn {
-  ingredient_id: number
+  /** Un insumo **o** una preparación en modo lote, nunca los dos. */
+  ingredient_id?: number
+  preparation_id?: number
   /** Texto decimal (`parse_qty_base` en el servidor); un número JSON crudo se rechaza. */
   qty_counted: string
   was_counted: boolean
@@ -739,7 +746,9 @@ export interface CountLinesIn {
  * estructural, no una promesa de la pantalla.
  */
 export interface CountLineOut {
-  ingredient_id: number
+  /** Insumo, o `null` si el renglón es una preparación en modo lote. */
+  ingredient_id: number | null
+  preparation_id?: number | null
   ingredient_name: string
   base_unit: BaseUnit
   qty_counted: string | null
@@ -780,7 +789,8 @@ export interface CountDetailOut extends CountOut {
 }
 
 export interface CountApplyLineOut {
-  ingredient_id: number
+  ingredient_id: number | null
+  preparation_id?: number | null
   ingredient_name: string
   qty_counted: string
   stock_before: string

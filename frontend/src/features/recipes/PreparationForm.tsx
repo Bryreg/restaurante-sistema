@@ -30,6 +30,7 @@ export interface PreparationFormValues {
   standardYieldUnit: BaseUnit
   processLossPct: number
   shelfLifeDays: number | null
+  keyItem: boolean
   lines: LineDraft[]
 }
 
@@ -41,6 +42,7 @@ function toFormValues(preparation?: PreparationAdminOut): PreparationFormValues 
     standardYieldUnit: (preparation?.standard_yield_unit as BaseUnit) ?? "g",
     processLossPct: preparation?.process_loss_pct ?? 0,
     shelfLifeDays: preparation?.shelf_life_days ?? null,
+    keyItem: preparation?.key_item ?? false,
     lines: preparation ? componentLinesToDrafts(preparation.lines) : [emptyLine()],
   }
 }
@@ -53,6 +55,7 @@ export function formValuesToPreparationIn(values: PreparationFormValues): Prepar
     standard_yield_unit: values.standardYieldUnit,
     process_loss_pct: values.processLossPct,
     shelf_life_days: values.shelfLifeDays,
+    key_item: values.keyItem,
     lines: draftsToComponentLines(values.lines),
   }
 }
@@ -64,6 +67,7 @@ export function formValuesToPreparationUpdateIn(values: PreparationFormValues): 
     standard_yield_unit: values.standardYieldUnit,
     process_loss_pct: values.processLossPct,
     shelf_life_days: values.shelfLifeDays,
+    key_item: values.keyItem,
     lines: draftsToComponentLines(values.lines),
   }
 }
@@ -265,6 +269,20 @@ export function PreparationForm({
             />
           )}
         </FormField>
+        {values.mode === "batch" ? (
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4"
+              checked={values.keyItem}
+              onChange={(event) => setValues((v) => ({ ...v, keyItem: event.target.checked }))}
+            />
+            <span>
+              <b>Crítica</b>: entra también al conteo rápido de críticos. Toda preparación en modo lote entra al
+              conteo completo.
+            </span>
+          </label>
+        ) : null}
       </FormSection>
 
       <FormSection

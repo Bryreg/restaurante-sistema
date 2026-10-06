@@ -260,6 +260,7 @@ def get_inventory_timeline(
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
     ingredient_id: int | None = Query(None),
+    preparation_id: int | None = Query(None),
     critical_only: bool = Query(False),
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_admin),
@@ -275,7 +276,7 @@ def get_inventory_timeline(
         raise AppError("NOT_FOUND", "El insumo no existe en esta sede", status=404)
     return timeline.inventory_timeline(
         db, store=store, date_from=date_from, date_to=date_to,
-        ingredient_id=ingredient_id, critical_only=critical_only,
+        ingredient_id=ingredient_id, preparation_id=preparation_id, critical_only=critical_only,
     )
 
 

@@ -31,7 +31,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -40,7 +40,7 @@ from sqlalchemy.orm import Session
 from app.core import clock, tz
 from app.core.errors import AppError
 from app.core.quantity import format_cost_micros, format_qty_base, line_cost_micros, micros_to_pesos
-from app.inventory import hooks
+from app.inventory import hooks, prep_counts
 from app.inventory.models import (
     AreaCount,
     AreaCountLine,
@@ -48,6 +48,7 @@ from app.inventory.models import (
     MovementCause,
     StockCount,
     StockCountLine,
+    StockCountPrepLine,
     StockCountScope,
     StockCountStatus,
     StockMovement,
@@ -115,7 +116,10 @@ class TimelineCountOut(BaseModel):
 
 
 class TimelineRowOut(BaseModel):
-    ingredient_id: int
+    # Un insumo, o una preparación en modo lote (0038): uno de los dos ids.
+    kind: Literal["ingredient", "preparation"] = "ingredient"
+    ingredient_id: int | None
+    preparation_id: int | None = None
     name: str
     base_unit: str
     key_item: bool
@@ -198,6 +202,21 @@ class _Acc:
     before: bool = False
     causes: dict[MovementCause, _Cause] = field(default_factory=lambda: defaultdict(_Cause))
     moves: list[tuple[datetime, int, MovementCause, int | None]] = field(default_factory=list)
+
+
+@dataclass
+class _Item:
+    """Lo que tiene una fila: un insumo o una preparación en modo lote."""
+
+    key: str
+    kind: Literal["ingredient", "preparation"]
+    id: int
+    name: str
+    base_unit: str
+    key_item: bool
+    min_stock: int
+    cost_micros: int | None
+    created_at: datetime | None
 
 
 def business_day_start(day: date, cutoff_hour: int) -> datetime:
@@ -297,6 +316,7 @@ def inventory_timeline(
     date_from: date | None,
     date_to: date | None,
     ingredient_id: int | None = None,
+    preparation_id: int | None = None,
     critical_only: bool = False,
 ) -> TimelineOut:
     frm, to = resolve_range(date_from, date_to, cutoff_hour=store.cutoff_hour)
@@ -305,42 +325,62 @@ def inventory_timeline(
     now = clock.now_utc()
     until = min(end_at, max(start_at, now))
 
-    stmt = select(Ingredient).where(Ingredient.store_id == store.id, Ingredient.active.is_(True))
-    if ingredient_id is not None:
-        stmt = select(Ingredient).where(Ingredient.store_id == store.id, Ingredient.id == ingredient_id)
-    if critical_only:
-        stmt = stmt.where(Ingredient.key_item.is_(True))
-    ingredients = list(db.execute(stmt.order_by(Ingredient.name)).scalars().all())
-    ids = [i.id for i in ingredients]
-    acc: dict[int, _Acc] = {i: _Acc() for i in ids}
+    items: list[_Item] = []
+    if preparation_id is None:
+        stmt = select(Ingredient).where(Ingredient.store_id == store.id, Ingredient.active.is_(True))
+        if ingredient_id is not None:
+            stmt = select(Ingredient).where(Ingredient.store_id == store.id, Ingredient.id == ingredient_id)
+        if critical_only:
+            stmt = stmt.where(Ingredient.key_item.is_(True))
+        for ing in db.execute(stmt.order_by(Ingredient.name)).scalars().all():
+            cost_micros, _source = hooks.resolve_ingredient_cost(db, ing)
+            items.append(
+                _Item(
+                    key=f"i{ing.id}", kind="ingredient", id=ing.id, name=ing.name,
+                    base_unit=getattr(ing.base_unit, "value", str(ing.base_unit)), key_item=bool(ing.key_item),
+                    min_stock=ing.min_stock, cost_micros=cost_micros, created_at=ing.created_at,
+                )
+            )
+    if ingredient_id is None:
+        # Las preparaciones en modo lote tienen stock propio: van como filas.
+        preps = prep_counts.batch_preparations(db, store, key_items_only=critical_only)
+        if preparation_id is not None:
+            preps = [p for p in preps if p.id == preparation_id]
+        for prep in preps:
+            pcost = prep_counts.last_batch_cost(db, preparation_id=prep.id)
+            items.append(
+                _Item(
+                    key=f"p{prep.id}", kind="preparation", id=prep.id, name=prep.name,
+                    base_unit=prep.standard_yield_unit, key_item=bool(prep.key_item),
+                    # Sin nivel par todavía: el mínimo de una preparación es cero.
+                    min_stock=0, cost_micros=pcost.cost_micros, created_at=prep.created_at,
+                )
+            )
+    acc: dict[str, _Acc] = {it.key: _Acc() for it in items}
+    ing_ids = [it.id for it in items if it.kind == "ingredient"]
+    prep_ids = [it.id for it in items if it.kind == "preparation"]
 
-    if ids:
+    def _load(column: Any, ids: list[int], prefix: str) -> None:
+        if not ids:
+            return
         for iid, qty in db.execute(
-            select(StockMovement.ingredient_id, func.coalesce(func.sum(StockMovement.qty_base), 0))
-            .where(
-                StockMovement.store_id == store.id,
-                StockMovement.ingredient_id.in_(ids),
-                StockMovement.at < start_at,
-            )
-            .group_by(StockMovement.ingredient_id)
+            select(column, func.coalesce(func.sum(StockMovement.qty_base), 0))
+            .where(StockMovement.store_id == store.id, column.in_(ids), StockMovement.at < start_at)
+            .group_by(column)
         ).all():
-            acc[int(iid)].start = int(qty)
-            acc[int(iid)].before = True
-
+            acc[f"{prefix}{int(iid)}"].start = int(qty)
+            acc[f"{prefix}{int(iid)}"].before = True
         for iid, at, qty, cause, cost in db.execute(
-            select(
-                StockMovement.ingredient_id, StockMovement.at, StockMovement.qty_base,
-                StockMovement.cause, StockMovement.cost_micros,
-            )
+            select(column, StockMovement.at, StockMovement.qty_base, StockMovement.cause, StockMovement.cost_micros)
             .where(
                 StockMovement.store_id == store.id,
-                StockMovement.ingredient_id.in_(ids),
+                column.in_(ids),
                 StockMovement.at >= start_at,
                 StockMovement.at < end_at,
             )
             .order_by(StockMovement.at, StockMovement.id)
         ).all():
-            a = acc[int(iid)]
+            a = acc[f"{prefix}{int(iid)}"]
             c = a.causes[cause]
             c.movements += 1
             c.qty += int(qty)
@@ -351,14 +391,21 @@ def inventory_timeline(
                 c.value_micros += line_cost_micros(int(qty), int(cost))
             a.moves.append((at, int(qty), cause, None if cost is None else int(cost)))
 
-    counts_by_ingredient: dict[int, list[tuple[datetime, str, str, str | None, int]]] = defaultdict(list)
-    if ids:
+    _load(StockMovement.ingredient_id, ing_ids, "i")
+    _load(StockMovement.preparation_id, prep_ids, "p")
+
+    counts_by_item: dict[str, list[tuple[datetime, str, str, str | None, int]]] = defaultdict(list)
+    def _full_label(count: StockCount) -> tuple[str, str]:
+        key = count.scope == StockCountScope.KEY_ITEMS
+        return ("key_items" if key else "full", "Conteo de críticos" if key else "Conteo completo")
+
+    if ing_ids:
         for line, count in db.execute(
             select(StockCountLine, StockCount)
             .join(StockCount, StockCountLine.count_id == StockCount.id)
             .where(
                 StockCount.store_id == store.id,
-                StockCountLine.ingredient_id.in_(ids),
+                StockCountLine.ingredient_id.in_(ing_ids),
                 StockCountLine.was_counted.is_(True),
                 # Un conteo anulado no dice lo que había: su reversa ya está en el libro.
                 StockCount.status != StockCountStatus.VOIDED,
@@ -367,28 +414,23 @@ def inventory_timeline(
                 StockCount.opened_at < end_at,
             )
         ).all():
-            key = count.scope == StockCountScope.KEY_ITEMS
-            counts_by_ingredient[line.ingredient_id].append(
-                (
-                    count.opened_at,
-                    "key_items" if key else "full",
-                    "Conteo de críticos" if key else "Conteo completo",
-                    count.applied_by_employee_name or count.opened_by_employee_name,
-                    int(line.qty_counted),
-                )
+            kind, label = _full_label(count)
+            counts_by_item[f"i{line.ingredient_id}"].append(
+                (count.opened_at, kind, label, count.applied_by_employee_name or count.opened_by_employee_name,
+                 int(line.qty_counted))
             )
         for aline, acount in db.execute(
             select(AreaCountLine, AreaCount)
             .join(AreaCount, AreaCountLine.count_id == AreaCount.id)
             .where(
                 AreaCount.store_id == store.id,
-                AreaCountLine.ingredient_id.in_(ids),
+                AreaCountLine.ingredient_id.in_(ing_ids),
                 AreaCount.counted_at >= start_at,
                 AreaCount.counted_at < end_at,
             )
         ).all():
             moment = getattr(acount.moment, "value", str(acount.moment))
-            counts_by_ingredient[aline.ingredient_id].append(
+            counts_by_item[f"i{aline.ingredient_id}"].append(
                 (
                     aline.counted_at or acount.counted_at,
                     "area",
@@ -396,6 +438,25 @@ def inventory_timeline(
                     aline.employee_name or acount.employee_name,
                     int(aline.qty_base),
                 )
+            )
+    if prep_ids:
+        for pline, count in db.execute(
+            select(StockCountPrepLine, StockCount)
+            .join(StockCount, StockCountPrepLine.count_id == StockCount.id)
+            .where(
+                StockCount.store_id == store.id,
+                StockCountPrepLine.preparation_id.in_(prep_ids),
+                StockCountPrepLine.was_counted.is_(True),
+                StockCount.status != StockCountStatus.VOIDED,
+                StockCountPrepLine.qty_counted.is_not(None),
+                StockCount.opened_at >= start_at,
+                StockCount.opened_at < end_at,
+            )
+        ).all():
+            kind, label = _full_label(count)
+            counts_by_item[f"p{pline.preparation_id}"].append(
+                (count.opened_at, kind, label, count.applied_by_employee_name or count.opened_by_employee_name,
+                 int(pline.qty_counted))
             )
 
     rows: list[TimelineRowOut] = []
@@ -406,13 +467,13 @@ def inventory_timeline(
     shortage = surplus = 0
     n_counts = n_below = n_zero = n_negative = n_moved = 0
 
-    for ingredient in ingredients:
-        a = acc[ingredient.id]
+    for item in items:
+        a = acc[item.key]
         end_qty = a.start + sum(q for _at, q, _c, _k in a.moves)
         in_qty = sum(q for _at, q, c, _k in a.moves if q > 0 and c not in NOT_AN_OUTFLOW)
         out_qty = sum(q for _at, q, c, _k in a.moves if q < 0 and c not in NOT_AN_OUTFLOW)
         adj_qty = sum(q for _at, q, c, _k in a.moves if c in NOT_AN_OUTFLOW)
-        cost_micros, _source = hooks.resolve_ingredient_cost(db, ingredient)
+        cost_micros = item.cost_micros
 
         out_micros = 0
         out_costed = out_uncosted = 0
@@ -444,18 +505,18 @@ def inventory_timeline(
         # Antes de que el insumo existiera no estuvo «en cero»: no estaba.
         # Si tiene movimientos anteriores a su `created_at`, existía desde el
         # primero de ellos.
-        born = ingredient.created_at
+        born = item.created_at
         if a.moves and (born is None or a.moves[0][0] < born):
             born = a.moves[0][0]
         since = start_at if a.before or born is None or born <= start_at else min(born, until)
         start_since = _saldo_at(a.start, a.moves, since) if since > start_at else a.start
         below, at_zero, first_zero = _durations(
-            start_since, [m for m in a.moves if m[0] > since], min_stock=ingredient.min_stock,
+            start_since, [m for m in a.moves if m[0] > since], min_stock=item.min_stock,
             start_at=since, until=until,
         )
 
         counts: list[TimelineCountOut] = []
-        for at, kind, label, who, counted in sorted(counts_by_ingredient.get(ingredient.id, []), key=lambda x: x[0]):
+        for at, kind, label, who, counted in sorted(counts_by_item.get(item.key, []), key=lambda x: x[0]):
             expected = _saldo_at(a.start, a.moves, at)
             diff = counted - expected
             value = micros_to_pesos(line_cost_micros(diff, cost_micros)) if cost_micros is not None else None
@@ -487,11 +548,13 @@ def inventory_timeline(
 
         rows.append(
             TimelineRowOut(
-                ingredient_id=ingredient.id,
-                name=ingredient.name,
-                base_unit=getattr(ingredient.base_unit, "value", str(ingredient.base_unit)),
-                key_item=bool(ingredient.key_item),
-                min_stock=format_qty_base(ingredient.min_stock),
+                kind=item.kind,
+                ingredient_id=item.id if item.kind == "ingredient" else None,
+                preparation_id=item.id if item.kind == "preparation" else None,
+                name=item.name,
+                base_unit=item.base_unit,
+                key_item=item.key_item,
+                min_stock=format_qty_base(item.min_stock),
                 cost=format_cost_micros(cost_micros) if cost_micros is not None else None,
                 start_qty=format_qty_base(a.start),
                 in_qty=format_qty_base(in_qty),
@@ -532,7 +595,7 @@ def inventory_timeline(
         end_at=end_at,
         now_at=until,
         summary=TimelineSummaryOut(
-            ingredients=len(ingredients),
+            ingredients=len(items),
             with_movement=n_moved,
             value_out=micros_to_pesos(total_out_micros) if total_out_costed else 0,
             value_out_partial=total_partial,
