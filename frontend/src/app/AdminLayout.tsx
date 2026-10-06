@@ -485,6 +485,7 @@ function PestanasDeSeccion({
  */
 const ROL_EN_PALABRAS: Record<string, string> = {
   admin: "administrador",
+  accountant: "contador (sólo lectura)",
   owner: "administrador",
   supervisor: "supervisor",
   cashier: "responsable de caja",
@@ -1136,6 +1137,11 @@ function AdminChrome(): React.JSX.Element {
             celular && "pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-10",
           )}
         >
+          {me?.user?.role === "accountant" ? (
+            <p role="status" className="mb-3 rounded-md border border-l-[3px] border-l-primary bg-muted px-3 py-2 text-xs">
+              <b>Modo contador:</b> podés ver y exportar todo; para cambiar algo, pedíselo a un administrador.
+            </p>
+          ) : null}
           <Outlet />
         </main>
       </div>

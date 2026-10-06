@@ -26,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/errors";
 
 import { EmployeeFormDialog } from "./EmployeeFormDialog";
+import { PermissionsMatrix } from "./PermissionsMatrix";
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { csvUrl } from "@/api/client"
 
@@ -33,6 +34,7 @@ const ROLE_LABEL: Record<string, string> = {
   operator: "Operador",
   supervisor: "Supervisor",
   admin: "Administrador",
+  accountant: "Contador (sólo lectura)",
 };
 
 /**
@@ -295,6 +297,7 @@ export function PeopleSection({ storeId }: { storeId: number | null }): React.JS
         onSubmit={handleSubmit}
         error={formError}
       />
+      <PermissionsMatrix />
     </div>
   );
 }

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.auth.models import DeviceSession, Employee
 from app.core import clock
 from app.core.db import get_db
-from app.core.errors import NotFoundError, UnauthorizedError
+from app.core.errors import ForbiddenError, NotFoundError, UnauthorizedError
 from app.core.security import COOKIE_ADMIN, COOKIE_DEVICE, read_token
 from app.stores import service as stores_service
 from app.stores.models import Store
@@ -47,7 +47,7 @@ def _read_admin_actor(request: Request, db: Session) -> Actor | None:
     if employee_id is None:
         return None
     employee = db.get(Employee, employee_id)
-    if employee is None or not employee.active or employee.role != "admin":
+    if employee is None or not employee.active or employee.role not in ESCRITORIO_ROLES:
         return None
     return Actor(
         kind="admin",
@@ -55,7 +55,7 @@ def _read_admin_actor(request: Request, db: Session) -> Actor | None:
         store_id=None,
         employee_id=employee.id,
         employee_name=employee.name,
-        role="admin",
+        role=employee.role,
     )
 
 
@@ -94,10 +94,27 @@ def _bound_employee(db: Session, session: DeviceSession, now: datetime) -> Emplo
     return employee
 
 
+# Quién entra al escritorio con correo y contraseña.
+ESCRITORIO_ROLES = ("admin", "accountant")
+_READ_METHODS = ("GET", "HEAD", "OPTIONS")
+
+
 def current_admin(request: Request, db: Session = Depends(get_db)) -> Actor:
     actor = _read_admin_actor(request, db)
     if actor is None:
         raise UnauthorizedError("Iniciá sesión", code="NOT_AUTHENTICATED")
+    # El contador ve todo y no cambia nada. Lo único que escribe es su
+    # propia seguridad (`/auth/...`: contraseña, verificación en dos pasos).
+    if (
+        actor.role == "accountant"
+        and request.method not in _READ_METHODS
+        and "/auth/" not in request.url.path
+    ):
+        raise ForbiddenError(
+            "Tu usuario es de contador: puede ver y exportar todo, pero no cambiar nada. "
+            "Pedile el cambio a un administrador.",
+            code="ACCOUNTANT_READ_ONLY",
+        )
     return actor
 
 

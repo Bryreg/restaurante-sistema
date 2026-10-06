@@ -26,6 +26,7 @@ const ROLE_LABEL: Record<EmployeeRole, string> = {
   operator: "Operador",
   supervisor: "Supervisor",
   admin: "Administrador",
+  accountant: "Contador (sólo lectura)",
 };
 
 /** «Todo» es `null` en el servidor: la persona ve la barra completa, como siempre. */
@@ -142,7 +143,7 @@ export function EmployeeFormDialog({
         const patch: EmployeeUpdateIn = {
           name: values.name,
           role: values.role,
-          store_id: values.role === "admin" ? null : storeId,
+          store_id: isAdmin ? null : storeId,
           can_charge: values.can_charge,
           puesto: values.puesto === PUESTO_TODO ? null : values.puesto,
           discount_limit_pct: discountLimit,
@@ -157,7 +158,7 @@ export function EmployeeFormDialog({
           name: values.name,
           role: values.role,
           pin: values.pin,
-          store_id: values.role === "admin" ? null : storeId,
+          store_id: isAdmin ? null : storeId,
           can_charge: values.can_charge,
           puesto: values.puesto === PUESTO_TODO ? null : values.puesto,
           discount_limit_pct: discountLimit,
@@ -171,7 +172,8 @@ export function EmployeeFormDialog({
     }
   }
 
-  const isAdmin = values.role === "admin";
+  // El contador también entra al escritorio (sólo lectura) y no es de una sede.
+  const isAdmin = values.role === "admin" || values.role === "accountant";
   // Supervisores y administradores ven todo: el puesto no les cambia nada.
   const puestoAplica = values.role === "operator";
   const puestoElegido = PUESTO_OPCIONES.find((o) => o.value === values.puesto) ?? PUESTO_OPCIONES[0]!;
@@ -190,8 +192,17 @@ export function EmployeeFormDialog({
             reading={
               isAdmin ? (
                 <>
-                  Un <b>administrador</b> entra al escritorio con correo y contraseña, y además tiene PIN para el
-                  salón. No queda atado a una sede: ve y autoriza en todas.
+                  {values.role === "accountant" ? (
+                    <>
+                      Un <b>contador</b> entra al escritorio con correo y contraseña y puede ver y exportar todo,
+                      pero no cambiar nada. No entra al salón.
+                    </>
+                  ) : (
+                    <>
+                      Un <b>administrador</b> entra al escritorio con correo y contraseña, y además tiene PIN para el
+                      salón. No queda atado a una sede: ve y autoriza en todas.
+                    </>
+                  )}
                 </>
               ) : (
                 <>

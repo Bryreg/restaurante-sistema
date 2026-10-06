@@ -156,7 +156,7 @@ class AuthorizeOut(BaseModel):
 
 class EmployeeCreateIn(BaseModel):
     name: str
-    role: Literal["operator", "supervisor", "admin"]
+    role: Literal["operator", "supervisor", "admin", "accountant"]
     pin: str = Field(min_length=4, max_length=4, pattern=r"^\d{4}$")
     store_id: int | None = None
     can_charge: bool = False
@@ -169,7 +169,7 @@ class EmployeeCreateIn(BaseModel):
 
 class EmployeeUpdateIn(BaseModel):
     name: str | None = None
-    role: Literal["operator", "supervisor", "admin"] | None = None
+    role: Literal["operator", "supervisor", "admin", "accountant"] | None = None
     pin: str | None = Field(default=None, min_length=4, max_length=4, pattern=r"^\d{4}$")
     store_id: int | None = None
     can_charge: bool | None = None
@@ -214,3 +214,16 @@ class AuthorizationOut(BaseModel):
     at: datetime
     reference_type: str | None
     reference_id: str | None
+
+
+class PermissionRowOut(BaseModel):
+    """Una fila de la matriz de permisos. Cada rol: «si», «no», «autoriza»
+    (da su PIN para que otro lo haga), «con_autorizacion» (lo hace con el PIN
+    de alguien que autoriza), «solo_ver» o «si_puede_cobrar»."""
+
+    area: str
+    capability: str
+    operator: str
+    supervisor: str
+    admin: str
+    accountant: str

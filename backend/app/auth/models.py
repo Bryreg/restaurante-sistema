@@ -17,7 +17,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, UTCDateTime
 
-ROLE_VALUES = ("operator", "supervisor", "admin")
+# «accountant» (auditoría e11): el contador entra al escritorio como un
+# administrador pero de SOLO LECTURA (`deps.current_admin` le niega toda
+# escritura); no entra al POS.
+ROLE_VALUES = ("operator", "supervisor", "admin", "accountant")
 # Dónde trabaja la persona en el POS: decide a qué pantalla llega al
 # identificarse y qué destinos ve en la barra. `None` = ve todo (el
 # comportamiento de siempre); supervisores y admins lo ignoran.

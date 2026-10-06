@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.audit.service import record_audit
 from app.auth import service as auth_service
 from app.auth.deps import (
+    ESCRITORIO_ROLES,
     Actor,
     _read_admin_actor,
     _read_device_session,
@@ -49,6 +50,7 @@ from app.auth.schemas import (
     MeOut,
     OrganizationOut,
     PasswordChangeIn,
+    PermissionRowOut,
     PasswordConfirmIn,
     PasswordRecoverIn,
     RecoveryCodesOut,
@@ -140,7 +142,7 @@ def admin_login(
     ip = request.client.host if request.client else None
     account_security.check_not_locked(db, email=body.email, ip=ip)
     stmt = select(Employee).where(
-        Employee.role == "admin", Employee.email == body.email, Employee.active.is_(True)
+        Employee.role.in_(ESCRITORIO_ROLES), Employee.email == body.email, Employee.active.is_(True)
     )
     employee = db.execute(stmt).scalars().first()
     if employee is None or employee.password_hash is None or not verify_secret(
@@ -277,6 +279,7 @@ def device_identify(
         or not employee.active
         or employee.organization_id != session.organization_id
         or (employee.store_id is not None and employee.store_id != session.store_id)
+        or employee.role == "accountant"
     ):
         raise NotFoundError("El empleado no existe en esta sede")
 
@@ -375,6 +378,8 @@ def list_device_employees(
         .where(
             Employee.organization_id == actor.organization_id,
             Employee.active.is_(True),
+            # El contador no opera el POS.
+            Employee.role != "accountant",
             or_(Employee.store_id == actor.store_id, Employee.store_id.is_(None)),
         )
         .order_by(Employee.name)
@@ -791,7 +796,9 @@ def post_password_recover(body: PasswordRecoverIn, request: Request, db: Session
     ip = request.client.host if request.client else None
     account_security.check_not_locked(db, email=body.email, ip=ip)
     employee = db.execute(
-        select(Employee).where(Employee.role == "admin", Employee.email == body.email, Employee.active.is_(True))
+        select(Employee).where(
+            Employee.role.in_(ESCRITORIO_ROLES), Employee.email == body.email, Employee.active.is_(True)
+        )
     ).scalars().first()
     if employee is None or not account_security.consume_recovery_code(db, employee=employee, code=body.recovery_code):
         account_security.record_attempt(db, email=body.email, ip=ip, success=False)
@@ -801,3 +808,18 @@ def post_password_recover(body: PasswordRecoverIn, request: Request, db: Session
     account_security.record_attempt(db, email=body.email, ip=ip, success=True)
     _security_audit(db, None, employee, "password_recovered")
     return {"ok": True}
+
+
+
+@router.get("/admin/permissions")
+def get_permissions(actor: Actor = Depends(current_admin)) -> list[PermissionRowOut]:
+    """La matriz de quién puede qué (auditoría e11). Ver `permissions.py`."""
+    from app.auth import permissions
+
+    return [
+        PermissionRowOut(
+            area=r["area"], capability=r["capacidad"], operator=r["operator"],
+            supervisor=r["supervisor"], admin=r["admin"], accountant=r["accountant"],
+        )
+        for r in permissions.matrix()
+    ]

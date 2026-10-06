@@ -54,6 +54,7 @@ const ROLE_LABEL: Record<EmployeeRole, string> = {
   operator: "Operador",
   supervisor: "Supervisor",
   admin: "Administrador",
+  accountant: "Contador (sólo lectura)",
 };
 
 function initials(name: string): string {
