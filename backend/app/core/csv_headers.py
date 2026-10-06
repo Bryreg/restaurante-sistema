@@ -147,6 +147,7 @@ KEYS: dict[str, str] = {
 #: Palabra por palabra. Cubre toda palabra de todo campo de todo esquema de
 #: respuesta de la API (lo verifica `tests/core/test_csv.py`).
 TOKENS: dict[str, str] = {
+    "allergens": "alérgenos",
     "band": "franja",
     "recount": "recuento",
     "lock": "bloqueo",
