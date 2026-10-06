@@ -273,6 +273,15 @@ class PayrollRunLineOut(BaseModel):
     overtime_pay: int | None
     total: int | None
     pay_reason: str | None
+    # 0043: contrato, novedades y costo del empleador. `None` sin contrato
+    # cargado o en liquidaciones anteriores.
+    absence_days: int | None = None
+    absence_pay: int | None = None
+    transport_allowance: int | None = None
+    recoverable: int | None = None
+    employer_contributions: int | None = None
+    benefits_provision: int | None = None
+    employer_total: int | None = None
 
 
 class PayrollRunIn(BaseModel):
@@ -288,6 +297,7 @@ class PayrollRunOut(BaseModel):
     tables_used: list[SurchargeTableUsedOut]
     lines: list[PayrollRunLineOut]
     total_amount: int | None
+    employer_total_amount: int | None = None
     available: bool
     reason: str | None
     computed_at: datetime
@@ -391,3 +401,104 @@ class TipSettingsOut(OutModel):
 
 class TipSettingsIn(BaseModel):
     method: TipMethodLiteral
+
+
+
+# ---------------------------------------------------------------------------
+# 0043 · Contrato, novedades y parámetros legales (e2/e3).
+# ---------------------------------------------------------------------------
+
+ContractKindLiteral = Literal["indefinite", "fixed_term", "part_time", "apprentice", "services"]
+SalaryTypeLiteral = Literal["monthly", "hourly"]
+AbsenceKindLiteral = Literal[
+    "sick_leave", "work_accident", "maternity", "paternity", "vacation",
+    "paid_leave", "bereavement", "unpaid_leave", "suspension",
+]
+
+
+class ContractIn(BaseModel):
+    employee_id: int
+    kind: ContractKindLiteral
+    salary_type: SalaryTypeLiteral
+    monthly_salary_pesos: int | None = Field(default=None, gt=0)
+    start_date: date
+    end_date: date | None = None
+    arl_risk_class: int = Field(default=1, ge=1, le=5)
+
+
+class ContractOut(OutModel):
+    id: int
+    store_id: int
+    employee_id: int
+    employee_name: str
+    kind: ContractKindLiteral
+    salary_type: SalaryTypeLiteral
+    monthly_salary_pesos: int | None
+    start_date: date
+    end_date: date | None
+    arl_risk_class: int
+    created_by_employee_name: str | None
+
+
+class AbsenceIn(BaseModel):
+    employee_id: int
+    kind: AbsenceKindLiteral
+    date_from: date
+    date_to: date
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class AbsenceOut(OutModel):
+    id: int
+    store_id: int
+    employee_id: int
+    employee_name: str
+    kind: AbsenceKindLiteral
+    date_from: date
+    date_to: date
+    days: int
+    note: str | None
+    created_by_employee_name: str | None
+    voided_at: datetime | None
+    voided_by_employee_name: str | None
+    void_reason: str | None
+
+
+class AbsenceVoidIn(BaseModel):
+    reason: str = Field(min_length=5, max_length=500)
+
+
+class LegalParamsIn(BaseModel):
+    valid_from: date
+    smmlv_pesos: int = Field(gt=0)
+    transport_allowance_pesos: int = Field(ge=0)
+    health_employer_ppm: int = Field(default=85_000, ge=0, le=1_000_000)
+    pension_employer_ppm: int = Field(default=120_000, ge=0, le=1_000_000)
+    family_fund_ppm: int = Field(default=40_000, ge=0, le=1_000_000)
+    icbf_ppm: int = Field(default=30_000, ge=0, le=1_000_000)
+    sena_ppm: int = Field(default=20_000, ge=0, le=1_000_000)
+    severance_ppm: int = Field(default=83_333, ge=0, le=1_000_000)
+    severance_interest_ppm: int = Field(default=10_000, ge=0, le=1_000_000)
+    service_bonus_ppm: int = Field(default=83_333, ge=0, le=1_000_000)
+    vacation_ppm: int = Field(default=41_667, ge=0, le=1_000_000)
+    exonerated_114_1: bool = True
+
+
+class LegalParamsOut(BaseModel):
+    valid_from: date
+    smmlv_pesos: int
+    transport_allowance_pesos: int
+    health_employer_ppm: int
+    pension_employer_ppm: int
+    family_fund_ppm: int
+    icbf_ppm: int
+    sena_ppm: int
+    severance_ppm: int
+    severance_interest_ppm: int
+    service_bonus_ppm: int
+    vacation_ppm: int
+    exonerated_114_1: bool
+    # «ley» = valor del decreto que trae el sistema; «organizacion» = una
+    # fila cargada (o confirmada) por una persona.
+    source: Literal["ley", "organizacion"]
+    confirmed_by_name: str | None = None

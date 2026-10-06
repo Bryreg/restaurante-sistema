@@ -271,6 +271,10 @@ class PayrollRun(Base):
     tables_used: Mapped[list] = mapped_column(sa.JSON, default=list)
 
     total_amount: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    # 0043 · Lo que la nómina le cuesta a la sede: lo pagado más aportes y
+    # provisión de prestaciones, menos lo que reembolsan EPS/ARL. `NULL` si
+    # alguna línea no lo pudo calcular o la corrida es anterior a 0043.
+    employer_total_amount: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     all_available: Mapped[bool] = mapped_column(sa.Boolean, default=True)
     reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
@@ -316,6 +320,17 @@ class PayrollRunLine(Base):
     total: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     pay_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
+    # 0043 · Contrato, ausencias y costo del empleador (ver `legal_costs.py`).
+    # `NULL` en las líneas calculadas antes de 0043 y en las personas sin
+    # contrato cargado (sólo horas: no se sabe si es formal).
+    absence_days: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    absence_pay: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    transport_allowance: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    recoverable: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    employer_contributions: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    benefits_provision: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    employer_total: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+
     __table_args__ = (
         CheckConstraint("ordinary_minutes >= 0", name="ck_payroll_line_ordinary_nonneg"),
         CheckConstraint("night_minutes >= 0", name="ck_payroll_line_night_nonneg"),
@@ -324,4 +339,136 @@ class PayrollRunLine(Base):
         CheckConstraint("overtime_minutes >= 0", name="ck_payroll_line_overtime_nonneg"),
         CheckConstraint("total IS NULL OR total >= 0", name="ck_payroll_line_total_nonneg"),
         Index("ix_payroll_run_lines_run_employee", "run_id", "employee_id"),
+    )
+
+
+
+# ---------------------------------------------------------------------------
+# 0043 · Parámetros legales, contrato y ausencias (auditoría 2026-10-06,
+# e2/e3). El cálculo vive en `app/payroll/legal_costs.py`.
+# ---------------------------------------------------------------------------
+
+
+class PayrollLegalParams(Base):
+    """Una vigencia de los parámetros legales de la organización: salario
+    mínimo, auxilio de transporte y tasas de aportes y prestaciones (en
+    partes por millón: 85_000 = 8,5 %). Los valores de ley viven también en
+    código (`legal_costs.LEGAL_PARAMS`): una fila acá los corrige o los
+    confirma; para una fecha rige la de mayor `valid_from <= fecha` entre
+    las dos fuentes, y en la misma fecha gana la fila."""
+
+    __tablename__ = "payroll_legal_params"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    valid_from: Mapped[date] = mapped_column(sa.Date)
+    smmlv_pesos: Mapped[int] = mapped_column(sa.Integer)
+    transport_allowance_pesos: Mapped[int] = mapped_column(sa.Integer)
+    health_employer_ppm: Mapped[int] = mapped_column(sa.Integer)
+    pension_employer_ppm: Mapped[int] = mapped_column(sa.Integer)
+    family_fund_ppm: Mapped[int] = mapped_column(sa.Integer)
+    icbf_ppm: Mapped[int] = mapped_column(sa.Integer)
+    sena_ppm: Mapped[int] = mapped_column(sa.Integer)
+    severance_ppm: Mapped[int] = mapped_column(sa.Integer)
+    severance_interest_ppm: Mapped[int] = mapped_column(sa.Integer)
+    service_bonus_ppm: Mapped[int] = mapped_column(sa.Integer)
+    vacation_ppm: Mapped[int] = mapped_column(sa.Integer)
+    # Art. 114-1 del Estatuto Tributario: persona jurídica exonerada de
+    # salud (8,5 %), ICBF y SENA por quien gane menos de 10 mínimos.
+    exonerated_114_1: Mapped[bool] = mapped_column(sa.Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    created_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    created_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "valid_from", name="uq_payroll_legal_params_org_valid_from"),
+    )
+
+
+class ContractKind(str, enum.Enum):
+    INDEFINITE = "indefinite"  # término indefinido
+    FIXED_TERM = "fixed_term"  # término fijo
+    PART_TIME = "part_time"  # tiempo parcial / por horas
+    APPRENTICE = "apprentice"  # aprendiz SENA
+    SERVICES = "services"  # prestación de servicios (no laboral)
+
+
+class SalaryType(str, enum.Enum):
+    MONTHLY = "monthly"  # sueldo fijo mensual
+    HOURLY = "hourly"  # por hora trabajada (`PayrollWageRate`)
+
+
+class EmployeeContract(Base):
+    """El contrato de una persona en una sede. Nunca se edita: un cambio
+    (aumento, paso a indefinido) es una fila nueva con su `start_date`; rige
+    la de mayor `start_date <= fecha`. `end_date` cierra la relación."""
+
+    __tablename__ = "payroll_contracts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    employee_name: Mapped[str] = mapped_column(sa.String(200))
+    kind: Mapped[ContractKind] = mapped_column(_enum(ContractKind))
+    salary_type: Mapped[SalaryType] = mapped_column(_enum(SalaryType))
+    # Sólo con `salary_type = monthly`. Por hora, la tarifa sigue en
+    # `PayrollWageRate`.
+    monthly_salary_pesos: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    start_date: Mapped[date] = mapped_column(sa.Date)
+    end_date: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
+    # Clase de riesgo ARL (1 a 5). Cocina y salón: casi siempre 1.
+    arl_risk_class: Mapped[int] = mapped_column(sa.Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    created_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    created_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("arl_risk_class BETWEEN 1 AND 5", name="ck_payroll_contract_arl_class"),
+        CheckConstraint(
+            "monthly_salary_pesos IS NULL OR monthly_salary_pesos > 0", name="ck_payroll_contract_salary_pos"
+        ),
+        CheckConstraint("end_date IS NULL OR end_date >= start_date", name="ck_payroll_contract_range"),
+        Index("ix_payroll_contracts_employee_start", "employee_id", "start_date"),
+    )
+
+
+class AbsenceKind(str, enum.Enum):
+    SICK_LEAVE = "sick_leave"  # incapacidad por enfermedad general
+    WORK_ACCIDENT = "work_accident"  # incapacidad por accidente o enfermedad laboral
+    MATERNITY = "maternity"  # licencia de maternidad
+    PATERNITY = "paternity"  # licencia de paternidad
+    VACATION = "vacation"  # vacaciones
+    PAID_LEAVE = "paid_leave"  # licencia o permiso remunerado
+    BEREAVEMENT = "bereavement"  # licencia de luto / calamidad doméstica
+    UNPAID_LEAVE = "unpaid_leave"  # licencia o permiso no remunerado
+    SUSPENSION = "suspension"  # suspensión disciplinaria
+
+
+class PayrollAbsence(Base):
+    """Una novedad de nómina: días en que la persona no trabajó por una
+    causa que la ley paga (o descuenta) de una forma propia. Nunca se borra:
+    un error se anula con motivo."""
+
+    __tablename__ = "payroll_absences"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    employee_name: Mapped[str] = mapped_column(sa.String(200))
+    kind: Mapped[AbsenceKind] = mapped_column(_enum(AbsenceKind, length=24))
+    date_from: Mapped[date] = mapped_column(sa.Date)
+    date_to: Mapped[date] = mapped_column(sa.Date)
+    note: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    created_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    created_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    voided_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    voided_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    void_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("date_from <= date_to", name="ck_payroll_absence_range"),
+        Index("ix_payroll_absences_employee_from", "employee_id", "date_from"),
     )

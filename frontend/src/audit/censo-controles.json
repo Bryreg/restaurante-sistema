@@ -883,6 +883,30 @@
   "Confirmar",
   "Propina"
  ],
+ "features/payroll/ContractsTab.tsx": [
+  "Anular",
+  "Anular novedad",
+  "Clase de riesgo ARL",
+  "Confirmar",
+  "Contratos",
+  "Cómo se paga",
+  "Desde",
+  "Elegí a quién",
+  "Hasta",
+  "Inicio",
+  "Nota",
+  "Novedades",
+  "Parámetros legales",
+  "Persona",
+  "Por hora trabajada",
+  "Sin novedades registradas",
+  "Sueldo fijo mensual",
+  "Sueldo mensual",
+  "Terminación",
+  "Tipo de contrato",
+  "Tipo de novedad",
+  "Todavía no hay contratos cargados"
+ ],
  "features/payroll/HoursTab.tsx": [
   "Jornada no disponible",
   "No hay jornada registrada en este período",
@@ -891,6 +915,7 @@
   "Ver los turnos en Dinero"
  ],
  "features/payroll/PayrollAdminPage.tsx": [
+  "Contratos y novedades",
   "Encenderla en Funciones",
   "Horario de la semana",
   "Horas",
@@ -963,7 +988,6 @@
   "Rige desde",
   "Salón",
   "Tarifa por hora",
-  "Todavía no hay festivos cargados",
   "Todavía no hay tarifas cargadas",
   "Todavía no hay áreas asignadas",
   "Área",

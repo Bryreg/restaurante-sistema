@@ -66,6 +66,38 @@ const RUN_LINE_COLUMNS: readonly DenseColumn<PayrollRunLineOut>[] = [
     cell: (l) => (l.total === null ? <SinDato motivo={l.pay_reason} /> : formatCOP(l.total)),
     cellTitle: (l) => (l.total === null ? (l.pay_reason ?? undefined) : undefined),
   },
+  // 0043: con contrato cargado. Sin contrato, «—» con el motivo en el title.
+  {
+    key: "absences",
+    header: "Novedades",
+    kind: "number",
+    secondary: true,
+    cell: (l) => (l.absence_pay == null ? "—" : `${formatCOP(l.absence_pay)} · ${l.absence_days ?? 0} d`),
+  },
+  {
+    key: "transport",
+    header: "Auxilio de transporte",
+    kind: "number",
+    secondary: true,
+    cell: (l) => (l.transport_allowance == null ? "—" : formatCOP(l.transport_allowance)),
+  },
+  {
+    key: "recoverable",
+    header: "A recobrar (EPS/ARL)",
+    kind: "number",
+    secondary: true,
+    cell: (l) => (l.recoverable == null ? "—" : formatCOP(l.recoverable)),
+  },
+  {
+    key: "employer",
+    header: "Costo para la sede",
+    kind: "number",
+    cell: (l) => (l.employer_total == null ? "—" : formatCOP(l.employer_total)),
+    cellTitle: (l) =>
+      l.employer_total == null
+        ? (l.pay_reason ?? "Sin contrato cargado: sólo horas.")
+        : `Incluye aportes ${formatCOP(l.employer_contributions ?? 0)} y prestaciones ${formatCOP(l.benefits_provision ?? 0)}, menos lo que se recobra.`,
+  },
 ]
 
 /**
@@ -142,6 +174,15 @@ function RunDetail({ runId }: { runId: number }): React.JSX.Element {
   const lines = run?.lines ?? []
   return (
     <div className="space-y-3">
+      {run?.employer_total_amount != null ? (
+        <p className="text-sm">
+          <span className="text-muted-foreground">Costo total para la sede </span>
+          <span className="font-semibold" data-testid="payroll-employer-total">
+            {formatCOP(run.employer_total_amount)}
+          </span>
+          <span className="text-muted-foreground"> · pagado a las personas {formatCOP(run.total_amount)}</span>
+        </p>
+      ) : null}
       {tables.some((t) => t.confirmed_by_person === false) ? (
         <p role="status" className="text-sm text-muted-foreground">
           <strong>Esta liquidación se calculó con una tabla de recargos sin revisar.</strong> Los valores los cargó la

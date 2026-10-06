@@ -29,12 +29,15 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core import clock
 from app.payroll import service
 from app.stores.models import Store
 
 
 def period_payroll_cost(db: Session, *, store_id: int, date_from: date, date_to: date) -> int | None:
+    """Lo que la nómina del período le cuesta a la sede (0043): lo pagado más
+    aportes y provisión de prestaciones, menos lo que recobran EPS/ARL, con
+    el mismo motor que `create_run` (`service.compute_period`). Quien no
+    tiene contrato cargado aporta sólo sus horas."""
     store = db.get(Store, store_id)
     if store is None:
         return None
@@ -42,22 +45,13 @@ def period_payroll_cost(db: Session, *, store_id: int, date_from: date, date_to:
     if not service.list_surcharge_tables(db, store_id=store_id):
         return None
 
-    by_employee, _ = service._employee_pieces(
-        db, store=store, date_from=date_from, date_to=date_to, employee_id=None, until=clock.now_utc()
-    )
-    if not by_employee:
-        # Nadie tiene jornada en el período: nómina legítima de $0 (no es
-        # "sin datos" — es que efectivamente nadie trabajó).
-        return 0
-
-    wage_rates_by_employee = service._wage_rates_by_employee(db, store_id=store_id)
+    lines, _ = service.compute_period(db, store=store, date_from=date_from, date_to=date_to)
     total = 0
-    for employee_id, pieces in by_employee.items():
-        rates_sorted = wage_rates_by_employee.get(employee_id, [])
-        pay = service._compute_employee_pay(pieces, rates_sorted)
-        if pay.total is None:
+    for line in lines:
+        cost = line.employer_total
+        if cost is None:
             return None
-        total += pay.total
+        total += cost
     return total
 
 
