@@ -54,7 +54,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import Actor, admin_store, current_admin
 from app.core import hours as hours_mod
-from app.core import tz
+from app.core import clock, tz
 from app.core.csv import wants_csv
 from app.core.csv_es import csv_es_response
 from app.core.errors import AppError
@@ -334,10 +334,20 @@ def post_surcharge_table(
 
 @router.get("/admin/payroll/holidays", dependencies=[Depends(require_feature("payroll"))])
 def list_holidays(
-    store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+    store_id: int,
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
 ) -> list[HolidayOut]:
+    """El calendario del año (por defecto el actual): los festivos de ley,
+    calculados, y los que la sede declaró."""
     store = admin_store(db, actor, store_id)
-    return [_holiday_out(r) for r in service.list_holidays(db, store_id=store.id)]
+    year = year or clock.now_utc().year
+    return [
+        _holiday_out(row) if row is not None
+        else HolidayOut(id=None, store_id=store.id, holiday_date=d, name=name, source="ley")
+        for d, name, row in service.holidays_for_year(db, store_id=store.id, year=year)
+    ]
 
 
 @router.post("/admin/payroll/holidays", status_code=201, dependencies=[Depends(require_feature("payroll"))])

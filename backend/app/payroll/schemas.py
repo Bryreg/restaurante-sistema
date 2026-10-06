@@ -178,10 +178,13 @@ class HolidayIn(BaseModel):
 
 
 class HolidayOut(OutModel):
-    id: int
+    # `None` para los festivos de ley: se calculan, no son filas.
+    id: int | None
     store_id: int
     holiday_date: date
     name: str
+    # «ley» (calculado, Ley 51 de 1983) o «sede» (declarado a mano).
+    source: Literal["ley", "sede"] = "sede"
 
 
 # ---------------------------------------------------------------------------

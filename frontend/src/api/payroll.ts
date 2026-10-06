@@ -356,10 +356,12 @@ export function createWage(
 }
 
 export interface HolidayOut {
-  id: number
+  /** `null` en los festivos de ley: los calcula el servidor (Ley 51 de 1983). */
+  id: number | null
   store_id: number
   holiday_date: string
   name: string
+  source?: "ley" | "sede"
 }
 
 export interface HolidayIn {
@@ -367,8 +369,8 @@ export interface HolidayIn {
   name: string
 }
 
-export function getHolidays(storeId: number): Promise<HolidayOut[]> {
-  return api<HolidayOut[]>("/admin/payroll/holidays", { query: { store_id: storeId } })
+export function getHolidays(storeId: number, year?: number): Promise<HolidayOut[]> {
+  return api<HolidayOut[]>("/admin/payroll/holidays", { query: { store_id: storeId, year } })
 }
 
 export function createHoliday(

@@ -1057,10 +1057,7 @@ class Demo:
                 "employee_id": eid, "hourly_wage_pesos": wage, "valid_from": self.first_day.isoformat()})
             self.attempt(f"área {name}", a.post, f"/admin/payroll/areas?store_id={sid}",
                          {"employee_id": eid, "area": area})
-        for hdate, hname in ((date(2026, 10, 12), "Día de la Raza"), (date(2026, 11, 2), "Todos los Santos"),
-                             (date(2026, 8, 17), "Asunción de la Virgen"), (date(2026, 8, 7), "Batalla de Boyacá")):
-            self.attempt(f"festivo {hname}", a.post, f"/admin/payroll/holidays?store_id={sid}",
-                         {"holiday_date": hdate.isoformat(), "name": hname})
+        # Los festivos de ley los calcula el sistema (app/core/holidays_co.py).
         mid = self.first_day + timedelta(days=min(13, self.days - 1))
         if self.attempt("liquidar quincena", a.post, f"/admin/payroll/runs?store_id={sid}", {
                 "date_from": self.first_day.isoformat(), "date_to": mid.isoformat()}):

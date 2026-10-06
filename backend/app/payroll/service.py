@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.service import record_audit
 from app.auth.deps import Actor
-from app.core import clock, tz
+from app.core import clock, holidays_co, tz
 from app.core import hours as hours_mod
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.orders.money import prorate
@@ -163,7 +163,25 @@ def list_holidays(db: Session, *, store_id: int) -> list[PayrollHoliday]:
 
 
 def _holiday_dates(db: Session, *, store_id: int) -> set[date]:
-    return {row.holiday_date for row in list_holidays(db, store_id=store_id)}
+    """Festivos de ley (calculados) más los que la sede declaró a mano (un
+    día cívico local, por ejemplo)."""
+    legal: set[date] = set()
+    for year in range(2020, clock.now_utc().year + 3):
+        legal.update(holidays_co.colombian_holidays(year))
+    return legal | {row.holiday_date for row in list_holidays(db, store_id=store_id)}
+
+
+def holidays_for_year(db: Session, *, store_id: int, year: int) -> list[tuple[date, str, PayrollHoliday | None]]:
+    """Calendario del año para la pantalla: los de ley y los declarados por
+    la sede, en orden. Un declarado que coincide con uno de ley gana (es el
+    nombre que la persona escribió)."""
+    out: dict[date, tuple[date, str, PayrollHoliday | None]] = {
+        d: (d, name, None) for d, name in holidays_co.colombian_holidays(year).items()
+    }
+    for row in list_holidays(db, store_id=store_id):
+        if row.holiday_date.year == year:
+            out[row.holiday_date] = (row.holiday_date, row.name, row)
+    return [out[d] for d in sorted(out)]
 
 
 def create_holiday(db: Session, *, actor: Actor, store: Store, payload: Any) -> PayrollHoliday:
@@ -174,6 +192,12 @@ def create_holiday(db: Session, *, actor: Actor, store: Store, payload: Any) -> 
     ).scalar_one_or_none()
     if existing is not None:
         raise ConflictError(f"{payload.holiday_date} ya está declarado como festivo", code="HOLIDAY_DUPLICATE")
+    legal_name = holidays_co.colombian_holidays(payload.holiday_date.year).get(payload.holiday_date)
+    if legal_name is not None:
+        raise ConflictError(
+            f"{payload.holiday_date} ya es festivo de ley ({legal_name}); el sistema lo calcula solo",
+            code="HOLIDAY_DUPLICATE",
+        )
     row = PayrollHoliday(
         organization_id=store.organization_id,
         store_id=store.id,
