@@ -34,6 +34,13 @@ vi.mock("@/api/orders", async () => {
 
 const { deviceIdentifyMock } = vi.hoisted(() => ({ deviceIdentifyMock: vi.fn() }))
 
+const { setProductAvailabilityMock } = vi.hoisted(() => ({ setProductAvailabilityMock: vi.fn() }))
+
+vi.mock("@/api/catalog", async () => {
+  const actual = await vi.importActual<typeof import("@/api/catalog")>("@/api/catalog")
+  return { ...actual, setProductAvailability: setProductAvailabilityMock }
+})
+
 vi.mock("@/api/auth", async () => {
   const actual = await vi.importActual<typeof import("@/api/auth")>("@/api/auth")
   return { ...actual, deviceIdentify: deviceIdentifyMock }
@@ -64,6 +71,33 @@ vi.mock("@/api/kitchen", async () => {
 })
 
 describe("KdsPage", () => {
+  it("«Agotado» de un toque marca el plato agotado en la carta, con Idempotency-Key", async () => {
+    listKitchenRoundsMock.mockResolvedValue([
+      buildKdsRound({ items: [{ ...buildKdsRound().items![0]!, product_id: 9 }] }),
+    ])
+    listPrintJobsMock.mockResolvedValue([])
+    setProductAvailabilityMock.mockResolvedValue({ id: 9, available: false })
+
+    const user = userEvent.setup()
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    await user.click(await screen.findByRole("button", { name: "Agotado: Bandeja Paisa" }))
+
+    await waitFor(() => expect(setProductAvailabilityMock).toHaveBeenCalledWith(9, { available: false }, expect.any(String)))
+    expect(await screen.findByText(/Agotado en la carta/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Bandeja Paisa: agotado en la carta" })).toBeDisabled()
+  })
+
+  it("un ítem sin producto de la carta no ofrece «Agotado»", async () => {
+    listKitchenRoundsMock.mockResolvedValue([buildKdsRound()])
+    listPrintJobsMock.mockResolvedValue([])
+
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    await waitFor(() => expect(screen.getByText(/bandeja paisa/i)).toBeInTheDocument())
+    expect(screen.queryByRole("button", { name: /^Agotado:/ })).not.toBeInTheDocument()
+  })
+
   it("sin kitchen.view ni kitchen.kds muestra el mensaje de función apagada y no pide datos", () => {
     renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.view": false, "kitchen.kds": false }) })
 

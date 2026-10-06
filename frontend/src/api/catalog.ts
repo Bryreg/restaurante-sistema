@@ -317,9 +317,11 @@ export function updateProduct(productId: number, data: ProductUpdateIn): Promise
 
 export function setProductAvailability(
   productId: number,
-  data: ProductAvailabilityIn
+  data: ProductAvailabilityIn,
+  /** El POS y el KDS la mandan (un reintento no repite la auditoría); Carta puede omitirla. */
+  idempotencyKey?: string
 ): Promise<ProductAdminOut> {
-  return api<ProductAdminOut>(`/products/${productId}/availability`, { method: "POST", body: data })
+  return api<ProductAdminOut>(`/products/${productId}/availability`, { method: "POST", body: data, idempotencyKey })
 }
 
 // ---------------------------------------------------------------------------

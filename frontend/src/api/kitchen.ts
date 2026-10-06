@@ -39,6 +39,8 @@ export interface KitchenRoundPlatformOut {
 
 export interface KitchenRoundItemOut {
   item_id: number
+  /** El plato de la carta, para «Agotado» desde el KDS; `null` en un ítem abierto. */
+  product_id?: number | null
   name?: string
   qty?: number
   modifiers_text?: string | null

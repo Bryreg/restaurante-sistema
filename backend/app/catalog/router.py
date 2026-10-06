@@ -37,6 +37,7 @@ from app.catalog.schemas import (
 from app.core import features
 from app.core.db import get_db
 from app.core.errors import AppError, UnauthorizedError
+from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 
 router = APIRouter()
 
@@ -234,29 +235,50 @@ def update_product(
 def set_product_availability(
     product_id: int,
     body: ProductAvailabilityIn,
+    request: Request,
     db: Session = Depends(get_db),
     actor: Actor = Depends(current_actor),
 ) -> ProductAdminOut:
+    """«Agotado» (lista 86): desde Carta, desde la carta del POS y desde el
+    KDS, un toque. Marcar un valor es idempotente por construcción; el POS y
+    el KDS igual mandan `Idempotency-Key` (un reintento devuelve la misma
+    respuesta y no repite la auditoría). Sin clave sigue respondiendo, como
+    siempre respondió Carta."""
     product = service.product_or_404(db, actor, product_id)
     if body.daily_count is not None:
         features.assert_feature(db, actor.organization_id, product.store_id, "pos.daily_count")
-    before = service.product_admin_out(db, product).model_dump()
-    product = service.set_product_availability(
-        db, product, available=body.available, daily_count=body.daily_count, actor=actor
-    )
-    after = service.product_admin_out(db, product)
-    record_audit(
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        before = service.product_admin_out(db, product).model_dump()
+        updated = service.set_product_availability(
+            db, product, available=body.available, daily_count=body.daily_count, actor=actor
+        )
+        after = service.product_admin_out(db, updated)
+        record_audit(
+            db,
+            actor=actor,
+            organization_id=actor.organization_id,
+            store_id=updated.store_id,
+            entity="product",
+            entity_id=updated.id,
+            action="set_availability",
+            before=before,
+            after=after.model_dump(),
+        )
+        return 200, after.model_dump(mode="json")
+
+    key = idempotency_key(request)
+    if key is None:
+        return ProductAdminOut.model_validate(_do()[1])
+    _status, resp = run_idempotent(
         db,
-        actor=actor,
         organization_id=actor.organization_id,
-        store_id=product.store_id,
-        entity="product",
-        entity_id=product.id,
-        action="set_availability",
-        before=before,
-        after=after.model_dump(),
+        scope="catalog.product_availability",
+        key=key,
+        request_hash=hash_request_body({"product_id": product_id, **body.model_dump(mode="json")}),
+        fn=_do,
     )
-    return after
+    return ProductAdminOut.model_validate(resp)
 
 
 # ---------------------------------------------------------------------------
