@@ -788,7 +788,7 @@ def post_password_change(
     return {"ok": True}
 
 
-@router.post("/auth/admin/recover")
+@router.post("/auth/recover")
 def post_password_recover(body: PasswordRecoverIn, request: Request, db: Session = Depends(get_db)) -> dict[str, bool]:
     """Olvidé mi contraseña: correo + un código de recuperación (de los que
     se guardaron al activar el 2FA o al generarlos). Cuenta como intento de

@@ -57,7 +57,7 @@ def test_two_factor_and_recovery(client: TestClient, admin_client: TestClient) -
     assert _login(client, code=codes[0]).status_code == 401
 
     # Olvidé la contraseña: correo + código de recuperación.
-    rec = client.post(f"{API}/auth/admin/recover",
+    rec = client.post(f"{API}/auth/recover",
                       json={"email": ADMIN_EMAIL, "recovery_code": codes[1], "new_password": "una-clave-nueva-larga"})
     assert rec.status_code == 200, rec.text
     assert _login(client, "una-clave-nueva-larga", code=codes[2]).status_code == 200

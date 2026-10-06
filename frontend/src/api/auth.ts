@@ -182,5 +182,5 @@ export function changePassword(current_password: string, new_password: string): 
 }
 
 export function recoverPassword(email: string, recovery_code: string, new_password: string): Promise<{ ok: boolean }> {
-  return api("/auth/admin/recover", { method: "POST", body: { email, recovery_code, new_password } });
+  return api("/auth/recover", { method: "POST", body: { email, recovery_code, new_password } });
 }
