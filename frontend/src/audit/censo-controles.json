@@ -130,6 +130,15 @@
   "Volver",
   "Volver a entrar"
  ],
+ "features/banking/BankAccountsDialog.tsx": [
+  "Agregar cuenta",
+  "Bancolombia, Nequi…",
+  "Hacer principal"
+ ],
+ "features/banking/BankProjection.tsx": [
+  "No se pudo calcular la proyección",
+  "Reintentar"
+ ],
  "features/banking/BankingAdminPage.tsx": [
   "Banco no está habilitado",
   "Conciliación datáfono",
@@ -157,13 +166,11 @@
   "Reversar"
  ],
  "features/banking/LedgerTab.tsx": [
-  "Consignaciones",
-  "Liquidaciones de datáfono (neto)",
+  "Anular movimiento",
   "No hay movimientos de banco en este período",
+  "No se pudo calcular el saldo del banco",
   "No se pudo cargar el libro del banco",
-  "Reintentar",
-  "Total del período",
-  "Transferencias"
+  "Reintentar"
  ],
  "features/banking/OwnerHandTab.tsx": [
   "Consignado",

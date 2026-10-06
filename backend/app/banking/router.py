@@ -48,9 +48,31 @@ from sqlalchemy.orm import Session
 
 from app.core.csv import CsvFormat, csv_response
 from app.auth.deps import Actor, admin_store, current_actor, current_admin, current_device, current_operator
-from app.banking import service
-from app.banking.models import BankDeposit, BankDepositStatus, CardSettlement, PlatformSettlement
+from app.banking import book, service
+from app.banking.models import (
+    BankAccount,
+    BankBalanceAnchor,
+    BankDeposit,
+    BankDepositStatus,
+    BankMovement,
+    CardSettlement,
+    PlatformSettlement,
+)
 from app.banking.schemas import (
+    BankAccountIn,
+    BankAccountOut,
+    BankAccountPatchIn,
+    BankAccountPositionOut,
+    BankAnchorIn,
+    BankAnchorOut,
+    BankAssignmentIn,
+    BankAssignmentOut,
+    BankMovementIn,
+    BankMovementOut,
+    BankPositionOut,
+    BankProjectionMonthOut,
+    BankProjectionOut,
+    BankVoidIn,
     BankLedgerOut,
     BankLedgerTotalsOut,
     CardReconciliationOut,
@@ -360,20 +382,305 @@ def bank_ledger(
     store_id: int,
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
+    account_id: int | None = None,
     format: CsvFormat = None,
     actor: Actor = Depends(current_admin),
     db: Session = Depends(get_db),
 ) -> BankLedgerOut | Response:
     store = admin_store(db, actor, store_id)
-    entries, totals = service.bank_ledger(db, store=store, date_from=date_from, date_to=date_to)
+    entries, totals = book.bank_ledger(db, store=store, date_from=date_from, date_to=date_to, account_id=account_id)
     result = BankLedgerOut(
         date_from=date_from,
         date_to=date_to,
+        account_id=account_id,
         entries=[LedgerEntryOut(**asdict(e)) for e in entries],
         totals=BankLedgerTotalsOut(**totals),
     )
     if format == "csv":
         return csv_response(result.entries, "libro-banco.csv")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 0046 · Cuentas, saldo del extracto, movimientos tecleados, asignaciones,
+# cuánto hay hoy y la proyección (`app.banking.book`).
+# ---------------------------------------------------------------------------
+
+
+def _account_out(view: book.AccountView | BankAccount) -> BankAccountOut:
+    return BankAccountOut(
+        id=view.id,
+        name=view.name,
+        is_default=view.is_default,
+        gmf_exempt=view.gmf_exempt,
+        receives_transfers=view.receives_transfers,
+        active=view.active,
+    )
+
+
+def _account_names(db: Session, store: Any) -> dict[int | None, str]:
+    return {a.id: a.name for a in book.list_accounts(db, store=store)}
+
+
+def _anchor_out(db: Session, store: Any, row: BankBalanceAnchor) -> BankAnchorOut:
+    return BankAnchorOut(
+        id=row.id,
+        account_id=row.account_id,
+        account_name=_account_names(db, store).get(row.account_id, ""),
+        balance_date=row.balance_date,
+        balance=row.balance,
+        note=row.note,
+        employee_name=row.employee_name,
+        created_at=row.created_at,
+        voided_at=row.voided_at,
+        voided_reason=row.voided_reason,
+        voided_by_employee_name=row.voided_by_employee_name,
+    )
+
+
+def _movement_out(db: Session, store: Any, row: BankMovement) -> BankMovementOut:
+    names = _account_names(db, store)
+    return BankMovementOut(
+        id=row.id,
+        account_id=row.account_id,
+        account_name=names.get(row.account_id, ""),
+        counter_account_id=row.counter_account_id,
+        counter_account_name=names.get(row.counter_account_id) if row.counter_account_id is not None else None,
+        direction=row.direction.value,  # type: ignore[arg-type]
+        cause=row.cause.value,  # type: ignore[arg-type]
+        business_date=row.business_date,
+        amount=row.amount,
+        description=row.description,
+        employee_name=row.employee_name,
+        created_at=row.created_at,
+        voided_at=row.voided_at,
+        voided_reason=row.voided_reason,
+        voided_by_employee_name=row.voided_by_employee_name,
+    )
+
+
+@router.get("/admin/bank/accounts", response_model=list[BankAccountOut], dependencies=[Depends(_require_bank())])
+def list_bank_accounts(
+    store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> list[BankAccountOut]:
+    store = admin_store(db, actor, store_id)
+    return [_account_out(a) for a in book.list_accounts(db, store=store)]
+
+
+@router.post("/admin/bank/accounts", status_code=201, dependencies=[Depends(_require_bank())])
+def create_bank_account(
+    payload: BankAccountIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> BankAccountOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = book.create_account(db, actor=actor, store=store, payload=payload)
+        return 201, _account_out(row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="banking.accounts", request=request, payload=payload, fn=_do
+    )
+    return BankAccountOut.model_validate(body)
+
+
+@router.patch("/admin/bank/accounts/{account_id}", dependencies=[Depends(_require_bank())])
+def update_bank_account(
+    account_id: int,
+    payload: BankAccountPatchIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> BankAccountOut:
+    store = admin_store(db, actor, store_id)
+    account = book.account_or_404(db, store=store, account_id=account_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = book.update_account(db, actor=actor, store=store, account=account, payload=payload)
+        return 200, _account_out(row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope="banking.accounts.update",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+    return BankAccountOut.model_validate(body)
+
+
+@router.get("/admin/bank/anchors", response_model=list[BankAnchorOut], dependencies=[Depends(_require_bank())])
+def list_bank_anchors(
+    store_id: int,
+    account_id: int | None = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[BankAnchorOut]:
+    store = admin_store(db, actor, store_id)
+    return [_anchor_out(db, store, a) for a in book.list_anchors(db, store=store, account_id=account_id)]
+
+
+@router.post("/admin/bank/anchors", status_code=201, dependencies=[Depends(_require_bank())])
+def create_bank_anchor(
+    payload: BankAnchorIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> BankAnchorOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = book.create_anchor(db, actor=actor, store=store, payload=payload)
+        return 201, _anchor_out(db, store, row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="banking.anchors", request=request, payload=payload, fn=_do
+    )
+    return BankAnchorOut.model_validate(body)
+
+
+@router.post("/admin/bank/anchors/{anchor_id}/void", dependencies=[Depends(_require_bank())])
+def void_bank_anchor(
+    anchor_id: int,
+    payload: BankVoidIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> BankAnchorOut:
+    store = admin_store(db, actor, store_id)
+    anchor = book.anchor_or_404(db, store=store, anchor_id=anchor_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = book.void_anchor(db, actor=actor, store=store, anchor=anchor, reason=payload.reason)
+        return 200, _anchor_out(db, store, row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="banking.anchors.void", request=request, payload=payload, fn=_do
+    )
+    return BankAnchorOut.model_validate(body)
+
+
+@router.post("/admin/bank/movements", status_code=201, dependencies=[Depends(_require_bank())])
+def create_bank_movement(
+    payload: BankMovementIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> BankMovementOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = book.create_movement(db, actor=actor, store=store, payload=payload)
+        return 201, _movement_out(db, store, row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="banking.movements", request=request, payload=payload, fn=_do
+    )
+    return BankMovementOut.model_validate(body)
+
+
+@router.post("/admin/bank/movements/{movement_id}/void", dependencies=[Depends(_require_bank())])
+def void_bank_movement(
+    movement_id: int,
+    payload: BankVoidIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> BankMovementOut:
+    store = admin_store(db, actor, store_id)
+    movement = book.movement_or_404(db, store=store, movement_id=movement_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = book.void_movement(db, actor=actor, store=store, movement=movement, reason=payload.reason)
+        return 200, _movement_out(db, store, row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope="banking.movements.void",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+    return BankMovementOut.model_validate(body)
+
+
+@router.post("/admin/bank/assignments", dependencies=[Depends(_require_bank())])
+def assign_bank_entry(
+    payload: BankAssignmentIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> BankAssignmentOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row, account = book.assign_entry(db, actor=actor, store=store, payload=payload)
+        out = BankAssignmentOut(
+            source_kind=row.source_kind,  # type: ignore[arg-type]
+            source_id=row.source_id,
+            account_id=account.id,
+            account_name=account.name,
+        )
+        return 200, out.model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope="banking.assignments",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+    return BankAssignmentOut.model_validate(body)
+
+
+@router.get("/admin/bank/position", response_model=BankPositionOut, dependencies=[Depends(_require_bank())])
+def bank_position(
+    store_id: int,
+    format: CsvFormat = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> BankPositionOut | Response:
+    store = admin_store(db, actor, store_id)
+    data = book.bank_position(db, store=store)
+    result = BankPositionOut(
+        as_of=data["as_of"],
+        accounts=[
+            BankAccountPositionOut(**{**asdict(p), "account": _account_out(p.account)}) for p in data["accounts"]
+        ],
+        total=data["total"],
+        total_reason=data["total_reason"],
+        gmf_per_mille=book.GMF_PER_MILLE,
+    )
+    if format == "csv":
+        return csv_response(result.accounts, "saldo-banco.csv")
+    return result
+
+
+@router.get("/admin/bank/projection", response_model=BankProjectionOut, dependencies=[Depends(_require_bank())])
+def bank_projection(
+    store_id: int,
+    months: int = Query(3, ge=1, le=3),
+    format: CsvFormat = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> BankProjectionOut | Response:
+    store = admin_store(db, actor, store_id)
+    data = book.bank_projection(db, store=store, months=months)
+    result = BankProjectionOut(**{**data, "months": [BankProjectionMonthOut(**m) for m in data["months"]]})
+    if format == "csv":
+        return csv_response(result.months, "proyeccion-banco.csv")
     return result
 
 

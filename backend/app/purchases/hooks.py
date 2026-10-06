@@ -34,6 +34,11 @@ nunca se llama desde afuera de otra forma):
         # las líneas de las recepciones CONFIRMADAS del día operativo, con
         # su lote y vencimiento, para «Entradas de mercancía» de Hoy
 
+**Hacia `banking`** (0046, proyección del libro del banco):
+
+    open_payables(db, *, store_id) -> list[dict]
+        # {payable_id, due_date, balance} de toda cuenta no cancelada con saldo
+
 **Hacia `shifts`** (2026-09-29, pantalla «Cuadres» como el café):
 
     supplier_names_by_cash_movement(db, movement_ids) -> dict[int, str]
@@ -143,6 +148,26 @@ def overdue_payables(db: Session, *, store_id: int) -> list[dict]:
                 "days_overdue": (today - payable.due_date).days,
             }
         )
+    return result
+
+
+def open_payables(db: Session, *, store_id: int) -> list[dict]:
+    """Hacia `banking` (proyección del libro del banco, 0046): toda cuenta
+    por pagar no cancelada con saldo vivo, con su vencimiento. Mismo saldo
+    derivado que `overdue_payables` y `service.payable_balance`."""
+    rows = db.execute(
+        select(Payable).where(Payable.store_id == store_id, Payable.status != PayableStatus.CANCELLED)
+    ).scalars().all()
+    result: list[dict] = []
+    for payable in rows:
+        paid = db.execute(
+            select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                Payment.payable_id == payable.id, Payment.voided_at.is_(None)
+            )
+        ).scalar_one()
+        balance = payable.amount - int(paid)
+        if balance > 0:
+            result.append({"payable_id": payable.id, "due_date": payable.due_date, "balance": balance})
     return result
 
 

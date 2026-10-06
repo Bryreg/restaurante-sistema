@@ -292,3 +292,173 @@ class PlatformSettlement(Base):
         CheckConstraint("commission_amount >= 0", name="ck_platform_settlements_commission_nonneg"),
         CheckConstraint("period_to >= period_from", name="ck_platform_settlements_period_order"),
     )
+
+
+# ---------------------------------------------------------------------------
+# 0046 · El libro del banco completo (c2, «igual que la Plata del café»):
+# cuentas, saldo del extracto (ancla), movimientos tecleados por el dueño y
+# a qué cuenta va cada renglón que el sistema ya conoce.
+# ---------------------------------------------------------------------------
+
+
+class BankMovementDirection(str, enum.Enum):
+    IN = "in"
+    OUT = "out"
+
+
+class BankMovementCause(str, enum.Enum):
+    """Causa tipada de un movimiento tecleado (nunca texto libre). Lo que el
+    sistema ya registra en otro lado —consignaciones, datáfono,
+    transferencias de clientes, gastos y obligaciones pagados del banco,
+    pagos a proveedores— **no** se teclea acá: entra solo al libro."""
+
+    PAYROLL = "payroll"
+    BANK_FEE = "bank_fee"
+    TAX = "tax"
+    OWNER_WITHDRAWAL = "owner_withdrawal"
+    OWNER_CONTRIBUTION = "owner_contribution"
+    ACCOUNT_TRANSFER = "account_transfer"
+    INTEREST = "interest"
+    ADJUSTMENT = "adjustment"
+    OTHER = "other"
+
+
+class BankAccount(Base):
+    """Una cuenta por donde entra y sale la plata de la sede (Bancolombia,
+    Nequi…). Hay una **cuenta principal** (`is_default`) por sede: todo
+    renglón que el sistema deriva y que nadie asignó a otra cuenta cae ahí.
+
+    `gmf_exempt`: la cuenta está marcada exenta del 4×1000 ante el banco.
+    Si no lo está, cada salida lleva su GMF derivado (nunca guardado).
+    `receives_transfers`: las transferencias de clientes (medio de pago
+    «transferencia») llegan a esta cuenta en vez de a la principal.
+
+    Nunca se borra: se desactiva (`active = false`) y su historia sigue
+    contando en el libro."""
+
+    __tablename__ = "bank_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+
+    name: Mapped[str] = mapped_column(sa.String(80))
+    is_default: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    gmf_exempt: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    receives_transfers: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    created_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    created_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    __table_args__ = (
+        # Una sola cuenta principal por sede, defendido en la base: dos
+        # «crear la principal» concurrentes chocan acá (409), no duplican.
+        Index(
+            "uq_bank_accounts_one_default_per_store",
+            "store_id",
+            unique=True,
+            postgresql_where=sa.text("is_default"),
+            sqlite_where=sa.text("is_default = 1"),
+        ),
+    )
+
+
+class BankBalanceAnchor(Base):
+    """El saldo del extracto que el dueño tecleó: **con cuánto cerró la
+    cuenta el día `balance_date`**. El libro corre desde ahí: los renglones
+    de días posteriores se suman encima. (El café lo toma como saldo de
+    APERTURA; acá es de CIERRE, porque el dueño mira el banco a cualquier
+    hora y un movimiento del mismo día que ya está en el extracto, contado
+    otra vez, mostraría plata de más — el error tolerable es el que muestra
+    menos.)
+
+    Vale el ancla viva con la fecha más reciente. Nunca se edita ni se
+    borra: una mal tecleada se anula con motivo, o se teclea una nueva."""
+
+    __tablename__ = "bank_balance_anchors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
+
+    balance_date: Mapped[date] = mapped_column(sa.Date)
+    balance: Mapped[int] = mapped_column(sa.Integer)
+    note: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    voided_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    voided_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    voided_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    voided_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    __table_args__ = (Index("ix_bank_balance_anchors_account_date", "account_id", "balance_date"),)
+
+
+class BankMovement(Base):
+    """Un movimiento del banco que el sistema no conoce por otro lado y el
+    dueño teclea: la nómina pagada por transferencia, la cuota de manejo,
+    un aporte o un retiro del dueño, un traslado entre cuentas propias.
+
+    `amount` siempre positivo; el signo lo pone `direction`. Un traslado
+    (`cause = account_transfer`) sale de `account_id` y entra a
+    `counter_account_id`: un solo registro, dos renglones en el libro.
+    Nunca se borra: se anula con motivo."""
+
+    __tablename__ = "bank_movements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
+    counter_account_id: Mapped[int | None] = mapped_column(ForeignKey("bank_accounts.id"), nullable=True)
+
+    direction: Mapped[BankMovementDirection] = mapped_column(_enum(BankMovementDirection, length=8))
+    cause: Mapped[BankMovementCause] = mapped_column(_enum(BankMovementCause, length=24))
+    business_date: Mapped[date] = mapped_column(sa.Date)
+    amount: Mapped[int] = mapped_column(sa.Integer)
+    description: Mapped[str] = mapped_column(sa.String(200))
+
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    voided_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    voided_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    voided_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    voided_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_bank_movements_amount_positive"),
+        Index("ix_bank_movements_store_date", "store_id", "business_date"),
+    )
+
+
+class BankEntryAssignment(Base):
+    """A qué cuenta va un renglón que el sistema deriva de otro dominio
+    (una consignación, una liquidación, un gasto pagado del banco…). Sin
+    fila acá, el renglón va a la cuenta principal. Una fila por renglón de
+    origen; cambiarlo de cuenta actualiza la fila con auditoría (es un dato
+    de clasificación, no un monto: el renglón de origen no se toca)."""
+
+    __tablename__ = "bank_entry_assignments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    source_kind: Mapped[str] = mapped_column(sa.String(32))
+    source_id: Mapped[int] = mapped_column(sa.Integer)
+    account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
+
+    employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    __table_args__ = (
+        UniqueConstraint("store_id", "source_kind", "source_id", name="uq_bank_entry_assignments_source"),
+    )
