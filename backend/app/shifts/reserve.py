@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 from app.audit.service import record_audit
 from app.auth import service as auth_service
 from app.auth.deps import Actor
+from app.auth.models import Employee
 from app.core import clock, features, money
 from app.core.errors import AppError
 from app.core.money import format_cop
@@ -58,7 +59,6 @@ FEATURE = "cash.reserve"
 
 #: Acciones de `auth_service.verify_authorizer` (supervisor o administrador).
 TAKE_ACTION = "reserve_take"
-REVERSE_ACTION = "reserve_reverse"
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +192,19 @@ def list_movements(db: Session, *, shift_id: int) -> list[CashReserveMovement]:
     return list(
         db.execute(
             select(CashReserveMovement).where(CashReserveMovement.shift_id == shift_id).order_by(CashReserveMovement.at)
+        ).scalars()
+    )
+
+
+def list_store_movements(db: Session, *, store_id: int, limit: int = 30) -> list[CashReserveMovement]:
+    """Los movimientos más recientes de la base de la sede, para la tarjeta
+    del administrador en Caja › Dinero."""
+    return list(
+        db.execute(
+            select(CashReserveMovement)
+            .where(CashReserveMovement.store_id == store_id)
+            .order_by(CashReserveMovement.at.desc(), CashReserveMovement.id.desc())
+            .limit(limit)
         ).scalars()
     )
 
@@ -351,10 +364,10 @@ def give_back(
     return movement
 
 
-def get_movement_or_404(db: Session, *, shift: Shift, movement_id: int) -> CashReserveMovement:
+def get_store_movement_or_404(db: Session, *, store: Store, movement_id: int) -> CashReserveMovement:
     movement = db.get(CashReserveMovement, movement_id)
-    if movement is None or movement.shift_id != shift.id:
-        raise AppError("NOT_FOUND", "El movimiento de la base no existe en este turno", status=404)
+    if movement is None or movement.store_id != store.id:
+        raise AppError("NOT_FOUND", "El movimiento de la base no existe en esta sede", status=404)
     return movement
 
 
@@ -366,11 +379,12 @@ def reverse(
     store: Store,
     movement: CashReserveMovement,
     reason: str,
-    authorizer_pin: str | None,
+    authorizer: Employee,
 ) -> CashReserveMovement:
-    """Reversar un movimiento equivocado (con motivo y PIN de supervisor o
-    administrador). Reversar un «tomar» no puede dejar el cajón debiendo
-    menos que cero: si ya se devolvió, primero se reversa la devolución."""
+    """Reversar un movimiento equivocado, con motivo, desde Caja › Dinero:
+    lo autoriza el administrador que lo hace (`authorizer`). Reversar un
+    «tomar» no puede dejar el cajón debiendo menos que cero: si ya se
+    devolvió, primero se reversa la devolución."""
     _require_enabled(db, store)
     _require_open_shift(shift)
     if movement.reversed_at is not None:
@@ -382,14 +396,6 @@ def reverse(
             "Esa plata ya se devolvió a la base: reversá primero la devolución",
             status=400,
         )
-    authorizer = auth_service.verify_authorizer(
-        db,
-        organization_id=shift.organization_id,
-        store_id=shift.store_id,
-        pin=authorizer_pin,
-        action=REVERSE_ACTION,
-        requested_by=actor,
-    )
     movement.reversed_at = clock.now_utc()
     movement.reversed_reason = reason
     movement.reversed_by_employee_id = authorizer.id

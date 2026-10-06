@@ -1124,8 +1124,8 @@ class Demo:
                 self.report.counts["liquidaciones de plataforma"] += 1
 
         a.step = "reparto de propinas"
-        shifts = [sh for row in a.get(f"/admin/business-days?store_id={sid}") for sh in row["shifts"]
-                  if sh["status"] != "open"]
+        shifts = sorted((sh for sh in a.get(f"/admin/shifts?store_id={sid}") if sh["status"] != "open"),
+                        key=lambda sh: (sh["business_date"], sh["opened_at"]))
         first_week = [sh["id"] for sh in shifts if sh["business_date"] < (self.first_day + timedelta(days=7)).isoformat()]
         if first_week:
             proposal = self.attempt("propuesta de reparto", a.get,
@@ -1151,7 +1151,8 @@ class Demo:
         self.full_count(last_day)
 
         a.step = "nota crédito"
-        docs = a.get(f"/admin/documents?store_id={sid}&type=invoice") or []
+        docs = [d for d in (a.get(f"/admin/fiscal/documents?store_id={sid}") or [])
+                if d["document_type"] == "invoice"]
         if docs:
             doc = docs[-1]
             order = a.get(f"/admin/orders/{doc['order_id']}")

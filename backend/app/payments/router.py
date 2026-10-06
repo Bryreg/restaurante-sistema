@@ -6,16 +6,14 @@ no, FastAPI la captura como `document_id="last"`.
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.auth.deps import Actor, admin_store, current_admin, current_device, current_operator
+from app.auth.deps import Actor, current_admin, current_device, current_operator
 from app.core import clock
-from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import AppError, UnauthorizedError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
@@ -158,33 +156,3 @@ def post_reprint_document(
     document = service.get_document_or_404(db, actor=actor, document_id=document_id)
     service.reprint_document(db, actor=actor, document=document)
     return service.document_printable(db, document)
-
-
-# ---------------------------------------------------------------------------
-# Admin
-# ---------------------------------------------------------------------------
-
-
-@router.get("/admin/documents")
-def get_admin_documents(
-    request: Request,
-    store_id: int = Query(...),
-    date_from: date | None = Query(None, alias="from"),
-    date_to: date | None = Query(None, alias="to"),
-    document_type: str | None = Query(None, alias="type"),
-    status: str | None = Query(None),
-    # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): `format`
-    # declarado en el contrato, no sólo leído de `request.query_params` dentro
-    # de `wants_csv` — mismo patrón que `app.reports.router.get_sales`.
-    format: str | None = Query(None, description='"csv" exporta como CSV'),
-    actor: Actor = Depends(current_admin),
-    db: Session = Depends(get_db),
-) -> list[dict[str, Any]] | Any:
-    del format  # declarado sólo para el OpenAPI; el valor real se lee de `wants_csv(request)`.
-    admin_store(db, actor, store_id)
-    rows = service.admin_list_documents(
-        db, store_id=store_id, date_from=date_from, date_to=date_to, document_type=document_type, status=status
-    )
-    if wants_csv(request):
-        return csv_response(rows, filename="comprobantes.csv")
-    return rows

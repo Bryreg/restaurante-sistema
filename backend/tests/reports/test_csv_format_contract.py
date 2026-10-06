@@ -55,7 +55,7 @@ def test_every_endpoint_that_serves_csv_declares_format_in_its_signature() -> No
     )
 
 
-def test_the_seventeen_endpoints_this_pedido_fixed_are_exactly_these() -> None:
+def test_the_endpoints_this_pedido_fixed_are_exactly_these() -> None:
     """Fija la lista exacta que este pedido corrigió (`outputs-2b/
     backend-lectura-contrato.md § 4`), para que el número deje de discutirse
     de memoria: la spec decía «cinco» (herencia de 1b-2), el reparto de este
@@ -63,7 +63,10 @@ def test_the_seventeen_endpoints_this_pedido_fixed_are_exactly_these() -> None:
     alguien agrega un listado nuevo con `wants_csv` y `format`, este test
     sigue en verde (no depende de la lista); si lo agrega SIN `format`, el
     test de arriba ya lo atrapa. Este segundo test es sólo para que la cifra
-    «17» quede escrita contra código, no contra memoria."""
+    «17» quede escrita contra código, no contra memoria.
+
+    Después quedan 16: `GET /admin/documents` (`get_admin_documents`) se
+    quitó porque duplicaba `GET /admin/fiscal/documents` y no tenía pantalla."""
     fixed_by_this_pedido = {
         "app/audit/router.py::list_audit",
         "app/auth/router.py::list_employees",
@@ -77,13 +80,12 @@ def test_the_seventeen_endpoints_this_pedido_fixed_are_exactly_these() -> None:
         "app/fiscal/router.py::get_fiscal_documents",
         "app/fiscal/router.py::get_notes",
         "app/notifications/router.py::list_notifications",
-        "app/payments/router.py::get_admin_documents",
         "app/refunds/router.py::admin_list_pending_refunds",
         "app/reports/router.py::get_accountant_report",
         "app/reports/router.py::get_unavailable_log",
         "app/stores/router.py::list_stores",
     }
-    assert len(fixed_by_this_pedido) == 17
+    assert len(fixed_by_this_pedido) == 16
 
     functions = _functions_calling_wants_csv()
     all_declared = {f"{path}::{name}" for path, name, has_format in functions if has_format}

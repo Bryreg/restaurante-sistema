@@ -2535,16 +2535,6 @@ def cash_summary(db: Session, *, store: Store, date_from: date | None, date_to: 
     }
 
 
-def list_business_days(db: Session, *, store_id: int, date_from: date | None, date_to: date | None) -> list[BusinessDay]:
-    stmt = select(BusinessDay).where(BusinessDay.store_id == store_id)
-    if date_from is not None:
-        stmt = stmt.where(BusinessDay.business_date >= date_from)
-    if date_to is not None:
-        stmt = stmt.where(BusinessDay.business_date <= date_to)
-    stmt = stmt.order_by(BusinessDay.business_date.desc())
-    return list(db.execute(stmt).scalars())
-
-
 _MOVEMENT_KIND_LABEL = {"income": "Ingreso", "expense": "Egreso"}
 #: Etiqueta legible de cada causa de movimiento de caja, para la cronología
 #: del turno. **Tiene que cubrir el enum entero**: `_movement_cause_label`

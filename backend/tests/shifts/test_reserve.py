@@ -164,21 +164,43 @@ def test_returning_without_a_loan_is_rejected(
     assert resp.json()["error"]["code"] == "RESERVE_NOTHING_TO_RETURN"
 
 
-def test_a_wrong_take_is_reversed_with_a_reason_and_both_rows_stay(
-    db: Session, device_client: TestClient, open_shift: Any, store: Any
+def test_a_wrong_take_is_reversed_by_the_admin_with_a_reason_and_both_rows_stay(
+    db: Session, device_client: TestClient, admin_client: TestClient, open_shift: Any, store: Any, employees: dict
 ) -> None:
+    """La tarjeta de la base de respaldo en Caja › Dinero: el administrador
+    ve los movimientos y reversa uno equivocado con motivo (él lo autoriza);
+    los dos quedan. La reversa ya no es una ruta del dispositivo."""
     _configure(db, store)
     shift = open_shift()
     take = _take(device_client, shift["id"], 50_000).json()
-    resp = device_client.post(
+
+    viejo = device_client.post(
         f"{API}/shifts/{shift['id']}/reserve/movements/{take['id']}/reverse",
         json={"reason": "Se tecleó mal", "authorizer_pin": SUPERVISOR_PIN},
     )
+    assert viejo.status_code in (404, 405), viejo.text
+
+    card = admin_client.get(f"{API}/admin/stores/{store.id}/reserve").json()
+    fila = next(m for m in card["movements"] if m["id"] == take["id"])
+    assert (fila["kind"], fila["amount"], fila["shift_open"], fila["reversed_at"]) == ("take", 50_000, True, None)
+
+    url = f"{API}/admin/stores/{store.id}/reserve/movements/{take['id']}/reverse"
+    sin_motivo = admin_client.post(url, json={"reason": ""})
+    assert sin_motivo.status_code in (400, 422)
+    resp = admin_client.post(url, json={"reason": "Se tecleó mal"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["reversed_reason"] == "Se tecleó mal"
+    assert resp.json()["reversed_by_employee_name"] == employees["admin"].name
     status = device_client.get(f"{API}/shifts/{shift['id']}/reserve").json()
     assert status["loan"] == 0
     assert len(status["movements"]) == 1
+
+    otra_vez = admin_client.post(url, json={"reason": "Otra vez"})
+    assert otra_vez.status_code == 400
+    assert otra_vez.json()["error"]["code"] == "RESERVE_ALREADY_REVERSED"
+
+    # Un id de otra sede (o inexistente) es 404.
+    assert admin_client.post(f"{API}/admin/stores/{store.id}/reserve/movements/999999/reverse", json={"reason": "x"}).status_code == 404
 
 
 def test_the_custodian_verifies_the_reserve_blind_and_the_cashier_cannot(

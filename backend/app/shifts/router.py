@@ -42,7 +42,6 @@ from app.shifts.schemas import (
     AdminReopenIn,
     AdminReviewIn,
     AdminShiftListItem,
-    BusinessDayListItem,
     CashMovementIn,
     CashMovementOut,
     CashPickupIn,
@@ -63,6 +62,7 @@ from app.shifts.schemas import (
     HandoverIn,
     HandoverKindLiteral,
     HandoverOut,
+    AdminReserveMovementOut,
     AdminReserveOut,
     OpeningCountOut,
     OpeningEnvelopeCandidateOut,
@@ -913,29 +913,6 @@ def admin_cuadres(
     return CuadresOut(**body)
 
 
-@router.get("/admin/business-days")
-def admin_business_days(
-    store_id: int,
-    date_from: date | None = Query(None, alias="from"),
-    date_to: date | None = Query(None, alias="to"),
-    actor: Actor = Depends(current_admin),
-    db: Session = Depends(get_db),
-) -> list[BusinessDayListItem]:
-    store = admin_store(db, actor, store_id)
-    days = service.list_business_days(db, store_id=store.id, date_from=date_from, date_to=date_to)
-    day_ids = [d.id for d in days]
-    shifts_by_day: dict[int, list[Shift]] = {}
-    if day_ids:
-        for s in db.execute(select(Shift).where(Shift.business_day_id.in_(day_ids))).scalars():
-            shifts_by_day.setdefault(s.business_day_id, []).append(s)
-    return [
-        BusinessDayListItem(
-            business_date=d.business_date, status=d.status, shifts=[_admin_shift_item(db, s) for s in shifts_by_day.get(d.id, [])]
-        )
-        for d in days
-    ]
-
-
 @router.get("/admin/employees/{employee_id}/activity")
 def admin_employee_activity(
     employee_id: int,
@@ -1113,33 +1090,6 @@ def post_reserve_return(
     )
 
 
-@router.post("/shifts/{shift_id}/reserve/movements/{movement_id}/reverse")
-def post_reserve_reverse(
-    shift_id: int,
-    movement_id: int,
-    payload: ReserveReverseIn,
-    actor: Actor = Depends(current_operator),
-    db: Session = Depends(get_db),
-    _feature: None = Depends(features.require_feature("cash.reserve")),
-) -> ReserveMovementOut:
-    """Reversar un movimiento de la base equivocado: motivo y PIN de
-    supervisor o administrador. Los dos quedan."""
-    store = _store_of(db, actor)
-    shift = service.get_shift_or_404(db, store_id=store.id, shift_id=shift_id)
-    shifts_hooks.require_cash_permission(db, actor=actor, shift=shift)
-    movement = reserve_service.get_movement_or_404(db, shift=shift, movement_id=movement_id)
-    movement = reserve_service.reverse(
-        db,
-        actor=actor,
-        shift=shift,
-        store=store,
-        movement=movement,
-        reason=payload.reason,
-        authorizer_pin=payload.authorizer_pin,
-    )
-    return ReserveMovementOut.model_validate(movement)
-
-
 @router.post("/reserve/checks", status_code=201)
 def post_reserve_check(
     payload: ReserveCheckIn,
@@ -1176,17 +1126,57 @@ def post_reserve_check(
 def get_admin_reserve(
     store_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
 ) -> AdminReserveOut:
-    """La base de respaldo de una sede para el administrador: monto fijo,
-    préstamos sin devolver (por turno) y las verificaciones del custodio."""
+    """La base de respaldo de una sede para el administrador (la tarjeta
+    de Caja › Dinero): monto fijo, préstamos sin devolver (por turno), los
+    movimientos recientes y las verificaciones del custodio."""
     store = admin_store(db, actor, store_id)
     loans = reserve_service.open_loans(db, store_id=store.id)
+    movements = reserve_service.list_store_movements(db, store_id=store.id)
+    open_ids = {
+        sid
+        for sid in db.execute(
+            select(Shift.id).where(Shift.id.in_({m.shift_id for m in movements}), Shift.status == ShiftStatus.OPEN)
+        ).scalars()
+    }
     return AdminReserveOut(
         enabled=features.is_enabled(db, store.organization_id, store.id, reserve_service.FEATURE),
         amount=reserve_service.reserve_amount(db, store.id),
         loans_outstanding=sum(loan.amount for loan in loans),
         open_loans=[ReserveOpenLoanOut(shift_id=loan.shift_id, amount=loan.amount, shift_open=loan.shift_open) for loan in loans],
+        movements=[
+            AdminReserveMovementOut(
+                **ReserveMovementOut.model_validate(m).model_dump(), shift_open=m.shift_id in open_ids
+            )
+            for m in movements
+        ],
         checks=[ReserveCheckOut.model_validate(c) for c in reserve_service.list_checks(db, store_id=store.id)],
     )
+
+
+@router.post("/admin/stores/{store_id}/reserve/movements/{movement_id}/reverse")
+def admin_reverse_reserve_movement(
+    store_id: int,
+    movement_id: int,
+    payload: ReserveReverseIn,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+    _feature: None = Depends(features.require_feature("cash.reserve")),
+) -> ReserveMovementOut:
+    """Reversar un movimiento de la base equivocado, desde la tarjeta de la
+    base de respaldo en Caja › Dinero: el administrador lo autoriza al
+    hacerlo y deja el motivo. Los dos quedan; sólo mientras el turno sigue
+    abierto."""
+    store = admin_store(db, actor, store_id)
+    movement = reserve_service.get_store_movement_or_404(db, store=store, movement_id=movement_id)
+    shift = db.get(Shift, movement.shift_id)
+    assert shift is not None
+    authorizer = db.get(Employee, actor.employee_id) if actor.employee_id is not None else None
+    if authorizer is None:
+        raise AppError("NOT_AUTHENTICATED", "Iniciá sesión como administrador", status=401)
+    movement = reserve_service.reverse(
+        db, actor=actor, shift=shift, store=store, movement=movement, reason=payload.reason, authorizer=authorizer
+    )
+    return ReserveMovementOut.model_validate(movement)
 
 
 # Asistencia del día (0028): rutas propias en su módulo, montadas con las del

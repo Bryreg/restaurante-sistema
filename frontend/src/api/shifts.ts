@@ -1049,25 +1049,6 @@ export function cuadresCsvUrl(filters: CuadresFilters, exportKind: "cuadres" | "
   return `/api/v1/admin/cuadres?${params.toString()}`;
 }
 
-export interface BusinessDayListItem {
-  business_date?: string;
-  status?: string;
-  shifts?: AdminShiftListItem[];
-}
-
-export interface BusinessDayFilters {
-  storeId: number;
-  from?: string;
-  to?: string;
-}
-
-/** `GET /admin/business-days?store_id&from&to`. */
-export function listBusinessDays(filters: BusinessDayFilters): Promise<BusinessDayListItem[]> {
-  return api<BusinessDayListItem[]>("/admin/business-days", {
-    query: { store_id: filters.storeId, from: filters.from, to: filters.to },
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Admin: Turnos y personal (actividad por persona, autorizaciones)
 // ---------------------------------------------------------------------------
@@ -1316,13 +1297,13 @@ export function returnToReserve(shiftId: number, body: ReserveReturnIn, idempote
   return api<ReserveMovement>(`/shifts/${shiftId}/reserve/return`, { method: "POST", body, idempotencyKey });
 }
 
-/** `POST /shifts/{id}/reserve/movements/{mid}/reverse` — nunca se borra: se reversa. */
-export function reverseReserveMovement(
-  shiftId: number,
-  movementId: number,
-  body: { reason: string; authorizer_pin: string },
-): Promise<ReserveMovement> {
-  return api<ReserveMovement>(`/shifts/${shiftId}/reserve/movements/${movementId}/reverse`, { method: "POST", body });
+/**
+ * `POST /admin/stores/{id}/reserve/movements/{mid}/reverse` — el
+ * administrador reversa un movimiento equivocado desde Caja › Dinero, con
+ * motivo (él lo autoriza). Nunca se borra: se reversa; sólo con el turno abierto.
+ */
+export function reverseReserveMovement(storeId: number, movementId: number, body: { reason: string }): Promise<ReserveMovement> {
+  return api<ReserveMovement>(`/admin/stores/${storeId}/reserve/movements/${movementId}/reverse`, { method: "POST", body });
 }
 
 /** `POST /reserve/checks` (respuesta): lo que se revela DESPUÉS de contar la base. */
@@ -1346,12 +1327,18 @@ export function verifyReserve(
   return api<ReserveCheck>("/reserve/checks", { method: "POST", body, idempotencyKey });
 }
 
-/** `GET /admin/stores/{id}/reserve`: para el panel del administrador. */
+/** Un movimiento de la base visto por el administrador: se reversa sólo con el turno abierto. */
+export interface AdminReserveMovement extends ReserveMovement {
+  shift_open: boolean;
+}
+
+/** `GET /admin/stores/{id}/reserve`: la tarjeta de la base de respaldo en Caja › Dinero. */
 export interface AdminReserve {
   enabled: boolean;
   amount: number;
   loans_outstanding: number;
   open_loans: { shift_id: number; amount: number; shift_open: boolean }[];
+  movements: AdminReserveMovement[];
   checks: ReserveCheck[];
 }
 

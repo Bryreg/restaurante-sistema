@@ -712,12 +712,6 @@ class AdjustOpeningPreviewOut(BaseModel):
     to_deposit_after: int | None
 
 
-class BusinessDayListItem(BaseModel):
-    business_date: date
-    status: str
-    shifts: list[AdminShiftListItem]
-
-
 class EmployeeActivityShift(BaseModel):
     shift_id: int
     business_date: date
@@ -932,8 +926,10 @@ class ReserveReturnIn(BaseModel):
 
 
 class ReserveReverseIn(BaseModel):
+    """Reversar un movimiento de la base desde Caja › Dinero: el
+    administrador que lo hace es quien lo autoriza; sólo pide el motivo."""
+
     reason: str = Field(min_length=1)
-    authorizer_pin: str | None = None
 
 
 class ReserveMovementOut(OutModel):
@@ -997,14 +993,22 @@ class ReserveOpenLoanOut(BaseModel):
     shift_open: bool
 
 
+class AdminReserveMovementOut(ReserveMovementOut):
+    # Sólo se reversa mientras el turno sigue abierto (después, el préstamo
+    # ya quedó en el cierre): la tarjeta ofrece «Reversar» con esto.
+    shift_open: bool
+
+
 class AdminReserveOut(BaseModel):
     """`GET /admin/stores/{id}/reserve`: la base de respaldo de una sede para
-    el administrador —monto, prestado sin devolver y las verificaciones—."""
+    el administrador (Caja › Dinero) —monto, prestado sin devolver, los
+    movimientos recientes y las verificaciones—."""
 
     enabled: bool
     amount: int
     loans_outstanding: int
     open_loans: list[ReserveOpenLoanOut]
+    movements: list[AdminReserveMovementOut]
     checks: list[ReserveCheckOut]
 
 

@@ -105,9 +105,13 @@ def test_documents_last(device_client: TestClient, paid_order: Any) -> None:
 
 
 def test_admin_list_and_csv(admin_client: Any, store: Any, paid_order: Any) -> None:
+    """El listado del administrador es `GET /admin/fiscal/documents` (el
+    `GET /admin/documents` que lo duplicaba se quitó: no tenía pantalla)."""
     payment = paid_order(tip=NO_TIP)
 
-    resp = admin_client.get(f"/api/v1/admin/documents?store_id={store.id}")
+    assert admin_client.get(f"/api/v1/admin/documents?store_id={store.id}").status_code in (404, 405)
+
+    resp = admin_client.get(f"/api/v1/admin/fiscal/documents?store_id={store.id}")
     assert resp.status_code == 200, resp.text
     rows = resp.json()
     assert any(r["id"] == payment["document"]["id"] for r in rows)
@@ -115,7 +119,7 @@ def test_admin_list_and_csv(admin_client: Any, store: Any, paid_order: Any) -> N
     assert row["full_number"] == payment["document"]["full_number"]
     assert row["charged_by"] == "Cashier"
 
-    csv_resp = admin_client.get(f"/api/v1/admin/documents?store_id={store.id}&format=csv")
+    csv_resp = admin_client.get(f"/api/v1/admin/fiscal/documents?store_id={store.id}&format=csv")
     assert csv_resp.status_code == 200, csv_resp.text
     assert csv_resp.headers["content-type"].startswith("text/csv")
     # Movido a propósito: el CSV pasó a Excel es-CO (`;`, BOM y encabezados en
