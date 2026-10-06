@@ -614,8 +614,13 @@ def _employee_pieces(
     vigentes en algún día del período (para `tables_used`)."""
     tables_sorted = list_surcharge_tables(db, store_id=store.id)
     holidays = _holiday_dates(db, store_id=store.id)
+    # La jornada semanal se mide con la semana COMPLETA: si el período
+    # empieza un miércoles, el lunes y el martes de esa semana cuentan para
+    # el umbral de extras (no se pagan acá: ya se pagaron en el período
+    # anterior). Por eso se lee desde el lunes de la primera semana.
+    week_start = date_from - timedelta(days=date_from.weekday())
     intervals_by_employee, names = _employee_intervals(
-        db, store=store, date_from=date_from, date_to=date_to, employee_id=employee_id, until=until
+        db, store=store, date_from=week_start, date_to=date_to, employee_id=employee_id, until=until
     )
 
     by_employee: dict[int, list[_Piece]] = {}
@@ -638,11 +643,11 @@ def _employee_pieces(
                 if minutes <= 0:
                     continue
                 business_date = tz.business_date_for(p_start, store.cutoff_hour)
-                if business_date < date_from or business_date > date_to:
+                if business_date < week_start or business_date > date_to:
                     continue
                 calendar_date = tz.to_bogota(p_start).date()
                 table = _table_for(tables_sorted, calendar_date)
-                if table is not None:
+                if table is not None and business_date >= date_from:
                     used_tables[table.id] = table
                     local_hour = tz.to_bogota(p_start).hour
                     is_night = _in_night_window(local_hour, table.night_start_hour, table.night_end_hour)
@@ -664,8 +669,13 @@ def _employee_pieces(
                 )
                 by_employee.setdefault(row_employee_id, []).append(piece)
 
-    for pieces in by_employee.values():
-        _split_ordinary_overtime(pieces)
+    for emp_id in list(by_employee):
+        _split_ordinary_overtime(by_employee[emp_id])
+        in_period = [p for p in by_employee[emp_id] if p.business_date >= date_from]
+        if in_period:
+            by_employee[emp_id] = in_period
+        else:
+            del by_employee[emp_id]
 
     tables_used = sorted(used_tables.values(), key=lambda t: t.valid_from)
     return by_employee, tables_used
@@ -674,10 +684,10 @@ def _employee_pieces(
 def _split_ordinary_overtime(pieces: list[_Piece]) -> None:
     """Ordinarias vs extras: jornada ordinaria semanal vigente en la fecha
     de cada pieza (`SurchargeTable.weekly_ordinary_hours`), por semana ISO
-    (lunes a domingo), cronológico. **Simplificación declarada en el
-    entregable**: el umbral se mide sólo con las horas de la pieza que caen
-    DENTRO del período consultado, no con la semana completa si el período
-    empieza o termina a mitad de una semana ISO."""
+    (lunes a domingo), cronológico. Recibe también las piezas de los días
+    de la primera semana anteriores al período (`_employee_pieces` las lee
+    y las descarta después), para que el umbral se mida con la semana
+    completa."""
     ordered = sorted(pieces, key=lambda p: p.start)
     week_totals: dict[tuple[int, int], int] = {}
     for piece in ordered:
