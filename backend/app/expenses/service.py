@@ -59,13 +59,16 @@ from app.auth.deps import Actor
 from app.core import clock, features, tz
 from app.core.errors import AppError, NotFoundError
 from app.core.modules import find_spec_safe
+from app.core.money import format_cop
 from app.core.percent import format_pct_bp
 from app.expenses.models import (
+    NON_COST_OBLIGATION_CATEGORIES,
     Expense,
     ExpenseCategory,
     ExpenseSource,
     Obligation,
     ObligationCategory,
+    ObligationPayment,
     ObligationStatus,
 )
 from app.expenses.schemas import (
@@ -73,6 +76,7 @@ from app.expenses.schemas import (
     ExpenseIn,
     FixedCostLineOut,
     ObligationIn,
+    ObligationPaymentIn,
     ObligationSettleIn,
     ProfitLineOut,
     ProfitOut,
@@ -164,7 +168,14 @@ def _cash_movement_in_use(db: Session, *, cash_movement_id: int) -> bool:
         .where(Obligation.cash_movement_id == cash_movement_id, Obligation.cancelled_at.is_(None))
         .limit(1)
     ).first()
-    return obligation is not None
+    if obligation is not None:
+        return True
+    payment = db.execute(
+        select(ObligationPayment.id)
+        .where(ObligationPayment.cash_movement_id == cash_movement_id, ObligationPayment.voided_at.is_(None))
+        .limit(1)
+    ).first()
+    return payment is not None
 
 
 #: Hasta cuántos días atrás se ofrecen los egresos del cajón para respaldar
@@ -188,6 +199,9 @@ def list_drawer_expense_movements(db: Session, *, store_id: int) -> list[Any]:
     used_by_obligation = select(Obligation.cash_movement_id).where(
         Obligation.cash_movement_id.is_not(None), Obligation.cancelled_at.is_(None)
     )
+    used_by_payment = select(ObligationPayment.cash_movement_id).where(
+        ObligationPayment.cash_movement_id.is_not(None), ObligationPayment.voided_at.is_(None)
+    )
     causes = [CashMovementCause(c) for c in sorted(_EXPENSE_CASH_MOVEMENT_CAUSES)]
     return list(
         db.execute(
@@ -199,6 +213,7 @@ def list_drawer_expense_movements(db: Session, *, store_id: int) -> list[Any]:
                 CashMovement.at >= since,
                 CashMovement.id.not_in(used_by_expense),
                 CashMovement.id.not_in(used_by_obligation),
+                CashMovement.id.not_in(used_by_payment),
             )
             .order_by(CashMovement.at.desc(), CashMovement.id.desc())
         ).scalars()
@@ -354,22 +369,57 @@ def list_obligations(
 
 
 def create_obligation(db: Session, *, actor: Actor, store: Store, payload: ObligationIn) -> Obligation:
+    return new_obligation(
+        db,
+        actor=actor,
+        store=store,
+        category=ObligationCategory(payload.category),
+        description=payload.description,
+        amount=payload.amount,
+        due_date=payload.due_date,
+    )
+
+
+def new_obligation(
+    db: Session,
+    *,
+    actor: Actor,
+    store: Store,
+    category: ObligationCategory,
+    description: str,
+    amount: int,
+    due_date: date,
+    origin: dict[str, Any] | None = None,
+) -> Obligation:
+    """La única puerta que crea una `Obligation` (a mano, de una plantilla,
+    del INC o de la nómina). `origin` son las columnas de procedencia
+    (`template_id`/`period_month`, `payroll_run_id`, `tax_year`/
+    `tax_bimester`). El `flush` es el que hace saltar los índices únicos:
+    quien llama decide qué significa un `IntegrityError`."""
     employee_id, employee_name = _actor_identity(actor)
     now = clock.now_utc()
     row = Obligation(
         organization_id=store.organization_id,
         store_id=store.id,
-        category=ObligationCategory(payload.category),
-        description=payload.description,
-        amount=payload.amount,
-        due_date=payload.due_date,
+        category=category,
+        description=description,
+        amount=amount,
+        due_date=due_date,
         status=ObligationStatus.PENDING,
         created_by_employee_id=employee_id,
         created_by_employee_name=employee_name,
         created_at=now,
+        **(origin or {}),
     )
     db.add(row)
     db.flush()
+    after: dict[str, Any] = {
+        "category": row.category.value,
+        "amount": row.amount,
+        "due_date": row.due_date.isoformat(),
+    }
+    for key, value in (origin or {}).items():
+        after[key] = value.isoformat() if isinstance(value, date) else value
     record_audit(
         db,
         actor=actor,
@@ -379,31 +429,124 @@ def create_obligation(db: Session, *, actor: Actor, store: Store, payload: Oblig
         entity_id=row.id,
         action="create",
         before=None,
-        after={
-            "category": row.category.value,
-            "amount": row.amount,
-            "due_date": row.due_date.isoformat(),
-        },
+        after=after,
     )
     return row
 
 
-def settle_obligation(db: Session, *, actor: Actor, obligation: Obligation, payload: ObligationSettleIn) -> Obligation:
+# ---------------------------------------------------------------------------
+# c5 · Abonos. El estado de la obligación es la suma de sus abonos vivos:
+# `_refresh_status` es el único que lo escribe.
+# ---------------------------------------------------------------------------
+
+
+def paid_amounts(db: Session, obligation_ids: list[int]) -> dict[int, int]:
+    """Suma de abonos vivos por obligación (una sola consulta)."""
+    if not obligation_ids:
+        return {}
+    return {
+        int(obligation_id): int(total)
+        for obligation_id, total in db.execute(
+            select(ObligationPayment.obligation_id, func.sum(ObligationPayment.amount))
+            .where(ObligationPayment.obligation_id.in_(obligation_ids), ObligationPayment.voided_at.is_(None))
+            .group_by(ObligationPayment.obligation_id)
+        ).all()
+    }
+
+
+def pending_of(obligation: Obligation, paid: int) -> int:
+    return max(obligation.amount - paid, 0)
+
+
+def is_overdue(obligation: Obligation, *, paid: int, today: date) -> bool:
+    return obligation.cancelled_at is None and pending_of(obligation, paid) > 0 and obligation.due_date < today
+
+
+def list_payments(db: Session, *, obligation_id: int) -> list[ObligationPayment]:
+    return list(
+        db.execute(
+            select(ObligationPayment)
+            .where(ObligationPayment.obligation_id == obligation_id)
+            .order_by(ObligationPayment.paid_on, ObligationPayment.id)
+        ).scalars()
+    )
+
+
+def _refresh_status(
+    db: Session, obligation: Obligation, *, actor: Actor, last_payment: ObligationPayment | None
+) -> None:
+    """`last_payment` es el abono que acaba de entrar (o `None` al anular):
+    si con él queda saldada, su fuente y su egreso del cajón quedan como los
+    de la obligación (`settled_source`, `cash_movement_id`), igual que con la
+    puerta de antes de los abonos."""
+    paid = paid_amounts(db, [obligation.id]).get(obligation.id, 0)
+    if paid >= obligation.amount:
+        status = ObligationStatus.PAID
+    elif paid > 0:
+        status = ObligationStatus.PARTIAL
+    else:
+        status = ObligationStatus.PENDING
+    if status == ObligationStatus.PAID and obligation.status != ObligationStatus.PAID:
+        employee_id, employee_name = _actor_identity(actor)
+        obligation.settled_at = clock.now_utc()
+        obligation.settled_by_employee_id = employee_id
+        obligation.settled_by_employee_name = employee_name
+        obligation.settled_source = last_payment.source if last_payment is not None else None
+        if last_payment is not None and last_payment.cash_movement_id is not None and obligation.cash_movement_id is None:
+            obligation.cash_movement_id = last_payment.cash_movement_id
+    elif status != ObligationStatus.PAID:
+        obligation.settled_at = None
+        obligation.settled_by_employee_id = None
+        obligation.settled_by_employee_name = None
+        obligation.settled_source = None
+    obligation.status = status
+    db.flush()
+
+
+def _assert_payable(obligation: Obligation) -> None:
     if obligation.cancelled_at is not None:
-        raise AppError(code="OBLIGATION_CANCELLED", message="Esta obligación fue cancelada; no se puede saldar", status=400)
+        raise AppError(code="OBLIGATION_CANCELLED", message="Esta obligación fue cancelada; no se puede pagar", status=400)
     if obligation.status == ObligationStatus.PAID:
         raise AppError(code="OBLIGATION_ALREADY_SETTLED", message="Esta obligación ya está saldada", status=400)
 
+
+def add_payment(
+    db: Session, *, actor: Actor, store: Store, obligation: Obligation, payload: ObligationPaymentIn
+) -> ObligationPayment:
+    """Un abono. Nunca más de lo que falta (`OBLIGATION_OVERPAYMENT`): la
+    plata de más no tiene a dónde ir y dejaría un saldo negativo."""
+    _assert_payable(obligation)
+    paid = paid_amounts(db, [obligation.id]).get(obligation.id, 0)
+    pending = pending_of(obligation, paid)
+    if payload.amount > pending:
+        raise AppError(
+            code="OBLIGATION_OVERPAYMENT",
+            message=(
+                f"El abono ({format_cop(payload.amount)}) pasa lo que falta ({format_cop(pending)}): "
+                "escribí como máximo lo que falta"
+            ),
+            status=400,
+        )
     _validate_source(source=payload.source, cash_movement_id=payload.cash_movement_id, db=db, store_id=obligation.store_id)
     employee_id, employee_name = _actor_identity(actor)
-
-    obligation.status = ObligationStatus.PAID
-    obligation.settled_at = clock.now_utc()
-    obligation.settled_by_employee_id = employee_id
-    obligation.settled_by_employee_name = employee_name
-    obligation.settled_source = ExpenseSource(payload.source)
-    obligation.cash_movement_id = payload.cash_movement_id
+    paid_on = payload.paid_on or tz.today_business_date(store.cutoff_hour)
+    row = ObligationPayment(
+        organization_id=obligation.organization_id,
+        store_id=obligation.store_id,
+        obligation_id=obligation.id,
+        amount=payload.amount,
+        paid_on=paid_on,
+        source=ExpenseSource(payload.source),
+        cash_movement_id=payload.cash_movement_id,
+        note=payload.note,
+        created_by_employee_id=employee_id,
+        created_by_employee_name=employee_name,
+        created_at=clock.now_utc(),
+    )
+    db.add(row)
     db.flush()
+    before_status = obligation.status.value
+    _refresh_status(db, obligation, actor=actor, last_payment=row)
     record_audit(
         db,
         actor=actor,
@@ -411,9 +554,81 @@ def settle_obligation(db: Session, *, actor: Actor, obligation: Obligation, payl
         store_id=obligation.store_id,
         entity="obligation",
         entity_id=obligation.id,
-        action="settle",
-        before={"status": "pending"},
-        after={"status": "paid", "source": payload.source},
+        action="payment",
+        before={"status": before_status, "paid_amount": paid},
+        after={
+            "status": obligation.status.value,
+            "paid_amount": paid + row.amount,
+            "payment_id": row.id,
+            "amount": row.amount,
+            "source": row.source.value,
+            "paid_on": paid_on.isoformat(),
+        },
+    )
+    return row
+
+
+def get_payment_or_404(db: Session, *, obligation: Obligation, payment_id: int) -> ObligationPayment:
+    row = db.get(ObligationPayment, payment_id)
+    if row is None or row.obligation_id != obligation.id:
+        raise NotFoundError("Ese abono no existe en esta obligación")
+    return row
+
+
+def void_payment(
+    db: Session, *, actor: Actor, obligation: Obligation, payment: ObligationPayment, reason: str
+) -> ObligationPayment:
+    """Anula un abono con motivo (nunca se borra). La obligación vuelve a
+    tener saldo y su estado se recalcula; si el abono traía el egreso del
+    cajón de la puerta de antes (`Obligation.cash_movement_id`), ese egreso
+    queda libre otra vez."""
+    if payment.voided_at is not None:
+        raise AppError(code="PAYMENT_ALREADY_VOIDED", message="Este abono ya fue anulado", status=400)
+    if obligation.cancelled_at is not None:
+        raise AppError(code="OBLIGATION_CANCELLED", message="Esta obligación fue cancelada", status=400)
+    employee_id, employee_name = _actor_identity(actor)
+    before_status = obligation.status.value
+    payment.voided_at = clock.now_utc()
+    payment.voided_reason = reason
+    payment.voided_by_employee_id = employee_id
+    payment.voided_by_employee_name = employee_name
+    if payment.cash_movement_id is not None and obligation.cash_movement_id == payment.cash_movement_id:
+        obligation.cash_movement_id = None
+    db.flush()
+    _refresh_status(db, obligation, actor=actor, last_payment=None)
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=obligation.organization_id,
+        store_id=obligation.store_id,
+        entity="obligation",
+        entity_id=obligation.id,
+        action="void_payment",
+        before={"status": before_status, "payment_id": payment.id, "amount": payment.amount},
+        after={"status": obligation.status.value, "voided_at": payment.voided_at.isoformat()},
+        reason=reason,
+    )
+    return payment
+
+
+def settle_obligation(
+    db: Session, *, actor: Actor, store: Store, obligation: Obligation, payload: ObligationSettleIn
+) -> Obligation:
+    """Saldar = un abono por TODO lo que falta (la puerta de antes de los
+    abonos, con el mismo contrato y los mismos errores)."""
+    _assert_payable(obligation)
+    paid = paid_amounts(db, [obligation.id]).get(obligation.id, 0)
+    add_payment(
+        db,
+        actor=actor,
+        store=store,
+        obligation=obligation,
+        payload=ObligationPaymentIn(
+            amount=pending_of(obligation, paid),
+            source=payload.source,
+            cash_movement_id=payload.cash_movement_id,
+            note=payload.note,
+        ),
     )
     return obligation
 
@@ -423,6 +638,12 @@ def cancel_obligation(db: Session, *, actor: Actor, obligation: Obligation, reas
         raise AppError(code="OBLIGATION_CANCELLED", message="Esta obligación ya fue cancelada", status=400)
     if obligation.status == ObligationStatus.PAID:
         raise AppError(code="OBLIGATION_ALREADY_SETTLED", message="Esta obligación ya está saldada; no se puede cancelar", status=400)
+    if paid_amounts(db, [obligation.id]).get(obligation.id, 0) > 0:
+        raise AppError(
+            code="OBLIGATION_HAS_PAYMENTS",
+            message="Esta obligación tiene abonos: anulalos primero (con su motivo) y después cancelala",
+            status=400,
+        )
     employee_id, employee_name = _actor_identity(actor)
     obligation.cancelled_at = clock.now_utc()
     obligation.cancelled_reason = reason
@@ -454,6 +675,7 @@ def _sum_obligations(db: Session, *, store_id: int, date_from: date, date_to: da
             select(func.coalesce(func.sum(Obligation.amount), 0)).where(
                 Obligation.store_id == store_id,
                 Obligation.cancelled_at.is_(None),
+                Obligation.category.not_in(NON_COST_OBLIGATION_CATEGORIES),
                 Obligation.due_date >= date_from,
                 Obligation.due_date <= date_to,
             )
@@ -536,6 +758,10 @@ def compute_fixed_costs(db: Session, *, store: Store, date_from: date, date_to: 
             .where(
                 Obligation.store_id == store.id,
                 Obligation.cancelled_at.is_(None),
+                # c5 · La nómina agendada y el INC no son costo fijo: la
+                # nómina ya entra por `_period_payroll_cost` y el INC no es
+                # gasto (la venta neta ya se mide sin él).
+                Obligation.category.not_in(NON_COST_OBLIGATION_CATEGORIES),
                 Obligation.due_date >= date_from,
                 Obligation.due_date <= date_to,
             )
@@ -559,6 +785,8 @@ def compute_fixed_costs(db: Session, *, store: Store, date_from: date, date_to: 
 
     breakdown: list[FixedCostLineOut] = []
     for category in ObligationCategory:
+        if category in NON_COST_OBLIGATION_CATEGORIES:
+            continue
         amount = obligations_by_category.get(category.value, 0)
         if amount:
             breakdown.append(FixedCostLineOut(label=_OBLIGATION_LABEL[category.value], amount=amount, source="obligations"))

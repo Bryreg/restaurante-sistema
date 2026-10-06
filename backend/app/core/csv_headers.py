@@ -148,6 +148,23 @@ KEYS: dict[str, str] = {
 #: Palabra por palabra. Cubre toda palabra de todo campo de todo esquema de
 #: respuesta de la API (lo verifica `tests/core/test_csv.py`).
 TOKENS: dict[str, str] = {
+    # c5 · obligaciones recurrentes, abonos, agenda, INC y nómina agendada.
+    "already": "ya",
+    "bimester": "bimestre",
+    "create": "por crear",
+    "deactivated": "desactivada",
+    "effective": "vigente",
+    "existed": "existía",
+    "horizon": "horizonte",
+    "interval": "intervalo",
+    "month": "mes",
+    "months": "meses",
+    "obligation": "obligación",
+    "rates": "tarifas",
+    "scheduled": "agendada",
+    "template": "plantilla",
+    "templates": "plantillas",
+    "upcoming": "por vencer",
     "allergens": "alérgenos",
     "absence": "novedad",
     "accountant": "contador",

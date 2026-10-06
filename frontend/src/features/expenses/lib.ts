@@ -5,7 +5,13 @@
  * `todayInBogota`/`daysAgoInBogota` de `features/reports/lib.ts` en vez de
  * duplicarlas (mismo patrón que `features/inventory/lib.ts`).
  */
-import type { ExpenseCategory, ExpenseSource, ObligationCategory, ObligationStatus } from "@/api/expenses"
+import type {
+  ExpenseCategory,
+  ExpenseSource,
+  ObligationCategory,
+  ObligationCategoryOut,
+  ObligationStatus,
+} from "@/api/expenses"
 import { daysAgoInBogota, todayInBogota } from "@/features/reports/lib"
 
 export const todayLocal = todayInBogota
@@ -61,16 +67,34 @@ export const OBLIGATION_CATEGORY_LABEL: Record<ObligationCategory, string> = {
   other: "Otro",
 }
 
-export function obligationCategoryLabel(category: string): string {
-  return OBLIGATION_CATEGORY_LABEL[category as ObligationCategory] ?? category
+/** Las dos que sólo nacen por su puerta propia (c5) y no son costo fijo. */
+const OBLIGATION_CATEGORY_OUT_LABEL: Record<Exclude<ObligationCategoryOut, ObligationCategory>, string> = {
+  payroll: "Nómina",
+  consumption_tax: "INC (DIAN)",
 }
 
-/** Espejo de `app/expenses/schemas.py::ObligationStatusLiteral`
- * (`"pending" | "paid"`) — no existe `"cancelled"` como estado: una
- * obligación cancelada sigue `pending` y lleva `cancelled_at` propio. */
+export function obligationCategoryLabel(category: string): string {
+  return (
+    OBLIGATION_CATEGORY_LABEL[category as ObligationCategory] ??
+    OBLIGATION_CATEGORY_OUT_LABEL[category as Exclude<ObligationCategoryOut, ObligationCategory>] ??
+    category
+  )
+}
+
+/** Espejo de `app/expenses/schemas.py::ObligationStatusLiteral`, derivado
+ * de los abonos — no existe `"cancelled"` como estado: una obligación
+ * cancelada lleva `cancelled_at` propio. */
 export const OBLIGATION_STATUS_LABEL: Record<ObligationStatus, string> = {
   pending: "Pendiente",
+  partial: "Con abonos",
   paid: "Pagada",
+}
+
+/** «Mensual», «Bimestral», «Cada 3 meses»: la frecuencia de una recurrente. */
+export function intervalLabel(months: number): string {
+  if (months === 1) return "Mensual"
+  if (months === 2) return "Bimestral"
+  return `Cada ${months} meses`
 }
 
 export function obligationStatusLabel(status: string): string {

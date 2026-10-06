@@ -1,22 +1,26 @@
 /**
  * Admin → Obligaciones y gastos → Obligaciones agendadas (T2,
- * `GET`/`POST /admin/obligations`, `POST /admin/obligations/{id}/settle`):
- * arriendo, servicios, impuestos, con su vencimiento y su estado.
+ * `GET`/`POST /admin/obligations`, `POST /admin/obligations/{id}/payments`):
+ * arriendo, servicios, impuestos, nómina e INC agendados, con su
+ * vencimiento, lo pagado, lo que falta y su estado.
  *
- * `status` es `"pending" | "paid"` (`app/expenses/schemas.py::
- * ObligationStatusLiteral`, verificado por lectura directa, no adivinado):
- * no existe un tercer estado "cancelada" — una obligación cancelada sigue
- * `pending` y lleva `cancelled_at` propio, que esta pantalla muestra aparte.
+ * `status` es `"pending" | "partial" | "paid"` (`app/expenses/schemas.py::
+ * ObligationStatusLiteral`), derivado de los abonos por el servidor; lo
+ * pagado y el saldo también vienen del servidor (c5). No existe un estado
+ * "cancelada" — una obligación cancelada lleva `cancelled_at` propio, que
+ * esta pantalla muestra aparte.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import { newIdempotencyKey } from "@/api/client"
 import {
+  addObligationPayment,
   createObligation,
   getDrawerExpenseMovements,
+  getObligationPayments,
   getObligations,
-  settleObligation,
+  voidObligationPayment,
   type DrawerExpenseMovementOut,
   type ExpenseSource,
   type ObligationCategory,
@@ -46,6 +50,10 @@ const OBLIGATIONS_LEGEND: readonly LegendEntry[] = [
   {
     term: "Vencida",
     meaning: "pasó su fecha y sigue pendiente. No la cancela nadie por vieja: sigue debiéndose.",
+  },
+  {
+    term: "Con abonos",
+    meaning: "se pagó una parte; «Falta» es lo que queda. Cada abono dice de dónde salió la plata.",
   },
   {
     term: "Cancelada",
@@ -171,7 +179,90 @@ function CreateObligationDialog({
   )
 }
 
-function SettleAction({
+/**
+ * Los abonos ya hechos, con «Anular» (con motivo: nada se borra). Se piden
+ * sólo con el diálogo abierto.
+ */
+function PaymentsHistory({
+  obligation,
+  onChanged,
+}: {
+  obligation: ObligationOut
+  onChanged: () => void
+}): React.JSX.Element | null {
+  const [voiding, setVoiding] = useState<number | null>(null)
+  const [reason, setReason] = useState("")
+  const payments = useQuery({
+    queryKey: ["expenses", "obligation-payments", obligation.id],
+    queryFn: () => getObligationPayments(obligation.id),
+  })
+  const mutation = useMutation({
+    mutationFn: (paymentId: number) =>
+      voidObligationPayment(obligation.id, paymentId, reason.trim(), newIdempotencyKey()),
+    onSuccess: () => {
+      setVoiding(null)
+      setReason("")
+      void payments.refetch()
+      onChanged()
+    },
+  })
+  const rows = payments.data ?? []
+  if (payments.isLoading || rows.length === 0) return null
+  return (
+    <div className="space-y-1.5 rounded-md border p-2">
+      <p className="text-xs font-medium text-muted-foreground">Abonos</p>
+      <ul className="space-y-1 text-sm">
+        {rows.map((p) => (
+          <li key={p.id} className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className={p.voided_at ? "text-muted-foreground line-through" : undefined}>
+                {formatBusinessDate(p.paid_on)} · {formatCOP(p.amount)} · {expenseSourceLabel(p.source)}
+              </span>
+              {p.voided_at ? (
+                <span className="text-xs text-muted-foreground" title={p.voided_reason ?? undefined}>
+                  Anulado
+                </span>
+              ) : (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setVoiding(p.id)}>
+                  Anular abono
+                </Button>
+              )}
+            </div>
+            {voiding === p.id ? (
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor={`void-payment-${p.id}`}>Motivo de la anulación</Label>
+                  <Input
+                    id={`void-payment-${p.id}`}
+                    className="h-9"
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={reason.trim() === "" || mutation.isPending}
+                  onClick={() => mutation.mutate(p.id)}
+                >
+                  Confirmar anulación
+                </Button>
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {mutation.isError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {errorMessage(mutation.error)}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function PayAction({
   obligation,
   storeId,
   onSettled,
@@ -183,6 +274,9 @@ function SettleAction({
   const [open, setOpen] = useState(false)
   const [source, setSource] = useState<ExpenseSource>("bank")
   const [movementId, setMovementId] = useState<string>("")
+  // El monto arranca en el SALDO que publica el servidor (nunca una resta
+  // hecha acá); se puede bajar para un abono.
+  const [amount, setAmount] = useState<number | null>(obligation.pending_amount ?? null)
 
   // Los egresos del cajón que todavía no respaldan nada: sólo se piden si
   // la plata salió del cajón (el backend exige referenciar uno, nunca crea
@@ -195,9 +289,10 @@ function SettleAction({
 
   const mutation = useMutation({
     mutationFn: () =>
-      settleObligation(
+      addObligationPayment(
         obligation.id,
         {
+          amount: amount as number,
           source,
           cash_movement_id: source === "cash_drawer" ? Number(movementId) : null,
         },
@@ -210,20 +305,35 @@ function SettleAction({
     },
   })
 
-  const canSubmit = source !== "cash_drawer" || movementId !== ""
+  const canSubmit = amount !== null && amount > 0 && (source !== "cash_drawer" || movementId !== "")
   const movementRows = movements.data ?? []
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button type="button" variant="outline" size="sm" />}>Saldar</DialogTrigger>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (next) setAmount(obligation.pending_amount ?? null)
+      }}
+    >
+      <DialogTrigger render={<Button type="button" variant="outline" size="sm" />}>Pagar</DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Saldar obligación</DialogTitle>
+          <DialogTitle>Registrar pago</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <p className="text-sm">
             {obligation.description ?? "—"} · <b>{formatCOP(obligation.amount ?? null)}</b>
           </p>
+          <p className="text-sm text-muted-foreground">
+            Pagado {formatCOP(obligation.paid_amount ?? null)} · Falta{" "}
+            <b className="text-foreground">{formatCOP(obligation.pending_amount ?? null)}</b>
+          </p>
+          {open ? <PaymentsHistory obligation={obligation} onChanged={onSettled} /> : null}
+          <div className="space-y-1">
+            <Label htmlFor={`pay-amount-${obligation.id}`}>Monto de este pago</Label>
+            <MoneyInput id={`pay-amount-${obligation.id}`} value={amount} onChange={setAmount} />
+          </div>
           <div className="space-y-1">
             <Label htmlFor={`settle-source-${obligation.id}`}>¿De dónde salió la plata?</Label>
             <Select
@@ -341,6 +451,14 @@ export function ObligationsTab({ storeId }: { storeId: number }): React.JSX.Elem
     },
     { key: "amount", header: "Monto", kind: "number", cell: (o) => formatCOP(o.amount ?? null) },
     {
+      key: "pending",
+      header: "Falta",
+      kind: "number",
+      cell: (o) => formatCOP(o.pending_amount ?? null),
+      cellTitle: (o) => (o.paid_amount ? `Pagado: ${formatCOP(o.paid_amount)}` : undefined),
+    },
+    { key: "paid", header: "Pagado", kind: "number", secondary: true, cell: (o) => formatCOP(o.paid_amount ?? null) },
+    {
       key: "status",
       header: "Estado",
       cell: (o) => (
@@ -371,12 +489,12 @@ export function ObligationsTab({ storeId }: { storeId: number }): React.JSX.Elem
       key: "action",
       header: "",
       kind: "actions",
-      // «Saldar» SÓLO existe si está pendiente y no cancelada: control que
+      // «Pagar» SÓLO existe si queda saldo y no está cancelada: control que
       // aparece y desaparece con el estado de la fila
       // (`docs/INVENTARIO-CONTROLES.md` § 26).
       cell: (o) =>
-        o.status === "pending" && !o.cancelled_at ? (
-          <SettleAction obligation={o} storeId={storeId} onSettled={invalidate} />
+        o.status !== "paid" && !o.cancelled_at ? (
+          <PayAction obligation={o} storeId={storeId} onSettled={invalidate} />
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
@@ -401,7 +519,7 @@ export function ObligationsTab({ storeId }: { storeId: number }): React.JSX.Elem
       rows={rows}
       rowKey={(o) => String(o.id)}
       rowInactive={(o) => Boolean(o.cancelled_at)}
-      rowStatus={(o) => (o.overdue ? "critical" : o.status === "pending" ? "warning" : "none")}
+      rowStatus={(o) => (o.overdue ? "critical" : o.status !== "paid" ? "warning" : "none")}
       legend={OBLIGATIONS_LEGEND}
       bar={
         <DenseTableBar
@@ -422,6 +540,7 @@ export function ObligationsTab({ storeId }: { storeId: number }): React.JSX.Elem
               <SelectContent>
                 <SelectItem value="all">Todas</SelectItem>
                 <SelectItem value="pending">Pendientes</SelectItem>
+                <SelectItem value="partial">Con abonos</SelectItem>
                 <SelectItem value="paid">Pagadas</SelectItem>
               </SelectContent>
             </Select>
@@ -433,7 +552,7 @@ export function ObligationsTab({ storeId }: { storeId: number }): React.JSX.Elem
         query.isLoading ? undefined : status !== "all" ? (
           <FilterEmptyState
             title="No hay obligaciones agendadas"
-            filters={[status === "pending" ? "pendientes" : "pagadas"]}
+            filters={[status === "pending" ? "pendientes" : status === "partial" ? "con abonos" : "pagadas"]}
             onRemove={() => setStatus("all")}
           />
         ) : (

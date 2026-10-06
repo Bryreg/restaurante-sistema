@@ -24,13 +24,74 @@ nueva ACÁ — nunca importa `service.py`/`models.py` directo
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Any
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Any, Literal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.payroll import service
+from app.payroll.models import PayrollRun
 from app.stores.models import Store
+
+
+# ---------------------------------------------------------------------------
+# c5 · Agendar la nómina como obligación (`app.expenses`). Sólo lectura de
+# las liquidaciones ya guardadas: el monto de una liquidación nunca se
+# recalcula afuera de este dominio.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PayrollRunTotal:
+    """Una liquidación guardada y lo que cuesta. `amount` es
+    `employer_total_amount` (lo que la nómina le cuesta a la sede, 0043) si
+    existe; si no, `total_amount` (lo pagado); `None` si ninguna de las dos
+    se pudo calcular — nunca un `0` mudo. `amount_source` dice cuál fue."""
+
+    id: int
+    store_id: int
+    date_from: date
+    date_to: date
+    amount: int | None
+    amount_source: Literal["employer_total", "total"] | None
+    computed_at: datetime
+
+
+def _run_total(run: PayrollRun) -> PayrollRunTotal:
+    amount: int | None
+    source: Literal["employer_total", "total"] | None
+    if run.employer_total_amount is not None:
+        amount, source = int(run.employer_total_amount), "employer_total"
+    elif run.total_amount is not None:
+        amount, source = int(run.total_amount), "total"
+    else:
+        amount, source = None, None
+    return PayrollRunTotal(
+        id=run.id,
+        store_id=run.store_id,
+        date_from=run.date_from,
+        date_to=run.date_to,
+        amount=amount,
+        amount_source=source,
+        computed_at=run.computed_at,
+    )
+
+
+def get_run_total(db: Session, *, run_id: int) -> PayrollRunTotal | None:
+    run = db.get(PayrollRun, run_id)
+    return None if run is None else _run_total(run)
+
+
+def list_run_totals(db: Session, *, store_id: int, limit: int = 24) -> list[PayrollRunTotal]:
+    runs = db.execute(
+        select(PayrollRun)
+        .where(PayrollRun.store_id == store_id)
+        .order_by(PayrollRun.date_to.desc(), PayrollRun.id.desc())
+        .limit(limit)
+    ).scalars()
+    return [_run_total(r) for r in runs]
 
 
 def period_payroll_cost(db: Session, *, store_id: int, date_from: date, date_to: date) -> int | None:
