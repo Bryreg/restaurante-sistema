@@ -18,6 +18,7 @@
 import type {
   PayablesAgingBucket,
   PayableStatus,
+  PurchaseOrderStatus,
   ReceptionStatus,
   SupplierOut,
   SupplierPaymentMethod,
@@ -34,6 +35,19 @@ export const SUPPLIER_PAYMENT_METHOD_LABEL: Record<SupplierPaymentMethod, string
 export const RECEPTION_STATUS_LABEL: Record<ReceptionStatus, string> = {
   confirmed: "Confirmada",
   reversed: "Revertida",
+}
+
+export const PURCHASE_ORDER_STATUS_LABEL: Record<PurchaseOrderStatus, string> = {
+  draft: "Borrador",
+  sent: "Enviada",
+  partially_received: "Recibida en parte",
+  received: "Recibida",
+  cancelled: "Cancelada",
+}
+
+/** La hoja de una orden de compra para imprimir o mandar al proveedor. */
+export function printOrderUrl(orderId: number): string {
+  return `/imprimir/orden-compra?id=${orderId}`
 }
 
 export const PAYABLE_STATUS_LABEL: Record<PayableStatus, string> = {

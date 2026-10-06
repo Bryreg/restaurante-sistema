@@ -195,6 +195,8 @@ export interface ReceptionIn {
   /** Los pedidos de insumos (aprobados y por comprar) que esta recepción
    * cubre: el servidor los marca «comprado» en la misma transacción. */
   supply_request_ids?: number[]
+  /** Tanda 5 (i3): la orden de compra que esta recepción cubre; cierra sus líneas. */
+  purchase_order_id?: number | null
 }
 
 export interface ReceptionLineOut {
@@ -236,6 +238,7 @@ export interface ReceptionOut {
   reversed_at: string | null
   reversed_by_employee_name: string | null
   payable_id: number | null
+  purchase_order_id?: number | null
   lines: ReceptionLineOut[]
 }
 
@@ -666,5 +669,118 @@ export interface IngredientSupplierPricesOut {
 export function getIngredientSupplierPrices(storeId: number, ingredientId: number): Promise<IngredientSupplierPricesOut> {
   return api<IngredientSupplierPricesOut>(`/admin/ingredients/${ingredientId}/supplier-prices`, {
     query: { store_id: storeId },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Órdenes de compra (tanda 5, i3) — `/admin/purchase-orders`. Lo recibido por
+// línea y el total esperado llegan calculados; `expected_total` es `null` con
+// motivo cuando a alguna línea le falta el precio, nunca 0.
+// ---------------------------------------------------------------------------
+
+export type PurchaseOrderStatus = "draft" | "sent" | "partially_received" | "received" | "cancelled"
+export type PurchaseOrderSource = "manual" | "replenishment"
+
+export interface PurchaseOrderLineIn {
+  ingredient_id: number
+  /** En la UNIDAD DE COMPRA, texto decimal ("3", "1.5"). */
+  quantity: string
+  /** Precio esperado por UNA unidad de compra, texto decimal en pesos (opcional). */
+  expected_unit_price?: string | null
+}
+
+export interface PurchaseOrderIn {
+  supplier_id: number
+  expected_date?: string | null
+  notes?: string | null
+  lines: PurchaseOrderLineIn[]
+}
+
+export interface PurchaseOrderLineOut {
+  id: number
+  ingredient_id: number
+  ingredient_name: string
+  quantity: string
+  purchase_unit: string
+  qty_base: string
+  base_unit: string
+  expected_unit_price: string | null
+  /** Lo recibido por las recepciones confirmadas de la orden, en la unidad de compra. */
+  received_quantity: string
+  closed: boolean
+  closed_reception_id: number | null
+}
+
+export interface PurchaseOrderOut {
+  id: number
+  store_id: number
+  store_name: string
+  supplier_id: number
+  supplier_name: string
+  supplier_nit: string | null
+  supplier_contact_name: string | null
+  supplier_contact_phone: string | null
+  number: number
+  status: PurchaseOrderStatus
+  source: PurchaseOrderSource
+  expected_date: string | null
+  notes: string | null
+  created_by_employee_name: string
+  created_at: string
+  business_date: string
+  sent_at: string | null
+  sent_by_employee_name: string | null
+  cancelled_at: string | null
+  cancelled_by_employee_name: string | null
+  cancel_reason: string | null
+  expected_total: number | null
+  expected_total_reason: string | null
+  reception_ids: number[]
+  lines: PurchaseOrderLineOut[]
+}
+
+export function listPurchaseOrders(
+  storeId: number,
+  params: { status?: PurchaseOrderStatus; supplierId?: number | null } = {},
+): Promise<PurchaseOrderOut[]> {
+  return api<PurchaseOrderOut[]>("/admin/purchase-orders", {
+    query: { store_id: storeId, status: params.status, supplier_id: params.supplierId },
+  })
+}
+
+export function getPurchaseOrder(orderId: number): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>(`/admin/purchase-orders/${orderId}`)
+}
+
+export function createPurchaseOrder(storeId: number, data: PurchaseOrderIn, idempotencyKey: string): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>("/admin/purchase-orders", { method: "POST", query: { store_id: storeId }, body: data, idempotencyKey })
+}
+
+export function createPurchaseOrderFromReplenishment(
+  storeId: number,
+  data: { supplier_id: number; ingredient_ids?: number[] | null },
+  idempotencyKey: string,
+): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>("/admin/purchase-orders/from-replenishment", {
+    method: "POST",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
+}
+
+export function updatePurchaseOrder(orderId: number, data: PurchaseOrderIn, idempotencyKey: string): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>(`/admin/purchase-orders/${orderId}`, { method: "PUT", body: data, idempotencyKey })
+}
+
+export function sendPurchaseOrder(orderId: number, idempotencyKey: string): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>(`/admin/purchase-orders/${orderId}/send`, { method: "POST", idempotencyKey })
+}
+
+export function cancelPurchaseOrder(orderId: number, reason: string, idempotencyKey: string): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>(`/admin/purchase-orders/${orderId}/cancel`, {
+    method: "POST",
+    body: { reason },
+    idempotencyKey,
   })
 }

@@ -290,6 +290,7 @@ TOKENS: dict[str, str] = {
     "by": "por",
     "calculation": "cálculo",
     "can": "puede",
+    "cancel": "cancelación",
     "cancelled": "cancelado",
     "card": "tarjeta",
     "cards": "tarjetas",

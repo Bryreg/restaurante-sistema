@@ -52,6 +52,7 @@ from app.inventory import hooks as inventory_hooks
 from app.inventory.models import CostSource, Ingredient, MovementCause
 from app.photos import hooks as photos_hooks
 from app.purchases import hooks as purchases_hooks
+from app.purchases import orders as purchase_orders
 from app.purchases import prices
 from app.purchases.models import (
     Payable,
@@ -347,6 +348,14 @@ def _validate_reception(
 
         requests_hooks.assert_supply_requests_buyable(db, store_id=store.id, request_ids=supply_request_ids)
 
+    # i3: la orden de compra que cubre, validada antes de escribir nada.
+    purchase_order = None
+    purchase_order_id = getattr(payload, "purchase_order_id", None)
+    if purchase_order_id is not None:
+        purchase_order = purchase_orders.assert_receivable(
+            db, store=store, supplier_id=supplier.id, order_id=purchase_order_id
+        )
+
     if received_by is None:
         received_by = _verify_received_by(db, organization_id=store.organization_id, store_id=store.id, pin=payload.received_by_pin)
 
@@ -391,6 +400,7 @@ def _validate_reception(
     return {
         "supplier": supplier,
         "supply_request_ids": supply_request_ids,
+        "purchase_order": purchase_order,
         "received_by": received_by,
         "now": now,
         "business_date": business_date,
@@ -441,6 +451,7 @@ def _write_reception(
         price_confirmed_by_employee_name=actor.employee_name if guard_triggered else None,
         at=now,
         business_date=business_date,
+        purchase_order_id=validated["purchase_order"].id if validated.get("purchase_order") is not None else None,
     )
     db.add(reception)
     db.flush()
@@ -525,6 +536,15 @@ def _write_reception(
         ingredients={p["ingredient"].id: p["ingredient"] for p in prepared},
     )
 
+    if validated.get("purchase_order") is not None:
+        purchase_orders.close_lines_for_reception(
+            db,
+            actor=actor,
+            order=validated["purchase_order"],
+            reception=reception,
+            ingredient_ids={p["ingredient"].id for p in prepared},
+        )
+
     supply_request_ids: list[int] = validated.get("supply_request_ids", [])
     if supply_request_ids:
         from app.requests import hooks as requests_hooks
@@ -549,6 +569,7 @@ def _write_reception(
             "payable_id": payable.id,
             "amount": payable_amount,
             "supply_request_ids": supply_request_ids,
+            "purchase_order_id": reception.purchase_order_id,
         },
     )
     return reception, payable
@@ -603,6 +624,7 @@ def reverse_reception(db: Session, *, actor: Actor, reception: Reception, author
             )
         if payable is not None:
             payable.status = PayableStatus.CANCELLED
+        purchase_orders.reopen_lines_for_reversal(db, actor=actor, reception=reception)
         reception.status = ReceptionStatus.REVERSED
         reception.reversed_at = now
         reception.reversed_by_employee_id = authorizer.id
@@ -1497,6 +1519,7 @@ def complete_reception_draft(
         confirm_price=payload.confirm_price,
         lines=payload.lines,
         supply_request_ids=payload.supply_request_ids,
+        purchase_order_id=payload.purchase_order_id,
     )
     validated = _validate_reception(db, store=store, payload=reception_in, received_by=received_by)
 

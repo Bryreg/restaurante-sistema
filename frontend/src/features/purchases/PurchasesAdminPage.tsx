@@ -5,15 +5,16 @@ import { useSession } from "@/app/session"
 import { useStoreSelection } from "@/app/storeContext"
 import { listSuppliers } from "@/api/purchases"
 import { Cargando } from "@/components/Cargando"
-import { FeatureOffEmptyState, PageHeader } from "@/components/admin"
+import { FeatureOffEmptyState, MasPestanas, PageHeader } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { PayablesTab } from "./PayablesTab"
+import { PurchaseOrdersTab } from "./PurchaseOrdersTab"
 import { ReceptionsTab } from "./ReceptionsTab"
 import { SupplierPricesTab } from "./SupplierPricesTab"
 import { SuppliersTab } from "./SuppliersTab"
 
-const ALL_TABS = ["proveedores", "recepciones", "cuentas-por-pagar", "precios"] as const
+const ALL_TABS = ["proveedores", "ordenes", "recepciones", "cuentas-por-pagar", "precios"] as const
 type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
@@ -67,6 +68,12 @@ export function PurchasesAdminPage(): React.JSX.Element {
 
   const suppliers = suppliersQuery.data ?? []
 
+  function cambiarPestana(value: string) {
+    const next = new URLSearchParams(searchParams)
+    next.set("tab", value)
+    setSearchParams(next, { replace: true })
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -76,22 +83,20 @@ export function PurchasesAdminPage(): React.JSX.Element {
           suppliersQuery.isSuccess ? [{ label: "Proveedores activos", value: suppliers.length }] : undefined
         }
       />
-      <Tabs
-        value={tab}
-        onValueChange={(value) => {
-          const next = new URLSearchParams(searchParams)
-          next.set("tab", value)
-          setSearchParams(next, { replace: true })
-        }}
-      >
+      <Tabs value={tab} onValueChange={cambiarPestana}>
         <TabsList>
           <TabsTrigger value="proveedores">Proveedores</TabsTrigger>
+          <TabsTrigger value="ordenes">Órdenes de compra</TabsTrigger>
           <TabsTrigger value="recepciones">Recepciones</TabsTrigger>
           <TabsTrigger value="cuentas-por-pagar">Cuentas por pagar</TabsTrigger>
-          <TabsTrigger value="precios">Precios</TabsTrigger>
+          {/* Tanda 5: los precios por proveedor no son de todos los días; van en «Más». */}
+          <MasPestanas value={tab} onValueChange={cambiarPestana} items={[{ value: "precios", label: "Precios por proveedor" }]} />
         </TabsList>
         <TabsContent value="proveedores" className="pt-4">
           <SuppliersTab storeId={activeStoreId} />
+        </TabsContent>
+        <TabsContent value="ordenes" className="pt-4">
+          <PurchaseOrdersTab storeId={activeStoreId} suppliers={suppliers} />
         </TabsContent>
         <TabsContent value="recepciones" className="pt-4">
           <ReceptionsTab storeId={activeStoreId} suppliers={suppliers} />

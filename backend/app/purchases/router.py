@@ -27,6 +27,7 @@ from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.core.quantity import format_cost_micros, format_qty_base
 from app.inventory import hooks as inventory_hooks
+from app.purchases import orders as purchase_orders
 from app.purchases import prices, service
 from app.purchases.models import Payable, Reception, ReceptionDraft, Supplier
 from app.purchases.schemas import (
@@ -57,6 +58,11 @@ from app.purchases.schemas import (
     SuppliersReliabilityOut,
     SupplierUpdateIn,
     IngredientSupplierPricesOut,
+    PurchaseOrderCancelIn,
+    PurchaseOrderFromReplenishmentIn,
+    PurchaseOrderIn,
+    PurchaseOrderOut,
+    PurchaseOrderStatusLiteral,
 )
 
 router = APIRouter(dependencies=[Depends(require_feature("purchases"))])
@@ -108,6 +114,7 @@ def _reception_out(db: Session, reception: Reception) -> ReceptionOut:
         reversed_at=reception.reversed_at,
         reversed_by_employee_name=reception.reversed_by_employee_name,
         payable_id=payable.id if payable is not None else None,
+        purchase_order_id=reception.purchase_order_id,
         lines=line_outs,
     )
 
@@ -744,3 +751,165 @@ def reject_reception_draft(
     admin_store(db, actor, draft.store_id)
     row = service.reject_reception_draft(db, actor=actor, draft=draft, reason=payload.reason)
     return _draft_admin_out(db, row)
+
+
+# ---------------------------------------------------------------------------
+# Órdenes de compra (tanda 5, i3). Sólo administración: llevan precios
+# esperados. Toda escritura acepta `Idempotency-Key`.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/purchase-orders", response_model=list[PurchaseOrderOut])
+def list_purchase_orders(
+    store_id: int,
+    status: PurchaseOrderStatusLiteral | None = None,
+    supplier_id: int | None = None,
+    format: CsvFormat = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[PurchaseOrderOut] | Response:
+    store = admin_store(db, actor, store_id)
+    rows = purchase_orders.list_orders(db, store_id=store.id, status=status, supplier_id=supplier_id)
+    result = [purchase_orders.order_out(db, r) for r in rows]
+    if format == "csv":
+        flat = [
+            {
+                "number": r.number,
+                "supplier_name": r.supplier_name,
+                "status": r.status,
+                "source": r.source,
+                "business_date": r.business_date.isoformat(),
+                "expected_date": r.expected_date.isoformat() if r.expected_date else None,
+                "expected_total": r.expected_total,
+                "lines": len(r.lines),
+            }
+            for r in result
+        ]
+        return csv_response(flat, "ordenes-de-compra.csv")
+    return result
+
+
+@router.post("/admin/purchase-orders", status_code=201)
+def create_purchase_order(
+    payload: PurchaseOrderIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PurchaseOrderOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        order = purchase_orders.create_order(db, actor=actor, store=store, data=payload)
+        return 201, purchase_orders.order_out(db, order).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="purchases.orders.create", request=request, payload=payload, fn=_do
+    )
+    return PurchaseOrderOut.model_validate(body)
+
+
+@router.post("/admin/purchase-orders/from-replenishment", status_code=201)
+def create_purchase_order_from_replenishment(
+    payload: PurchaseOrderFromReplenishmentIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PurchaseOrderOut:
+    """Un borrador con lo que la reposición sugerida dice que falta de ese
+    proveedor (exige `inventory.replenishment`)."""
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        order = purchase_orders.create_from_replenishment(db, actor=actor, store=store, data=payload)
+        return 201, purchase_orders.order_out(db, order).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope="purchases.orders.from_replenishment",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+    return PurchaseOrderOut.model_validate(body)
+
+
+def _order_for_admin(db: Session, actor: Actor, order_id: int) -> tuple[Store, Any]:
+    order = purchase_orders.get_order_or_404(db, organization_id=actor.organization_id, order_id=order_id)
+    store = admin_store(db, actor, order.store_id)
+    return store, order
+
+
+@router.get("/admin/purchase-orders/{order_id}", response_model=PurchaseOrderOut)
+def get_purchase_order(
+    order_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> PurchaseOrderOut:
+    _store, order = _order_for_admin(db, actor, order_id)
+    return purchase_orders.order_out(db, order)
+
+
+@router.put("/admin/purchase-orders/{order_id}")
+def update_purchase_order(
+    order_id: int,
+    payload: PurchaseOrderIn,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PurchaseOrderOut:
+    store, order = _order_for_admin(db, actor, order_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = purchase_orders.update_order(db, actor=actor, store=store, order=order, data=payload)
+        return 200, purchase_orders.order_out(db, row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope=f"purchases.orders.{order_id}.update", request=request, payload=payload, fn=_do
+    )
+    return PurchaseOrderOut.model_validate(body)
+
+
+@router.post("/admin/purchase-orders/{order_id}/send")
+def send_purchase_order(
+    order_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PurchaseOrderOut:
+    store, order = _order_for_admin(db, actor, order_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = purchase_orders.send_order(db, actor=actor, store=store, order=order)
+        return 200, purchase_orders.order_out(db, row).model_dump(mode="json")
+
+    key = idempotency_key(request)
+    _status, body = run_idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope=f"purchases.orders.{order_id}.send",
+        key=key,
+        request_hash=hash_request_body({}),
+        fn=_do,
+    )
+    return PurchaseOrderOut.model_validate(body)
+
+
+@router.post("/admin/purchase-orders/{order_id}/cancel")
+def cancel_purchase_order(
+    order_id: int,
+    payload: PurchaseOrderCancelIn,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PurchaseOrderOut:
+    _store, order = _order_for_admin(db, actor, order_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = purchase_orders.cancel_order(db, actor=actor, order=order, reason=payload.reason)
+        return 200, purchase_orders.order_out(db, row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope=f"purchases.orders.{order_id}.cancel", request=request, payload=payload, fn=_do
+    )
+    return PurchaseOrderOut.model_validate(body)

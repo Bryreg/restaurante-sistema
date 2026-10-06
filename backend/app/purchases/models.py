@@ -173,6 +173,10 @@ class Reception(Base):
     reversed_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
     reversed_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
+    # Tanda 5 (i3): la orden de compra que esta recepción cubre, si hay una.
+    # Al confirmar, cierra las líneas de la orden cuyos insumos llegaron.
+    purchase_order_id: Mapped[int | None] = mapped_column(ForeignKey("purchase_orders.id"), nullable=True)
+
     __table_args__ = (
         Index("ix_receptions_store_status", "store_id", "status"),
         Index("ix_receptions_store_supplier", "store_id", "supplier_id"),
@@ -422,4 +426,116 @@ class ReceptionDraftLine(Base):
         CheckConstraint("qty_purchase_milli > 0", name="ck_reception_draft_lines_qty_positive"),
         CheckConstraint("purchase_factor > 0", name="ck_reception_draft_lines_factor_positive"),
         CheckConstraint("qty_base > 0", name="ck_reception_draft_lines_qty_base_positive"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Órdenes de compra (tanda 5, i3).
+# ---------------------------------------------------------------------------
+
+
+class PurchaseOrderStatus(str, enum.Enum):
+    DRAFT = "draft"
+    SENT = "sent"
+    PARTIALLY_RECEIVED = "partially_received"
+    RECEIVED = "received"
+    CANCELLED = "cancelled"
+
+
+class PurchaseOrderSource(str, enum.Enum):
+    MANUAL = "manual"
+    REPLENISHMENT = "replenishment"
+
+
+class PurchaseOrder(Base):
+    """Lo que se le pide a un proveedor, antes de que llegue. Nace en
+    borrador (a mano o desde la reposición sugerida), se marca enviada y las
+    recepciones que la nombran cierran sus líneas: `partially_received`
+    mientras quede alguna abierta, `received` cuando no queda ninguna.
+    Cancelar es un cambio de estado con motivo; nunca se borra.
+
+    **Sin precios para nadie que no sea administración**: toda la entidad
+    vive detrás de rutas de administrador. `number` es consecutivo por sede
+    (`uq_purchase_orders_store_number`), el que lleva la hoja impresa."""
+
+    __tablename__ = "purchase_orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), index=True)
+
+    number: Mapped[int] = mapped_column(sa.Integer)
+    status: Mapped[PurchaseOrderStatus] = mapped_column(
+        _enum(PurchaseOrderStatus, length=24), default=PurchaseOrderStatus.DRAFT
+    )
+    source: Mapped[PurchaseOrderSource] = mapped_column(
+        _enum(PurchaseOrderSource, length=16), default=PurchaseOrderSource.MANUAL
+    )
+    expected_date: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+
+    created_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    created_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    business_date: Mapped[date] = mapped_column(sa.Date)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # Día operativo del envío, sellado al marcarla enviada: de acá se mide
+    # cuánto tarda el proveedor en entregar (`prices.supplier_comparison`).
+    sent_business_date: Mapped[date | None] = mapped_column(sa.Date, nullable=True)
+    sent_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    sent_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    cancelled_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    cancelled_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(sa.Text(), nullable=True)
+
+    __table_args__ = (
+        sa.UniqueConstraint("store_id", "number", name="uq_purchase_orders_store_number"),
+        Index("ix_purchase_orders_store_status", "store_id", "status"),
+    )
+
+
+class PurchaseOrderLine(Base):
+    """Un insumo de la orden. La cantidad se pide en la UNIDAD DE COMPRA (lo
+    que entiende el proveedor: «3 bultos»), en milésimas
+    (`qty_purchase_milli`), con la unidad y el factor congelados al pedir y
+    `qty_base` convertido una sola vez acá. `expected_unit_price_micros` es
+    el precio esperado por UNA unidad de compra (opcional, para la hoja).
+
+    `closed_reception_id`: la recepción que cubrió esta línea. Lo recibido
+    no se guarda: se deriva de las líneas de las recepciones confirmadas de
+    la orden. Si esa recepción se revierte, la línea vuelve a abrirse."""
+
+    __tablename__ = "purchase_order_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"), index=True)
+    ingredient_id: Mapped[int] = mapped_column(ForeignKey("ingredients.id"), index=True)
+    position: Mapped[int] = mapped_column(sa.Integer, default=0)
+
+    qty_purchase_milli: Mapped[int] = mapped_column(sa.Integer)
+    purchase_unit: Mapped[str] = mapped_column(sa.String(50))
+    purchase_factor: Mapped[int] = mapped_column(sa.Integer)
+    qty_base: Mapped[int] = mapped_column(sa.Integer)
+    expected_unit_price_micros: Mapped[int | None] = mapped_column(sa.BigInteger, nullable=True)
+
+    closed_reception_id: Mapped[int | None] = mapped_column(ForeignKey("receptions.id"), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # Sacada del borrador al editarlo (nunca se borra la fila). Volver a
+    # poner el insumo la reactiva.
+    removed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    __table_args__ = (
+        sa.UniqueConstraint("order_id", "ingredient_id", name="uq_purchase_order_lines_order_ingredient"),
+        CheckConstraint("qty_purchase_milli > 0", name="ck_purchase_order_lines_qty_positive"),
+        CheckConstraint("purchase_factor > 0", name="ck_purchase_order_lines_factor_positive"),
+        CheckConstraint("qty_base > 0", name="ck_purchase_order_lines_qty_base_positive"),
+        CheckConstraint(
+            "expected_unit_price_micros IS NULL OR expected_unit_price_micros >= 0",
+            name="ck_purchase_order_lines_price_nonneg",
+        ),
     )

@@ -28,6 +28,7 @@ import SettingsPage from "@/features/settings/SettingsPage";
 import { shiftsFeature } from "@/features/shifts";
 
 import { FichaImprimiblePage } from "@/features/recipes/FichaImprimiblePage";
+import { PurchaseOrderPrintPage } from "@/features/purchases/PurchaseOrderPrintPage";
 
 import AdminLayout from "./AdminLayout";
 import AutorizarPage from "./AutorizarPage";
@@ -99,6 +100,15 @@ const routes: RouteObject[] = [
     element: (
       <RequireAdmin>
         <FichaImprimiblePage />
+      </RequireAdmin>
+    ),
+  },
+  // La orden de compra para imprimir o mandar al proveedor (tanda 5, i3).
+  {
+    path: "/imprimir/orden-compra",
+    element: (
+      <RequireAdmin>
+        <PurchaseOrderPrintPage />
       </RequireAdmin>
     ),
   },

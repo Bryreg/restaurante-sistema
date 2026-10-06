@@ -81,3 +81,22 @@ def menu_classification(db: Session, *, store: Store, date_from: date, date_to: 
     from app.analytics import service
 
     return service.menu_engineering(db, store=store, date_from=date_from, date_to=date_to)
+
+
+def replenishment_suggested_qty(db: Session, *, store: Store) -> dict[int, int]:
+    """**Tercer consumidor (tanda 5, i3):** la orden de compra «desde la
+    reposición sugerida» toma la cantidad de `service.replenishment` tal
+    cual, fila por fila, sin otra regla. `{ingredient_id: cantidad sugerida
+    en milésimas de la unidad base}`, sólo las que sugieren pedir algo."""
+    from app.analytics import service
+    from app.core.quantity import parse_qty_base
+
+    out = service.replenishment(db, store=store)
+    result: dict[int, int] = {}
+    for row in out.rows:
+        if row.suggested_qty is None:
+            continue
+        qty = parse_qty_base(row.suggested_qty, field="suggested_qty")
+        if qty > 0:
+            result[row.ingredient_id] = qty
+    return result

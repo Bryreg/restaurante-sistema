@@ -198,6 +198,9 @@ class ReceptionIn(BaseModel):
         max_length=50,
         description="Pedidos de insumos aprobados que esta recepción cubre; se marcan comprados",
     )
+    # Tanda 5 (i3): la orden de compra que esta recepción cubre. Cierra las
+    # líneas de la orden cuyos insumos vienen en la recepción.
+    purchase_order_id: int | None = None
 
 
 class ReceptionLineOut(OutModel):
@@ -236,6 +239,7 @@ class ReceptionOut(OutModel):
     reversed_at: datetime | None
     reversed_by_employee_name: str | None
     payable_id: int | None = None
+    purchase_order_id: int | None = None
     lines: list[ReceptionLineOut] = Field(default_factory=list)
 
 
@@ -474,6 +478,7 @@ class ReceptionDraftCompleteIn(BaseModel):
     confirm_price: bool = False
     lines: list[ReceptionLineIn] = Field(min_length=1)
     supply_request_ids: list[int] = Field(default_factory=list, max_length=50)
+    purchase_order_id: int | None = None
 
 
 class ReceptionDraftRejectIn(BaseModel):
@@ -516,3 +521,84 @@ class IngredientSupplierPricesOut(BaseModel):
     # El umbral vigente del aviso «Un proveedor subió el precio» (%).
     alert_threshold_pct: int
     suppliers: list[SupplierPriceRowOut]
+
+
+# ---------------------------------------------------------------------------
+# Órdenes de compra (tanda 5, i3).
+# ---------------------------------------------------------------------------
+
+PurchaseOrderStatusLiteral = Literal["draft", "sent", "partially_received", "received", "cancelled"]
+PurchaseOrderSourceLiteral = Literal["manual", "replenishment"]
+
+
+class PurchaseOrderLineIn(BaseModel):
+    ingredient_id: int
+    quantity: str = Field(description='Cantidad en la UNIDAD DE COMPRA del insumo, texto decimal ("3", "1.5")')
+    expected_unit_price: str | None = Field(
+        default=None, description="Precio esperado por UNA unidad de compra, texto decimal en pesos (opcional)"
+    )
+
+
+class PurchaseOrderIn(BaseModel):
+    supplier_id: int
+    expected_date: date | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+    lines: list[PurchaseOrderLineIn] = Field(min_length=1, max_length=200)
+
+
+class PurchaseOrderFromReplenishmentIn(BaseModel):
+    supplier_id: int
+    # Sin lista: los insumos que tienen asignado a este proveedor. Con lista:
+    # esos insumos (si la reposición sugiere pedir algo de cada uno).
+    ingredient_ids: list[int] | None = Field(default=None, max_length=200)
+
+
+class PurchaseOrderCancelIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class PurchaseOrderLineOut(BaseModel):
+    id: int
+    ingredient_id: int
+    ingredient_name: str
+    # En la unidad de compra (texto decimal) y su conversión a la base.
+    quantity: str
+    purchase_unit: str
+    qty_base: str
+    base_unit: str
+    expected_unit_price: str | None
+    # Lo recibido por las recepciones confirmadas de la orden, en la unidad
+    # de compra (derivado, nunca guardado).
+    received_quantity: str
+    closed: bool
+    closed_reception_id: int | None
+
+
+class PurchaseOrderOut(BaseModel):
+    id: int
+    store_id: int
+    store_name: str
+    supplier_id: int
+    supplier_name: str
+    supplier_nit: str | None
+    supplier_contact_name: str | None
+    supplier_contact_phone: str | None
+    number: int
+    status: PurchaseOrderStatusLiteral
+    source: PurchaseOrderSourceLiteral
+    expected_date: date | None
+    notes: str | None
+    created_by_employee_name: str
+    created_at: datetime
+    business_date: date
+    sent_at: datetime | None
+    sent_by_employee_name: str | None
+    cancelled_at: datetime | None
+    cancelled_by_employee_name: str | None
+    cancel_reason: str | None
+    # Total esperado en pesos (Σ cantidad × precio esperado). `None` si a
+    # alguna línea le falta el precio, con el motivo en `expected_total_reason`.
+    expected_total: int | None
+    expected_total_reason: str | None
+    reception_ids: list[int]
+    lines: list[PurchaseOrderLineOut]
