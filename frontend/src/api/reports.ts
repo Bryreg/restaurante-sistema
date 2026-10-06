@@ -96,6 +96,12 @@ export interface AlertOut {
    * gravedad y después `|amount|` descendente.
    */
   amount?: number | null
+  /**
+   * Los avisos de la campana que esta tarjeta representa (0042): «Resolver»
+   * los saca del riel. El resumen de caja trae todos los que junta. Vacía o
+   * ausente = la tarjeta no se resuelve desde el riel.
+   */
+  notification_ids?: number[]
 }
 
 /**

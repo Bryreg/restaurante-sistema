@@ -138,13 +138,23 @@ def notify(
     dedupe_key: str | None = None,
     supervisor_body: str | None = None,
     push_url: str | None = None,
+    dedupe_while_open: bool = False,
 ) -> Notification | None:
+    """`dedupe_while_open=True` cambia la ventana del `dedupe_key`: en vez de
+    «uno por día», **uno mientras siga sin resolver**. Es para los hechos que
+    son un estado y no un evento («este insumo está bajo el mínimo»): el
+    aviso no se repite cada día ni con cada venta mientras la condición
+    siga, y vuelve a salir sólo después de que se resolvió (a mano o porque
+    la condición se apagó, `resolve_open`)."""
     rule = _rule(db, store_id, type)
     if rule is not None and not rule.enabled:
         return None
 
     now = clock.now_utc()
-    if dedupe_key is not None:
+    if dedupe_key is not None and dedupe_while_open:
+        if open_notification(db, store_id=store_id, type=type, dedupe_key=dedupe_key) is not None:
+            return None
+    elif dedupe_key is not None:
         today = tz.to_bogota(now).date()
         stmt = (
             select(Notification)
@@ -177,3 +187,78 @@ def notify(
     db.flush()
     push.enqueue(db, row, supervisor_body=supervisor_body, url=push_url)
     return row
+
+
+# ---------------------------------------------------------------------------
+# Leído ≠ resuelto (0042). `read_at` lo pone la campana; `resolved_at` saca
+# el aviso de «Requiere tu atención» (`app.reports.service._recent_alerts`).
+# ---------------------------------------------------------------------------
+
+#: El nombre con que firma el sistema cuando la condición se apagó sola.
+SYSTEM_RESOLVER_NAME = "Sistema"
+
+
+def open_notification(db: Session, *, store_id: int, type: str, dedupe_key: str) -> Notification | None:
+    """El aviso sin resolver de ese tipo y esa clave, si hay uno."""
+    stmt = (
+        select(Notification)
+        .where(
+            Notification.store_id == store_id,
+            Notification.type == type,
+            Notification.dedupe_key == dedupe_key,
+            Notification.resolved_at.is_(None),
+        )
+        .order_by(Notification.created_at.desc())
+        .limit(1)
+    )
+    return db.execute(stmt).scalars().first()
+
+
+def resolve(
+    db: Session,
+    row: Notification,
+    *,
+    employee_id: int | None = None,
+    employee_name: str | None = None,
+) -> bool:
+    """Marca resuelto un aviso. Resolver también es haberlo visto: si no
+    estaba leído, queda leído a la misma hora. Idempotente: uno ya resuelto
+    no cambia (ni de hora ni de quién) y devuelve `False`."""
+    if row.resolved_at is not None:
+        return False
+    now = clock.now_utc()
+    row.resolved_at = now
+    row.resolved_by_employee_id = employee_id
+    row.resolved_by_name = employee_name if employee_name else SYSTEM_RESOLVER_NAME
+    if row.read_at is None:
+        row.read_at = now
+    db.flush()
+    return True
+
+
+def resolve_open(
+    db: Session,
+    *,
+    store_id: int,
+    type: str,
+    dedupe_key: str | None = None,
+    keep_keys: set[str] | None = None,
+) -> int:
+    """Resuelve, a nombre del sistema, los avisos abiertos de `type` en la
+    sede cuya condición ya se apagó. Con `dedupe_key`, sólo ése; con
+    `keep_keys`, todos menos los que siguen vigentes (lo que un barrido
+    acaba de volver a ver). Devuelve cuántos resolvió."""
+    stmt = select(Notification).where(
+        Notification.store_id == store_id,
+        Notification.type == type,
+        Notification.resolved_at.is_(None),
+    )
+    if dedupe_key is not None:
+        stmt = stmt.where(Notification.dedupe_key == dedupe_key)
+    resolved = 0
+    for row in db.execute(stmt).scalars().all():
+        if keep_keys is not None and row.dedupe_key in keep_keys:
+            continue
+        if resolve(db, row):
+            resolved += 1
+    return resolved

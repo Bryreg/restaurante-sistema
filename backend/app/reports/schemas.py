@@ -22,7 +22,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.reports.series_schemas import OverviewSeriesOut
 
@@ -110,6 +110,11 @@ class AlertOut(BaseModel):
     # ordenada por gravedad (critical > warning > info) y, dentro de la
     # misma gravedad, por `|amount|` descendente (los `None` al final).
     amount: int | None = None
+    # Leído ≠ resuelto (0042): los avisos de la campana que esta tarjeta
+    # representa, para que «Resolver» los saque del riel. Uno por aviso; el
+    # resumen de caja lleva todos los que junta. Vacía = la tarjeta no sale
+    # de una notificación y no se resuelve desde acá.
+    notification_ids: list[int] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

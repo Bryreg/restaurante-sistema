@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,11 +15,14 @@ from app.core import clock
 from app.core.csv import csv_response, wants_csv
 from app.core.db import get_db
 from app.core.errors import NotFoundError
+from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.core.features import require_feature
 from app.notifications import push
 from app.notifications.models import Notification, NotificationRule, PushSubscription
 from app.notifications.schemas import (
     NotificationOut,
+    NotificationResolveIn,
+    NotificationResolveOut,
     NotificationRuleIn,
     NotificationRuleOut,
     PushDeviceOut,
@@ -28,7 +32,7 @@ from app.notifications.schemas import (
     PushUnsubscribeIn,
     PushUnsubscribeOut,
 )
-from app.notifications.service import NOTIFICATION_TYPES, THRESHOLD_DEFAULTS, default_level
+from app.notifications.service import NOTIFICATION_TYPES, THRESHOLD_DEFAULTS, default_level, resolve
 
 router = APIRouter()
 
@@ -43,6 +47,8 @@ def _notification_out(row: Notification) -> NotificationOut:
         body=row.body,
         payload=row.payload,
         read_at=row.read_at,
+        resolved_at=row.resolved_at,
+        resolved_by_name=row.resolved_by_name,
         created_at=row.created_at,
     )
 
@@ -52,6 +58,7 @@ def list_notifications(
     request: Request,
     store_id: int | None = None,
     unread_only: bool = False,
+    unresolved_only: bool = False,
     # Deuda declarada en `outputs-2a/ENTREGA.md § 5` (pedido 2b): `format`
     # declarado en el contrato, no sólo leído de `request.query_params` dentro
     # de `wants_csv` — mismo patrón que `app.reports.router.get_sales`.
@@ -66,6 +73,8 @@ def list_notifications(
         stmt = stmt.where(Notification.store_id == store_id)
     if unread_only:
         stmt = stmt.where(Notification.read_at.is_(None))
+    if unresolved_only:
+        stmt = stmt.where(Notification.resolved_at.is_(None))
     stmt = stmt.order_by(Notification.created_at.desc())
     out = [_notification_out(n) for n in db.execute(stmt).scalars().all()]
     if wants_csv(request):
@@ -97,6 +106,60 @@ def mark_read(
         row.read_at = clock.now_utc()
         db.flush()
     return _notification_out(row)
+
+
+@router.post("/admin/notifications/resolve", response_model=NotificationResolveOut)
+def resolve_notifications(
+    body: NotificationResolveIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+) -> JSONResponse:
+    """«Resolver» (0042): saca los avisos de «Requiere tu atención». Marcar
+    leído (`/read`, la campana) NO lo hace: leído es «ya lo vi», resuelto es
+    «ya se atendió». Con `Idempotency-Key`; uno ya resuelto no cambia de
+    hora ni de quién. Un id de otra organización es `404` y no se resuelve
+    ninguno."""
+    ids = sorted(set(body.notification_ids))
+    rows = list(
+        db.execute(
+            select(Notification).where(
+                Notification.id.in_(ids), Notification.organization_id == actor.organization_id
+            )
+        ).scalars()
+    )
+    if len(rows) != len(ids):
+        raise NotFoundError("La notificación no existe")
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        changed: list[Notification] = [
+            row
+            for row in rows
+            if resolve(db, row, employee_id=actor.employee_id, employee_name=actor.employee_name)
+        ]
+        for row in changed:
+            record_audit(
+                db,
+                actor=actor,
+                organization_id=actor.organization_id,
+                store_id=row.store_id,
+                entity="notification",
+                entity_id=row.id,
+                action="resolve",
+                before={"resolved_at": None},
+                after={"resolved_at": row.resolved_at.isoformat() if row.resolved_at else None, "type": row.type},
+            )
+        return 200, NotificationResolveOut(resolved=len(changed)).model_dump(mode="json")
+
+    status_code, out = run_idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope="notifications.resolve",
+        key=idempotency_key(request),
+        request_hash=hash_request_body({"notification_ids": ids}),
+        fn=_do,
+    )
+    return JSONResponse(status_code=status_code, content=out)
 
 
 @router.get("/admin/notification-rules")

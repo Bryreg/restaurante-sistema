@@ -44,7 +44,7 @@ from app.core.quantity import format_qty_base, line_cost_micros, micros_to_pesos
 from app.fiscal import service as fiscal_service
 from app.fiscal.models import FiscalDocument, FiscalDocumentType
 from app.notifications.models import Notification
-from app.notifications.service import notify, rule_threshold
+from app.notifications.service import notify, resolve_open, rule_threshold
 from app.orders import money
 from app.orders import service as orders_service
 from app.orders.models import (
@@ -828,6 +828,11 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
     unpaid_limit = rule_threshold(db, store.id, "order_unpaid_too_long")
     unsent_count = 0
     unpaid_count = 0
+    # Las claves que siguen vigentes en este barrido: el aviso de una comanda
+    # que ya se envió, se cobró o se cerró se resuelve solo (0042), y deja de
+    # pedir atención en Hoy aunque nadie lo haya tocado.
+    unsent_keys: set[str] = set()
+    unpaid_keys: set[str] = set()
     for order in open_orders:
         if order.kitchen_view_enabled:
             has_pending = db.execute(
@@ -839,6 +844,7 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
                 minutes = int((now - order.opened_at).total_seconds() // 60)
                 if minutes > unsent_limit:
                     unsent_count += 1
+                    unsent_keys.add(f"order_unsent_too_long:{order.id}")
                     notify(
                         db,
                         organization_id=order.organization_id,
@@ -855,6 +861,7 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
             minutes_bill = int((now - order.bill_presented_at).total_seconds() // 60)
             if minutes_bill > unpaid_limit:
                 unpaid_count += 1
+                unpaid_keys.add(f"order_unpaid_too_long:{order.id}")
                 notify(
                     db,
                     organization_id=order.organization_id,
@@ -866,6 +873,8 @@ def _sweep_stale_orders(db: Session, store: Store, now: datetime) -> tuple[int, 
                     payload={"order_id": order.id, "minutes": minutes_bill},
                     dedupe_key=f"order_unpaid_too_long:{order.id}",
                 )
+    resolve_open(db, store_id=store.id, type="order_unsent_too_long", keep_keys=unsent_keys)
+    resolve_open(db, store_id=store.id, type="order_unpaid_too_long", keep_keys=unpaid_keys)
     return unsent_count, unpaid_count
 
 
@@ -1119,7 +1128,9 @@ def _recent_alerts(db: Session, store: Store, *, limit: int = 30) -> list[AlertO
             select(Notification)
             .where(
                 Notification.store_id == store.id,
-                Notification.read_at.is_(None),
+                # Leído ≠ resuelto (0042): mirar el aviso en la campana no lo
+                # saca de acá; lo saca «Resolver» o que la condición se apague.
+                Notification.resolved_at.is_(None),
                 Notification.type.not_in(CASH_DIFF_NOTIFICATION_TYPES),
             )
             .order_by(Notification.created_at.desc())
@@ -1127,7 +1138,10 @@ def _recent_alerts(db: Session, store: Store, *, limit: int = 30) -> list[AlertO
         ).scalars()
     )
     alerts = [
-        AlertOut(type=n.type, level=n.level, title=n.title, body=n.body, created_at=n.created_at, payload=n.payload)
+        AlertOut(
+            type=n.type, level=n.level, title=n.title, body=n.body, created_at=n.created_at, payload=n.payload,
+            notification_ids=[n.id],
+        )
         for n in rows
     ]
     summary = _cash_diff_summary(db, store)
@@ -1157,7 +1171,7 @@ def _cash_diff_summary(db: Session, store: Store) -> AlertOut | None:
         db.execute(
             select(Notification).where(
                 Notification.store_id == store.id,
-                Notification.read_at.is_(None),
+                Notification.resolved_at.is_(None),
                 Notification.type.in_(CASH_DIFF_NOTIFICATION_TYPES),
             )
         ).scalars()
@@ -1239,6 +1253,7 @@ def _cash_diff_summary(db: Session, store: Store) -> AlertOut | None:
         body=body,
         created_at=max(n.created_at for n in notifications),
         amount=(shortage_total + surplus_total) if count else None,
+        notification_ids=sorted(n.id for n in notifications),
         payload={
             "count": count,
             "shortage_count": len(shortage),

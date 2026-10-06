@@ -15,7 +15,15 @@ export interface Notification {
   title: string;
   body: string;
   payload?: Record<string, unknown> | null;
+  /** Lo vio alguien en la campana: deja de contar como nuevo. */
   read_at: string | null;
+  /**
+   * Se atendió (0042): recién ahí sale de «Requiere tu atención» en Hoy.
+   * Leído no es resuelto: mirar el aviso no lo saca del riel.
+   */
+  resolved_at?: string | null;
+  /** Quién lo resolvió; «Sistema» cuando la condición se apagó sola. */
+  resolved_by_name?: string | null;
   created_at: string;
 }
 
@@ -35,6 +43,22 @@ export function getNotification(notificationId: number): Promise<Notification> {
 
 export function markNotificationRead(notificationId: number): Promise<Notification> {
   return api<Notification>(`/admin/notifications/${notificationId}/read`, { method: "POST" });
+}
+
+/**
+ * `POST /admin/notifications/resolve` — «Resolver» desde el riel de Hoy: los
+ * saca de «Requiere tu atención» a nombre de quien lo toca. Marcar leído no
+ * lo hace (leído es «ya lo vi», resuelto es «ya se atendió»).
+ */
+export function resolveNotifications(
+  notificationIds: number[],
+  idempotencyKey: string,
+): Promise<{ resolved: number }> {
+  return api<{ resolved: number }>("/admin/notifications/resolve", {
+    method: "POST",
+    body: { notification_ids: notificationIds },
+    idempotencyKey,
+  });
 }
 
 export interface NotificationRule {

@@ -16,8 +16,26 @@ class NotificationOut(BaseModel):
     title: str
     body: str
     payload: dict[str, Any] | None = None
+    #: Lo vio alguien en la campana: deja de contar como nuevo.
     read_at: datetime | None = None
+    #: Se atendió (0042): recién ahí sale de «Requiere tu atención». Lo
+    #: firma la persona que tocó «Resolver» o «Sistema» cuando la condición
+    #: se apagó sola.
+    resolved_at: datetime | None = None
+    resolved_by_name: str | None = None
     created_at: datetime
+
+
+class NotificationResolveIn(BaseModel):
+    """«Resolver» desde el riel de Hoy: uno o varios avisos (el resumen de
+    caja junta varios en una sola tarjeta)."""
+
+    notification_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class NotificationResolveOut(BaseModel):
+    #: Cuántos estaban abiertos y quedaron resueltos con esta llamada.
+    resolved: int
 
 
 class NotificationRuleOut(BaseModel):

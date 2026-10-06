@@ -36,6 +36,15 @@ class Notification(Base):
     # `None` = no salió al celular (no era grave, la función estaba apagada,
     # nadie tenía un celular activo o ya había salido uno igual hace poco).
     pushed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # «Leído» y «resuelto» son dos cosas (0042). `read_at` sólo dice que
+    # alguien lo vio en la campana: deja de contar como nuevo. `resolved_at`
+    # dice que el hecho se atendió: recién ahí sale de «Requiere tu atención».
+    # Lo resuelve una persona («Resolver», con su FK real y su nombre
+    # congelado) o el sistema cuando la condición que lo disparó se apagó
+    # (`resolved_by_employee_id` en `None` y `resolved_by_name` «Sistema»).
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    resolved_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    resolved_by_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 
 class NotificationRule(Base):
