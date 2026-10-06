@@ -132,3 +132,115 @@ def test_obligation_of_other_organization_is_404(admin_client: TestClient, store
         headers=_idem(),
     )
     assert resp.status_code == 404, resp.text
+
+
+def _drawer_expense(
+    device_client: TestClient, shift_id: int, *, amount: int = 40_000, cause: str = "other_expense"
+) -> int:
+    resp = device_client.post(
+        f"/api/v1/shifts/{shift_id}/cash-movements",
+        json={"kind": "expense", "cause": cause, "amount": amount, "note": "Arriendo en efectivo"},
+        headers=_idem(),
+    )
+    assert resp.status_code == 201, resp.text
+    return int(resp.json()["id"])
+
+
+def _expected(db: Session, shift_id: int) -> int:
+    from app.shifts import service as shifts_service
+    from app.shifts.models import Shift
+
+    db.expire_all()
+    shift = db.get(Shift, shift_id)
+    assert shift is not None
+    return int(shifts_service.compute_breakdown(db, shift)["expected"])
+
+
+def test_settle_from_cash_drawer_references_the_drawer_egress_and_does_not_move_expected_again(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Callable[..., Any],
+    employees: Any,
+    store: Store,
+    open_shift: Callable[..., dict[str, Any]],
+    db: Session,
+) -> None:
+    """u4: saldar desde el cajón se comporta igual que un gasto con
+    `source="cash_drawer"`: referencia el egreso que el turno YA registró
+    (que es el que movió el esperado) y no vuelve a moverlo."""
+    shift = open_shift()
+    identify(device_client, employees["cashier"])
+    movement_id = _drawer_expense(device_client, shift["id"])
+    expected_before = _expected(db, shift["id"])
+
+    listed = admin_client.get(f"/api/v1/admin/expenses/drawer-movements?store_id={store.id}")
+    assert listed.status_code == 200, listed.text
+    assert [m["id"] for m in listed.json()] == [movement_id]
+    assert listed.json()[0]["amount"] == 40_000
+    assert listed.json()[0]["cause"] == "other_expense"
+
+    row = _create(admin_client, store)
+    resp = admin_client.post(
+        f"/api/v1/admin/obligations/{row['id']}/settle",
+        json={"source": "cash_drawer", "cash_movement_id": movement_id},
+        headers=_idem(),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "paid"
+    assert body["settled_source"] == "cash_drawer"
+    assert body["cash_movement_id"] == movement_id
+    assert _expected(db, shift["id"]) == expected_before
+
+    # Ya respalda esta obligación: no se ofrece más ni se puede reusar.
+    listed_after = admin_client.get(f"/api/v1/admin/expenses/drawer-movements?store_id={store.id}")
+    assert listed_after.json() == []
+    other = _create(admin_client, store)
+    reused = admin_client.post(
+        f"/api/v1/admin/obligations/{other['id']}/settle",
+        json={"source": "cash_drawer", "cash_movement_id": movement_id},
+        headers=_idem(),
+    )
+    assert reused.status_code == 400, reused.text
+    assert reused.json()["error"]["code"] == "CASH_MOVEMENT_ALREADY_USED"
+    expense = admin_client.post(
+        f"/api/v1/admin/expenses?store_id={store.id}",
+        json={
+            "category": "other", "description": "Doble", "amount": 2_000_000, "business_date": "2026-01-15",
+            "source": "cash_drawer", "cash_movement_id": movement_id,
+        },
+        headers=_idem(),
+    )
+    assert expense.status_code == 400, expense.text
+    assert expense.json()["error"]["code"] == "CASH_MOVEMENT_ALREADY_USED"
+
+
+def test_drawer_movements_only_lists_expense_causes(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Callable[..., Any],
+    employees: Any,
+    store: Store,
+    open_shift: Callable[..., dict[str, Any]],
+) -> None:
+    shift = open_shift()
+    identify(device_client, employees["cashier"])
+    petty = _drawer_expense(device_client, shift["id"], amount=10_000, cause="petty_expense")
+    income = device_client.post(
+        f"/api/v1/shifts/{shift['id']}/cash-movements",
+        json={"kind": "income", "cause": "other_income", "amount": 5_000, "note": "Ingreso"},
+        headers=_idem(),
+    )
+    assert income.status_code == 201, income.text
+
+    listed = admin_client.get(f"/api/v1/admin/expenses/drawer-movements?store_id={store.id}")
+    assert listed.status_code == 200, listed.text
+    assert [m["id"] for m in listed.json()] == [petty]
+
+
+def test_settle_with_bank_source_records_bank_without_cash_movement(admin_client: TestClient, store: Store) -> None:
+    row = _create(admin_client, store)
+    resp = admin_client.post(f"/api/v1/admin/obligations/{row['id']}/settle", json={"source": "bank"}, headers=_idem())
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["settled_source"] == "bank"
+    assert resp.json()["cash_movement_id"] is None

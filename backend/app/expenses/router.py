@@ -22,6 +22,7 @@ from app.expenses import service
 from app.expenses.models import Expense, ObligationStatus, Obligation
 from app.expenses.schemas import (
     BreakEvenOut,
+    DrawerExpenseMovementOut,
     ExpenseIn,
     ExpenseOut,
     ExpensesSettingsIn,
@@ -114,6 +115,30 @@ def list_expenses(
     if format == "csv":
         return csv_response(result, "gastos.csv")
     return result
+
+
+@router.get("/admin/expenses/drawer-movements", response_model=list[DrawerExpenseMovementOut])
+def list_drawer_movements(
+    store_id: int,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[DrawerExpenseMovementOut]:
+    """Los egresos del cajón que todavía no respaldan un gasto ni una
+    obligación (últimos 30 días): de dónde se elige el `cash_movement_id`
+    cuando la plata salió del cajón."""
+    store = admin_store(db, actor, store_id)
+    return [
+        DrawerExpenseMovementOut(
+            id=m.id,
+            shift_id=m.shift_id,
+            cause=m.cause.value,
+            amount=m.amount,
+            note=m.note,
+            employee_name=m.employee_name,
+            at=m.at,
+        )
+        for m in service.list_drawer_expense_movements(db, store_id=store.id)
+    ]
 
 
 @router.post("/admin/expenses", status_code=201)

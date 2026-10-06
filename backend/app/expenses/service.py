@@ -134,12 +134,76 @@ def _validate_source(*, source: str, cash_movement_id: int | None, db: Session, 
                 status=400,
             )
         _validate_cash_movement_reference(db, store_id=store_id, cash_movement_id=cash_movement_id)
+        if _cash_movement_in_use(db, cash_movement_id=cash_movement_id):
+            # Punto 3 de la llave anti doble conteo: un mismo egreso del cajón
+            # respalda UN gasto u UNA obligación, nunca dos.
+            raise AppError(
+                code="CASH_MOVEMENT_ALREADY_USED",
+                message=(
+                    "Ese egreso de caja ya respalda otro gasto u obligación; elegí otro egreso "
+                    "o registralo primero en el turno, desde el POS"
+                ),
+                status=400,
+            )
     elif cash_movement_id is not None:
         raise AppError(
             code="VALIDATION_ERROR",
             message="cash_movement_id: sólo aplica cuando source es cash_drawer",
             status=400,
         )
+
+
+def _cash_movement_in_use(db: Session, *, cash_movement_id: int) -> bool:
+    """¿Algún gasto vivo u obligación no cancelada ya referencia este egreso?"""
+    expense = db.execute(
+        select(Expense.id).where(Expense.cash_movement_id == cash_movement_id, Expense.voided_at.is_(None)).limit(1)
+    ).first()
+    if expense is not None:
+        return True
+    obligation = db.execute(
+        select(Obligation.id)
+        .where(Obligation.cash_movement_id == cash_movement_id, Obligation.cancelled_at.is_(None))
+        .limit(1)
+    ).first()
+    return obligation is not None
+
+
+#: Hasta cuántos días atrás se ofrecen los egresos del cajón para respaldar
+#: un gasto u obligación pagada del cajón.
+DRAWER_MOVEMENTS_LOOKBACK_DAYS = 30
+
+
+def list_drawer_expense_movements(db: Session, *, store_id: int) -> list[Any]:
+    """Los egresos del cajón (causa de gasto: `petty_expense`,
+    `emergency_purchase`, `other_expense`) de los últimos
+    `DRAWER_MOVEMENTS_LOOKBACK_DAYS` días que todavía no respaldan ningún
+    gasto ni obligación: lo que se puede elegir al saldar una obligación (o
+    registrar un gasto) con `source == "cash_drawer"`. Sólo lectura de
+    `app.shifts.models`, igual que `_validate_cash_movement_reference`."""
+    from app.shifts.models import CashMovement, CashMovementCause, CashMovementKind
+
+    since = clock.now_utc() - timedelta(days=DRAWER_MOVEMENTS_LOOKBACK_DAYS)
+    used_by_expense = select(Expense.cash_movement_id).where(
+        Expense.cash_movement_id.is_not(None), Expense.voided_at.is_(None)
+    )
+    used_by_obligation = select(Obligation.cash_movement_id).where(
+        Obligation.cash_movement_id.is_not(None), Obligation.cancelled_at.is_(None)
+    )
+    causes = [CashMovementCause(c) for c in sorted(_EXPENSE_CASH_MOVEMENT_CAUSES)]
+    return list(
+        db.execute(
+            select(CashMovement)
+            .where(
+                CashMovement.store_id == store_id,
+                CashMovement.kind == CashMovementKind.EXPENSE,
+                CashMovement.cause.in_(causes),
+                CashMovement.at >= since,
+                CashMovement.id.not_in(used_by_expense),
+                CashMovement.id.not_in(used_by_obligation),
+            )
+            .order_by(CashMovement.at.desc(), CashMovement.id.desc())
+        ).scalars()
+    )
 
 
 logger = logging.getLogger("app.expenses")

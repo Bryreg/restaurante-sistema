@@ -14,8 +14,11 @@ import { useState } from "react"
 import { newIdempotencyKey } from "@/api/client"
 import {
   createObligation,
+  getDrawerExpenseMovements,
   getObligations,
   settleObligation,
+  type DrawerExpenseMovementOut,
+  type ExpenseSource,
   type ObligationCategory,
   type ObligationOut,
   type ObligationStatus,
@@ -59,7 +62,14 @@ import { formatBusinessDate, formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
-import { obligationCategoryLabel, obligationStatusLabel, OBLIGATION_CATEGORY_LABEL } from "./lib"
+import {
+  DRAWER_EXPENSE_CAUSE_LABEL,
+  EXPENSE_SOURCE_LABEL,
+  expenseSourceLabel,
+  obligationCategoryLabel,
+  obligationStatusLabel,
+  OBLIGATION_CATEGORY_LABEL,
+} from "./lib"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { csvUrl } from "@/api/client"
 
@@ -163,36 +173,130 @@ function CreateObligationDialog({
 
 function SettleAction({
   obligation,
+  storeId,
   onSettled,
 }: {
   obligation: ObligationOut
+  storeId: number
   onSettled: () => void
 }): React.JSX.Element {
-  const mutation = useMutation({
-    // `source` siempre "other" desde esta pantalla — "cash_drawer" exige
-    // referenciar un `cash_movement_id` que ya exista, y esta pantalla no
-    // tiene forma de elegir uno (gap declarado en el entregable).
-    mutationFn: () => settleObligation(obligation.id, { source: "other" }, newIdempotencyKey()),
-    onSuccess: onSettled,
+  const [open, setOpen] = useState(false)
+  const [source, setSource] = useState<ExpenseSource>("bank")
+  const [movementId, setMovementId] = useState<string>("")
+
+  // Los egresos del cajón que todavía no respaldan nada: sólo se piden si
+  // la plata salió del cajón (el backend exige referenciar uno, nunca crea
+  // un egreso nuevo — sería sacar la plata dos veces).
+  const movements = useQuery({
+    queryKey: ["expenses", "drawer-movements", storeId],
+    queryFn: () => getDrawerExpenseMovements(storeId),
+    enabled: open && source === "cash_drawer",
   })
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      settleObligation(
+        obligation.id,
+        {
+          source,
+          cash_movement_id: source === "cash_drawer" ? Number(movementId) : null,
+        },
+        newIdempotencyKey(),
+      ),
+    onSuccess: () => {
+      setOpen(false)
+      setMovementId("")
+      onSettled()
+    },
+  })
+
+  const canSubmit = source !== "cash_drawer" || movementId !== ""
+  const movementRows = movements.data ?? []
+
   return (
-    <div className="space-y-1">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={mutation.isPending}
-        onClick={() => mutation.mutate()}
-      >
-        Saldar
-      </Button>
-      {mutation.isError ? (
-        <p role="alert" className="text-xs text-destructive">
-          {errorMessage(mutation.error)}
-        </p>
-      ) : null}
-    </div>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button type="button" variant="outline" size="sm" />}>Saldar</DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Saldar obligación</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm">
+            {obligation.description ?? "—"} · <b>{formatCOP(obligation.amount ?? null)}</b>
+          </p>
+          <div className="space-y-1">
+            <Label htmlFor={`settle-source-${obligation.id}`}>¿De dónde salió la plata?</Label>
+            <Select
+              value={source}
+              onValueChange={(value) => {
+                setSource(value as ExpenseSource)
+                setMovementId("")
+              }}
+            >
+              <SelectTrigger id={`settle-source-${obligation.id}`} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(EXPENSE_SOURCE_LABEL) as ExpenseSource[]).map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {EXPENSE_SOURCE_LABEL[key]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {source === "cash_drawer" ? (
+            <div className="space-y-1">
+              <Label htmlFor={`settle-movement-${obligation.id}`}>Egreso del cajón que la pagó</Label>
+              {movements.isError ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {errorMessage(movements.error)}
+                </p>
+              ) : movements.isLoading ? (
+                <p className="text-sm text-muted-foreground">Cargando egresos del cajón…</p>
+              ) : movementRows.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No hay egresos del cajón sin usar en los últimos 30 días. Registrá primero el egreso en el turno,
+                  desde el POS, y volvé a saldarla.
+                </p>
+              ) : (
+                <Select value={movementId || undefined} onValueChange={(value) => setMovementId(String(value ?? ""))}>
+                  <SelectTrigger id={`settle-movement-${obligation.id}`} className="w-full">
+                    <SelectValue placeholder="Elegí el egreso" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {movementRows.map((m) => (
+                      <SelectItem key={m.id} value={String(m.id)}>
+                        {drawerMovementLabel(m)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          ) : null}
+          {mutation.isError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {errorMessage(mutation.error)}
+            </p>
+          ) : null}
+          <Button
+            type="button"
+            className="w-full"
+            disabled={!canSubmit || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
+            Confirmar pago
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
+}
+
+function drawerMovementLabel(m: DrawerExpenseMovementOut): string {
+  const cause = DRAWER_EXPENSE_CAUSE_LABEL[m.cause] ?? m.cause
+  return `${formatInstant(m.at)} · ${cause} · ${formatCOP(m.amount)}${m.note ? ` · ${m.note}` : ""}`
 }
 
 export function ObligationsTab({ storeId }: { storeId: number }): React.JSX.Element {
@@ -259,7 +363,9 @@ export function ObligationsTab({ storeId }: { storeId: number }): React.JSX.Elem
       cellTitle: (o) =>
         o.cancelled_at
           ? `Cancelada ${formatInstant(o.cancelled_at)}${o.cancelled_reason ? `: ${o.cancelled_reason}` : ""}`
-          : undefined,
+          : o.status === "paid" && o.settled_source
+            ? `Pagada desde: ${expenseSourceLabel(o.settled_source)}`
+            : undefined,
     },
     {
       key: "action",
@@ -270,7 +376,7 @@ export function ObligationsTab({ storeId }: { storeId: number }): React.JSX.Elem
       // (`docs/INVENTARIO-CONTROLES.md` § 26).
       cell: (o) =>
         o.status === "pending" && !o.cancelled_at ? (
-          <SettleAction obligation={o} onSettled={invalidate} />
+          <SettleAction obligation={o} storeId={storeId} onSettled={invalidate} />
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
