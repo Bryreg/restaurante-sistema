@@ -78,6 +78,8 @@ class PreparationIn(BaseModel):
     shelf_life_days: int | None = Field(default=None, ge=0)
     # Entra al conteo de críticos (sólo cuenta en modo lote).
     key_item: bool = False
+    # Nivel par (texto decimal en la unidad de rendimiento); `None` = sin par.
+    par_qty: str | None = None
     lines: list[ComponentLineIn] = Field(default_factory=list)
 
 
@@ -88,6 +90,8 @@ class PreparationUpdateIn(BaseModel):
     process_loss_pct: int | None = Field(default=None, ge=0, le=100)
     shelf_life_days: int | None = Field(default=None, ge=0)
     key_item: bool | None = None
+    par_qty: str | None = None
+    clear_par: bool = False
     lines: list[ComponentLineIn] | None = None
     active: bool | None = None
 
@@ -106,6 +110,7 @@ class PreparationAdminOut(BaseModel):
     process_loss_pct: int
     shelf_life_days: int | None
     key_item: bool = False
+    par_qty: str | None = None
     active: bool
     current_stock: str | None  # sólo tiene sentido en modo batch; null en exploded
     unit_cost: str | None  # texto decimal en pesos, precisión completa (format_cost_micros)

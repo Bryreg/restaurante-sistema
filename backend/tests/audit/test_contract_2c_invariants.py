@@ -532,12 +532,14 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
     - Con **`0039_recipe_sheets`** la cadena llega a `"0039"` y el conteo
       pasa a **118**. Motivo declarado: la ficha de chef de platos y
       preparaciones (`recipe_sheets`) y los alérgenos del insumo.
+    - Con **`0040_prep_par`** la cadena llega a `"0040"` y el conteo **sigue
+      en 118**. Motivo declarado: el nivel par de cada preparación.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0039"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0039 "
+    assert 'version == "0040"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0040 "
         "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031, "
-        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035, etiquetas de cocina 0036, anular conteo 0037, contar preparaciones 0038 y ficha de chef 0039)"
+        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035, etiquetas de cocina 0036, anular conteo 0037, contar preparaciones 0038, ficha de chef 0039 y nivel par 0040)"
     )
     assert "len(tablas) == 118" in fuente, (
         "el conteo de tablas sigue en un número viejo: 0039 lo deja en 118 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1 + 2 + 1 + 1)"

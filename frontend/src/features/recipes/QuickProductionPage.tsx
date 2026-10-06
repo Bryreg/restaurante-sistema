@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { errorMessage } from "@/lib/errors"
+import { MiseEnPlaceDispositivo } from "./MiseEnPlace"
 import { cn } from "@/lib/utils"
 
 /**
@@ -137,6 +138,7 @@ export function QuickProductionPage(): React.JSX.Element {
     return (
       <div className="space-y-3">
         <h1 className="text-lg font-semibold">Producir</h1>
+        <MiseEnPlaceDispositivo />
         <p className="text-sm text-muted-foreground">Tocá una preparación para producirla (toque 1 de 2).</p>
         <div role="radiogroup" aria-label="Preparaciones" className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {producible.map((prep) => (

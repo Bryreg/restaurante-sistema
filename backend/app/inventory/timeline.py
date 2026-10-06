@@ -352,8 +352,9 @@ def inventory_timeline(
                 _Item(
                     key=f"p{prep.id}", kind="preparation", id=prep.id, name=prep.name,
                     base_unit=prep.standard_yield_unit, key_item=bool(prep.key_item),
-                    # Sin nivel par todavía: el mínimo de una preparación es cero.
-                    min_stock=0, cost_micros=pcost.cost_micros, created_at=prep.created_at,
+                    # El «mínimo» de una preparación es su nivel par (0040).
+                    min_stock=int(getattr(prep, "par_qty", None) or 0),
+                    cost_micros=pcost.cost_micros, created_at=prep.created_at,
                 )
             )
     acc: dict[str, _Acc] = {it.key: _Acc() for it in items}

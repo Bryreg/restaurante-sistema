@@ -592,6 +592,11 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     plato y cada preparación descargan su ficha para la cocina, con método,
     porción, estación, montaje y foto (`recipe_sheets`), y los alérgenos se
     heredan de los insumos (`ingredients.allergens`).
+
+    **Re-apuntado con la mise en place** (`0040_prep_par`): la cabeza pasa a
+    **`0040`**; columnas, no tablas: sigue 118. Motivo declarado: el nivel
+    par de cada preparación (`preparations.par_qty`) para saber cada mañana
+    qué producir.
     """
     from sqlalchemy import text
 
@@ -603,13 +608,13 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     finally:
         engine.dispose()
 
-    assert version == "0039", (
-        f"la cadena quedó en {version!r}; el punto de llegada es 0039: 0027 → 0028 (asistencia separada del turno de caja) "
+    assert version == "0040", (
+        f"la cadena quedó en {version!r}; el punto de llegada es 0040: 0027 → 0028 (asistencia separada del turno de caja) "
         "→ 0029 (apertura por sobres y base de respaldo) → 0030 (conteo artículo por artículo) "
         "→ 0031 (avisos al celular) → 0032 (supuestos del panel) → 0033 (meta de ventas del mes) "
-        "→ 0034 (reversa de los días en el cajón) → 0035 (ajustes del panel) → 0036 (etiquetas de cocina) → 0037 (anular conteo) → 0038 (contar preparaciones) → 0039 (ficha de chef). "
+        "→ 0034 (reversa de los días en el cajón) → 0035 (ajustes del panel) → 0036 (etiquetas de cocina) → 0037 (anular conteo) → 0038 (contar preparaciones) → 0039 (ficha de chef) → 0040 (nivel par). "
         "Si agregaste una migración, movele el poste acá y decí por qué, como hicieron "
-        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037, 0038 y 0039"
+        "2b, 2c, H-3, la fase 3, A-3, 0022, 0023, 0024, 0025, 0026, 0027, 0028, 0029, 0030, 0031, 0032, 0033, 0034, 0035, 0036, 0037, 0038, 0039 y 0040"
     )
 
     del_inventario = {"ingredients", "stock_movements", "wastes"}
@@ -728,7 +733,7 @@ def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory(migrated_u
     # agrega sólo columnas: sigue 114. `0036` (etiquetas de cocina) suma dos:
     # **116**. `0037` (anular conteo) agrega columnas: sigue 116. `0038`
     # (contar preparaciones) suma una: **117**. `0039` (ficha de chef) suma
-    # una: **118**.
+    # una: **118**. `0040` (nivel par) agrega columnas: sigue 118.
     assert len(tablas) == 118, (
         f"el esquema quedó con {len(tablas)} tablas de dominio; `0031` lo deja en 113, `0032` no lo mueve "
         f"`0033` suma la meta de ventas del mes: 114 `0036` las etiquetas de cocina: 116 `0038` el conteo de preparaciones: 117 y `0039` la ficha de chef: 118 "

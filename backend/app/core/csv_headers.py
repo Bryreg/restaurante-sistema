@@ -148,6 +148,7 @@ KEYS: dict[str, str] = {
 #: respuesta de la API (lo verifica `tests/core/test_csv.py`).
 TOKENS: dict[str, str] = {
     "allergens": "alérgenos",
+    "par": "par",
     "band": "franja",
     "recount": "recuento",
     "lock": "bloqueo",
