@@ -42,6 +42,7 @@ import { formatBasisPoints } from "@/features/inventory/lib"
 
 import { Explicacion } from "@/components/admin"
 import { daysAgoLocal, runsHeadline, todayLocal } from "./lib"
+import { OrganizationPayroll } from "./OrganizationPayroll"
 
 const RUN_LINE_COLUMNS: readonly DenseColumn<PayrollRunLineOut>[] = [
   { key: "person", header: "Persona", kind: "name", cell: (l) => l.employee_name ?? `#${l.employee_id}` },
@@ -275,6 +276,7 @@ export function RunsTab({ storeId }: { storeId: number }): React.JSX.Element {
           Liquidar este período
         </Button>
       </div>
+      <OrganizationPayroll from={from} to={to} />
       {mutation.isError ? (
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(mutation.error)}

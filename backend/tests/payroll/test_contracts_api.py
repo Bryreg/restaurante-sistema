@@ -73,3 +73,18 @@ def test_monthly_contract_needs_a_salary(admin_client: TestClient, store: Any, e
         "employee_id": employees["operator"].id, "kind": "indefinite", "salary_type": "monthly",
         "start_date": "2026-01-01"})
     assert r.status_code == 400
+
+
+def test_organization_payroll_sums_every_store(
+    admin_client: TestClient, store: Any, employees: dict[str, Any], seed_surcharge_table: Any,
+) -> None:
+    seed_surcharge_table(admin_client, store_id=store.id, valid_from=date(2024, 1, 1))
+    _post(admin_client, "/admin/payroll/contracts", store.id, {
+        "employee_id": employees["operator"].id, "kind": "indefinite", "salary_type": "monthly",
+        "monthly_salary_pesos": 2_000_000, "start_date": "2026-01-01"})
+    body = admin_client.get(f"{API}/admin/payroll/organization", params={"from": "2026-06-01", "to": "2026-06-30"}).json()
+    row = next(s for s in body["stores"] if s["store_id"] == store.id)
+    assert row["people"] >= 1 and row["employer_total"] is not None
+    person = next(p for p in body["people"] if p["employee_id"] == employees["operator"].id)
+    assert person["stores"] == [store.name]
+    assert person["total"] >= 2_000_000

@@ -71,6 +71,9 @@ from app.payroll.schemas import (
     ContractOut,
     LegalParamsIn,
     LegalParamsOut,
+    OrganizationPayrollOut,
+    OrganizationPayrollPersonOut,
+    OrganizationPayrollStoreOut,
     AreaAssignmentIn,
     AreaAssignmentOut,
     HolidayIn,
@@ -730,3 +733,65 @@ def post_legal_params(
         db, organization_id=actor.organization_id, scope="payroll.legal_params", request=request, payload=payload, fn=_do
     )
     return LegalParamsOut.model_validate(body)
+
+
+# ---------------------------------------------------------------------------
+# Nómina de toda la organización (auditoría e8).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/payroll/organization", dependencies=[Depends(require_feature("payroll"))])
+def get_organization_payroll(
+    from_: date = Query(alias="from"),
+    to: date = Query(),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> OrganizationPayrollOut:
+    """La nómina del período en todas las sedes, con el mismo motor que la
+    liquidación (`service.compute_period`), sin guardar nada: por sede y por
+    persona (quien trabaja en dos sedes sale sumada)."""
+    from sqlalchemy import select as sa_select
+
+    from app.stores.models import Store
+
+    if from_ > to:
+        raise AppError("VALIDATION_ERROR", "La fecha inicial es posterior a la final")
+    stores = db.execute(
+        sa_select(Store).where(Store.organization_id == actor.organization_id, Store.active.is_(True)).order_by(Store.name)
+    ).scalars().all()
+    store_rows: list[OrganizationPayrollStoreOut] = []
+    people: dict[int, dict[str, Any]] = {}
+    total: int | None = 0
+    employer_total: int | None = 0
+    for store in stores:
+        if not service.list_surcharge_tables(db, store_id=store.id):
+            store_rows.append(OrganizationPayrollStoreOut(
+                store_id=store.id, store_name=store.name, people=0, total=None, employer_total=None,
+                reason="Sin tabla de recargos"))
+            total = employer_total = None
+            continue
+        lines, _ = service.compute_period(db, store=store, date_from=from_, date_to=to)
+        s_total = None if any(l.total is None for l in lines) else sum(l.total or 0 for l in lines)
+        s_emp = None if any(l.employer_total is None for l in lines) else sum(l.employer_total or 0 for l in lines)
+        store_rows.append(OrganizationPayrollStoreOut(
+            store_id=store.id, store_name=store.name, people=len(lines), total=s_total, employer_total=s_emp,
+            reason=None if s_total is not None else "Alguien sin tarifa por hora"))
+        total = None if total is None or s_total is None else total + s_total
+        employer_total = None if employer_total is None or s_emp is None else employer_total + s_emp
+        for l in lines:
+            p = people.setdefault(l.employee_id, {"name": l.employee_name, "stores": [], "total": 0, "employer_total": 0})
+            p["stores"].append(store.name)
+            p["total"] = None if p["total"] is None or l.total is None else p["total"] + l.total
+            p["employer_total"] = (
+                None if p["employer_total"] is None or l.employer_total is None else p["employer_total"] + l.employer_total
+            )
+    return OrganizationPayrollOut(
+        date_from=from_, date_to=to, total=total, employer_total=employer_total, stores=store_rows,
+        people=[
+            OrganizationPayrollPersonOut(
+                employee_id=eid, employee_name=p["name"], stores=p["stores"], total=p["total"],
+                employer_total=p["employer_total"],
+            )
+            for eid, p in sorted(people.items(), key=lambda kv: kv[1]["name"])
+        ],
+    )

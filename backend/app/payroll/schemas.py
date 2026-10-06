@@ -502,3 +502,30 @@ class LegalParamsOut(BaseModel):
     # fila cargada (o confirmada) por una persona.
     source: Literal["ley", "organizacion"]
     confirmed_by_name: str | None = None
+
+
+
+class OrganizationPayrollStoreOut(BaseModel):
+    store_id: int
+    store_name: str
+    people: int
+    total: int | None
+    employer_total: int | None
+    reason: str | None
+
+
+class OrganizationPayrollPersonOut(BaseModel):
+    employee_id: int
+    employee_name: str
+    stores: list[str]
+    total: int | None
+    employer_total: int | None
+
+
+class OrganizationPayrollOut(BaseModel):
+    date_from: date
+    date_to: date
+    total: int | None
+    employer_total: int | None
+    stores: list[OrganizationPayrollStoreOut]
+    people: list[OrganizationPayrollPersonOut]
