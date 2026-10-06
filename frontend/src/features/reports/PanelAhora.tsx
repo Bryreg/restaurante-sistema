@@ -15,7 +15,7 @@ import { formatDuracion, formatFechaCorta } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
-import { fichaPersonaHref, fichaTurnoHref } from "./fichas/rutas"
+import { HORARIO_SEMANA_HREF, fichaPersonaHref, fichaTurnoHref } from "./fichas/rutas"
 import { SerieMini } from "./hoy/SerieMini"
 import { formatDelta, shortDay } from "./lib"
 
@@ -455,7 +455,7 @@ function QuienTrabaja({ panel }: { panel: StorePanelOut }): React.JSX.Element {
       }
       cifra={String(present.length)}
       cifraNota={present.length === 1 ? "persona con entrada" : "con entrada hoy"}
-      enlace={{ to: "/admin/nomina?tab=horas", label: "Asistencia" }}
+      enlace={{ to: HORARIO_SEMANA_HREF, label: "Asistencia" }}
     >
       {serieOk(serie) && serie.points.some((p) => (p.value ?? 0) > 0) ? (
         <div className="flex flex-col gap-1.5 rounded-2xl bg-muted px-4 py-3.5">
@@ -807,7 +807,7 @@ function AhoraCelular({ panel, orders }: { panel: StorePanelOut; orders: number 
           cifra={String(panel.staff.present.length)}
           tono={panel.staff.pending_review.length > 0 ? "warning" : "default"}
           estado={panel.staff.pending_review.length > 0 ? `▲ ${panel.staff.pending_review.length} sin salida` : null}
-          to="/admin/nomina?tab=horas"
+          to={HORARIO_SEMANA_HREF}
         />
         <BloqueCorto
           icon={ClipboardList}

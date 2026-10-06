@@ -18,3 +18,9 @@ export function fichaPersonaHref(employeeId: number): string {
 export function fichaInsumoHref(ingredientId: number): string {
   return `/admin/inventario/insumo/${ingredientId}`
 }
+
+/**
+ * El gráfico de horario de Equipo: Nómina › Horario de la semana. Es el
+ * único; quien quiera mostrar «cuándo trabajó» enlaza acá.
+ */
+export const HORARIO_SEMANA_HREF = "/admin/nomina?tab=semana"

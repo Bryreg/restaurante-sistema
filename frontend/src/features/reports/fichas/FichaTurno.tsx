@@ -507,7 +507,6 @@ function QuienTrabajo({ r, s }: { r: ShiftRecordOut; s: ShiftSummary }): React.J
       ) : (
         <div className="flex flex-col gap-1.5 rounded-lg border bg-card p-4">
           <HorarioGantt
-            variante="turno"
             filas={filas}
             relevos={relevos}
             ahora={r.status === "open" ? new Date().toISOString() : undefined}

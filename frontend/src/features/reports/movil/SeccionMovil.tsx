@@ -16,6 +16,7 @@ import { formatDuracion, formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
+import { HORARIO_SEMANA_HREF } from "../fichas/rutas"
 import { SerieMini } from "../hoy/SerieMini"
 import { businessDateOfInstant } from "../lib"
 
@@ -53,7 +54,7 @@ const TARJETAS: Record<string, TarjetaConfig> = {
   pickups: { corto: "Retiros hoy", pregunta: "¿Cuánto salió en retiros hoy?", accion: "Ver retiros", href: "/admin/dinero" },
   expenses: { corto: "Gastos de caja", pregunta: "¿Cuánto se gastó de la caja hoy?", accion: "Ver gastos", href: "/admin/dinero" },
   // Equipo
-  staff: { corto: "En turno ahora", pregunta: "¿Quién trabaja hoy?", accion: "Ver asistencia de hoy", href: "/admin/nomina?tab=horas" },
+  staff: { corto: "En turno ahora", pregunta: "¿Quién trabaja hoy?", accion: "Ver el horario de la semana", href: HORARIO_SEMANA_HREF },
   exits: {
     corto: "Salidas olvidadas",
     pregunta: "¿Quién no marcó salida?",
