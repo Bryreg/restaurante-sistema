@@ -384,6 +384,9 @@ class ObligationCancelIn(BaseModel):
 # ---------------------------------------------------------------------------
 
 FixedCostSourceLiteral = Literal["obligations", "payroll", "expenses"]
+#: Qué costo de lo vendido se usó: el teórico (fichas técnicas congeladas en
+#: la venta) o el real (teórico + varianza de inventario entre conteos).
+CostBasisLiteral = Literal["theoretical", "real"]
 
 
 class FixedCostLineOut(BaseModel):
@@ -455,6 +458,19 @@ class ProfitPeriodOut(BaseModel):
     lines: list[ProfitLineOut]
     available: bool
     reason: str | None
+    # h12: el costo REAL de lo vendido (teórico + varianza de inventario
+    # entre conteos completos) al lado del teórico, con la diferencia. La
+    # utilidad de arriba (`profit`) usa el costo que dice `profit_cost_basis`
+    # —el teórico, el mismo del punto de equilibrio—; `profit_with_real_cost`
+    # es la misma resta con el costo real, `None` con motivo si no se puede.
+    cost_real: int | None = None
+    cost_real_reason: str | None = None
+    inventory_variance: int | None = None
+    cost_difference: int | None = None
+    variance_days_covered: int = 0
+    days_in_period: int = 0
+    profit_cost_basis: CostBasisLiteral = "theoretical"
+    profit_with_real_cost: int | None = None
 
 
 class ProfitOut(ProfitPeriodOut):
@@ -463,3 +479,72 @@ class ProfitOut(ProfitPeriodOut):
     # El período inmediatamente anterior, de la misma cantidad de días, con
     # los mismos renglones y la misma matemática.
     previous_period: ProfitPeriodOut | None
+
+
+# ---------------------------------------------------------------------------
+# Estado de resultados de 12 meses con presupuesto por renglón (h7).
+# ---------------------------------------------------------------------------
+
+PnlLineLiteral = Literal["net_sales", "cost", "payroll", "obligations", "expenses", "profit"]
+#: Los renglones que se presupuestan; el de utilidad se deriva de ellos.
+PnlBudgetLineLiteral = Literal["net_sales", "cost", "payroll", "obligations", "expenses"]
+
+
+class PnlCellOut(BaseModel):
+    """Un renglón en un mes. `variance` = real − presupuesto; `variance_bp`
+    sobre el presupuesto. `outside` = quedó del lado malo (vender menos o
+    gastar más de lo presupuestado); lo decide el servidor. Sin presupuesto,
+    todo eso es `None`."""
+
+    amount: int | None
+    budget: int | None
+    variance: int | None
+    variance_bp: int | None
+    outside: bool | None
+
+
+class PnlRowOut(BaseModel):
+    key: PnlLineLiteral
+    label: str
+    budgetable: bool
+    cells: list[PnlCellOut]
+    total: PnlCellOut
+
+
+class PnlMonthOut(BaseModel):
+    year: int
+    month: int
+    label: str
+    date_from: date
+    date_to: date
+    in_progress: bool
+    available: bool
+    reason: str | None
+    cost_basis: CostBasisLiteral
+    cost_real: int | None
+    cost_real_reason: str | None
+    profit_with_real_cost: int | None
+
+
+class PnlOut(BaseModel):
+    store_id: int
+    months: list[PnlMonthOut]
+    rows: list[PnlRowOut]
+
+
+class PnlBudgetIn(BaseModel):
+    """`PUT /admin/profit/budget`: el presupuesto de UN renglón en UN mes.
+    `amount` nulo borra el presupuesto de ese renglón."""
+
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    line: PnlBudgetLineLiteral
+    amount: int | None = Field(default=None, ge=0)
+
+
+class PnlBudgetOut(BaseModel):
+    store_id: int
+    year: int
+    month: int
+    line: PnlBudgetLineLiteral
+    amount: int | None

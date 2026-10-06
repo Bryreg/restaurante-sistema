@@ -1242,6 +1242,126 @@ def ingredient_variance(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Varianza de inventario de un PERÍODO de fechas operativas (costo real =
+# teórico + varianza, para Utilidad, el costo primo y el estado de
+# resultados). La varianza existe entre dos conteos completos aplicados
+# (`ingredient_variance`); un período de fechas no coincide con esas
+# ventanas, así que cada ventana se reparte por DÍAS OPERATIVOS: a un mes le
+# toca la parte de la ventana que cae dentro del mes, en proporción a los
+# días. Lo que el período no alcanza a cubrir con ventanas se publica
+# (`days_covered` contra `days_in_period`), nunca se rellena.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CountWindowVariance:
+    """Una ventana entre dos conteos completos consecutivos: sus fechas
+    operativas y la varianza en pesos de los insumos con costo. Signo:
+    positivo = faltante (se usó más de lo que las fichas explican)."""
+
+    opening_date: date
+    closing_date: date
+    value: int
+    uncosted_ingredients: int
+
+
+@dataclass(frozen=True)
+class PeriodVariance:
+    """La varianza que le toca a un período. `value` es `None` (con
+    `reason`) cuando ninguna ventana de conteos lo toca: no es `0`."""
+
+    value: int | None
+    days_covered: int
+    days_in_period: int
+    windows: int
+    uncosted_ingredients: int
+    reason: str | None
+
+
+def _signed_half_up(numerator: int, denominator: int) -> int:
+    magnitude = _half_up_pos(abs(numerator), denominator)
+    return -magnitude if numerator < 0 else magnitude
+
+
+def count_window_variances(db: Session, *, store_id: int, date_from: date, date_to: date) -> list[CountWindowVariance]:
+    """Las ventanas entre conteos completos aplicados consecutivos que tocan
+    `[date_from, date_to]`, con su varianza valorizada por
+    `ingredient_variance` (la única implementación). Las ventanas más
+    cortas que `FOOD_COST_MIN_WINDOW_HOURS` o de un solo día operativo no
+    entran: no se pueden repartir por días."""
+    counts = list(
+        db.execute(
+            select(StockCount)
+            .where(
+                StockCount.store_id == store_id,
+                StockCount.scope == StockCountScope.FULL,
+                StockCount.status == StockCountStatus.APPLIED,
+            )
+            .order_by(StockCount.opened_at.asc(), StockCount.id.asc())
+        ).scalars()
+    )
+    out: list[CountWindowVariance] = []
+    for opening, closing in zip(counts, counts[1:]):
+        if closing.business_date <= opening.business_date or window_is_too_short(opening.opened_at, closing.opened_at):
+            continue
+        # La ventana cubre los días operativos [apertura, cierre).
+        if closing.business_date <= date_from or opening.business_date > date_to:
+            continue
+        rows = ingredient_variance(db, store_id=store_id, opening=opening, closing=closing)
+        out.append(
+            CountWindowVariance(
+                opening_date=opening.business_date,
+                closing_date=closing.business_date,
+                value=sum(r.variance_value for r in rows if r.variance_value is not None),
+                uncosted_ingredients=sum(1 for r in rows if r.variance_value is None and r.variance_qty != 0),
+            )
+        )
+    return out
+
+
+def period_variance(
+    windows: list[CountWindowVariance], *, date_from: date, date_to: date
+) -> PeriodVariance:
+    """Reparte `windows` (de `count_window_variances`, leídas una vez para
+    un rango más ancho si hace falta: el estado de resultados lee doce meses
+    de una sola pasada) sobre `[date_from, date_to]` por días operativos."""
+    from datetime import timedelta
+
+    days_in_period = (date_to - date_from).days + 1
+    end_exclusive = date_to + timedelta(days=1)
+    total = covered = used = uncosted = 0
+    for w in windows:
+        span = (w.closing_date - w.opening_date).days
+        overlap = (min(w.closing_date, end_exclusive) - max(w.opening_date, date_from)).days
+        if span <= 0 or overlap <= 0:
+            continue
+        total += _signed_half_up(w.value * overlap, span)
+        covered += overlap
+        used += 1
+        uncosted += w.uncosted_ingredients
+    if used == 0:
+        return PeriodVariance(
+            value=None,
+            days_covered=0,
+            days_in_period=days_in_period,
+            windows=0,
+            uncosted_ingredients=0,
+            reason=(
+                "No hay dos conteos completos de inventario que encierren días de este período: sin ellos no "
+                "se sabe cuánto se usó de verdad. Hacé un conteo completo en Inventario."
+            ),
+        )
+    return PeriodVariance(
+        value=total,
+        days_covered=min(covered, days_in_period),
+        days_in_period=days_in_period,
+        windows=used,
+        uncosted_ingredients=uncosted,
+        reason=None,
+    )
+
+
 def pending_incoming_transfers(db: Session, *, store_id: int) -> int:
     """Traslados que llegan a esta sede y todavía nadie recibió."""
     stmt = select(func.count(Waste.id)).where(

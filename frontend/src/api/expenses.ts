@@ -543,7 +543,20 @@ export interface ProfitPeriodOut {
   lines?: ProfitLine[]
   available: boolean
   reason: string | null
+  // h12: el costo REAL (teórico + varianza de inventario) al lado del
+  // teórico. La utilidad (`profit`) usa el de `profit_cost_basis`.
+  cost_real?: number | null
+  cost_real_reason?: string | null
+  inventory_variance?: number | null
+  cost_difference?: number | null
+  variance_days_covered?: number
+  days_in_period?: number
+  profit_cost_basis?: CostBasis
+  profit_with_real_cost?: number | null
 }
+
+/** Qué costo de lo vendido se usó (mismo literal que `app/expenses/schemas.py`). */
+export type CostBasis = "theoretical" | "real"
 
 export interface ProfitOut extends ProfitPeriodOut {
   store_id?: number
@@ -556,6 +569,75 @@ export function getProfit(params: PeriodQuery): Promise<ProfitOut> {
   return api<ProfitOut>("/admin/profit", {
     query: { store_id: params.storeId, from: params.from, to: params.to },
   })
+}
+
+// ---------------------------------------------------------------------------
+// h7 — Estado de resultados de 12 meses con presupuesto por renglón
+// (`GET /admin/profit/monthly`, `PUT /admin/profit/budget`).
+// ---------------------------------------------------------------------------
+
+export type PnlLine = "net_sales" | "cost" | "payroll" | "obligations" | "expenses" | "profit"
+export type PnlBudgetLine = "net_sales" | "cost" | "payroll" | "obligations" | "expenses"
+
+export interface PnlCellOut {
+  amount: number | null
+  budget: number | null
+  /** Real − presupuesto. */
+  variance: number | null
+  variance_bp: number | null
+  /** Del lado malo (vender menos, gastar más): lo decide el servidor. */
+  outside: boolean | null
+}
+
+export interface PnlRowOut {
+  key: PnlLine
+  label: string
+  budgetable: boolean
+  cells: PnlCellOut[]
+  total: PnlCellOut
+}
+
+export interface PnlMonthOut {
+  year: number
+  month: number
+  label: string
+  date_from: string
+  date_to: string
+  in_progress: boolean
+  available: boolean
+  reason: string | null
+  cost_basis: CostBasis
+  cost_real: number | null
+  cost_real_reason: string | null
+  profit_with_real_cost: number | null
+}
+
+export interface PnlOut {
+  store_id: number
+  months: PnlMonthOut[]
+  rows: PnlRowOut[]
+}
+
+export function getMonthlyPnl(params: { storeId: number; year: number; month: number }): Promise<PnlOut> {
+  return api<PnlOut>("/admin/profit/monthly", {
+    query: { store_id: params.storeId, year: params.year, month: params.month },
+  })
+}
+
+export interface PnlBudgetIn {
+  year: number
+  month: number
+  line: PnlBudgetLine
+  /** `null` borra el presupuesto de ese renglón en ese mes. */
+  amount: number | null
+}
+
+export interface PnlBudgetOut extends PnlBudgetIn {
+  store_id: number
+}
+
+export function putPnlBudget(storeId: number, body: PnlBudgetIn): Promise<PnlBudgetOut> {
+  return api<PnlBudgetOut>("/admin/profit/budget", { method: "PUT", query: { store_id: storeId }, body })
 }
 
 // ---------------------------------------------------------------------------

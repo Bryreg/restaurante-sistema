@@ -370,3 +370,34 @@ class StoreExpensesSettings(Base):
             "fixed_costs IS NULL OR fixed_costs >= 0", name="ck_store_expenses_settings_fixed_nonneg"
         ),
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Presupuesto mensual por renglón del estado de resultados (h7, 0048). Es una
+# decisión del dueño, no un hecho: se pone y se quita (`amount = NULL`), y
+# cada cambio queda en la auditoría con el antes y el después.
+# ---------------------------------------------------------------------------
+
+
+class PnlBudget(Base):
+    __tablename__ = "pnl_budgets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    year: Mapped[int] = mapped_column(sa.Integer)
+    month: Mapped[int] = mapped_column(sa.Integer)
+    # `net_sales`, `cost`, `payroll`, `obligations` o `expenses`
+    # (`schemas.PnlBudgetLineLiteral`); la utilidad se deriva.
+    line: Mapped[str] = mapped_column(sa.String(32))
+    amount: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    updated_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    updated_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+
+    __table_args__ = (
+        sa.UniqueConstraint("store_id", "year", "month", "line", name="uq_pnl_budgets_store_month_line"),
+        CheckConstraint("month >= 1 AND month <= 12", name="ck_pnl_budgets_month"),
+        CheckConstraint("amount IS NULL OR amount >= 0", name="ck_pnl_budgets_amount_nonneg"),
+    )

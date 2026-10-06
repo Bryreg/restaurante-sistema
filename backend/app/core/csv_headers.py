@@ -913,6 +913,28 @@ TOKENS: dict[str, str] = {
     "preview": "vista previa",
     "draft": "borrador",
     "recap": "repaso",
+    # Gestión del período y estado de resultados (h2–h12).
+    "affects": "afecta a",
+    "authorizers": "autorizadores",
+    "budget": "presupuesto",
+    "budgetable": "presupuestable",
+    "cells": "celdas",
+    "controls": "controles",
+    "goods": "de lo vendido",
+    "month": "mes",
+    "months": "meses",
+    "labor": "mano de obra",
+    "track": "en camino",
+    "prime": "primo",
+    "projected": "proyectado",
+    "vs": "contra",
+    "projection": "proyección",
+    "reliability": "confiabilidad",
+    "reliable": "confiable",
+    "revpash": "RevPASH",
+    "services": "servicios",
+    "severity": "gravedad",
+    "turnover": "rotación",
 }
 
 _RAW_KEY = re.compile(r"^[a-z0-9_]+$")

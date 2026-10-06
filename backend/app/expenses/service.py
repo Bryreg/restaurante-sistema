@@ -70,6 +70,7 @@ from app.expenses.models import (
     ObligationCategory,
     ObligationPayment,
     ObligationStatus,
+    PnlBudget,
 )
 from app.expenses.schemas import (
     BreakEvenOut,
@@ -78,6 +79,11 @@ from app.expenses.schemas import (
     ObligationIn,
     ObligationPaymentIn,
     ObligationSettleIn,
+    PnlBudgetOut,
+    PnlCellOut,
+    PnlMonthOut,
+    PnlOut,
+    PnlRowOut,
     ProfitLineOut,
     ProfitOut,
     ProfitPeriodOut,
@@ -1019,6 +1025,129 @@ def _period_payroll_cost(db: Session, *, store: Store, date_from: date, date_to:
 
 
 # ---------------------------------------------------------------------------
+# Costo de lo vendido: teórico y real (h3, h12). UNA definición, publicada en
+# `hooks.py` para el costo primo de Informes y Hoy.
+#
+# - **Teórico**: el costo congelado en cada ítem al vender (fichas técnicas),
+#   el mismo de `_sales_and_cost`, con su misma guarda de cobertura.
+# - **Real**: teórico + varianza de inventario (la de
+#   `inventory.hooks.period_variance`, repartida por días entre los conteos
+#   completos). Sólo cuando la varianza cubre TODOS los días del período:
+#   con una parte sin conteo, el faltante de esos días no está, y eso
+#   mostraría menos costo del que hubo.
+# - **El que se usa** (`basis`/`amount`): el real si existe; si no, el
+#   teórico, con el motivo de por qué no el real.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CostOfGoods:
+    theoretical: int | None
+    theoretical_reason: str | None
+    variance: int | None
+    variance_days_covered: int
+    days_in_period: int
+    real: int | None
+    real_reason: str | None
+    basis: str | None
+    amount: int | None
+    reason: str | None
+
+
+def variance_windows(db: Session, *, store: Store, date_from: date, date_to: date) -> list[Any] | None:
+    """Las ventanas de conteo que tocan el rango, o `None` si la sede no
+    lleva varianza de inventario (función apagada)."""
+    if find_spec_safe("app.inventory.hooks") is None:
+        return None
+    if not features.is_enabled(db, store.organization_id, store.id, "inventory.variance"):
+        return None
+    import importlib
+
+    hooks = importlib.import_module("app.inventory.hooks")
+    return list(hooks.count_window_variances(db, store_id=store.id, date_from=date_from, date_to=date_to))
+
+
+def cost_of_goods(
+    db: Session,
+    *,
+    store: Store,
+    date_from: date,
+    date_to: date,
+    sc: SalesCost | None = None,
+    windows: list[Any] | None = None,
+) -> CostOfGoods:
+    if sc is None:
+        sc = _sales_and_cost(db, store=store, date_from=date_from, date_to=date_to)
+    days_in_period = (date_to - date_from).days + 1
+    theoretical = sc.cost if sc.cost_reason is None else None
+    theoretical_reason = sc.cost_reason
+
+    if windows is None:
+        windows = variance_windows(db, store=store, date_from=date_from, date_to=date_to)
+    variance: int | None = None
+    covered = 0
+    real_reason: str | None
+    if windows is None:
+        real_reason = (
+            "La sede no lleva la varianza de inventario (función «Varianza de inventario» apagada en "
+            "Admin → Funciones): el costo real no se puede saber."
+        )
+    else:
+        import importlib
+
+        hooks = importlib.import_module("app.inventory.hooks")
+        pv = hooks.period_variance(windows, date_from=date_from, date_to=date_to)
+        variance, covered = pv.value, pv.days_covered
+        if pv.value is None:
+            real_reason = pv.reason
+        elif pv.days_covered < pv.days_in_period:
+            real_reason = (
+                f"Los conteos completos cubren {pv.days_covered} de los {pv.days_in_period} días del período: "
+                "el faltante de los días sin conteo no está. Hacé un conteo completo en Inventario al cierre del "
+                "período para tener el costo real."
+            )
+        elif theoretical is None:
+            real_reason = theoretical_reason
+        else:
+            real_reason = None
+
+    real = theoretical + variance if real_reason is None and theoretical is not None and variance is not None else None
+    basis: str | None
+    amount: int | None
+    reason: str | None
+    if real is not None:
+        basis, amount, reason = "real", real, None
+    elif theoretical is not None:
+        basis, amount, reason = "theoretical", theoretical, None
+    else:
+        basis, amount, reason = None, None, theoretical_reason
+    return CostOfGoods(
+        theoretical=theoretical,
+        theoretical_reason=theoretical_reason,
+        variance=variance,
+        variance_days_covered=covered,
+        days_in_period=days_in_period,
+        real=real,
+        real_reason=real_reason,
+        basis=basis,
+        amount=amount,
+        reason=reason,
+    )
+
+
+def labor_cost(db: Session, *, store: Store, date_from: date, date_to: date) -> tuple[int | None, str | None]:
+    """El costo de la mano de obra del período para el costo primo: la
+    nómina con costo del empleador (`_period_payroll_cost`). Con la nómina
+    apagada NO es $0 (la gente trabajó igual): es «sin dato» con motivo."""
+    if not features.is_enabled(db, store.organization_id, store.id, "payroll"):
+        return None, (
+            "La sede no lleva la nómina en el sistema: sin ella no se sabe cuánto costó la mano de obra. "
+            "Prendé «Nómina» en Admin → Funciones."
+        )
+    return _period_payroll_cost(db, store=store, date_from=date_from, date_to=date_to)
+
+
+# ---------------------------------------------------------------------------
 # Utilidad del período.
 # ---------------------------------------------------------------------------
 
@@ -1029,15 +1158,21 @@ def _pct_of_sales(amount: int | None, net_sales: int) -> int | None:
     return _signed_bp(amount, net_sales)
 
 
-def _profit_period(db: Session, *, store: Store, date_from: date, date_to: date) -> ProfitPeriodOut:
+def _profit_period(
+    db: Session, *, store: Store, date_from: date, date_to: date, windows: list[Any] | None = None
+) -> ProfitPeriodOut:
     sc = _sales_and_cost(db, store=store, date_from=date_from, date_to=date_to)
     fc = compute_fixed_costs(db, store=store, date_from=date_from, date_to=date_to)
+    cog = cost_of_goods(db, store=store, date_from=date_from, date_to=date_to, sc=sc, windows=windows)
 
     reason: str | None = sc.cost_reason or (fc.payroll_reason if fc.payroll is None else None)
     profit: int | None = None
     if reason is None:
         assert sc.cost is not None and fc.total is not None
         profit = sc.net_sales - sc.cost - fc.total
+    profit_real: int | None = None
+    if cog.real is not None and fc.total is not None:
+        profit_real = sc.net_sales - cog.real - fc.total
 
     net = sc.net_sales
     lines = [
@@ -1066,6 +1201,14 @@ def _profit_period(db: Session, *, store: Store, date_from: date, date_to: date)
         lines=lines,
         available=profit is not None,
         reason=reason,
+        cost_real=cog.real,
+        cost_real_reason=cog.real_reason,
+        inventory_variance=cog.variance,
+        cost_difference=cog.variance if cog.real is not None else None,
+        variance_days_covered=cog.variance_days_covered,
+        days_in_period=cog.days_in_period,
+        profit_cost_basis="theoretical",
+        profit_with_real_cost=profit_real,
     )
 
 
@@ -1082,3 +1225,162 @@ def compute_profit(db: Session, *, store: Store, date_from: date, date_to: date)
         costed_pct_min=COSTED_PCT_MIN,
         previous_period=previous,
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Estado de resultados de 12 meses con presupuesto (h7). Cada mes es
+# `_profit_period` —la misma utilidad de la pestaña Utilidad, renglón por
+# renglón—; acá sólo se arma la grilla y se compara contra el presupuesto.
+# ---------------------------------------------------------------------------
+
+_MONTH_SHORT = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+_PNL_LABEL = {
+    "net_sales": "Ventas netas",
+    "cost": "Costo de lo vendido",
+    "payroll": "Nómina",
+    "obligations": "Obligaciones",
+    "expenses": "Gastos",
+    "profit": "Utilidad",
+}
+PNL_BUDGET_LINES = ("net_sales", "cost", "payroll", "obligations", "expenses")
+#: Renglones donde MÁS es mejor (vender, ganar); en los demás, más es peor.
+_MORE_IS_BETTER = {"net_sales", "profit"}
+
+
+def _month_range(year: int, month: int) -> tuple[date, date]:
+    first = date(year, month, 1)
+    nxt = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    return first, nxt - timedelta(days=1)
+
+
+def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
+    index = year * 12 + (month - 1) + delta
+    return index // 12, index % 12 + 1
+
+
+def _cell(key: str, amount: int | None, budget: int | None) -> PnlCellOut:
+    if amount is None or budget is None:
+        return PnlCellOut(amount=amount, budget=budget, variance=None, variance_bp=None, outside=None)
+    variance = amount - budget
+    variance_bp = _signed_bp(variance, budget) if budget > 0 else None
+    outside = variance < 0 if key in _MORE_IS_BETTER else variance > 0
+    return PnlCellOut(amount=amount, budget=budget, variance=variance, variance_bp=variance_bp, outside=outside)
+
+
+def _budgets(db: Session, *, store_id: int, months: list[tuple[int, int]]) -> dict[tuple[int, int, str], int]:
+    years = {y for y, _m in months}
+    out: dict[tuple[int, int, str], int] = {}
+    for row in db.execute(
+        select(PnlBudget).where(PnlBudget.store_id == store_id, PnlBudget.year.in_(years))
+    ).scalars():
+        if row.amount is not None and (row.year, row.month) in months:
+            out[(row.year, row.month, row.line)] = int(row.amount)
+    return out
+
+
+def monthly_pnl(db: Session, *, store: Store, year: int, month: int) -> PnlOut:
+    if month < 1 or month > 12:
+        raise AppError("VALIDATION_ERROR", "month: tiene que estar entre 1 y 12", status=400)
+    if year < 2000 or year > 2100:
+        raise AppError("VALIDATION_ERROR", "year: elegí un año entre 2000 y 2100", status=400)
+    today = tz.today_business_date(store.cutoff_hour)
+    months = [_shift_month(year, month, -i) for i in range(11, -1, -1)]
+    first_from, _ = _month_range(*months[0])
+    _, last_to = _month_range(*months[-1])
+    windows = variance_windows(db, store=store, date_from=first_from, date_to=last_to)
+    budgets = _budgets(db, store_id=store.id, months=months)
+
+    month_out: list[PnlMonthOut] = []
+    amounts: dict[str, list[int | None]] = {k: [] for k in _PNL_LABEL}
+    for y, m in months:
+        m_from, m_to = _month_range(y, m)
+        in_progress = m_from <= today <= m_to
+        if in_progress:
+            m_to = today
+        period = _profit_period(db, store=store, date_from=m_from, date_to=m_to, windows=windows)
+        amounts["net_sales"].append(period.net_sales)
+        amounts["cost"].append(period.cost)
+        amounts["payroll"].append(period.payroll)
+        amounts["obligations"].append(period.obligations)
+        amounts["expenses"].append(period.expenses)
+        amounts["profit"].append(period.profit)
+        month_out.append(
+            PnlMonthOut(
+                year=y,
+                month=m,
+                label=f"{_MONTH_SHORT[m - 1]} {y}",
+                date_from=m_from,
+                date_to=m_to,
+                in_progress=in_progress,
+                available=period.available,
+                reason=period.reason,
+                cost_basis="theoretical",
+                cost_real=period.cost_real,
+                cost_real_reason=period.cost_real_reason,
+                profit_with_real_cost=period.profit_with_real_cost,
+            )
+        )
+
+    def budget_of(key: str, y: int, m: int) -> int | None:
+        if key != "profit":
+            return budgets.get((y, m, key))
+        parts = [budgets.get((y, m, k)) for k in PNL_BUDGET_LINES]
+        if any(p is None for p in parts):
+            return None
+        sales, cost, payroll, obligations, expenses = (int(p or 0) for p in parts)
+        return sales - cost - payroll - obligations - expenses
+
+    rows: list[PnlRowOut] = []
+    for key, label in _PNL_LABEL.items():
+        month_budgets = [budget_of(key, y, m) for y, m in months]
+        cells = [_cell(key, a, b) for a, b in zip(amounts[key], month_budgets)]
+        values = amounts[key]
+        total_amount = None if any(v is None for v in values) else sum(v or 0 for v in values)
+        total_budget = None if any(b is None for b in month_budgets) else sum(b or 0 for b in month_budgets)
+        rows.append(
+            PnlRowOut(
+                key=key,  # type: ignore[arg-type]
+                label=label,
+                budgetable=key in PNL_BUDGET_LINES,
+                cells=cells,
+                total=_cell(key, total_amount, total_budget),
+            )
+        )
+    return PnlOut(store_id=store.id, months=month_out, rows=rows)
+
+
+def set_pnl_budget(
+    db: Session, *, actor: Actor, store: Store, year: int, month: int, line: str, amount: int | None
+) -> PnlBudgetOut:
+    """Pone (o quita, con `amount` nulo) el presupuesto de un renglón en un
+    mes. Auditado con el antes y el después."""
+    if line not in PNL_BUDGET_LINES:
+        raise AppError("VALIDATION_ERROR", "line: elegí ventas, costo, nómina, obligaciones o gastos", status=400)
+    row = db.execute(
+        select(PnlBudget).where(
+            PnlBudget.store_id == store.id, PnlBudget.year == year, PnlBudget.month == month, PnlBudget.line == line
+        )
+    ).scalar_one_or_none()
+    before = {"amount": row.amount} if row is not None else None
+    if row is None:
+        row = PnlBudget(organization_id=store.organization_id, store_id=store.id, year=year, month=month, line=line)
+        db.add(row)
+    employee_id, employee_name = _actor_identity(actor)
+    row.amount = amount
+    row.updated_at = clock.now_utc()
+    row.updated_by_employee_id = employee_id
+    row.updated_by_employee_name = employee_name
+    db.flush()
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="pnl_budget",
+        entity_id=f"{store.id}:{year:04d}-{month:02d}:{line}",
+        action="update" if before is not None else "create",
+        before=before,
+        after={"amount": amount, "year": year, "month": month, "line": line},
+    )
+    return PnlBudgetOut(store_id=store.id, year=year, month=month, line=line, amount=amount)  # type: ignore[arg-type]

@@ -46,6 +46,9 @@ from app.expenses.schemas import (
     ObligationTemplateUpdateIn,
     PayrollRunCandidateOut,
     PayrollScheduleIn,
+    PnlBudgetIn,
+    PnlBudgetOut,
+    PnlOut,
     ProfitOut,
     ScheduledObligationOut,
 )
@@ -720,3 +723,44 @@ def get_profit(
     if format == "csv":
         return csv_response(sectioned_rows(result), "utilidad.csv")
     return result
+
+
+@router.get("/admin/profit/monthly", response_model=PnlOut)
+def get_monthly_pnl(
+    store_id: int,
+    year: int,
+    month: int,
+    format: CsvFormat = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PnlOut | Response:
+    """El estado de resultados de los 12 meses que terminan en `year`-`month`
+    (cada mes con la cuenta de Utilidad) y su presupuesto por renglón."""
+    store = admin_store(db, actor, store_id)
+    result = service.monthly_pnl(db, store=store, year=year, month=month)
+    if format == "csv":
+        rows = [
+            {
+                "line": row.label,
+                **{m.label: cell.amount for m, cell in zip(result.months, row.cells)},
+                "total": row.total.amount,
+            }
+            for row in result.rows
+        ]
+        return csv_response(rows, "estado-de-resultados.csv", headers={"line": "Renglón"})
+    return result
+
+
+@router.put("/admin/profit/budget", response_model=PnlBudgetOut)
+def put_pnl_budget(
+    store_id: int,
+    body: PnlBudgetIn,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PnlBudgetOut:
+    """Pone (o quita, con `amount` nulo) el presupuesto de un renglón en un
+    mes. Sólo administrador; queda en el historial."""
+    store = admin_store(db, actor, store_id)
+    return service.set_pnl_budget(
+        db, actor=actor, store=store, year=body.year, month=body.month, line=body.line, amount=body.amount
+    )
