@@ -12,35 +12,19 @@ entregable (`features/fase-3-dinero-control/outputs/backend-analitica.md`).
 a la ficha técnica de hoy (`app.recipes`) para valorar una venta pasada. Los
 únicos números "de hoy" que entran en este módulo son el costo de insumo que
 usa la SALUD DEL CONTROL para valorar un CONTEO (que es una foto de stock,
-no una venta — `app.inventory.service._count_inventory_value` hace la misma
+no una venta — `app.inventory.hooks.count_inventory_value` hace la misma
 distinción) y el `lead_time_days`/`min_stock` de reposición, que son
 configuración vigente, no una venta pasada.
 
-**Límite de import deliberado, documentado una sola vez acá.** El mandato de
-este territorio es explícito: `app/inventory/service.py` se lee **sólo**
-para ver `_variance_level` (el semáforo por renglón de un conteo, que D-1 no
-toca) — nunca se importa. Pero D-1 ("sostenido") y la varianza por plato
-necesitan exactamente la MISMA identidad que ya implementan
-`food_cost_report`/`variance_report` en ese archivo (inicial + entradas −
-cierre = uso real, contra teórico; `(inicial + compras − final) ÷ ventas
-netas`), extendida a MÚLTIPLES ventanas históricas (algo que esas funciones
-no ofrecen: sólo resuelven la ventana MÁS RECIENTE dentro de un rango).
-Reimplementar esa identidad por fuera, usando datos inventados, sería la
-"segunda matemática" que `AGENTS.md` prohíbe. La resolución: las funciones
-`_count_inventory_value`, `_purchases_value` y `_signed_pct_bp` de acá abajo
-son un ESPEJO LITERAL, línea por línea, de las funciones del mismo nombre en
-`app.inventory.service` — compuestas EXCLUSIVAMENTE con primitivas
-PUBLICADAS (`app.inventory.hooks.get_ingredient`,
-`app.inventory.hooks.resolve_ingredient_cost`, `app.core.quantity.
-line_cost_micros`/`micros_to_pesos`) y lectura de sólo lectura de
-`StockCount`/`StockCountLine`/`StockMovement` (modelos, no lógica — mismo
-patrón que `app.reports.service` ya usa para leer `Order`/`FiscalDocument`
-de otros dominios, y que `app.expenses.service` usa para leer
-`app.reports.service` directamente en este mismo pedido). Documentado como
-GAP en el entregable: si la fórmula de `food_cost_report`/`variance_report`
-cambia alguna vez, este espejo puede desincronizarse — se recomienda que
-`app.inventory.hooks` publique una función de ventanas históricas en un
-pedido futuro para que este archivo deje de necesitar el espejo."""
+**Una sola matemática de inventario.** D-1 ("sostenido") y la varianza por
+plato necesitan la MISMA identidad que `food_cost_report`/`variance_report`
+(inicial + entradas − cierre = uso real, contra teórico; `(inicial +
+compras − final) ÷ ventas netas`), extendida a varias ventanas históricas.
+Antes este archivo tenía un «espejo literal» de cada función privada de
+`app.inventory.service`; desde la limpieza 2026-10 las dos partes usan las
+mismas funciones publicadas en `app.inventory.hooks`
+(`count_inventory_value`, `purchases_value`, `purchase_movement_count`,
+`ingredient_variance`), así que no pueden desincronizarse."""
 
 from __future__ import annotations
 
@@ -71,7 +55,6 @@ from app.inventory.models import (
     Ingredient,
     MovementCause,
     StockCount,
-    StockCountLine,
     StockCountScope,
     StockCountStatus,
     StockMovement,
@@ -420,9 +403,9 @@ def menu_engineering(
 
 
 # ---------------------------------------------------------------------------
-# Espejo de `app.inventory.service` (ver docstring del módulo, arriba):
-# `_count_inventory_value`, `_purchases_value`. Usadas por `sostenido` (D-1)
-# Y por la varianza por plato.
+# Los conteos de la sede. La valoración y la varianza entre dos conteos las
+# publica `app.inventory.hooks` (una sola implementación, ver el docstring
+# del módulo).
 # ---------------------------------------------------------------------------
 
 
@@ -442,42 +425,6 @@ def _applied_full_counts_desc(db: Session, *, store_id: int) -> list[StockCount]
         .order_by(StockCount.opened_at.desc())
     )
     return list(db.execute(stmt).scalars().all())
-
-
-def _count_inventory_value(db: Session, *, store: Store, count: StockCount) -> int:
-    """Espejo literal de `app.inventory.service._count_inventory_value`:
-    valoriza, en pesos, los renglones CONTADOS de un conteo, al costo
-    resuelto de HOY (`hooks.resolve_ingredient_cost`) — valoriza un CONTEO
-    (una foto de stock), no una venta, así que no rompe el snapshot de
-    venta que protege este módulo."""
-    total_micros = 0
-    lines = db.execute(select(StockCountLine).where(StockCountLine.count_id == count.id)).scalars()
-    for line in lines:
-        if not line.was_counted or line.qty_counted is None:
-            continue
-        ingredient = inventory_hooks.get_ingredient(db, store_id=store.id, ingredient_id=line.ingredient_id)
-        if ingredient is None:
-            continue
-        cost_micros, _source = inventory_hooks.resolve_ingredient_cost(db, ingredient)
-        if cost_micros is None:
-            continue
-        total_micros += line_cost_micros(line.qty_counted, cost_micros)
-    return micros_to_pesos(total_micros)
-
-
-def _purchases_value(db: Session, *, store: Store, window_from: datetime, window_to: datetime) -> int:
-    """Espejo literal de `app.inventory.service._purchases_value`."""
-    total_micros = 0
-    stmt = select(StockMovement).where(
-        StockMovement.store_id == store.id,
-        StockMovement.cause == MovementCause.PURCHASE,
-        StockMovement.at > window_from,
-        StockMovement.at <= window_to,
-    )
-    for movement in db.execute(stmt).scalars():
-        if movement.cost_micros is not None:
-            total_micros += line_cost_micros(movement.qty_base, movement.cost_micros)
-    return micros_to_pesos(total_micros)
 
 
 # ---------------------------------------------------------------------------
@@ -524,16 +471,6 @@ class _WindowGap:
     costed_pct_bp: int
 
 
-def _purchase_movement_count(db: Session, *, store: Store, window_from: datetime, window_to: datetime) -> int:
-    stmt = select(func.count(StockMovement.id)).where(
-        StockMovement.store_id == store.id,
-        StockMovement.cause == MovementCause.PURCHASE,
-        StockMovement.at > window_from,
-        StockMovement.at <= window_to,
-    )
-    return int(db.execute(stmt).scalar_one())
-
-
 def _window_food_cost_gap_bp(db: Session, *, store: Store, opening: StockCount, closing: StockCount) -> _WindowGap | None:
     """Brecha de food cost (real − teórico, en puntos básicos) para la
     ventana `[opening, closing]` — la MISMA ventana y las MISMAS guardas que
@@ -556,10 +493,12 @@ def _window_food_cost_gap_bp(db: Session, *, store: Store, opening: StockCount, 
     if theoretical.pct_bp is None or theoretical.costed_pct_bp is None:
         return None
 
-    opening_value = _count_inventory_value(db, store=store, count=opening)
-    closing_value = _count_inventory_value(db, store=store, count=closing)
-    purchases_value = _purchases_value(db, store=store, window_from=w_from, window_to=w_to)
-    if purchases_value <= 0 and _purchase_movement_count(db, store=store, window_from=w_from, window_to=w_to) > 0:
+    opening_value = inventory_hooks.count_inventory_value(db, store_id=store.id, count_id=opening.id)
+    closing_value = inventory_hooks.count_inventory_value(db, store_id=store.id, count_id=closing.id)
+    purchases_value = inventory_hooks.purchases_value(db, store_id=store.id, window_from=w_from, window_to=w_to)
+    if purchases_value <= 0 and inventory_hooks.purchase_movement_count(
+        db, store_id=store.id, window_from=w_from, window_to=w_to
+    ) > 0:
         return None
     real_cost = opening_value + purchases_value - closing_value
     if real_cost < 0:
@@ -658,43 +597,6 @@ def control_health_sustained(db: Session, *, store: Store) -> SustainedOut:
 # ---------------------------------------------------------------------------
 
 
-def _count_lines_counted(db: Session, count_id: int) -> dict[int, int]:
-    rows = db.execute(
-        select(StockCountLine.ingredient_id, StockCountLine.qty_counted, StockCountLine.was_counted).where(
-            StockCountLine.count_id == count_id
-        )
-    ).all()
-    return {ing_id: int(qty) for ing_id, qty, was_counted in rows if was_counted and qty is not None}
-
-
-def _movement_sum(
-    db: Session,
-    *,
-    store_id: int,
-    ingredient_id: int,
-    window_from: datetime,
-    window_to: datetime,
-    positive: bool,
-    causes: tuple[MovementCause, ...] | None = None,
-    exclude_causes: tuple[MovementCause, ...] = (),
-) -> int:
-    """Espejo de `app.inventory.service._movement_sum` (privada, no
-    importada): misma consulta, reconstruida sobre el modelo público
-    `StockMovement`."""
-    stmt = select(func.coalesce(func.sum(StockMovement.qty_base), 0)).where(
-        StockMovement.store_id == store_id,
-        StockMovement.ingredient_id == ingredient_id,
-        StockMovement.at > window_from,
-        StockMovement.at <= window_to,
-    )
-    if causes is not None:
-        stmt = stmt.where(StockMovement.cause.in_(causes))
-    if exclude_causes:
-        stmt = stmt.where(StockMovement.cause.notin_(exclude_causes))
-    stmt = stmt.where(StockMovement.qty_base > 0 if positive else StockMovement.qty_base < 0)
-    return int(db.execute(stmt).scalar_one())
-
-
 @dataclass
 class _IngredientVarianceRow:
     ingredient_id: int
@@ -704,47 +606,20 @@ class _IngredientVarianceRow:
 
 
 def _ingredient_variance_rows(db: Session, *, store: Store, opening: StockCount, closing: StockCount) -> list[_IngredientVarianceRow]:
-    """Espejo literal de `app.inventory.service.variance_report` (identidad
-    `inicial + entradas − final = uso real`, contra teórico = ventas +
-    producción) — NO de `_variance_level` (el semáforo, que este territorio
-    no toca ni reimplementa). Sólo el valor en pesos y la cantidad, para
+    """La varianza por insumo entre dos conteos, de `app.inventory.hooks.
+    ingredient_variance` (la MISMA que publica Inventario › Varianza), sin
+    los renglones en cero: sólo el valor en pesos y la cantidad, para
     prorratear entre platos; nunca clasifica verde/amarillo/rojo."""
-    opening_lines = _count_lines_counted(db, opening.id)
-    closing_lines = _count_lines_counted(db, closing.id)
-    ingredient_ids = sorted(set(opening_lines) & set(closing_lines))
-
-    rows: list[_IngredientVarianceRow] = []
-    for ing_id in ingredient_ids:
-        ingredient = inventory_hooks.get_ingredient(db, store_id=store.id, ingredient_id=ing_id)
-        if ingredient is None:
-            continue
-        opening_qty = opening_lines[ing_id]
-        closing_qty = closing_lines[ing_id]
-        inflow = _movement_sum(
-            db, store_id=store.id, ingredient_id=ing_id, window_from=opening.opened_at, window_to=closing.opened_at,
-            positive=True, exclude_causes=(MovementCause.COUNT_ADJUSTMENT,),
+    return [
+        _IngredientVarianceRow(
+            ingredient_id=v.ingredient.id,
+            variance_qty=v.variance_qty,
+            variance_value=v.variance_value,
+            cost_micros=v.cost_micros,
         )
-        # Consumo interno y traslados son salidas explicadas, no pérdida: el
-        # mismo descuento que `app.inventory.service.variance_report`.
-        explained_out = inventory_hooks.explained_outflow_qty(
-            db, store_id=store.id, ingredient_id=ing_id, window_from=opening.opened_at, window_to=closing.opened_at
-        )
-        real_usage = opening_qty + inflow - closing_qty - explained_out
-        theoretical = -_movement_sum(
-            db, store_id=store.id, ingredient_id=ing_id, window_from=opening.opened_at, window_to=closing.opened_at,
-            positive=False, causes=(MovementCause.SALE, MovementCause.PRODUCTION_OUT),
-        )
-        variance_qty = real_usage - theoretical
-        if variance_qty == 0:
-            continue
-        cost_micros, _source = inventory_hooks.resolve_ingredient_cost(db, ingredient)
-        variance_value = micros_to_pesos(line_cost_micros(variance_qty, cost_micros)) if cost_micros is not None else None
-        rows.append(
-            _IngredientVarianceRow(
-                ingredient_id=ing_id, variance_qty=variance_qty, variance_value=variance_value, cost_micros=cost_micros
-            )
-        )
-    return rows
+        for v in inventory_hooks.ingredient_variance(db, store_id=store.id, opening=opening, closing=closing)
+        if v.variance_qty != 0
+    ]
 
 
 def _dish_consumption_weights(

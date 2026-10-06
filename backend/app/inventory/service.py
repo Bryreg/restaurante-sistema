@@ -1637,31 +1637,6 @@ def _previous_applied_count(
     return db.execute(stmt).scalars().first()
 
 
-def _movement_sum(
-    db: Session,
-    *,
-    store_id: int,
-    ingredient_id: int,
-    window_from: datetime,
-    window_to: datetime,
-    positive: bool,
-    causes: tuple[MovementCause, ...] | None = None,
-    exclude_causes: tuple[MovementCause, ...] = (),
-) -> int:
-    stmt = select(func.coalesce(func.sum(StockMovement.qty_base), 0)).where(
-        StockMovement.store_id == store_id,
-        StockMovement.ingredient_id == ingredient_id,
-        StockMovement.at > window_from,
-        StockMovement.at <= window_to,
-    )
-    if causes is not None:
-        stmt = stmt.where(StockMovement.cause.in_(causes))
-    if exclude_causes:
-        stmt = stmt.where(StockMovement.cause.notin_(exclude_causes))
-    stmt = stmt.where(StockMovement.qty_base > 0 if positive else StockMovement.qty_base < 0)
-    return int(db.execute(stmt).scalar_one())
-
-
 def _variance_level(
     *, pct_bp: int | None, theoretical: int, variance_qty: int, settings: StoreInventorySettings
 ) -> str:
@@ -1789,6 +1764,10 @@ def variance_report(db: Session, *, store: Store, count_id: int | None) -> Varia
     quedó absorbido en `inicial` (que es el valor CONTADO, no el del libro),
     así que sumarlo de nuevo acá lo contaría dos veces.
 
+    La identidad por insumo la resuelve `hooks.ingredient_variance` (la
+    misma que reparte por plato `app.analytics`); acá se le pone el % y el
+    semáforo.
+
     `count_id=None` = el último conteo aplicado de la sede (cualquier
     alcance). La respuesta trae además el Pareto por insumo (`pareto`,
     ordenado por |$| con acumulado) — se eligió extender esta respuesta en
@@ -1829,65 +1808,30 @@ def variance_report(db: Session, *, store: Store, count_id: int | None) -> Varia
             latest_applied_count_id=latest_id,
         )
 
-    previous_lines = {
-        l.ingredient_id: l.qty_counted
-        for l in _count_lines(db, previous)
-        if l.was_counted and l.qty_counted is not None
-    }
-    current_lines = {
-        l.ingredient_id: l.qty_counted for l in _count_lines(db, count) if l.was_counted and l.qty_counted is not None
-    }
-    ingredient_ids = sorted(set(previous_lines) & set(current_lines))
-
     rows: list[VarianceRowOut] = []
-    for ing_id in ingredient_ids:
-        ingredient = hooks.get_ingredient(db, store_id=store.id, ingredient_id=ing_id)
-        if ingredient is None:
-            continue
-        opening = previous_lines[ing_id]
-        closing = current_lines[ing_id]
-        inflow = _movement_sum(
-            db, store_id=store.id, ingredient_id=ing_id, window_from=previous.opened_at, window_to=count.opened_at,
-            positive=True, exclude_causes=(MovementCause.COUNT_ADJUSTMENT,),
-        )
-        # Lo que salió EXPLICADO (consumo interno, traslado a otra sede) no es
-        # uso de la cocina ni pérdida: se descuenta del uso real para que no
-        # aparezca como faltante (`hooks.explained_outflow_qty`).
-        explained_out = hooks.explained_outflow_qty(
-            db, store_id=store.id, ingredient_id=ing_id, window_from=previous.opened_at, window_to=count.opened_at
-        )
-        real_usage = opening + inflow - closing - explained_out
-        theoretical = -_movement_sum(
-            db, store_id=store.id, ingredient_id=ing_id, window_from=previous.opened_at, window_to=count.opened_at,
-            positive=False, causes=(MovementCause.SALE, MovementCause.PRODUCTION_OUT),
-        )
-        variance_qty = real_usage - theoretical
-
-        cost_micros, cost_source = hooks.resolve_ingredient_cost(db, ingredient)
-        variance_value = micros_to_pesos(line_cost_micros(variance_qty, cost_micros)) if cost_micros is not None else None
-
+    for v in hooks.ingredient_variance(db, store_id=store.id, opening=previous, closing=count):
+        theoretical = v.theoretical_usage_qty
         if theoretical > 0:
-            numerator = abs(variance_qty) * 10000
+            numerator = abs(v.variance_qty) * 10000
             variance_pct_bp: int | None = (numerator + theoretical // 2) // theoretical
         else:
             variance_pct_bp = None
         level = _signed_variance_level(
-            pct_bp=variance_pct_bp, theoretical=theoretical, variance_qty=variance_qty, settings=settings
+            pct_bp=variance_pct_bp, theoretical=theoretical, variance_qty=v.variance_qty, settings=settings
         )
-
         rows.append(
             VarianceRowOut(
-                ingredient_id=ing_id,
-                ingredient_name=ingredient.name,
-                base_unit=ingredient.base_unit.value,  # type: ignore[arg-type]
-                opening_qty=format_qty_base(opening),
-                inflow_qty=format_qty_base(inflow),
-                closing_qty=format_qty_base(closing),
-                real_usage_qty=format_qty_base(real_usage),
+                ingredient_id=v.ingredient.id,
+                ingredient_name=v.ingredient.name,
+                base_unit=v.ingredient.base_unit.value,  # type: ignore[arg-type]
+                opening_qty=format_qty_base(v.opening_qty),
+                inflow_qty=format_qty_base(v.inflow_qty),
+                closing_qty=format_qty_base(v.closing_qty),
+                real_usage_qty=format_qty_base(v.real_usage_qty),
                 theoretical_usage_qty=format_qty_base(theoretical),
-                variance_qty=format_qty_base(variance_qty),
-                variance_value=variance_value,
-                cost_source=cost_source.value,  # type: ignore[arg-type]
+                variance_qty=format_qty_base(v.variance_qty),
+                variance_value=v.variance_value,
+                cost_source=v.cost_source.value,  # type: ignore[arg-type]
                 variance_pct_bp=variance_pct_bp,
                 level=level,  # type: ignore[arg-type]
             )
@@ -1936,50 +1880,6 @@ def _two_most_recent_consecutive_full_counts(
     if len(counts) < 2:
         return None
     return counts[-2], counts[-1]
-
-
-def _count_inventory_value(db: Session, *, store: Store, count: StockCount) -> int:
-    """Valoriza, en pesos, los renglones CONTADOS de un conteo al costo
-    resuelto de HOY (`resolve_ingredient_cost`). No revalora una VENTA
-    pasada (prohibido por `AGENTS.md`): esto valoriza un CONTEO, que es una
-    foto de stock, no una venta -- el snapshot que la spec protege es el de
-    `order_items`, no éste."""
-    total_micros = 0
-    for line in _count_lines(db, count):
-        if not line.was_counted or line.qty_counted is None:
-            continue
-        ingredient = hooks.get_ingredient(db, store_id=store.id, ingredient_id=line.ingredient_id)
-        if ingredient is None:
-            continue
-        cost_micros, _source = hooks.resolve_ingredient_cost(db, ingredient)
-        if cost_micros is None:
-            continue
-        total_micros += line_cost_micros(line.qty_counted, cost_micros)
-    return micros_to_pesos(total_micros)
-
-
-def _purchases_value(db: Session, *, store: Store, window_from: datetime, window_to: datetime) -> int:
-    total_micros = 0
-    stmt = select(StockMovement).where(
-        StockMovement.store_id == store.id,
-        StockMovement.cause == MovementCause.PURCHASE,
-        StockMovement.at > window_from,
-        StockMovement.at <= window_to,
-    )
-    for movement in db.execute(stmt).scalars():
-        if movement.cost_micros is not None:
-            total_micros += line_cost_micros(movement.qty_base, movement.cost_micros)
-    return micros_to_pesos(total_micros)
-
-
-def _purchase_movements_in_window(db: Session, *, store: Store, window_from: datetime, window_to: datetime) -> int:
-    stmt = select(func.count(StockMovement.id)).where(
-        StockMovement.store_id == store.id,
-        StockMovement.cause == MovementCause.PURCHASE,
-        StockMovement.at > window_from,
-        StockMovement.at <= window_to,
-    )
-    return int(db.execute(stmt).scalar_one())
 
 
 def _receptions_in_dates(db: Session, *, store: Store, date_from: date, date_to: date) -> int:
@@ -2054,9 +1954,9 @@ def food_cost_report(db: Session, *, store: Store, date_from: date, date_to: dat
     opening_count, closing_count = pair
     w_from, w_to = opening_count.opened_at, closing_count.opened_at
 
-    opening_value = _count_inventory_value(db, store=store, count=opening_count)
-    closing_value = _count_inventory_value(db, store=store, count=closing_count)
-    purchases_value = _purchases_value(db, store=store, window_from=w_from, window_to=w_to)
+    opening_value = hooks.count_inventory_value(db, store_id=store.id, count_id=opening_count.id)
+    closing_value = hooks.count_inventory_value(db, store_id=store.id, count_id=closing_count.id)
+    purchases_value = hooks.purchases_value(db, store_id=store.id, window_from=w_from, window_to=w_to)
     sales = orders_hooks.sales_in_window(db, store_id=store.id, paid_after=w_from, paid_until=w_to)
     net_sales = sales.net_sales
     window_hours, window_days = hooks.window_span(w_from, w_to)
@@ -2075,7 +1975,7 @@ def food_cost_report(db: Session, *, store: Store, date_from: date, date_to: dat
             "sea confiable"
         )
     elif purchases_value <= 0 and (
-        _purchase_movements_in_window(db, store=store, window_from=w_from, window_to=w_to) > 0
+        hooks.purchase_movement_count(db, store_id=store.id, window_from=w_from, window_to=w_to) > 0
         or _receptions_in_dates(
             db, store=store, date_from=opening_count.business_date, date_to=closing_count.business_date
         ) > 0
