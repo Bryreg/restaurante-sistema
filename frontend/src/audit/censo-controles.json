@@ -709,6 +709,7 @@
   "Impresión por estación",
   "La pantalla de cocina no está habilitada",
   "Marca listos de un golpe todos los ítems enviados de esta comanda, en todas sus rondas",
+  "Marcar agotado en la carta del POS",
   "Nada para imprimir",
   "No hay rondas pendientes",
   "No se pudieron cargar las rondas",
@@ -895,8 +896,10 @@
   "Cancelar",
   "Continuar",
   "Elegí la mesa destino",
+  "Entendido",
   "Esta sede todavía no tiene zonas ni mesas activas",
   "Las mesas no están habilitadas",
+  "Platos listos para servir",
   "Zonas"
  ],
  "features/orders/VoidDialog.tsx": [
@@ -986,6 +989,7 @@
   "Horas",
   "Liquidaciones",
   "Nómina y propinas no está habilitado",
+  "Planeación",
   "Propinas",
   "Sólo «Nómina»",
   "Sólo «Propinas»",
@@ -997,6 +1001,17 @@
  "features/payroll/PendingExitsPanel.tsx": [
   "Corregir salida",
   "Guardar salida"
+ ],
+ "features/payroll/PlanningTab.tsx": [
+  "Ej.: cubre a Ana, cambio acordado",
+  "Elegir semana",
+  "Esta semana",
+  "No se pudieron cargar los turnos",
+  "Quitar turno",
+  "Reintentar",
+  "Semana anterior",
+  "Semana siguiente",
+  "Todavía no hay equipo en esta sede"
  ],
  "features/payroll/RunsTab.tsx": [
   "Liquidado",
@@ -1406,6 +1421,8 @@
   "Sin datos",
   "Sin turno abierto",
   "Ticket promedio",
+  "Tiempo promedio de «Enviar» a «Listo» por estación, contra su objetivo",
+  "Todavía no hay platos listos hoy",
   "Todavía no se vendió nada hoy",
   "Todo al día",
   "Transferencia, plataformas y bonos: con efectivo y tarjeta completan la venta neta.",
