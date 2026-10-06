@@ -31,6 +31,7 @@ from app.core.quantity import (
     parse_qty_base,
 )
 from app.core.security import verify_secret
+from app.inventory import allergens as allergens_lib
 from app.inventory import hooks, prep_counts
 from app.inventory.units import entry_qty_to_base, entry_spec
 from app.inventory.models import (
@@ -155,6 +156,7 @@ def create_ingredient(db: Session, *, organization_id: int, store_id: int, data:
         lead_time_days=data.lead_time_days,
         perishable=data.perishable,
         opened_shelf_life_days=data.opened_shelf_life_days,
+        allergens=allergens_lib.serialize(list(data.allergens)),
         key_item=data.key_item,
         active=data.active,
         consumption_untracked=data.consumption_untracked,
@@ -240,6 +242,8 @@ def update_ingredient(db: Session, ingredient: Ingredient, data: IngredientUpdat
         ingredient.opened_shelf_life_days = data.opened_shelf_life_days
     if data.key_item is not None:
         ingredient.key_item = data.key_item
+    if data.allergens is not None:
+        ingredient.allergens = allergens_lib.serialize(list(data.allergens))
     if data.consumption_untracked is not None:
         ingredient.consumption_untracked = data.consumption_untracked
 
@@ -292,6 +296,7 @@ def ingredient_out(db: Session, ingredient: Ingredient) -> IngredientOut:
         lead_time_days=ingredient.lead_time_days,
         perishable=ingredient.perishable,
         opened_shelf_life_days=ingredient.opened_shelf_life_days,
+        allergens=allergens_lib.parse(ingredient.allergens),
         key_item=ingredient.key_item,
         consumption_untracked=ingredient.consumption_untracked,
         substitute_ingredient_id=ingredient.substitute_ingredient_id,

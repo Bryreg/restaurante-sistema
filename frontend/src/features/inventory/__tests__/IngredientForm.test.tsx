@@ -51,6 +51,7 @@ describe("formValuesToIngredientIn", () => {
       perishable: true,
       openedShelfLifeDays: "",
       keyItem: false,
+      allergens: [],
       consumptionUntracked: false,
       substituteIngredientId: null,
       active: true,

@@ -26,6 +26,8 @@ import { reportsFeature } from "@/features/reports";
 import SettingsPage from "@/features/settings/SettingsPage";
 import { shiftsFeature } from "@/features/shifts";
 
+import { FichaImprimiblePage } from "@/features/recipes/FichaImprimiblePage";
+
 import AdminLayout from "./AdminLayout";
 import AutorizarPage from "./AutorizarPage";
 import HomePage from "./HomePage";
@@ -89,6 +91,15 @@ const routes: RouteObject[] = [
   { path: "/", element: <HomePage /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/pos/activate", element: <DeviceActivatePage /> },
+  // La ficha técnica para imprimir: hoja A4 sin el marco del panel.
+  {
+    path: "/imprimir/ficha",
+    element: (
+      <RequireAdmin>
+        <FichaImprimiblePage />
+      </RequireAdmin>
+    ),
+  },
   {
     path: "/pos/identify",
     element: (

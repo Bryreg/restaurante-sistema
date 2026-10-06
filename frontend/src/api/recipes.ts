@@ -381,3 +381,78 @@ export function suspiciousUnitsCsvUrl(storeId: number): string {
   query.set("store_id", String(storeId))
   return `/api/v1/admin/recipes/suspicious-units?${query.toString()}`
 }
+
+// ---------------------------------------------------------------------------
+// Ficha de chef (0039): método, porción, estación, montaje, foto y alérgenos
+// heredados de los insumos; su versión para imprimir viene escalada del
+// servidor (`app.recipes.sheet`).
+// ---------------------------------------------------------------------------
+
+export type Station = "caliente" | "fria" | "parrilla" | "pasteleria" | "bar" | "otra"
+
+export interface RecipeSheetIn {
+  method_steps: string[]
+  portion?: string | null
+  station?: Station | null
+  prep_minutes?: number | null
+  plating_notes?: string | null
+  chef_notes?: string | null
+  /** Una foto nueva (data URL); sin cambiar, no se manda. */
+  photo?: string | null
+  clear_photo?: boolean
+}
+
+export interface RecipeSheetOut {
+  product_id: number | null
+  preparation_id: number | null
+  method_steps: string[]
+  portion: string | null
+  station: Station | null
+  prep_minutes: number | null
+  plating_notes: string | null
+  chef_notes: string | null
+  photo_url: string | null
+  updated_at: string | null
+  updated_by_employee_name: string | null
+  /** Heredados de los insumos, también los de las preparaciones de adentro. */
+  allergens: string[]
+}
+
+export interface PrintableComponentOut {
+  kind: "ingredient" | "preparation"
+  name: string
+  qty: string
+  unit: string
+  components: PrintableComponentOut[]
+}
+
+export interface PrintableSheetOut {
+  kind: "product" | "preparation"
+  id: number
+  name: string
+  scale_text: string
+  scale: number
+  recipe_version: number | null
+  sheet: RecipeSheetOut
+  components: PrintableComponentOut[]
+  cost: { total: string | null; per_unit: string | null; food_cost_pct: string | null; net_price: number | null } | null
+  generated_at: string
+}
+
+export type SheetOwner = { kind: "product" | "preparation"; id: number }
+
+function sheetPath(owner: SheetOwner): string {
+  return owner.kind === "product" ? `/admin/products/${owner.id}/sheet` : `/admin/preparations/${owner.id}/sheet`
+}
+
+export function getRecipeSheet(owner: SheetOwner): Promise<RecipeSheetOut> {
+  return api<RecipeSheetOut>(sheetPath(owner))
+}
+
+export function putRecipeSheet(owner: SheetOwner, data: RecipeSheetIn): Promise<RecipeSheetOut> {
+  return api<RecipeSheetOut>(sheetPath(owner), { method: "PUT", body: data })
+}
+
+export function getPrintableSheet(owner: SheetOwner, scale: number, costs: boolean): Promise<PrintableSheetOut> {
+  return api<PrintableSheetOut>(`${sheetPath(owner)}/print`, { query: { scale, costs } })
+}

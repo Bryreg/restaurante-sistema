@@ -23,7 +23,7 @@ from app.core import tz
 from app.core.db import get_db
 from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.recipes import service
+from app.recipes import service, sheet
 from app.recipes.hooks import uncosted_products
 from app.recipes.schemas import (
     CoverageItemOut,
@@ -211,6 +211,78 @@ def put_product_recipe(
     _feature: None = Depends(require_feature("catalog.recipes")),
 ) -> ProductRecipeOut:
     return service.put_product_recipe(db, actor=actor, product_id=product_id, data=body)
+
+
+# ---------------------------------------------------------------------------
+# Ficha de chef (0039): método, porción, estación, montaje, foto, alérgenos
+# heredados, y su versión para imprimir (cocina sin costos, dueño con costos).
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/products/{product_id}/sheet", response_model=sheet.RecipeSheetOut)
+def get_product_sheet(
+    product_id: int,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(require_feature("catalog.recipes")),
+) -> sheet.RecipeSheetOut:
+    return sheet.get_sheet(db, actor, product_id=product_id)
+
+
+@router.put("/admin/products/{product_id}/sheet", response_model=sheet.RecipeSheetOut)
+def put_product_sheet(
+    product_id: int,
+    body: sheet.RecipeSheetIn,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(require_feature("catalog.recipes")),
+) -> sheet.RecipeSheetOut:
+    return sheet.put_sheet(db, actor, body, product_id=product_id)
+
+
+@router.get("/admin/products/{product_id}/sheet/print", response_model=sheet.PrintableSheetOut)
+def print_product_sheet(
+    product_id: int,
+    scale: int = 1,
+    costs: bool = False,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(require_feature("catalog.recipes")),
+) -> sheet.PrintableSheetOut:
+    return sheet.printable(db, actor, product_id=product_id, scale=scale, with_costs=costs)
+
+
+@router.get("/admin/preparations/{preparation_id}/sheet", response_model=sheet.RecipeSheetOut)
+def get_preparation_sheet(
+    preparation_id: int,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(require_feature("catalog.preps")),
+) -> sheet.RecipeSheetOut:
+    return sheet.get_sheet(db, actor, preparation_id=preparation_id)
+
+
+@router.put("/admin/preparations/{preparation_id}/sheet", response_model=sheet.RecipeSheetOut)
+def put_preparation_sheet(
+    preparation_id: int,
+    body: sheet.RecipeSheetIn,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(require_feature("catalog.preps")),
+) -> sheet.RecipeSheetOut:
+    return sheet.put_sheet(db, actor, body, preparation_id=preparation_id)
+
+
+@router.get("/admin/preparations/{preparation_id}/sheet/print", response_model=sheet.PrintableSheetOut)
+def print_preparation_sheet(
+    preparation_id: int,
+    scale: int = 1,
+    costs: bool = False,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(require_feature("catalog.preps")),
+) -> sheet.PrintableSheetOut:
+    return sheet.printable(db, actor, preparation_id=preparation_id, scale=scale, with_costs=costs)
 
 
 # ---------------------------------------------------------------------------

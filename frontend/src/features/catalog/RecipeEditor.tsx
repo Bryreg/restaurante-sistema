@@ -26,6 +26,7 @@ import {
   type LineDraft,
 } from "@/features/recipes/ComponentLinesEditor"
 import { CostValue, FoodCostBadge } from "@/features/recipes/costDisplay"
+import { FichaChefEditor } from "@/features/recipes/FichaChefEditor"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { csvUrl } from "@/api/client"
 import { getInventoryThresholds } from "@/api/inventory"
@@ -228,6 +229,8 @@ export function RecipeEditor({ storeId }: { storeId: number }): React.JSX.Elemen
               </p>
             )}
           </div>
+
+          <FichaChefEditor key={productId} owner={{ kind: "product", id: productId }} />
         </div>
       ) : (
         <EmptyState title="No se pudo cargar la ficha de este plato" />

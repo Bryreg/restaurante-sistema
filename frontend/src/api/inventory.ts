@@ -88,6 +88,8 @@ export interface IngredientIn {
   perishable: boolean
   /** Días que dura abierto: la etiqueta de «Abrí» vence hoy + esto. */
   opened_shelf_life_days?: number | null
+  /** Alérgenos (códigos de la lista cerrada); las fichas de chef los heredan. */
+  allergens?: string[]
   key_item: boolean
   consumption_untracked: boolean
   substitute_ingredient_id?: number | null
@@ -111,6 +113,7 @@ export interface IngredientUpdateIn {
   perishable?: boolean
   opened_shelf_life_days?: number | null
   clear_opened_shelf_life?: boolean
+  allergens?: string[]
   key_item?: boolean
   consumption_untracked?: boolean
   substitute_ingredient_id?: number | null
@@ -136,6 +139,7 @@ export interface IngredientOut {
   lead_time_days: number | null
   perishable: boolean
   opened_shelf_life_days?: number | null
+  allergens?: string[]
   key_item: boolean
   consumption_untracked: boolean
   substitute_ingredient_id: number | null

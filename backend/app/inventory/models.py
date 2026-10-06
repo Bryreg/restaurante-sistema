@@ -188,6 +188,10 @@ class Ingredient(Base):
     # lote. `NULL` = sin regla; quien abre pone la fecha.
     opened_shelf_life_days: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     key_item: Mapped[bool] = mapped_column(sa.Boolean, default=False)  # entra al conteo rápido (2b)
+    # Alérgenos del insumo (0039), códigos separados por coma de la lista
+    # cerrada `app.inventory.allergens.ALLERGENS`. Las fichas de los platos y
+    # de las preparaciones los heredan; nadie los escribe a mano en el plato.
+    allergens: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
     active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
 
     # Consumo no predecible (servilletas, sal, aceite de fritura): sin

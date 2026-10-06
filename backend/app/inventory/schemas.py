@@ -13,6 +13,7 @@ from typing import Literal
 
 from pydantic import model_validator, BaseModel, Field
 
+from app.inventory.allergens import AllergenCode
 from app.photos.hooks import PhotoIn
 
 BaseUnitLiteral = Literal["g", "ml", "unit"]
@@ -69,6 +70,8 @@ class IngredientIn(BaseModel):
     substitute_ingredient_id: int | None = None
     supplier_id: int | None = None
     active: bool = True
+    # Alérgenos (0039): códigos de la lista cerrada.
+    allergens: list[AllergenCode] = Field(default_factory=list)
 
 
 class IngredientUpdateIn(BaseModel):
@@ -93,6 +96,7 @@ class IngredientUpdateIn(BaseModel):
     clear_substitute: bool = False
     supplier_id: int | None = None
     active: bool | None = None
+    allergens: list[AllergenCode] | None = None
 
 
 class IngredientOut(BaseModel):
@@ -111,6 +115,7 @@ class IngredientOut(BaseModel):
     lead_time_days: int | None
     perishable: bool
     opened_shelf_life_days: int | None = None
+    allergens: list[str] = Field(default_factory=list)
     key_item: bool
     consumption_untracked: bool
     substitute_ingredient_id: int | None
