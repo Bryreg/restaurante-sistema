@@ -14,11 +14,7 @@ Igual que `0034` (`shift_carry_ins`): en SQLite no se agrega la FK de
 `tip_payout_distributions.payout_id` apunta acá — el problema de `0011`); en
 Postgres sí, por nombre, sin recrear nada.
 
-**Cadena:** el número es `0046` y la `0045` se escribe en paralelo en otra
-rama. Mientras esa no exista en este árbol, `down_revision` apunta a `0044`;
-al integrar las dos, esta pasa a `down_revision = "0045"`.
-
-Revision ID: 0046
+Revision ID: 0045
 Revises: 0044
 """
 
@@ -27,7 +23,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0046"
+revision: str = "0045"
 down_revision = "0044"
 branch_labels: str | None = None
 depends_on: str | None = None

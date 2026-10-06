@@ -906,7 +906,7 @@ class TipPayoutOut(OutModel):
     created_by: EmployeeRef
     created_at: datetime
     distribution: list[TipPayoutDistributionOut]
-    # c3 (0046): un reparto reversado sigue en el historial —nada se borra—
+    # c3 (0045): un reparto reversado sigue en el historial —nada se borra—
     # pero deja de contar como entregado. `None` = vivo.
     reversed_at: datetime | None = None
     reversed_reason: str | None = None

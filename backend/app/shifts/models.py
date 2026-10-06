@@ -544,7 +544,7 @@ class TipPayout(Base):
     created_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime())
 
-    # **Reversa con motivo, nunca se borra** (0046, c3): un reparto cargado
+    # **Reversa con motivo, nunca se borra** (0045, c3): un reparto cargado
     # por error se reversa —quién, cuándo y por qué— y deja de contar como
     # entregado (`app.shifts.tips`) y como gastado de la mano del dueño
     # (`app.banking.service.owner_hand`). La fila y sus líneas quedan.
