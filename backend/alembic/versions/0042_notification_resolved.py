@@ -16,9 +16,6 @@ hacía con ellos, y sin eso volverían todos de golpe a «Requiere tu atención�
 
 Columnas, no tablas: el conteo no se mueve.
 
-**Nota de integración**: `0041` se escribe en paralelo en otra rama; ésta
-cuelga de `0040`. Al integrar, `down_revision` pasa a `"0041"`.
-
 Revision ID: 0042
 Revises: 0041
 """
