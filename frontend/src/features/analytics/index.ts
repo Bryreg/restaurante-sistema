@@ -4,16 +4,13 @@
  * importa `analyticsFeature` para montar su ruta y `AdminLayout.tsx` para
  * armar su navegación.
  *
- * Tres entradas de navegación, cada una detrás de su propia función
+ * Dos entradas de navegación, cada una detrás de su propia función
  * (`NavItem.feature` sólo admite una clave — mismo criterio que
  * `features/payroll/index.ts` con `payroll`/`pos.tips`): "Ingeniería de
- * menú" exige `analytics.menu_engineering`; "Varianza y salud" exige
- * `inventory.variance` (verificado por lectura directa de
- * `app/analytics/router.py` — NO comparte flag con ingeniería de menú, a
- * pesar de que spec.md § 2 da a entender que sí; ver
- * `AnalyticsAdminPage.tsx` y los gaps del entregable); "Reposición" exige
- * `inventory.replenishment`. Con más de una encendida llevan a la misma
- * pantalla.
+ * menú" exige `analytics.menu_engineering`; "Reposición" exige
+ * `inventory.replenishment`. Con las dos encendidas llevan a la misma
+ * pantalla. «Varianza y salud» se mudó a Inventario (limpieza 2026-10): la
+ * entrada del rail la declara `features/inventory/index.ts`.
  *
  * Sólo Admin: `posRoutes`/`posNav` quedan vacíos.
  */
@@ -29,7 +26,6 @@ const adminRoutes: RouteObject[] = [{ path: "analitica", element: createElement(
 
 const adminNav: NavItem[] = [
   { to: "/admin/analitica", label: "Ingeniería de menú", feature: "analytics.menu_engineering" },
-  { to: "/admin/analitica?tab=varianza", label: "Varianza y salud", feature: "inventory.variance" },
   { to: "/admin/analitica?tab=reposicion", label: "Reposición", feature: "inventory.replenishment" },
 ]
 

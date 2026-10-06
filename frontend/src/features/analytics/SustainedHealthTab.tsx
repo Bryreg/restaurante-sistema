@@ -1,5 +1,6 @@
 /**
- * Admin → Analítica → Salud sostenida (D-1, spec.md § 1, `GET
+ * Inventario › Salud del control, sección «¿Se sostiene la brecha?» (antes
+ * pestaña «Salud sostenida» de Analítica; D-1, spec.md § 1, `GET
  * /admin/control-health/sustained`): la brecha de food cost real está
  * sostenida en rojo cuando supera el umbral en al menos 2 de las últimas 3
  * ventanas. `sustained_red` es `null` (nunca `false` mudo, nunca "verde" por
@@ -156,7 +157,7 @@ export function SustainedHealthTab({ storeId }: { storeId: number }): React.JSX.
               tone={data.sustained_red ? "critical" : "default"}
               // § 5, regla dura: una tarjeta con tono lleva a algún lado —
               // si no, el color es decoración.
-              link={{ to: "/admin/inventario?tab=salud", screen: "Inventario", tab: "Salud del control" }}
+              link={{ to: "/admin/inventario?tab=varianza", screen: "Inventario", tab: "Varianza" }}
               hint={
                 data.sustained_red
                   ? "La brecha superó el umbral en al menos 2 de las últimas 3 ventanas."

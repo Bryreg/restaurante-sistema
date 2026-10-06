@@ -60,10 +60,7 @@
   "Analítica no está habilitada",
   "Encenderla en Funciones",
   "Ingeniería de menú",
-  "Reposición sugerida",
-  "Salud sostenida",
-  "Varianza por plato",
-  "Varianza y salud"
+  "Reposición sugerida"
  ],
  "features/analytics/MenuEngineeringTab.tsx": [
   "Ingeniería de menú no disponible",
@@ -538,9 +535,11 @@
   "Lotes",
   "Línea de tiempo",
   "Movimientos y mermas",
+  "Por plato",
   "Salud del control",
   "Stock",
-  "Varianza"
+  "Varianza",
+  "¿Se sostiene la brecha?"
  ],
  "features/inventory/LineaDeTiempoTab.tsx": [
   "30 días",

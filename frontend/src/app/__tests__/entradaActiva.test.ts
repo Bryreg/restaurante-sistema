@@ -21,10 +21,10 @@ describe("entradaActiva", () => {
     expect(entradaActiva("/admin/hoy", false, "", RAIL)).toBe(false);
   });
 
-  it("una entrada puede reclamar pestañas hermanas: Salud sostenida enciende «Varianza y salud», no Ingeniería de menú", () => {
-    const analitica = ["/admin/analitica", "/admin/analitica?tab=varianza", "/admin/analitica?tab=reposicion"];
-    expect(entradaActiva("/admin/analitica?tab=varianza", true, "?tab=salud-sostenida", analitica)).toBe(true);
-    expect(entradaActiva("/admin/analitica", true, "?tab=salud-sostenida", analitica)).toBe(false);
-    expect(entradaActiva("/admin/analitica", true, "?tab=ingenieria-menu", analitica)).toBe(true);
+  it("una entrada puede reclamar pestañas hermanas: Salud del control enciende «Varianza y salud», no Inventario", () => {
+    const inventario = ["/admin/inventario", "/admin/inventario?tab=varianza"];
+    expect(entradaActiva("/admin/inventario?tab=varianza", true, "?tab=salud", inventario)).toBe(true);
+    expect(entradaActiva("/admin/inventario", true, "?tab=salud", inventario)).toBe(false);
+    expect(entradaActiva("/admin/inventario", true, "?tab=stock", inventario)).toBe(true);
   });
 });

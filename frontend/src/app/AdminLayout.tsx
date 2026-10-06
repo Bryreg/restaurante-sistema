@@ -224,7 +224,7 @@ export const RAIL: Record<string, FilaDelRail> = {
     cuenta: "inventario",
   },
   "/admin/compras": { seccion: "Inventario", label: "Compras", title: "Compras", cuenta: "compras" },
-  "/admin/analitica?tab=varianza": {
+  "/admin/inventario?tab=varianza": {
     seccion: "Inventario",
     label: "Varianza y salud",
     title: "Varianza y salud",
@@ -352,12 +352,12 @@ export function entradaActiva(to: string, rutaActiva: boolean, search: string, t
 
 /**
  * Pestañas que una entrada reclama además de la de su `?tab=`: «Varianza y
- * salud» abre en Varianza por plato pero también es suya la pestaña Salud
- * sostenida. Sin esto, en Salud sostenida se encendía «Ingeniería de menú»
- * (la entrada sin pestaña de la misma ruta) y la sección saltaba a Informes.
+ * salud» abre en Inventario › Varianza pero también es suya la pestaña Salud
+ * del control. Sin esto, en Salud del control se encendía «Inventario» (la
+ * entrada sin pestaña de la misma ruta).
  */
 const PESTANAS_HERMANAS: Record<string, readonly string[]> = {
-  "/admin/analitica?tab=varianza": ["salud-sostenida"],
+  "/admin/inventario?tab=varianza": ["salud"],
 };
 
 function pestanasDe(to: string): string[] {

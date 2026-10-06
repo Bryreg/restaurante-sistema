@@ -48,7 +48,12 @@ const posRoutes: RouteObject[] = [
   { path: "conteo", element: createElement(AreaCountPage) },
 ]
 
-const adminNav: NavItem[] = [{ to: "/admin/inventario", label: "Inventario", feature: "inventory.perpetual" }]
+const adminNav: NavItem[] = [
+  { to: "/admin/inventario", label: "Inventario", feature: "inventory.perpetual" },
+  // El atajo del rail al único lugar de la varianza (limpieza 2026-10): antes
+  // apuntaba a Analítica, que la repetía con otras dos pestañas.
+  { to: "/admin/inventario?tab=varianza", label: "Varianza y salud", feature: "inventory.variance" },
+]
 
 const posNav: NavItem[] = [
   { to: "/pos/merma", label: "Merma", icon: Trash2, feature: "inventory.waste", posGroup: "cocina" },

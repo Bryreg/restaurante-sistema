@@ -1,5 +1,5 @@
 /**
- * Admin → Analítica → Varianza por plato (T4, `GET /admin/variance/by-dish`):
+ * Inventario › Varianza, sección «Por plato» (antes pestaña de Analítica; T4, `GET /admin/variance/by-dish`):
  * §5.4 la define explícitamente como "sólo estimación prorrateada" — esta
  * pantalla lo dice arriba de todo (plegado en «¿Qué es esto?»), con
  * `method` tal cual llega, nunca
