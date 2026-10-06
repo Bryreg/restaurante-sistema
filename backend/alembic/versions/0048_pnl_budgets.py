@@ -11,7 +11,7 @@ Esta migración cuelga de `0044` hasta que esas tres entren; al integrarlas,
 el `down_revision` pasa a `"0047"` y el poste de la cadena se mueve con él.
 
 Revision ID: 0048
-Revises: 0044
+Revises: 0047
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0048"
-down_revision = "0044"
+down_revision = "0047"
 branch_labels: str | None = None
 depends_on: str | None = None
 
