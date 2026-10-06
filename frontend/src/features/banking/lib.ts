@@ -52,3 +52,6 @@ export function ledgerEntryLabel(kind: string | undefined, cause: BankMovementCa
   if (kind === "movement" && cause) return MOVEMENT_CAUSE_LABEL[cause] ?? ledgerKindLabel(kind)
   return ledgerKindLabel(kind)
 }
+
+/** Las pestañas de Plata (`/admin/plata`), que antes eran de `/admin/banco` (c10). */
+export const PLATA_TABS = ["libro", "mano", "datafono", "plataformas"] as const

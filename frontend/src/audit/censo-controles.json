@@ -2,15 +2,17 @@
  "app/AdminLayout.tsx": [
   "Abrir menú",
   "Accesos del celular",
-  "Banco",
   "Carta",
   "Cerrar sesión",
   "Clientes",
   "Compras",
+  "Conciliaciones",
   "Configuración",
+  "Consignaciones",
+  "Cuadres",
+  "Cuentas por pagar",
   "Devoluciones",
   "Devoluciones pendientes",
-  "Dinero",
   "Documentos",
   "Documentos fiscales",
   "Elegí una sede",
@@ -23,9 +25,12 @@
   "Informes",
   "Ingeniería de menú",
   "Inventario",
+  "Libro del banco",
+  "Mano del dueño",
   "Notas",
   "Notificaciones",
   "Nómina",
+  "Obligaciones",
   "Pedidos",
   "Preparaciones",
   "Propinas",
@@ -140,16 +145,10 @@
   "Reintentar"
  ],
  "features/banking/BankingAdminPage.tsx": [
-  "Banco no está habilitado",
-  "Conciliación datáfono",
-  "Conciliación plataformas",
   "Consignaciones",
+  "Consignaciones no está habilitado",
   "Encenderla en Funciones",
-  "Libro del banco",
-  "Mano del dueño",
-  "Por consignar",
-  "Sólo Consignaciones y Por consignar",
-  "«Banco» (money.bank) está apagada: el libro, la mano del dueño y las dos conciliaciones no se dibujan. La URL de esas pestañas sigue existiendo."
+  "Por consignar"
  ],
  "features/banking/CreateDepositDialog.tsx": [
   "Agregar otro turno",
@@ -195,6 +194,14 @@
   "No hay turnos cerrados en este período",
   "No se pudo cargar el saldo por consignar",
   "Reintentar"
+ ],
+ "features/banking/PlataAdminPage.tsx": [
+  "Conciliación datáfono",
+  "Conciliación plataformas",
+  "El libro del banco no está habilitado",
+  "Encenderla en Funciones",
+  "Libro del banco",
+  "Mano del dueño"
  ],
  "features/banking/ReconciliationTab.tsx": [
   "Confirmar conciliación",

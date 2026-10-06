@@ -34,7 +34,8 @@ const adminRoutes: RouteObject[] = [
 // muestran siempre — igual que Funciones/Configuración/Historial en
 // `AdminLayout.tsx`.
 const adminNav: NavItem[] = [
-  { to: "/admin/dinero", label: "Dinero" },
+  // c10: la pantalla se llama por lo que es en Caja, los cuadres.
+  { to: "/admin/dinero", label: "Cuadres" },
   { to: "/admin/personal", label: "Turnos y personal" },
 ];
 
