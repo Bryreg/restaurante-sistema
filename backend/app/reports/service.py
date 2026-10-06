@@ -55,6 +55,7 @@ from app.orders.models import (
     OrderTable,
 )
 from app.reports.schemas import (
+    StationPrepOut,
     AreaCountAreaTodayOut,
     AreaCountDoneTodayOut,
     AreaCountFlagOut,
@@ -1803,7 +1804,28 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
         top_products=today_top_products(db, store=store, business_date=business_date),
         receptions_enabled=receptions_enabled,
         receptions_today=receptions,
+        kitchen_prep_by_station=_kitchen_prep(db, store, business_date),
     )
+
+
+def _kitchen_prep(db: Session, store: Store, business_date: date) -> list[StationPrepOut] | None:
+    """El tiempo de cocina por estación del día (`app.kitchen.hooks`, la
+    misma lectura y el mismo objetivo del KDS)."""
+    from app.kitchen import hooks as kitchen_hooks
+
+    rows = kitchen_hooks.prep_times_by_station(db, store=store, business_date=business_date)
+    if rows is None:
+        return None
+    return [
+        StationPrepOut(
+            station=r.station,
+            items=r.items,
+            avg_seconds=r.avg_seconds,
+            target_minutes=r.target_minutes,
+            outside=r.outside,
+        )
+        for r in rows
+    ]
 
 
 def _today_recap(

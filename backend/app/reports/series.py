@@ -1367,11 +1367,107 @@ def _staff_now_card(db: Session, stores: list[Store], now: datetime) -> SectionC
         tone="ok" if present else "muted",
         status=_count_word(paused, "en pausa", "en pausa") if paused else "Nadie en pausa",
         note=(
-            f"Personas en turno por hora{todas}. Lo que viene sale más claro: no hay horario "
-            "programado, así que se supone que quien está sigue hasta el cierre."
+            f"Personas en turno por hora{todas}. Lo que viene sale más claro: esta serie no lee "
+            "la planeación, así que supone que quien está sigue hasta el cierre."
         ),
         series=SeriesOut(unit="people", bad_side="below", points=points),
         rows=rows,
+    )
+
+
+LATE_PAYROLL_OFF_REASON = "La función «Nómina» está apagada en estas sedes: sin ella no hay turnos planeados."
+LATE_NO_PLAN_REASON = (
+    "Nadie tiene turno planeado en estos días: planealo en Nómina › Planeación y la tarjeta compara "
+    "la hora planeada con la entrada real."
+)
+_LATE_ISSUE_WORD = {"late": "tarde", "missing": "No ha llegado", "no_show": "No vino"}
+
+
+def _late_arrivals_card(db: Session, stores: list[Store], today: date) -> SectionCardOut:
+    """«¿Quién llegó tarde hoy?» (auditoría e1): la planeación de Nómina
+    contra la asistencia real, con la misma cuenta de Nómina › Planeación
+    (`app.payroll.hooks.schedule_compliance`). Volvió cuando hubo horario
+    planeado del que alimentarla; sin turnos planeados dice por qué, nunca
+    un 0. Cuenta tarde, no vino y no ha llegado; la gracia es la de
+    `app.payroll.planning.GRACE_MINUTES`."""
+    from app.payroll import hooks as payroll_hooks
+
+    days = _window(today, SECTION_TREND_DAYS)
+    per_store = [
+        (s, payroll_hooks.schedule_compliance(db, store=s, date_from=days[0], date_to=today)) for s in stores
+    ]
+    enabled = [(s, c) for s, c in per_store if c is not None]
+    if not enabled:
+        return _unavailable("late", LATE_PAYROLL_OFF_REASON)
+    planned_by_day: dict[date, int] = defaultdict(int)
+    issues_by_day: dict[date, int] = defaultdict(int)
+    for _s, compliance in enabled:
+        for d, day in compliance.items():
+            planned_by_day[d] += day.planned
+            issues_by_day[d] += len(day.issues)
+    if not any(planned_by_day.values()):
+        return _unavailable("late", LATE_NO_PLAN_REASON)
+
+    rows: list[SectionRowOut] = []
+    late = missing = no_show = 0
+    for s, compliance in enabled:
+        for issue in compliance[today].issues:
+            if issue.status == "late":
+                late += 1
+                arrived = f"entró {clock_label(issue.actual_in_at)}" if issue.actual_in_at is not None else ""
+                label = f"{issue.employee_name} · {s.name} · planeado {issue.planned_start}, {arrived}"
+                rows.append(SectionRowOut(key=f"{s.id}-{issue.employee_id}", label=label, value=issue.late_minutes, unit="minutes", tone="warning"))
+                continue
+            if issue.status == "missing":
+                missing += 1
+            else:
+                no_show += 1
+            rows.append(
+                SectionRowOut(
+                    key=f"{s.id}-{issue.employee_id}",
+                    label=f"{issue.employee_name} · {s.name} · planeado {issue.planned_start}",
+                    unit="count",
+                    note=_LATE_ISSUE_WORD[issue.status],
+                    tone="critical" if issue.status == "no_show" else "warning",
+                )
+            )
+    planned_today = planned_by_day.get(today, 0)
+    n = late + missing + no_show
+    parts = [
+        _count_word(late, "tarde", "tarde") if late else None,
+        _count_word(no_show, "no vino", "no vinieron") if no_show else None,
+        _count_word(missing, "sin llegar", "sin llegar") if missing else None,
+    ]
+    if planned_today == 0:
+        status = "Hoy nadie tiene turno planeado"
+    elif n == 0:
+        status = "Todos a tiempo"
+    else:
+        status = " · ".join(p for p in parts if p)
+    points = [
+        SeriesPointOut(
+            key=d.isoformat(),
+            label=_trend_label(d, today),
+            # Un día sin turnos planeados va rayado: no es «nadie llegó tarde».
+            value=issues_by_day.get(d, 0) if planned_by_day.get(d, 0) > 0 else None,
+            outside=issues_by_day.get(d, 0) > 0,
+            now=d == today,
+        )
+        for d in days
+    ]
+    return SectionCardOut(
+        key="late",
+        unit="count",
+        value=n if planned_today > 0 else None,
+        of=planned_today if planned_today > 0 else None,
+        tone=("critical" if no_show else "warning") if n else ("ok" if planned_today else "muted"),
+        status=status,
+        note=(
+            "Turnos planeados que no se cumplieron por día: entró tarde, no vino o todavía no llega. "
+            "Sale de Nómina › Planeación contra la asistencia."
+        ),
+        series=SeriesOut(unit="count", bad_side="above", points=points),
+        rows=_by_tone(rows),
     )
 
 
@@ -1461,10 +1557,11 @@ def _week_hours_card(db: Session, stores: list[Store], today: date, now: datetim
         unit="minutes",
         value=total,
         tone="ok" if total else "muted",
-        status="Sin horas programadas para comparar",
+        status="Sin raya de horas planeadas",
         note=(
-            "Horas trabajadas por día esta semana, según la asistencia. No hay horas programadas en el "
-            "sistema: por eso no hay raya. Las salidas olvidadas no cuentan hasta corregirlas."
+            "Horas trabajadas por día esta semana, según la asistencia. La comparación con los turnos "
+            "planeados está en «Llegadas tarde» y en Nómina › Planeación. Las salidas olvidadas no cuentan "
+            "hasta corregirlas."
         ),
         series=SeriesOut(unit="minutes", bad_side="below", points=points),
         rows=rows,
@@ -1803,10 +1900,10 @@ def _orders_today_card(
 
 
 def sections(db: Session, *, stores: list[Store], all_stores: bool, section: str) -> SectionOut:
-    """Las tarjetas de una sección del celular (`caja`, `equipo` o
-    `informes`), para una sede o para todas: cuatro en Caja e Informes, tres
-    en Equipo. «Llegadas tarde» se quitó (limpieza 2026-10): el sistema no
-    guarda un horario programado, así que nunca tenía dato."""
+    """Las cuatro tarjetas de una sección del celular (`caja`, `equipo` o
+    `informes`), para una sede o para todas. «Llegadas tarde» se quitó en la
+    limpieza 2026-10 porque no había horario programado del que alimentarla,
+    y volvió con la planeación de turnos (auditoría e1, 0050)."""
     now = clock.now_utc()
     today = tz.today_business_date(stores[0].cutoff_hour)
     cards: list[SectionCardOut]
@@ -1820,6 +1917,7 @@ def sections(db: Session, *, stores: list[Store], all_stores: bool, section: str
     elif section == "equipo":
         cards = [
             _staff_now_card(db, stores, now),
+            _late_arrivals_card(db, stores, today),
             _forgotten_exits_card(db, stores, today),
             _week_hours_card(db, stores, today, now),
         ]

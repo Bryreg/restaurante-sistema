@@ -8,10 +8,16 @@ import { renderWithProviders } from "@/test/utils"
 import { CatalogPanel } from "../CatalogPanel"
 import { buildCatalog, buildCatalogCombo, buildCatalogProduct, deviceMe } from "./fixtures"
 
-const { useCatalogMock, useFavoritesMock } = vi.hoisted(() => ({
+const { useCatalogMock, useFavoritesMock, setProductAvailabilityMock } = vi.hoisted(() => ({
   useCatalogMock: vi.fn(),
   useFavoritesMock: vi.fn(),
+  setProductAvailabilityMock: vi.fn(),
 }))
+
+vi.mock("@/api/catalog", async () => {
+  const actual = await vi.importActual<typeof import("@/api/catalog")>("@/api/catalog")
+  return { ...actual, setProductAvailability: setProductAvailabilityMock }
+})
 
 vi.mock("../hooks", async () => {
   const actual = await vi.importActual<typeof import("../hooks")>("../hooks")
@@ -162,5 +168,44 @@ describe("CatalogPanel", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("«Agotados» encendido: un toque marca el plato agotado (con clave de idempotencia) en vez de sumarlo", async () => {
+    const user = userEvent.setup()
+    useCatalogMock.mockReturnValue({ data: buildCatalog(), isLoading: false })
+    useFavoritesMock.mockReturnValue({ data: [{ product_id: 10, qty: 5 }], isLoading: false })
+    setProductAvailabilityMock.mockResolvedValue({ id: 10, available: false })
+    const onSelectProduct = vi.fn()
+
+    renderWithProviders(<CatalogPanel channel="dine_in" onSelectProduct={onSelectProduct} onSelectCombo={vi.fn()} />, {
+      me: deviceMe({}),
+    })
+
+    await user.click(screen.getByRole("button", { name: "Agotados" }))
+    await user.click(screen.getByRole("button", { name: "Marcar agotado: Limonada de coco" }))
+
+    expect(onSelectProduct).not.toHaveBeenCalled()
+    expect(setProductAvailabilityMock).toHaveBeenCalledWith(10, { available: false }, expect.any(String))
+    expect(await screen.findByText("«Limonada de coco» quedó agotado.")).toBeInTheDocument()
+  })
+
+  it("«Agotados» encendido: un plato agotado se puede tocar para volver a ofrecerlo", async () => {
+    const user = userEvent.setup()
+    useCatalogMock.mockReturnValue({
+      data: buildCatalog({ products: [buildCatalogProduct({ id: 10, available: false })] }),
+      isLoading: false,
+    })
+    useFavoritesMock.mockReturnValue({ data: [{ product_id: 10, qty: 5 }], isLoading: false })
+    setProductAvailabilityMock.mockResolvedValue({ id: 10, available: true })
+
+    renderWithProviders(<CatalogPanel channel="dine_in" onSelectProduct={vi.fn()} onSelectCombo={vi.fn()} />, {
+      me: deviceMe({}),
+    })
+
+    await user.click(screen.getByRole("button", { name: "Agotados" }))
+    const card = screen.getByRole("button", { name: "Volver a ofrecer Limonada de coco" })
+    expect(card).toBeEnabled()
+    await user.click(card)
+    expect(setProductAvailabilityMock).toHaveBeenCalledWith(10, { available: true }, expect.any(String))
   })
 })

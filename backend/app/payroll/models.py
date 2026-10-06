@@ -472,3 +472,59 @@ class PayrollAbsence(Base):
         CheckConstraint("date_from <= date_to", name="ck_payroll_absence_range"),
         Index("ix_payroll_absences_employee_from", "employee_id", "date_from"),
     )
+
+
+class StaffScheduleShift(Base):
+    """El turno PLANEADO de una persona en un día operativo (auditoría e1,
+    0050): de qué hora a qué hora debería trabajar. La asistencia real sigue
+    en `attendance_entries`; la planeación sólo existe para compararla
+    (llegadas tarde, no vino) y para que el horario se arme de una semana a
+    la otra.
+
+    - Horas en **minutos desde la medianoche del día operativo** (reloj de
+      Bogotá). Un turno que empieza antes de la hora de corte (02:00 con
+      corte a las 6) es de madrugada del MISMO día operativo, así que su
+      inicio pasa de 1440. Una salida igual o anterior a la entrada es del
+      día siguiente: el servicio normaliza y la tabla lo defiende.
+    - Una fila vigente por persona y día (`voided_at IS NULL`, índice único
+      parcial). Cambiar el turno anula la fila y crea otra; quitarlo la
+      anula. Nada se borra.
+    - `note` es lo que el administrador quiera dejar dicho (un cambio de
+      turno acordado, «cubre a Ana»): la auditoría e7 (cambios de turno) se
+      resuelve con la planeación más esta nota.
+    """
+
+    __tablename__ = "staff_schedule_shifts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    employee_name: Mapped[str] = mapped_column(sa.String(200))
+    business_date: Mapped[date] = mapped_column(sa.Date)
+    start_minute: Mapped[int] = mapped_column(sa.Integer)
+    end_minute: Mapped[int] = mapped_column(sa.Integer)
+    note: Mapped[str | None] = mapped_column(sa.String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    created_by_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"), nullable=True)
+    created_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    voided_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    voided_by_employee_name: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+    void_reason: Mapped[str | None] = mapped_column(sa.String(300), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("start_minute >= 0 AND start_minute < 2880", name="ck_staff_schedule_start_range"),
+        CheckConstraint(
+            "end_minute > start_minute AND end_minute <= start_minute + 1440", name="ck_staff_schedule_end_range"
+        ),
+        Index("ix_staff_schedule_store_date", "store_id", "business_date"),
+        Index(
+            "uq_staff_schedule_one_active",
+            "store_id",
+            "employee_id",
+            "business_date",
+            unique=True,
+            postgresql_where=sa.text("voided_at IS NULL"),
+            sqlite_where=sa.text("voided_at IS NULL"),
+        ),
+    )

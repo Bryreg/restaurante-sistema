@@ -198,6 +198,9 @@ class ReceptionIn(BaseModel):
         max_length=50,
         description="Pedidos de insumos aprobados que esta recepción cubre; se marcan comprados",
     )
+    # Tanda 5 (i3): la orden de compra que esta recepción cubre. Cierra las
+    # líneas de la orden cuyos insumos vienen en la recepción.
+    purchase_order_id: int | None = None
 
 
 class ReceptionLineOut(OutModel):
@@ -215,6 +218,8 @@ class ReceptionLineOut(OutModel):
     expires_at: date | None
     stock_batch_id: int | None
     stock_movement_id: int | None
+    # Tanda 5 (i4): cuánto de esta línea ya se le devolvió al proveedor.
+    qty_returned: str = "0"
 
 
 class ReceptionOut(OutModel):
@@ -236,6 +241,7 @@ class ReceptionOut(OutModel):
     reversed_at: datetime | None
     reversed_by_employee_name: str | None
     payable_id: int | None = None
+    purchase_order_id: int | None = None
     lines: list[ReceptionLineOut] = Field(default_factory=list)
 
 
@@ -270,6 +276,9 @@ class PayableOut(OutModel):
     invoice_discrepancy: int | None
     discrepancy_confirmed: bool
     discrepancy_confirmed_by_employee_name: str | None
+    # Tanda 5 (i4): lo que las devoluciones al proveedor bajaron de esta
+    # cuenta (pesos). `balance` ya lo descuenta.
+    returned: int = 0
 
 
 class PayableApproveIn(BaseModel):
@@ -474,7 +483,188 @@ class ReceptionDraftCompleteIn(BaseModel):
     confirm_price: bool = False
     lines: list[ReceptionLineIn] = Field(min_length=1)
     supply_request_ids: list[int] = Field(default_factory=list, max_length=50)
+    purchase_order_id: int | None = None
 
 
 class ReceptionDraftRejectIn(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
+
+
+# ---------------------------------------------------------------------------
+# Precios por proveedor (tanda 5, i1/i2).
+# ---------------------------------------------------------------------------
+
+
+class SupplierPricePointOut(BaseModel):
+    """Una compra confirmada del insumo a un proveedor."""
+
+    reception_id: int
+    business_date: date
+    # Por UNA unidad de compra, tal como se tecleó (texto decimal, pesos).
+    purchase_unit_price: str
+    # Por unidad BASE, sin impuesto (texto decimal, pesos): lo que se compara.
+    unit_cost: str
+    qty_received: str
+    # Cambio contra la compra anterior AL MISMO proveedor, en puntos básicos
+    # con signo; `None` en la primera (no hay contra qué medir).
+    change_bp: int | None
+
+
+class SupplierPriceRowOut(BaseModel):
+    supplier_id: int
+    supplier_name: str
+    supplier_active: bool
+    # Las últimas compras, la más nueva primero.
+    purchases: list[SupplierPricePointOut]
+    # Comparación (i2). Precios en texto decimal (pesos): `*_unit_cost` por
+    # unidad base sin impuesto (lo que se compara), `*_purchase_unit_price`
+    # por unidad de compra (lo que se lee).
+    last_purchase_date: date
+    last_purchase_unit_price: str
+    last_unit_cost: str
+    # Promedio ponderado por cantidad en la ventana; `None` si no le compró
+    # en la ventana (`n_purchases_window == 0`).
+    avg_unit_cost: str | None
+    avg_purchase_unit_price: str | None
+    n_purchases_window: int
+    # Días que tarda en entregar. `orders` = medido en sus órdenes de compra
+    # (mediana de enviada → primera recepción); `ingredient` = el lead time
+    # cargado en el insumo (sólo si es su proveedor asignado). `None` con
+    # motivo cuando no hay con qué saberlo.
+    lead_time_days: int | None
+    lead_time_source: Literal["orders", "ingredient"] | None
+    lead_time_reason: str | None
+    recommended: bool
+
+
+class IngredientSupplierPricesOut(BaseModel):
+    ingredient_id: int
+    ingredient_name: str
+    base_unit: str
+    purchase_unit: str
+    # El umbral vigente del aviso «Un proveedor subió el precio» (%).
+    alert_threshold_pct: int
+    # Comparación (i2): ventana del promedio y de «reciente», y el proveedor
+    # recomendado (el activo más barato con compra reciente). `None` con
+    # motivo si ninguno califica.
+    window_days: int
+    recommended_supplier_id: int | None
+    recommendation_reason: str
+    suppliers: list[SupplierPriceRowOut]
+
+
+# ---------------------------------------------------------------------------
+# Órdenes de compra (tanda 5, i3).
+# ---------------------------------------------------------------------------
+
+PurchaseOrderStatusLiteral = Literal["draft", "sent", "partially_received", "received", "cancelled"]
+PurchaseOrderSourceLiteral = Literal["manual", "replenishment"]
+
+
+class PurchaseOrderLineIn(BaseModel):
+    ingredient_id: int
+    quantity: str = Field(description='Cantidad en la UNIDAD DE COMPRA del insumo, texto decimal ("3", "1.5")')
+    expected_unit_price: str | None = Field(
+        default=None, description="Precio esperado por UNA unidad de compra, texto decimal en pesos (opcional)"
+    )
+
+
+class PurchaseOrderIn(BaseModel):
+    supplier_id: int
+    expected_date: date | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+    lines: list[PurchaseOrderLineIn] = Field(min_length=1, max_length=200)
+
+
+class PurchaseOrderFromReplenishmentIn(BaseModel):
+    supplier_id: int
+    # Sin lista: los insumos que tienen asignado a este proveedor. Con lista:
+    # esos insumos (si la reposición sugiere pedir algo de cada uno).
+    ingredient_ids: list[int] | None = Field(default=None, max_length=200)
+
+
+class PurchaseOrderCancelIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class PurchaseOrderLineOut(BaseModel):
+    id: int
+    ingredient_id: int
+    ingredient_name: str
+    # En la unidad de compra (texto decimal) y su conversión a la base.
+    quantity: str
+    purchase_unit: str
+    qty_base: str
+    base_unit: str
+    expected_unit_price: str | None
+    # Lo recibido por las recepciones confirmadas de la orden, en la unidad
+    # de compra (derivado, nunca guardado).
+    received_quantity: str
+    closed: bool
+    closed_reception_id: int | None
+
+
+class PurchaseOrderOut(BaseModel):
+    id: int
+    store_id: int
+    store_name: str
+    supplier_id: int
+    supplier_name: str
+    supplier_nit: str | None
+    supplier_contact_name: str | None
+    supplier_contact_phone: str | None
+    number: int
+    status: PurchaseOrderStatusLiteral
+    source: PurchaseOrderSourceLiteral
+    expected_date: date | None
+    notes: str | None
+    created_by_employee_name: str
+    created_at: datetime
+    business_date: date
+    sent_at: datetime | None
+    sent_by_employee_name: str | None
+    cancelled_at: datetime | None
+    cancelled_by_employee_name: str | None
+    cancel_reason: str | None
+    # Total esperado en pesos (Σ cantidad × precio esperado). `None` si a
+    # alguna línea le falta el precio, con el motivo en `expected_total_reason`.
+    expected_total: int | None
+    expected_total_reason: str | None
+    reception_ids: list[int]
+    lines: list[PurchaseOrderLineOut]
+
+
+# ---------------------------------------------------------------------------
+# Devoluciones al proveedor (tanda 5, i4).
+# ---------------------------------------------------------------------------
+
+
+class SupplierReturnIn(BaseModel):
+    reception_line_id: int
+    qty: str = Field(description='Cantidad a devolver, texto decimal en la unidad BASE del insumo ("500")')
+    reason: str = Field(min_length=1, max_length=500)
+    authorizer_pin: str = Field(min_length=1, max_length=20)
+
+
+class SupplierReturnOut(BaseModel):
+    id: int
+    store_id: int
+    supplier_id: int
+    supplier_name: str
+    reception_id: int
+    reception_line_id: int
+    ingredient_id: int
+    ingredient_name: str
+    base_unit: str
+    payable_id: int | None
+    qty: str
+    # Pesos: lo devuelto a precio de factura, y cómo se repartió entre bajar
+    # la cuenta por pagar y el saldo a favor con el proveedor.
+    amount: int
+    applied_to_payable: int
+    credit_amount: int
+    reason: str
+    employee_name: str
+    authorized_by_employee_name: str
+    created_at: datetime
+    business_date: date

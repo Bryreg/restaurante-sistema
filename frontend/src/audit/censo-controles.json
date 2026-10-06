@@ -568,10 +568,18 @@
   "Volver a conteos",
   "p. ej. 6+8 ó 3,5"
  ],
+ "features/inventory/CountSheetPrintPage.tsx": [
+  "Falta de qué sede es la hoja",
+  "No hay insumos activos para contar",
+  "No se pudo armar la hoja de conteo",
+  "Todas las áreas",
+  "Área"
+ ],
  "features/inventory/CountsTab.tsx": [
   "Anular con motivo…",
   "Completo",
   "Críticos",
+  "Hoja de conteo para imprimir",
   "No se pudieron cargar los conteos",
   "Reintentar",
   "Sin conteos en este período",
@@ -593,6 +601,7 @@
   "Todavía no hay insumos"
  ],
  "features/inventory/InventoryAdminPage.tsx": [
+  "Análisis de mermas",
   "Conteo por área",
   "Conteos",
   "Costos visibles solo para administración",
@@ -686,6 +695,10 @@
   "Sin mermas en este período",
   "Todos"
  ],
+ "features/inventory/WasteAnalysisTab.tsx": [
+  "Ninguna de estas mermas tiene costo cargado",
+  "No se pudo armar el análisis de mermas"
+ ],
  "features/inventory/WastePage.tsx": [
   "Cambiar",
   "Dueño, reunión de socios…",
@@ -709,6 +722,7 @@
   "Impresión por estación",
   "La pantalla de cocina no está habilitada",
   "Marca listos de un golpe todos los ítems enviados de esta comanda, en todas sus rondas",
+  "Marcar agotado en la carta del POS",
   "Nada para imprimir",
   "No hay rondas pendientes",
   "No se pudieron cargar las rondas",
@@ -895,8 +909,10 @@
   "Cancelar",
   "Continuar",
   "Elegí la mesa destino",
+  "Entendido",
   "Esta sede todavía no tiene zonas ni mesas activas",
   "Las mesas no están habilitadas",
+  "Platos listos para servir",
   "Zonas"
  ],
  "features/orders/VoidDialog.tsx": [
@@ -986,6 +1002,7 @@
   "Horas",
   "Liquidaciones",
   "Nómina y propinas no está habilitado",
+  "Planeación",
   "Propinas",
   "Sólo «Nómina»",
   "Sólo «Propinas»",
@@ -997,6 +1014,17 @@
  "features/payroll/PendingExitsPanel.tsx": [
   "Corregir salida",
   "Guardar salida"
+ ],
+ "features/payroll/PlanningTab.tsx": [
+  "Ej.: cubre a Ana, cambio acordado",
+  "Elegir semana",
+  "Esta semana",
+  "No se pudieron cargar los turnos",
+  "Quitar turno",
+  "Reintentar",
+  "Semana anterior",
+  "Semana siguiente",
+  "Todavía no hay equipo en esta sede"
  ],
  "features/payroll/RunsTab.tsx": [
   "Liquidado",
@@ -1139,15 +1167,44 @@
   "Todos los estados",
   "Todos los proveedores"
  ],
+ "features/purchases/PurchaseOrderPrintPage.tsx": [
+  "Falta qué orden imprimir",
+  "No se pudo armar la orden"
+ ],
+ "features/purchases/PurchaseOrdersTab.tsx": [
+  "Acciones",
+  "Armar borrador",
+  "Cancelar la orden",
+  "Cancelar orden",
+  "Cerrar sin guardar",
+  "Desde la reposición sugerida",
+  "Editar",
+  "Elegí un proveedor",
+  "Imprimir o compartir",
+  "Insumo",
+  "Marcar enviada",
+  "No se pudieron leer las órdenes",
+  "Nueva orden de compra",
+  "Proveedor",
+  "Proveedor de la reposición",
+  "Todavía no hay órdenes de compra",
+  "opcional"
+ ],
  "features/purchases/PurchasesAdminPage.tsx": [
   "Cuentas por pagar",
+  "Precios por proveedor",
   "Proveedores",
   "Proveedores activos",
-  "Recepciones"
+  "Recepciones",
+  "Órdenes de compra"
  ],
  "features/purchases/ReceptionDetailDialog.tsx": [
   "Cancelar",
-  "Eliminar recepción"
+  "Devolver al proveedor",
+  "Elegí la línea",
+  "Eliminar recepción",
+  "Línea a devolver",
+  "Registrar devolución"
  ],
  "features/purchases/ReceptionDraftsSection.tsx": [
   "Completar",
@@ -1161,11 +1218,14 @@
   "Elegí un proveedor",
   "Foto de la factura (opcional)",
   "Lo que dice el papel",
+  "Orden de compra",
+  "Orden de compra (opcional)",
   "PIN de quien recibe",
   "Proveedor",
   "Qué entró, y a qué precio",
   "Qué pedidos del salón cubre",
   "Sin factura (plaza de mercado)",
+  "Sin orden de compra",
   "Total de la factura (opcional)",
   "Volver a editar",
   "Volver a revisar el precio"
@@ -1196,6 +1256,13 @@
   "Plazo de pago (días)",
   "Quién es y cómo se le paga",
   "Teléfono (opcional)"
+ ],
+ "features/purchases/SupplierPricesTab.tsx": [
+  "Comparación de proveedores",
+  "Elegí un insumo",
+  "Insumo",
+  "No se pudieron leer los precios",
+  "Todavía no hay compras de este insumo"
  ],
  "features/purchases/SupplierReliabilityDialog.tsx": [
   "Deriva de precio",
@@ -1406,6 +1473,8 @@
   "Sin datos",
   "Sin turno abierto",
   "Ticket promedio",
+  "Tiempo promedio de «Enviar» a «Listo» por estación, contra su objetivo",
+  "Todavía no hay platos listos hoy",
   "Todavía no se vendió nada hoy",
   "Todo al día",
   "Transferencia, plataformas y bonos: con efectivo y tarjeta completan la venta neta.",

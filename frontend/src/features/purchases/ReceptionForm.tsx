@@ -44,7 +44,7 @@
  * `create_reception` del backend.
  */
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRef, useState } from "react"
 
 import { useSession } from "@/app/session"
@@ -53,6 +53,8 @@ import type { IngredientOut } from "@/api/inventory"
 import {
   completeReceptionDraft,
   createReception,
+  listPurchaseOrders,
+  type PurchaseOrderOut,
   type ReceptionDraftAdminOut,
   type ReceptionIn,
   type ReceptionOut,
@@ -96,6 +98,23 @@ function parseLineIndex(message: string): number | null {
  * la facturada arrancan en lo que contó el cajero (ya en unidad base, la
  * convirtió el servidor); el precio y el impuesto, vacíos — los pone el
  * administrador. */
+/** Las líneas abiertas de una orden de compra como borradores: la cantidad
+ * pedida (ya en unidad base, la convirtió el servidor) y el precio esperado
+ * por unidad de compra, si la orden lo tiene. Se corrigen con lo que llegó. */
+function linesFromOrder(order: PurchaseOrderOut): ReceptionLineDraft[] {
+  const open = order.lines.filter((ln) => !ln.closed)
+  if (open.length === 0) return [emptyReceptionLine()]
+  return open.map((ln) => ({
+    ...emptyReceptionLine(),
+    ingredientId: ln.ingredient_id,
+    qtyReceived: ln.qty_base,
+    qtyInvoiced: ln.qty_base,
+    purchaseUnitPrice: ln.expected_unit_price ?? "",
+  }))
+}
+
+const RECEIVABLE_ORDER = new Set(["draft", "sent", "partially_received"])
+
 function linesFromDraft(draft: ReceptionDraftAdminOut): ReceptionLineDraft[] {
   if (draft.lines.length === 0) return [emptyReceptionLine()]
   return draft.lines.map((line) => ({
@@ -140,6 +159,14 @@ export function ReceptionForm({
   // Mientras la foto se achica no se envía: saldría sin la foto que ya se ve elegida.
   const [photoProcessing, setPhotoProcessing] = useState(false)
   const [lines, setLines] = useState<ReceptionLineDraft[]>(() => (draft ? linesFromDraft(draft) : [emptyReceptionLine()]))
+  // i3: la orden de compra que cubre esta recepción (opcional).
+  const [purchaseOrderId, setPurchaseOrderId] = useState<number | null>(null)
+  const ordersQuery = useQuery({
+    queryKey: ["purchases", "orders", storeId, "supplier", supplierId],
+    queryFn: () => listPurchaseOrders(storeId, { supplierId }),
+    enabled: supplierId !== null,
+  })
+  const openOrders = (ordersQuery.data ?? []).filter((o) => RECEIVABLE_ORDER.has(o.status))
   const [guard, setGuard] = useState<GuardState | null>(null)
   // Ver el docstring del módulo: el PinPad sólo se monta después de este paso.
   const [reviewing, setReviewing] = useState(false)
@@ -171,6 +198,9 @@ export function ReceptionForm({
       if (supplyRequestIds.length > 0) {
         void queryClient.invalidateQueries({ queryKey: REQUESTS_QUERY_KEYS.adminApprovedSupplies(storeId) })
       }
+      if (purchaseOrderId !== null) {
+        void queryClient.invalidateQueries({ queryKey: ["purchases", "orders"] })
+      }
       onSuccess(reception)
     },
     onError: (err) => {
@@ -199,6 +229,7 @@ export function ReceptionForm({
       confirm_price: confirmPrice,
       lines: draftsToReceptionLines(lines),
       supply_request_ids: requestsOn ? supplyRequestIds : [],
+      purchase_order_id: purchaseOrderId,
     }
   }
 
@@ -255,7 +286,10 @@ export function ReceptionForm({
             <>
               <Select
                 value={supplierId !== null ? String(supplierId) : undefined}
-                onValueChange={(value) => setSupplierId(Number(value))}
+                onValueChange={(value) => {
+                  setSupplierId(Number(value))
+                  setPurchaseOrderId(null)
+                }}
                 disabled={formsDisabled}
               >
                 <SelectTrigger id={fieldId} aria-label="Proveedor" aria-describedby={describedBy} className="w-full">
@@ -277,6 +311,38 @@ export function ReceptionForm({
             </>
           )}
         </FormField>
+
+        {openOrders.length > 0 ? (
+          <FormField
+            label="Orden de compra (opcional)"
+            help="Si esta mercancía llega por una orden, elegila: al confirmar se cierran las líneas de la orden que vienen acá. Elegirla precarga lo que falta por llegar."
+          >
+            {({ fieldId, describedBy }) => (
+              <Select
+                value={purchaseOrderId === null ? "none" : String(purchaseOrderId)}
+                onValueChange={(value) => {
+                  const order = openOrders.find((o) => String(o.id) === value) ?? null
+                  setPurchaseOrderId(order?.id ?? null)
+                  // Precarga sólo si todavía no se tecleó ninguna línea.
+                  if (order && lines.every((l) => l.ingredientId === null)) setLines(linesFromOrder(order))
+                }}
+                disabled={formsDisabled}
+              >
+                <SelectTrigger id={fieldId} aria-label="Orden de compra" aria-describedby={describedBy} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin orden de compra</SelectItem>
+                  {openOrders.map((o) => (
+                    <SelectItem key={o.id} value={String(o.id)}>
+                      Orden #{o.number}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FormField>
+        ) : null}
 
         <FormField
           label={noInvoice ? "Número de factura (opcional)" : "Número de factura"}

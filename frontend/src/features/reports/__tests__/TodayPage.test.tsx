@@ -300,6 +300,32 @@ describe("TodayPage", () => {
     for (let i = 1; i < orden.length; i++) expect(antes(orden[i - 1], orden[i])).toBe(true)
   })
 
+  it("tiempo de cocina hoy: el promedio por estación tal como llega, y el que pasó su objetivo lo dice", async () => {
+    getTodayMock.mockResolvedValue(
+      baseToday({
+        kitchen_prep_by_station: [
+          { station: "hot_kitchen", items: 4, avg_seconds: 630, target_minutes: 10, outside: true },
+          { station: "bar", items: 1, avg_seconds: 240, target_minutes: 5, outside: false },
+        ],
+      }),
+    )
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+
+    const bloque = await screen.findByRole("region", { name: "Tiempo de cocina hoy" })
+    expect(within(bloque).getByText("Cocina caliente")).toBeInTheDocument()
+    expect(within(bloque).getByText("10 min 30 s")).toBeInTheDocument()
+    expect(within(bloque).getByText(/4 platos · objetivo 10 min · pasó el objetivo/)).toBeInTheDocument()
+    expect(within(bloque).getByText("4 min")).toBeInTheDocument()
+    expect(within(bloque).getByText("1 plato · objetivo 5 min")).toBeInTheDocument()
+  })
+
+  it("con «Cocina» apagada (`null`) el bloque de tiempos no se dibuja", async () => {
+    getTodayMock.mockResolvedValue(baseToday({ kitchen_prep_by_station: null }))
+    renderWithProviders(<TodayPage />, { me: buildMe() })
+    await screen.findByText("Ventas netas de hoy")
+    expect(screen.queryByRole("region", { name: "Tiempo de cocina hoy" })).not.toBeInTheDocument()
+  })
+
   it("los indicadores que llegan `null` se dibujan como «Sin dato» con lo que falta, nunca como «—» ni «$ 0»", async () => {
     getTodayMock.mockResolvedValue(
       baseToday({

@@ -85,6 +85,30 @@ describe("TablesPage", () => {
     expect(screen.queryByText(/0 listos/)).not.toBeInTheDocument()
   })
 
+  it("aviso de plato listo: cuando a una mesa le llega algo nuevo de cocina sale arriba, con botón para ir", async () => {
+    const base = buildTablesStatus()
+    const zone = base.zones![0]!
+    const withReady = (n: number) => ({
+      zones: [{ ...zone, tables: (zone.tables ?? []).map((t) => ({ ...t, ready_count: t.id === 2 ? n : 0 })) }],
+    })
+    // La primera lectura es la base: lo que ya estaba listo no avisa.
+    listTablesStatusMock.mockResolvedValue(withReady(1))
+
+    const user = userEvent.setup()
+    renderWithProviders(<TablesPage />, { me: deviceMe({ "pos.tables": true }) })
+    await screen.findByRole("button", { name: /mesa 2, ocupada, 1 listo para servir/i })
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+
+    // La lectura siguiente (Mesas consulta cada 5 s) trae uno más.
+    listTablesStatusMock.mockResolvedValue(withReady(2))
+    const aviso = await screen.findByRole("alert", {}, { timeout: 8000 })
+    expect(aviso).toHaveTextContent("Mesa 2: 2 platos listos para servir")
+    const orderId = (zone.tables ?? []).find((t) => t.id === 2)?.order_id
+    await user.click(within(aviso).getByRole("button", { name: "Ir a la mesa 2" }))
+    expect(navigateMock).toHaveBeenCalledWith(`/pos/comanda/${orderId}`)
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  }, 15_000)
+
   it("una mesa con ítems sin enviar lo dice en el mapa, con iniciales de quien la atiende y fondo por estado", async () => {
     const base = buildTablesStatus()
     const zone = base.zones![0]!

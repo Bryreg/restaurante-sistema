@@ -204,9 +204,40 @@ describe("Caja en el celular", () => {
     const grupo = screen.getByRole("group", { name: "Las preguntas de Equipo" })
     // Las horas se escriben en horas, no en minutos.
     expect(within(grupo).getByText("486 h")).toBeInTheDocument()
-    // Cambio intencional (limpieza 2026-10): «Llegadas tarde» nunca tenía
-    // dato (no hay horario programado) y se quitó.
+    // «Llegadas tarde» se quitó en la limpieza 2026-10 (no había horario
+    // programado) y volvió con la planeación de turnos (auditoría e1): un
+    // servidor que no la manda no la dibuja.
     expect(within(grupo).queryByText("Llegadas tarde")).not.toBeInTheDocument()
+  })
+
+  it("«Llegadas tarde» vuelve con la planeación: la cifra y quién, tal como los manda el servidor, y lleva a Planeación", async () => {
+    stubMatchMedia(true)
+    getPanelSection.mockResolvedValue({
+      ...CAJA,
+      section: "equipo",
+      cards: [
+        card({
+          key: "late",
+          unit: "count",
+          value: 2,
+          of: 6,
+          tone: "critical",
+          status: "1 tarde · 1 no vino",
+          rows: [
+            { key: "1-7", label: "Ana · Centro · planeado 07:00, entró 7:12 a. m.", value: 12, unit: "minutes", note: null, tone: "warning" },
+            { key: "1-8", label: "Luis · Centro · planeado 06:00", value: null, unit: "count", note: "No vino", tone: "critical" },
+          ],
+        }),
+        card({ key: "staff", unit: "people", value: 4, status: "Nadie en pausa" }),
+      ],
+    })
+    renderWithProviders(<EquipoMovil />, { me: buildMe() })
+
+    const detalle = await screen.findByRole("region", { name: "¿Quién llegó tarde hoy?" })
+    expect(within(detalle).getByText(/No vino/)).toBeInTheDocument()
+    expect(within(detalle).getByRole("link", { name: "Ver la planeación" })).toHaveAttribute("href", "/admin/nomina?tab=planeacion")
+    const grupo = screen.getByRole("group", { name: "Las preguntas de Equipo" })
+    expect(within(grupo).getByText("Llegadas tarde")).toBeInTheDocument()
   })
 
   it("una serie toda vacía no dibuja un eje de marcas: dice en una línea que no hay nada que dibujar", async () => {

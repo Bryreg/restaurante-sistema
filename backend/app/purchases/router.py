@@ -27,7 +27,9 @@ from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.core.quantity import format_cost_micros, format_qty_base
 from app.inventory import hooks as inventory_hooks
-from app.purchases import service
+from app.purchases import orders as purchase_orders
+from app.purchases import prices, service
+from app.purchases import returns as supplier_returns
 from app.purchases.models import Payable, Reception, ReceptionDraft, Supplier
 from app.purchases.schemas import (
     ReceptionSuggestionsOut,
@@ -56,6 +58,14 @@ from app.purchases.schemas import (
     SupplierReliabilityRowOut,
     SuppliersReliabilityOut,
     SupplierUpdateIn,
+    IngredientSupplierPricesOut,
+    PurchaseOrderCancelIn,
+    PurchaseOrderFromReplenishmentIn,
+    PurchaseOrderIn,
+    PurchaseOrderOut,
+    PurchaseOrderStatusLiteral,
+    SupplierReturnIn,
+    SupplierReturnOut,
 )
 
 router = APIRouter(dependencies=[Depends(require_feature("purchases"))])
@@ -69,6 +79,7 @@ router = APIRouter(dependencies=[Depends(require_feature("purchases"))])
 def _reception_out(db: Session, reception: Reception) -> ReceptionOut:
     lines = service.get_reception_lines(db, reception_id=reception.id)
     payable = service.get_payable_for_reception(db, reception_id=reception.id)
+    returned = supplier_returns.returned_qty_by_line(db, line_ids=[line.id for line in lines])
     line_outs = [
         ReceptionLineOut(
             id=line.id,
@@ -85,6 +96,7 @@ def _reception_out(db: Session, reception: Reception) -> ReceptionOut:
             expires_at=line.expires_at,
             stock_batch_id=line.stock_batch_id,
             stock_movement_id=line.stock_movement_id,
+            qty_returned=format_qty_base(returned.get(line.id, 0)),
         )
         for line in lines
     ]
@@ -107,6 +119,7 @@ def _reception_out(db: Session, reception: Reception) -> ReceptionOut:
         reversed_at=reception.reversed_at,
         reversed_by_employee_name=reception.reversed_by_employee_name,
         payable_id=payable.id if payable is not None else None,
+        purchase_order_id=reception.purchase_order_id,
         lines=line_outs,
     )
 
@@ -132,6 +145,7 @@ def _payable_out(db: Session, payable: Payable) -> PayableOut:
         invoice_discrepancy=invoice_discrepancy,
         discrepancy_confirmed=payable.discrepancy_confirmed,
         discrepancy_confirmed_by_employee_name=payable.discrepancy_confirmed_by_employee_name,
+        returned=supplier_returns.applied_by_payable(db, payable_ids=[payable.id]).get(payable.id, 0),
     )
 
 
@@ -240,6 +254,28 @@ def supplier_reliability(
     if format == "csv":
         return csv_response(sectioned_rows(result), "confiabilidad-proveedor.csv")
     return result
+
+
+def _admin_ingredient(db: Session, actor: Actor, store_id: int, ingredient_id: int) -> tuple[Store, Any]:
+    store = admin_store(db, actor, store_id)
+    ingredient = inventory_hooks.get_ingredient(db, store_id=store.id, ingredient_id=ingredient_id)
+    if ingredient is None:
+        raise AppError(code="NOT_FOUND", message="El insumo no existe en esta sede", status=404)
+    return store, ingredient
+
+
+@router.get("/admin/ingredients/{ingredient_id}/supplier-prices", response_model=IngredientSupplierPricesOut)
+def ingredient_supplier_prices(
+    ingredient_id: int,
+    store_id: int,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> IngredientSupplierPricesOut:
+    """Las últimas compras del insumo por proveedor, con su cambio contra la
+    anterior al mismo proveedor (tanda 5, i1). Sólo administración: son
+    precios."""
+    store, ingredient = _admin_ingredient(db, actor, store_id, ingredient_id)
+    return IngredientSupplierPricesOut(**prices.supplier_price_history(db, store=store, ingredient=ingredient))
 
 
 # ---------------------------------------------------------------------------
@@ -721,3 +757,225 @@ def reject_reception_draft(
     admin_store(db, actor, draft.store_id)
     row = service.reject_reception_draft(db, actor=actor, draft=draft, reason=payload.reason)
     return _draft_admin_out(db, row)
+
+
+# ---------------------------------------------------------------------------
+# Órdenes de compra (tanda 5, i3). Sólo administración: llevan precios
+# esperados. Toda escritura acepta `Idempotency-Key`.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/purchase-orders", response_model=list[PurchaseOrderOut])
+def list_purchase_orders(
+    store_id: int,
+    status: PurchaseOrderStatusLiteral | None = None,
+    supplier_id: int | None = None,
+    format: CsvFormat = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[PurchaseOrderOut] | Response:
+    store = admin_store(db, actor, store_id)
+    rows = purchase_orders.list_orders(db, store_id=store.id, status=status, supplier_id=supplier_id)
+    result = [purchase_orders.order_out(db, r) for r in rows]
+    if format == "csv":
+        flat = [
+            {
+                "number": r.number,
+                "supplier_name": r.supplier_name,
+                "status": r.status,
+                "source": r.source,
+                "business_date": r.business_date.isoformat(),
+                "expected_date": r.expected_date.isoformat() if r.expected_date else None,
+                "expected_total": r.expected_total,
+                "lines": len(r.lines),
+            }
+            for r in result
+        ]
+        return csv_response(flat, "ordenes-de-compra.csv")
+    return result
+
+
+@router.post("/admin/purchase-orders", status_code=201)
+def create_purchase_order(
+    payload: PurchaseOrderIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PurchaseOrderOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        order = purchase_orders.create_order(db, actor=actor, store=store, data=payload)
+        return 201, purchase_orders.order_out(db, order).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="purchases.orders.create", request=request, payload=payload, fn=_do
+    )
+    return PurchaseOrderOut.model_validate(body)
+
+
+@router.post("/admin/purchase-orders/from-replenishment", status_code=201)
+def create_purchase_order_from_replenishment(
+    payload: PurchaseOrderFromReplenishmentIn,
+    store_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PurchaseOrderOut:
+    """Un borrador con lo que la reposición sugerida dice que falta de ese
+    proveedor (exige `inventory.replenishment`)."""
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        order = purchase_orders.create_from_replenishment(db, actor=actor, store=store, data=payload)
+        return 201, purchase_orders.order_out(db, order).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope="purchases.orders.from_replenishment",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+    return PurchaseOrderOut.model_validate(body)
+
+
+def _order_for_admin(db: Session, actor: Actor, order_id: int) -> tuple[Store, Any]:
+    order = purchase_orders.get_order_or_404(db, organization_id=actor.organization_id, order_id=order_id)
+    store = admin_store(db, actor, order.store_id)
+    return store, order
+
+
+@router.get("/admin/purchase-orders/{order_id}", response_model=PurchaseOrderOut)
+def get_purchase_order(
+    order_id: int, actor: Actor = Depends(current_admin), db: Session = Depends(get_db)
+) -> PurchaseOrderOut:
+    _store, order = _order_for_admin(db, actor, order_id)
+    return purchase_orders.order_out(db, order)
+
+
+@router.put("/admin/purchase-orders/{order_id}")
+def update_purchase_order(
+    order_id: int,
+    payload: PurchaseOrderIn,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PurchaseOrderOut:
+    store, order = _order_for_admin(db, actor, order_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = purchase_orders.update_order(db, actor=actor, store=store, order=order, data=payload)
+        return 200, purchase_orders.order_out(db, row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope=f"purchases.orders.{order_id}.update", request=request, payload=payload, fn=_do
+    )
+    return PurchaseOrderOut.model_validate(body)
+
+
+@router.post("/admin/purchase-orders/{order_id}/send")
+def send_purchase_order(
+    order_id: int,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PurchaseOrderOut:
+    store, order = _order_for_admin(db, actor, order_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = purchase_orders.send_order(db, actor=actor, store=store, order=order)
+        return 200, purchase_orders.order_out(db, row).model_dump(mode="json")
+
+    key = idempotency_key(request)
+    _status, body = run_idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope=f"purchases.orders.{order_id}.send",
+        key=key,
+        request_hash=hash_request_body({}),
+        fn=_do,
+    )
+    return PurchaseOrderOut.model_validate(body)
+
+
+@router.post("/admin/purchase-orders/{order_id}/cancel")
+def cancel_purchase_order(
+    order_id: int,
+    payload: PurchaseOrderCancelIn,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> PurchaseOrderOut:
+    _store, order = _order_for_admin(db, actor, order_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = purchase_orders.cancel_order(db, actor=actor, order=order, reason=payload.reason)
+        return 200, purchase_orders.order_out(db, row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope=f"purchases.orders.{order_id}.cancel", request=request, payload=payload, fn=_do
+    )
+    return PurchaseOrderOut.model_validate(body)
+
+
+# ---------------------------------------------------------------------------
+# Devoluciones al proveedor / notas crédito (tanda 5, i4).
+# ---------------------------------------------------------------------------
+
+
+@router.post("/admin/receptions/{reception_id}/returns", status_code=201)
+def create_supplier_return(
+    reception_id: int,
+    payload: SupplierReturnIn,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> SupplierReturnOut:
+    """Devuelve mercancía de una línea de la recepción, con motivo y PIN de
+    administrador: saca stock, baja la cuenta por pagar (o deja saldo a
+    favor) y queda en la auditoría. Idempotente."""
+    reception = service.get_reception_or_404(db, organization_id=actor.organization_id, reception_id=reception_id)
+    store = admin_store(db, actor, reception.store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = supplier_returns.create_return(
+            db,
+            actor=actor,
+            store=store,
+            reception=reception,
+            line_id=payload.reception_line_id,
+            qty=payload.qty,
+            reason=payload.reason,
+            authorizer_pin=payload.authorizer_pin,
+        )
+        return 201, SupplierReturnOut(**supplier_returns.return_out(db, row)).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope=f"purchases.receptions.{reception_id}.returns",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+    return SupplierReturnOut.model_validate(body)
+
+
+@router.get("/admin/supplier-returns", response_model=list[SupplierReturnOut])
+def list_supplier_returns(
+    store_id: int,
+    supplier_id: int | None = None,
+    reception_id: int | None = None,
+    format: CsvFormat = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[SupplierReturnOut] | Response:
+    store = admin_store(db, actor, store_id)
+    rows = supplier_returns.list_returns(db, store_id=store.id, supplier_id=supplier_id, reception_id=reception_id)
+    result = [SupplierReturnOut(**supplier_returns.return_out(db, r)) for r in rows]
+    if format == "csv":
+        return csv_response(result, "devoluciones-a-proveedores.csv")
+    return result

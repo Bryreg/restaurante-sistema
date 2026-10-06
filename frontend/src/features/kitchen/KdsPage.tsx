@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { Check, History, Maximize2, Minimize2, Printer, Rocket, TriangleAlert } from "lucide-react"
+import { Ban, Check, History, Maximize2, Minimize2, Printer, Rocket, TriangleAlert } from "lucide-react"
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
 
 import { useCocinaPantalla } from "@/app/theme"
@@ -14,6 +14,7 @@ import {
   type KitchenRoundItemOut,
   type KitchenRoundOut,
 } from "@/api/kitchen"
+import { setProductAvailability } from "@/api/catalog"
 import { markReady } from "@/api/orders"
 import { Cargando } from "@/components/Cargando"
 import { Badge } from "@/components/ui/badge"
@@ -133,6 +134,8 @@ function ItemRow({
   const full = useContext(FullKdsContext)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [soldOut, setSoldOut] = useState(false)
+  const [markingSoldOut, setMarkingSoldOut] = useState(false)
   const semaphore = (item.semaphore ?? "green") as KitchenSemaphoreValue
   const ready = item.status === "ready"
   const fired = item.course_fired_at != null
@@ -152,6 +155,26 @@ function ItemRow({
       setError(errorMessage(err))
     } finally {
       setPending(false)
+    }
+  }
+
+  // Lista 86 (auditoría p5): se acabó en la cocina → agotado en la carta del
+  // POS, de un toque y a nombre de quien lo marcó. Se vuelve a ofrecer desde
+  // la carta del POS («Agotados») o desde Carta.
+  const productId = item.product_id ?? null
+  async function handleSoldOut() {
+    if (productId === null) return
+    setMarkingSoldOut(true)
+    setError(null)
+    try {
+      const result = await attribute(`Marcar agotado: ${name}`, () =>
+        setProductAvailability(productId, { available: false }, newIdempotencyKey()),
+      )
+      if (result === "done") setSoldOut(true)
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setMarkingSoldOut(false)
     }
   }
 
@@ -185,7 +208,28 @@ function ItemRow({
             </>
           )}
         </button>
+        {productId !== null && !ready ? (
+          <button
+            type="button"
+            disabled={markingSoldOut || soldOut}
+            onClick={() => void handleSoldOut()}
+            aria-label={soldOut ? `${name}: agotado en la carta` : `Agotado: ${name}`}
+            title="Marcar agotado en la carta del POS"
+            className={cn(
+              "inline-flex size-[56px] shrink-0 items-center justify-center rounded-[10px] border-2 border-destructive text-destructive transition-colors",
+              "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-60",
+              soldOut ? "bg-destructive text-destructive-foreground" : "bg-transparent hover:bg-destructive/10",
+            )}
+          >
+            <Ban className="size-6" aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
+      {soldOut ? (
+        <p role="status" className="tiquete-detalle text-xs font-semibold">
+          Agotado en la carta: el POS ya no lo ofrece.
+        </p>
+      ) : null}
       {item.modifiers_text ? <Detalle text={item.modifiers_text} kind="modifiers" /> : null}
       {item.note ? <Detalle text={item.note} kind="note" /> : null}
       {fired || urgente ? (

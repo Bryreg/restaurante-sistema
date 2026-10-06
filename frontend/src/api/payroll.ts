@@ -704,3 +704,99 @@ export function getLegalParams(): Promise<LegalParamsOut[]> {
 export function confirmLegalParams(data: LegalParamsIn, idempotencyKey: string): Promise<LegalParamsOut> {
   return api<LegalParamsOut>("/admin/payroll/legal-params", { method: "POST", body: data, idempotencyKey })
 }
+
+// ---------------------------------------------------------------------------
+// Turnos planeados — Nómina › Planeación (auditoría e1, 0050). La
+// comparación planeado contra real (tarde, no vino) la hace el servidor.
+// ---------------------------------------------------------------------------
+
+export type ScheduleStatus = "on_time" | "late" | "missing" | "no_show" | "excused" | "upcoming" | "unplanned"
+
+export interface PlannedShiftIn {
+  employee_id: number
+  business_date: string
+  /** «07:00», hora de pared; la zona y el cruce de medianoche los pone el servidor. */
+  start: string
+  end: string
+  note?: string | null
+}
+
+export interface PlannedShiftOut {
+  id: number
+  employee_id: number
+  employee_name: string
+  business_date: string
+  start: string
+  end: string
+  start_minute: number
+  end_minute: number
+  planned_minutes: number
+  note: string | null
+  created_by_employee_name: string | null
+}
+
+export interface ScheduleDayOut {
+  business_date: string
+  planned: PlannedShiftOut | null
+  actual_in_at: string | null
+  status: ScheduleStatus | null
+  /** Sólo con `status === "late"`; si no, `null` (no un 0). */
+  late_minutes: number | null
+}
+
+export interface SchedulePersonOut {
+  employee_id: number
+  employee_name: string
+  planned_minutes: number
+  days: ScheduleDayOut[]
+}
+
+export interface ScheduleWeekOut {
+  store_id: number
+  week_start: string
+  week_end: string
+  today: string
+  grace_minutes: number
+  late_count: number
+  no_show_count: number
+  people: SchedulePersonOut[]
+}
+
+export interface ScheduleCopyOut {
+  week_start: string
+  copied: number
+  skipped: number
+}
+
+export function getSchedule(params: { storeId: number; weekOf?: string | null }): Promise<ScheduleWeekOut> {
+  return api<ScheduleWeekOut>("/admin/payroll/schedule", {
+    query: { store_id: params.storeId, ...(params.weekOf ? { week_of: params.weekOf } : {}) },
+  })
+}
+
+export function putPlannedShift(storeId: number, data: PlannedShiftIn, idempotencyKey: string): Promise<PlannedShiftOut> {
+  return api<PlannedShiftOut>("/admin/payroll/schedule/shifts", {
+    method: "PUT",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
+}
+
+export function voidPlannedShift(storeId: number, shiftId: number, idempotencyKey: string): Promise<PlannedShiftOut> {
+  return api<PlannedShiftOut>(`/admin/payroll/schedule/shifts/${shiftId}/void`, {
+    method: "POST",
+    query: { store_id: storeId },
+    body: { reason: null },
+    idempotencyKey,
+  })
+}
+
+export function copyPreviousWeek(storeId: number, weekOf: string, idempotencyKey: string): Promise<ScheduleCopyOut> {
+  return api<ScheduleCopyOut>("/admin/payroll/schedule/copy-previous-week", {
+    method: "POST",
+    query: { store_id: storeId },
+    body: { week_of: weekOf },
+    idempotencyKey,
+  })
+}

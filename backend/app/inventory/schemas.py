@@ -1071,3 +1071,91 @@ class AreaRecountRequestOut(BaseModel):
     requested_by_employee_name: str
     answered_at: datetime | None
     count_id: int | None
+
+
+# ---------------------------------------------------------------------------
+# Hoja de conteo para imprimir (tanda 5, i5). A ciegas: sin stock teórico.
+# ---------------------------------------------------------------------------
+
+
+class CountSheetItemOut(BaseModel):
+    ingredient_id: int
+    name: str
+    category: str | None
+    # La unidad en que se cuenta (kg, botella, L, unidad), la del conteo por área.
+    count_unit: str
+
+
+class CountSheetSectionOut(BaseModel):
+    # `None` en «Sin área asignada» / «Todos los insumos».
+    area_id: int | None
+    title: str
+    items: list[CountSheetItemOut]
+
+
+class CountSheetAreaOut(BaseModel):
+    id: int
+    name: str
+
+
+class CountSheetOut(BaseModel):
+    store_id: int
+    store_name: str
+    business_date: str
+    generated_at: datetime
+    areas: list[CountSheetAreaOut]
+    sections: list[CountSheetSectionOut]
+
+
+# ---------------------------------------------------------------------------
+# Análisis de mermas (tanda 5, i6). Sólo administración: lleva costos.
+# Plata al costo (`amount`) en pesos enteros —un total, no un costo
+# por unidad base—; `None` cuando ninguna merma del grupo tiene costo
+# (`uncosted_entries` dice cuántas no lo tienen). `share_bp`: parte del costo
+# total de las pérdidas del período, en puntos básicos.
+# ---------------------------------------------------------------------------
+
+
+class WasteReasonRowOut(BaseModel):
+    type: WasteTypeLiteral
+    # `False` para las salidas explicadas (consumo interno, traslado): no
+    # son pérdida y no suman al total.
+    loss: bool
+    entries: int
+    uncosted_entries: int
+    amount: int | None
+    share_bp: int | None
+
+
+class WasteItemRowOut(BaseModel):
+    kind: Literal["ingredient", "preparation"]
+    item_id: int
+    name: str
+    unit: str
+    qty: str
+    entries: int
+    uncosted_entries: int
+    amount: int | None
+    share_bp: int | None
+
+
+class WastePersonRowOut(BaseModel):
+    employee_id: int
+    employee_name: str
+    entries: int
+    uncosted_entries: int
+    amount: int | None
+    share_bp: int | None
+
+
+class WasteAnalysisOut(BaseModel):
+    store_id: int
+    date_from: str
+    date_to: str
+    # Sólo pérdidas. `amount` es `None` si hay mermas y ninguna tiene costo.
+    entries: int
+    uncosted_entries: int
+    amount: int | None
+    by_reason: list[WasteReasonRowOut]
+    by_ingredient: list[WasteItemRowOut]
+    by_person: list[WastePersonRowOut]

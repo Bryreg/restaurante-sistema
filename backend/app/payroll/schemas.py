@@ -529,3 +529,84 @@ class OrganizationPayrollOut(BaseModel):
     employer_total: int | None
     stores: list[OrganizationPayrollStoreOut]
     people: list[OrganizationPayrollPersonOut]
+
+
+# ---------------------------------------------------------------------------
+# Turnos planeados — /admin/payroll/schedule (auditoría e1, 0050)
+# ---------------------------------------------------------------------------
+
+#: `on_time` llegó dentro de la gracia · `late` llegó después · `missing`
+#: ya debería estar y no ha marcado entrada · `no_show` el turno terminó sin
+#: entrada · `excused` tiene una novedad de nómina ese día · `upcoming`
+#: todavía no empieza · `unplanned` marcó entrada sin turno planeado.
+ScheduleStatusLiteral = Literal["on_time", "late", "missing", "no_show", "excused", "upcoming", "unplanned"]
+
+_HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class PlannedShiftIn(BaseModel):
+    employee_id: int
+    business_date: date
+    # Hora de pared de Bogotá («07:00»). Una entrada antes de la hora de corte
+    # es de madrugada del mismo día operativo; una salida igual o anterior a
+    # la entrada es del día siguiente. La cuenta la hace el servidor.
+    start: str = Field(pattern=_HHMM)
+    end: str = Field(pattern=_HHMM)
+    note: str | None = Field(default=None, max_length=300)
+
+
+class PlannedShiftVoidIn(BaseModel):
+    reason: str | None = Field(default=None, max_length=300)
+
+
+class PlannedShiftOut(OutModel):
+    id: int
+    employee_id: int
+    employee_name: str
+    business_date: date
+    start: str
+    end: str
+    start_minute: int
+    end_minute: int
+    planned_minutes: int
+    note: str | None
+    created_by_employee_name: str | None
+
+
+class ScheduleDayOut(BaseModel):
+    business_date: date
+    planned: PlannedShiftOut | None
+    # La primera entrada real del día (asistencia); `None` si no marcó.
+    actual_in_at: datetime | None
+    status: ScheduleStatusLiteral | None
+    # Minutos tarde, sólo con `status == "late"`; si no, `None` (no un 0).
+    late_minutes: int | None
+
+
+class SchedulePersonOut(BaseModel):
+    employee_id: int
+    employee_name: str
+    planned_minutes: int
+    days: list[ScheduleDayOut]
+
+
+class ScheduleWeekOut(BaseModel):
+    store_id: int
+    week_start: date
+    week_end: date
+    today: date
+    grace_minutes: int
+    late_count: int
+    no_show_count: int
+    people: list[SchedulePersonOut]
+
+
+class ScheduleCopyIn(BaseModel):
+    # Cualquier día de la semana DESTINO; se copia la semana anterior.
+    week_of: date
+
+
+class ScheduleCopyOut(BaseModel):
+    week_start: date
+    copied: int
+    skipped: int

@@ -129,6 +129,9 @@ def get_kitchen_rounds(
             items_out.append(
                 {
                     "item_id": item.id,
+                    # El plato de la carta (para «Agotado» desde el KDS, p5);
+                    # `None` en un ítem abierto o un componente sin producto.
+                    "product_id": item.product_id,
                     "name": item.name,
                     "qty": item.qty,
                     "modifiers_text": item.modifiers_text,

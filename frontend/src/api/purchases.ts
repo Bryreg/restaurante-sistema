@@ -195,6 +195,8 @@ export interface ReceptionIn {
   /** Los pedidos de insumos (aprobados y por comprar) que esta recepción
    * cubre: el servidor los marca «comprado» en la misma transacción. */
   supply_request_ids?: number[]
+  /** Tanda 5 (i3): la orden de compra que esta recepción cubre; cierra sus líneas. */
+  purchase_order_id?: number | null
 }
 
 export interface ReceptionLineOut {
@@ -214,6 +216,8 @@ export interface ReceptionLineOut {
   expires_at: string | null
   stock_batch_id: number | null
   stock_movement_id: number | null
+  /** Tanda 5 (i4): cuánto de esta línea ya se le devolvió al proveedor (texto decimal, unidad base). */
+  qty_returned?: string
 }
 
 export interface ReceptionOut {
@@ -236,6 +240,7 @@ export interface ReceptionOut {
   reversed_at: string | null
   reversed_by_employee_name: string | null
   payable_id: number | null
+  purchase_order_id?: number | null
   lines: ReceptionLineOut[]
 }
 
@@ -326,6 +331,8 @@ export interface PayableOut {
   invoice_discrepancy?: number | null
   discrepancy_confirmed?: boolean
   discrepancy_confirmed_by_employee_name?: string | null
+  /** Tanda 5 (i4): lo que las devoluciones al proveedor bajaron de esta cuenta (pesos); `balance` ya lo descuenta. */
+  returned?: number
 }
 
 export interface PayableApproveIn {
@@ -625,4 +632,226 @@ export function completeReceptionDraft(
 
 export function rejectReceptionDraft(draftId: number, reason: string): Promise<ReceptionDraftAdminOut> {
   return api<ReceptionDraftAdminOut>(`/admin/reception-drafts/${draftId}/reject`, { method: "POST", body: { reason } })
+}
+
+// ---------------------------------------------------------------------------
+// Precios por proveedor (tanda 5, i1/i2) — `GET /admin/ingredients/{id}/supplier-prices`.
+// Todo llega calculado: el cambio contra la compra anterior lo decide el
+// servidor.
+// ---------------------------------------------------------------------------
+
+export interface SupplierPricePointOut {
+  reception_id: number
+  business_date: string
+  /** Por UNA unidad de compra, tal como se tecleó (texto decimal, pesos). */
+  purchase_unit_price: string
+  /** Por unidad base, sin impuesto (texto decimal, pesos). */
+  unit_cost: string
+  qty_received: string
+  /** Contra la compra anterior al MISMO proveedor, en puntos básicos con signo; `null` en la primera. */
+  change_bp: number | null
+}
+
+export interface SupplierPriceRowOut {
+  supplier_id: number
+  supplier_name: string
+  supplier_active: boolean
+  /** Las últimas compras, la más nueva primero. */
+  purchases: SupplierPricePointOut[]
+  // Comparación (i2). `*_unit_cost` por unidad base sin impuesto; `*_purchase_unit_price` por unidad de compra.
+  last_purchase_date: string
+  last_purchase_unit_price: string
+  last_unit_cost: string
+  /** Promedio ponderado por cantidad en la ventana; `null` si no le compró en la ventana. */
+  avg_unit_cost: string | null
+  avg_purchase_unit_price: string | null
+  n_purchases_window: number
+  /** Días que tarda en entregar; `null` con `lead_time_reason` si no hay con qué saberlo. */
+  lead_time_days: number | null
+  lead_time_source: "orders" | "ingredient" | null
+  lead_time_reason: string | null
+  recommended: boolean
+}
+
+export interface IngredientSupplierPricesOut {
+  ingredient_id: number
+  ingredient_name: string
+  base_unit: string
+  purchase_unit: string
+  /** Umbral vigente del aviso «Un proveedor subió el precio» (%). */
+  alert_threshold_pct: number
+  /** Ventana del promedio y de «reciente», en días. */
+  window_days: number
+  /** El activo más barato con compra reciente; `null` con motivo si ninguno califica. */
+  recommended_supplier_id: number | null
+  recommendation_reason: string
+  suppliers: SupplierPriceRowOut[]
+}
+
+export function getIngredientSupplierPrices(storeId: number, ingredientId: number): Promise<IngredientSupplierPricesOut> {
+  return api<IngredientSupplierPricesOut>(`/admin/ingredients/${ingredientId}/supplier-prices`, {
+    query: { store_id: storeId },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Órdenes de compra (tanda 5, i3) — `/admin/purchase-orders`. Lo recibido por
+// línea y el total esperado llegan calculados; `expected_total` es `null` con
+// motivo cuando a alguna línea le falta el precio, nunca 0.
+// ---------------------------------------------------------------------------
+
+export type PurchaseOrderStatus = "draft" | "sent" | "partially_received" | "received" | "cancelled"
+export type PurchaseOrderSource = "manual" | "replenishment"
+
+export interface PurchaseOrderLineIn {
+  ingredient_id: number
+  /** En la UNIDAD DE COMPRA, texto decimal ("3", "1.5"). */
+  quantity: string
+  /** Precio esperado por UNA unidad de compra, texto decimal en pesos (opcional). */
+  expected_unit_price?: string | null
+}
+
+export interface PurchaseOrderIn {
+  supplier_id: number
+  expected_date?: string | null
+  notes?: string | null
+  lines: PurchaseOrderLineIn[]
+}
+
+export interface PurchaseOrderLineOut {
+  id: number
+  ingredient_id: number
+  ingredient_name: string
+  quantity: string
+  purchase_unit: string
+  qty_base: string
+  base_unit: string
+  expected_unit_price: string | null
+  /** Lo recibido por las recepciones confirmadas de la orden, en la unidad de compra. */
+  received_quantity: string
+  closed: boolean
+  closed_reception_id: number | null
+}
+
+export interface PurchaseOrderOut {
+  id: number
+  store_id: number
+  store_name: string
+  supplier_id: number
+  supplier_name: string
+  supplier_nit: string | null
+  supplier_contact_name: string | null
+  supplier_contact_phone: string | null
+  number: number
+  status: PurchaseOrderStatus
+  source: PurchaseOrderSource
+  expected_date: string | null
+  notes: string | null
+  created_by_employee_name: string
+  created_at: string
+  business_date: string
+  sent_at: string | null
+  sent_by_employee_name: string | null
+  cancelled_at: string | null
+  cancelled_by_employee_name: string | null
+  cancel_reason: string | null
+  expected_total: number | null
+  expected_total_reason: string | null
+  reception_ids: number[]
+  lines: PurchaseOrderLineOut[]
+}
+
+export function listPurchaseOrders(
+  storeId: number,
+  params: { status?: PurchaseOrderStatus; supplierId?: number | null } = {},
+): Promise<PurchaseOrderOut[]> {
+  return api<PurchaseOrderOut[]>("/admin/purchase-orders", {
+    query: { store_id: storeId, status: params.status, supplier_id: params.supplierId },
+  })
+}
+
+export function getPurchaseOrder(orderId: number): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>(`/admin/purchase-orders/${orderId}`)
+}
+
+export function createPurchaseOrder(storeId: number, data: PurchaseOrderIn, idempotencyKey: string): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>("/admin/purchase-orders", { method: "POST", query: { store_id: storeId }, body: data, idempotencyKey })
+}
+
+export function createPurchaseOrderFromReplenishment(
+  storeId: number,
+  data: { supplier_id: number; ingredient_ids?: number[] | null },
+  idempotencyKey: string,
+): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>("/admin/purchase-orders/from-replenishment", {
+    method: "POST",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
+}
+
+export function updatePurchaseOrder(orderId: number, data: PurchaseOrderIn, idempotencyKey: string): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>(`/admin/purchase-orders/${orderId}`, { method: "PUT", body: data, idempotencyKey })
+}
+
+export function sendPurchaseOrder(orderId: number, idempotencyKey: string): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>(`/admin/purchase-orders/${orderId}/send`, { method: "POST", idempotencyKey })
+}
+
+export function cancelPurchaseOrder(orderId: number, reason: string, idempotencyKey: string): Promise<PurchaseOrderOut> {
+  return api<PurchaseOrderOut>(`/admin/purchase-orders/${orderId}/cancel`, {
+    method: "POST",
+    body: { reason },
+    idempotencyKey,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Devoluciones al proveedor / notas crédito (tanda 5, i4).
+// ---------------------------------------------------------------------------
+
+export interface SupplierReturnIn {
+  reception_line_id: number
+  /** En la unidad BASE del insumo, texto decimal. */
+  qty: string
+  reason: string
+  authorizer_pin: string
+}
+
+export interface SupplierReturnOut {
+  id: number
+  store_id: number
+  supplier_id: number
+  supplier_name: string
+  reception_id: number
+  reception_line_id: number
+  ingredient_id: number
+  ingredient_name: string
+  base_unit: string
+  payable_id: number | null
+  qty: string
+  /** Pesos a precio de factura; `applied_to_payable` + `credit_amount` = `amount`. */
+  amount: number
+  applied_to_payable: number
+  /** Saldo a favor con el proveedor: la parte que no cupo en la cuenta por pagar. */
+  credit_amount: number
+  reason: string
+  employee_name: string
+  authorized_by_employee_name: string
+  created_at: string
+  business_date: string
+}
+
+export function createSupplierReturn(receptionId: number, data: SupplierReturnIn, idempotencyKey: string): Promise<SupplierReturnOut> {
+  return api<SupplierReturnOut>(`/admin/receptions/${receptionId}/returns`, { method: "POST", body: data, idempotencyKey })
+}
+
+export function listSupplierReturns(
+  storeId: number,
+  params: { supplierId?: number | null; receptionId?: number | null } = {},
+): Promise<SupplierReturnOut[]> {
+  return api<SupplierReturnOut[]>("/admin/supplier-returns", {
+    query: { store_id: storeId, supplier_id: params.supplierId, reception_id: params.receptionId },
+  })
 }

@@ -29,7 +29,7 @@ from app.core import features, tz
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.inventory import area_counts, hooks, service, timeline
+from app.inventory import area_counts, count_sheet, hooks, service, timeline, waste_analysis
 from app.inventory.units import entry_spec
 from app.inventory.models import Ingredient, MovementCause, StockCountScope, WasteType
 from app.inventory.schemas import (
@@ -61,6 +61,7 @@ from app.inventory.schemas import (
     CountOpenIn,
     CountOut,
     CountScopeLiteral,
+    CountSheetOut,
     DeviceIngredientOut,
     IngredientIn,
     IngredientOut,
@@ -77,6 +78,7 @@ from app.inventory.schemas import (
     WasteKpiOut,
     WasteListOut,
     WasteTypeLiteral,
+    WasteAnalysisOut,
 )
 from app.stores.models import Store
 
@@ -254,6 +256,21 @@ def get_inventory_stock(
     return rows
 
 
+@router.get("/admin/count-sheet", response_model=CountSheetOut)
+def get_count_sheet(
+    store_id: int = Query(...),
+    area_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.perpetual")),
+) -> CountSheetOut:
+    """La hoja de conteo para imprimir (tanda 5, i5): por área, en el orden
+    del estante, con columnas en blanco para anotar. A ciegas: sin stock
+    teórico ni costos."""
+    store = admin_store(db, actor, store_id)
+    return CountSheetOut(**count_sheet.count_sheet(db, store=store, area_id=area_id))
+
+
 @router.get("/admin/inventory/timeline", response_model=timeline.TimelineOut)
 def get_inventory_timeline(
     store_id: int = Query(...),
@@ -372,6 +389,27 @@ def get_waste_list(
     business_date = tz.today_business_date(store.cutoff_hour)
     kpi: WasteKpiOut = service.weekly_waste_kpi(db, store=store, business_date=business_date)
     return WasteListOut(items=out, weekly_kpi=kpi)
+
+
+@router.get("/admin/waste/analysis", response_model=WasteAnalysisOut)
+def get_waste_analysis(
+    store_id: int = Query(...),
+    date_from: date = Query(..., alias="from"),
+    date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.waste")),
+) -> WasteAnalysisOut | Response:
+    """Mermas del período por motivo, por insumo y por persona, en plata al
+    costo congelado de cada merma (tanda 5, i6). Sólo administración."""
+    store = admin_store(db, actor, store_id)
+    result = WasteAnalysisOut(
+        **waste_analysis.waste_analysis(db, store=store, date_from=date_from, date_to=date_to)
+    )
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "analisis-de-mermas.csv")
+    return result
 
 
 @router.get("/device/waste/transfer-stores")

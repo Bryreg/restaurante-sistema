@@ -95,7 +95,14 @@ from app.payroll.schemas import (
     WageRateIn,
     WageRateOut,
     WeekScheduleOut,
+    PlannedShiftIn,
+    PlannedShiftOut,
+    PlannedShiftVoidIn,
+    ScheduleCopyIn,
+    ScheduleCopyOut,
+    ScheduleWeekOut,
 )
+from app.payroll import planning
 from app.payroll.service import EmployeeHours
 
 router = APIRouter()
@@ -795,3 +802,76 @@ def get_organization_payroll(
             for eid, p in sorted(people.items(), key=lambda kv: kv[1]["name"])
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Turnos planeados (auditoría e1, 0050) — Nómina › Planeación.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/payroll/schedule", dependencies=[Depends(require_feature("payroll"))])
+def get_schedule(
+    store_id: int,
+    week_of: date | None = Query(None, description="Cualquier día de la semana (lunes a domingo); por defecto, la de hoy"),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> ScheduleWeekOut:
+    """La semana planeada por persona, con la comparación contra la
+    asistencia real (tarde, no vino, a tiempo) que hace el servidor."""
+    store = admin_store(db, actor, store_id)
+    return planning.week(db, store=store, week_of=week_of)
+
+
+@router.put("/admin/payroll/schedule/shifts", dependencies=[Depends(require_feature("payroll"))])
+def put_schedule_shift(
+    payload: PlannedShiftIn, store_id: int, request: Request,
+    actor: Actor = Depends(current_admin), db: Session = Depends(get_db),
+) -> PlannedShiftOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = planning.upsert_shift(db, actor=actor, store=store, payload=payload)
+        return 200, planning.shift_out(row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope="payroll.schedule.upsert", request=request, payload=payload, fn=_do
+    )
+    return PlannedShiftOut.model_validate(body)
+
+
+@router.post("/admin/payroll/schedule/shifts/{shift_id}/void", dependencies=[Depends(require_feature("payroll"))])
+def post_schedule_shift_void(
+    shift_id: int, payload: PlannedShiftVoidIn, store_id: int, request: Request,
+    actor: Actor = Depends(current_admin), db: Session = Depends(get_db),
+) -> PlannedShiftOut:
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = planning.void_shift(db, actor=actor, store=store, shift_id=shift_id, reason=payload.reason)
+        return 200, planning.shift_out(row).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope=f"payroll.schedule.void.{shift_id}",
+        request=request, payload=payload, fn=_do,
+    )
+    return PlannedShiftOut.model_validate(body)
+
+
+@router.post("/admin/payroll/schedule/copy-previous-week", dependencies=[Depends(require_feature("payroll"))])
+def post_schedule_copy_previous_week(
+    payload: ScheduleCopyIn, store_id: int, request: Request,
+    actor: Actor = Depends(current_admin), db: Session = Depends(get_db),
+) -> ScheduleCopyOut:
+    """«Copiar la semana anterior»: lo ya planeado en la semana destino no
+    se pisa."""
+    store = admin_store(db, actor, store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        week_start, copied, skipped = planning.copy_previous_week(db, actor=actor, store=store, week_of=payload.week_of)
+        return 200, ScheduleCopyOut(week_start=week_start, copied=copied, skipped=skipped).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db, organization_id=actor.organization_id, scope=f"payroll.schedule.copy.{store.id}",
+        request=request, payload=payload, fn=_do,
+    )
+    return ScheduleCopyOut.model_validate(body)

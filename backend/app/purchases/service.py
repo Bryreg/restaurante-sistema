@@ -52,6 +52,9 @@ from app.inventory import hooks as inventory_hooks
 from app.inventory.models import CostSource, Ingredient, MovementCause
 from app.photos import hooks as photos_hooks
 from app.purchases import hooks as purchases_hooks
+from app.purchases import orders as purchase_orders
+from app.purchases import prices
+from app.purchases import returns as supplier_returns
 from app.purchases.models import (
     Payable,
     PayableStatus,
@@ -346,6 +349,14 @@ def _validate_reception(
 
         requests_hooks.assert_supply_requests_buyable(db, store_id=store.id, request_ids=supply_request_ids)
 
+    # i3: la orden de compra que cubre, validada antes de escribir nada.
+    purchase_order = None
+    purchase_order_id = getattr(payload, "purchase_order_id", None)
+    if purchase_order_id is not None:
+        purchase_order = purchase_orders.assert_receivable(
+            db, store=store, supplier_id=supplier.id, order_id=purchase_order_id
+        )
+
     if received_by is None:
         received_by = _verify_received_by(db, organization_id=store.organization_id, store_id=store.id, pin=payload.received_by_pin)
 
@@ -390,6 +401,7 @@ def _validate_reception(
     return {
         "supplier": supplier,
         "supply_request_ids": supply_request_ids,
+        "purchase_order": purchase_order,
         "received_by": received_by,
         "now": now,
         "business_date": business_date,
@@ -412,6 +424,15 @@ def _write_reception(
     guard_triggered: bool = validated["guard_triggered"]
     payable_amount: int = validated["payable_amount"]
 
+    # i1: la compra anterior de cada insumo a este proveedor, leída ANTES de
+    # escribir (así la recepción nueva nunca se compara contra sí misma).
+    previous_prices = prices.previous_supplier_prices(
+        db,
+        store_id=store.id,
+        supplier_id=supplier.id,
+        ingredient_ids=[p["ingredient"].id for p in prepared],
+    )
+
     reception = Reception(
         organization_id=store.organization_id,
         store_id=store.id,
@@ -431,10 +452,12 @@ def _write_reception(
         price_confirmed_by_employee_name=actor.employee_name if guard_triggered else None,
         at=now,
         business_date=business_date,
+        purchase_order_id=validated["purchase_order"].id if validated.get("purchase_order") is not None else None,
     )
     db.add(reception)
     db.flush()
 
+    written_lines: list[ReceptionLine] = []
     for prepared_line in prepared:
         ingredient = prepared_line["ingredient"]
         line_row = ReceptionLine(
@@ -487,6 +510,7 @@ def _write_reception(
         line_row.stock_movement_id = movement.id
         line_row.stock_batch_id = getattr(batch, "id", None)
         db.flush()
+        written_lines.append(line_row)
 
     due_date = payload.invoice_date + timedelta(days=supplier.payment_term_days)
     payable = Payable(
@@ -502,6 +526,25 @@ def _write_reception(
     )
     db.add(payable)
     db.flush()
+
+    prices.notify_price_rises(
+        db,
+        store=store,
+        supplier=supplier,
+        reception=reception,
+        lines=written_lines,
+        previous=previous_prices,
+        ingredients={p["ingredient"].id: p["ingredient"] for p in prepared},
+    )
+
+    if validated.get("purchase_order") is not None:
+        purchase_orders.close_lines_for_reception(
+            db,
+            actor=actor,
+            order=validated["purchase_order"],
+            reception=reception,
+            ingredient_ids={p["ingredient"].id for p in prepared},
+        )
 
     supply_request_ids: list[int] = validated.get("supply_request_ids", [])
     if supply_request_ids:
@@ -527,6 +570,7 @@ def _write_reception(
             "payable_id": payable.id,
             "amount": payable_amount,
             "supply_request_ids": supply_request_ids,
+            "purchase_order_id": reception.purchase_order_id,
         },
     )
     return reception, payable
@@ -544,6 +588,16 @@ def reverse_reception(db: Session, *, actor: Actor, reception: Reception, author
         action="purchases.reception_reverse",
         requested_by=actor,
     )
+
+    if supplier_returns.has_returns(db, reception_id=reception.id):
+        raise AppError(
+            code="RECEPTION_HAS_RETURNS",
+            message=(
+                "Esta recepción tiene devoluciones al proveedor: su lote ya no está completo y no se puede "
+                "revertir entera. Devolvé lo que falte desde la misma recepción"
+            ),
+            status=409,
+        )
 
     payable = get_payable_for_reception(db, reception_id=reception.id)
     if payable is not None:
@@ -581,6 +635,7 @@ def reverse_reception(db: Session, *, actor: Actor, reception: Reception, author
             )
         if payable is not None:
             payable.status = PayableStatus.CANCELLED
+        purchase_orders.reopen_lines_for_reversal(db, actor=actor, reception=reception)
         reception.status = ReceptionStatus.REVERSED
         reception.reversed_at = now
         reception.reversed_by_employee_id = authorizer.id
@@ -779,13 +834,16 @@ def get_payable_or_404(db: Session, *, organization_id: int, payable_id: int) ->
 
 
 def payable_balance(db: Session, payable: Payable) -> int:
-    """El saldo SE DERIVA siempre de los pagos vivos — nunca una columna
+    """El saldo SE DERIVA siempre de los pagos vivos y de las devoluciones
+    aplicadas (i4) — nunca una columna
     (`AGENTS.md`: "una sola matemática, en el backend"; mismo criterio que
     el esperado de caja)."""
     paid = db.execute(
         select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.payable_id == payable.id, Payment.voided_at.is_(None))
     ).scalar_one()
-    return payable.amount - int(paid)
+    # Tanda 5 (i4): lo que las devoluciones al proveedor bajaron de esta cuenta.
+    returned = supplier_returns.applied_by_payable(db, payable_ids=[payable.id]).get(payable.id, 0)
+    return payable.amount - int(paid) - returned
 
 
 def list_payables(
@@ -825,7 +883,7 @@ def payables_summary(db: Session, *, store_id: int) -> dict[str, Any]:
     (`GET /admin/payables/summary`, informe de visualización #8): cuánto se
     debe, cuánto está vencido, cuánto vence en 7 días, por antigüedad y por
     proveedor. El saldo sale de la MISMA regla que `payable_balance` (monto −
-    pagos no anulados), y «vencida» es la MISMA que `PayableOut.overdue`
+    pagos no anulados − devoluciones aplicadas), y «vencida» es la MISMA que `PayableOut.overdue`
     (`due_date` antes de hoy y saldo > 0, con el mismo «hoy»), así que la
     cabecera no puede contradecir a la tabla de abajo."""
     today = clock.now_utc().date()
@@ -841,6 +899,7 @@ def payables_summary(db: Session, *, store_id: int) -> dict[str, Any]:
     payables = db.execute(
         select(Payable).where(Payable.store_id == store_id, Payable.status != PayableStatus.CANCELLED)
     ).scalars().all()
+    returned_by_payable = supplier_returns.applied_by_payable(db, payable_ids=[p.id for p in payables])
 
     aging_keys = ("current", "1_30", "31_60", "over_60")
     aging: dict[str, dict[str, Any]] = {key: {"bucket": key, "amount": 0, "count": 0} for key in aging_keys}
@@ -848,7 +907,7 @@ def payables_summary(db: Session, *, store_id: int) -> dict[str, Any]:
     total_open = total_overdue = due_next_7 = open_count = overdue_count = 0
     horizon = today + timedelta(days=7)
     for payable in payables:
-        balance = payable.amount - paid_by_payable.get(payable.id, 0)
+        balance = payable.amount - paid_by_payable.get(payable.id, 0) - returned_by_payable.get(payable.id, 0)
         if balance <= 0:
             continue
         total_open += balance
@@ -1475,6 +1534,7 @@ def complete_reception_draft(
         confirm_price=payload.confirm_price,
         lines=payload.lines,
         supply_request_ids=payload.supply_request_ids,
+        purchase_order_id=payload.purchase_order_id,
     )
     validated = _validate_reception(db, store=store, payload=reception_in, received_by=received_by)
 

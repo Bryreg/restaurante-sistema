@@ -25,7 +25,7 @@ nueva ACÁ — nunca importa `service.py`/`models.py` directo
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
 from sqlalchemy import select
@@ -137,6 +137,68 @@ def payroll_gaps(db: Session, *, store_id: int, date_from: date, date_to: date) 
     if store is None:
         return None
     return service.payroll_gaps(db, store=store, date_from=date_from, date_to=date_to)
+
+
+@dataclass(frozen=True)
+class ScheduleIssue:
+    """Una persona que no cumplió su turno planeado (auditoría e1)."""
+
+    employee_id: int
+    employee_name: str
+    business_date: date
+    #: `late` · `missing` (debería estar, el turno sigue) · `no_show`
+    status: str
+    planned_start: str
+    actual_in_at: datetime | None
+    late_minutes: int | None
+
+
+@dataclass(frozen=True)
+class ScheduleDay:
+    """Un día operativo de la sede: cuántos turnos había planeados y quién
+    no los cumplió. `planned == 0` = nadie tenía turno (no «todos a tiempo»)."""
+
+    business_date: date
+    planned: int
+    issues: list[ScheduleIssue]
+
+
+def schedule_compliance(
+    db: Session, *, store: Store, date_from: date, date_to: date
+) -> dict[date, ScheduleDay] | None:
+    """Planeado contra real por día (`app.payroll.planning.rows_for_range`,
+    la misma cuenta de Nómina › Planeación). `None` con «Nómina» apagada: no
+    hay planeación que comparar, que no es «nadie llegó tarde»."""
+    from app.core import clock, features
+    from app.payroll import planning
+
+    if not features.is_enabled(db, store.organization_id, store.id, "payroll"):
+        return None
+    rows = planning.rows_for_range(db, store=store, date_from=date_from, date_to=date_to, now=clock.now_utc())
+    out: dict[date, ScheduleDay] = {}
+    day = date_from
+    while day <= date_to:
+        out[day] = ScheduleDay(business_date=day, planned=0, issues=[])
+        day += timedelta(days=1)
+    for r in rows:
+        if r.shift is None:
+            continue
+        current = out[r.business_date]
+        issues = list(current.issues)
+        if r.status in ("late", "missing", "no_show"):
+            issues.append(
+                ScheduleIssue(
+                    employee_id=r.employee_id,
+                    employee_name=r.employee_name,
+                    business_date=r.business_date,
+                    status=r.status,
+                    planned_start=planning.minute_label(r.shift.start_minute),
+                    actual_in_at=r.actual_in_at,
+                    late_minutes=r.late_minutes,
+                )
+            )
+        out[r.business_date] = ScheduleDay(business_date=r.business_date, planned=current.planned + 1, issues=issues)
+    return out
 
 
 def worked_minutes(entry: Any) -> int | None:

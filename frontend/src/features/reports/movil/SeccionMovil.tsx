@@ -55,6 +55,8 @@ const TARJETAS: Record<string, TarjetaConfig> = {
   expenses: { corto: "Gastos de caja", pregunta: "¿Cuánto se gastó de la caja hoy?", accion: "Ver gastos", href: "/admin/dinero" },
   // Equipo
   staff: { corto: "En turno ahora", pregunta: "¿Quién trabaja hoy?", accion: "Ver el horario de la semana", href: HORARIO_SEMANA_HREF },
+  // Volvió con la planeación de turnos (auditoría e1): la cuenta es la de Nómina › Planeación.
+  late: { corto: "Llegadas tarde", pregunta: "¿Quién llegó tarde hoy?", accion: "Ver la planeación", href: "/admin/nomina?tab=planeacion" },
   exits: {
     corto: "Salidas olvidadas",
     pregunta: "¿Quién no marcó salida?",

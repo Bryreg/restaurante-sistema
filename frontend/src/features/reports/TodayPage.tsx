@@ -52,6 +52,7 @@ import { errorMessage } from "@/lib/errors"
 import { formatFechaCorta, formatPct } from "@/lib/format"
 import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
+import { stationLabel } from "@/lib/stations"
 
 import { ALERT_LEVEL_TONE, alertRoute, deltaWord, formatDelta, weekdayName } from "./lib"
 import { areaCountHref, flagPhrase } from "@/features/inventory/areaCountLib"
@@ -1460,6 +1461,48 @@ function TopProducts({
   )
 }
 
+/** «8 min 30 s»: el promedio llega en segundos del servidor; acá sólo se escribe. */
+function prepWords(seconds: number): string {
+  // Segundos enteros del servidor: el resto y el cociente exactos, sin redondeo.
+  const sec = seconds % 60
+  const min = (seconds - sec) / 60
+  if (min === 0) return `${sec} s`
+  return sec === 0 ? `${min} min` : `${min} min ${sec} s`
+}
+
+/**
+ * Cocina hoy (auditoría p4): cuánto tarda cada estación de «Enviar» a
+ * «Listo», en promedio, contra su objetivo (el mismo del semáforo del KDS).
+ * Sin «Cocina» el bloque no se dibuja; sin platos listos todavía, lo dice.
+ */
+function KitchenPrep({ today }: { today: TodayOut }): React.JSX.Element | null {
+  const rows = today.kitchen_prep_by_station
+  if (rows === null || rows === undefined) return null
+  return (
+    <section className="burbuja min-w-0 rounded-[24px] bg-card p-6" data-slot="tiempos-de-cocina" aria-labelledby="tiempos-de-cocina-titulo">
+      <h2 id="tiempos-de-cocina-titulo" className="mb-3 text-base font-semibold">
+        Tiempo de cocina hoy
+      </h2>
+      {rows.length === 0 ? (
+        <EmptyState title="Todavía no hay platos listos hoy" description="Cuando cocina marque el primero, aparece su tiempo por estación." />
+      ) : (
+        <ul className="flex flex-col gap-2.5" aria-label="Tiempo promedio de «Enviar» a «Listo» por estación, contra su objetivo">
+          {rows.map((r) => (
+            <li key={r.station} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+              <span className="min-w-0 flex-1 font-medium">{stationLabel(r.station)}</span>
+              <span className={cn("tabular-nums font-semibold", r.outside && "text-destructive")}>{prepWords(r.avg_seconds)}</span>
+              <span className="w-full text-xs text-muted-foreground">
+                {r.items} {r.items === 1 ? "plato" : "platos"} · objetivo {r.target_minutes} min
+                {r.outside ? " · pasó el objetivo" : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 /** Días hasta el vencimiento, en palabras. El número es del servidor. */
 function expiryWord(days: number | null): string | null {
   if (days === null) return null
@@ -1824,6 +1867,7 @@ export function TodayPage(): React.JSX.Element {
           <div className="grid min-w-0 items-start gap-3 lg:grid-cols-2">
             <TopProducts today={shown} storeId={activeStoreId} recap={recap} />
             <Receptions today={shown} storeId={activeStoreId} recap={recap} />
+            <KitchenPrep today={today} />
           </div>
         </div>
 

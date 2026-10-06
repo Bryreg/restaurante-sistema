@@ -686,6 +686,23 @@ def reverse_stock_batch(db: Session, *, batch_id: int) -> None:
     db.flush()
 
 
+def return_from_stock_batch(db: Session, *, batch_id: int, qty_base: int) -> int:
+    """Una devolución al proveedor (tanda 5, i4) saca mercancía del lote
+    EXACTO de la línea de recepción que se devuelve, no del que FEFO elija
+    (el movimiento va con `RECEPTION_REVERSAL`, que no dispara FEFO). Saca
+    lo que quede en el lote hasta `qty_base` y devuelve cuánto sacó: el
+    libro no bloquea por stock (lo que el lote ya no tenía quedó consumido
+    en el teórico), y el lote nunca baja de cero. Un lote revertido no se
+    toca."""
+    batch = db.get(StockBatch, batch_id)
+    if batch is None or batch.reversed_at is not None or qty_base <= 0:
+        return 0
+    taken = min(batch.qty_remaining, qty_base)
+    batch.qty_remaining -= taken
+    db.flush()
+    return taken
+
+
 def consume_lots_fefo(db: Session, *, store_id: int, ingredient_id: int, qty_base: int) -> list[tuple[StockBatch, int]]:
     """FEFO **declarado**, por escrito (SPEC-NEGOCIO §5.7 dice "el más
     antiguo", que es ambiguo entre fecha de recepción y de vencimiento — acá

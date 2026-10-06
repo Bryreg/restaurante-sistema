@@ -96,6 +96,19 @@ class UnavailableProductOut(BaseModel):
     by: EmployeeRefOut | None
 
 
+class StationPrepOut(BaseModel):
+    """Tiempo promedio de cocina de una estación en el día (auditoría p4):
+    de «Enviar» a «Listo», en segundos enteros, sobre `items` platos.
+    `outside` lo decide el servidor (pasó `target_minutes`, el objetivo de
+    la estación que usa el semáforo del KDS)."""
+
+    station: str
+    items: int
+    avg_seconds: int
+    target_minutes: int
+    outside: bool
+
+
 class AlertOut(BaseModel):
     type: str
     level: str
@@ -491,6 +504,9 @@ class TodayOut(BaseModel):
     receptions_today: list[TodayReceptionLineOut] = []
     # Antes de la primera venta: el repaso del último día con ventas.
     recap: TodayRecapOut | None = None
+    # Tiempo promedio de cocina por estación hoy (auditoría p4). `None` con
+    # «Cocina» apagada; una estación sin platos listos hoy no aparece.
+    kitchen_prep_by_station: list[StationPrepOut] | None = None
 
 
 # ---------------------------------------------------------------------------

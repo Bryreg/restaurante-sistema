@@ -1,8 +1,15 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useRef, useState } from "react"
 
 import type { IngredientOut } from "@/api/inventory"
-import { reverseReception, type ReceptionOut, type SupplierOut } from "@/api/purchases"
+import { newIdempotencyKey } from "@/api/client"
+import {
+  createSupplierReturn,
+  listSupplierReturns,
+  reverseReception,
+  type ReceptionOut,
+  type SupplierOut,
+} from "@/api/purchases"
 import {
   ConsequenceZone,
   DenseTable,
@@ -25,6 +32,8 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 import { formatBusinessDate, formatInstant } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP, formatCOPDecimal } from "@/lib/money"
@@ -178,6 +187,130 @@ function ReverseReceptionAction({
   )
 }
 
+/**
+ * **Devolver al proveedor** (tanda 5, i4): una línea, cuánto (en la unidad
+ * base, como se recibió), por qué y el PIN de administrador. El servidor
+ * saca el stock del lote de esa línea y decide cuánto baja de la cuenta por
+ * pagar y cuánto queda a favor con el proveedor; acá sólo se muestra.
+ */
+function SupplierReturnSection({
+  reception,
+  ingredients,
+  onReturned,
+}: {
+  reception: ReceptionOut
+  ingredients: IngredientOut[]
+  onReturned: () => void
+}): React.JSX.Element {
+  const [lineId, setLineId] = useState<number | null>(reception.lines.length === 1 ? reception.lines[0].id : null)
+  const [qty, setQty] = useState("")
+  const [reason, setReason] = useState("")
+  const [pin, setPin] = useState("")
+  const keyRef = useRef(newIdempotencyKey())
+  const returnsQuery = useQuery({
+    queryKey: ["purchases", "supplier-returns", reception.store_id, reception.id],
+    queryFn: () => listSupplierReturns(reception.store_id, { receptionId: reception.id }),
+  })
+  const mutation = useMutation({
+    mutationFn: () =>
+      createSupplierReturn(
+        reception.id,
+        { reception_line_id: lineId as number, qty: qty.trim(), reason: reason.trim(), authorizer_pin: pin.trim() },
+        keyRef.current,
+      ),
+    onSuccess: () => {
+      keyRef.current = newIdempotencyKey()
+      setQty("")
+      setReason("")
+      setPin("")
+      void returnsQuery.refetch()
+      onReturned()
+    },
+    onError: () => {
+      keyRef.current = newIdempotencyKey()
+    },
+  })
+  const returns = returnsQuery.data ?? []
+  const canSubmit = lineId !== null && qty.trim() !== "" && reason.trim() !== "" && pin.trim() !== "" && !mutation.isPending
+
+  return (
+    <section className="space-y-3 rounded-md border p-3" aria-label="Devolver al proveedor">
+      <h3 className="text-sm font-semibold">Devolver al proveedor</h3>
+      <p className="text-xs text-muted-foreground">
+        Saca la mercancía del inventario (del lote de esa línea) y baja la cuenta por pagar; si ya estaba pagada, lo
+        devuelto queda como saldo a favor con el proveedor. Queda en la auditoría con el motivo.
+      </p>
+      {returns.length > 0 ? (
+        <ul className="space-y-1 text-sm">
+          {returns.map((r) => (
+            <li key={r.id} className="flex flex-wrap justify-between gap-2 border-b pb-1">
+              <span>
+                {r.ingredient_name} · {r.qty} {r.base_unit} · {r.reason}
+              </span>
+              <span className="tabular-nums text-muted-foreground">
+                {formatCOP(r.amount)}
+                {r.credit_amount > 0 ? ` · ${formatCOP(r.credit_amount)} a favor` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="grid gap-2 sm:grid-cols-[1fr_8rem]">
+        <div className="space-y-1">
+          <Label htmlFor={`ret-linea-${reception.id}`}>Línea</Label>
+          <Select value={lineId === null ? "" : String(lineId)} onValueChange={(v) => setLineId(v ? Number(v) : null)}>
+            <SelectTrigger id={`ret-linea-${reception.id}`} aria-label="Línea a devolver" className="w-full">
+              <SelectValue placeholder="Elegí la línea" />
+            </SelectTrigger>
+            <SelectContent>
+              {reception.lines.map((line) => (
+                <SelectItem key={line.id} value={String(line.id)}>
+                  {ingredientName(ingredients, line.ingredient_id)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor={`ret-cantidad-${reception.id}`}>Cantidad</Label>
+          <Input id={`ret-cantidad-${reception.id}`} inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor={`ret-motivo-${reception.id}`}>Motivo</Label>
+        <Textarea id={`ret-motivo-${reception.id}`} rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <Label htmlFor={`ret-pin-${reception.id}`}>PIN que autoriza la devolución</Label>
+          <Input
+            id={`ret-pin-${reception.id}`}
+            type="password"
+            inputMode="numeric"
+            className="w-32"
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+          />
+        </div>
+        <Button type="button" variant="outline" disabled={!canSubmit} onClick={() => mutation.mutate()}>
+          Registrar devolución
+        </Button>
+      </div>
+      {mutation.isError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {errorMessage(mutation.error)}
+        </p>
+      ) : null}
+      {mutation.isSuccess ? (
+        <p role="status" className="text-sm">
+          Devolución registrada por {formatCOP(mutation.data.amount)}
+          {mutation.data.credit_amount > 0 ? `; ${formatCOP(mutation.data.credit_amount)} quedan a favor con el proveedor` : ""}.
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
 export function ReceptionDetailDialog({
   reception,
   suppliers,
@@ -204,6 +337,12 @@ export function ReceptionDetailDialog({
     },
     { key: "received", header: "Recibido", kind: "number", cell: (line) => line.qty_received },
     { key: "invoiced", header: "Facturado", kind: "number", cell: (line) => line.qty_invoiced },
+    {
+      key: "returned",
+      header: "Devuelto",
+      kind: "number",
+      cell: (line) => (line.qty_returned && line.qty_returned !== "0" ? line.qty_returned : "—"),
+    },
     {
       key: "price",
       header: "Precio compra",
@@ -233,7 +372,7 @@ export function ReceptionDetailDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button variant="outline" size="sm" />}>Ver</DialogTrigger>
-      <DialogContent className="sm:max-w-5xl">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>
             Recepción #{reception.id} · {supplierName(suppliers, reception.supplier_id)}
@@ -301,6 +440,10 @@ export function ReceptionDetailDialog({
             maxBodyHeightPx={320}
             className="min-w-0"
           />
+
+          {reception.status === "confirmed" ? (
+            <SupplierReturnSection reception={reception} ingredients={ingredients} onReturned={invalidate} />
+          ) : null}
 
           {reception.status === "confirmed" ? (
             <ReverseReceptionAction

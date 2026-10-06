@@ -1,8 +1,10 @@
-import { Search, SlidersHorizontal } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
+import { Ban, Search, SlidersHorizontal } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { useSession } from "@/app/session"
-import type { CatalogComboOut, CatalogProductOut } from "@/api/catalog"
+import { newIdempotencyKey } from "@/api/client"
+import { setProductAvailability, type CatalogComboOut, type CatalogProductOut } from "@/api/catalog"
 import type { FavoriteOut, OrderChannel } from "@/api/orders"
 import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
@@ -10,10 +12,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 import { cn } from "@/lib/utils"
 
-import { useCatalog, useFavorites } from "./hooks"
+import { CATALOG_QUERY_KEY, useCatalog, useFavorites } from "./hooks"
 import { channelPriceKey } from "./lib"
 
 export interface CatalogPanelProps {
@@ -146,6 +149,9 @@ function ProductButton({
   unsentQty,
   onSelect,
   onLongPress,
+  soldOutMode = false,
+  togglingSoldOut = false,
+  onToggleSoldOut,
 }: {
   product: CatalogProductOut
   channel: OrderChannel
@@ -153,21 +159,37 @@ function ProductButton({
   unsentQty: number
   onSelect: () => void
   onLongPress?: () => void
+  /** «Agotados» encendido: el toque marca o desmarca el plato, no lo suma. */
+  soldOutMode?: boolean
+  togglingSoldOut?: boolean
+  onToggleSoldOut?: () => void
 }) {
   const priceKey = channelPriceKey(channel)
   const soldOut = !product.available
-  const longPress = useLongPress(soldOut ? undefined : onLongPress)
+  const longPress = useLongPress(soldOut || soldOutMode ? undefined : onLongPress)
+  const label = soldOutMode
+    ? soldOut
+      ? `Volver a ofrecer ${product.name}`
+      : `Marcar agotado: ${product.name}`
+    : soldOut
+      ? `${product.name}, agotado`
+      : `Agregar ${product.name}${unsentSuffix(unsentQty)}`
   return (
     <button
       type="button"
-      disabled={soldOut}
+      disabled={soldOutMode ? togglingSoldOut : soldOut}
+      aria-pressed={soldOutMode ? soldOut : undefined}
       {...longPress.handlers}
       onClick={() => {
+        if (soldOutMode) {
+          onToggleSoldOut?.()
+          return
+        }
         if (longPress.consumeClick()) return
         onSelect()
       }}
-      aria-label={soldOut ? `${product.name}, agotado` : `Agregar ${product.name}${unsentSuffix(unsentQty)}`}
-      className={cn(CARD_CLASS, soldOut && SOLD_OUT_CLASS)}
+      aria-label={label}
+      className={cn(CARD_CLASS, soldOut && SOLD_OUT_CLASS, soldOutMode && "border-dashed border-destructive/60")}
     >
       <UnsentBadge qty={unsentQty} />
       <span className={cn("text-[18px] leading-[1.15] font-bold", soldOut && "line-through")}>{product.name}</span>
@@ -225,6 +247,28 @@ export function CatalogPanel({
   // «Elegir opciones» vale para UN plato, como la tecla de mayúsculas: el
   // toque siguiente vuelve a sumar directo, que es lo que pasa casi siempre.
   const [withOptions, setWithOptions] = useState(false)
+  // Lista 86 (auditoría p5): con «Agotados» encendido, cada toque marca o
+  // desmarca un plato. Queda encendido hasta apagarlo: cuando se acaba algo
+  // en la cocina suele acabarse más de una cosa.
+  const queryClient = useQueryClient()
+  const [soldOutMode, setSoldOutMode] = useState(false)
+  const [togglingId, setTogglingId] = useState<number | null>(null)
+  const [soldOutError, setSoldOutError] = useState<string | null>(null)
+  const [soldOutNotice, setSoldOutNotice] = useState<string | null>(null)
+
+  async function toggleSoldOut(product: CatalogProductOut) {
+    setTogglingId(product.id)
+    setSoldOutError(null)
+    try {
+      const updated = await setProductAvailability(product.id, { available: !product.available }, newIdempotencyKey())
+      setSoldOutNotice(updated.available ? `«${product.name}» vuelve a estar disponible.` : `«${product.name}» quedó agotado.`)
+      await queryClient.invalidateQueries({ queryKey: CATALOG_QUERY_KEY })
+    } catch (err) {
+      setSoldOutError(errorMessage(err))
+    } finally {
+      setTogglingId(null)
+    }
+  }
 
   const products = catalog.data?.products ?? []
   const combos = catalog.data?.combos ?? []
@@ -274,6 +318,9 @@ export function CatalogPanel({
             showDailyCount={showDailyCount}
             unsentQty={unsentQty?.products.get(product.id) ?? 0}
             onSelect={() => selectProduct(product)}
+            soldOutMode={soldOutMode}
+            togglingSoldOut={togglingId === product.id}
+            onToggleSoldOut={() => void toggleSoldOut(product)}
             onLongPress={
               quickAdd
                 ? () => {
@@ -317,7 +364,35 @@ export function CatalogPanel({
             Elegir opciones
           </Button>
         ) : null}
+        <Button
+          type="button"
+          variant={soldOutMode ? "destructive" : "outline"}
+          aria-pressed={soldOutMode}
+          className="h-[56px] rounded-lg px-4 text-[16px] font-semibold"
+          onClick={() => {
+            setSoldOutMode((on) => !on)
+            setSoldOutError(null)
+            setSoldOutNotice(null)
+          }}
+        >
+          <Ban aria-hidden="true" />
+          Agotados
+        </Button>
       </div>
+      {soldOutMode ? (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-[15px]">
+          Tocá un plato para marcarlo agotado, o uno agotado para volver a ofrecerlo. Apagá «Agotados» para seguir
+          vendiendo.
+        </p>
+      ) : null}
+      {soldOutError ? (
+        <p role="alert" className="text-[15px] text-destructive">
+          {soldOutError}
+        </p>
+      ) : null}
+      <p role="status" className={soldOutNotice ? "text-[15px] font-semibold" : "sr-only"}>
+        {soldOutNotice ?? ""}
+      </p>
       {quickAdd ? (
         <p className="sr-only" aria-live="polite">
           {withOptions

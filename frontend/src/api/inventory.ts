@@ -1111,3 +1111,90 @@ export interface OrderConsumptionOut {
 export function getOrderConsumption(orderId: number): Promise<OrderConsumptionOut> {
   return api<OrderConsumptionOut>(`/admin/orders/${orderId}/consumption`)
 }
+
+// ---------------------------------------------------------------------------
+// Hoja de conteo para imprimir (tanda 5, i5) — `GET /admin/count-sheet`.
+// A ciegas: sin stock teórico ni costos.
+// ---------------------------------------------------------------------------
+
+export interface CountSheetItemOut {
+  ingredient_id: number
+  name: string
+  category: string | null
+  /** La unidad en que se cuenta (kg, botella, L, unidad). */
+  count_unit: string
+}
+
+export interface CountSheetSectionOut {
+  /** `null` en «Sin área asignada» / «Todos los insumos». */
+  area_id: number | null
+  title: string
+  items: CountSheetItemOut[]
+}
+
+export interface CountSheetOut {
+  store_id: number
+  store_name: string
+  business_date: string
+  generated_at: string
+  areas: { id: number; name: string }[]
+  sections: CountSheetSectionOut[]
+}
+
+export function getCountSheet(storeId: number, areaId: number | null = null): Promise<CountSheetOut> {
+  return api<CountSheetOut>("/admin/count-sheet", { query: { store_id: storeId, area_id: areaId } })
+}
+
+// ---------------------------------------------------------------------------
+// Análisis de mermas (tanda 5, i6) — `GET /admin/waste/analysis`. Sólo
+// administración. Costos en pesos enteros calculados por el servidor; `null`
+// cuando ninguna merma del grupo tiene costo (no es $0).
+// ---------------------------------------------------------------------------
+
+export interface WasteReasonRowOut {
+  type: WasteType
+  /** `false` para consumo interno y traslado: no son pérdida ni suman al total. */
+  loss: boolean
+  entries: number
+  uncosted_entries: number
+  amount: number | null
+  /** Parte del costo de las pérdidas del período, en puntos básicos. */
+  share_bp: number | null
+}
+
+export interface WasteItemRowOut {
+  kind: "ingredient" | "preparation"
+  item_id: number
+  name: string
+  unit: string
+  qty: string
+  entries: number
+  uncosted_entries: number
+  amount: number | null
+  share_bp: number | null
+}
+
+export interface WastePersonRowOut {
+  employee_id: number
+  employee_name: string
+  entries: number
+  uncosted_entries: number
+  amount: number | null
+  share_bp: number | null
+}
+
+export interface WasteAnalysisOut {
+  store_id: number
+  date_from: string
+  date_to: string
+  entries: number
+  uncosted_entries: number
+  amount: number | null
+  by_reason: WasteReasonRowOut[]
+  by_ingredient: WasteItemRowOut[]
+  by_person: WastePersonRowOut[]
+}
+
+export function getWasteAnalysis(storeId: number, range: { from: string; to: string }): Promise<WasteAnalysisOut> {
+  return api<WasteAnalysisOut>("/admin/waste/analysis", { query: { store_id: storeId, from: range.from, to: range.to } })
+}

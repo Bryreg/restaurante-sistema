@@ -6,6 +6,9 @@
   (`service.target_minutes_for`) y el mismo color (`service.semaphore`).
   Lo consume el panel del administrador (`app.reports.panel`): si el KDS
   pinta un plato en rojo, el panel lo cuenta como atrasado, y al revés.
+- `prep_times_by_station(db, store, business_date)` — el tiempo promedio de
+  «Enviar» a «Listo» por estación en el día (auditoría p4), con el mismo
+  objetivo por estación del semáforo. Lo publica Hoy.
 
 Este dominio no importa `app.reports`: la dependencia va en un solo sentido.
 """
@@ -13,6 +16,7 @@ Este dominio no importa `app.reports`: la dependencia va en un solo sentido.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -124,4 +128,64 @@ def kitchen_tickets(db: Session, *, store: Store) -> list[KitchenTicket] | None:
             )
         )
     out.sort(key=lambda t: (-t.minutes, t.round_id))
+    return out
+
+
+@dataclass(frozen=True)
+class StationPrepTime:
+    """Lo que tardó una estación hoy, de «Enviar» a «Listo» (auditoría p4).
+
+    `avg_seconds` es el promedio entero (piso) de `ready_at − sent_at` de
+    los platos que cocina marcó listos en el día operativo; `items` cuántos
+    son. `outside` lo decide el servidor: el promedio pasó el objetivo de la
+    estación (el mismo `service.target_minutes_for` del semáforo del KDS)."""
+
+    station: str
+    items: int
+    avg_seconds: int
+    target_minutes: int
+    outside: bool
+
+
+def prep_times_by_station(db: Session, *, store: Store, business_date: date) -> list[StationPrepTime] | None:
+    """Tiempo promedio de preparación por estación en el día operativo.
+
+    `None` con la función «Cocina» apagada (no hay cola que medir, que no
+    es «cero minutos»). Una estación sin ningún plato listo hoy no aparece:
+    no hay promedio que publicar, y un `0` sería un cero mudo. Los platos
+    anulados no cuentan; los que pasaron directo a servidos (sin estación)
+    tampoco, porque nunca estuvieron en cocina."""
+    from app.orders.models import Order
+
+    if not features.is_enabled(db, store.organization_id, store.id, "kitchen.view"):
+        return None
+    settings = stores_service.get_sales_settings(db, store.id)
+    station_targets = settings.station_target_minutes or {}
+    rows = db.execute(
+        select(OrderItem.station, OrderItem.sent_at, OrderItem.ready_at)
+        .join(Order, Order.id == OrderItem.order_id)
+        .where(
+            Order.store_id == store.id,
+            Order.business_date == business_date,
+            OrderItem.station.is_not(None),
+            OrderItem.sent_at.is_not(None),
+            OrderItem.ready_at.is_not(None),
+            OrderItem.voided_at.is_(None),
+        )
+    ).all()
+    totals: dict[str, list[int]] = {}
+    for station, sent_at, ready_at in rows:
+        seconds = max(int((ready_at - sent_at).total_seconds()), 0)
+        bucket = totals.setdefault(station, [0, 0])
+        bucket[0] += seconds
+        bucket[1] += 1
+    out: list[StationPrepTime] = []
+    for station, (total_seconds, count) in sorted(totals.items()):
+        avg = total_seconds // count
+        target = service.target_minutes_for({}, course=None, station=station, station_targets=station_targets)
+        out.append(
+            StationPrepTime(
+                station=station, items=count, avg_seconds=avg, target_minutes=target, outside=avg > target * 60
+            )
+        )
     return out
