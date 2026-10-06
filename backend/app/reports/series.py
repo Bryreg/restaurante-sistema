@@ -962,10 +962,6 @@ _CASH_EXPENSE_LABEL = {
     "other_expense": "Otro gasto",
 }
 
-LATE_ARRIVALS_REASON = (
-    "No hay horario programado en el sistema: sin la hora de entrada esperada "
-    "no se puede saber quién llegó tarde."
-)
 BEST_STORE_ONE_REASON = "Con una sola sede no hay con cuál comparar."
 DEPOSITS_OFF_REASON = "La función «Consignaciones» está apagada en estas sedes."
 
@@ -1807,8 +1803,10 @@ def _orders_today_card(
 
 
 def sections(db: Session, *, stores: list[Store], all_stores: bool, section: str) -> SectionOut:
-    """Las cuatro tarjetas de una sección del celular (`caja`, `equipo` o
-    `informes`), para una sede o para todas."""
+    """Las tarjetas de una sección del celular (`caja`, `equipo` o
+    `informes`), para una sede o para todas: cuatro en Caja e Informes, tres
+    en Equipo. «Llegadas tarde» se quitó (limpieza 2026-10): el sistema no
+    guarda un horario programado, así que nunca tenía dato."""
     now = clock.now_utc()
     today = tz.today_business_date(stores[0].cutoff_hour)
     cards: list[SectionCardOut]
@@ -1822,7 +1820,6 @@ def sections(db: Session, *, stores: list[Store], all_stores: bool, section: str
     elif section == "equipo":
         cards = [
             _staff_now_card(db, stores, now),
-            _unavailable("late", LATE_ARRIVALS_REASON),
             _forgotten_exits_card(db, stores, today),
             _week_hours_card(db, stores, today, now),
         ]

@@ -255,20 +255,6 @@ def get_accountant_report(
     return report
 
 
-@router.get("/admin/accountant-report/goal")
-def get_sales_goal(
-    store_id: int = Query(...),
-    year: int = Query(...),
-    month: int = Query(...),
-    actor: Actor = Depends(current_admin),
-    db: Session = Depends(get_db),
-) -> AccountantGoalOut:
-    """La meta de ventas de ese mes para la sede (la del mes, o la heredada
-    del último mes que tenía una)."""
-    store = admin_store(db, actor, store_id)
-    return accountant_service.get_goal(db, store=store, year=year, month=month)
-
-
 @router.put("/admin/accountant-report/goal")
 def put_sales_goal(
     body: SalesGoalIn,
