@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 
 import { useSession } from "@/app/session"
-import { getAreaCountSettings, putAreaCountSettings } from "@/api/areaCounts"
+import { getAreaCountSettings, listCountAreas, putAreaCountSettings } from "@/api/areaCounts"
 import {
   getInventorySettings,
   getInventoryThresholds,
@@ -69,6 +69,10 @@ const DEFAULT_RED_BP = 400
  *   (`IngredientForm.tsx`, mismo backend); acá se ve la lista COMPLETA de
  *   una vez, que es lo que pide la fila "Configuración" de §9.3 — elegir
  *   los 5 a 15 críticos de punta a punta sin abrir un diálogo por insumo.
+ *   Cada renglón dice en qué área vive el insumo (`inventory.shift_counts`):
+ *   el área es dónde está y quién lo cuenta al abrir y cerrar; «Crítico» es
+ *   una marca aparte para el conteo del administrador (limpieza 2026-10: las
+ *   dos listas cortas se parecían y nada decía cuál era cuál).
  */
 export function InventorySection({ storeId }: { storeId: number | null }): React.JSX.Element {
   const { hasFeature } = useSession()
@@ -107,6 +111,20 @@ export function InventorySection({ storeId }: { storeId: number | null }): React
     queryFn: () => listIngredients(storeId as number, { activeOnly: true }),
     enabled: storeId !== null && perpetualEnabled,
   })
+
+  // Dónde vive cada insumo (su área de conteo), para que la lista de
+  // críticos se lea junto a las áreas y no como otra lista corta más.
+  const areaCountsEnabled = hasFeature("inventory.shift_counts")
+  const areasQuery = useQuery({
+    queryKey: ["area-counts", "areas", storeId],
+    queryFn: () => listCountAreas(storeId as number),
+    enabled: storeId !== null && perpetualEnabled && areaCountsEnabled,
+  })
+  const areaDe = new Map<number, string>()
+  for (const area of areasQuery.data ?? []) {
+    if (!area.active) continue
+    for (const item of area.items) areaDe.set(item.ingredient_id, area.name)
+  }
 
   const toggleKeyItemMutation = useMutation({
     mutationFn: (params: { ingredient: IngredientOut; keyItem: boolean }) =>
@@ -279,7 +297,7 @@ export function InventorySection({ storeId }: { storeId: number | null }): React
       <FormSection
         title="Insumos críticos"
         columns="one"
-        governs='Los que entran al conteo rápido de "Críticos" (5 a 15, el 60–70 % de las compras). También se pueden marcar insumo por insumo en Inventario → Insumos.'
+        governs='Los que entran al conteo de "Críticos" del administrador (5 a 15, el 60–70 % de las compras), que ajusta el stock y alimenta la varianza. También se marcan insumo por insumo en Inventario → Insumos. No es la lista de cada área (Inventario → Por área): el área dice dónde vive un insumo y quién lo cuenta al abrir y cerrar; un insumo puede estar en las dos.'
         reading={
           !perpetualEnabled ? (
             <>Con el inventario apagado, no hay stock que contar y esta lista no alimenta ningún conteo.</>
@@ -287,7 +305,7 @@ export function InventorySection({ storeId }: { storeId: number | null }): React
             <>
               <b className="font-bold text-foreground tabular-nums">{keyItems.length}</b> de{" "}
               <b className="font-bold text-foreground tabular-nums">{ingredients.length}</b> insumos activos
-              entran al conteo rápido. Los que no están marcados siguen existiendo y se cuentan en el conteo
+              entran al conteo de críticos. Los que no están marcados siguen existiendo y se cuentan en el conteo
               completo: esto elige a los de todos los días.
             </>
           )
@@ -312,7 +330,7 @@ export function InventorySection({ storeId }: { storeId: number | null }): React
         ) : ingredients.length === 0 ? (
           <DependencyEmptyState
             title="Sin insumos activos"
-            description="Acá se eligen los insumos que entran al conteo rápido. Primero tienen que existir."
+            description="Acá se eligen los insumos que entran al conteo de críticos. Primero tienen que existir."
             create={{ label: "Crear insumos", to: "/admin/inventario" }}
           />
         ) : (
@@ -333,6 +351,9 @@ export function InventorySection({ storeId }: { storeId: number | null }): React
                   />
                   <Label htmlFor={`key-item-${ingredient.id}`} className="flex-1 cursor-pointer font-normal">
                     {ingredient.name}
+                    {areaDe.has(ingredient.id) ? (
+                      <span className="text-xs text-muted-foreground"> · vive en {areaDe.get(ingredient.id)}</span>
+                    ) : null}
                   </Label>
                 </li>
               ))}

@@ -139,7 +139,7 @@ export const ACCIONES: readonly Accion[] = [
   {
     clave: "conteo",
     label: "Conteo de mi área",
-    descripcion: "Contar los artículos clave al abrir o al cerrar",
+    descripcion: "Contar la lista del área al abrir o al cerrar",
     icono: ClipboardCheck,
     flag: "inventory.shift_counts",
   },

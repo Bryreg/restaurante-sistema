@@ -127,7 +127,7 @@ const LEGEND: readonly LegendEntry[] = [
   },
   {
     term: "Crítico",
-    meaning: "entra al conteo rápido: es lo que se cuenta cuando no se cuenta todo.",
+    meaning: "entra al conteo de críticos del administrador: es lo que se cuenta cuando no se cuenta todo. No es la lista de un área (Por área).",
   },
   {
     term: "No predecible",

@@ -734,9 +734,11 @@ function ItemsDialog({
     <Dialog open={area !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Artículos que cuenta {area?.name}</DialogTitle>
+          <DialogTitle>Lo que cuenta {area?.name} al abrir y cerrar</DialogTitle>
           <DialogDescription>
-            Los clave, no todo el inventario: de 5 a {MAX_ITEMS}. Un insumo se cuenta en una sola área.
+            La lista del área, no todo el inventario: de 5 a {MAX_ITEMS}. Un insumo vive en una sola área. No es la
+            marca «Crítico» (el conteo de críticos del administrador, que ajusta el stock): un insumo puede tener las
+            dos.
           </DialogDescription>
         </DialogHeader>
         <p className="text-sm">
@@ -759,6 +761,7 @@ function ItemsDialog({
                 />
                 <Label htmlFor={id} className="font-normal">
                   {ing.name}
+                  {ing.key_item ? <span className="text-xs text-muted-foreground"> · crítico</span> : null}
                   {other ? <span className="text-xs text-muted-foreground"> · se cuenta en {other}</span> : null}
                 </Label>
               </li>
@@ -895,8 +898,16 @@ function AreasSection({
   return (
     <section aria-labelledby="count-areas" className="space-y-2">
       <h3 id="count-areas" className="text-base font-bold">
-        Áreas y sus artículos clave
+        Áreas y lo que cuenta cada una
       </h3>
+      {/* Dos listas cortas que se parecían (limpieza 2026-10): acá se dice
+          cuál es cuál, en vez de dejar que se confundan. */}
+      <p className="text-sm text-muted-foreground">
+        El área dice <b className="text-foreground">dónde vive</b> cada insumo y quién lo cuenta al abrir y al cerrar en
+        el POS; esos conteos miden, no ajustan el stock. La marca <b className="text-foreground">«Crítico»</b> (en
+        Configuración › Inventario o en la ficha del insumo) elige qué entra al conteo de críticos del administrador,
+        que sí ajusta el stock y alimenta la varianza. Un insumo puede estar en las dos.
+      </p>
       <DenseTable
         caption="Áreas de conteo"
         columns={columns}
