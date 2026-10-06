@@ -87,7 +87,9 @@ def test_owner_hand_balances_withdrawn_minus_deposited_minus_spent(
     close_shift: Callable[..., dict],
     store: Any,
 ) -> None:
-    """`withdrawn = pickups + to_deposit de turnos cerrados`;
+    """c9: `withdrawn = retiros + sobres entregados`, y la plata del cierre
+    que sigue en el cajón (apertura «igual al café», nadie abrió después) NO
+    está en la mano: se publica en `still_in_drawer`.
     `balance = withdrawn - deposited - spent`, exacto."""
 
     bd = today_business_date(store)
@@ -128,11 +130,14 @@ def test_owner_hand_balances_withdrawn_minus_deposited_minus_spent(
     body = resp.json()
 
     assert body["withdrawn_from_pickups"] == 20_000
-    assert body["withdrawn_from_shift_close"] == 50_000
-    assert body["withdrawn"] == 70_000
+    # Lo consignado por el administrador pasó por su mano camino al banco;
+    # los otros 25.000 siguen en el cajón esperando al que abra.
+    assert body["withdrawn_from_envelopes"] == 25_000
+    assert body["still_in_drawer"] == 25_000
+    assert body["withdrawn"] == 45_000
     assert body["deposited"] == 25_000
     assert body["spent"] == 0
-    assert body["balance"] == body["withdrawn"] - body["deposited"] - body["spent"] == 45_000
+    assert body["balance"] == body["withdrawn"] - body["deposited"] - body["spent"] == 20_000
 
 
 def test_owner_hand_counts_refunds_settled_from_owner_as_spent(
@@ -254,11 +259,12 @@ def test_owner_hand_does_not_count_cash_that_nobody_counted(
     body = resp.json()
 
     # Sólo el turno contado aporta: los 60.000 que contó (abrió vacío).
-    assert body["withdrawn_from_shift_close"] == 60_000, (
+    # El turno 2 abrió sin marcar los 60.000 del turno 1: salieron en sobre.
+    assert body["withdrawn_from_envelopes"] == 60_000, (
         "la mano del dueño está contando plata de un turno que nadie contó: "
-        f"{body['withdrawn_from_shift_close']}"
+        f"{body['withdrawn_from_envelopes']}"
     )
-    assert body["withdrawn"] == body["withdrawn_from_pickups"] + body["withdrawn_from_shift_close"]
+    assert body["withdrawn"] == body["withdrawn_from_pickups"] + body["withdrawn_from_envelopes"]
 
     # Y lo excluido se dice, no se calla.
     assert body["uncounted_shifts"] == 1, (
@@ -286,12 +292,13 @@ def test_owner_hand_does_not_subtract_a_tip_payout_that_came_out_of_the_drawer(
     employees: dict[str, Any],
     open_shift: Callable[..., dict],
     close_shift: Callable[..., dict],
+    make_payment: Callable[..., dict],
     store: Any,
 ) -> None:
     """**A-3 del cierre de la fase 3: la misma plata restada dos veces.**
 
     Un reparto de propinas pagado **del cajón** ya redujo el `to_deposit` de
-    su turno, y `withdrawn_from_shift_close` suma justamente ese `to_deposit`.
+    su turno, y `withdrawn_from_envelopes` sale justamente de ese `to_deposit`.
     Volver a restarlo como «gastado de la mano» contaba la misma plata dos
     veces. El sesgo iba al lado tolerado —mostraba MENOS plata de la que
     había— y por eso no rompía ninguna identidad publicada: el invariante del
@@ -305,10 +312,15 @@ def test_owner_hand_does_not_subtract_a_tip_payout_that_came_out_of_the_drawer(
     bd = today_business_date(store)
 
     shift = open_shift(total=0)
+    # c3: un reparto no puede entregar más propina de la que se recogió; la
+    # propina sale de un cobro con datáfono, para no tocar el efectivo.
+    card = make_payment(shift=shift, method="card", amount=10_000, tip=20_000)
     # Contado 60.000 con 10.000 de propina en efectivo retirada al cierre:
     # `to_deposit = 60.000 - 10.000 = 50.000`. Esos 10.000 YA
     # salieron del cajón acá.
-    close_body = close_shift(shift["id"], counted_cash=60_000, tips_cash_out=10_000)
+    close_body = close_shift(
+        shift["id"], counted_cash=60_000, tips_cash_out=10_000, counted_card=card["_amount"] + 20_000
+    )
     assert close_body["to_deposit"] == 50_000
 
     def mano() -> dict:
@@ -367,6 +379,16 @@ def test_owner_hand_does_not_subtract_a_tip_payout_that_came_out_of_the_drawer(
     # Nada de esto vino de una fila vieja sin origen declarado.
     assert final["tip_payouts_unknown_source"] == 0
 
+    # c3: un reparto reversado no salió de ninguna mano.
+    reversa = admin_client.post(
+        f"{API}/admin/tips/payouts/{de_la_mano.json()['id']}/reverse",
+        params={"store_id": store.id},
+        json={"reason": "Se registró dos veces"},
+        headers=idem(),
+    )
+    assert reversa.status_code == 200, reversa.text
+    assert mano()["spent_on_tips"] == 0
+
 
 def test_owner_hand_says_how_many_tip_payouts_did_not_declare_their_source(
     admin_client: TestClient,
@@ -376,6 +398,7 @@ def test_owner_hand_says_how_many_tip_payouts_did_not_declare_their_source(
     open_shift: Callable[..., dict],
     close_shift: Callable[..., dict],
     db: Any,
+    make_payment: Callable[..., dict],
     store: Any,
 ) -> None:
     """La otra mitad de A-3: las filas que YA existían no tienen respuesta.
@@ -390,7 +413,8 @@ def test_owner_hand_says_how_many_tip_payouts_did_not_declare_their_source(
 
     bd = today_business_date(store)
     shift = open_shift(total=0)
-    close_shift(shift["id"], counted_cash=60_000, tips_cash_out=10_000)
+    card = make_payment(shift=shift, method="card", amount=10_000, tip=9_000)
+    close_shift(shift["id"], counted_cash=60_000, tips_cash_out=10_000, counted_card=card["_amount"] + 9_000)
 
     creado = admin_client.post(
         f"{API}/admin/tips/payouts",
@@ -479,3 +503,146 @@ def test_owner_hand_says_how_many_days_the_oldest_undeposited_cash_has_been_wait
     body = admin_client.get(f"{API}/admin/bank/owner-hand", params=params).json()
     assert body["oldest_undeposited_days"] is None
     assert body["oldest_undeposited_date"] is None
+
+
+# ---------------------------------------------------------------------------
+# c9 — sólo cuenta la plata que de verdad salió del cajón hacia el dueño.
+# ---------------------------------------------------------------------------
+
+
+def _owner_hand_today(admin_client: TestClient, store: Any) -> dict:
+    bd = today_business_date(store).isoformat()
+    resp = admin_client.get(f"{API}/admin/bank/owner-hand", params={"store_id": store.id, "from": bd, "to": bd})
+    assert resp.status_code == 200, resp.text
+    body: dict = resp.json()
+    assert body["balance"] == body["withdrawn"] - body["deposited"] - body["spent"]
+    assert body["withdrawn"] == body["withdrawn_from_pickups"] + body["withdrawn_from_envelopes"]
+    return body
+
+
+def _open_next(
+    device_client: TestClient, identify: Callable[..., Any], cashier: Any, *, counted: int, carried: list[int]
+) -> dict:
+    """Abre el turno siguiente «igual al café», marcando qué días están en el
+    cajón y contando exactamente lo que debería haber."""
+    from tests.banking.conftest import denoms
+
+    identify(device_client, cashier)
+    payload: dict[str, Any] = {"cash_responsible_id": cashier.id, "carried_shift_ids": carried}
+    if counted:
+        payload["opening_cash"] = denoms(counted)
+    resp = device_client.post(f"{API}/shifts/open", json=payload, headers=idem())
+    assert resp.status_code in (200, 201), resp.text
+    return resp.json()
+
+
+def test_owner_hand_does_not_count_the_money_that_stays_in_the_drawer(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Callable[..., Any],
+    employees: dict[str, Any],
+    open_shift: Callable[..., dict],
+    close_shift: Callable[..., dict],
+    store: Any,
+) -> None:
+    """Con la apertura «igual al café» la venta por consignar se queda en el
+    cajón: quien abre la marca y la cuenta. Esa plata NO está en la mano del
+    dueño — antes la pantalla la sumaba igual."""
+    ayer = open_shift(total=0)
+    assert close_shift(ayer["id"], counted_cash=50_000)["to_deposit"] == 50_000
+
+    # Nadie abrió todavía: la plata espera en el cajón.
+    body = _owner_hand_today(admin_client, store)
+    assert (body["withdrawn_from_envelopes"], body["still_in_drawer"], body["balance"]) == (0, 50_000, 0)
+
+    # El siguiente la marca y la cuenta: sigue en el cajón.
+    _open_next(device_client, identify, employees["cashier"], counted=50_000, carried=[ayer["id"]])
+    body = _owner_hand_today(admin_client, store)
+    assert (body["withdrawn_from_envelopes"], body["still_in_drawer"], body["balance"]) == (0, 50_000, 0)
+
+
+def test_owner_hand_counts_the_envelope_that_left_the_drawer(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Callable[..., Any],
+    employees: dict[str, Any],
+    open_shift: Callable[..., dict],
+    close_shift: Callable[..., dict],
+    store: Any,
+) -> None:
+    """Quien abre desmarca el día: no estaba en el cajón, salió en sobre
+    hacia el dueño. Ahí sí entra a la mano, y consignarlo la baja."""
+    ayer = open_shift(total=0)
+    close_shift(ayer["id"], counted_cash=50_000)
+    _open_next(device_client, identify, employees["cashier"], counted=0, carried=[])
+
+    body = _owner_hand_today(admin_client, store)
+    assert (body["withdrawn_from_envelopes"], body["still_in_drawer"], body["balance"]) == (50_000, 0, 50_000)
+
+    deposit = admin_client.post(
+        f"{API}/admin/deposits",
+        params={"store_id": store.id},
+        json={"amount": 30_000, "receipt_photo": "c.jpg", "allocations": [{"shift_id": ayer["id"], "amount": 30_000}]},
+        headers=idem(),
+    )
+    assert deposit.status_code == 201, deposit.text
+    body = _owner_hand_today(admin_client, store)
+    # El sobre sigue siendo de 50.000; consignó 30.000 y le quedan 20.000.
+    assert (body["withdrawn_from_envelopes"], body["deposited"], body["balance"]) == (50_000, 30_000, 20_000)
+
+
+def test_expenses_paid_from_the_owner_hand_reduce_it(
+    admin_client: TestClient,
+    device_client: TestClient,
+    identify: Callable[..., Any],
+    employees: dict[str, Any],
+    open_shift: Callable[..., dict],
+    close_shift: Callable[..., dict],
+    store: Any,
+) -> None:
+    """`ExpenseSource.OWNER_HAND` (c9): un gasto o una obligación pagados del
+    bolsillo del dueño restan de su mano; uno anulado o pagado por banco no."""
+    bd = today_business_date(store).isoformat()
+    shift = open_shift(total=0)
+    pickup = device_client.post(
+        f"{API}/shifts/{shift['id']}/pickups",
+        json={"amount": 40_000, "authorizer_pin": "9999", "photo": "retiro.jpg"},
+        headers=idem(),
+    )
+    assert pickup.status_code == 201, pickup.text
+
+    def expense(amount: int, source: str) -> dict:
+        resp = admin_client.post(
+            f"{API}/admin/expenses",
+            params={"store_id": store.id},
+            json={"category": "supplies", "description": "Hielo", "amount": amount, "business_date": bd, "source": source},
+            headers=idem(),
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["source"] == source
+        return resp.json()
+
+    expense(7_000, "owner_hand")
+    expense(9_000, "bank")
+    anulado = expense(3_000, "owner_hand")
+    void = admin_client.post(
+        f"{API}/admin/expenses/{anulado['id']}/void", json={"reason": "Duplicado"}, headers=idem()
+    )
+    assert void.status_code in (200, 201), void.text
+
+    obligation = admin_client.post(
+        f"{API}/admin/obligations",
+        params={"store_id": store.id},
+        json={"category": "utilities", "description": "Gas", "amount": 5_000, "due_date": bd},
+        headers=idem(),
+    )
+    assert obligation.status_code == 201, obligation.text
+    settled = admin_client.post(
+        f"{API}/admin/obligations/{obligation.json()['id']}/settle", json={"source": "owner_hand"}, headers=idem()
+    )
+    assert settled.status_code in (200, 201), settled.text
+
+    body = _owner_hand_today(admin_client, store)
+    assert body["spent_on_expenses"] == 7_000 + 5_000
+    assert body["spent"] == body["spent_on_tips"] + body["spent_on_refunds"] + body["spent_on_expenses"]
+    assert body["balance"] == 40_000 - 12_000

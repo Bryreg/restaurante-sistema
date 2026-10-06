@@ -261,7 +261,19 @@ residuo perdido. Usalo; no escribas otro.
   anteriores a la columna, se tratan como de la mano y su cantidad se publica.
   La regla general detrás: **cuando una cifra depende de un hecho que nadie
   registró, el hecho se vuelve un dato — no se adivina, y lo que se supone se
-  publica.**
+  publica.** Un reparto reversado (c3, `TipPayout.reversed_at`) no resta.
+- **La mano del dueño sólo cuenta plata que salió del cajón hacia él** (c9):
+  retiros (`CashPickup`) y **sobres entregados** —el saldo por consignar de un
+  cierre que el último turno abierto NO marcó al abrir, más lo que el
+  administrador consignó imputándolo—. Lo que sigue en el cajón (marcado al
+  abrir, o nadie abrió todavía con la apertura «igual al café») sale en
+  `still_in_drawer` y no suma; lo consignado desde el POS
+  (`BankDeposit.from_shift_id`) va del cajón al banco y no resta. Los gastos y
+  obligaciones con `ExpenseSource.OWNER_HAND` sí restan
+  (`app/expenses/hooks.py: owner_hand_spent`).
+- **Propinas** (c3): la única cuenta de cuánto le entregó cada reparto a cada
+  turno es `app/shifts/tips.py: allocate_payouts`; un reparto nuevo no puede
+  pasar lo pendiente de sus turnos (`TIP_PAYOUT_EXCEEDS_PENDING`).
 
 **Horas** — `app/core/hours.py` fija la escala entera de las horas, igual que
 `QTY_SCALE` hizo con las cantidades. Las horas no son pesos.

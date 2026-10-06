@@ -54,3 +54,29 @@ describe("OwnerHandTab — cuánto lleva la plata sin consignar (informe #15)", 
     expect(tarjeta()).toHaveTextContent("No queda plata de ningún cierre por consignar.")
   })
 })
+
+describe("OwnerHandTab — c9: sólo la plata que salió del cajón", () => {
+  it("explica la fórmula en pantalla y publica lo que sigue en el cajón sin contarlo", async () => {
+    getOwnerHandMock.mockResolvedValue({
+      ...BASE,
+      withdrawn_from_pickups: 4_000_000,
+      withdrawn_from_envelopes: 10_531_600,
+      spent_on_tips: 500_000,
+      spent_on_refunds: 141_400,
+      spent_on_expenses: 200_000,
+      still_in_drawer: 697_900,
+      deposited_from_drawer: 300_000,
+    })
+    renderWithProviders(<OwnerHandTab storeId={1} />)
+
+    const formula = await screen.findByTestId("owner-hand-formula")
+    expect(formula).toHaveTextContent("retirado − consignado − gastado")
+    expect(formula).toHaveTextContent(/sobres entregados/i)
+    expect(formula).toHaveTextContent(/De la mano del dueño/)
+    expect(formula).toHaveTextContent("$ 697.900")
+    expect(screen.getAllByText("Sobres entregados").length).toBeGreaterThan(0)
+    expect(screen.getByText("$ 10.531.600")).toBeInTheDocument()
+    expect(screen.getByText("Gastado en gastos y obligaciones")).toBeInTheDocument()
+    expect(screen.getByText("$ 200.000")).toBeInTheDocument()
+  })
+})

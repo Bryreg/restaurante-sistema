@@ -1,17 +1,28 @@
 import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { TipDistributionProposalOut, TipsSettingsOut } from "@/api/payroll"
+import type { TipDistributionProposalOut, TipPayoutOut, TipsBalanceOut, TipsSettingsOut } from "@/api/payroll"
 import { renderWithProviders } from "@/test/utils"
 
 import { TipsTab } from "../TipsTab"
 
-const { getTipsDistributionProposalMock, getTipsSettingsMock, updateTipsSettingsMock, createTipPayoutMock } = vi.hoisted(() => ({
+const {
+  getTipsDistributionProposalMock,
+  getTipsSettingsMock,
+  updateTipsSettingsMock,
+  createTipPayoutMock,
+  getTipsBalanceMock,
+  getTipPayoutsMock,
+  reverseTipPayoutMock,
+} = vi.hoisted(() => ({
   getTipsDistributionProposalMock: vi.fn(),
   getTipsSettingsMock: vi.fn(),
   updateTipsSettingsMock: vi.fn(),
   createTipPayoutMock: vi.fn(),
+  getTipsBalanceMock: vi.fn(),
+  getTipPayoutsMock: vi.fn(),
+  reverseTipPayoutMock: vi.fn(),
 }))
 
 vi.mock("@/api/payroll", async () => {
@@ -22,7 +33,29 @@ vi.mock("@/api/payroll", async () => {
     getTipsSettings: getTipsSettingsMock,
     updateTipsSettings: updateTipsSettingsMock,
     createTipPayout: createTipPayoutMock,
+    getTipsBalance: getTipsBalanceMock,
+    getTipPayouts: getTipPayoutsMock,
+    reverseTipPayout: reverseTipPayoutMock,
   }
+})
+
+const BALANCE: TipsBalanceOut = {
+  date_from: "2026-09-13",
+  date_to: "2026-09-20",
+  collected: 50_000,
+  paid: 10_000,
+  pending: 40_000,
+  overpaid: 0,
+  fully_delivered: false,
+  shifts: [],
+}
+
+beforeEach(() => {
+  getTipsBalanceMock.mockReset()
+  getTipPayoutsMock.mockReset()
+  reverseTipPayoutMock.mockReset()
+  getTipsBalanceMock.mockResolvedValue(BALANCE)
+  getTipPayoutsMock.mockResolvedValue([])
 })
 
 const SETTINGS: TipsSettingsOut = { method: "by_hours" }
@@ -46,8 +79,10 @@ describe("TipsTab — D-3: la propuesta NUNCA mueve plata sola", () => {
 
     renderWithProviders(<TipsTab storeId={1} />)
 
-    const banner = await screen.findByRole("status")
-    expect(banner.textContent).toMatch(/es una\s*propuesta/i)
+    // Desde c3 hay otros avisos vivos en la pestaña (el historial cuenta
+    // repartos): se busca el de la propuesta entre ellos.
+    const banners = await screen.findAllByRole("status")
+    expect(banners.some((b) => /es una\s*propuesta/i.test(b.textContent ?? ""))).toBe(true)
     expect(await screen.findByText("$ 60.000")).toBeInTheDocument()
     // El total del servidor, dos veces y el mismo: como cifra protagonista
     // arriba de la tabla y en su pie.
@@ -159,5 +194,72 @@ describe("A-3 — de dónde salió la plata de un reparto en efectivo", () => {
     await user.click(await screen.findByRole("option", { name: /Transferencia/i }))
 
     expect(screen.queryByLabelText("¿De dónde salió la plata?")).not.toBeInTheDocument()
+  })
+})
+
+describe("c3 — recogido, entregado y pendiente, con la prueba del 100 % entregado", () => {
+  const PAYOUT: TipPayoutOut = {
+    id: 7,
+    shift_ids: [11],
+    paid_at: "2026-09-20T20:00:00Z",
+    method: "cash",
+    paid_from: "owner_hand",
+    total_amount: 10_000,
+    created_at: "2026-09-20T20:00:00Z",
+    distribution: [{ employee_id: 1, employee_name: "Ana", amount: 10_000 }],
+    reversed_at: null,
+  }
+
+  it("pinta las tres cifras tal como llegan y dice cuánto falta entregar", async () => {
+    getTipsSettingsMock.mockResolvedValue(SETTINGS)
+    getTipsDistributionProposalMock.mockResolvedValue(PROPOSAL)
+    renderWithProviders(<TipsTab storeId={1} />)
+
+    expect(await screen.findByText("$ 50.000")).toBeInTheDocument()
+    expect(screen.getAllByText("$ 40.000").length).toBeGreaterThan(0)
+    expect(screen.getByTestId("tips-delivered-check")).toHaveTextContent(/Falta entregar/)
+  })
+
+  it("con todo entregado muestra el «100 % entregado» y no ofrece confirmar otra vez", async () => {
+    getTipsSettingsMock.mockResolvedValue(SETTINGS)
+    getTipsDistributionProposalMock.mockResolvedValue(PROPOSAL)
+    getTipsBalanceMock.mockResolvedValue({ ...BALANCE, paid: 50_000, pending: 0, fully_delivered: true })
+    renderWithProviders(<TipsTab storeId={1} />)
+
+    expect(await screen.findByTestId("tips-delivered-check")).toHaveTextContent("100 % entregado")
+    await screen.findByText("$ 60.000")
+    expect(screen.queryByRole("button", { name: "Confirmar reparto" })).not.toBeInTheDocument()
+  })
+
+  it("sin turnos cerrados no afirma nada: null no es «entregado»", async () => {
+    getTipsSettingsMock.mockResolvedValue(SETTINGS)
+    getTipsDistributionProposalMock.mockResolvedValue(PROPOSAL)
+    getTipsBalanceMock.mockResolvedValue({ ...BALANCE, collected: 0, paid: 0, pending: 0, fully_delivered: null })
+    renderWithProviders(<TipsTab storeId={1} />)
+
+    const check = await screen.findByTestId("tips-delivered-check")
+    expect(check).toHaveTextContent(/No hay turnos cerrados/)
+    expect(check).not.toHaveTextContent("100 % entregado")
+  })
+
+  it("el historial permite reversar un reparto con motivo", async () => {
+    getTipsSettingsMock.mockResolvedValue(SETTINGS)
+    getTipsDistributionProposalMock.mockResolvedValue(PROPOSAL)
+    getTipPayoutsMock.mockResolvedValue([PAYOUT])
+    reverseTipPayoutMock.mockResolvedValue({ ...PAYOUT, reversed_at: "2026-09-21T10:00:00Z", reversed_reason: "Duplicado" })
+
+    const user = userEvent.setup()
+    renderWithProviders(<TipsTab storeId={1} />)
+
+    await user.click(await screen.findByRole("button", { name: "Reversar" }))
+    const confirm = await screen.findByRole("button", { name: "Reversar reparto" })
+    expect(confirm).toBeDisabled()
+    await user.type(screen.getByLabelText("Motivo"), "Duplicado")
+    await user.click(confirm)
+
+    await waitFor(() => expect(reverseTipPayoutMock).toHaveBeenCalledTimes(1))
+    const [storeId, payoutId, body, key] = reverseTipPayoutMock.mock.calls[0]!
+    expect([storeId, payoutId, body]).toEqual([1, 7, { reason: "Duplicado" }])
+    expect(typeof key).toBe("string")
   })
 })

@@ -8,7 +8,6 @@ import {
   DIAN_STATUS_LABEL,
   DOCUMENT_TYPE_LABEL,
   fiscalDocumentsCsvUrl,
-  fiscalExportUrl,
   getFiscalDocumentEvidence,
   listFiscalDocuments,
   retryFiscalDocument,
@@ -38,7 +37,8 @@ import { formatInstant } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
 
-import { LocalCsvExportButton, LocalDateRangeFilter } from "./components";
+import { LocalCsvExportButton } from "./components";
+import { EvidenceExportSection } from "./EvidenceExportSection";
 import { csvUrl } from "@/api/client";
 
 const STATUS_OPTIONS: DianStatus[] = ["pending", "sent", "validated", "rejected", "contingency"];
@@ -198,7 +198,6 @@ export function DocumentsPage(): React.JSX.Element {
   const [status, setStatus] = useState<DianStatus | undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState<FiscalDocumentType | undefined>(undefined);
   const [evidenceId, setEvidenceId] = useState<number | null>(null);
-  const [exportRange, setExportRange] = useState({ from: "", to: "" });
 
   const query = useQuery({
     queryKey: ["fiscal-documents", activeStoreId, status],
@@ -428,31 +427,7 @@ export function DocumentsPage(): React.JSX.Element {
         </p>
       ) : null}
 
-      <section className="space-y-2 rounded-lg border bg-card p-3">
-        <h2 className="text-sm font-bold">Exportar paquete de evidencia</h2>
-        {/* Plegado (mapa de pantallas, regla 2): qué lleva el paquete se lee
-            una vez; lo que queda a la vista es el rango y el botón. */}
-        <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer rounded-md py-0.5 font-medium select-none hover:text-foreground">
-            ¿Qué es esto?
-          </summary>
-          <p className="pt-1 leading-relaxed">
-            Manifiesto con hash por documento y hash del manifiesto entero, para conservación mínima de 5 años sin
-            depender sólo del proveedor.
-          </p>
-        </details>
-        <LocalDateRangeFilter from={exportRange.from} to={exportRange.to} onChange={setExportRange} />
-        {exportRange.from && exportRange.to ? (
-          <LocalCsvExportButton
-            href={fiscalExportUrl({ storeId: activeStoreId, from: exportRange.from, to: exportRange.to })}
-            label="Exportar paquete de evidencia"
-          />
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            El botón aparece con las dos fechas puestas: un paquete sin rango no es evidencia de nada.
-          </p>
-        )}
-      </section>
+      <EvidenceExportSection storeId={activeStoreId} />
 
       <EvidenceDialog documentId={evidenceId} onOpenChange={(open) => !open && setEvidenceId(null)} />
     </div>

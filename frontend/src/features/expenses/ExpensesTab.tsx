@@ -8,7 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { createExpense, getExpenses, type ExpenseCategory } from "@/api/expenses"
+import { createExpense, getExpenses, type ExpenseCategory, type ExpenseSource } from "@/api/expenses"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { DenseTable, DenseTableBar, type DenseColumn } from "@/components/admin"
 import { EmptyState } from "@/components/EmptyState"
@@ -22,7 +22,15 @@ import { formatBusinessDate } from "@/lib/businessDate"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
 
-import { daysAgoLocal, EXPENSE_CATEGORY_LABEL, expenseCategoryLabel, todayLocal } from "./lib"
+import {
+  daysAgoLocal,
+  EXPENSE_CATEGORY_LABEL,
+  EXPENSE_FORM_SOURCES,
+  EXPENSE_SOURCE_LABEL,
+  expenseCategoryLabel,
+  expenseSourceLabel,
+  todayLocal,
+} from "./lib"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { csvUrl } from "@/api/client"
 
@@ -38,6 +46,9 @@ function CreateExpenseDialog({
   const [category, setCategory] = useState<ExpenseCategory>("other")
   const [description, setDescription] = useState("")
   const [amount, setAmount] = useState<number | null>(null)
+  // c9: de dónde salió la plata. «De la mano del dueño» reduce Banco › Mano
+  // del dueño; el default sigue siendo «Otro», el de antes.
+  const [source, setSource] = useState<ExpenseSource>("other")
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -46,6 +57,7 @@ function CreateExpenseDialog({
         category,
         description: description.trim(),
         amount: amount as number,
+        source,
       }),
     onSuccess: () => {
       setDescription("")
@@ -95,6 +107,26 @@ function CreateExpenseDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="expense-source">¿De dónde salió la plata?</Label>
+            <Select value={source} onValueChange={(value) => setSource(value as ExpenseSource)}>
+              <SelectTrigger id="expense-source" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {EXPENSE_FORM_SOURCES.map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {EXPENSE_SOURCE_LABEL[key]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {source === "owner_hand" ? (
+              <p className="text-xs text-muted-foreground">
+                Se resta de <b>Banco › Mano del dueño</b>: es plata que retiraste del cajón y pagaste de tu bolsillo.
+              </p>
+            ) : null}
           </div>
           <div className="space-y-1">
             <Label htmlFor="expense-description">Descripción</Label>
@@ -152,6 +184,7 @@ export function ExpensesTab({ storeId }: { storeId: number }): React.JSX.Element
     // La palabra del negocio, nunca el enum: la categoría es tipada y se
     // escribe como la lee el dueño.
     { key: "category", header: "Categoría", cell: (e) => expenseCategoryLabel(e.category) },
+    { key: "source", header: "Salió de", kind: "secondary", cell: (e) => expenseSourceLabel(e.source ?? "other") },
     {
       key: "description",
       header: "Descripción",

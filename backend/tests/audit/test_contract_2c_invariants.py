@@ -546,15 +546,18 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
     - Con **`0044_admin_account_security`** la cadena llega a `"0044"` y el
       conteo pasa a **123**. Motivo declarado: verificación en dos pasos,
       límite de intentos y códigos de recuperación.
+    - Con **`0045_tip_payout_reversal`** la cadena llega a `"0045"` y el
+      conteo **sigue en 123**. Motivo declarado: la reversa con motivo de un
+      reparto de propinas (Ley 1935 de 2018)..
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0044"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0044 "
+    assert 'version == "0045"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0045 "
         "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031, "
-        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035, etiquetas de cocina 0036, anular conteo 0037, contar preparaciones 0038, ficha de chef 0039, nivel par 0040, recargos legales 0041, avisos resueltos 0042, contrato de nómina 0043 y seguridad de la cuenta 0044)"
+        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035, etiquetas de cocina 0036, anular conteo 0037, contar preparaciones 0038, ficha de chef 0039, nivel par 0040, recargos legales 0041, avisos resueltos 0042, contrato de nómina 0043, seguridad de la cuenta 0044 y reversa del reparto de propinas 0045)"
     )
     assert "len(tablas) == 123" in fuente, (
-        "el conteo de tablas sigue en un número viejo: 0044 lo deja en 123 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1 + 2 + 1 + 1 + 3 + 2)"
+        "el conteo de tablas sigue en un número viejo: 0045 lo deja en 123 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1 + 2 + 1 + 1 + 3 + 2)"
     )
     assert ">=" not in fuente.split("def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory")[1].split("\ndef ")[0], (
         "el invariante de la cadena se aflojó a una desigualdad: un conjunto exacto se MUEVE, no se afloja"

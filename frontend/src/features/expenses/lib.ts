@@ -32,8 +32,14 @@ export function expenseCategoryLabel(category: string): string {
 export const EXPENSE_SOURCE_LABEL: Record<ExpenseSource, string> = {
   bank: "Banco (transferencia o débito)",
   cash_drawer: "Cajón (egreso ya registrado en el turno)",
+  owner_hand: "De la mano del dueño (plata retirada sin consignar)",
   other: "Otro (fuera del banco y del cajón)",
 }
+
+/** Los orígenes que el formulario de gasto ofrece. `cash_drawer` no: un
+ * gasto del cajón entra primero como egreso del turno, desde el POS, y se
+ * referencia al saldar una obligación (`ObligationsTab`). */
+export const EXPENSE_FORM_SOURCES: readonly ExpenseSource[] = ["bank", "owner_hand", "other"]
 
 export function expenseSourceLabel(source: string): string {
   return EXPENSE_SOURCE_LABEL[source as ExpenseSource] ?? source

@@ -267,9 +267,19 @@ export interface OwnerHandOut {
   balance: number | null
   /** Desglose informativo de `withdrawn`/`spent` (nunca una cifra nueva: siempre las mismas sumas de arriba, partidas). */
   withdrawn_from_pickups?: number | null
-  withdrawn_from_shift_close?: number | null
+  /** c9: sobres entregados — la plata de cierres que ya NO está en el cajón
+   * (la desmarcó quien abrió) más lo que el administrador consignó
+   * imputándolo a un turno. Reemplaza a `withdrawn_from_shift_close`. */
+  withdrawn_from_envelopes?: number | null
   spent_on_tips?: number | null
   spent_on_refunds?: number | null
+  /** c9: gastos y obligaciones pagados «de la mano del dueño». */
+  spent_on_expenses?: number | null
+  /** c9, lo que NO entra a la cuenta (publicado para que la exclusión se vea):
+   * la plata por consignar que sigue en el cajón y lo consignado desde el
+   * cajón (POS), que va al banco sin pasar por la mano. */
+  still_in_drawer?: number | null
+  deposited_from_drawer?: number | null
   /** Informe de visualización #15: fecha de negocio (ISO) del cierre contado
    * más viejo que sigue con saldo por consignar, y cuántos días lleva a hoy.
    * Los dos `null` si no queda plata de cierres sin consignar. No se acota al

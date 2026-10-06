@@ -700,7 +700,7 @@ Pantalla detrás de **`money.deposits`**. **Cuatro de sus seis pestañas exigen 
 
 **Libro del banco** (`money.bank`): rango, cuatro totales (consignaciones, liquidaciones de datáfono netas, transferencias, total) y el libro de movimientos.
 
-**Mano del dueño** (`money.bank`): rango; tarjetas Retirado / Consignado / Gastado / **Saldo en mano**, y un segundo bloque de desglose (**retirado por relevo**, **retirado al cerrar turno**, **gastado en propinas**, **gastado en devoluciones**) que **sólo se dibuja si el servidor mandó esos campos**. Vacío propio: «Mano del dueño no disponible» con el motivo.
+**Mano del dueño** (`money.bank`): rango; tarjetas Retirado / Consignado / Gastado / **Saldo en mano**, un recuadro **«Cómo se calcula»** que explica la fórmula (sólo cuenta la plata que salió del cajón hacia el dueño; lo que sigue en el cajón se muestra y no se cuenta), y un segundo bloque de desglose (**retirado por relevo**, **sobres entregados**, **gastado en propinas**, **gastado en devoluciones**, **gastado en gastos y obligaciones**, **sigue en el cajón (no cuenta)**, **consignado desde el cajón (no cuenta)**) que **sólo se dibuja si el servidor mandó esos campos**. Vacío propio: «Mano del dueño no disponible» con el motivo.
 
 **Conciliación datáfono / plataformas** (`money.bank`): rango; tabla con esperado, liquidado, diferencia y badge **Conciliado / Sin conciliar**.
 - Botón **Conciliar** por fila — **sólo en la de datáfono, y sólo si la fila no está conciliada**; abre un diálogo con el resumen de la diferencia y una nota opcional.
@@ -711,7 +711,7 @@ Pantalla detrás de **`money.deposits`**. **Cuatro de sus seis pestañas exigen 
 
 Pantalla detrás de **`money.obligations`**. Cinco pestañas (en la URL), todas con el mismo flag.
 
-**Gastos:** rango + **Registrar gasto** (fecha, monto, **categoría tipada**, descripción). Tabla. Vacío: «No hay gastos registrados en este período».
+**Gastos:** rango + **Registrar gasto** (fecha, monto, **categoría tipada**, descripción, **«¿De dónde salió la plata?»**: Banco / De la mano del dueño / Otro — *«De la mano del dueño» resta de Banco › Mano del dueño*). Tabla con columna «Salió de». Vacío: «No hay gastos registrados en este período».
 
 **Obligaciones:** filtro de estado (Todas / Pendientes / Pagadas) + **Agendar obligación** (descripción, categoría, **vencimiento**, monto). Por fila, botón **Saldar** — **sólo si está pendiente y no cancelada**. Vacío: «No hay obligaciones agendadas».
 
@@ -772,7 +772,7 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 | **Evidencia** (por fila) | Abre el diálogo con estado DIAN, CUDE, **enlace al QR**, fecha de validación y **el rango que amparó el consecutivo** | siempre |
 | **Reintentar** (por fila) | Reintenta la transmisión a la DIAN | **sólo si el documento tiene estado DIAN y no está «validado»** |
 | **Emitir nota** (por fila) | Enlaza a `/admin/fiscal/notas?document={id}` con el documento ya cargado | siempre |
-| **Exportar paquete de evidencia** | Manifiesto con hash por documento y hash del manifiesto entero (conservación 5 años) | **el botón aparece sólo con las dos fechas del rango puestas** |
+| **Exportar paquete de evidencia** | Aviso visible «Guardalo 5 años» (Estatuto Tributario art. 632; Res. DIAN 000165/2023); rango con atajos **Mes anterior** / **Año anterior**; **Ver qué lleva** (cuántos documentos y hash del manifiesto, del servidor); **Descargar paquete (.json)** y **Descargar lista (.csv)** | **los botones aparecen sólo con las dos fechas puestas y en orden**; un rango al revés se avisa |
 
 - Badges: estado DIAN y **«Contingencia vencida (48 h)»**.
 - **Estados:** cargando sedes, cargando, error, «Ningún documento coincide con estos filtros».

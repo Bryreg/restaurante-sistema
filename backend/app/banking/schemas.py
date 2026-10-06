@@ -209,9 +209,20 @@ class OwnerHandOut(BaseModel):
     # Desglose informativo de las mismas sumas de arriba (nunca una cifra
     # nueva): de dónde sale `withdrawn` y `spent`.
     withdrawn_from_pickups: int
-    withdrawn_from_shift_close: int
+    # c9: sobres entregados — sólo la plata de cierres que ya NO está en el
+    # cajón (la apertura «igual al café» deja el resto adentro). Reemplaza a
+    # `withdrawn_from_shift_close`, que sumaba también la plata del cajón.
+    withdrawn_from_envelopes: int
     spent_on_tips: int
     spent_on_refunds: int
+    # c9: gastos y obligaciones pagados «de la mano del dueño».
+    spent_on_expenses: int = 0
+    # c9, lo que NO entra (publicado para que la exclusión no sea
+    # silenciosa): la plata por consignar de cierres que sigue en el cajón,
+    # y lo consignado desde el cajón (POS), que va al banco sin pasar por la
+    # mano. Ninguno de los dos suma ni resta en `balance`.
+    still_in_drawer: int = 0
+    deposited_from_drawer: int = 0
     # A-2: cuántos turnos cerrados SIN CONTEO quedaron fuera de `withdrawn`.
     # No es una cifra de plata y no puede serlo: el monto de esos turnos sale
     # del libro y no de un arqueo, y publicarlo sería volver a afirmar lo que
