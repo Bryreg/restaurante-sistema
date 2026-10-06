@@ -330,6 +330,7 @@
  ],
  "features/features/FeaturesPage.tsx": [
   "Alcance de la edición",
+  "Aplicar perfil",
   "Básico",
   "Cancelar",
   "Confirmar",
@@ -343,6 +344,7 @@
   "Full",
   "No se pudieron cargar las funciones",
   "Perfil",
+  "Perfil del salón",
   "Reintentar",
   "Toda la organización",
   "Todavía no hay funciones para mostrar",

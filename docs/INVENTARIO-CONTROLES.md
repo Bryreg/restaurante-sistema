@@ -854,7 +854,9 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 | Select **«Elegir perfil…»** (Básico / Estándar / Full) | Abre la confirmación de cambio de perfil | siempre |
 | **Confirmar** el cambio de perfil | **Reinicia los flags de toda la organización** a los defaults del perfil. Queda en el historial | `AlertDialog` que explica que **los overrides por sede no se tocan** |
 | Select **«Editando:»** | **Toda la organización** o **Override de {sede}** | las sedes salen del selector global |
-| **Switch por función** | Enciende o apaga esa función en el alcance elegido | siempre |
+| **Switch por función** | Enciende o apaga esa función en el alcance elegido | siempre; los `pos.*` sólo con «Avanzado» abierto |
+| **Perfil del salón** (Mostrador / Mesa / Mixto) | Confirma nombrando lo que se enciende y se apaga y escribe cada `pos.*` del perfil (`POST /admin/features/pos-profile`), auditado flag por flag; lo que dependa de algo apagado se apaga también | siempre; marca el que coincide con los flags o dice «Personalizado» |
+| **Avanzado: cada interruptor del salón** | Muestra en la tabla las funciones `pos.*` (escondidas por defecto) | siempre |
 
 - La tabla muestra, por función: **clave**, descripción, estado, **Origen** (Organización / Override de sede / Default del perfil) y **Dependencias** (`requires`).
 - **Estados:** esqueletos, error con Reintentar, «Todavía no hay funciones para mostrar».

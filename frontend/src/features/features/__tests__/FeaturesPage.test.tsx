@@ -16,6 +16,27 @@ vi.mock("@/api/stores", async () => {
 });
 
 const setFeatureMock = vi.fn();
+const applyPosProfileMock = vi.fn();
+const POS_PROFILES = [
+  {
+    key: "mostrador",
+    label: "Mostrador",
+    description: "Se pide y se cobra en la caja.",
+    flags: { "pos.tables": false, "pos.counter": true, "pos.daily_menu": false },
+  },
+  {
+    key: "mesa",
+    label: "Mesa",
+    description: "Servicio a la mesa.",
+    flags: { "pos.tables": true, "pos.counter": false, "pos.daily_menu": true },
+  },
+  {
+    key: "mixto",
+    label: "Mixto",
+    description: "Mesas y mostrador.",
+    flags: { "pos.tables": true, "pos.counter": true, "pos.daily_menu": true },
+  },
+];
 vi.mock("@/api/features", async () => {
   const actual = await vi.importActual<typeof import("@/api/features")>("@/api/features");
   return {
@@ -31,12 +52,15 @@ vi.mock("@/api/features", async () => {
       },
     ]),
     setFeature: (...args: Parameters<typeof actual.setFeature>) => setFeatureMock(...args),
+    listPosProfiles: () => Promise.resolve(POS_PROFILES),
+    applyPosProfile: (...args: Parameters<typeof actual.applyPosProfile>) => applyPosProfileMock(...args),
   };
 });
 
 describe("FeaturesPage", () => {
   beforeEach(() => {
     setFeatureMock.mockReset();
+    applyPosProfileMock.mockReset();
   });
 
   it("muestra el mensaje de FEATURE_DEPENDENCY que manda el servidor al prender una función sin su dependencia", async () => {
@@ -52,6 +76,7 @@ describe("FeaturesPage", () => {
     const user = userEvent.setup();
     renderWithProviders(<FeaturesPage />, { me: buildMe() });
 
+    await user.click(await screen.findByRole("button", { name: /avanzado: cada interruptor del salón/i }));
     const toggle = await screen.findByRole("switch", { name: /encender pos\.daily_menu/i });
     await user.click(toggle);
 
@@ -64,6 +89,7 @@ describe("FeaturesPage", () => {
     const user = userEvent.setup();
     renderWithProviders(<FeaturesPage />, { me: buildMe() });
 
+    await user.click(await screen.findByRole("button", { name: /avanzado: cada interruptor del salón/i }));
     expect(await screen.findByText("pos.daily_menu")).toBeInTheDocument();
     expect(screen.getByText("Menú del día con opciones por día y franja")).toBeInTheDocument();
     expect(screen.getByText("Default del perfil")).toBeInTheDocument();
@@ -104,6 +130,7 @@ describe("FeaturesPage — flags nuevos del pedido 1b-1", () => {
     // "pos.tables" también en la columna "Dependencias" de "pos.seats"),
     // así que se busca por celda, no por texto suelto.
     await screen.findByRole("table");
+    await user.click(screen.getByRole("button", { name: /avanzado: cada interruptor del salón/i }));
     for (const key of [
       "pos.tables",
       "pos.seats",
@@ -132,5 +159,57 @@ describe("FeaturesPage — flags nuevos del pedido 1b-1", () => {
 
     const coursesRow = screen.getAllByText("pos.courses").find((el) => el.tagName === "TD")?.closest("tr");
     expect(coursesRow).toHaveTextContent("kitchen.view");
+  });
+});
+
+describe("FeaturesPage — perfil de salón (mostrador / mesa / mixto)", () => {
+  beforeEach(() => {
+    applyPosProfileMock.mockReset();
+  });
+
+  it("las funciones pos.* van en «Avanzado»; lo demás se ve siempre", async () => {
+    const { listFeatures } = await import("@/api/features");
+    vi.mocked(listFeatures).mockResolvedValueOnce([
+      { key: "pos.tables", description: "Venta por mesas", enabled: true, source: "org", requires: [], available_from_phase: "1b" },
+      { key: "kitchen.view", description: "Vista de cocina", enabled: true, source: "org", requires: [], available_from_phase: "1b" },
+    ]);
+    const user = userEvent.setup();
+    renderWithProviders(<FeaturesPage />, { me: buildMe() });
+
+    await screen.findByRole("table");
+    expect(screen.getAllByText("kitchen.view").some((el) => el.tagName === "TD")).toBe(true);
+    expect(screen.queryAllByText("pos.tables").some((el) => el.tagName === "TD")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: /avanzado: cada interruptor del salón \(1\)/i }));
+    expect(screen.getAllByText("pos.tables").some((el) => el.tagName === "TD")).toBe(true);
+  });
+
+  it("marca el perfil que coincide y, al elegir otro, confirma nombrando lo que cambia y lo aplica", async () => {
+    const { listFeatures } = await import("@/api/features");
+    const filas = [
+      { key: "pos.tables", description: "Mapa de mesas: unir y mover", enabled: true, source: "org" as const, requires: [], available_from_phase: "1b" },
+      { key: "pos.counter", description: "Venta de mostrador: sin mesa", enabled: false, source: "org" as const, requires: [], available_from_phase: "1b" },
+      { key: "pos.daily_menu", description: "Menú del día", enabled: true, source: "org" as const, requires: [], available_from_phase: "1a" },
+    ];
+    vi.mocked(listFeatures).mockResolvedValue(filas);
+    applyPosProfileMock.mockResolvedValue({ profile: "mostrador", changed: [], turned_off_dependents: [] });
+
+    const user = userEvent.setup();
+    renderWithProviders(<FeaturesPage />, { me: buildMe() });
+
+    const grupo = await screen.findByRole("radiogroup", { name: "Perfil del salón" });
+    expect(await screen.findByText("Perfil: Mesa")).toBeInTheDocument();
+    const mesa = await screen.findByRole("radio", { name: /^mesa/i });
+    expect(mesa).toHaveAttribute("aria-checked", "true");
+    expect(grupo).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: /^mostrador/i }));
+    const dialogo = await screen.findByRole("alertdialog");
+    expect(dialogo).toHaveTextContent("Se encienden: Venta de mostrador");
+    expect(dialogo).toHaveTextContent("Se apagan: Mapa de mesas, Menú del día");
+
+    await user.click(screen.getByRole("button", { name: "Aplicar perfil" }));
+    expect(applyPosProfileMock).toHaveBeenCalledWith("mostrador", null);
+    vi.mocked(listFeatures).mockReset();
   });
 });

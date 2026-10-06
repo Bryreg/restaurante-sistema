@@ -37,6 +37,26 @@ class ProfileSetIn(BaseModel):
     profile: Literal["basic", "standard", "full"]
 
 
+class PosProfileOut(BaseModel):
+    key: str
+    label: str
+    description: str
+    flags: dict[str, bool]
+
+
+class PosProfileSetIn(BaseModel):
+    profile: Literal["mostrador", "mesa", "mixto"]
+    store_id: int | None = None
+
+
+class PosProfileAppliedOut(BaseModel):
+    profile: str
+    changed: list[str]
+    # Funciones fuera del perfil que se apagaron porque dependían de algo que
+    # el perfil apagó (p. ej. `pos.seats` sin `pos.tables`).
+    turned_off_dependents: list[str]
+
+
 class OpeningHourIn(BaseModel):
     weekday: int = Field(ge=0, le=6)
     open: str

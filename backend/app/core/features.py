@@ -416,6 +416,89 @@ FEATURE_CATALOG: list[FeatureDef] = [
 FEATURE_BY_KEY: dict[str, FeatureDef] = {f.key: f for f in FEATURE_CATALOG}
 
 
+@dataclass(frozen=True)
+class PosProfileDef:
+    """Un perfil de salón: cómo atiende el restaurante, en un solo toque.
+
+    El perfil NO es un flag nuevo ni se guarda: sólo escribe los `pos.*` de
+    `flags` con el mismo `FeatureState` que el interruptor individual, así que
+    el backend sigue haciendo cumplir cada flag por separado
+    (`require_feature`). Quedan fuera, para elegirse una por una en
+    «Avanzado», las funciones que necesitan algo más que un sí: domicilio y
+    plataformas (configuración propia), asiento por ítem (montaje de mesa) y
+    curso por ítem (depende de la cocina).
+    """
+
+    key: str
+    label: str
+    description: str
+    flags: dict[str, bool]
+
+
+# Lo que los tres perfiles tienen en común: lo de cualquier venta.
+_POS_COMMON: dict[str, bool] = {
+    "pos.takeout": True,
+    "pos.modifiers": True,
+    "pos.combos": True,
+    "pos.tips": True,
+    "pos.tips_counter": False,
+    "pos.discounts": True,
+    "pos.staff_meal": True,
+    "pos.daily_count": True,
+    "pos.novelties": True,
+}
+
+POS_PROFILES: list[PosProfileDef] = [
+    PosProfileDef(
+        "mostrador",
+        "Mostrador",
+        "Se pide y se cobra en la caja, sin mesas: café, panadería, comida rápida.",
+        {
+            **_POS_COMMON,
+            "pos.tables": False,
+            "pos.counter": True,
+            "pos.pre_bill": False,
+            "pos.split_bill": False,
+            "pos.daily_menu": False,
+            "pos.courtesies": False,
+            "pos.requests": False,
+        },
+    ),
+    PosProfileDef(
+        "mesa",
+        "Mesa",
+        "Servicio a la mesa con mesero, precuenta y división de cuenta.",
+        {
+            **_POS_COMMON,
+            "pos.tables": True,
+            "pos.counter": False,
+            "pos.pre_bill": True,
+            "pos.split_bill": True,
+            "pos.daily_menu": True,
+            "pos.courtesies": True,
+            "pos.requests": True,
+        },
+    ),
+    PosProfileDef(
+        "mixto",
+        "Mixto",
+        "Mesas y mostrador a la vez: se atiende en el salón y también se vende en la caja.",
+        {
+            **_POS_COMMON,
+            "pos.tables": True,
+            "pos.counter": True,
+            "pos.pre_bill": True,
+            "pos.split_bill": True,
+            "pos.daily_menu": True,
+            "pos.courtesies": True,
+            "pos.requests": True,
+        },
+    ),
+]
+
+POS_PROFILE_BY_KEY: dict[str, PosProfileDef] = {p.key: p for p in POS_PROFILES}
+
+
 def profile_defaults(profile: str) -> dict[str, bool]:
     """Los flags que deja un perfil recién elegido (`POST /admin/organization/profile`)."""
     return {f.key: f.defaults.get(profile, False) for f in FEATURE_CATALOG}

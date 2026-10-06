@@ -38,8 +38,8 @@ export function useCatalog() {
   return useQuery({ queryKey: CATALOG_QUERY_KEY, queryFn: () => getCatalog() })
 }
 
-export function useFavorites(enabled: boolean) {
-  return useQuery({ queryKey: FAVORITES_QUERY_KEY, queryFn: listFavorites, enabled })
+export function useFavorites() {
+  return useQuery({ queryKey: FAVORITES_QUERY_KEY, queryFn: listFavorites })
 }
 
 export function useOrder(orderId: number | null | undefined) {

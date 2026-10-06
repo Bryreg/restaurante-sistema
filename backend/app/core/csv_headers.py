@@ -81,6 +81,7 @@ KEYS: dict[str, str] = {
     "sort_order": "Orden",
     "description": "Descripción",
     "label": "Rótulo",
+    "turned_off_dependents": "Dependientes apagadas",
     "code": "Código",
     "value": "Valor",
     "year": "Año",
