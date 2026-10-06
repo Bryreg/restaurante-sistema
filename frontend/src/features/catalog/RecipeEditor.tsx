@@ -27,8 +27,6 @@ import {
 } from "@/features/recipes/ComponentLinesEditor"
 import { CostValue, FoodCostBadge } from "@/features/recipes/costDisplay"
 import { FichaChefEditor } from "@/features/recipes/FichaChefEditor"
-import { CsvExportButton } from "@/components/CsvExportButton"
-import { csvUrl } from "@/api/client"
 import { getInventoryThresholds } from "@/api/inventory"
 
 /**
@@ -181,9 +179,9 @@ export function RecipeEditor({ storeId }: { storeId: number }): React.JSX.Elemen
               <p className="text-xs text-muted-foreground">Food cost</p>
               <FoodCostBadge pct={recipeQuery.data.food_cost_pct} band={foodCostBand} />
             </div>
-            <div className="self-end">
-              <CsvExportButton href={csvUrl(`/admin/products/${productId}/recipe`)} label="Descargar receta" />
-            </div>
+            {/* La receta se descarga desde la ficha de chef, abajo («Descargar para
+                cocina» / «Con costos», `/imprimir/ficha`). El CSV «Descargar
+                receta» que había acá repetía lo mismo en otro formato. */}
           </div>
 
           {justSaved ? (

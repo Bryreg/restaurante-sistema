@@ -184,7 +184,6 @@ def test_every_new_download_serves_excel_csv(
         ("/admin/requests/supplies", s),
         # Carta
         ("/admin/modifier-groups", {"product_id": seeded["product_id"]}),
-        (f"/admin/products/{seeded['product_id']}/recipe", {}),
         # Ajustes
         ("/admin/uvt", {}),
         ("/admin/zones", s),

@@ -243,7 +243,6 @@
   "Nombre del producto"
  ],
  "features/catalog/RecipeEditor.tsx": [
-  "Descargar receta",
   "Elegí un plato",
   "Guardar ficha",
   "No se pudo cargar la ficha de este plato"
