@@ -301,6 +301,15 @@ export interface TodayRecapOut {
   receptions: TodayReceptionLineOut[]
 }
 
+/** De «Enviar» a «Listo», en segundos enteros; `outside` lo decide el servidor contra el objetivo de la estación. */
+export interface StationPrepOut {
+  station: string
+  items: number
+  avg_seconds: number
+  target_minutes: number
+  outside: boolean
+}
+
 export interface TodayOut {
   store_id: number
   business_date: string
@@ -408,6 +417,8 @@ export interface TodayOut {
   receptions_enabled?: boolean
   receptions_today?: TodayReceptionLineOut[]
   recap?: TodayRecapOut | null
+  /** Tiempo promedio de cocina por estación hoy (auditoría p4). `null` con «Cocina» apagada. */
+  kitchen_prep_by_station?: StationPrepOut[] | null
 }
 
 /** Venta del día cobrada por un bolsillo (`app.shifts.hooks.payment_bucket`). */

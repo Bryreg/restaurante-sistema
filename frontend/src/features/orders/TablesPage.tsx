@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils"
 import { AuthorizerDialog } from "./AuthorizerDialog"
 import { TABLES_STATUS_QUERY_KEY, useAuthorizerFlow, useTablesStatus } from "./hooks"
 import { elapsedMinutesLabel, initials } from "./lib"
+import { mergeAlerts, newlyReady, readyCountsOf, type ReadyAlert, type ReadyCounts } from "./readyAlerts"
 
 type Mode = "idle" | "merge" | "move"
 
@@ -192,6 +193,28 @@ export function TablesPage(): React.JSX.Element {
   usePosTarea({ aLoAncho: true })
   const horizontal = useMediaQuery(TABLET_HORIZONTAL)
   const [zonaId, setZonaId] = useState<number | "todas" | null>(null)
+
+  // Aviso de «plato listo» (auditoría p4): cada lectura de Mesas se compara
+  // con la anterior; la mesa a la que le llegó algo nuevo de cocina sale
+  // arriba con un botón para ir. Se ajusta el estado al renderizar (el
+  // patrón de React para derivar de una lectura nueva), no en un efecto.
+  const [seenData, setSeenData] = useState<typeof tablesStatus.data>(undefined)
+  const [readyCounts, setReadyCounts] = useState<ReadyCounts | null>(null)
+  const [readyAlerts, setReadyAlerts] = useState<ReadyAlert[]>([])
+  if (tablesStatus.data !== undefined && tablesStatus.data !== seenData) {
+    const zonesNow = tablesStatus.data.zones ?? []
+    const counts = readyCountsOf(zonesNow)
+    setSeenData(tablesStatus.data)
+    setReadyCounts(counts)
+    setReadyAlerts((current) => mergeAlerts(current, newlyReady(readyCounts, zonesNow), counts))
+  }
+  const alertCount = readyAlerts.length
+  useEffect(() => {
+    // Un toque corto en la tablet cuando llega un aviso (si el equipo vibra).
+    if (alertCount > 0 && typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      navigator.vibrate(200)
+    }
+  }, [alertCount])
 
   useEffect(() => {
     if (!openTable) return
@@ -467,6 +490,44 @@ export function TablesPage(): React.JSX.Element {
             Cancelar
           </Button>
         </div>
+      ) : null}
+
+      {readyAlerts.length > 0 ? (
+        <ul className="mx-4 mt-2 flex flex-col gap-2" aria-label="Platos listos para servir">
+          {readyAlerts.map((alert) => (
+            <li
+              key={alert.tableId}
+              role="alert"
+              className="flex flex-wrap items-center gap-3 rounded-lg border-2 border-success bg-success/10 p-3 text-[16px]"
+            >
+              <BellRing className="size-6 shrink-0 text-success" aria-hidden="true" />
+              <p className="min-w-0 flex-1 font-bold">
+                Mesa {alert.tableNumber}: {alert.readyCount} {alert.readyCount === 1 ? "plato listo" : "platos listos"} para
+                servir
+              </p>
+              {alert.orderId !== null ? (
+                <Button
+                  type="button"
+                  className="h-[56px] px-5 text-[16px] font-semibold"
+                  onClick={() => {
+                    setReadyAlerts((current) => current.filter((a) => a.tableId !== alert.tableId))
+                    navigate(`/pos/comanda/${alert.orderId}`)
+                  }}
+                >
+                  Ir a la mesa {alert.tableNumber}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                className="h-[56px] px-5 text-[16px]"
+                onClick={() => setReadyAlerts((current) => current.filter((a) => a.tableId !== alert.tableId))}
+              >
+                Entendido
+              </Button>
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       {actionError ? (

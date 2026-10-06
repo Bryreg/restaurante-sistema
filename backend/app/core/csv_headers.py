@@ -532,6 +532,7 @@ TOKENS: dict[str, str] = {
     "min": "mínimo",
     "mine": "mío",
     "minutes": "minutos",
+    "seconds": "segundos",
     "missing": "faltante",
     "mix": "mezcla",
     "mode": "modo",
