@@ -1071,3 +1071,37 @@ class AreaRecountRequestOut(BaseModel):
     requested_by_employee_name: str
     answered_at: datetime | None
     count_id: int | None
+
+
+# ---------------------------------------------------------------------------
+# Hoja de conteo para imprimir (tanda 5, i5). A ciegas: sin stock teórico.
+# ---------------------------------------------------------------------------
+
+
+class CountSheetItemOut(BaseModel):
+    ingredient_id: int
+    name: str
+    category: str | None
+    # La unidad en que se cuenta (kg, botella, L, unidad), la del conteo por área.
+    count_unit: str
+
+
+class CountSheetSectionOut(BaseModel):
+    # `None` en «Sin área asignada» / «Todos los insumos».
+    area_id: int | None
+    title: str
+    items: list[CountSheetItemOut]
+
+
+class CountSheetAreaOut(BaseModel):
+    id: int
+    name: str
+
+
+class CountSheetOut(BaseModel):
+    store_id: int
+    store_name: str
+    business_date: str
+    generated_at: datetime
+    areas: list[CountSheetAreaOut]
+    sections: list[CountSheetSectionOut]

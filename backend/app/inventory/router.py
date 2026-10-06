@@ -29,7 +29,7 @@ from app.core import features, tz
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
-from app.inventory import area_counts, hooks, service, timeline
+from app.inventory import area_counts, count_sheet, hooks, service, timeline
 from app.inventory.units import entry_spec
 from app.inventory.models import Ingredient, MovementCause, StockCountScope, WasteType
 from app.inventory.schemas import (
@@ -61,6 +61,7 @@ from app.inventory.schemas import (
     CountOpenIn,
     CountOut,
     CountScopeLiteral,
+    CountSheetOut,
     DeviceIngredientOut,
     IngredientIn,
     IngredientOut,
@@ -252,6 +253,21 @@ def get_inventory_stock(
             [r.model_dump(mode="json", exclude={"bullet_max"}) for r in rows], "inventory-stock.csv"
         )
     return rows
+
+
+@router.get("/admin/count-sheet", response_model=CountSheetOut)
+def get_count_sheet(
+    store_id: int = Query(...),
+    area_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(current_admin),
+    _feature: None = Depends(features.require_feature("inventory.perpetual")),
+) -> CountSheetOut:
+    """La hoja de conteo para imprimir (tanda 5, i5): por área, en el orden
+    del estante, con columnas en blanco para anotar. A ciegas: sin stock
+    teórico ni costos."""
+    store = admin_store(db, actor, store_id)
+    return CountSheetOut(**count_sheet.count_sheet(db, store=store, area_id=area_id))
 
 
 @router.get("/admin/inventory/timeline", response_model=timeline.TimelineOut)

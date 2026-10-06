@@ -14,6 +14,7 @@ import {
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
+import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -216,6 +217,15 @@ export function CountsTab({ storeId }: { storeId: number }): React.JSX.Element {
           to,
         })}
       />
+      {/* Tanda 5 (i5): la hoja para llevar al depósito, por área y en el orden del estante. */}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => window.open(`/imprimir/hoja-conteo?sede=${storeId}`, "_blank", "noopener")}
+      >
+        Hoja de conteo para imprimir
+      </Button>
       <OpenCountDialog
         storeId={storeId}
         onOpened={() =>

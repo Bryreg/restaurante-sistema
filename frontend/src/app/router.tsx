@@ -29,6 +29,7 @@ import { shiftsFeature } from "@/features/shifts";
 
 import { FichaImprimiblePage } from "@/features/recipes/FichaImprimiblePage";
 import { PurchaseOrderPrintPage } from "@/features/purchases/PurchaseOrderPrintPage";
+import { CountSheetPrintPage } from "@/features/inventory/CountSheetPrintPage";
 
 import AdminLayout from "./AdminLayout";
 import AutorizarPage from "./AutorizarPage";
@@ -109,6 +110,15 @@ const routes: RouteObject[] = [
     element: (
       <RequireAdmin>
         <PurchaseOrderPrintPage />
+      </RequireAdmin>
+    ),
+  },
+  // La hoja de conteo para imprimir, por área (tanda 5, i5).
+  {
+    path: "/imprimir/hoja-conteo",
+    element: (
+      <RequireAdmin>
+        <CountSheetPrintPage />
       </RequireAdmin>
     ),
   },

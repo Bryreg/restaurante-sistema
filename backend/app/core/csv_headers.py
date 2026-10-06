@@ -740,6 +740,7 @@ TOKENS: dict[str, str] = {
     "seat": "silla",
     "seats": "sillas",
     "section": "sección",
+    "sections": "secciones",
     "seen": "visto",
     "selections": "selecciones",
     "sent": "enviado",

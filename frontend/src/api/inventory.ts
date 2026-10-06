@@ -1111,3 +1111,36 @@ export interface OrderConsumptionOut {
 export function getOrderConsumption(orderId: number): Promise<OrderConsumptionOut> {
   return api<OrderConsumptionOut>(`/admin/orders/${orderId}/consumption`)
 }
+
+// ---------------------------------------------------------------------------
+// Hoja de conteo para imprimir (tanda 5, i5) — `GET /admin/count-sheet`.
+// A ciegas: sin stock teórico ni costos.
+// ---------------------------------------------------------------------------
+
+export interface CountSheetItemOut {
+  ingredient_id: number
+  name: string
+  category: string | null
+  /** La unidad en que se cuenta (kg, botella, L, unidad). */
+  count_unit: string
+}
+
+export interface CountSheetSectionOut {
+  /** `null` en «Sin área asignada» / «Todos los insumos». */
+  area_id: number | null
+  title: string
+  items: CountSheetItemOut[]
+}
+
+export interface CountSheetOut {
+  store_id: number
+  store_name: string
+  business_date: string
+  generated_at: string
+  areas: { id: number; name: string }[]
+  sections: CountSheetSectionOut[]
+}
+
+export function getCountSheet(storeId: number, areaId: number | null = null): Promise<CountSheetOut> {
+  return api<CountSheetOut>("/admin/count-sheet", { query: { store_id: storeId, area_id: areaId } })
+}
