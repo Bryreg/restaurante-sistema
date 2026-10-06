@@ -700,7 +700,7 @@ Pantalla detrás de **`money.deposits`**. **Cuatro de sus seis pestañas exigen 
 
 **Libro del banco** (`money.bank`): rango, cuatro totales (consignaciones, liquidaciones de datáfono netas, transferencias, total) y el libro de movimientos.
 
-**Mano del dueño** (`money.bank`): rango; tarjetas Retirado / Consignado / Gastado / **Saldo en mano**, y un segundo bloque de desglose (**retirado por relevo**, **retirado al cerrar turno**, **gastado en propinas**, **gastado en devoluciones**) que **sólo se dibuja si el servidor mandó esos campos**. Vacío propio: «Mano del dueño no disponible» con el motivo.
+**Mano del dueño** (`money.bank`): rango; tarjetas Retirado / Consignado / Gastado / **Saldo en mano**, un recuadro **«Cómo se calcula»** que explica la fórmula (sólo cuenta la plata que salió del cajón hacia el dueño; lo que sigue en el cajón se muestra y no se cuenta), y un segundo bloque de desglose (**retirado por relevo**, **sobres entregados**, **gastado en propinas**, **gastado en devoluciones**, **gastado en gastos y obligaciones**, **sigue en el cajón (no cuenta)**, **consignado desde el cajón (no cuenta)**) que **sólo se dibuja si el servidor mandó esos campos**. Vacío propio: «Mano del dueño no disponible» con el motivo.
 
 **Conciliación datáfono / plataformas** (`money.bank`): rango; tabla con esperado, liquidado, diferencia y badge **Conciliado / Sin conciliar**.
 - Botón **Conciliar** por fila — **sólo en la de datáfono, y sólo si la fila no está conciliada**; abre un diálogo con el resumen de la diferencia y una nota opcional.
@@ -711,7 +711,7 @@ Pantalla detrás de **`money.deposits`**. **Cuatro de sus seis pestañas exigen 
 
 Pantalla detrás de **`money.obligations`**. Cinco pestañas (en la URL), todas con el mismo flag.
 
-**Gastos:** rango + **Registrar gasto** (fecha, monto, **categoría tipada**, descripción). Tabla. Vacío: «No hay gastos registrados en este período».
+**Gastos:** rango + **Registrar gasto** (fecha, monto, **categoría tipada**, descripción, **«¿De dónde salió la plata?»**: Banco / De la mano del dueño / Otro — *«De la mano del dueño» resta de Banco › Mano del dueño*). Tabla con columna «Salió de». Vacío: «No hay gastos registrados en este período».
 
 **Obligaciones:** filtro de estado (Todas / Pendientes / Pagadas) + **Agendar obligación** (descripción, categoría, **vencimiento**, monto). Por fila, botón **Saldar** — **sólo si está pendiente y no cancelada**. Vacío: «No hay obligaciones agendadas».
 

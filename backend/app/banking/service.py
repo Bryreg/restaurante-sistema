@@ -52,12 +52,13 @@ from app.channels.models import DeliveryPlatform, PlatformReceivable, PlatformRe
 from app.core import clock, tz
 from app.core.errors import AppError, NotFoundError
 from app.core.money import format_cop
+from app.expenses import hooks as expenses_hooks
 from app.payments.models import Payment
 from app.photos import hooks as photos_hooks
 from app.refunds.models import PendingRefund, PendingRefundStatus, SettleFrom
 from app.shifts import hooks as shifts_hooks
 from app.shifts.hooks import methods_in_bucket
-from app.shifts.models import BusinessDay, CashPickup, Shift, ShiftStatus, TipPayout, TipPayoutSource
+from app.shifts.models import BusinessDay, CashPickup, Shift, ShiftCarryIn, ShiftStatus, TipPayout, TipPayoutSource
 from app.stores.models import Store
 
 # C6/H-5 (iteración 2, advertencia): `payment_bucket` (`app.shifts.hooks`)
@@ -773,39 +774,88 @@ def bank_ledger(db: Session, *, store: Store, date_from: date, date_to: date) ->
 # ---------------------------------------------------------------------------
 
 
+def _drawer_holds(db: Session, *, store: Store) -> tuple[Shift | None, set[int]]:
+    """El último turno abierto de la sede (sin los cancelados) y los turnos
+    cuya plata dejó marcada en el cajón al abrir (`ShiftCarryIn` vivas).
+
+    Con la apertura «igual al café» la plata por consignar de un turno
+    cerrado **se queda en el cajón** y el siguiente la cuenta al abrir; lo
+    que ese siguiente desmarca no estaba ahí: salió en sobre."""
+    latest = db.execute(
+        select(Shift)
+        .where(
+            Shift.organization_id == store.organization_id,
+            Shift.store_id == store.id,
+            Shift.status != ShiftStatus.CANCELLED,
+        )
+        .order_by(Shift.opened_at.desc(), Shift.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if latest is None:
+        return None, set()
+    carried = set(
+        db.execute(
+            select(ShiftCarryIn.source_shift_id).where(
+                ShiftCarryIn.shift_id == latest.id, ShiftCarryIn.reversed_at.is_(None)
+            )
+        ).scalars()
+    )
+    return latest, carried
+
+
+def _admin_allocations_by_shift(db: Session, *, store: Store) -> dict[int, int]:
+    """Lo imputado a cada turno por consignaciones vivas del ADMINISTRADOR
+    (`from_shift_id` nulo): plata que pasó por la mano del dueño camino al
+    banco. Lo consignado desde el cajón (POS) nunca estuvo en la mano."""
+    rows = db.execute(
+        select(BankDepositAllocation.shift_id, func.coalesce(func.sum(BankDepositAllocation.amount), 0))
+        .join(BankDeposit, BankDeposit.id == BankDepositAllocation.deposit_id)
+        .where(
+            BankDeposit.organization_id == store.organization_id,
+            BankDeposit.store_id == store.id,
+            BankDeposit.status == BankDepositStatus.LIVE,
+            BankDeposit.from_shift_id.is_(None),
+        )
+        .group_by(BankDepositAllocation.shift_id)
+    ).all()
+    return {int(shift_id): int(total) for shift_id, total in rows}
+
+
 def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> dict[str, Any]:
-    """`retirado − consignado − gastado = saldo` (checklist de la fase).
+    """`retirado − consignado − gastado = saldo`, contando **sólo la plata que
+    de verdad salió del cajón hacia el dueño** (c9, revisión de la fórmula).
 
-    **`withdrawn`** (retirado) tiene DOS fuentes, y las dos son plata que
-    salió de la custodia de un turno sin pasar por el banco todavía:
+    Antes `withdrawn` sumaba el `to_deposit` de TODOS los turnos cerrados.
+    Con la apertura «igual al café» (2026-09-29) esa plata se queda en el
+    cajón hasta que se consigna, así que la pantalla le atribuía al dueño
+    plata que estaba en la registradora. Ahora:
 
-    - `CashPickup` vivo (retiro explícito a mitad de turno).
-    - `Shift.to_deposit` de turnos cerrados (el sobrante que queda en el
-      cajón al cierre, que también hay que sacar y consignar o gastar —
-      nunca se pickea aparte porque `create_pickup` exige turno `OPEN`).
+    **`withdrawn`** (retirado) = retiros + sobres entregados:
 
-    Sumarlas no duplica nada: son dos momentos distintos del mismo turno
-    (durante vs. al cerrar) y `_allocated_live_for_shift`/`GET
-    /admin/deposits/pending` sólo le resta a `to_deposit`, nunca a
-    `CashPickup` — no hay una imputación que dependa de las dos a la vez.
+    - `CashPickup` vivo: el retiro explícito a mitad de turno.
+    - **Sobres entregados** (`withdrawn_from_envelopes`), por turno cerrado
+      CONTADO del período: lo que el administrador consignó imputándoselo
+      (pasó por su mano camino al banco) más, si la plata ya **no** está en
+      el cajón, lo que queda por consignar después de la cascada. La plata
+      sigue en el cajón cuando el último turno abierto la marcó al abrir
+      (`ShiftCarryIn` viva), o cuando todavía no abrió nadie después de un
+      turno con apertura «igual al café». Lo que sigue en el cajón no se
+      cuenta y se publica aparte (`still_in_drawer`) para que la exclusión
+      no sea silenciosa. Lo consignado desde el cajón (POS) y lo que la
+      cascada usó para tapar el hueco de otro turno nunca llegó a la mano.
 
-    **`spent`** (gastado) es plata que salió de la mano SIN pasar por el
-    banco ni por ningún `CashMovement` (si hubiera pasado por un movimiento
-    de caja, ya redujo el `to_deposit` del turno que la pagó, y contarla acá
-    de nuevo sería la doble resta, no el doble conteo — el error simétrico).
-    Dos fuentes, las dos explícitamente "sin movimiento de caja":
+    **`deposited`** (consignado) = sólo las consignaciones del
+    administrador (`from_shift_id` nulo). Las del POS salen del cajón
+    directo al banco y no pasan por la mano: se publican aparte
+    (`deposited_from_drawer`) y no restan.
 
-    - `PendingRefund(settled_from=OWNER)` — `app.refunds.service
-      .settle_pending_refund` documenta que esta rama **no** crea
-      `CashMovement` (SPEC-NEGOCIO §6.3).
-    - `TipPayout(method="cash")` — `app.shifts.tips.register_tip_payout`
-      documenta que **no** crea `CashMovement`; si el dueño pagó del cajón,
-      eso se registra aparte con su propio movimiento (que entonces ya
-      redujo `to_deposit`, y no vuelve a contarse acá). El sistema no
-      distingue hoy, dentro de un `TipPayout(method="cash")`, cuánto salió
-      del cajón versus de la mano —lo declara `outputs/backend-banco.md §
-      gaps`—, así que ante la duda se cuenta COMO gastado de la mano: es el
-      sesgo que "muestra menos plata" en el saldo del dueño.
+    **`spent`** (gastado) = plata que salió de la mano SIN movimiento de
+    caja: devoluciones saldadas por el dueño, repartos de propina en
+    efectivo pagados de la mano (los `unknown` también, el sesgo que muestra
+    menos plata; los reversados no) y, desde c9, gastos y obligaciones
+    pagados «de la mano del dueño» (`ExpenseSource.OWNER_HAND`).
+
+    Un turno cerrado sin conteo sigue sin aportar (A-2): `uncounted_shifts`.
     """
 
     pickups_total = int(
@@ -824,48 +874,33 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
         ).scalar_one()
     )
 
-    # `Shift.to_deposit` es `int | None` en el modelo (nullable a propósito
-    # — ver `GET /admin/deposits/pending`). El `WHERE ... is_not(None)`
-    # filtra las filas en runtime, pero SQLAlchemy no refleja ese filtro en
-    # el tipo de `func.sum(...)`, así que mypy sigue viendo `int | None`;
-    # `coalesce(..., 0)` ya lo garantiza en runtime, y el `or 0` de abajo
-    # es sólo para que el tipo estático también lo sepa.
-    close_total = int(
-        db.execute(
-            select(func.coalesce(func.sum(Shift.to_deposit), 0))
-            .select_from(Shift)
-            .join(BusinessDay, BusinessDay.id == Shift.business_day_id)
-            .where(
-                Shift.organization_id == store.organization_id,
-                Shift.store_id == store.id,
-                Shift.status == ShiftStatus.CLOSED,
-                Shift.to_deposit.is_not(None),
-                # A-2 del cierre de la fase 3: un turno cerrado
-                # ADMINISTRATIVAMENTE, sin conteo, tiene `to_deposit`
-                # calculado desde el libro y no desde un arqueo — nadie abrió
-                # ese cajón. Sumarlo acá publicaba como "plata en la mano del
-                # dueño" una cifra que nadie contó, y con el sesgo que este
-                # proyecto NO tolera: mostrando MÁS plata de la que se contó.
-                #
-                # El propio dominio ya sabía que esa cifra no es confiable:
-                # `create_deposit` rechaza imputarle una consignación a uno de
-                # estos turnos (`400 SHIFT_CLOSED_WITHOUT_COUNT`), y
-                # `pending_deposits` publica `to_deposit: null` con motivo
-                # para los mismos turnos. Eran dos respuestas distintas a la
-                # misma pregunta; ahora es una sola.
-                #
-                # Se EXCLUYE (el sesgo pasa a mostrar menos plata, que es el
-                # tolerado) y la exclusión NO es silenciosa: `uncounted_shifts`
-                # dice cuántos turnos quedaron afuera. El monto de esos turnos
-                # no se publica a propósito — es justamente la cifra de la que
-                # estamos diciendo que no se puede responder.
-                Shift.closed_without_count.is_(False),
-                BusinessDay.business_date >= date_from,
-                BusinessDay.business_date <= date_to,
-            )
-        ).scalar_one()
-        or 0
-    )
+    # Los turnos cerrados CONTADOS, con su saldo después de la cascada: la
+    # misma cuenta que «Por consignar» (`banking_hooks.store_balances`). Un
+    # cierre administrativo (A-2) no entra ahí: su cifra sale del libro.
+    latest, carried = _drawer_holds(db, store=store)
+    admin_allocated = _admin_allocations_by_shift(db, store=store)
+    envelopes_total = 0
+    still_in_drawer = 0
+    for shift_balance in banking_hooks.store_balances(db, organization_id=store.organization_id, store_id=store.id):
+        if not (date_from <= shift_balance.business_date <= date_to):
+            continue
+        shift = db.get(Shift, shift_balance.shift_id)
+        if shift is None:
+            continue
+        # Un turno por sede a la vez: uno con id mayor abrió después que este
+        # (el reloj no alcanza para ordenarlos, dos instantes pueden empatar).
+        if latest is None or latest.id <= shift.id:
+            # Nadie abrió después: con la apertura «igual al café» la plata
+            # espera en el cajón al que abra; con la base fija de antes salía
+            # al cerrar.
+            in_drawer = shift.opening_mode == "envelopes"
+        else:
+            in_drawer = shift.id in carried
+        envelopes_total += admin_allocated.get(shift.id, 0)
+        if in_drawer:
+            still_in_drawer += shift_balance.outstanding
+        else:
+            envelopes_total += shift_balance.outstanding
 
     uncounted_shifts = int(
         db.execute(
@@ -883,19 +918,25 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
         ).scalar_one()
     )
 
-    withdrawn = pickups_total + close_total
+    withdrawn = pickups_total + envelopes_total
 
-    deposited = int(
-        db.execute(
-            select(func.coalesce(func.sum(BankDeposit.amount), 0)).where(
-                BankDeposit.organization_id == store.organization_id,
-                BankDeposit.store_id == store.id,
-                BankDeposit.status == BankDepositStatus.LIVE,
-                BankDeposit.business_date >= date_from,
-                BankDeposit.business_date <= date_to,
-            )
-        ).scalar_one()
-    )
+    def _deposits(from_drawer: bool) -> int:
+        origin = BankDeposit.from_shift_id.is_not(None) if from_drawer else BankDeposit.from_shift_id.is_(None)
+        return int(
+            db.execute(
+                select(func.coalesce(func.sum(BankDeposit.amount), 0)).where(
+                    BankDeposit.organization_id == store.organization_id,
+                    BankDeposit.store_id == store.id,
+                    BankDeposit.status == BankDepositStatus.LIVE,
+                    BankDeposit.business_date >= date_from,
+                    BankDeposit.business_date <= date_to,
+                    origin,
+                )
+            ).scalar_one()
+        )
+
+    deposited = _deposits(from_drawer=False)
+    deposited_from_drawer = _deposits(from_drawer=True)
 
     refunds = db.execute(
         select(PendingRefund).where(
@@ -913,22 +954,15 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
         if date_from <= business_date <= date_to:
             spent_on_refunds += r.amount
 
-    # A-3: un reparto de propinas pagado DEL CAJÓN ya redujo el `to_deposit`
-    # de su turno, y `withdrawn_from_shift_close` (arriba) suma justamente ese
-    # `to_deposit`. Restarlo otra vez acá era contar la misma plata dos veces.
-    #
-    # Sólo salen de la mano del dueño los repartos `owner_hand` y los
-    # `unknown` — las filas anteriores a la columna, donde nadie declaró el
-    # origen. A `unknown` se lo trata como «de la mano» a propósito: es el
-    # sesgo que muestra MENOS plata, el único que este proyecto tolera
-    # (SPEC-NEGOCIO §6.1), y su cantidad se publica en
-    # `tip_payouts_unknown_source` para que la suposición no sea silenciosa.
+    # A-3: un reparto de propinas pagado DEL CAJÓN no salió de la mano. Sólo
+    # restan los `owner_hand` y los `unknown` (las filas anteriores a la
+    # columna, tratadas como «de la mano»: el sesgo que muestra MENOS plata,
+    # publicado en `tip_payouts_unknown_source`). c3: los reversados no.
     payouts = db.execute(
         select(TipPayout).where(
             TipPayout.organization_id == store.organization_id,
             TipPayout.store_id == store.id,
             TipPayout.method == "cash",
-            # c3: un reparto reversado no salió de ninguna mano.
             TipPayout.reversed_at.is_(None),
         )
     ).scalars().all()
@@ -944,7 +978,11 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
             tip_payouts_unknown_source += 1
         spent_on_tips += p.total_amount
 
-    spent = spent_on_refunds + spent_on_tips
+    # c9: gastos y obligaciones pagados de la mano del dueño.
+    owner_expenses = expenses_hooks.owner_hand_spent(db, store=store, date_from=date_from, date_to=date_to)
+    spent_on_expenses = owner_expenses["expenses"] + owner_expenses["obligations"]
+
+    spent = spent_on_refunds + spent_on_tips + spent_on_expenses
     balance = withdrawn - deposited - spent
 
     oldest_date, oldest_days = _oldest_undeposited(db, store=store, date_to=date_to)
@@ -955,9 +993,12 @@ def owner_hand(db: Session, *, store: Store, date_from: date, date_to: date) -> 
         "spent": spent,
         "balance": balance,
         "withdrawn_from_pickups": pickups_total,
-        "withdrawn_from_shift_close": close_total,
+        "withdrawn_from_envelopes": envelopes_total,
+        "still_in_drawer": still_in_drawer,
+        "deposited_from_drawer": deposited_from_drawer,
         "spent_on_tips": spent_on_tips,
         "spent_on_refunds": spent_on_refunds,
+        "spent_on_expenses": spent_on_expenses,
         "uncounted_shifts": uncounted_shifts,
         "tip_payouts_unknown_source": tip_payouts_unknown_source,
         "oldest_undeposited_date": oldest_date,

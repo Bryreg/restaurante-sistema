@@ -63,6 +63,12 @@ class ExpenseSource(str, enum.Enum):
 
     CASH_DRAWER = "cash_drawer"
     BANK = "bank"
+    # c9: plata que el dueño pagó de su bolsillo, de lo que retiró del cajón
+    # y todavía no consignó. Reduce la «mano del dueño»
+    # (`app.expenses.hooks.owner_hand_spent`). Sin migración: la columna es
+    # un `VARCHAR(16)` sin `CHECK` y guarda el NOMBRE del miembro
+    # (`OWNER_HAND`, 10 caracteres).
+    OWNER_HAND = "owner_hand"
     OTHER = "other"
 
 

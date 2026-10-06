@@ -127,24 +127,62 @@ export function OwnerHandTab({ storeId }: { storeId: number }): React.JSX.Elemen
               aviso={query.data?.overdue_days ?? DIAS_SIN_CONSIGNAR_AVISO}
             />
           </div>
+          {/* c9 · La fórmula, dicha en pantalla y no sólo en el código: la
+              mano del dueño cuenta sólo la plata que SALIÓ del cajón hacia
+              él. Con la apertura «igual al café» la venta por consignar se
+              queda en la registradora, y antes esta pantalla la sumaba igual. */}
+          <section
+            aria-label="Cómo se calcula la mano del dueño"
+            data-testid="owner-hand-formula"
+            className="space-y-1 rounded-md border bg-card p-3 text-sm"
+          >
+            <p className="font-semibold">Cómo se calcula</p>
+            <p>
+              <b>Saldo en mano = retirado − consignado − gastado</b>, contando sólo la plata que de verdad salió del
+              cajón hacia el dueño:
+            </p>
+            <ul className="list-disc space-y-0.5 pl-5">
+              <li>
+                <b>Retirado</b> = retiros del cajón durante el turno + <b>sobres entregados</b>: la plata de un cierre que
+                quien abrió el turno siguiente no encontró en el cajón (la desmarcó), más lo que consignaste vos a
+                nombre de un turno.
+              </li>
+              <li>
+                <b>Consignado</b> = lo que consignaste vos. Lo consignado desde el cajón, en el POS, va directo al banco
+                y no pasa por tu mano.
+              </li>
+              <li>
+                <b>Gastado</b> = lo que pagaste de tu bolsillo sin pasar por el cajón: propinas, devoluciones y los gastos
+                u obligaciones marcados «De la mano del dueño».
+              </li>
+            </ul>
+            <p className="text-muted-foreground">
+              Lo que sigue en el cajón ({formatCOP(query.data?.still_in_drawer ?? null)}) no está en tu mano y no se
+              cuenta.
+            </p>
+          </section>
           {query.data?.withdrawn_from_pickups !== undefined || query.data?.spent_on_tips !== undefined ? (
             <GroupLabel label="De dónde sale y en qué se fue" says="el desglose que el servidor manda cuando lo tiene">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <StatTile label="Retirado por relevo" value={formatCOP(query.data?.withdrawn_from_pickups ?? null)} />
-                <StatTile
-                  label="Retirado al cerrar turno"
-                  value={formatCOP(query.data?.withdrawn_from_shift_close ?? null)}
-                />
+                <StatTile label="Sobres entregados" value={formatCOP(query.data?.withdrawn_from_envelopes ?? null)} />
                 <StatTile label="Gastado en propinas" value={formatCOP(query.data?.spent_on_tips ?? null)} />
                 <StatTile label="Gastado en devoluciones" value={formatCOP(query.data?.spent_on_refunds ?? null)} />
+                <StatTile label="Gastado en gastos y obligaciones" value={formatCOP(query.data?.spent_on_expenses ?? null)} />
+                <StatTile label="Sigue en el cajón (no cuenta)" value={formatCOP(query.data?.still_in_drawer ?? null)} />
+                <StatTile
+                  label="Consignado desde el cajón (no cuenta)"
+                  value={formatCOP(query.data?.deposited_from_drawer ?? null)}
+                />
               </div>
               {/* Regla 2 · Las pistas de cada tarjeta, plegadas: se leen una
                   vez, no cada vez que se abre la pestaña. */}
               <Explicacion>
                 <p>
-                  <b>Retirado por relevo</b>: sacado del cajón durante el turno. <b>Retirado al cerrar turno</b>: lo
-                  que quedó a consignar y se llevó. <b>Gastado en propinas</b>: repartos pagados de la plata en mano.{" "}
-                  <b>Gastado en devoluciones</b>: notas saldadas sin pasar por el cajón.
+                  <b>Retirado por relevo</b>: sacado del cajón durante el turno. <b>Sobres entregados</b>: plata de un
+                  cierre que ya no estaba en el cajón cuando abrió el turno siguiente. <b>Gastado en propinas</b>:
+                  repartos pagados de la plata en mano. <b>Gastado en devoluciones</b>: notas saldadas sin pasar por el
+                  cajón. <b>Gastos y obligaciones</b>: los registrados «De la mano del dueño».
                 </p>
               </Explicacion>
             </GroupLabel>

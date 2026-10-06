@@ -734,6 +734,7 @@ TOKENS: dict[str, str] = {
     "station": "estación",
     "stations": "estaciones",
     "status": "estado",
+    "still": "todavía",
     "stock": "existencia",
     "store": "sede",
     "stores": "sedes",

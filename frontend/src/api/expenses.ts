@@ -23,7 +23,7 @@ import { api } from "@/api/client"
 export type ExpenseCategory = "supplies" | "maintenance" | "utilities" | "marketing" | "transport" | "other"
 /** De dónde salió la plata. `"cash_drawer"` exige `cash_movement_id` de un
  * movimiento YA registrado por `shifts` (ver `getDrawerExpenseMovements`). */
-export type ExpenseSource = "cash_drawer" | "bank" | "other"
+export type ExpenseSource = "cash_drawer" | "bank" | "owner_hand" | "other"
 
 export interface ExpenseOut {
   id: number

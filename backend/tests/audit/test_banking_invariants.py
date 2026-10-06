@@ -211,8 +211,8 @@ def test_owner_hand_equation_holds_literally(admin_client: Any, store: Any) -> N
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["balance"] == body["withdrawn"] - body["deposited"] - body["spent"]
-    assert body["withdrawn"] == body["withdrawn_from_pickups"] + body["withdrawn_from_shift_close"]
-    assert body["spent"] == body["spent_on_tips"] + body["spent_on_refunds"]
+    assert body["withdrawn"] == body["withdrawn_from_pickups"] + body["withdrawn_from_envelopes"]
+    assert body["spent"] == body["spent_on_tips"] + body["spent_on_refunds"] + body["spent_on_expenses"]
 
 
 # ---------------------------------------------------------------------------

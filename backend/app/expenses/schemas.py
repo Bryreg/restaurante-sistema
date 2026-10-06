@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 ExpenseCategoryLiteral = Literal["supplies", "maintenance", "utilities", "marketing", "transport", "other"]
-ExpenseSourceLiteral = Literal["cash_drawer", "bank", "other"]
+ExpenseSourceLiteral = Literal["cash_drawer", "bank", "owner_hand", "other"]
 ObligationCategoryLiteral = Literal["rent", "utilities", "taxes", "other"]
 ObligationStatusLiteral = Literal["pending", "paid"]
 

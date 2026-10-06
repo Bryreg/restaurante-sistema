@@ -167,18 +167,22 @@
  ],
  "features/banking/OwnerHandTab.tsx": [
   "Consignado",
+  "Consignado desde el cajón (no cuenta)",
+  "Cómo se calcula la mano del dueño",
   "De dónde sale y en qué se fue",
   "Gastado",
   "Gastado en devoluciones",
+  "Gastado en gastos y obligaciones",
   "Gastado en propinas",
   "Mano del dueño no disponible",
   "No se pudo calcular la mano del dueño",
   "Plata más vieja sin consignar",
   "Reintentar",
   "Retirado",
-  "Retirado al cerrar turno",
   "Retirado por relevo",
-  "Saldo en mano"
+  "Saldo en mano",
+  "Sigue en el cajón (no cuenta)",
+  "Sobres entregados"
  ],
  "features/banking/PendingDepositsTab.tsx": [
   "No hay turnos cerrados en este período",
