@@ -21,6 +21,7 @@ import re
 
 #: Claves completas: ganan sobre la traducción palabra por palabra.
 KEYS: dict[str, str] = {
+    "no_show_count": "No vinieron",
     "id": "ID",
     "store_id": "ID sede",
     "organization_id": "ID organización",
@@ -533,6 +534,13 @@ TOKENS: dict[str, str] = {
     "mine": "mío",
     "minutes": "minutos",
     "seconds": "segundos",
+    # Turnos planeados (auditoría e1).
+    "minute": "minuto",
+    "planned": "planeado",
+    "actual": "real",
+    "grace": "gracia",
+    "copied": "copiados",
+    "show": "presentación",
     "missing": "faltante",
     "mix": "mezcla",
     "mode": "modo",

@@ -553,15 +553,17 @@ def test_the_migration_chain_pin_was_moved_to_the_head_of_2c() -> None:
       `obligation_payments`, `store_obligation_settings`).
     - Con **`0048_pnl_budgets`** la cadena llega a `"0048"` y el conteo pasa
       a **131**: presupuesto mensual del estado de resultados.
+    - Con **`0050_staff_schedule`** la cadena llega a `"0050"` y el conteo
+      pasa a **132**: planeación de turnos por persona y día.
     """
     fuente = (BACKEND / "tests" / "audit" / "test_migration_invariants.py").read_text(encoding="utf-8")
-    assert 'version == "0048"' in fuente, (
-        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0048 "
+    assert 'version == "0050"' in fuente, (
+        "el poste de la cadena sigue apuntando a una cabeza vieja: la cadena llega a 0050 "
         "(asistencia 0028, apertura por sobres 0029, conteo artículo por artículo 0030, avisos al celular 0031, "
-        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035, etiquetas de cocina 0036, anular conteo 0037, contar preparaciones 0038, ficha de chef 0039, nivel par 0040, recargos legales 0041, avisos resueltos 0042, contrato de nómina 0043, seguridad de la cuenta 0044, reversa de propinas 0045, libro del banco 0046, obligaciones recurrentes 0047 y presupuesto 0048)"
+        "supuestos del panel 0032, meta de ventas del mes 0033, reversa de los días en el cajón 0034, ajustes del panel 0035, etiquetas de cocina 0036, anular conteo 0037, contar preparaciones 0038, ficha de chef 0039, nivel par 0040, recargos legales 0041, avisos resueltos 0042, contrato de nómina 0043, seguridad de la cuenta 0044, reversa de propinas 0045, libro del banco 0046, obligaciones recurrentes 0047, presupuesto 0048 y planeación de turnos 0050)"
     )
-    assert "len(tablas) == 131" in fuente, (
-        "el conteo de tablas sigue en un número viejo: 0048 lo deja en 131 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1 + 2 + 1 + 1 + 3 + 2 + 4 + 3 + 1)"
+    assert "len(tablas) == 132" in fuente, (
+        "el conteo de tablas sigue en un número viejo: 0050 lo deja en 132 (79 + 4 + 3 + 7 + 1 + 1 + 5 + 7 + 1 + 3 + 2 + 1 + 2 + 1 + 1 + 3 + 2 + 4 + 3 + 1 + 1)"
     )
     assert ">=" not in fuente.split("def test_the_chain_reaches_the_three_migrations_of_cost_and_inventory")[1].split("\ndef ")[0], (
         "el invariante de la cadena se aflojó a una desigualdad: un conjunto exacto se MUEVE, no se afloja"

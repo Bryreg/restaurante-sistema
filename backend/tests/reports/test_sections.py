@@ -164,9 +164,11 @@ def test_equipo_reads_the_attendance(
     clock.set(datetime(2026, 9, 19, 14, 30, tzinfo=timezone.utc))  # 9:30
 
     cards = _cards(_section(admin_client, store.id, "equipo"))
-    # Sin horario programado no hay «llegadas tarde»: la tarjeta, que nunca
-    # tenía dato, se quitó (limpieza 2026-10).
-    assert list(cards) == ["staff", "exits", "hours"]
+    # «Llegadas tarde» volvió con la planeación de turnos (auditoría e1):
+    # sin turnos planeados dice por qué, no un 0.
+    assert list(cards) == ["staff", "late", "exits", "hours"]
+    assert cards["late"]["available"] is False and cards["late"]["value"] is None
+    assert "Planeación" in cards["late"]["reason"]
     staff = cards["staff"]
     assert staff["value"] == 1
     panel = admin_client.get(f"{API}/admin/panel", params={"store_id": store.id}).json()["stores"][0]

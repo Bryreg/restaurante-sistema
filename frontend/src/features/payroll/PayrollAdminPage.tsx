@@ -25,13 +25,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { ContractsTab } from "./ContractsTab"
 import { HoursTab } from "./HoursTab"
+import { PlanningTab } from "./PlanningTab"
 import { RunsTab } from "./RunsTab"
 import { SurchargeTablesTab } from "./SurchargeTablesTab"
 import { WagesCalendarTab } from "./WagesCalendarTab"
 import { TipsTab } from "./TipsTab"
 import { WeekScheduleTab } from "./WeekScheduleTab"
 
-const ALL_TABS = ["semana", "horas", "tarifas", "contratos", "recargos", "liquidaciones", "propinas"] as const
+const ALL_TABS = ["semana", "planeacion", "horas", "tarifas", "contratos", "recargos", "liquidaciones", "propinas"] as const
 type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
@@ -51,6 +52,7 @@ export function PayrollAdminPage(): React.JSX.Element {
   const requestedTab: TabValue = isTabValue(tabParam) ? tabParam : payrollEnabled ? "semana" : "propinas"
   const tabAvailable: Record<TabValue, boolean> = {
     semana: payrollEnabled,
+    planeacion: payrollEnabled,
     horas: payrollEnabled,
     tarifas: payrollEnabled,
     contratos: payrollEnabled,
@@ -117,6 +119,8 @@ export function PayrollAdminPage(): React.JSX.Element {
           // horizontal, que le gana (ver `BankingAdminPage.tsx`).
           <TabsList className="h-auto flex-wrap group-data-horizontal/tabs:h-auto">
             <TabsTrigger value="semana">Horario de la semana</TabsTrigger>
+            {/* Auditoría e1: los turnos planeados y la comparación con lo real. */}
+            <TabsTrigger value="planeacion">Planeación</TabsTrigger>
             <MasPestanas
               value={tab}
               onValueChange={cambiarPestana}
@@ -134,6 +138,11 @@ export function PayrollAdminPage(): React.JSX.Element {
         {payrollEnabled ? (
           <TabsContent value="semana" className="pt-4">
             <WeekScheduleTab storeId={activeStoreId} />
+          </TabsContent>
+        ) : null}
+        {payrollEnabled ? (
+          <TabsContent value="planeacion" className="pt-4">
+            <PlanningTab storeId={activeStoreId} />
           </TabsContent>
         ) : null}
         {payrollEnabled ? (
