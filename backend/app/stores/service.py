@@ -8,11 +8,19 @@ from __future__ import annotations
 from datetime import date
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.core.config import settings
-from app.stores.models import StoreCashSettings, StoreFiscalConfig, StoreSalesSettings
+from app.stores.models import (
+    FeatureState,
+    Organization,
+    Store,
+    StoreCashSettings,
+    StoreFiscalConfig,
+    StoreSalesSettings,
+)
 
 DEFAULT_PAYMENT_METHODS: list[dict[str, object]] = [
     {"code": "cash", "label": "Efectivo", "dian_code": "10", "enabled": True, "requires_reference": False},
@@ -95,7 +103,77 @@ def get_cash_settings(db: Session, store_id: int) -> StoreCashSettings:
         row = StoreCashSettings(store_id=store_id, updated_at=clock.now_utc())
         db.add(row)
         db.flush()
+    fold_legacy_photo_flag(db, row)
     return row
+
+
+# La vieja función `cash.photo_required` (retirada del catálogo,
+# `app.core.features.RETIRED_FEATURE_KEYS`): la foto se exigía sólo con la
+# función Y la casilla de la sede encendidas. Ahora mandan sólo las casillas.
+LEGACY_PHOTO_FLAG = "cash.photo_required"
+# Los defaults que tenía la función por perfil, para leer bien los datos viejos.
+_LEGACY_PHOTO_DEFAULTS = {"basic": False, "standard": True, "full": True}
+_LEGACY_PHOTO_FOLDED_BY = "sistema: foto unificada en Ajustes › Caja"
+
+
+def fold_legacy_photo_flag(db: Session, row: StoreCashSettings) -> None:
+    """Pliega la función retirada `cash.photo_required` en las casillas de la
+    sede, una sola vez: si para esta sede la función estaba apagada, las dos
+    casillas se apagan (la foto no se pedía y sigue sin pedirse). La marca de
+    «ya plegado» es una fila de sede de la clave retirada con `enabled=True`
+    — con ella la función vieja ya no apaga nada y la casilla queda como
+    única fuente. Sin migración: la tabla y la clave ya existen."""
+    store = db.get(Store, row.store_id)
+    if store is None:
+        return
+    states = {
+        s.store_id: s
+        for s in db.execute(
+            select(FeatureState).where(
+                FeatureState.organization_id == store.organization_id,
+                FeatureState.key == LEGACY_PHOTO_FLAG,
+                (FeatureState.store_id == store.id) | FeatureState.store_id.is_(None),
+            )
+        ).scalars()
+    }
+    store_state = states.get(store.id)
+    if store_state is not None and store_state.enabled:
+        return  # ya plegado, o la función estaba encendida en esta sede
+    if store_state is not None:
+        legacy_enabled = False
+    elif None in states:
+        legacy_enabled = states[None].enabled
+    else:
+        org = db.get(Organization, store.organization_id)
+        legacy_enabled = _LEGACY_PHOTO_DEFAULTS.get(org.profile if org is not None else "", False)
+
+    now = clock.now_utc()
+    try:
+        # En un savepoint: si otra request plegó la misma sede a la vez, la
+        # marca choca con `uq_feature_states_scope` y esta se descarta — la
+        # otra ya dejó lo mismo.
+        with db.begin_nested():
+            if not legacy_enabled:
+                row.photo_required_on_close = False
+                row.photo_required_on_pickup = False
+                row.updated_at = now
+            if store_state is None:
+                db.add(
+                    FeatureState(
+                        organization_id=store.organization_id,
+                        store_id=store.id,
+                        key=LEGACY_PHOTO_FLAG,
+                        enabled=True,
+                        updated_at=now,
+                        updated_by=_LEGACY_PHOTO_FOLDED_BY,
+                    )
+                )
+            else:
+                store_state.enabled = True
+                store_state.updated_at = now
+                store_state.updated_by = _LEGACY_PHOTO_FOLDED_BY
+    except IntegrityError:
+        db.refresh(row)
 
 
 def get_sales_settings(db: Session, store_id: int) -> StoreSalesSettings:

@@ -1039,7 +1039,7 @@ function MasDelPeriodo({
 
 export function InformesPage(): React.JSX.Element {
   const { stores, activeStoreId, loading: storeLoading } = useStoreSelection()
-  const { me, hasFeature } = useSession()
+  const { me } = useSession()
   const hoy = todayInBogota()
   const [periodo, setPeriodo] = useState<Periodo>("ultimos7")
   const [rango, setRango] = useState(() => rangoDePeriodo("ultimos7", hoy))
@@ -1047,7 +1047,7 @@ export function InformesPage(): React.JSX.Element {
   // `null` = la de entrada: todas si hay más de una, la activa si no.
   const [sedeElegida, setSedeElegida] = useState<number | "all" | null>(null)
 
-  const conSelector = stores.length > 1 || hasFeature("multi_store")
+  const conSelector = stores.length > 1
   const sede: number | "all" | null = !conSelector
     ? activeStoreId
     : (sedeElegida ?? (stores.length > 1 ? "all" : activeStoreId))

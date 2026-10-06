@@ -124,6 +124,8 @@ class StoreCashSettings(Base):
     critical_difference: Mapped[int] = mapped_column(Integer, nullable=False, default=100_000)
     cash_pickup_threshold: Mapped[int] = mapped_column(Integer, nullable=False, default=500_000)
     petty_cash_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=50_000)
+    # Única fuente de la foto obligatoria (la función `cash.photo_required`
+    # se retiró y se plegó acá: `app.stores.service.fold_legacy_photo_flag`).
     photo_required_on_close: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     photo_required_on_pickup: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     streak_alert_shifts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
@@ -224,7 +226,13 @@ class Table(Base):
 
 class FeatureState(Base):
     """Override de un flag, a nivel de organización (`store_id is None`) o de
-    una sede puntual. Lo que no tiene fila acá usa el default del perfil."""
+    una sede puntual. Lo que no tiene fila acá usa el default del perfil.
+
+    Legado: puede haber filas de claves retiradas del catálogo
+    (`multi_store`, `cash.photo_required`, ver
+    `app.core.features.RETIRED_FEATURE_KEYS`). No se borran (sin migración);
+    `enabled_map` las ignora, y la de `cash.photo_required` a nivel de sede
+    sólo marca que la foto vieja ya se plegó en `StoreCashSettings`."""
 
     __tablename__ = "feature_states"
     __table_args__ = (

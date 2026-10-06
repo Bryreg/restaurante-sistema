@@ -494,7 +494,7 @@ describe("InformesPage", () => {
     expect(within(grafico).queryByText(/−100/)).not.toBeInTheDocument()
   })
 
-  it("con una sola sede y sin «multi_store», no hay selector de sede", async () => {
+  it("con una sola sede no hay selector de sede", async () => {
     getReportsOverviewMock.mockResolvedValue(overview())
     renderWithProviders(<InformesPage />, { me: buildMe() })
 
@@ -550,15 +550,6 @@ describe("InformesPage", () => {
     expect(getReportsOverviewMock).toHaveBeenCalledWith(expect.objectContaining({ storeId: 2 }))
     // «Por sede» sigue: es la misma consulta consolidada, de la caché.
     expect(screen.getByRole("region", { name: "¿Qué sede va mejor?" })).toBeInTheDocument()
-  })
-
-  it("con «multi_store» encendida aparece el selector aunque haya una sede", async () => {
-    getReportsOverviewMock.mockResolvedValue(overview())
-    renderWithProviders(<InformesPage />, { me: buildMe({ features: { multi_store: true } }) })
-
-    const grupo = await screen.findByRole("group", { name: "Sede" })
-    // Con una sola sede se entra por esa sede, no por el consolidado.
-    expect(within(grupo).getByRole("button", { name: "Sede Centro" })).toHaveAttribute("aria-pressed", "true")
   })
 
   it("el filtro de categoría del top de productos filtra filas, sin recalcular", async () => {

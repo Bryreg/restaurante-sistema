@@ -458,7 +458,7 @@ describe("AdminLayout: la barra superior de a2", () => {
       { id: 7, name: "Chapinero" },
       { id: 8, name: "Usaquén" },
     ]);
-    renderAdmin(buildMe({ features: { multi_store: true } }));
+    renderAdmin(buildMe());
 
     const barra = document.querySelector("header") as HTMLElement;
     const sede = await within(barra).findByRole("combobox", { name: "Sede activa" });

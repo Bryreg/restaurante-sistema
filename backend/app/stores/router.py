@@ -469,6 +469,11 @@ def set_profile(
     if org is None:
         raise NotFoundError("La organización no existe")
     before = {"profile": org.profile}
+    # Antes de borrar las filas de la organización: la foto vieja
+    # (`cash.photo_required`, retirada) se lee con el perfil y las filas de
+    # ahora; se pliega en cada sede para que el cambio de perfil no la mueva.
+    for store_row in db.execute(select(Store).where(Store.organization_id == org.id)).scalars():
+        stores_service.get_cash_settings(db, store_row.id)
     org.profile = body.profile
     org.updated_at = clock.now_utc()
     db.execute(

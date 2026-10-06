@@ -233,13 +233,6 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "1a",
     ),
     FeatureDef(
-        "cash.photo_required",
-        "Foto obligatoria en cierre y retiro de caja",
-        [],
-        {"basic": False, "standard": True, "full": True},
-        "1a",
-    ),
-    FeatureDef(
         "cash.swaps",
         "Cambio de denominaciones (sencilla) con neto cero",
         [],
@@ -398,13 +391,6 @@ FEATURE_CATALOG: list[FeatureDef] = [
         "3",
     ),
     FeatureDef(
-        "multi_store",
-        "Selector de sede y comparativo entre sedes",
-        [],
-        {"basic": False, "standard": False, "full": True},
-        "1a",
-    ),
-    FeatureDef(
         "notifications.push",
         "Notificaciones push al administrador",
         [],
@@ -414,6 +400,17 @@ FEATURE_CATALOG: list[FeatureDef] = [
 ]
 
 FEATURE_BY_KEY: dict[str, FeatureDef] = {f.key: f for f in FEATURE_CATALOG}
+
+#: Claves que salieron del catálogo. Sus filas viejas de `feature_states` se
+#: quedan en la base (sin migración) y `enabled_map` las ignora:
+#: - `multi_store`: nadie la hacía cumplir; el selector de sede aparece
+#:   cuando hay más de una sede.
+#: - `cash.photo_required`: repetía las casillas de la sede
+#:   (`StoreCashSettings.photo_required_on_close/_on_pickup`), que son la
+#:   única fuente. Lo que decía se pliega en esas casillas una vez por sede
+#:   (`app.stores.service.fold_legacy_photo_flag`), así nada cambia para los
+#:   datos de antes.
+RETIRED_FEATURE_KEYS: frozenset[str] = frozenset({"multi_store", "cash.photo_required"})
 
 
 @dataclass(frozen=True)
@@ -521,7 +518,8 @@ def enabled_map(db: Session, organization_id: int, store_id: int | None) -> dict
         )
     ).scalars().all()
     for state in org_states:
-        result[state.key] = state.enabled
+        if state.key in FEATURE_BY_KEY:
+            result[state.key] = state.enabled
 
     if store_id is not None:
         store_states = db.execute(
@@ -531,7 +529,8 @@ def enabled_map(db: Session, organization_id: int, store_id: int | None) -> dict
             )
         ).scalars().all()
         for state in store_states:
-            result[state.key] = state.enabled
+            if state.key in FEATURE_BY_KEY:
+                result[state.key] = state.enabled
 
     return result
 

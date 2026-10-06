@@ -203,7 +203,18 @@ export function getSalesSettings(storeId: number): Promise<SalesSettings> {
   return api<SalesSettings>(`/admin/stores/${storeId}/sales-settings`);
 }
 
-export function setSalesSettings(storeId: number, body: SalesSettings): Promise<SalesSettings> {
+/** Los tres de seguridad de las tablets: los edita Ajustes › Seguridad, no Ventas. */
+export const SECURITY_SETTINGS_KEYS = ["employee_session_minutes", "pin_lock_attempts", "pin_lock_minutes"] as const;
+export type SecuritySettingsKey = (typeof SECURITY_SETTINGS_KEYS)[number];
+
+/**
+ * El `PUT` de la configuración de ventas. Los de seguridad pueden faltar: el
+ * servidor conserva lo guardado (`CONFIG_FIELDS_KEPT_WHEN_ABSENT`), así Ventas
+ * guarda lo suyo sin pisar lo que se cambió en Seguridad.
+ */
+export type SalesSettingsUpdate = Omit<SalesSettings, SecuritySettingsKey> & Partial<Pick<SalesSettings, SecuritySettingsKey>>;
+
+export function setSalesSettings(storeId: number, body: SalesSettingsUpdate): Promise<SalesSettings> {
   return api<SalesSettings>(`/admin/stores/${storeId}/sales-settings`, { method: "PUT", body });
 }
 

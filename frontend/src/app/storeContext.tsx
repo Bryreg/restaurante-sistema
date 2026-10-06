@@ -7,7 +7,7 @@ import { useSession } from "./session";
 /**
  * Sede activa en Admin (no confundir con la sede del dispositivo en POS,
  * que ya viene fijada por la cookie del servidor). Sólo se muestra un
- * selector cuando `multi_store` está encendida (`AdminLayout.tsx`), pero
+ * selector cuando hay más de una sede (`AdminLayout.tsx`), pero
  * casi toda pantalla de Configuración necesita un `store_id` aunque la
  * organización tenga una sola sede.
  */

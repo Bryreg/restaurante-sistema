@@ -12,6 +12,7 @@ import { FiscalSection } from "./FiscalSection";
 import { InventorySection } from "./InventorySection";
 import { OrganizationSection } from "./OrganizationSection";
 import { SalesSection } from "./SalesSection";
+import { SecuritySection } from "./SecuritySection";
 import { StoresSection } from "./StoresSection";
 import { UvtSection } from "./UvtSection";
 import { AccountSecuritySection } from "./AccountSecuritySection";
@@ -37,7 +38,7 @@ interface SettingsTab {
 }
 
 /**
- * **Las diez secciones, por tema.** Antes se dibujaban como un índice
+ * **Las once secciones, por tema.** Antes se dibujaban como un índice
  * vertical de cuatro grupos (`docs/PATRONES-ADMIN.md` § 1 y el desvío 1);
  * con «Orden y aire» quedan tres pestañas a la vista y las demás en «Más»
  * (ver `PRINCIPALES`). El agrupamiento sigue decidiendo el orden de «Más».
@@ -203,6 +204,18 @@ const GROUPS: readonly { group: string; tabs: readonly SettingsTab[] }[] = [
           { screen: "Historial", what: "Toda acción queda firmada con el empleado que la hizo.", to: "/admin/audit" },
         ],
       },
+      {
+        value: "security",
+        label: "Seguridad",
+        question: "¿Cuánto dura la identificación de una persona en la tablet y cuántos PIN equivocados la bloquean?",
+        leaks: true,
+        destinations: [
+          {
+            screen: "Salón › Quién opera",
+            what: "Cuándo la tablet vuelve a pedir el PIN, y cuántos intentos y minutos dura el bloqueo.",
+          },
+        ],
+      },
     ],
   },
 ];
@@ -216,7 +229,7 @@ const LEAKING = ALL_TABS.filter((t) => t.leaks).length;
  * por plataformas y que piensa abrir más sedes vuelve a Sedes (una sede
  * nueva, el PIN de un dispositivo), a Empleados (gente que entra y sale, su
  * PIN y su límite de descuento) y a Canales y plataformas (comisiones). Las
- * otras siete se configuran una vez y viven en «Más»; ninguna cambia su
+ * otras ocho se configuran una vez y viven en «Más»; ninguna cambia su
  * `value`.
  */
 const PRINCIPALES: readonly string[] = ["stores", "people", "channels"];
@@ -322,6 +335,9 @@ export default function SettingsPage(): React.JSX.Element {
           </TabsContent>
           <TabsContent value="people">
             <PeopleSection storeId={activeStoreId} />
+          </TabsContent>
+          <TabsContent value="security">
+            <SecuritySection key={activeStoreId ?? "sin-sede"} storeId={activeStoreId} />
           </TabsContent>
 
           {/* El reverso de las pestañas (patrón 10). Vive acá y no dentro de cada

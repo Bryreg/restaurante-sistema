@@ -456,8 +456,9 @@ def _to_denominations(items: list[Any]) -> list[money.Denomination]:
 
 
 def _check_photo_required(db: Session, store: Store, photo: str | None, *, setting_attr: str) -> None:
-    if not features.is_enabled(db, store.organization_id, store.id, "cash.photo_required"):
-        return
+    # Una sola fuente: las casillas de la sede (Ajustes › Caja). La vieja
+    # función `cash.photo_required` ya se plegó en ellas
+    # (`stores_service.fold_legacy_photo_flag`).
     settings = stores_service.get_cash_settings(db, store.id)
     if getattr(settings, setting_attr) and not photo:
         raise AppError("PHOTO_REQUIRED", "Subí la foto del conteo antes de continuar", status=400)
@@ -2193,9 +2194,7 @@ def close_precheck(db: Session, *, shift: Shift, store: Store) -> dict[str, Any]
     _require_open(shift)
     sales = hooks.get_sales_totals(db, shift.id)
     open_orders = _count_open_orders(db, shift.id)
-    photo_required = False
-    if features.is_enabled(db, store.organization_id, store.id, "cash.photo_required"):
-        photo_required = bool(stores_service.get_cash_settings(db, store.id).photo_required_on_close)
+    photo_required = bool(stores_service.get_cash_settings(db, store.id).photo_required_on_close)
     card_required = sales.card + sales.tips_card > 0
     transfer_required = sales.transfer + sales.tips_transfer > 0
     reserve_loan_open = reserve.loan_outstanding(db, shift.id) > 0

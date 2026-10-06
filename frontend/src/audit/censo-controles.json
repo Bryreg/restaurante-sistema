@@ -1542,20 +1542,25 @@
   "Margen meta por categoría (%)",
   "Medios de pago",
   "Mesa larga (minutos)",
-  "Minutos de bloqueo del PIN",
   "Motivos de anulación (uno por línea)",
   "Motivos de cortesía (uno por línea)",
   "Motivos de descuento (uno por línea)",
   "No se pudo cargar la configuración de ventas",
   "Notas rápidas del POS",
-  "PIN equivocados antes del bloqueo",
   "Propina sugerida (%, máx. 10)",
   "Qué puede hacer el salón con el precio",
   "Reintentar",
-  "Seguridad de las tablets",
-  "Sesión de la persona (minutos sin usar)",
   "Tiquete demorado (minutos)",
   "Umbral de factura (UVT)"
+ ],
+ "features/settings/SecuritySection.tsx": [
+  "Elegí una sede",
+  "Minutos de bloqueo del PIN",
+  "No se pudo cargar la seguridad de las tablets",
+  "PIN equivocados antes del bloqueo",
+  "Reintentar",
+  "Seguridad de las tablets",
+  "Sesión de la persona (minutos sin usar)"
  ],
  "features/settings/SettingsPage.tsx": [
   "Aplica a",
@@ -1571,6 +1576,7 @@
   "Organización",
   "Secciones",
   "Sedes",
+  "Seguridad",
   "UVT",
   "Ventas",
   "Zonas y mesas"

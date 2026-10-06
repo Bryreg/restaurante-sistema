@@ -568,14 +568,14 @@ function QuienEntro(): React.JSX.Element | null {
  * dónde.
  */
 function StoreSwitcher({ celular = false }: { celular?: boolean } = {}): React.JSX.Element | null {
-  const { hasFeature, me } = useSession();
+  const { me } = useSession();
   const { stores, activeStoreId, setActiveStoreId } = useStoreSelection();
 
   // En el celular (handoff, `AdminMovil`) la pastilla mide 34 px, redondeada
   // a 8, y dice sólo el nombre: el ancho de 390 px no alcanza para «Sede».
   const alto = celular ? "h-[34px] rounded-lg" : "h-10 rounded-xl";
 
-  if (!hasFeature("multi_store") || stores.length <= 1) {
+  if (stores.length <= 1) {
     const sola = stores.find((s) => s.id === activeStoreId)?.name ?? me?.store?.name;
     if (!sola) return null;
     return (

@@ -414,7 +414,7 @@ Ruta de dispositivo: **sin costo ni margen**.
 |---|---|---|
 | Barra lateral de navegación | Una entrada por sección | **cada entrada filtrada por su flag** (ver la lista transversal) |
 | **Botón de menú (hamburguesa)** | Abre la navegación en un **`Sheet` lateral** | **sólo en ancho de teléfono/tablet (`md:hidden`)** — en escritorio la barra está fija |
-| **Selector de sede** (`StoreSwitcher`) | Cambia la sede activa de todo el admin | **sólo con `multi_store` encendida Y más de una sede**; si no, no se dibuja |
+| **Selector de sede** (`StoreSwitcher`) | Cambia la sede activa de todo el admin | **sólo con más de una sede**; si no, se ve el nombre de la sede sin desplegable |
 | **Campana de notificaciones** | Ver abajo, pantalla 34 | siempre |
 | **Cambiar tema** (`ThemeToggle`) | Claro / oscuro | siempre |
 | **Salir** | Cierra sesión (`logout`) y vuelve a `/login` | siempre |
@@ -863,7 +863,7 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 
 ## 36. Ajustes — `/admin/settings` — `features/settings/SettingsPage.tsx`
 
-**Sin flag.** **Diez pestañas**, ninguna gateada por flag a nivel de pestaña (aunque dos secciones de adentro sí consultan flags).
+**Sin flag.** **Once pestañas**, ninguna gateada por flag a nivel de pestaña (aunque dos secciones de adentro sí consultan flags).
 
 **Organización:** nombre de la organización → **Guardar** (deshabilitado si no se cambió nada).
 
@@ -887,6 +887,8 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 
 **Empleados:** **Nuevo empleado**; por fila **Editar** y **Desactivar** (*sólo si está activo* — los empleados **se desactivan, nunca se borran*). El formulario tiene nombre, **rol**, **PIN de 4 dígitos** (al editar: «Nuevo PIN (opcional)»), documento, correo, **contraseña** (al editar: «Nueva contraseña (opcional)»), una casilla de **puede cobrar** y **límite de descuento (%)** por persona. *Ese límite por persona es lo que dispara el `AuthorizerDialog` del POS.*
 
+**Seguridad:** sesión de la persona en la tablet (minutos sin usar), **PIN equivocados antes del bloqueo** y **minutos de bloqueo del PIN**; vacío = el valor de fábrica. *Antes vivían dentro de Ventas (limpieza e16); se guardan en el mismo recurso de la sede (`sales-settings`) y Ventas ya no los manda.*
+
 ---
 
 # Listas transversales
@@ -897,7 +899,6 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 
 | Flag | Qué habilita | Dónde |
 |---|---|---|
-| `multi_store` | El **selector de sede** del chrome del admin (además exige > 1 sede) | Chrome admin (13–36) |
 | `pos.tables` | Entrada «Mesas»; **la pantalla 3 entera**; el canal «Mesa» en 4; **a dónde vuelve** Cobro y Documento | 3, 4, 8, 9, índice de `/pos` |
 | `pos.counter` | Canal «Mostrador» | 4 |
 | `pos.takeout` | Canal «Para llevar» y sus campos (nombre, teléfono, hora prometida) | 4 |

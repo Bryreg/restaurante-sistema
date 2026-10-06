@@ -35,7 +35,7 @@ import { CURRENT_SHIFT_QUERY_KEY, shiftSummaryQueryKey, useShiftSummary } from "
 /**
  * Retiros de efectivo (`cash.pickups`, `POST /shifts/{id}/pickups`): PIN de
  * administrador siempre, foto sólo si el servidor la exige
- * (`400 PHOTO_REQUIRED`, config de sede vía `cash.photo_required`), y el
+ * (`400 PHOTO_REQUIRED`, Ajustes › Caja › «Foto obligatoria en retiros»), y el
  * snapshot `expected_at_pickup` que devuelve el servidor — nunca se
  * recalcula acá. Cada retiro puede reversarse con motivo y PIN, sin
  * editarse ni borrarse.

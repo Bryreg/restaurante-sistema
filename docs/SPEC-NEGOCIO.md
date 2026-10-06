@@ -105,7 +105,7 @@ tiene cursos, división de cuenta y recetas con preparaciones. Por eso:
 | `cash.reserve` | reserva de caja declarada aparte | sí | sí | sí | |
 | `cash.pickups` | retiros de efectivo con snapshot | sí | sí | sí | |
 | `cash.handovers` | relevo del responsable y arqueo sorpresa | no | sí | sí | |
-| `cash.photo_required` | foto obligatoria en cierre y retiro | no | sí | sí | |
+| ~~`cash.photo_required`~~ | **retirada** (limpieza e16): la foto la deciden sólo las casillas de la sede en Ajustes › Caja | — | — | — | |
 | `cash.swaps` | cambio de denominaciones | sí | sí | sí | |
 | `roles.supervisor` | rol supervisor con PIN propio | no | sí | sí | |
 | `fiscal.dee_pos` | documento equivalente electrónico vía proveedor | sí* | sí* | sí* | |
@@ -123,7 +123,7 @@ tiene cursos, división de cuenta y recetas con preparaciones. Por eso:
 | `money.bank` | libro del banco y mano del dueño (fase 3) | no | no | sí | `money.deposits` |
 | `money.obligations` | gastos, obligaciones, punto de equilibrio (fase 3) | no | no | sí | |
 | `payroll` | horas, recargos y nómina (fase 3) | no | no | sí | |
-| `multi_store` | selector de sede y comparativo | no | no | sí | |
+| ~~`multi_store`~~ | **retirada** (limpieza e16): el selector de sede aparece cuando hay más de una sede | — | — | — | |
 | `notifications.push` | push al administrador (fase 2) | no | sí | sí | |
 
 \* `fiscal.dee_pos` se apaga sólo si la organización declara **no estar obligada a

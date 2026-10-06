@@ -140,8 +140,9 @@ def test_over_critical_still_closes_and_is_flagged(device_client, open_shift, db
     assert confirm.status_code in (200, 201), confirm.text
 
 
-def test_close_photo_required_when_setting_and_flag_are_on(device_client, open_shift, db: Session, set_feature, store) -> None:
-    set_feature("cash.photo_required", True, store_id=store.id)
+def test_close_photo_required_when_store_setting_is_on(device_client, open_shift, db: Session, store) -> None:
+    # La casilla de la sede es la única fuente (la función `cash.photo_required`
+    # se retiró); viene encendida por defecto.
     open_shift(total=200_000, denominations=[{"value": 10000, "count": 20}])
     shift = _open(db)
 
@@ -152,6 +153,24 @@ def test_close_photo_required_when_setting_and_flag_are_on(device_client, open_s
     )
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "PHOTO_REQUIRED"
+
+
+def test_close_photo_not_required_where_the_retired_flag_was_off(
+    device_client, open_shift, db: Session, set_feature, store
+) -> None:
+    # Datos de antes: la función `cash.photo_required` (retirada) apagada en la
+    # sede ganaba sobre la casilla encendida. Se pliega en la casilla y la foto
+    # sigue sin pedirse.
+    set_feature("cash.photo_required", False, store_id=store.id)
+    open_shift(total=200_000, denominations=[{"value": 10000, "count": 20}])
+    shift = _open(db)
+
+    resp = device_client.post(
+        f"/api/v1/shifts/{shift.id}/close/count",
+        json={"counted_cash": {"denominations": [{"value": 10000, "count": 20}], "total": 200_000}, "tips_cash_out": 0},
+        headers=idem(),
+    )
+    assert resp.status_code in (200, 201), resp.text
 
 
 def test_handovers_disabled_returns_feature_disabled(device_client, employees, open_shift, db: Session, set_feature, store) -> None:
