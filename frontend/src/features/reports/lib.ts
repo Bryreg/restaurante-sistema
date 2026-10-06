@@ -207,6 +207,8 @@ const ALERT_ROUTES: Record<string, AlertRoute> = {
     tab: "Conteo por área",
   },
   cash_diff_summary: { to: "/admin/dinero?tab=historial", label: "Ver cierres", screen: "Dinero", tab: "Historial" },
+  // Tanda 5 (i1): un proveedor subió el precio de un insumo.
+  supplier_price_rise: { to: "/admin/compras?tab=precios", label: "Ver precios por proveedor", screen: "Compras", tab: "Precios" },
 }
 
 export function alertRoute(type: string): AlertRoute {

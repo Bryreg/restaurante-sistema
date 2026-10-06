@@ -24,6 +24,7 @@ export const TYPE_LABEL: Record<string, string> = {
   waste_spike: "Merma por encima de lo habitual",
   reserve_loan_open: "Base de respaldo sin devolver",
   area_count_shortage: "Faltante grande en un conteo",
+  supplier_price_rise: "Un proveedor subió el precio",
 };
 
 /** Qué gobierna cada regla, en palabras: a quién le llega y de dónde sale. */
@@ -52,4 +53,6 @@ export const TYPE_HELP: Record<string, string> = {
   reserve_loan_open:
     "Se intentó cerrar un turno sin devolver lo tomado de la base de respaldo, o pasó la hora de corte y sigue sin volver.",
   area_count_shortage: "Un artículo del conteo por área faltó por encima del umbral de Inventario › Conteo por área.",
+  supplier_price_rise:
+    "Al recibir, el precio de un insumo subió más que el umbral contra la compra anterior al mismo proveedor (por defecto 10 %).",
 };

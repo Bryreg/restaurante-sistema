@@ -27,7 +27,7 @@ from app.core.features import require_feature
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.core.quantity import format_cost_micros, format_qty_base
 from app.inventory import hooks as inventory_hooks
-from app.purchases import service
+from app.purchases import prices, service
 from app.purchases.models import Payable, Reception, ReceptionDraft, Supplier
 from app.purchases.schemas import (
     ReceptionSuggestionsOut,
@@ -56,6 +56,7 @@ from app.purchases.schemas import (
     SupplierReliabilityRowOut,
     SuppliersReliabilityOut,
     SupplierUpdateIn,
+    IngredientSupplierPricesOut,
 )
 
 router = APIRouter(dependencies=[Depends(require_feature("purchases"))])
@@ -240,6 +241,28 @@ def supplier_reliability(
     if format == "csv":
         return csv_response(sectioned_rows(result), "confiabilidad-proveedor.csv")
     return result
+
+
+def _admin_ingredient(db: Session, actor: Actor, store_id: int, ingredient_id: int) -> tuple[Store, Any]:
+    store = admin_store(db, actor, store_id)
+    ingredient = inventory_hooks.get_ingredient(db, store_id=store.id, ingredient_id=ingredient_id)
+    if ingredient is None:
+        raise AppError(code="NOT_FOUND", message="El insumo no existe en esta sede", status=404)
+    return store, ingredient
+
+
+@router.get("/admin/ingredients/{ingredient_id}/supplier-prices", response_model=IngredientSupplierPricesOut)
+def ingredient_supplier_prices(
+    ingredient_id: int,
+    store_id: int,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> IngredientSupplierPricesOut:
+    """Las últimas compras del insumo por proveedor, con su cambio contra la
+    anterior al mismo proveedor (tanda 5, i1). Sólo administración: son
+    precios."""
+    store, ingredient = _admin_ingredient(db, actor, store_id, ingredient_id)
+    return IngredientSupplierPricesOut(**prices.supplier_price_history(db, store=store, ingredient=ingredient))
 
 
 # ---------------------------------------------------------------------------

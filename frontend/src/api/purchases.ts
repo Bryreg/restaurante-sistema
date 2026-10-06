@@ -626,3 +626,45 @@ export function completeReceptionDraft(
 export function rejectReceptionDraft(draftId: number, reason: string): Promise<ReceptionDraftAdminOut> {
   return api<ReceptionDraftAdminOut>(`/admin/reception-drafts/${draftId}/reject`, { method: "POST", body: { reason } })
 }
+
+// ---------------------------------------------------------------------------
+// Precios por proveedor (tanda 5, i1/i2) — `GET /admin/ingredients/{id}/supplier-prices`.
+// Todo llega calculado: el cambio contra la compra anterior lo decide el
+// servidor.
+// ---------------------------------------------------------------------------
+
+export interface SupplierPricePointOut {
+  reception_id: number
+  business_date: string
+  /** Por UNA unidad de compra, tal como se tecleó (texto decimal, pesos). */
+  purchase_unit_price: string
+  /** Por unidad base, sin impuesto (texto decimal, pesos). */
+  unit_cost: string
+  qty_received: string
+  /** Contra la compra anterior al MISMO proveedor, en puntos básicos con signo; `null` en la primera. */
+  change_bp: number | null
+}
+
+export interface SupplierPriceRowOut {
+  supplier_id: number
+  supplier_name: string
+  supplier_active: boolean
+  /** Las últimas compras, la más nueva primero. */
+  purchases: SupplierPricePointOut[]
+}
+
+export interface IngredientSupplierPricesOut {
+  ingredient_id: number
+  ingredient_name: string
+  base_unit: string
+  purchase_unit: string
+  /** Umbral vigente del aviso «Un proveedor subió el precio» (%). */
+  alert_threshold_pct: number
+  suppliers: SupplierPriceRowOut[]
+}
+
+export function getIngredientSupplierPrices(storeId: number, ingredientId: number): Promise<IngredientSupplierPricesOut> {
+  return api<IngredientSupplierPricesOut>(`/admin/ingredients/${ingredientId}/supplier-prices`, {
+    query: { store_id: storeId },
+  })
+}

@@ -10,12 +10,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 import { PayablesTab } from "./PayablesTab"
 import { ReceptionsTab } from "./ReceptionsTab"
+import { SupplierPricesTab } from "./SupplierPricesTab"
 import { SuppliersTab } from "./SuppliersTab"
 
-type TabValue = "proveedores" | "recepciones" | "cuentas-por-pagar"
+const ALL_TABS = ["proveedores", "recepciones", "cuentas-por-pagar", "precios"] as const
+type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
-  return value === "proveedores" || value === "recepciones" || value === "cuentas-por-pagar"
+  return (ALL_TABS as readonly string[]).includes(value ?? "")
 }
 
 /**
@@ -86,6 +88,7 @@ export function PurchasesAdminPage(): React.JSX.Element {
           <TabsTrigger value="proveedores">Proveedores</TabsTrigger>
           <TabsTrigger value="recepciones">Recepciones</TabsTrigger>
           <TabsTrigger value="cuentas-por-pagar">Cuentas por pagar</TabsTrigger>
+          <TabsTrigger value="precios">Precios</TabsTrigger>
         </TabsList>
         <TabsContent value="proveedores" className="pt-4">
           <SuppliersTab storeId={activeStoreId} />
@@ -95,6 +98,9 @@ export function PurchasesAdminPage(): React.JSX.Element {
         </TabsContent>
         <TabsContent value="cuentas-por-pagar" className="pt-4">
           <PayablesTab storeId={activeStoreId} suppliers={suppliers} />
+        </TabsContent>
+        <TabsContent value="precios" className="pt-4">
+          <SupplierPricesTab storeId={activeStoreId} />
         </TabsContent>
       </Tabs>
     </div>

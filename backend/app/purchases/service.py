@@ -52,6 +52,7 @@ from app.inventory import hooks as inventory_hooks
 from app.inventory.models import CostSource, Ingredient, MovementCause
 from app.photos import hooks as photos_hooks
 from app.purchases import hooks as purchases_hooks
+from app.purchases import prices
 from app.purchases.models import (
     Payable,
     PayableStatus,
@@ -412,6 +413,15 @@ def _write_reception(
     guard_triggered: bool = validated["guard_triggered"]
     payable_amount: int = validated["payable_amount"]
 
+    # i1: la compra anterior de cada insumo a este proveedor, leída ANTES de
+    # escribir (así la recepción nueva nunca se compara contra sí misma).
+    previous_prices = prices.previous_supplier_prices(
+        db,
+        store_id=store.id,
+        supplier_id=supplier.id,
+        ingredient_ids=[p["ingredient"].id for p in prepared],
+    )
+
     reception = Reception(
         organization_id=store.organization_id,
         store_id=store.id,
@@ -435,6 +445,7 @@ def _write_reception(
     db.add(reception)
     db.flush()
 
+    written_lines: list[ReceptionLine] = []
     for prepared_line in prepared:
         ingredient = prepared_line["ingredient"]
         line_row = ReceptionLine(
@@ -487,6 +498,7 @@ def _write_reception(
         line_row.stock_movement_id = movement.id
         line_row.stock_batch_id = getattr(batch, "id", None)
         db.flush()
+        written_lines.append(line_row)
 
     due_date = payload.invoice_date + timedelta(days=supplier.payment_term_days)
     payable = Payable(
@@ -502,6 +514,16 @@ def _write_reception(
     )
     db.add(payable)
     db.flush()
+
+    prices.notify_price_rises(
+        db,
+        store=store,
+        supplier=supplier,
+        reception=reception,
+        lines=written_lines,
+        previous=previous_prices,
+        ingredients={p["ingredient"].id: p["ingredient"] for p in prepared},
+    )
 
     supply_request_ids: list[int] = validated.get("supply_request_ids", [])
     if supply_request_ids:

@@ -67,6 +67,10 @@ NOTIFICATION_TYPES: list[str] = [
     # `app.inventory.area_counts` al guardar un artículo fuera del umbral.
     "reserve_loan_open",
     "area_count_shortage",
+    # Auditoría del dueño, tanda 5 (i1): un proveedor subió el precio de un
+    # insumo más que el umbral contra la compra anterior. Lo emite
+    # `app.purchases.prices.notify_price_rises` al confirmar la recepción.
+    "supplier_price_rise",
 ]
 
 
@@ -111,6 +115,9 @@ THRESHOLD_DEFAULTS: dict[str, tuple[int, str]] = {
     "waste_spike": (150, "% de la merma de la semana anterior"),
     # % consumido de un rango de numeración DIAN.
     "fiscal_range_low": (80, "% del rango de numeración consumido"),
+    # % que subió el precio de un insumo contra la compra anterior al mismo
+    # proveedor (tanda 5, i1).
+    "supplier_price_rise": (10, "% de subida contra la compra anterior al mismo proveedor"),
 }
 
 

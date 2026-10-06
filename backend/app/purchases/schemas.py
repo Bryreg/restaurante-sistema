@@ -478,3 +478,41 @@ class ReceptionDraftCompleteIn(BaseModel):
 
 class ReceptionDraftRejectIn(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
+
+
+# ---------------------------------------------------------------------------
+# Precios por proveedor (tanda 5, i1/i2).
+# ---------------------------------------------------------------------------
+
+
+class SupplierPricePointOut(BaseModel):
+    """Una compra confirmada del insumo a un proveedor."""
+
+    reception_id: int
+    business_date: date
+    # Por UNA unidad de compra, tal como se tecleó (texto decimal, pesos).
+    purchase_unit_price: str
+    # Por unidad BASE, sin impuesto (texto decimal, pesos): lo que se compara.
+    unit_cost: str
+    qty_received: str
+    # Cambio contra la compra anterior AL MISMO proveedor, en puntos básicos
+    # con signo; `None` en la primera (no hay contra qué medir).
+    change_bp: int | None
+
+
+class SupplierPriceRowOut(BaseModel):
+    supplier_id: int
+    supplier_name: str
+    supplier_active: bool
+    # Las últimas compras, la más nueva primero.
+    purchases: list[SupplierPricePointOut]
+
+
+class IngredientSupplierPricesOut(BaseModel):
+    ingredient_id: int
+    ingredient_name: str
+    base_unit: str
+    purchase_unit: str
+    # El umbral vigente del aviso «Un proveedor subió el precio» (%).
+    alert_threshold_pct: int
+    suppliers: list[SupplierPriceRowOut]
