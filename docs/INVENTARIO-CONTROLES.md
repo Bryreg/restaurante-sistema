@@ -204,24 +204,20 @@ La pantalla con más controles del salón.
 - **Estados:** comanda inválida, cargando, «No se pudo cargar la comanda», lista de ítems vacía («Todavía no hay ítems en esta comanda»), conflicto de versión (`STALE_VERSION`) que recarga la comanda y avisa.
 - **Badges informativos:** estado de la comanda y **«Cuenta presentada · {hora}»**.
 
-## 6. Cocina — `/pos/cocina` — `features/orders/KitchenPage.tsx`
+## 6. Cocina — `/pos/cocina` (borrada)
 
-Vista de cocina mínima (`kitchen.view`).
-
-| Acción | Qué hace | Condición |
-|---|---|---|
-| **Todas** / botón por estación | Filtra las rondas por estación | las estaciones se descubren de los datos |
-| **Listo** (por ítem) | `markReady` | sólo si el ítem no está ya `ready`; si lo está, se ve «Listo» sin botón |
-
-- **Sin función:** `EmptyState` «La vista de cocina no está habilitada · Activá «Cocina» (kitchen.view)».
-- **Estados:** cargando, vacío («No hay rondas pendientes»), error por ítem debajo del botón.
-- Semáforo por ítem (A tiempo / Por vencer / Demorado) con el tiempo transcurrido — **el texto acompaña al color siempre**.
+La vista mínima de cocina se borró en la limpieza p17: había dos pantallas de
+cocina. `/pos/cocina` redirige a `/pos/kds` (sección 7), que ahora es la única y
+funciona también con sólo `kitchen.view`.
 
 ## 7. KDS — `/pos/kds` — `features/kitchen/KdsPage.tsx`
 
-KDS completo (`kitchen.kds`). **Dos pestañas.**
+La única pantalla de cocina (`kitchen.view`; en la barra, «Cocina»). Con
+`kitchen.kds` encendida suma deshacer, expedir y la pestaña de impresión; con
+sólo `kitchen.view`, «Listo» marca por `markReady` y no se deshace.
+**Dos pestañas** (la segunda, sólo con `kitchen.kds`).
 
-**Filtro de estación** (igual que Cocina): «Todas» + una por estación.
+**Filtro de estación**: «Todas» + una por estación.
 
 **Pestaña «Cocina»** — tarjetas agrupadas **por comanda** (no por ronda):
 
@@ -237,7 +233,7 @@ KDS completo (`kitchen.kds`). **Dos pestañas.**
 |---|---|---|
 | **Confirmar impresión** / **Reimprimir** | **Registra** que la estación imprimió (no manda nada a una impresora física) | el rótulo cambia a «Reimprimir» si ya estaba registrada |
 
-- **Sin función:** `EmptyState` que nombra el flag `kitchen.kds`.
+- **Sin función:** `EmptyState` que nombra el flag `kitchen.view`.
 - **Estados por pestaña:** cargando, **error con botón «Reintentar»**, vacío («No hay rondas pendientes» / «Nada para imprimir»).
 - Badge **«Marchado»** por ítem si su curso fue marchado; «Bumpeado por {persona}» en los ya listos.
 
@@ -917,8 +913,8 @@ Todas son de sólo lectura: rango de fechas y tabla. Lo que cambia entre ellas s
 | `pos.tips` | La **pregunta de propina** antes de cobrar; **pestaña Propinas** y su entrada de navegación | 8, 27 |
 | `pos.daily_menu` | Pestaña **Menú del día** de la carta del POS; **pestaña Menú del día** del admin | 5, 17 |
 | `pos.daily_count` | Badge **«Quedan N»** por producto | 5 |
-| `kitchen.view` | Entrada «Cocina»; **la pantalla 6 entera**; el botón **Enviar (N)** de la comanda | 5, 6 |
-| `kitchen.kds` | Entrada «KDS»; **la pantalla 7 entera** (bump, expedir, impresión) | 7 |
+| `kitchen.view` | Entrada «Cocina» (`/pos/kds`); **la pantalla 7** en su versión básica; el botón **Enviar (N)** de la comanda | 5, 7 |
+| `kitchen.kds` | En la pantalla 7: deshacer listo, expedir y la pestaña de impresión | 7 |
 | `catalog.preps` | Entradas «Producir» y «Preparaciones»; **pantallas 11 y 23 enteras** | 11, 23 |
 | `catalog.recipes` | **Pestaña Recetas** de la carta; el botón **«Efecto en receta»** de cada opción de modificador | 17 |
 | `catalog.preps` + `catalog.recipes` | (dependencia declarada: preparaciones depende de fichas técnicas) | 23 |

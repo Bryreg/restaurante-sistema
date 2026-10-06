@@ -31,7 +31,6 @@ vi.mock("@/features/orders", () => ({
     posNav: [
       { to: "/pos/mesas", label: "Mesas", feature: "pos.tables" },
       { to: "/pos/comanda/nueva", label: "Mostrador" },
-      { to: "/pos/cocina", label: "Cocina", feature: "kitchen.view", posGroup: "cocina" },
     ],
   },
 }));
@@ -124,7 +123,6 @@ describe("PosLayout — la barra del salón la decide quién se identificó", ()
       "Mostrador",
       "Turno",
       "Cocina",
-      "Tiquetes de cocina",
       "Producción",
       "Merma",
     ]);
@@ -316,7 +314,7 @@ describe("PosLayout — inicio por rol: la barra según el puesto", () => {
   it("un supervisor con puesto ve la barra completa", async () => {
     renderLayout(TODO_ENCENDIDO, undefined, { ...SUPERVISOR, puesto: "salon" });
 
-    expect(await rotulosDeLaBarra()).toHaveLength(7);
+    expect(await rotulosDeLaBarra()).toHaveLength(6);
   });
 });
 

@@ -5,7 +5,6 @@
  */
 import type { Me } from "@/api/auth"
 import type { CatalogComboOut, CatalogOut, CatalogProductOut } from "@/api/catalog"
-import type { KitchenRoundOut } from "@/api/kitchen"
 import type { OrderItemOut, OrderOut, TablesStatusOut } from "@/api/orders"
 
 export function buildOrderItem(overrides: Partial<OrderItemOut> = {}): OrderItemOut {
@@ -90,35 +89,6 @@ export function buildTablesStatus(overrides: Partial<TablesStatusOut> = {}): Tab
           { id: 2, number: "2", seats: 2, status: "occupied", order_id: 501, opened_at: "2026-09-15T18:00:00Z", covers: 2, total: 25000 },
           { id: 3, number: "3", seats: 4, status: "to_pay", order_id: 502, opened_at: "2026-09-15T17:00:00Z", covers: 3, total: 40000 },
         ],
-      },
-    ],
-    ...overrides,
-  }
-}
-
-export function buildKitchenRound(overrides: Partial<KitchenRoundOut> = {}): KitchenRoundOut {
-  return {
-    order_id: 501,
-    round_no: 1,
-    sent_at: "2026-09-15T18:05:00Z",
-    elapsed_seconds: 300,
-    channel: "dine_in",
-    tables: ["5"],
-    takeout_name: null,
-    covers: 4,
-    items: [
-      {
-        item_id: 1,
-        name: "Limonada de coco",
-        qty: 1,
-        modifiers_text: null,
-        note: null,
-        course: "beverage",
-        station: "bar",
-        status: "sent",
-        elapsed_seconds: 300,
-        target_minutes: 10,
-        semaphore: "green",
       },
     ],
     ...overrides,

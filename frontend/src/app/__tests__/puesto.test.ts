@@ -19,9 +19,8 @@ import {
 const TODAS: NavItem[] = [
   { to: "/pos/mesas", label: "Mesas", feature: "pos.tables" },
   { to: "/pos/comanda/nueva", label: "Mostrador" },
-  { to: "/pos/cocina", label: "Cocina", feature: "kitchen.view", posGroup: "cocina" },
   { to: "/pos/turno", label: "Turno", posGroup: "caja" },
-  { to: "/pos/kds", label: "Tiquetes de cocina", feature: "kitchen.kds", posGroup: "cocina" },
+  { to: "/pos/kds", label: "Cocina", feature: "kitchen.view", posGroup: "cocina" },
   { to: "/pos/produccion", label: "Producción", feature: "catalog.preps", posGroup: "cocina" },
   { to: "/pos/merma", label: "Merma", feature: "inventory.waste", posGroup: "cocina" },
 ];
@@ -57,14 +56,13 @@ describe("barraDelSalon — cinco destinos como máximo, según el puesto", () =
       "Mostrador",
       "Turno",
       "Cocina",
-      "Tiquetes de cocina",
       "Producción",
       "Merma",
     ]);
   });
 
   it("supervisor con puesto igual ve todo", () => {
-    expect(barraDelSalon(TODAS, todo, { role: "supervisor", puesto: "salon" })).toHaveLength(7);
+    expect(barraDelSalon(TODAS, todo, { role: "supervisor", puesto: "salon" })).toHaveLength(6);
   });
 
   it("salón: Mesas, Mostrador y Turno", () => {
@@ -86,25 +84,13 @@ describe("barraDelSalon — cinco destinos como máximo, según el puesto", () =
 
   it("cocina: los tiquetes primero, y Turno al final", () => {
     const barra = barraDelSalon(TODAS, todo, { role: "operator", puesto: "cocina" });
-    expect(rotulos(barra)).toEqual(["Tiquetes de cocina", "Cocina", "Producción", "Merma", "Turno"]);
+    expect(rotulos(barra)).toEqual(["Cocina", "Producción", "Merma", "Turno"]);
     expect(barra.length).toBeLessThanOrEqual(5);
   });
 
   it("bar: los tiquetes primero (el KDS recuerda su estación por su cuenta)", () => {
     const barra = barraDelSalon(TODAS, todo, { role: "operator", puesto: "bar" });
-    expect(barra[0]).toMatchObject({ label: "Tiquetes de cocina", to: "/pos/kds" });
-  });
-
-  it("hiddenWithFeature: una entrada se va cuando otra función la reemplaza", () => {
-    const conReemplazo: NavItem[] = TODAS.map((i) =>
-      i.to === "/pos/cocina" ? { ...i, hiddenWithFeature: "kitchen.kds" } : i,
-    );
-    expect(rotulos(barraDelSalon(conReemplazo, todo, { role: "operator", puesto: "cocina" }))).toEqual([
-      "Tiquetes de cocina",
-      "Producción",
-      "Merma",
-      "Turno",
-    ]);
+    expect(barra[0]).toMatchObject({ label: "Cocina", to: "/pos/kds" });
   });
 
   it("los flags siguen mandando: con todo apagado la cocina sólo ve Turno", () => {
@@ -130,16 +116,16 @@ describe("inicioParaPuesto — a dónde llega después del PIN", () => {
   // **Movido a propósito (0030, decisión 5 del dueño)**: con el conteo por
   // área encendido, cocina y bar pasan primero por Conteo (la apertura de su
   // área es obligatoria); la pantalla de conteo sigue sola al KDS si ya está
-  // hecha. El destino de siempre (KDS → vista de cocina → Turno) no cambió:
+  // hecha. El destino de siempre (cocina → Turno) no cambió:
   // es el `sinConteo`, y sin la función es el mismo de antes.
-  it("cocina y bar → Conteo con el conteo por área; si no, KDS; sin KDS, la vista de cocina; sin nada, Turno", () => {
+  it("cocina y bar → Conteo con el conteo por área; si no, la pantalla de cocina (con o sin KDS); sin nada, Turno", () => {
     const conConteo = (k: string) => todo(k) || k === "inventory.perpetual" || k === "inventory.shift_counts";
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, conConteo)).toBe("/pos/conteo?inicio=1");
     expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, conConteo)).toBe("/pos/conteo?inicio=1");
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, conConteo, { sinConteo: true })).toBe("/pos/kds");
     expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, conConteo, { sinConteo: true })).toBe("/pos/kds");
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, todo)).toBe("/pos/kds");
-    expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, (k) => k === "kitchen.view")).toBe("/pos/cocina");
+    expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, (k) => k === "kitchen.view")).toBe("/pos/kds");
     expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, nada)).toBe("/pos/turno");
     // Caja y salón no pasan por el conteo.
     expect(inicioParaPuesto({ role: "operator", puesto: "caja" }, conConteo)).toBe("/pos/turno");

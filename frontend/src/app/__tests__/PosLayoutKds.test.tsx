@@ -67,7 +67,7 @@ describe("PosLayout — el KDS no exige persona para mirarse", () => {
     expect(screen.queryByText("mesas")).not.toBeInTheDocument()
   })
 
-  it("con el KDS encendido la barra ofrece UNA pantalla de cocina, no la vista mínima además", async () => {
+  it("con el KDS encendido la barra ofrece UNA pantalla de cocina", async () => {
     renderAt("/pos", deviceMe(KDS, { id: 7, name: "Ana", role: "operator", can_charge: false }))
 
     const barra = await screen.findByRole("navigation", { name: "Secciones del salón" })
@@ -78,7 +78,7 @@ describe("PosLayout — el KDS no exige persona para mirarse", () => {
     expect(rotulos).not.toContain("/pos/cocina")
   })
 
-  it("con el KDS apagado la vista mínima de Cocina sigue en la barra", async () => {
+  it("con el KDS apagado la barra ofrece la misma pantalla de cocina (sólo kitchen.view)", async () => {
     renderAt(
       "/pos",
       deviceMe({ "kitchen.view": true, "kitchen.kds": false }, { id: 7, name: "Ana", role: "operator", can_charge: false }),
@@ -88,7 +88,7 @@ describe("PosLayout — el KDS no exige persona para mirarse", () => {
     const rotulos = within(barra)
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"))
-    expect(rotulos).toContain("/pos/cocina")
-    expect(rotulos).not.toContain("/pos/kds")
+    expect(rotulos).toContain("/pos/kds")
+    expect(rotulos).not.toContain("/pos/cocina")
   })
 })

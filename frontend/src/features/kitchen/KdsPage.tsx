@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 
 import { useCocinaPantalla } from "@/app/theme"
 import { useSession } from "@/app/session"
-import { ApiError } from "@/api/client"
+import { ApiError, newIdempotencyKey } from "@/api/client"
 import {
   bumpItem,
   expediteOrder,
@@ -14,6 +14,7 @@ import {
   type KitchenRoundItemOut,
   type KitchenRoundOut,
 } from "@/api/kitchen"
+import { markReady } from "@/api/orders"
 import { Cargando } from "@/components/Cargando"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -59,6 +60,14 @@ const AttributeContext = createContext<Attribute>(async (_label, run) => {
   await run()
   return "done"
 })
+
+/**
+ * `true` con `kitchen.kds` encendida: deshacer listo, expedir e impresión por
+ * estación. Con sólo `kitchen.view` la pantalla es la misma, pero «Listo» marca
+ * por `POST /orders/{id}/items/{id}/ready` (la ruta de `kitchen.view`) y no se
+ * deshace, y no hay expedición ni impresión: esas rutas exigen `kitchen.kds`.
+ */
+const FullKdsContext = createContext(true)
 
 function isIdentifyRequired(err: unknown): boolean {
   return err instanceof ApiError && err.code === "IDENTIFY_REQUIRED"
@@ -110,15 +119,18 @@ function Detalle({ text, kind }: { text: string; kind: "modifiers" | "note" }): 
  */
 function ItemRow({
   item,
+  orderId,
   onChanged,
   semaforoTiquete,
 }: {
   item: KitchenRoundItemOut
+  orderId: number
   onChanged: () => void
   /** El de la cabecera: si el plato dice lo mismo, no se repite. */
   semaforoTiquete: KitchenSemaphoreValue
 }): React.JSX.Element {
   const attribute = useContext(AttributeContext)
+  const full = useContext(FullKdsContext)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const semaphore = (item.semaphore ?? "green") as KitchenSemaphoreValue
@@ -131,9 +143,10 @@ function ItemRow({
     setPending(true)
     setError(null)
     try {
-      const result = await attribute(ready ? `Deshacer listo: ${name}` : `Marcar listo: ${name}`, () =>
-        ready ? unbumpItem(item.item_id) : bumpItem(item.item_id),
-      )
+      const result = await attribute(ready ? `Deshacer listo: ${name}` : `Marcar listo: ${name}`, () => {
+        if (ready) return unbumpItem(item.item_id)
+        return full ? bumpItem(item.item_id) : markReady(orderId, item.item_id, newIdempotencyKey())
+      })
       if (result === "done") onChanged()
     } catch (err) {
       setError(errorMessage(err))
@@ -153,9 +166,10 @@ function ItemRow({
         </p>
         <button
           type="button"
-          disabled={pending}
+          // Sin `kitchen.kds` un plato listo no se deshace (no hay ruta para eso).
+          disabled={pending || (ready && !full)}
           onClick={() => void handleToggle()}
-          aria-label={ready ? `Deshacer listo: ${name}` : `Marcar listo: ${name}`}
+          aria-label={ready ? (full ? `Deshacer listo: ${name}` : `Listo: ${name}`) : `Marcar listo: ${name}`}
           className={cn(
             "inline-flex h-[56px] min-w-[96px] shrink-0 items-center justify-center gap-1.5 rounded-[10px] border-2 border-success px-3 text-[17px] font-extrabold transition-colors",
             "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-60",
@@ -286,6 +300,7 @@ function OrderCard({
   onChanged: () => void
 }): React.JSX.Element {
   const attribute = useContext(AttributeContext)
+  const full = useContext(FullKdsContext)
   const [expediting, setExpediting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const pendientes = pendientesDe(group)
@@ -358,7 +373,13 @@ function OrderCard({
           ) : null}
           <ul>
             {(round.items ?? []).map((item) => (
-              <ItemRow key={item.item_id} item={item} onChanged={onChanged} semaforoTiquete={semaphore} />
+              <ItemRow
+                key={item.item_id}
+                item={item}
+                orderId={group.orderId}
+                onChanged={onChanged}
+                semaforoTiquete={semaphore}
+              />
             ))}
           </ul>
         </div>
@@ -368,28 +389,30 @@ function OrderCard({
           {error}
         </p>
       ) : null}
-      <div className="mt-auto border-t border-dashed border-[#CFC7B5] p-2.5">
-        <Button
-          type="button"
-          variant="outline"
-          className="h-12 w-full"
-          disabled={expediting || !hasSent}
-          onClick={() => void handleExpedite()}
-          aria-label={
-            station
-              ? `Expedir ${stationLabel(station)} de la comanda #${group.orderId}`
-              : `Expedir comanda completa #${group.orderId}`
-          }
-          title={
-            station
-              ? `Marca listos de un golpe sólo los ítems de ${stationLabel(station)} de esta comanda; las otras estaciones no se tocan`
-              : EXPEDITE_ALL.title
-          }
-        >
-          <Rocket className="size-4" aria-hidden="true" />
-          {expediting ? "Expidiendo…" : expediteLabel}
-        </Button>
-      </div>
+      {full ? (
+        <div className="mt-auto border-t border-dashed border-[#CFC7B5] p-2.5">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-12 w-full"
+            disabled={expediting || !hasSent}
+            onClick={() => void handleExpedite()}
+            aria-label={
+              station
+                ? `Expedir ${stationLabel(station)} de la comanda #${group.orderId}`
+                : `Expedir comanda completa #${group.orderId}`
+            }
+            title={
+              station
+                ? `Marca listos de un golpe sólo los ítems de ${stationLabel(station)} de esta comanda; las otras estaciones no se tocan`
+                : EXPEDITE_ALL.title
+            }
+          >
+            <Rocket className="size-4" aria-hidden="true" />
+            {expediting ? "Expidiendo…" : expediteLabel}
+          </Button>
+        </div>
+      ) : null}
     </article>
   )
 }
@@ -493,11 +516,10 @@ function requestBrowserFullscreen(on: boolean): void {
 }
 
 // -----------------------------------------------------------------------
-// Pantalla: KDS completo (`kitchen.kds`). La vista mínima de 1b
-// (`/pos/cocina`, `kitchen.view`, `features/orders/KitchenPage.tsx`) cede su
-// lugar cuando esta función está encendida — con `kitchen.kds` apagada esta
-// pantalla no se monta (el manifiesto la saca del router) y esa otra queda
-// idéntica.
+// Pantalla: la ÚNICA pantalla de cocina (`kitchen.view`). Antes había dos
+// —una vista mínima en `/pos/cocina` y ésta—; quedó ésta y `/pos/cocina`
+// redirige acá. Con `kitchen.kds` encendida suma deshacer listo, expedir e
+// impresión por estación (`FullKdsContext`).
 // -----------------------------------------------------------------------
 
 /** Hoy en Bogotá como «2026-09-27» (UTC-5 todo el año, igual que `formatClockTime`). */
@@ -544,7 +566,8 @@ const RESUMEN: { valor: KitchenSemaphoreValue; texto: string; clase: string }[] 
 export function KdsPage(): React.JSX.Element {
   useCocinaPantalla()
   const { me, hasFeature, refresh } = useSession()
-  const enabled = hasFeature("kitchen.kds")
+  const enabled = hasFeature("kitchen.view") || hasFeature("kitchen.kds")
+  const full = hasFeature("kitchen.kds")
   const queryClient = useQueryClient()
   const ahora = useAhora()
   const [gridRef, columnas] = useColumnas()
@@ -559,8 +582,8 @@ export function KdsPage(): React.JSX.Element {
   // Los conteos de la barra son de todas las estaciones: con una elegida,
   // se piden también todas (sin estación elegida, es la misma consulta).
   const todas = useKdsRounds(undefined, enabled && station !== undefined)
-  const configuradas = useKdsStations(enabled)
-  const printJobs = useKdsPrintJobs(station, enabled)
+  const configuradas = useKdsStations(enabled && full)
+  const printJobs = useKdsPrintJobs(station, enabled && full)
 
   const employee = me?.employee ?? null
   const employeeExpiresAt = me?.employee_expires_at ?? null
@@ -635,8 +658,8 @@ export function KdsPage(): React.JSX.Element {
   if (!enabled) {
     return (
       <EmptyState
-        title="El KDS no está habilitado"
-        description="Activá «KDS completo: bump, expedición e impresión por estación» (kitchen.kds) en Admin → Funciones."
+        title="La pantalla de cocina no está habilitada"
+        description="Activá «Vista de cocina mínima por estación» (kitchen.view) en Admin → Funciones."
       />
     )
   }
@@ -685,177 +708,183 @@ export function KdsPage(): React.JSX.Element {
     )
 
   return (
-    <AttributeContext.Provider value={attribute}>
-      <Tabs
-        defaultValue="rounds"
-        className={cn(
-          "gap-0 bg-background text-foreground tabular-nums",
-          fullscreen ? "kds-completa fixed inset-0 z-40 overflow-y-auto" : "min-h-full",
-        )}
-      >
-        <header className="flex flex-wrap items-center gap-3.5 border-b px-5 py-3">
-          <div className="mr-2 flex flex-col">
-            <h1 className="text-[26px] leading-tight font-bold [font-stretch:90%]">Cocina</h1>
-            <span className="text-[15px] text-muted-foreground">
-              {me?.store?.name ? `${me.store.name} · ` : ""}
-              {formatFechaCorta(hoyBogota(ahora))}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Estación">
-            <button
-              type="button"
-              className={estacionBoton(station === undefined)}
-              aria-pressed={station === undefined}
-              onClick={() => setStation(undefined)}
-            >
-              Todas
-              <span aria-hidden="true" className="text-[15px] font-semibold opacity-75">
-                {conPendientes.length}
+    <FullKdsContext.Provider value={full}>
+      <AttributeContext.Provider value={attribute}>
+        <Tabs
+          defaultValue="rounds"
+          className={cn(
+            "gap-0 bg-background text-foreground tabular-nums",
+            fullscreen ? "kds-completa fixed inset-0 z-40 overflow-y-auto" : "min-h-full",
+          )}
+        >
+          <header className="flex flex-wrap items-center gap-3.5 border-b px-5 py-3">
+            <div className="mr-2 flex flex-col">
+              <h1 className="text-[26px] leading-tight font-bold [font-stretch:90%]">Cocina</h1>
+              <span className="text-[15px] text-muted-foreground">
+                {me?.store?.name ? `${me.store.name} · ` : ""}
+                {formatFechaCorta(hoyBogota(ahora))}
               </span>
-            </button>
-            {stations.map((value) => (
+            </div>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Estación">
               <button
-                key={value}
                 type="button"
-                className={estacionBoton(station === value)}
-                aria-pressed={station === value}
-                onClick={() => setStation(value)}
+                className={estacionBoton(station === undefined)}
+                aria-pressed={station === undefined}
+                onClick={() => setStation(undefined)}
               >
-                {stationLabel(value)}
+                Todas
                 <span aria-hidden="true" className="text-[15px] font-semibold opacity-75">
-                  {cuantosEn(value)}
+                  {conPendientes.length}
                 </span>
               </button>
-            ))}
-          </div>
-          <div className="flex-1" />
-          {/* ■ ▲ ●: forma, color y palabra; nunca sólo color. */}
-          <p className="flex flex-wrap gap-[18px] text-[17px] font-semibold" aria-label="Tiquetes por demora">
-            {RESUMEN.map((r) => (
-              <span key={r.valor} className={cn("inline-flex items-center gap-2", r.clase)}>
-                <i className={`semaforo semaforo-${r.valor} text-[20px]`} aria-hidden="true" />
-                {resumen[r.valor]} {r.texto}
-              </span>
-            ))}
-          </p>
-          <p className="ml-2.5 text-[30px] font-bold">{formatClockTime(ahora.toISOString())}</p>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-[56px] rounded-[12px] border-input bg-card px-[18px] text-[17px] font-semibold"
-            aria-pressed={fullscreen}
-            onClick={toggleFullscreen}
-          >
-            {fullscreen ? (
-              <Minimize2 className="size-[22px]" aria-hidden="true" />
-            ) : (
-              <Maximize2 className="size-[22px]" aria-hidden="true" />
-            )}
-            {fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-          </Button>
-        </header>
-        <div className="flex flex-wrap items-center gap-3 px-5 pt-3">
-          <p className="mr-auto text-[15px] text-muted-foreground">
-            {personActive && employee ? `Marca: ${employee.name}` : "Nadie identificado · el PIN se pide al marcar"}
-          </p>
-          {staleCount > 0 ? (
+              {stations.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={estacionBoton(station === value)}
+                  aria-pressed={station === value}
+                  onClick={() => setStation(value)}
+                >
+                  {stationLabel(value)}
+                  <span aria-hidden="true" className="text-[15px] font-semibold opacity-75">
+                    {cuantosEn(value)}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="flex-1" />
+            {/* ■ ▲ ●: forma, color y palabra; nunca sólo color. */}
+            <p className="flex flex-wrap gap-[18px] text-[17px] font-semibold" aria-label="Tiquetes por demora">
+              {RESUMEN.map((r) => (
+                <span key={r.valor} className={cn("inline-flex items-center gap-2", r.clase)}>
+                  <i className={`semaforo semaforo-${r.valor} text-[20px]`} aria-hidden="true" />
+                  {resumen[r.valor]} {r.texto}
+                </span>
+              ))}
+            </p>
+            <p className="ml-2.5 text-[30px] font-bold">{formatClockTime(ahora.toISOString())}</p>
             <Button
               type="button"
               variant="outline"
-              className="h-[48px] rounded-[12px] px-4 text-[16px]"
-              aria-pressed={showStale}
-              onClick={toggleStale}
+              className="h-[56px] rounded-[12px] border-input bg-card px-[18px] text-[17px] font-semibold"
+              aria-pressed={fullscreen}
+              onClick={toggleFullscreen}
             >
-              <History className="size-5" aria-hidden="true" />
-              {showStale ? "Ocultar lo de ayer" : `Ver lo de ayer (${staleCount})`}
+              {fullscreen ? (
+                <Minimize2 className="size-[22px]" aria-hidden="true" />
+              ) : (
+                <Maximize2 className="size-[22px]" aria-hidden="true" />
+              )}
+              {fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
             </Button>
-          ) : null}
-          <TabsList className="h-[48px]">
-            <TabsTrigger value="rounds" className="px-4 text-[16px]">
-              Cocina
-            </TabsTrigger>
-            <TabsTrigger value="print" className="px-4 text-[16px]">
-              Impresión por estación
-            </TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent value="rounds" className="px-5 py-4">
-          {rounds.isLoading ? (
-            <Cargando texto="Cargando rondas…" />
-          ) : rounds.isError ? (
-            <EmptyState
-              role="alert"
-              title="No se pudieron cargar las rondas"
-              description={errorMessage(rounds.error)}
-              action={{ label: "Reintentar", onClick: () => void rounds.refetch() }}
-            />
-          ) : groups.length === 0 ? (
-            <EmptyState
-              title="No hay rondas pendientes"
-              description={
-                staleCount > 0
-                  ? `Las comandas enviadas a cocina aparecen acá. Hay ${staleCount} de días anteriores apartada${staleCount === 1 ? "" : "s"}.`
-                  : "Las comandas enviadas a cocina aparecen acá."
-              }
-            />
-          ) : null}
-          {/* Hasta cinco columnas de 300 px como mínimo; los tiquetes se
-              reparten por turno, así la primera fila es la de los más
-              demorados. */}
-          <div
-            ref={gridRef}
-            className="grid items-start gap-4"
-            style={{ gridTemplateColumns: `repeat(${columnas}, minmax(0, 1fr))` }}
-          >
-            {!rounds.isLoading && !rounds.isError
-              ? tabla.map((columna, i) => (
-                  <div key={i} className="flex min-w-0 flex-col gap-4">
-                    {columna.map((group) => (
-                      <OrderCard key={group.orderId} group={group} station={station} onChanged={refreshRounds} />
-                    ))}
-                  </div>
-                ))
-              : null}
+          </header>
+          <div className="flex flex-wrap items-center gap-3 px-5 pt-3">
+            <p className="mr-auto text-[15px] text-muted-foreground">
+              {personActive && employee ? `Marca: ${employee.name}` : "Nadie identificado · el PIN se pide al marcar"}
+            </p>
+            {staleCount > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-[48px] rounded-[12px] px-4 text-[16px]"
+                aria-pressed={showStale}
+                onClick={toggleStale}
+              >
+                <History className="size-5" aria-hidden="true" />
+                {showStale ? "Ocultar lo de ayer" : `Ver lo de ayer (${staleCount})`}
+              </Button>
+            ) : null}
+            {full ? (
+              <TabsList className="h-[48px]">
+                <TabsTrigger value="rounds" className="px-4 text-[16px]">
+                  Cocina
+                </TabsTrigger>
+                <TabsTrigger value="print" className="px-4 text-[16px]">
+                  Impresión por estación
+                </TabsTrigger>
+              </TabsList>
+            ) : null}
           </div>
-        </TabsContent>
 
-        <TabsContent value="print" className="px-5 py-4">
-          <p className="mb-3 text-sm text-muted-foreground">
-            Esto registra qué se imprimió, para qué estación y quién lo confirmó — no envía nada a una impresora
-            física (impresora térmica real: fase 3).
-          </p>
-          {printJobs.isLoading ? (
-            <Cargando texto="Cargando trabajos de impresión…" />
-          ) : printJobs.isError ? (
-            <EmptyState
-              role="alert"
-              title="No se pudieron cargar los trabajos de impresión"
-              description={errorMessage(printJobs.error)}
-              action={{ label: "Reintentar", onClick: () => void printJobs.refetch() }}
-            />
-          ) : jobs.length === 0 ? (
-            <EmptyState title="Nada para imprimir" description="Un docket aparece acá mientras tenga ítems enviados o listos." />
-          ) : (
-            <ul className="space-y-2">
-              {jobs.map((job) => (
-                <PrintJobRow key={`${job.round_id}-${job.station}`} job={job} onChanged={refreshPrintJobs} />
-              ))}
-            </ul>
-          )}
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="rounds" className="px-5 py-4">
+            {rounds.isLoading ? (
+              <Cargando texto="Cargando rondas…" />
+            ) : rounds.isError ? (
+              <EmptyState
+                role="alert"
+                title="No se pudieron cargar las rondas"
+                description={errorMessage(rounds.error)}
+                action={{ label: "Reintentar", onClick: () => void rounds.refetch() }}
+              />
+            ) : groups.length === 0 ? (
+              <EmptyState
+                title="No hay rondas pendientes"
+                description={
+                  staleCount > 0
+                    ? `Las comandas enviadas a cocina aparecen acá. Hay ${staleCount} de días anteriores apartada${staleCount === 1 ? "" : "s"}.`
+                    : "Las comandas enviadas a cocina aparecen acá."
+                }
+              />
+            ) : null}
+            {/* Hasta cinco columnas de 300 px como mínimo; los tiquetes se
+                reparten por turno, así la primera fila es la de los más
+                demorados. */}
+            <div
+              ref={gridRef}
+              className="grid items-start gap-4"
+              style={{ gridTemplateColumns: `repeat(${columnas}, minmax(0, 1fr))` }}
+            >
+              {!rounds.isLoading && !rounds.isError
+                ? tabla.map((columna, i) => (
+                    <div key={i} className="flex min-w-0 flex-col gap-4">
+                      {columna.map((group) => (
+                        <OrderCard key={group.orderId} group={group} station={station} onChanged={refreshRounds} />
+                      ))}
+                    </div>
+                  ))
+                : null}
+            </div>
+          </TabsContent>
 
-      {pinRequest ? (
-        <StationPinDialog
-          open
-          lastPerson={pinRequest.person}
-          actionLabel={pinRequest.label}
-          onIdentified={handleIdentified}
-          onCancel={handlePinCancel}
-        />
-      ) : null}
-    </AttributeContext.Provider>
+          {full ? (
+            <TabsContent value="print" className="px-5 py-4">
+              <p className="mb-3 text-sm text-muted-foreground">
+                Esto registra qué se imprimió, para qué estación y quién lo confirmó — no envía nada a una impresora
+                física (impresora térmica real: fase 3).
+              </p>
+              {printJobs.isLoading ? (
+                <Cargando texto="Cargando trabajos de impresión…" />
+              ) : printJobs.isError ? (
+                <EmptyState
+                  role="alert"
+                  title="No se pudieron cargar los trabajos de impresión"
+                  description={errorMessage(printJobs.error)}
+                  action={{ label: "Reintentar", onClick: () => void printJobs.refetch() }}
+                />
+              ) : jobs.length === 0 ? (
+                <EmptyState title="Nada para imprimir" description="Un docket aparece acá mientras tenga ítems enviados o listos." />
+              ) : (
+                <ul className="space-y-2">
+                  {jobs.map((job) => (
+                    <PrintJobRow key={`${job.round_id}-${job.station}`} job={job} onChanged={refreshPrintJobs} />
+                  ))}
+                </ul>
+              )}
+            </TabsContent>
+          ) : null}
+        </Tabs>
+
+        {pinRequest ? (
+          <StationPinDialog
+            open
+            lastPerson={pinRequest.person}
+            actionLabel={pinRequest.label}
+            onIdentified={handleIdentified}
+            onCancel={handlePinCancel}
+          />
+        ) : null}
+      </AttributeContext.Provider>
+    </FullKdsContext.Provider>
   )
 }
 

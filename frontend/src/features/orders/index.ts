@@ -3,17 +3,17 @@
  * sobreescribe el stub vacío de `frontend-cobro` en este mismo archivo (o lo
  * crea, si `frontend-cobro` no llegó a escribirlo todavía — §7.1). Es la
  * única forma en la que `src/app/router.tsx`, `PosLayout.tsx` y
- * `AdminLayout.tsx` conocen Mesas, Comanda, Cocina y Admin → Pedidos.
+ * `AdminLayout.tsx` conocen Mesas, Comanda y Admin → Pedidos (la cocina
+ * vive en `features/kitchen`).
  */
 
-import { ChefHat, LayoutGrid, PlusCircle, ShoppingBag } from "lucide-react"
+import { LayoutGrid, PlusCircle, ShoppingBag } from "lucide-react"
 import { createElement } from "react"
 import type { RouteObject } from "react-router-dom"
 
 import type { NavItem } from "@/app/nav"
 
 import { CounterSalePage } from "./CounterSalePage"
-import { KitchenPage } from "./KitchenPage"
 import { NewOrderPage } from "./NewOrderPage"
 import { OrderPage } from "./OrderPage"
 import { OrdersAdminPage } from "./OrdersAdminPage"
@@ -24,7 +24,6 @@ const posRoutes: RouteObject[] = [
   { path: "mostrador", element: createElement(CounterSalePage) },
   { path: "comanda/nueva", element: createElement(NewOrderPage) },
   { path: "comanda/:orderId", element: createElement(OrderPage) },
-  { path: "cocina", element: createElement(KitchenPage) },
 ]
 
 const adminRoutes: RouteObject[] = [{ path: "pedidos", element: createElement(OrdersAdminPage) }]
@@ -34,24 +33,11 @@ const adminNav: NavItem[] = [{ to: "/admin/pedidos", label: "Pedidos" }]
 // «Mostrador» y no «Comanda»: la barra nombra el lugar donde se atiende
 // (propuesta § navegación), igual que «Mesas». Un toque abre la venta de
 // mostrador directo (`CounterSalePage`); los demás canales (para llevar,
-// domicilio, plataforma, consumo de personal) viven en «Nuevo pedido». La
-// vista mínima de cocina va en el tramo de cocina, después de lo de caja
-// (`buildPosNav`).
+// domicilio, plataforma, consumo de personal) viven en «Nuevo pedido».
 const posNav: NavItem[] = [
   { to: "/pos/mesas", label: "Mesas", icon: LayoutGrid, feature: "pos.tables" },
   { to: "/pos/mostrador", label: "Mostrador", icon: ShoppingBag, feature: "pos.counter" },
   { to: "/pos/comanda/nueva", label: "Nuevo pedido", icon: PlusCircle },
-  // Con el KDS encendido, la vista mínima se va de la barra (y su ruta
-  // redirige al KDS, `KitchenPage`): eran dos pantallas de cocina, una con
-  // los códigos de estación crudos.
-  {
-    to: "/pos/cocina",
-    label: "Cocina",
-    icon: ChefHat,
-    feature: "kitchen.view",
-    hiddenWithFeature: "kitchen.kds",
-    posGroup: "cocina",
-  },
 ]
 
 export const ordersFeature = { posRoutes, adminRoutes, adminNav, posNav }
