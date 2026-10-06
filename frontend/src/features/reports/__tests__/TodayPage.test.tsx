@@ -86,9 +86,13 @@ describe("TodayPage", () => {
     expect(screen.getByText("Número de tickets")).toBeInTheDocument()
     expect(screen.getByText("Ventas en efectivo")).toBeInTheDocument()
     expect(screen.getByText("Ventas en tarjeta")).toBeInTheDocument()
-    for (const fuera of ["Mesas ocupadas", "Comandas abiertas", "Efectivo esperado", "Propinas de hoy", "Comensales"]) {
+    for (const fuera of ["Mesas ocupadas", "Comandas abiertas", "Efectivo esperado", "Propinas de hoy"]) {
       expect(screen.queryByText(fuera)).not.toBeInTheDocument()
     }
+    // h1 (aprobado por el dueño): vuelven los comensales y el promedio por
+    // comensal, con `null` dicho como «sin comensales registrados».
+    expect(screen.getByText("Comensales")).toBeInTheDocument()
+    expect(screen.getByText("Promedio por comensal")).toBeInTheDocument()
     expect(screen.getByText("Todo al día")).toBeInTheDocument()
   })
 
@@ -322,6 +326,11 @@ describe("TodayPage", () => {
     const sinDesglose = screen.getAllByText(/sin el desglose por medio de pago/)
     expect(sinDesglose).toHaveLength(2)
     for (const motivo of sinDesglose) expect(motivo.closest(".sin-dato")).not.toBeNull()
+    // h1: comensales y promedio por comensal volvieron; `null` es «sin
+    // comensales registrados», nunca 0.
+    const sinComensales = screen.getAllByText(/sin comensales registrados/)
+    expect(sinComensales).toHaveLength(2)
+    for (const motivo of sinComensales) expect(motivo.closest(".sin-dato")).not.toBeNull()
     expect(screen.queryByText("—")).not.toBeInTheDocument()
   })
 
