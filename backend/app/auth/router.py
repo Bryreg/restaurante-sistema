@@ -136,6 +136,15 @@ def admin_login(
     if employee is None or employee.password_hash is None or not verify_secret(
         body.password, employee.password_hash
     ):
+        if employee is not None:
+            # Un intento fallido contra una cuenta que existe queda en la
+            # auditoría (sin la contraseña, claro). El correo desconocido no
+            # tiene organización a la cual anotarlo.
+            record_audit(
+                db, actor=None, organization_id=employee.organization_id, store_id=None,
+                entity="admin_login", entity_id=employee.id, action="login_failed",
+                before=None, after={"ip": request.client.host if request.client else None},
+            )
         raise AppError(code="INVALID_CREDENTIALS", message="Correo o contraseña incorrectos")
 
     org = db.get(Organization, employee.organization_id)
@@ -156,6 +165,16 @@ def admin_login(
         ttl = timedelta(hours=settings.ADMIN_SESSION_HOURS)
         token = make_token({"employee_id": employee.id}, ttl=ttl)
     set_session_cookie(response, COOKIE_ADMIN, token, max_age=int(ttl.total_seconds()))
+    record_audit(
+        db, actor=None, organization_id=employee.organization_id, store_id=None,
+        entity="admin_login", entity_id=employee.id, action="login",
+        before=None,
+        after={
+            "employee_name": employee.name,
+            "on_device": on_device,
+            "ip": request.client.host if request.client else None,
+        },
+    )
 
     return AdminLoginOut(
         user=UserOut(id=employee.id, name=employee.name, role=employee.role),

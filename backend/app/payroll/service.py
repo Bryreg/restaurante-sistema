@@ -210,6 +210,17 @@ def create_holiday(db: Session, *, actor: Actor, store: Store, payload: Any) -> 
         db.flush()
     except IntegrityError as exc:
         raise ConflictError(f"{payload.holiday_date} ya está declarado como festivo", code="HOLIDAY_DUPLICATE") from exc
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="payroll_holiday",
+        entity_id=row.id,
+        action="create",
+        before=None,
+        after={"holiday_date": str(row.holiday_date), "name": row.name},
+    )
     return row
 
 
@@ -254,6 +265,7 @@ def create_wage_rate(db: Session, *, actor: Actor, store: Store, payload: Any) -
             f"Ya existe una tarifa vigente desde {payload.valid_from} para este empleado",
             code="WAGE_RATE_DUPLICATE",
         )
+    previous = _wage_for(list_wage_rates(db, store_id=store.id, employee_id=employee.id), payload.valid_from)
     creator_id, creator_name = _actor_identity(actor)
     row = PayrollWageRate(
         organization_id=store.organization_id,
@@ -274,6 +286,27 @@ def create_wage_rate(db: Session, *, actor: Actor, store: Store, payload: Any) -
             f"Ya existe una tarifa vigente desde {payload.valid_from} para este empleado",
             code="WAGE_RATE_DUPLICATE",
         ) from exc
+    # Un cambio de salario es plata de una persona: queda quién, cuándo y
+    # de cuánto a cuánto.
+    record_audit(
+        db,
+        actor=actor,
+        organization_id=store.organization_id,
+        store_id=store.id,
+        entity="payroll_wage_rate",
+        entity_id=row.id,
+        action="create",
+        before=(
+            {"hourly_wage_pesos": previous.hourly_wage_pesos, "valid_from": str(previous.valid_from)}
+            if previous is not None else None
+        ),
+        after={
+            "employee_id": employee.id,
+            "employee_name": employee.name,
+            "hourly_wage_pesos": row.hourly_wage_pesos,
+            "valid_from": str(row.valid_from),
+        },
+    )
     return row
 
 
