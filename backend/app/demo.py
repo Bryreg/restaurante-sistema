@@ -1060,7 +1060,9 @@ class Demo:
             if ob and due <= last_day:
                 self.attempt(f"pagar {desc}", a.post, f"/admin/obligations/{ob['id']}/settle",
                              {"source": "bank", "note": "Pago PSE"})
-        self.attempt("costos fijos", a.patch, f"/admin/expenses/settings?store_id={sid}", {"fixed_costs": 14_500_000})
+        # Los costos fijos no se escriben a mano: el punto de equilibrio y la
+        # utilidad los toman de lo registrado —las obligaciones de arriba, la
+        # nómina de abajo y los gastos del período (`compute_fixed_costs`)—.
 
         a.step = "nómina"
         for name, _role, _pin, _cc, area, wage in STAFF:
