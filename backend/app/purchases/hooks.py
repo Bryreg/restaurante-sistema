@@ -128,14 +128,11 @@ def overdue_payables(db: Session, *, store_id: int) -> list[dict]:
             Payable.due_date < today,
         )
     ).all()
+    from app.purchases.service import payable_balance
+
     result: list[dict] = []
     for payable, supplier_name in rows:
-        paid = db.execute(
-            select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                Payment.payable_id == payable.id, Payment.voided_at.is_(None)
-            )
-        ).scalar_one()
-        balance = payable.amount - int(paid)
+        balance = payable_balance(db, payable)
         if balance <= 0:
             continue
         result.append(

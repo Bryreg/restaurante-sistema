@@ -1,10 +1,12 @@
-"""Órdenes de compra (auditoría del dueño, tanda 5).
+"""Órdenes de compra y devoluciones al proveedor (auditoría del dueño, tanda 5).
 
 - `purchase_orders` y `purchase_order_lines` (i3): lo que se le pide a un
   proveedor, en borrador, enviada, recibida en parte, recibida o cancelada.
 - `receptions.purchase_order_id`: la orden que cubre una recepción.
+- `supplier_returns` (i4): mercancía de una línea de recepción devuelta al
+  proveedor, con motivo; baja la cuenta por pagar o queda como saldo a favor.
 
-Dos tablas nuevas: 123 → 125.
+Tres tablas nuevas: 123 → 126.
 
 **Cuelga de `0045` a propósito**: `0046`–`0048` se escriben en paralelo en
 otras ramas y no existen en este árbol. Al juntar las ramas, `down_revision`
@@ -87,8 +89,42 @@ def upgrade() -> None:
         ),
     )
 
+    op.create_table(
+        "supplier_returns",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False, index=True),
+        sa.Column("store_id", sa.Integer(), sa.ForeignKey("stores.id"), nullable=False, index=True),
+        sa.Column("supplier_id", sa.Integer(), sa.ForeignKey("suppliers.id"), nullable=False, index=True),
+        sa.Column("reception_id", sa.Integer(), sa.ForeignKey("receptions.id"), nullable=False, index=True),
+        sa.Column("reception_line_id", sa.Integer(), sa.ForeignKey("reception_lines.id"), nullable=False, index=True),
+        sa.Column("ingredient_id", sa.Integer(), sa.ForeignKey("ingredients.id"), nullable=False, index=True),
+        sa.Column("payable_id", sa.Integer(), sa.ForeignKey("payables.id"), nullable=True, index=True),
+        sa.Column("qty_base", sa.Integer(), nullable=False),
+        sa.Column("unit_cost_micros", sa.BigInteger(), nullable=False),
+        sa.Column("amount", sa.Integer(), nullable=False),
+        sa.Column("applied_to_payable", sa.Integer(), nullable=False),
+        sa.Column("credit_amount", sa.Integer(), nullable=False),
+        sa.Column("reason", sa.Text(), nullable=False),
+        sa.Column("stock_batch_id", sa.Integer(), nullable=True),
+        sa.Column("stock_movement_id", sa.Integer(), sa.ForeignKey("stock_movements.id"), nullable=True),
+        sa.Column("employee_id", sa.Integer(), sa.ForeignKey("employees.id"), nullable=False),
+        sa.Column("employee_name", sa.String(200), nullable=False),
+        sa.Column("authorized_by_employee_id", sa.Integer(), sa.ForeignKey("employees.id"), nullable=False),
+        sa.Column("authorized_by_employee_name", sa.String(200), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("business_date", sa.Date(), nullable=False),
+        sa.CheckConstraint("qty_base > 0", name="ck_supplier_returns_qty_positive"),
+        sa.CheckConstraint("amount >= 0", name="ck_supplier_returns_amount_nonneg"),
+        sa.CheckConstraint("applied_to_payable >= 0", name="ck_supplier_returns_applied_nonneg"),
+        sa.CheckConstraint("credit_amount >= 0", name="ck_supplier_returns_credit_nonneg"),
+        sa.CheckConstraint("applied_to_payable + credit_amount = amount", name="ck_supplier_returns_amount_split"),
+    )
+    op.create_index("ix_supplier_returns_store_date", "supplier_returns", ["store_id", "business_date"])
+
 
 def downgrade() -> None:
+    op.drop_index("ix_supplier_returns_store_date", table_name="supplier_returns")
+    op.drop_table("supplier_returns")
     op.drop_table("purchase_order_lines")
     if op.get_bind().dialect.name == "sqlite":
         with op.batch_alter_table("receptions") as batch_op:

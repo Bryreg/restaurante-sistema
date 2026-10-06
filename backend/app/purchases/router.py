@@ -29,6 +29,7 @@ from app.core.quantity import format_cost_micros, format_qty_base
 from app.inventory import hooks as inventory_hooks
 from app.purchases import orders as purchase_orders
 from app.purchases import prices, service
+from app.purchases import returns as supplier_returns
 from app.purchases.models import Payable, Reception, ReceptionDraft, Supplier
 from app.purchases.schemas import (
     ReceptionSuggestionsOut,
@@ -63,6 +64,8 @@ from app.purchases.schemas import (
     PurchaseOrderIn,
     PurchaseOrderOut,
     PurchaseOrderStatusLiteral,
+    SupplierReturnIn,
+    SupplierReturnOut,
 )
 
 router = APIRouter(dependencies=[Depends(require_feature("purchases"))])
@@ -76,6 +79,7 @@ router = APIRouter(dependencies=[Depends(require_feature("purchases"))])
 def _reception_out(db: Session, reception: Reception) -> ReceptionOut:
     lines = service.get_reception_lines(db, reception_id=reception.id)
     payable = service.get_payable_for_reception(db, reception_id=reception.id)
+    returned = supplier_returns.returned_qty_by_line(db, line_ids=[line.id for line in lines])
     line_outs = [
         ReceptionLineOut(
             id=line.id,
@@ -92,6 +96,7 @@ def _reception_out(db: Session, reception: Reception) -> ReceptionOut:
             expires_at=line.expires_at,
             stock_batch_id=line.stock_batch_id,
             stock_movement_id=line.stock_movement_id,
+            qty_returned=format_qty_base(returned.get(line.id, 0)),
         )
         for line in lines
     ]
@@ -140,6 +145,7 @@ def _payable_out(db: Session, payable: Payable) -> PayableOut:
         invoice_discrepancy=invoice_discrepancy,
         discrepancy_confirmed=payable.discrepancy_confirmed,
         discrepancy_confirmed_by_employee_name=payable.discrepancy_confirmed_by_employee_name,
+        returned=supplier_returns.applied_by_payable(db, payable_ids=[payable.id]).get(payable.id, 0),
     )
 
 
@@ -913,3 +919,63 @@ def cancel_purchase_order(
         db, organization_id=actor.organization_id, scope=f"purchases.orders.{order_id}.cancel", request=request, payload=payload, fn=_do
     )
     return PurchaseOrderOut.model_validate(body)
+
+
+# ---------------------------------------------------------------------------
+# Devoluciones al proveedor / notas crédito (tanda 5, i4).
+# ---------------------------------------------------------------------------
+
+
+@router.post("/admin/receptions/{reception_id}/returns", status_code=201)
+def create_supplier_return(
+    reception_id: int,
+    payload: SupplierReturnIn,
+    request: Request,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> SupplierReturnOut:
+    """Devuelve mercancía de una línea de la recepción, con motivo y PIN de
+    administrador: saca stock, baja la cuenta por pagar (o deja saldo a
+    favor) y queda en la auditoría. Idempotente."""
+    reception = service.get_reception_or_404(db, organization_id=actor.organization_id, reception_id=reception_id)
+    store = admin_store(db, actor, reception.store_id)
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        row = supplier_returns.create_return(
+            db,
+            actor=actor,
+            store=store,
+            reception=reception,
+            line_id=payload.reception_line_id,
+            qty=payload.qty,
+            reason=payload.reason,
+            authorizer_pin=payload.authorizer_pin,
+        )
+        return 201, SupplierReturnOut(**supplier_returns.return_out(db, row)).model_dump(mode="json")
+
+    _status, body = _idempotent(
+        db,
+        organization_id=actor.organization_id,
+        scope=f"purchases.receptions.{reception_id}.returns",
+        request=request,
+        payload=payload,
+        fn=_do,
+    )
+    return SupplierReturnOut.model_validate(body)
+
+
+@router.get("/admin/supplier-returns", response_model=list[SupplierReturnOut])
+def list_supplier_returns(
+    store_id: int,
+    supplier_id: int | None = None,
+    reception_id: int | None = None,
+    format: CsvFormat = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> list[SupplierReturnOut] | Response:
+    store = admin_store(db, actor, store_id)
+    rows = supplier_returns.list_returns(db, store_id=store.id, supplier_id=supplier_id, reception_id=reception_id)
+    result = [SupplierReturnOut(**supplier_returns.return_out(db, r)) for r in rows]
+    if format == "csv":
+        return csv_response(result, "devoluciones-a-proveedores.csv")
+    return result

@@ -218,6 +218,8 @@ class ReceptionLineOut(OutModel):
     expires_at: date | None
     stock_batch_id: int | None
     stock_movement_id: int | None
+    # Tanda 5 (i4): cuánto de esta línea ya se le devolvió al proveedor.
+    qty_returned: str = "0"
 
 
 class ReceptionOut(OutModel):
@@ -274,6 +276,9 @@ class PayableOut(OutModel):
     invoice_discrepancy: int | None
     discrepancy_confirmed: bool
     discrepancy_confirmed_by_employee_name: str | None
+    # Tanda 5 (i4): lo que las devoluciones al proveedor bajaron de esta
+    # cuenta (pesos). `balance` ya lo descuenta.
+    returned: int = 0
 
 
 class PayableApproveIn(BaseModel):
@@ -627,3 +632,39 @@ class PurchaseOrderOut(BaseModel):
     expected_total_reason: str | None
     reception_ids: list[int]
     lines: list[PurchaseOrderLineOut]
+
+
+# ---------------------------------------------------------------------------
+# Devoluciones al proveedor (tanda 5, i4).
+# ---------------------------------------------------------------------------
+
+
+class SupplierReturnIn(BaseModel):
+    reception_line_id: int
+    qty: str = Field(description='Cantidad a devolver, texto decimal en la unidad BASE del insumo ("500")')
+    reason: str = Field(min_length=1, max_length=500)
+    authorizer_pin: str = Field(min_length=1, max_length=20)
+
+
+class SupplierReturnOut(BaseModel):
+    id: int
+    store_id: int
+    supplier_id: int
+    supplier_name: str
+    reception_id: int
+    reception_line_id: int
+    ingredient_id: int
+    ingredient_name: str
+    base_unit: str
+    payable_id: int | None
+    qty: str
+    # Pesos: lo devuelto a precio de factura, y cómo se repartió entre bajar
+    # la cuenta por pagar y el saldo a favor con el proveedor.
+    amount: int
+    applied_to_payable: int
+    credit_amount: int
+    reason: str
+    employee_name: str
+    authorized_by_employee_name: str
+    created_at: datetime
+    business_date: date

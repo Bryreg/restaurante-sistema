@@ -539,3 +539,65 @@ class PurchaseOrderLine(Base):
             name="ck_purchase_order_lines_price_nonneg",
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Devoluciones al proveedor / notas crédito (tanda 5, i4).
+# ---------------------------------------------------------------------------
+
+
+class SupplierReturn(Base):
+    """Mercancía de una línea de recepción que se le devuelve al proveedor,
+    con motivo. Saca stock (movimiento `RECEPTION_REVERSAL`, `ref_type=
+    "supplier_return"`, del lote exacto de la línea) y vale plata:
+    `amount` es lo devuelto a precio de la factura (cantidad × costo sin
+    impuesto + la parte proporcional del impuesto de la línea), en pesos.
+
+    De esa plata, `applied_to_payable` baja el saldo de la cuenta por pagar
+    de la recepción (hasta lo que quedaba por pagar) y `credit_amount` es el
+    resto: un saldo a favor con el proveedor (nota crédito), porque esa
+    cuenta ya estaba pagada. Las dos se congelan al registrar. El saldo de
+    la cuenta por pagar se sigue derivando (`service.payable_balance`):
+    monto − pagos vivos − devoluciones aplicadas. Nunca se borra."""
+
+    __tablename__ = "supplier_returns"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), index=True)
+    reception_id: Mapped[int] = mapped_column(ForeignKey("receptions.id"), index=True)
+    reception_line_id: Mapped[int] = mapped_column(ForeignKey("reception_lines.id"), index=True)
+    ingredient_id: Mapped[int] = mapped_column(ForeignKey("ingredients.id"), index=True)
+    payable_id: Mapped[int | None] = mapped_column(ForeignKey("payables.id"), nullable=True, index=True)
+
+    qty_base: Mapped[int] = mapped_column(sa.Integer)
+    # El costo con que sale del inventario: el final de la línea (el del lote).
+    unit_cost_micros: Mapped[int] = mapped_column(sa.BigInteger)
+    amount: Mapped[int] = mapped_column(sa.Integer)
+    applied_to_payable: Mapped[int] = mapped_column(sa.Integer)
+    credit_amount: Mapped[int] = mapped_column(sa.Integer)
+    reason: Mapped[str] = mapped_column(sa.Text())
+
+    # Sin FK dura, igual que `ReceptionLine.stock_batch_id`.
+    stock_batch_id: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    stock_movement_id: Mapped[int | None] = mapped_column(ForeignKey("stock_movements.id"), nullable=True)
+
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    employee_name: Mapped[str] = mapped_column(sa.String(200))
+    authorized_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    authorized_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
+
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    business_date: Mapped[date] = mapped_column(sa.Date)
+
+    __table_args__ = (
+        CheckConstraint("qty_base > 0", name="ck_supplier_returns_qty_positive"),
+        CheckConstraint("amount >= 0", name="ck_supplier_returns_amount_nonneg"),
+        CheckConstraint("applied_to_payable >= 0", name="ck_supplier_returns_applied_nonneg"),
+        CheckConstraint("credit_amount >= 0", name="ck_supplier_returns_credit_nonneg"),
+        CheckConstraint(
+            "applied_to_payable + credit_amount = amount", name="ck_supplier_returns_amount_split"
+        ),
+        Index("ix_supplier_returns_store_date", "store_id", "business_date"),
+    )

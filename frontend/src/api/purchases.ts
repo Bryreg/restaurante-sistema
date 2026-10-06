@@ -216,6 +216,8 @@ export interface ReceptionLineOut {
   expires_at: string | null
   stock_batch_id: number | null
   stock_movement_id: number | null
+  /** Tanda 5 (i4): cuánto de esta línea ya se le devolvió al proveedor (texto decimal, unidad base). */
+  qty_returned?: string
 }
 
 export interface ReceptionOut {
@@ -329,6 +331,8 @@ export interface PayableOut {
   invoice_discrepancy?: number | null
   discrepancy_confirmed?: boolean
   discrepancy_confirmed_by_employee_name?: string | null
+  /** Tanda 5 (i4): lo que las devoluciones al proveedor bajaron de esta cuenta (pesos); `balance` ya lo descuenta. */
+  returned?: number
 }
 
 export interface PayableApproveIn {
@@ -800,5 +804,54 @@ export function cancelPurchaseOrder(orderId: number, reason: string, idempotency
     method: "POST",
     body: { reason },
     idempotencyKey,
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Devoluciones al proveedor / notas crédito (tanda 5, i4).
+// ---------------------------------------------------------------------------
+
+export interface SupplierReturnIn {
+  reception_line_id: number
+  /** En la unidad BASE del insumo, texto decimal. */
+  qty: string
+  reason: string
+  authorizer_pin: string
+}
+
+export interface SupplierReturnOut {
+  id: number
+  store_id: number
+  supplier_id: number
+  supplier_name: string
+  reception_id: number
+  reception_line_id: number
+  ingredient_id: number
+  ingredient_name: string
+  base_unit: string
+  payable_id: number | null
+  qty: string
+  /** Pesos a precio de factura; `applied_to_payable` + `credit_amount` = `amount`. */
+  amount: number
+  applied_to_payable: number
+  /** Saldo a favor con el proveedor: la parte que no cupo en la cuenta por pagar. */
+  credit_amount: number
+  reason: string
+  employee_name: string
+  authorized_by_employee_name: string
+  created_at: string
+  business_date: string
+}
+
+export function createSupplierReturn(receptionId: number, data: SupplierReturnIn, idempotencyKey: string): Promise<SupplierReturnOut> {
+  return api<SupplierReturnOut>(`/admin/receptions/${receptionId}/returns`, { method: "POST", body: data, idempotencyKey })
+}
+
+export function listSupplierReturns(
+  storeId: number,
+  params: { supplierId?: number | null; receptionId?: number | null } = {},
+): Promise<SupplierReturnOut[]> {
+  return api<SupplierReturnOut[]>("/admin/supplier-returns", {
+    query: { store_id: storeId, supplier_id: params.supplierId, reception_id: params.receptionId },
   })
 }
