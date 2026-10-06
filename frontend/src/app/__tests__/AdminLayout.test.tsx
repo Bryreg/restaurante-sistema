@@ -194,10 +194,24 @@ describe("AdminLayout: las pestañas de la sección", () => {
   });
 
   it("una sección de una sola pantalla no dibuja una fila de una pestaña", async () => {
-    renderAdmin(buildMe({ features: { "money.obligations": true } }), undefined, "/admin/gastos");
+    renderAdmin(buildMe({ features: { "catalog.preps": false } }), undefined, "/admin/carta");
 
-    await screen.findByRole("link", { name: "Plata" });
-    expect(screen.queryByRole("navigation", { name: "Pantallas de Plata" })).not.toBeInTheDocument();
+    await screen.findByRole("link", { name: "Carta" });
+    expect(screen.queryByRole("navigation", { name: "Pantallas de Carta" })).not.toBeInTheDocument();
+  });
+
+  it("c10: Plata lleva gastos, obligaciones y cuentas por pagar; sin el banco no dibuja sus pestañas", async () => {
+    renderAdmin(
+      buildMe({ features: { "money.obligations": true, "money.bank": false } }),
+      undefined,
+      "/admin/gastos?tab=obligaciones",
+    );
+
+    const tabs = await screen.findByRole("navigation", { name: "Pantallas de Plata" });
+    expect(within(tabs).getByRole("link", { name: "Gastos" })).toBeInTheDocument();
+    expect(within(tabs).getByRole("link", { name: "Obligaciones" })).toHaveAttribute("aria-current", "page");
+    expect(within(tabs).getByRole("link", { name: "Cuentas por pagar" })).toBeInTheDocument();
+    expect(within(tabs).queryByRole("link", { name: "Libro del banco" })).not.toBeInTheDocument();
   });
 
   it("los documentos fiscales siguen visibles con comprobante interno: van en Informes", async () => {

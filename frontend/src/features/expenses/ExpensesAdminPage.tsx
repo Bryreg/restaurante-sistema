@@ -14,13 +14,25 @@ import { Cargando } from "@/components/Cargando"
 import { FeatureOffEmptyState, MasPestanas, PageHeader } from "@/components/admin"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+import { AgendaTab } from "./AgendaTab"
 import { BreakEvenTab } from "./BreakEvenTab"
 import { ExpensesTab } from "./ExpensesTab"
 import { ObligationsTab } from "./ObligationsTab"
 import { PayablesApprovalTab } from "./PayablesApprovalTab"
 import { ProfitTab } from "./ProfitTab"
+import { RecurringTab } from "./RecurringTab"
+import { TaxPayrollTab } from "./TaxPayrollTab"
 
-const ALL_TABS = ["gastos", "obligaciones", "equilibrio", "utilidad", "cuentas-por-pagar"] as const
+const ALL_TABS = [
+  "gastos",
+  "obligaciones",
+  "agenda",
+  "recurrentes",
+  "inc-y-nomina",
+  "equilibrio",
+  "utilidad",
+  "cuentas-por-pagar",
+] as const
 type TabValue = (typeof ALL_TABS)[number]
 
 function isTabValue(value: string | null): value is TabValue {
@@ -86,6 +98,9 @@ export function ExpensesAdminPage(): React.JSX.Element {
             onValueChange={cambiarPestana}
             items={[
               { value: "obligaciones", label: "Obligaciones" },
+              { value: "agenda", label: "Agenda de pagos" },
+              { value: "recurrentes", label: "Recurrentes" },
+              { value: "inc-y-nomina", label: "INC y nómina" },
               { value: "cuentas-por-pagar", label: "Cuentas por pagar" },
             ]}
           />
@@ -95,6 +110,15 @@ export function ExpensesAdminPage(): React.JSX.Element {
         </TabsContent>
         <TabsContent value="obligaciones" className="pt-4">
           <ObligationsTab storeId={activeStoreId} />
+        </TabsContent>
+        <TabsContent value="agenda" className="pt-4">
+          <AgendaTab storeId={activeStoreId} />
+        </TabsContent>
+        <TabsContent value="recurrentes" className="pt-4">
+          <RecurringTab storeId={activeStoreId} />
+        </TabsContent>
+        <TabsContent value="inc-y-nomina" className="pt-4">
+          <TaxPayrollTab storeId={activeStoreId} />
         </TabsContent>
         <TabsContent value="equilibrio" className="pt-4">
           <BreakEvenTab storeId={activeStoreId} />

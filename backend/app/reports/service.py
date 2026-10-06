@@ -1827,12 +1827,17 @@ def _today_recap(
     documents = _sale_documents(db, store_id=store.id, date_from=day.business_date, date_to=day.business_date)
     split = today_payment_split(db, store=store, business_date=day.business_date)
     _enabled, receptions = today_receptions(db, store=store, business_date=day.business_date)
+    _rows, day_total = aggregate_sales(
+        db, store_id=store.id, date_from=day.business_date, date_to=day.business_date, group_by=None
+    )
     return TodayRecapOut(
         business_date=day.business_date,
         is_yesterday=is_yesterday,
         orders=day.orders,
         avg_ticket=day.avg_ticket,
         net=day.net,
+        covers=day_total.covers,
+        avg_per_cover=day_total.avg_per_cover,
         cash_sales=split["cash"],
         card_sales=split["card"],
         other_payment_sales=split["other"],

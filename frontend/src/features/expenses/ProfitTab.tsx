@@ -15,7 +15,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { getProfit, type ProfitLine } from "@/api/expenses"
+import { getProfit, type ProfitLine, type ProfitOut } from "@/api/expenses"
 import { DenseTable, FilterLink, HeadlineFigure, type DenseColumn } from "@/components/admin"
 import { DateRangeFilter } from "@/components/DateRangeFilter"
 import { EmptyState } from "@/components/EmptyState"
@@ -40,6 +40,54 @@ function Monto({ line, reason }: { line: ProfitLine | null; reason: string | nul
       {perdida ? <span aria-hidden="true">▼ </span> : null}
       {formatCOP(line.amount)}
     </span>
+  )
+}
+
+/**
+ * h12 · El costo de lo vendido teórico (fichas) al lado del real (teórico +
+ * varianza de inventario entre conteos), con la diferencia, y cuál de los
+ * dos usa la utilidad de arriba. Todo del servidor: acá no se resta nada.
+ */
+function CostoRealContraTeorico({ d }: { d: ProfitOut }): React.JSX.Element {
+  const usaReal = d.profit_cost_basis === "real"
+  return (
+    <section aria-label="Costo real contra teórico" className="rounded-lg border bg-card p-4" data-slot="costo-real">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <p className="text-sm text-muted-foreground">Costo teórico{usaReal ? "" : " · el que usa la utilidad"}</p>
+          <p className="text-xl font-semibold tabular-nums">{formatCOP(d.cost)}</p>
+          <p className="text-xs text-muted-foreground">lo que dicen las fichas técnicas de lo vendido</p>
+        </div>
+        <div>
+          <p className="text-sm text-muted-foreground">Costo real{usaReal ? " · el que usa la utilidad" : ""}</p>
+          {d.cost_real === null || d.cost_real === undefined ? (
+            <SinDato forma="bloque" motivo={d.cost_real_reason ?? "Sin conteos de inventario que cubran el período."} />
+          ) : (
+            <>
+              <p className="text-xl font-semibold tabular-nums">{formatCOP(d.cost_real)}</p>
+              <p className="text-xs text-muted-foreground">teórico + varianza de inventario entre conteos completos</p>
+            </>
+          )}
+        </div>
+        <div>
+          <p className="text-sm text-muted-foreground">Diferencia (real − teórico)</p>
+          {d.cost_difference === null || d.cost_difference === undefined ? (
+            <p className="sin-dato sin-dato--calmo text-xl">—</p>
+          ) : (
+            <p className={cn("text-xl font-semibold tabular-nums", d.cost_difference > 0 && "text-warning")}>
+              {d.cost_difference > 0 ? "▲ " : d.cost_difference < 0 ? "▼ " : ""}
+              {formatCOP(d.cost_difference)}
+            </p>
+          )}
+          {d.profit_with_real_cost !== null && d.profit_with_real_cost !== undefined ? (
+            <p className="text-xs text-muted-foreground">utilidad con costo real: {formatCOP(d.profit_with_real_cost)}</p>
+          ) : null}
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        La utilidad de arriba usa el costo {usaReal ? "real" : "teórico"}, el mismo del punto de equilibrio.
+      </p>
+    </section>
   )
 }
 
@@ -182,6 +230,8 @@ export function ProfitTab({ storeId }: { storeId: number }): React.JSX.Element {
             }}
             comparison={comparison}
           />
+
+          <CostoRealContraTeorico d={d} />
 
           <DenseTable
             caption="Estado de resultados: cada renglón con su % de la venta y el período anterior al lado."

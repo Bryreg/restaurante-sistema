@@ -2,15 +2,17 @@
  "app/AdminLayout.tsx": [
   "Abrir menú",
   "Accesos del celular",
-  "Banco",
   "Carta",
   "Cerrar sesión",
   "Clientes",
   "Compras",
+  "Conciliaciones",
   "Configuración",
+  "Consignaciones",
+  "Cuadres",
+  "Cuentas por pagar",
   "Devoluciones",
   "Devoluciones pendientes",
-  "Dinero",
   "Documentos",
   "Documentos fiscales",
   "Elegí una sede",
@@ -23,9 +25,12 @@
   "Informes",
   "Ingeniería de menú",
   "Inventario",
+  "Libro del banco",
+  "Mano del dueño",
   "Notas",
   "Notificaciones",
   "Nómina",
+  "Obligaciones",
   "Pedidos",
   "Preparaciones",
   "Propinas",
@@ -130,17 +135,20 @@
   "Volver",
   "Volver a entrar"
  ],
+ "features/banking/BankAccountsDialog.tsx": [
+  "Agregar cuenta",
+  "Bancolombia, Nequi…",
+  "Hacer principal"
+ ],
+ "features/banking/BankProjection.tsx": [
+  "No se pudo calcular la proyección",
+  "Reintentar"
+ ],
  "features/banking/BankingAdminPage.tsx": [
-  "Banco no está habilitado",
-  "Conciliación datáfono",
-  "Conciliación plataformas",
   "Consignaciones",
+  "Consignaciones no está habilitado",
   "Encenderla en Funciones",
-  "Libro del banco",
-  "Mano del dueño",
-  "Por consignar",
-  "Sólo Consignaciones y Por consignar",
-  "«Banco» (money.bank) está apagada: el libro, la mano del dueño y las dos conciliaciones no se dibujan. La URL de esas pestañas sigue existiendo."
+  "Por consignar"
  ],
  "features/banking/CreateDepositDialog.tsx": [
   "Agregar otro turno",
@@ -157,13 +165,11 @@
   "Reversar"
  ],
  "features/banking/LedgerTab.tsx": [
-  "Consignaciones",
-  "Liquidaciones de datáfono (neto)",
+  "Anular movimiento",
   "No hay movimientos de banco en este período",
+  "No se pudo calcular el saldo del banco",
   "No se pudo cargar el libro del banco",
-  "Reintentar",
-  "Total del período",
-  "Transferencias"
+  "Reintentar"
  ],
  "features/banking/OwnerHandTab.tsx": [
   "Consignado",
@@ -188,6 +194,14 @@
   "No hay turnos cerrados en este período",
   "No se pudo cargar el saldo por consignar",
   "Reintentar"
+ ],
+ "features/banking/PlataAdminPage.tsx": [
+  "Conciliación datáfono",
+  "Conciliación plataformas",
+  "El libro del banco no está habilitado",
+  "Encenderla en Funciones",
+  "Libro del banco",
+  "Mano del dueño"
  ],
  "features/banking/ReconciliationTab.tsx": [
   "Confirmar conciliación",
@@ -279,6 +293,13 @@
   "No se pudieron cargar los clientes",
   "pos, whatsapp…"
  ],
+ "features/expenses/AgendaTab.tsx": [
+  "30 días",
+  "60 días",
+  "Nada por pagar en esta ventana",
+  "No se pudo cargar la agenda",
+  "Reintentar"
+ ],
  "features/expenses/BreakEvenTab.tsx": [
   "Avance hacia el punto de equilibrio",
   "Costos fijos del período",
@@ -291,10 +312,13 @@
   "Reintentar"
  ],
  "features/expenses/ExpensesAdminPage.tsx": [
+  "Agenda de pagos",
   "Cuentas por pagar",
   "Gastos",
+  "INC y nómina",
   "Obligaciones",
   "Punto de equilibrio",
+  "Recurrentes",
   "Utilidad"
  ],
  "features/expenses/ExpensesTab.tsx": [
@@ -304,6 +328,9 @@
   "Reintentar"
  ],
  "features/expenses/ObligationsTab.tsx": [
+  "Anular abono",
+  "Con abonos",
+  "Confirmar anulación",
   "Confirmar pago",
   "Elegí el egreso",
   "Guardar obligación",
@@ -322,6 +349,7 @@
  ],
  "features/expenses/ProfitTab.tsx": [
   "Costo de lo vendido",
+  "Costo real contra teórico",
   "Gastos",
   "No se pudo calcular la utilidad",
   "Nómina",
@@ -331,6 +359,33 @@
   "Utilidad del período",
   "Utilidad no disponible",
   "Ventas netas"
+ ],
+ "features/expenses/RecurringTab.tsx": [
+  "Armar el mes",
+  "Bimestral",
+  "Cada N meses",
+  "Confirmar",
+  "Guardar recurrente",
+  "Mensual",
+  "No hay obligaciones recurrentes",
+  "No se pudieron cargar las obligaciones recurrentes",
+  "Reintentar",
+  "Ver qué se crea"
+ ],
+ "features/expenses/TaxPayrollTab.tsx": [
+  "Agendar INC",
+  "Agendar nómina",
+  "Bimestre",
+  "Enero – febrero",
+  "Guardar día",
+  "Julio – agosto",
+  "Marzo – abril",
+  "Mayo – junio",
+  "No hay liquidaciones guardadas",
+  "No se pudieron cargar las liquidaciones",
+  "Noviembre – diciembre",
+  "Reintentar",
+  "Septiembre – octubre"
  ],
  "features/features/FeaturesPage.tsx": [
   "Alcance de la edición",
@@ -1334,6 +1389,7 @@
   "Caja a nombre de alguien inactivo",
   "Cargando el pulso de hoy",
   "Comandas atascadas",
+  "Comensales",
   "Corte del día a las",
   "Después de esta hora, lo que se venda cuenta para el día siguiente.",
   "Día operativo",
@@ -1343,6 +1399,7 @@
   "Inventario no confiable",
   "No se pudo cargar «Hoy»",
   "Número de tickets",
+  "Promedio por comensal",
   "Propinas, no son venta",
   "Reintentar",
   "Requiere tu atención",
@@ -1409,6 +1466,28 @@
   "Ventas netas del turno",
   "Volver a Dinero"
  ],
+ "features/reports/gestion/Confiabilidad.tsx": [
+  "Grave",
+  "Revisar"
+ ],
+ "features/reports/gestion/EstadoResultados.tsx": [
+  "Costo de lo vendido",
+  "Gastos",
+  "Guardar presupuesto",
+  "Nómina",
+  "Obligaciones",
+  "Presupuesto",
+  "Quitar",
+  "Ventas netas"
+ ],
+ "features/reports/gestion/Gestion.tsx": [
+  "Comensales por silla",
+  "Costo de lo vendido",
+  "Costo primo",
+  "Mano de obra",
+  "RevPASH",
+  "Rotación de mesas"
+ ],
  "features/reports/hoy/Atencion.tsx": [
   "Aprobar",
   "Cancelar",
@@ -1418,6 +1497,10 @@
   "No coincide",
   "Rechazar",
   "Revisar novedad"
+ ],
+ "features/reports/hoy/MesEnCurso.tsx": [
+  "El mes hasta hoy",
+  "Ver Informes"
  ],
  "features/reports/movil/SeccionMovil.tsx": [
   "Reintentar"

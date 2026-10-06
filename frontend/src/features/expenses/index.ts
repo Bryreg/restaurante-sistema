@@ -17,7 +17,13 @@ import { ExpensesAdminPage } from "./ExpensesAdminPage"
 
 const adminRoutes: RouteObject[] = [{ path: "gastos", element: createElement(ExpensesAdminPage) }]
 
-const adminNav: NavItem[] = [{ to: "/admin/gastos", label: "Gastos", feature: "money.obligations" }]
+// c10: Obligaciones y Cuentas por pagar son pestañas propias de Plata, con
+// los mismos `?tab=` de siempre.
+const adminNav: NavItem[] = [
+  { to: "/admin/gastos", label: "Gastos", feature: "money.obligations" },
+  { to: "/admin/gastos?tab=obligaciones", label: "Obligaciones", feature: "money.obligations" },
+  { to: "/admin/gastos?tab=cuentas-por-pagar", label: "Cuentas por pagar", feature: "money.obligations" },
+]
 
 export const expensesFeature = {
   adminRoutes,

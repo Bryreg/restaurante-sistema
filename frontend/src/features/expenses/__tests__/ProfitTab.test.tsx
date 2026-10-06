@@ -93,6 +93,41 @@ describe("ProfitTab — la utilidad concluye y se compara (informe #2)", () => {
     expect(within(tabla).getByText(/Anterior \(24 jul al 23 ago\)/)).toBeInTheDocument()
   })
 
+  it("h12: el costo real va al lado del teórico, con la diferencia y cuál usa la utilidad", async () => {
+    getProfitMock.mockResolvedValue({
+      ...PERDIDA,
+      cost_real: 10_068_479,
+      cost_real_reason: null,
+      inventory_variance: 500_000,
+      cost_difference: 500_000,
+      variance_days_covered: 31,
+      days_in_period: 31,
+      profit_cost_basis: "theoretical",
+      profit_with_real_cost: -1_473_428,
+    })
+    renderWithProviders(<ProfitTab storeId={1} />)
+
+    const bloque = await screen.findByRole("region", { name: "Costo real contra teórico" })
+    expect(bloque).toHaveTextContent("Costo teórico · el que usa la utilidad")
+    expect(bloque).toHaveTextContent("$ 10.068.479")
+    expect(bloque).toHaveTextContent("▲ $ 500.000")
+    expect(bloque).toHaveTextContent("utilidad con costo real: -$ 1.473.428")
+    expect(bloque).toHaveTextContent("La utilidad de arriba usa el costo teórico")
+  })
+
+  it("h12: sin conteos que cubran el período, el costo real es «sin dato» con motivo", async () => {
+    getProfitMock.mockResolvedValue({
+      ...PERDIDA,
+      cost_real: null,
+      cost_real_reason: "No hay dos conteos completos de inventario que encierren días de este período.",
+      cost_difference: null,
+      profit_cost_basis: "theoretical",
+    })
+    renderWithProviders(<ProfitTab storeId={1} />)
+    const bloque = await screen.findByRole("region", { name: "Costo real contra teórico" })
+    expect(within(bloque).getByText(/No hay dos conteos completos/).closest(".sin-dato")).not.toBeNull()
+  })
+
   it("sin datos del servidor dice el motivo, no pinta $0", async () => {
     getProfitMock.mockResolvedValue({
       ...PERDIDA,

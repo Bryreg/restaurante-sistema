@@ -162,14 +162,57 @@ class PendingDepositRowOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+LedgerEntryKindLiteral = Literal[
+    "deposit",
+    "card_settlement",
+    "transfer",
+    "platform_settlement",
+    "expense",
+    "obligation",
+    "supplier_payment",
+    "movement",
+]
+# Los renglones derivados que el dueño puede mover de cuenta
+# (`POST /admin/bank/assignments`). "transfer" se rutea por cuenta
+# (`receives_transfers`) y "movement" ya lleva su cuenta.
+AssignableKindLiteral = Literal[
+    "deposit", "card_settlement", "platform_settlement", "expense", "obligation", "supplier_payment"
+]
+DirectionLiteral = Literal["in", "out"]
+BankMovementCauseLiteral = Literal[
+    "payroll",
+    "bank_fee",
+    "tax",
+    "owner_withdrawal",
+    "owner_contribution",
+    "account_transfer",
+    "interest",
+    "adjustment",
+    "other",
+]
+
+
 class LedgerEntryOut(BaseModel):
-    kind: Literal["deposit", "card_settlement", "transfer"]
+    kind: LedgerEntryKindLiteral
     # `None` para "transfer": es un renglón derivado de `Payment`, sin fila
     # propia en este dominio.
     id: int | None = None
     business_date: date
-    # El efecto neto de este renglón sobre la plata que llegó al banco.
+    # Siempre positivo: cuánto se movió. El sentido lo dice `direction`.
     amount: int
+    direction: DirectionLiteral = "in"
+    account_id: int | None = None
+    account_name: str = ""
+    # 4×1000 derivado de esta salida (0 en entradas y en cuentas exentas).
+    gmf: int = 0
+    # Lo que este renglón le hace al saldo: `+amount` o `-(amount + gmf)`.
+    net_effect: int = 0
+    # Saldo de SU cuenta después de este renglón; `None` si la cuenta no
+    # tiene saldo del extracto anterior a este día (nadie sabe cuánto había).
+    balance_after: int | None = None
+    assignable: bool = False
+    cause: BankMovementCauseLiteral | None = None
+    description: str | None = None
     gross_amount: int | None = None
     commission_amount: int | None = None
     retention_amount: int | None = None
@@ -184,14 +227,184 @@ class BankLedgerTotalsOut(BaseModel):
     deposits: int
     card_settlements_net: int
     transfers: int
+    # Lo que entró en el período (todas las entradas). Antes de 0046 era la
+    # suma de las tres de arriba; ahora suma también las liquidaciones de
+    # plataformas y las entradas tecleadas.
     total: int
+    platform_settlements_net: int = 0
+    other_inflows: int = 0
+    inflows: int = 0
+    expenses: int = 0
+    obligations: int = 0
+    supplier_payments: int = 0
+    other_outflows: int = 0
+    outflows: int = 0
+    gmf: int = 0
+    net: int = 0
 
 
 class BankLedgerOut(BaseModel):
     date_from: date
     date_to: date
+    account_id: int | None = None
     entries: list[LedgerEntryOut]
     totals: BankLedgerTotalsOut
+
+
+# ---------------------------------------------------------------------------
+# Cuentas, saldo del extracto, movimientos tecleados, asignaciones,
+# posición de hoy y proyección (0046).
+# ---------------------------------------------------------------------------
+
+
+class BankAccountOut(BaseModel):
+    # `None`: la cuenta principal todavía no se creó (nace con la primera
+    # escritura del libro); hasta entonces los renglones van a ella igual.
+    id: int | None
+    name: str
+    is_default: bool
+    gmf_exempt: bool
+    receives_transfers: bool
+    active: bool
+
+
+class BankAccountIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    gmf_exempt: bool = False
+    receives_transfers: bool = False
+    is_default: bool = False
+
+
+class BankAccountPatchIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    gmf_exempt: bool | None = None
+    receives_transfers: bool | None = None
+    is_default: bool | None = None
+    active: bool | None = None
+
+
+class BankAnchorIn(BaseModel):
+    # `None` -> la cuenta principal.
+    account_id: int | None = None
+    # `None` -> hoy (fecha de negocio de la sede).
+    balance_date: date | None = None
+    # Puede ser negativo (sobregiro): es lo que dice el extracto.
+    balance: int = Field(ge=-9_999_999_999, le=9_999_999_999)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class BankAnchorOut(BaseModel):
+    id: int
+    account_id: int
+    account_name: str
+    balance_date: date
+    balance: int
+    note: str | None
+    employee_name: str | None
+    created_at: datetime
+    voided_at: datetime | None
+    voided_reason: str | None
+    voided_by_employee_name: str | None
+
+
+class BankVoidIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class BankMovementIn(BaseModel):
+    # `None` -> la cuenta principal.
+    account_id: int | None = None
+    direction: DirectionLiteral
+    cause: BankMovementCauseLiteral
+    # `None` -> hoy (fecha de negocio de la sede).
+    business_date: date | None = None
+    amount: int = Field(gt=0, le=9_999_999_999)
+    description: str = Field(min_length=1, max_length=200)
+    # Sólo con `cause = account_transfer`: la cuenta que recibe.
+    counter_account_id: int | None = None
+
+
+class BankMovementOut(BaseModel):
+    id: int
+    account_id: int
+    account_name: str
+    counter_account_id: int | None
+    counter_account_name: str | None
+    direction: DirectionLiteral
+    cause: BankMovementCauseLiteral
+    business_date: date
+    amount: int
+    description: str
+    employee_name: str | None
+    created_at: datetime
+    voided_at: datetime | None
+    voided_reason: str | None
+    voided_by_employee_name: str | None
+
+
+class BankAssignmentIn(BaseModel):
+    source_kind: AssignableKindLiteral
+    source_id: int
+    account_id: int
+
+
+class BankAssignmentOut(BaseModel):
+    source_kind: AssignableKindLiteral
+    source_id: int
+    account_id: int
+    account_name: str
+
+
+class BankAccountPositionOut(BaseModel):
+    account: BankAccountOut
+    anchor_id: int | None
+    anchor_date: date | None
+    anchor_balance: int | None
+    # Días desde el saldo del extracto: dice «saldo del viernes» en vez de
+    # hacerlo pasar por el de hoy.
+    anchor_age_days: int | None
+    # Lo que se movió después del ancla, hasta hoy. `None` sin ancla.
+    inflows: int | None
+    outflows: int | None
+    gmf: int | None
+    balance: int | None
+    reason: str | None
+
+
+class BankPositionOut(BaseModel):
+    as_of: date
+    accounts: list[BankAccountPositionOut]
+    # Suma de las cuentas activas; `None` si alguna no tiene saldo del
+    # extracto (`total_reason` dice cuál). Nunca un total parcial callado.
+    total: int | None
+    total_reason: str | None
+    gmf_per_mille: int
+
+
+class BankProjectionMonthOut(BaseModel):
+    year: int
+    month: int
+    date_from: date
+    date_to: date
+    expected_inflows: int | None
+    scheduled_obligations: int
+    payables_due: int
+    recurring_expenses: int | None
+    gmf: int | None
+    net: int | None
+    closing_balance: int | None
+
+
+class BankProjectionOut(BaseModel):
+    as_of: date
+    starting_balance: int | None
+    reason: str | None
+    history_months: int
+    avg_monthly_inflows: int | None
+    avg_monthly_recurring_expenses: int | None
+    overdue_obligations: int
+    overdue_payables: int
+    months: list[BankProjectionMonthOut]
 
 
 # ---------------------------------------------------------------------------

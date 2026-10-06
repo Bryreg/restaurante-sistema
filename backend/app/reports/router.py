@@ -21,6 +21,7 @@ from app.core.csv_es import csv_es_response
 from app.core.db import get_db
 from app.core.errors import AppError
 from app.reports import accountant as accountant_service
+from app.reports import management as management_service
 from app.reports import overview as overview_service
 from app.reports import panel as panel_service
 from app.reports import series as series_service
@@ -32,8 +33,10 @@ from app.reports.schemas import (
     AccountantGoalOut,
     AccountantReportOut,
     GroupBy,
+    ManagementOut,
     ReportsOverviewOut,
     SalesGoalIn,
+    TodayMonthOut,
     TodayOut,
 )
 
@@ -319,6 +322,37 @@ def get_reports_overview(
     if format == "csv":
         return csv_response(sectioned_rows(result), "informes.csv")
     return result
+
+
+@router.get("/admin/reports/management", response_model=ManagementOut)
+def get_reports_management(
+    store_id: int = Query(...),
+    date_from: date = Query(..., alias="from"),
+    date_to: date = Query(..., alias="to"),
+    format: CsvFormat = None,
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> ManagementOut | Response:
+    """Gestión del período para UNA sede (`app.reports.management`):
+    confiabilidad de los números, rotación de mesas y RevPASH, costo primo,
+    mano de obra por hora y anulaciones/descuentos/cortesías por persona."""
+    store = admin_store(db, actor, store_id)
+    result = management_service.management(db, store=store, date_from=date_from, date_to=date_to)
+    if format == "csv":
+        return csv_response(sectioned_rows(result), "gestion-del-periodo.csv")
+    return result
+
+
+@router.get("/admin/reports/month", response_model=TodayMonthOut)
+def get_today_month(
+    store_id: int = Query(...),
+    actor: Actor = Depends(current_admin),
+    db: Session = Depends(get_db),
+) -> TodayMonthOut:
+    """El mes en curso para Hoy: ritmo hacia la meta, costo primo del mes
+    hasta hoy y el aviso de confiabilidad del mes."""
+    store = admin_store(db, actor, store_id)
+    return management_service.today_month(db, store=store)
 
 
 # ---------------------------------------------------------------------------

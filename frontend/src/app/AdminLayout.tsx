@@ -182,7 +182,13 @@ export interface FilaDelRail {
  *   Clientes, Documentos y Notas siguen como pestañas. Documentos y notas van
  *   acá porque son el registro de lo vendido: con comprobante interno (persona
  *   natural, sin factura electrónica) siguen existiendo y siguen siendo ley.
- * - **Caja** junta la plata física: turnos, banco y lo que se devuelve.
+ * - **Caja** junta la plata física: los cuadres, las consignaciones y lo que
+ *   se devuelve (c10, decisión del dueño 2026-10-06).
+ * - **Plata** es lo que pasa después del cajón: el libro del banco, la mano
+ *   del dueño, las conciliaciones, los gastos, las obligaciones, las cuentas
+ *   por pagar y las propinas. Las URLs viejas siguen: `/admin/banco?tab=libro`
+ *   redirige a `/admin/plata?tab=libro`, y los `?tab=` de Gastos y Nómina no
+ *   cambiaron.
  * - **Ajustes** recibe los rangos de numeración: son configuración de la DIAN,
  *   no algo que se mira todos los días.
  */
@@ -208,8 +214,8 @@ export const RAIL: Record<string, FilaDelRail> = {
   },
   "/admin/fiscal/notas": { seccion: "Informes", label: "Notas", title: "Notas" },
 
-  "/admin/dinero": { seccion: "Caja", label: "Dinero", title: "Dinero" },
-  "/admin/banco": { seccion: "Caja", label: "Banco", title: "Banco" },
+  "/admin/dinero": { seccion: "Caja", label: "Cuadres", title: "Cuadres" },
+  "/admin/banco": { seccion: "Caja", label: "Consignaciones", title: "Consignaciones" },
   "/admin/fiscal/devoluciones-pendientes": {
     seccion: "Caja",
     label: "Devoluciones",
@@ -238,11 +244,20 @@ export const RAIL: Record<string, FilaDelRail> = {
   "/admin/carta": { seccion: "Carta", label: "Carta", title: "Carta" },
   "/admin/preparaciones": { seccion: "Carta", label: "Preparaciones", title: "Preparaciones" },
 
+  "/admin/plata": { seccion: "Plata", label: "Libro del banco", title: "Libro del banco" },
+  "/admin/plata?tab=mano": { seccion: "Plata", label: "Mano del dueño", title: "Mano del dueño" },
+  "/admin/plata?tab=datafono": { seccion: "Plata", label: "Conciliaciones", title: "Conciliaciones" },
   "/admin/gastos": { seccion: "Plata", label: "Gastos", title: "Gastos" },
+  "/admin/gastos?tab=obligaciones": { seccion: "Plata", label: "Obligaciones", title: "Obligaciones" },
+  "/admin/gastos?tab=cuentas-por-pagar": {
+    seccion: "Plata",
+    label: "Cuentas por pagar",
+    title: "Cuentas por pagar",
+  },
+  "/admin/nomina?tab=propinas": { seccion: "Plata", label: "Propinas", title: "Propinas" },
 
   "/admin/personal": { seccion: "Equipo", label: "Turnos", title: "Turnos y personal" },
   "/admin/nomina": { seccion: "Equipo", label: "Nómina", title: "Nómina" },
-  "/admin/nomina?tab=propinas": { seccion: "Equipo", label: "Propinas", title: "Propinas" },
 
   "/admin/settings": { seccion: "Ajustes", label: "Configuración", title: "Configuración" },
   "/admin/features": { seccion: "Ajustes", label: "Funciones", title: "Funciones" },
@@ -358,6 +373,8 @@ export function entradaActiva(to: string, rutaActiva: boolean, search: string, t
  */
 const PESTANAS_HERMANAS: Record<string, readonly string[]> = {
   "/admin/inventario?tab=varianza": ["salud"],
+  // Conciliaciones abre en el datáfono, pero también es suya la de plataformas.
+  "/admin/plata?tab=datafono": ["plataformas"],
 };
 
 function pestanasDe(to: string): string[] {

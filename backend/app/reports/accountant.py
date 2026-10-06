@@ -60,6 +60,7 @@ from app.reports.schemas import (
     AccountantReportOut,
     AccountantRowOut,
     AccountantSummaryOut,
+    GoalPaceOut,
     MethodAmountOut,
 )
 from app.stores.models import Store
@@ -441,6 +442,59 @@ def get_goal(db: Session, *, store: Store, year: int, month: int) -> AccountantG
         total = _compute(db, store_ids=[store.id], year=year, bimester=None, month=month, today=today).summary.total
     return _goal_out(year=year, month=month, amount=amount, source=source, inherited_from=inherited_from,
                      total=total, editable=True)
+
+
+def goal_pace(db: Session, *, store: Store) -> GoalPaceOut:
+    """El ritmo del mes en curso hacia su meta (h6), sobre lo cobrado —el
+    total del informe del contador, la misma base del avance de la meta—.
+    Toda la cuenta acá; Hoy sólo pinta."""
+    today = tz.today_business_date(store.cutoff_hour)
+    year, month = today.year, today.month
+    period = _compute(db, store_ids=[store.id], year=year, bimester=None, month=month, today=today)
+    mtd = period.summary.total
+    closed_total = sum(d.total for d in period.days if d.business_date < today)
+    days_in_month = (period.date_to - period.date_from).days + 1
+    days_elapsed = (today - period.date_from).days + 1
+    closed_days = days_elapsed - 1
+    amount, source, inherited_from = _effective_goal(db, store.id, year, month)
+    goal = amount if amount is not None and amount > 0 else None
+
+    projected: int | None = None
+    projection_reason: str | None = None
+    if closed_days <= 0:
+        projection_reason = "El mes empezó hoy: la proyección sale con el primer día cerrado."
+    else:
+        projected = money.round_half_up(closed_total * days_in_month, closed_days)
+
+    if goal is None:
+        return GoalPaceOut(
+            year=year, month=month, goal=None, goal_source=None, goal_inherited_from=None,
+            month_to_date=mtd, closed_days=closed_days, days_elapsed=days_elapsed, days_in_month=days_in_month,
+            expected_to_date=None, gap_to_expected=None, progress_bp=None,
+            projected_month_end=projected, projected_vs_goal_bp=None, on_track=None,
+            reason="Este mes no tiene meta de ventas: ponela en Informe del contador.",
+            projection_reason=projection_reason,
+        )
+    expected = money.round_half_up(goal * days_elapsed, days_in_month)
+    return GoalPaceOut(
+        year=year,
+        month=month,
+        goal=goal,
+        goal_source=source,  # type: ignore[arg-type]
+        goal_inherited_from=inherited_from,
+        month_to_date=mtd,
+        closed_days=closed_days,
+        days_elapsed=days_elapsed,
+        days_in_month=days_in_month,
+        expected_to_date=expected,
+        gap_to_expected=mtd - expected,
+        progress_bp=money.round_half_up(mtd * 10_000, goal),
+        projected_month_end=projected,
+        projected_vs_goal_bp=money.round_half_up(projected * 10_000, goal) if projected is not None else None,
+        on_track=(projected >= goal) if projected is not None else (mtd >= expected),
+        reason=None,
+        projection_reason=projection_reason,
+    )
 
 
 def _validate_month(month: int) -> None:

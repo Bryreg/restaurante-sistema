@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Banknote, CalendarDays, Clock, CreditCard, Download, Package, type LucideIcon } from "lucide-react"
+import { Banknote, CalendarDays, Clock, CreditCard, Download, Package, Users, type LucideIcon } from "lucide-react"
 import { useEffect } from "react"
 import { Link, useLocation } from "react-router-dom"
 
@@ -60,6 +60,7 @@ import { receptionDraftsTrayItem } from "@/features/purchases"
 import { Definiciones, Plegable, type Definicion } from "./Plegable"
 import { fichaTurnoHref } from "./fichas/rutas"
 import { avisoConEnlace, useAccionables } from "./hoy/Atencion"
+import { ConfiabilidadDelMes, MesEnCurso } from "./hoy/MesEnCurso"
 import { ResolverAviso } from "./hoy/ResolverAviso"
 import { AhoraSede, SemaforoSedes, usePanelAhora } from "./PanelAhora"
 
@@ -1209,6 +1210,11 @@ const CIFRAS_EXPLICADAS: readonly Definicion[] = [
   { term: "Ticket promedio", meaning: "venta neta dividida entre los tickets pagados, sin propina. Lo calcula el servidor." },
   { term: "Número de tickets", meaning: "comandas cobradas y cerradas hoy: ya no cambian." },
   {
+    term: "Comensales y promedio por comensal",
+    meaning:
+      "los comensales anotados en las comandas pagadas, y la venta neta de esas comandas dividida entre ellos. «Sin comensales registrados» no es cero: es que nadie los anotó. Lo calcula el servidor.",
+  },
+  {
     term: "Efectivo y tarjeta",
     meaning:
       "la venta neta cobrada por cada medio, sin impuesto ni propina (la propina no es venta, Ley 1935 de 2018). Transferencias y plataformas van aparte, debajo.",
@@ -1223,6 +1229,8 @@ const CIFRAS_EXPLICADAS: readonly Definicion[] = [
 function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay | null }): React.JSX.Element {
   const cash = today.cash_sales ?? null
   const card = today.card_sales ?? null
+  const covers = today.covers ?? null
+  const perCover = today.avg_per_cover ?? null
   return (
     <div className="space-y-2">
       {recap ? (
@@ -1233,7 +1241,7 @@ function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay
       ) : null}
       {/* «Burbujas»: las cuatro cifras son cuatro pozos dentro de la burbuja
           de la venta, 8 px entre ellos. */}
-      <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-3">
         {today.avg_ticket === null || today.avg_ticket === undefined ? (
           <IndicadorSinDato label="Ticket promedio" motivo="todavía sin tickets pagados hoy" />
         ) : (
@@ -1263,6 +1271,18 @@ function DayFigures({ today, recap = null }: { today: TodayOut; recap?: RecapDay
             hint={`${card.payments} ${card.payments === 1 ? "pago" : "pagos"}`}
             icon={CreditCard}
           />
+        )}
+        {/* h1 · Comensales y promedio por comensal, del servidor. `null` no
+            es 0: es que ninguna comanda pagada tiene comensales anotados. */}
+        {covers === null || covers === 0 ? (
+          <IndicadorSinDato label="Comensales" motivo="sin comensales registrados" icon={Users} />
+        ) : (
+          <Cifra label="Comensales" value={String(covers)} hint="en las comandas pagadas" icon={Users} />
+        )}
+        {perCover === null ? (
+          <IndicadorSinDato label="Promedio por comensal" motivo="sin comensales registrados" icon={Users} />
+        ) : (
+          <Cifra label="Promedio por comensal" value={formatCOP(perCover)} hint="venta neta de las comandas con comensales" icon={Users} />
         )}
       </div>
       <Plegable resumen="Cómo leer estas cifras" className="px-1">
@@ -1680,6 +1700,8 @@ export function TodayPage(): React.JSX.Element {
         ...today,
         orders: recapData.orders,
         avg_ticket: recapData.avg_ticket,
+        covers: recapData.covers ?? null,
+        avg_per_cover: recapData.avg_per_cover ?? null,
         cash_sales: recapData.cash_sales ?? null,
         card_sales: recapData.card_sales ?? null,
         other_payment_sales: recapData.other_payment_sales ?? null,
@@ -1732,6 +1754,9 @@ export function TodayPage(): React.JSX.Element {
           pantalla incluidos). */}
       {/* El semáforo de las sedes, a todo el ancho (Hoy § 1). */}
       <SemaforoSedes />
+
+      {/* «¿Le puedo creer a estos números?» del mes en curso (h10). */}
+      <ConfiabilidadDelMes storeId={activeStoreId} />
 
       <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex min-w-0 flex-col gap-3 xl:col-start-1 xl:row-start-1">
@@ -1789,6 +1814,9 @@ export function TodayPage(): React.JSX.Element {
               aperturaTurno={panelAhora?.cash?.opened_at ?? null}
             />
           </VentaPrincipal>
+
+          {/* El mes hasta hoy: ritmo hacia la meta y costo primo (h6, h3). */}
+          <MesEnCurso storeId={activeStoreId} />
 
           {/* «Ahora» de la sede activa: cinco burbujas en dos columnas. */}
           <AhoraSede />

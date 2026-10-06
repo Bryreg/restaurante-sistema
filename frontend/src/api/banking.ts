@@ -216,14 +216,50 @@ export function getPendingDeposits(params: PeriodQuery): Promise<PendingDepositO
 // `rows`) más `totals`, verificado contra `LedgerEntryOut`/`BankLedgerOut`.
 // ---------------------------------------------------------------------------
 
-export type BankLedgerEntryKind = "deposit" | "card_settlement" | "transfer"
+export type BankLedgerEntryKind =
+  | "deposit"
+  | "card_settlement"
+  | "transfer"
+  | "platform_settlement"
+  | "expense"
+  | "obligation"
+  | "supplier_payment"
+  | "movement"
+
+/** Espejo de `BankMovementCauseLiteral`: la causa tipada de un movimiento tecleado. */
+export type BankMovementCause =
+  | "payroll"
+  | "bank_fee"
+  | "tax"
+  | "owner_withdrawal"
+  | "owner_contribution"
+  | "account_transfer"
+  | "interest"
+  | "adjustment"
+  | "other"
+
+export type BankDirection = "in" | "out"
 
 export interface BankLedgerEntryOut {
   kind?: BankLedgerEntryKind | string
   /** `null` para "transfer": renglón derivado de `Payment`, sin fila propia en este dominio. */
   id?: number | null
   business_date?: string
+  /** Siempre positivo; el sentido lo dice `direction`. */
   amount?: number
+  direction?: BankDirection
+  account_id?: number | null
+  account_name?: string
+  /** 4×1000 de esta salida, calculado por el servidor (0 en entradas y cuentas exentas). */
+  gmf?: number
+  /** Lo que el renglón le hace al saldo (`+amount` o `-(amount + gmf)`), del servidor. */
+  net_effect?: number
+  /** Saldo de su cuenta después del renglón; `null` antes del saldo del extracto. */
+  balance_after?: number | null
+  /** El dueño puede moverlo a otra cuenta (`POST /admin/bank/assignments`). */
+  assignable?: boolean
+  cause?: BankMovementCause | null
+  description?: string | null
   gross_amount?: number | null
   commission_amount?: number | null
   retention_amount?: number | null
@@ -238,20 +274,224 @@ export interface BankLedgerTotalsOut {
   deposits: number
   card_settlements_net: number
   transfers: number
+  /** Todo lo que entró en el período (igual a `inflows`). */
   total: number
+  platform_settlements_net?: number
+  other_inflows?: number
+  inflows?: number
+  expenses?: number
+  obligations?: number
+  supplier_payments?: number
+  other_outflows?: number
+  outflows?: number
+  gmf?: number
+  net?: number
 }
 
 export interface BankLedgerOut {
   date_from?: string
   date_to?: string
+  account_id?: number | null
   entries?: BankLedgerEntryOut[]
   totals?: BankLedgerTotalsOut
 }
 
-export function getBankLedger(params: PeriodQuery): Promise<BankLedgerOut> {
+export function getBankLedger(params: PeriodQuery & { accountId?: number | null }): Promise<BankLedgerOut> {
   return api<BankLedgerOut>("/admin/bank/ledger", {
-    query: { store_id: params.storeId, from: params.from, to: params.to },
+    query: { store_id: params.storeId, from: params.from, to: params.to, account_id: params.accountId ?? undefined },
   })
+}
+
+// ---------------------------------------------------------------------------
+// 0046 · Cuentas, saldo del extracto, movimientos tecleados, asignaciones,
+// cuánto hay hoy y la proyección (`app/banking/book.py`).
+// ---------------------------------------------------------------------------
+
+export interface BankAccountOut {
+  /** `null`: la cuenta principal todavía no se creó (nace con la primera escritura). */
+  id: number | null
+  name: string
+  is_default: boolean
+  gmf_exempt: boolean
+  receives_transfers: boolean
+  active: boolean
+}
+
+export interface BankAccountIn {
+  name: string
+  gmf_exempt?: boolean
+  receives_transfers?: boolean
+  is_default?: boolean
+}
+
+export type BankAccountPatchIn = Partial<BankAccountIn> & { active?: boolean }
+
+export function getBankAccounts(storeId: number): Promise<BankAccountOut[]> {
+  return api<BankAccountOut[]>("/admin/bank/accounts", { query: { store_id: storeId } })
+}
+
+export function createBankAccount(storeId: number, data: BankAccountIn, idempotencyKey: string): Promise<BankAccountOut> {
+  return api<BankAccountOut>("/admin/bank/accounts", { method: "POST", query: { store_id: storeId }, body: data, idempotencyKey })
+}
+
+export function updateBankAccount(
+  storeId: number,
+  accountId: number,
+  data: BankAccountPatchIn,
+  idempotencyKey: string,
+): Promise<BankAccountOut> {
+  return api<BankAccountOut>(`/admin/bank/accounts/${accountId}`, {
+    method: "PATCH",
+    query: { store_id: storeId },
+    body: data,
+    idempotencyKey,
+  })
+}
+
+export interface BankAnchorIn {
+  account_id?: number | null
+  balance_date?: string | null
+  balance: number
+  note?: string | null
+}
+
+export interface BankAnchorOut {
+  id: number
+  account_id: number
+  account_name: string
+  balance_date: string
+  balance: number
+  note: string | null
+  employee_name: string | null
+  created_at: string
+  voided_at: string | null
+  voided_reason: string | null
+  voided_by_employee_name: string | null
+}
+
+export function getBankAnchors(storeId: number): Promise<BankAnchorOut[]> {
+  return api<BankAnchorOut[]>("/admin/bank/anchors", { query: { store_id: storeId } })
+}
+
+export function createBankAnchor(storeId: number, data: BankAnchorIn, idempotencyKey: string): Promise<BankAnchorOut> {
+  return api<BankAnchorOut>("/admin/bank/anchors", { method: "POST", query: { store_id: storeId }, body: data, idempotencyKey })
+}
+
+export function voidBankAnchor(storeId: number, anchorId: number, reason: string, idempotencyKey: string): Promise<BankAnchorOut> {
+  return api<BankAnchorOut>(`/admin/bank/anchors/${anchorId}/void`, {
+    method: "POST",
+    query: { store_id: storeId },
+    body: { reason },
+    idempotencyKey,
+  })
+}
+
+export interface BankMovementIn {
+  account_id?: number | null
+  direction: BankDirection
+  cause: BankMovementCause
+  business_date?: string | null
+  amount: number
+  description: string
+  counter_account_id?: number | null
+}
+
+export interface BankMovementOut {
+  id: number
+  account_id: number
+  account_name: string
+  counter_account_id: number | null
+  counter_account_name: string | null
+  direction: BankDirection
+  cause: BankMovementCause
+  business_date: string
+  amount: number
+  description: string
+  voided_at: string | null
+}
+
+export function createBankMovement(storeId: number, data: BankMovementIn, idempotencyKey: string): Promise<BankMovementOut> {
+  return api<BankMovementOut>("/admin/bank/movements", { method: "POST", query: { store_id: storeId }, body: data, idempotencyKey })
+}
+
+export function voidBankMovement(
+  storeId: number,
+  movementId: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<BankMovementOut> {
+  return api<BankMovementOut>(`/admin/bank/movements/${movementId}/void`, {
+    method: "POST",
+    query: { store_id: storeId },
+    body: { reason },
+    idempotencyKey,
+  })
+}
+
+export interface BankAssignmentIn {
+  source_kind: string
+  source_id: number
+  account_id: number
+}
+
+export function assignBankEntry(storeId: number, data: BankAssignmentIn, idempotencyKey: string): Promise<unknown> {
+  return api<unknown>("/admin/bank/assignments", { method: "POST", query: { store_id: storeId }, body: data, idempotencyKey })
+}
+
+export interface BankAccountPositionOut {
+  account: BankAccountOut
+  anchor_id: number | null
+  anchor_date: string | null
+  anchor_balance: number | null
+  anchor_age_days: number | null
+  inflows: number | null
+  outflows: number | null
+  gmf: number | null
+  balance: number | null
+  reason: string | null
+}
+
+export interface BankPositionOut {
+  as_of: string
+  accounts: BankAccountPositionOut[]
+  /** `null` si alguna cuenta activa no tiene saldo del extracto (`total_reason`). */
+  total: number | null
+  total_reason: string | null
+  gmf_per_mille: number
+}
+
+export function getBankPosition(storeId: number): Promise<BankPositionOut> {
+  return api<BankPositionOut>("/admin/bank/position", { query: { store_id: storeId } })
+}
+
+export interface BankProjectionMonthOut {
+  year: number
+  month: number
+  date_from: string
+  date_to: string
+  expected_inflows: number | null
+  scheduled_obligations: number
+  payables_due: number
+  recurring_expenses: number | null
+  gmf: number | null
+  net: number | null
+  closing_balance: number | null
+}
+
+export interface BankProjectionOut {
+  as_of: string
+  starting_balance: number | null
+  reason: string | null
+  history_months: number
+  avg_monthly_inflows: number | null
+  avg_monthly_recurring_expenses: number | null
+  overdue_obligations: number
+  overdue_payables: number
+  months: BankProjectionMonthOut[]
+}
+
+export function getBankProjection(storeId: number, months: number): Promise<BankProjectionOut> {
+  return api<BankProjectionOut>("/admin/bank/projection", { query: { store_id: storeId, months } })
 }
 
 // ---------------------------------------------------------------------------

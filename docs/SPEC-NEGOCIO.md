@@ -865,6 +865,36 @@ esperado de ese turno) o desde la mano del dueño. Aparece en «Requiere tu aten
 Arriendo, servicios, nómina, impuestos agendados, punto de equilibrio: **fase 3**. El
 MVP calcula **margen bruto** (ventas netas − costo teórico de lo vendido) y lo dice así.
 
+**Recurrentes, abonos y agenda (c5, aprobado por el dueño, migración `0047`).**
+
+- Una obligación **recurrente** es una plantilla (mensual, bimestral o cada N meses,
+  con día de vencimiento recortado al último día real del mes). **Nada se crea
+  solo**: «Armar el mes» muestra la vista previa y crea las copias de ese mes, una
+  por plantilla y mes (índice único: armarlo dos veces no cobra el arriendo dos
+  veces; una copia cancelada no renace).
+- Una obligación admite **varios abonos**, cada uno con de dónde salió la plata
+  (banco, cajón —referenciando el egreso ya registrado en el turno—, otro). El
+  estado (`pendiente` / `con abonos` / `pagada`), lo pagado y el saldo los deriva el
+  servidor. Un abono se anula con motivo; una obligación con abonos no se cancela
+  sin anularlos antes.
+- **Agenda**: lo que vence en 30/60 días más todo lo vencido con saldo, con totales
+  de saldo y las recurrentes que todavía no se armaron.
+- **INC del bimestre**: el monto es lo **cobrado** de INC (tarifa 8 %) según el
+  informe del contador (las `tax_lines` congeladas de los documentos de venta
+  emitidos y no reversados); la declaración la arma el contador y se puede agendar
+  con su cifra. Sólo se agenda un bimestre cerrado, una vez por bimestre.
+  **Supuesto declarado sobre la fecha**: la DIAN fija el día según el último dígito
+  del NIT y el sistema no lo sabe; por defecto se agenda el **día 8 del mes
+  siguiente al bimestre** (primer día de la segunda semana, antes del plazo de
+  cualquier NIT en los calendarios recientes). Cada sede configura su día (1–28) y
+  cada agendamiento acepta una fecha a mano. **Verificar con el contador.**
+- **Nómina agendada**: cada liquidación guardada se agenda por
+  `employer_total_amount` (costo para la sede) o, si no existe, `total_amount`, con
+  vencimiento el último día del período liquidado.
+- La nómina y el INC agendados **no suman a los costos fijos** (utilidad y punto de
+  equilibrio): la nómina ya entra por su lado y el INC no es gasto, la venta neta se
+  mide sin él.
+
 ---
 
 ## 7. Turnos y personal

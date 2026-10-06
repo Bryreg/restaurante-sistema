@@ -15,10 +15,27 @@ import type { RouteObject } from "react-router-dom"
 import type { NavItem } from "@/app/nav"
 
 import { BankingAdminPage } from "./BankingAdminPage"
+import { PlataAdminPage } from "./PlataAdminPage"
 
-const adminRoutes: RouteObject[] = [{ path: "banco", element: createElement(BankingAdminPage) }]
+const adminRoutes: RouteObject[] = [
+  { path: "banco", element: createElement(BankingAdminPage) },
+  { path: "plata", element: createElement(PlataAdminPage) },
+]
 
-const adminNav: NavItem[] = [{ to: "/admin/banco", label: "Banco", feature: "money.deposits" }]
+/**
+ * c10 (decisión del dueño 2026-10-06): **Caja** es la plata física —cuadres,
+ * consignaciones, devoluciones— y **Plata** es lo que pasa después —el libro
+ * del banco, la mano del dueño, las conciliaciones—. `/admin/banco` queda
+ * con Consignaciones y Por consignar; el libro, la mano y las dos
+ * conciliaciones viven en `/admin/plata` con los MISMOS `?tab=`, y
+ * `/admin/banco?tab=libro|mano|datafono|plataformas` redirige allá.
+ */
+const adminNav: NavItem[] = [
+  { to: "/admin/banco", label: "Consignaciones", feature: "money.deposits" },
+  { to: "/admin/plata", label: "Libro del banco", feature: "money.bank" },
+  { to: "/admin/plata?tab=mano", label: "Mano del dueño", feature: "money.bank" },
+  { to: "/admin/plata?tab=datafono", label: "Conciliaciones", feature: "money.bank" },
+]
 
 export const bankingFeature = {
   adminRoutes,
