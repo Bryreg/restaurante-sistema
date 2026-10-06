@@ -116,6 +116,29 @@ def period_payroll_cost(db: Session, *, store_id: int, date_from: date, date_to:
     return total
 
 
+def worked_minutes_by_hour(db: Session, *, store_id: int, date_from: date, date_to: date) -> dict[int, int] | None:
+    """Minutos trabajados por hora del reloj (0-23) en el período, con la
+    jornada de la nómina (`service.worked_minutes_by_hour`). `None` si la
+    sede no existe."""
+    store = db.get(Store, store_id)
+    if store is None:
+        return None
+    return service.worked_minutes_by_hour(db, store=store, date_from=date_from, date_to=date_to)
+
+
+PayrollGaps = service.PayrollGaps
+
+
+def payroll_gaps(db: Session, *, store_id: int, date_from: date, date_to: date) -> service.PayrollGaps | None:
+    """Lo que le falta a la nómina del período para que su costo sea
+    confiable: tablas de recargos (o sin confirmar), parámetros legales sin
+    confirmar, gente sin tarifa y gente sin contrato."""
+    store = db.get(Store, store_id)
+    if store is None:
+        return None
+    return service.payroll_gaps(db, store=store, date_from=date_from, date_to=date_to)
+
+
 def worked_minutes(entry: Any) -> int | None:
     """Minutos trabajados de una entrada de asistencia o de roster ya
     cerrada (`in_at`/`out_at`/`pauses`), con **el mismo** motor de jornada

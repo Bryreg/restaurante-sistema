@@ -5,6 +5,7 @@ import { Link } from "react-router-dom"
 
 import { adminListOrders, type AdminOrderListItem } from "@/api/orders"
 import {
+  getReportsManagement,
   getReportsOverview,
   type DishMixGroup,
   type PeakHoursSeriesOut,
@@ -52,6 +53,10 @@ import {
 } from "./lib"
 import { CsvExportButton } from "@/components/CsvExportButton"
 import { csvUrl } from "@/api/client"
+
+import { BannerConfiabilidad } from "./gestion/Confiabilidad"
+import { EstadoResultados } from "./gestion/EstadoResultados"
+import { GestionDelPeriodo } from "./gestion/Gestion"
 
 /**
  * «Informes» (handoff del panel, pantalla 11 · `AdminInformes.dc.html`): un
@@ -1039,7 +1044,7 @@ function MasDelPeriodo({
 
 export function InformesPage(): React.JSX.Element {
   const { stores, activeStoreId, loading: storeLoading } = useStoreSelection()
-  const { me } = useSession()
+  const { me, hasFeature } = useSession()
   const hoy = todayInBogota()
   const [periodo, setPeriodo] = useState<Periodo>("ultimos7")
   const [rango, setRango] = useState(() => rangoDePeriodo("ultimos7", hoy))
@@ -1066,6 +1071,16 @@ export function InformesPage(): React.JSX.Element {
     queryKey: ["admin-reports-overview", "all", from, to],
     queryFn: () => getReportsOverview({ storeId: "all", from, to }),
     enabled: stores.length > 1 && !consolidado && rangoValido,
+  })
+
+  // Gestión del período (costo primo, mano de obra, mesas, controles y el
+  // aviso de confiabilidad): sede por sede y sólo para el administrador —
+  // habla de costos—.
+  const sedeUnica = typeof sede === "number" ? sede : null
+  const gestion = useQuery({
+    queryKey: ["admin-reports-management", sedeUnica, from, to],
+    queryFn: () => getReportsManagement({ storeId: sedeUnica as number, from, to }),
+    enabled: sedeUnica !== null && rangoValido && me?.kind === "admin",
   })
 
   if (storeLoading) return <Cargando texto="Cargando sedes…" />
@@ -1158,11 +1173,32 @@ export function InformesPage(): React.JSX.Element {
         />
       ) : data ? (
         <div className="space-y-[22px]">
+          {esAdmin && gestion.data ? <BannerConfiabilidad data={gestion.data.reliability} periodo="del período" /> : null}
           <Ventas data={data} nombreSede={nombreSede} contraSemana={contraSemana} />
           {/* Margen y mix hablan de costo: sólo el administrador (el operador
               no recibe costos ni márgenes, AGENTS.md). */}
           {esAdmin ? <Margen data={data} /> : null}
           {esAdmin ? <MixDePlatos data={data} /> : null}
+          {esAdmin && sedeUnica !== null ? (
+            gestion.isLoading ? (
+              <Cargando texto="Calculando costo primo, mano de obra y mesas…" />
+            ) : gestion.isError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {errorMessage(gestion.error)}
+              </p>
+            ) : gestion.data ? (
+              <GestionDelPeriodo data={gestion.data} />
+            ) : null
+          ) : null}
+          {esAdmin && sedeUnica !== null && hasFeature("money.obligations") && rangoValido ? (
+            <EstadoResultados storeId={sedeUnica} year={Number(to.slice(0, 4))} month={Number(to.slice(5, 7))} />
+          ) : null}
+          {esAdmin && consolidado ? (
+            <p className="text-sm text-muted-foreground">
+              El costo primo, la mano de obra por hora, las mesas, los controles por persona y el estado de resultados
+              se miran sede por sede: elegí una sede arriba.
+            </p>
+          ) : null}
           {data.series ? <HorasPico key={`${String(sede)}-${from}-${to}`} serie={data.series.peak_hours} /> : null}
           {stores.length > 1 && serieSedes ? (
             <PorSedeBarras serie={serieSedes} total={datosSedes?.total ?? null} />

@@ -290,6 +290,9 @@ export interface TodayRecapOut {
   orders: number
   avg_ticket: number | null
   net: number
+  /** Comensales del día repasado; `null` = sin comensales registrados. */
+  covers?: number | null
+  avg_per_cover?: number | null
   cash_sales?: PaymentBucketSalesOut | null
   card_sales?: PaymentBucketSalesOut | null
   other_payment_sales?: PaymentBucketSalesOut | null
@@ -1065,4 +1068,187 @@ export function getReportsOverview(params: ReportsOverviewQuery): Promise<Report
   return api<ReportsOverviewOut>("/admin/reports/overview", {
     query: { store_id: params.storeId, from: params.from, to: params.to },
   })
+}
+
+// ---------------------------------------------------------------------------
+// Gestión del período (`GET /admin/reports/management`, Informes) y el mes en
+// curso de Hoy (`GET /admin/reports/month`). Todo llega calculado por el
+// servidor (`backend/app/reports/management.py`): la pantalla sólo pinta.
+// ---------------------------------------------------------------------------
+
+export type ReliabilityKey =
+  | "inventory_never_counted"
+  | "inventory_stale"
+  | "uncosted_sales"
+  | "uncosted_products"
+  | "shifts_open"
+  | "shifts_unreviewed"
+  | "attendance_review"
+  | "payroll_no_tables"
+  | "payroll_tables_unconfirmed"
+  | "payroll_legal_unconfirmed"
+  | "payroll_without_wage"
+  | "payroll_without_contract"
+  | "no_opening_hours"
+  | "no_table_seats"
+
+export type ReliabilitySeverity = "critical" | "warning"
+
+/** Qué costo de lo vendido se usó: el teórico (fichas) o el real (teórico + varianza). */
+export type CostBasis = "theoretical" | "real"
+
+export interface ReliabilityItemOut {
+  key: ReliabilityKey
+  severity: ReliabilitySeverity
+  title: string
+  detail: string
+  /** Las cifras que tuerce, en palabras. */
+  affects: string
+  count: number | null
+}
+
+export interface ReliabilityOut {
+  date_from: string
+  date_to: string
+  reliable: boolean
+  items: ReliabilityItemOut[]
+}
+
+export interface TurnoverOut {
+  seats: number | null
+  tables: number | null
+  /** Días operados del período: cada uno es un servicio. */
+  services: number
+  /** Horas abiertas según el horario, texto decimal ("88.00"). */
+  open_hours: string | null
+  seat_hours: string | null
+  dine_in_orders: number
+  dine_in_covers: number | null
+  /** Comandas de mesa ÷ (mesas × servicios); 10.000 = una vuelta. */
+  orders_per_table_service_bp: number | null
+  /** Comensales ÷ (sillas × servicios); 10.000 = cada silla una vez. */
+  covers_per_seat_service_bp: number | null
+  turnover_reason: string | null
+  net_sales: number
+  /** Venta neta ÷ (sillas × horas abiertas), pesos por silla-hora. */
+  revpash: number | null
+  revpash_reason: string | null
+}
+
+export interface PrimeCostOut {
+  date_from: string
+  date_to: string
+  net_sales: number
+  cost_of_goods: number | null
+  cost_basis: CostBasis | null
+  cost_theoretical: number | null
+  cost_real: number | null
+  cost_real_reason: string | null
+  cost_reason: string | null
+  labor: number | null
+  labor_reason: string | null
+  prime_cost: number | null
+  prime_cost_pct_bp: number | null
+  cost_pct_bp: number | null
+  labor_pct_bp: number | null
+  reason: string | null
+}
+
+export interface LaborHourOut {
+  hour: number
+  label: string
+  net: number
+  worked_hours: string
+  labor: number | null
+  labor_pct_bp: number | null
+  /** La mano de obra de la hora costó más que lo vendido en ella. */
+  outside: boolean | null
+}
+
+export interface LaborByHourOut {
+  available: boolean
+  reason: string | null
+  labor_total: number | null
+  worked_hours_total: string
+  hours: LaborHourOut[]
+}
+
+export interface AuthorizerCountOut {
+  name: string
+  count: number
+  amount: number
+}
+
+export interface ControlPersonRowOut {
+  employee_id: number | null
+  employee_name: string
+  voids_count: number
+  voids_amount: number
+  discounts_count: number
+  discounts_amount: number
+  courtesies_count: number
+  courtesies_amount: number
+  total_count: number
+  total_amount: number
+  authorizers: AuthorizerCountOut[]
+}
+
+export interface ControlsRankingOut {
+  rows: ControlPersonRowOut[]
+  by_authorizer: AuthorizerCountOut[]
+  total_count: number
+  total_amount: number
+  net_sales: number
+  total_pct_of_sales_bp: number | null
+}
+
+export interface ManagementOut {
+  store_id: number
+  date_from: string
+  date_to: string
+  reliability: ReliabilityOut
+  turnover: TurnoverOut
+  prime_cost: PrimeCostOut
+  labor_by_hour: LaborByHourOut
+  controls: ControlsRankingOut
+}
+
+export function getReportsManagement(params: { storeId: number; from: string; to: string }): Promise<ManagementOut> {
+  return api<ManagementOut>("/admin/reports/management", {
+    query: { store_id: params.storeId, from: params.from, to: params.to },
+  })
+}
+
+export interface GoalPaceOut {
+  year: number
+  month: number
+  goal: number | null
+  goal_source: "month" | "inherited" | "sum" | null
+  goal_inherited_from: string | null
+  /** Lo cobrado en el mes hasta ahora (la base de la meta del contador). */
+  month_to_date: number
+  closed_days: number
+  days_elapsed: number
+  days_in_month: number
+  expected_to_date: number | null
+  gap_to_expected: number | null
+  progress_bp: number | null
+  projected_month_end: number | null
+  projected_vs_goal_bp: number | null
+  on_track: boolean | null
+  reason: string | null
+  projection_reason: string | null
+}
+
+export interface TodayMonthOut {
+  store_id: number
+  date_from: string
+  date_to: string
+  goal_pace: GoalPaceOut
+  prime_cost: PrimeCostOut
+  reliability: ReliabilityOut
+}
+
+export function getTodayMonth(storeId: number): Promise<TodayMonthOut> {
+  return api<TodayMonthOut>("/admin/reports/month", { query: { store_id: storeId } })
 }

@@ -364,6 +364,11 @@ class TodayRecapOut(BaseModel):
     orders: int
     avg_ticket: int | None
     net: int
+    # h1: los comensales del día repasado y el promedio por comensal, de
+    # `aggregate_sales` (la misma cuenta de Informes); `None` = sin
+    # comensales registrados, nunca 0.
+    covers: int | None = None
+    avg_per_cover: int | None = None
     cash_sales: PaymentBucketSalesOut | None = None
     card_sales: PaymentBucketSalesOut | None = None
     other_payment_sales: PaymentBucketSalesOut | None = None
@@ -900,6 +905,208 @@ class ReportsOverviewOut(BaseModel):
     # Las series «barra + raya» de Informes (`app.reports.series`): cada dato
     # con su raya ya calculada.
     series: OverviewSeriesOut | None = None
+
+
+# ---------------------------------------------------------------------------
+# Gestión del período (Informes y Hoy, `app.reports.management`): la rotación
+# de mesas y el RevPASH, el costo primo, la mano de obra contra la venta por
+# hora, el ranking de anulaciones/descuentos/cortesías, el ritmo hacia la
+# meta del mes y el aviso «¿le puedo creer a estos números?». Ninguna cifra
+# se calcula en la interfaz: cada una llega hecha, con su motivo si falta.
+# ---------------------------------------------------------------------------
+
+ReliabilityKeyLiteral = Literal[
+    "inventory_never_counted",
+    "inventory_stale",
+    "uncosted_sales",
+    "uncosted_products",
+    "shifts_open",
+    "shifts_unreviewed",
+    "attendance_review",
+    "payroll_no_tables",
+    "payroll_tables_unconfirmed",
+    "payroll_legal_unconfirmed",
+    "payroll_without_wage",
+    "payroll_without_contract",
+    "no_opening_hours",
+    "no_table_seats",
+]
+ReliabilitySeverityLiteral = Literal["critical", "warning"]
+#: Qué costo de lo vendido se usó (el mismo literal de `app.expenses`).
+CostBasisLiteral = Literal["theoretical", "real"]
+
+
+class ReliabilityItemOut(BaseModel):
+    """Una cosa que hace dudar de los números del período. `affects` nombra
+    las cifras que tuerce; `count` cuántas cosas hay (o `None` si no se
+    cuentan: «nunca se contó»). La pantalla lleva a arreglarla según `key`."""
+
+    key: ReliabilityKeyLiteral
+    severity: ReliabilitySeverityLiteral
+    title: str
+    detail: str
+    affects: str
+    count: int | None
+
+
+class ReliabilityOut(BaseModel):
+    date_from: date
+    date_to: date
+    reliable: bool
+    items: list[ReliabilityItemOut]
+
+
+class TurnoverOut(BaseModel):
+    """Rotación de mesas y RevPASH del período.
+
+    - `orders_per_table_service_bp`: comandas de mesa ÷ (mesas × servicios);
+      un servicio es un día operado. 10.000 = una vuelta por mesa.
+    - `covers_per_seat_service_bp`: comensales de mesa ÷ (sillas ×
+      servicios); 10.000 = cada silla ocupada una vez.
+    - `revpash`: venta neta del período ÷ (sillas × horas abiertas según el
+      horario de la sede), en pesos por silla-hora.
+    Sin sillas, sin horario o sin servicios, la cifra es `None` con motivo."""
+
+    seats: int | None
+    tables: int | None
+    services: int
+    open_hours: str | None
+    seat_hours: str | None
+    dine_in_orders: int
+    dine_in_covers: int | None
+    orders_per_table_service_bp: int | None
+    covers_per_seat_service_bp: int | None
+    turnover_reason: str | None
+    net_sales: int
+    revpash: int | None
+    revpash_reason: str | None
+
+
+class PrimeCostOut(BaseModel):
+    """Costo primo = costo de lo vendido + mano de obra, en pesos y como %
+    de la venta neta. `cost_basis` dice qué costo de lo vendido entró: el
+    real (teórico + varianza de inventario) si los conteos cubren el
+    período, si no el teórico."""
+
+    date_from: date
+    date_to: date
+    net_sales: int
+    cost_of_goods: int | None
+    cost_basis: CostBasisLiteral | None
+    cost_theoretical: int | None
+    cost_real: int | None
+    cost_real_reason: str | None
+    cost_reason: str | None
+    labor: int | None
+    labor_reason: str | None
+    prime_cost: int | None
+    prime_cost_pct_bp: int | None
+    cost_pct_bp: int | None
+    labor_pct_bp: int | None
+    reason: str | None
+
+
+class LaborHourOut(BaseModel):
+    """Una hora del reloj: la venta neta, las horas trabajadas y su costo
+    (la nómina del período repartida por minutos trabajados)."""
+
+    hour: int
+    label: str
+    net: int
+    worked_hours: str
+    labor: int | None
+    labor_pct_bp: int | None
+    # La mano de obra de la hora le costó más que lo que se vendió en ella.
+    outside: bool | None
+
+
+class LaborByHourOut(BaseModel):
+    available: bool
+    reason: str | None
+    labor_total: int | None
+    worked_hours_total: str
+    hours: list[LaborHourOut]
+
+
+class AuthorizerCountOut(BaseModel):
+    name: str
+    count: int
+    amount: int
+
+
+class ControlPersonRowOut(BaseModel):
+    """Una persona: cuántas anulaciones, descuentos y cortesías pidió en el
+    período y por cuánta plata, con quién se las autorizó. Montos: la
+    anulación a su precio (`unit_price × qty`), el descuento por lo
+    descontado y la cortesía a precio de carta (`list_price × qty`) — los
+    mismos de la ficha de la persona."""
+
+    employee_id: int | None
+    employee_name: str
+    voids_count: int
+    voids_amount: int
+    discounts_count: int
+    discounts_amount: int
+    courtesies_count: int
+    courtesies_amount: int
+    total_count: int
+    total_amount: int
+    authorizers: list[AuthorizerCountOut]
+
+
+class ControlsRankingOut(BaseModel):
+    rows: list[ControlPersonRowOut]
+    by_authorizer: list[AuthorizerCountOut]
+    total_count: int
+    total_amount: int
+    net_sales: int
+    total_pct_of_sales_bp: int | None
+
+
+class ManagementOut(BaseModel):
+    store_id: int
+    date_from: date
+    date_to: date
+    reliability: ReliabilityOut
+    turnover: TurnoverOut
+    prime_cost: PrimeCostOut
+    labor_by_hour: LaborByHourOut
+    controls: ControlsRankingOut
+
+
+class GoalPaceOut(BaseModel):
+    """El ritmo hacia la meta del mes, sobre lo cobrado (la misma base de la
+    meta en el informe del contador). `expected_to_date` = meta × días
+    transcurridos (hoy incluido) ÷ días del mes; `projected_month_end` =
+    lo cobrado hasta AYER ÷ días cerrados × días del mes (un día a medias no
+    proyecta). Sin meta, todo lo que depende de ella es `None` con motivo."""
+
+    year: int
+    month: int
+    goal: int | None
+    goal_source: Literal["month", "inherited", "sum"] | None
+    goal_inherited_from: str | None
+    month_to_date: int
+    closed_days: int
+    days_elapsed: int
+    days_in_month: int
+    expected_to_date: int | None
+    gap_to_expected: int | None
+    progress_bp: int | None
+    projected_month_end: int | None
+    projected_vs_goal_bp: int | None
+    on_track: bool | None
+    reason: str | None
+    projection_reason: str | None
+
+
+class TodayMonthOut(BaseModel):
+    store_id: int
+    date_from: date
+    date_to: date
+    goal_pace: GoalPaceOut
+    prime_cost: PrimeCostOut
+    reliability: ReliabilityOut
 
 
 # Los literales del panel viven acá (y no en `panel_schemas`) para que

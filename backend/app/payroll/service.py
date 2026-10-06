@@ -793,6 +793,66 @@ def get_hours(
     return HoursResult(rows=rows, available=True, reason=None)
 
 
+def worked_minutes_by_hour(db: Session, *, store: Store, date_from: date, date_to: date) -> dict[int, int]:
+    """Minutos trabajados por hora del reloj de Bogotá (0-23) en el
+    período, con la MISMA jornada que liquida la nómina
+    (`_employee_intervals`: unión de asistencia y roster, pausas fuera,
+    administradores fuera, salidas olvidadas fuera hasta que se corrigen).
+    Cada tramo se parte en las horas en punto y cuenta para la fecha
+    operativa de su inicio."""
+    intervals_by_employee, _names = _employee_intervals(
+        db, store=store, date_from=date_from, date_to=date_to, employee_id=None, until=clock.now_utc()
+    )
+    out = {hour: 0 for hour in range(24)}
+    marks = set(range(24))
+    for intervals in intervals_by_employee.values():
+        for w_start, w_end in intervals:
+            for p_start, p_end in _split_by_hour_boundaries(w_start, w_end, marks):
+                business_date = tz.business_date_for(p_start, store.cutoff_hour)
+                if business_date < date_from or business_date > date_to:
+                    continue
+                out[tz.to_bogota(p_start).hour] += hours_mod.minutes_between(p_start, p_end)
+    return out
+
+
+@dataclass(frozen=True)
+class PayrollGaps:
+    """Lo que hace que el costo de la nómina de un período no sea confiable
+    (el aviso «¿le puedo creer a estos números?»). Los nombres van tal cual
+    los tiene la nómina; nada se calcula acá que no calcule `compute_period`."""
+
+    no_surcharge_table: bool
+    unconfirmed_surcharge_tables: int
+    legal_params_unconfirmed: bool
+    without_wage: list[str]
+    without_contract: list[str]
+
+
+def payroll_gaps(db: Session, *, store: Store, date_from: date, date_to: date) -> PayrollGaps:
+    tables_sorted = list_surcharge_tables(db, store_id=store.id)
+    if not tables_sorted:
+        return PayrollGaps(True, 0, False, [], [])
+    in_force = {t.id: t for t in tables_sorted if date_from < t.valid_from <= date_to}
+    first = _table_for(tables_sorted, date_from)
+    if first is not None:
+        in_force[first.id] = first
+    unconfirmed = sum(1 for t in in_force.values() if t.created_by_employee_id is None)
+    params_rows = list(
+        db.execute(
+            select(PayrollLegalParams).where(PayrollLegalParams.organization_id == store.organization_id)
+        ).scalars()
+    )
+    params = legal_costs.params_for(date_to, params_rows)
+    lines, _ = compute_period(db, store=store, date_from=date_from, date_to=date_to)
+    return PayrollGaps(
+        no_surcharge_table=False,
+        unconfirmed_surcharge_tables=unconfirmed,
+        legal_params_unconfirmed=params is not None and not params.confirmed,
+        without_wage=[line.employee_name for line in lines if line.pay.total is None],
+        without_contract=[line.employee_name for line in lines if line.contract is None],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Horario de la semana (decisión del dueño, 2026-09-29): quién estuvo, de qué
 # hora a qué hora, cada día de la semana. Los tramos y los totales salen del

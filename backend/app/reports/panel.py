@@ -440,6 +440,18 @@ def panel(db: Session, *, stores: list[Store], all_stores: bool) -> PanelOut:
 # ---------------------------------------------------------------------------
 
 
+def void_amount(item: OrderItem) -> int:
+    """Lo que vale una anulación: el ítem a su precio (`unit_price × qty`).
+    La misma cifra en la ficha de la persona y en el ranking de Informes."""
+    return int(item.unit_price) * int(item.qty)
+
+
+def courtesy_amount(item: OrderItem) -> int:
+    """Lo que vale una cortesía: el ítem a precio de carta (`list_price ×
+    qty`), porque su `unit_price` quedó en 0."""
+    return int(item.list_price) * int(item.qty)
+
+
 def _voids(db: Session, stmt_where: list[Any]) -> list[RecordVoidOut]:
     rows = db.execute(
         select(OrderItem, Order)
@@ -453,7 +465,7 @@ def _voids(db: Session, stmt_where: list[Any]) -> list[RecordVoidOut]:
             order_id=order.id,
             item_name=item.name,
             qty=item.qty,
-            amount=int(item.unit_price) * int(item.qty),
+            amount=void_amount(item),
             reason=item.void_reason.value if item.void_reason is not None else None,
             voided_at=item.voided_at,
             voided_by=item.voided_by_employee_name,
@@ -498,7 +510,7 @@ def _discounts(db: Session, discount_where: list[Any], courtesy_where: list[Any]
             RecordDiscountOut(
                 order_id=order.id,
                 kind="courtesy",
-                amount=int(item.list_price) * int(item.qty),
+                amount=courtesy_amount(item),
                 reason=getattr(item.courtesy_reason, "value", item.courtesy_reason),
                 employee_name=None,
                 authorized_by=item.courtesy_authorized_by_employee_name,
