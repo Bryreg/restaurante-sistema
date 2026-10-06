@@ -96,46 +96,17 @@ describe("SalesPage", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThan(0)
   })
 
-  it("cambiar de pestaña carga el informe del contador (una sola matemática: se pinta tal cual)", async () => {
+  it("el informe del contador ya no es pestaña de Ventas: se ve en su pantalla y la cabecera enlaza a ella", async () => {
     getSalesMock.mockResolvedValue({
       store_id: 1, date_from: "2026-09-09", date_to: "2026-09-15", group_by: "business_date", rows: [],
       total: { key: "total", label: "total", gross: 0, net: 0, tax: 0, tips: 0, orders: 0, covers: null, avg_ticket: null, avg_per_cover: null },
     })
-    getAccountantReportMock.mockResolvedValue({
-      store_id: 1, year: 2026, period_kind: "month", period: 9, date_from: "2026-09-01", date_to: "2026-09-30",
-      rows: [], totals_by_method: [], documents_total_base: 500000, documents_total_tax: 40000,
-      notes_total_base: 0, notes_total_tax: 0, tips_total: 20000,
-      // Movida con motivo declarado (decisión del dueño 2026-09, «igual que
-      // café-sistema»): el informe ahora trae también el desglose por día y
-      // medio, los totales, la comparación y la meta, todo hecho en el servidor.
-      days: [
-        {
-          business_date: "2026-09-02", cash: 540000, card: 0, transfer: 0, other: 0, total: 540000, cumulative: 540000,
-          documents_count: 12, avg_ticket: 45000, base: 500000, tax: 40000, credit_notes: 0, tips: 20000,
-        },
-      ],
-      summary: {
-        total: 540000, cash: 540000, card: 0, transfer: 0, other: 0, documents_count: 12, days_with_sales: 1,
-        days_in_period: 30, avg_daily_with_sales: 540000, avg_daily_calendar: 18000, avg_ticket: 45000,
-        base: 500000, tax: 40000, credit_notes: 0, tips: 20000,
-        shares: [{ method: "cash", label: "Efectivo", amount: 540000, share_bp: 10000 }],
-        best_day: { business_date: "2026-09-02", total: 540000 }, worst_day: { business_date: "2026-09-02", total: 540000 },
-        tax_by_rate: [{ rate: 8, base: 500000, tax: 40000 }],
-      },
-      comparison: {
-        previous_year: 2026, previous_period: 8, previous_label: "Agosto 2026",
-        total: { previous: 0, pct: null }, avg_daily_calendar: { previous: null, pct: null },
-        avg_daily_with_sales: { previous: null, pct: null }, avg_ticket: { previous: null, pct: null },
-      },
-      goal: null,
-    })
-
-    const user = userEvent.setup()
     renderWithProviders(<SalesPage />, { me: buildMe() })
 
-    await user.click(screen.getByRole("tab", { name: "Informe del contador" }))
-
-    await waitFor(() => expect(screen.getAllByText("$ 500.000").length).toBeGreaterThan(0))
+    // Cambio intencional (limpieza 2026-10): un solo lugar para el informe.
+    expect(screen.queryByRole("tab", { name: "Informe del contador" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /Informe del contador/ })).toHaveAttribute("href", "/admin/contador")
+    expect(getAccountantReportMock).not.toHaveBeenCalled()
   })
 
   // ---------------------------------------------------------------------

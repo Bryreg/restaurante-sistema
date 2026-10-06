@@ -193,7 +193,7 @@ export const RAIL: Record<string, FilaDelRail> = {
   "/admin/informes": { seccion: "Informes", label: "Informes", title: "Informes" },
   "/admin/ventas": { seccion: "Informes", label: "Ventas", title: "Ventas" },
   // Entrada propia del informe del contador (decisión del dueño 2026-09,
-  // «igual que café-sistema»); sigue también como pestaña de Ventas.
+  // «igual que café-sistema»); es el único lugar donde se ve (Ventas enlaza).
   "/admin/contador": { seccion: "Informes", label: "Informe del contador", title: "Informe del contador" },
   "/admin/analitica": {
     seccion: "Informes",

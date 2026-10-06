@@ -305,7 +305,6 @@ describe("InformesPage", () => {
       "Por persona",
       "Canal y zona",
       "Domicilios y clientes",
-      "Ingeniería de menú",
       "Historial de comandas",
     ])
     expect(screen.getByText(/Más del período/).closest("details")).not.toHaveAttribute("open")
@@ -346,12 +345,13 @@ describe("InformesPage", () => {
     expect(within(pico).getByText("Promedio de 5 días operados")).toBeInTheDocument()
     expect(within(pico).getAllByText("meseros")).toHaveLength(3)
 
-    // Lo de antes sigue ahí, intacto.
-    const indicadores = screen.getByRole("region", { name: "Indicadores" })
-    expect(within(indicadores).getAllByText(/▲ 25,0 % vs 16 al 20 sep/).length).toBeGreaterThan(0)
+    // Lo de antes que no repite una pregunta sigue ahí. Cambio intencional
+    // (limpieza 2026-10): indicadores, tabla por sede, ingeniería de menú y
+    // costo y margen repetían una pregunta de arriba y se quitaron.
+    expect(screen.queryByRole("region", { name: "Indicadores" })).not.toBeInTheDocument()
+    expect(screen.queryByText("Costo y margen")).not.toBeInTheDocument()
     expect(screen.getByText("Hora pico: 13:00 con $ 766.900 en 32 comandas")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /Ver la matriz completa/ })).toHaveAttribute("href", "/admin/analitica")
-    expect(screen.getByText("Costo y margen").closest("details")).not.toHaveAttribute("open")
     expect(getReportsOverviewMock).toHaveBeenCalledWith(expect.objectContaining({ storeId: 1 }))
   })
 
@@ -421,32 +421,29 @@ describe("InformesPage", () => {
   })
 
   it("null no es cero: cada «sin dato» dice por qué", async () => {
-    getReportsOverviewMock.mockResolvedValue(
-      overview({
-        menu_engineering: {
-          available: false,
-          reason: "La función «Ingeniería de menú» está apagada para esta sede.",
-          star: null,
-          plowhorse: null,
-          puzzle: null,
-          dog: null,
-          unclassified: null,
-          insufficient_sample: null,
-        },
-      }),
-    )
+    getReportsOverviewMock.mockResolvedValue(overview())
     renderWithProviders(<InformesPage />, { me: buildMe() })
 
     await screen.findByText("Domicilios y clientes")
-    expect(screen.getByText("Ninguna comanda del período contó comensales. No es cero.")).toBeInTheDocument()
+    // Sin comensales contados, la banda de Ventas no inventa un «por comensal».
+    expect(screen.getByText("40 comandas · ticket promedio $ 25.000")).toBeInTheDocument()
+    expect(screen.queryByText(/por comensal/)).not.toBeInTheDocument()
     expect(screen.getByText("No hubo ventas por domicilio en el período.")).toBeInTheDocument()
     expect(
       screen.getByText("La dirección del domicilio se guarda como texto libre: no hay zonas de reparto para agrupar."),
     ).toBeInTheDocument()
-    expect(screen.getByText("La función «Ingeniería de menú» está apagada para esta sede.")).toBeInTheDocument()
-    expect(screen.getAllByText("Ninguna venta del período tuvo ficha técnica con costo.").length).toBe(2)
     // Sin dato se dibuja «Sin datos», nunca como una cifra.
-    expect(screen.getAllByText("Sin datos").length).toBeGreaterThanOrEqual(4)
+    expect(screen.getAllByText("Sin datos").length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("con comensales contados, la banda de Ventas dice el ticket por comensal", async () => {
+    const base = overview()
+    getReportsOverviewMock.mockResolvedValue(overview({ total: { ...base.total, avg_per_cover: 12_500 } }))
+    renderWithProviders(<InformesPage />, { me: buildMe() })
+
+    expect(
+      await screen.findByText("40 comandas · ticket promedio $ 25.000 · por comensal $ 12.500"),
+    ).toBeInTheDocument()
   })
 
   it("poca base (servidor: `low_base`): la variación del período no se grita y una semana sin ventas no dibuja un eje vacío", async () => {

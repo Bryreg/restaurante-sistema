@@ -28,7 +28,8 @@ const adminRoutes: RouteObject[] = [
   { path: "ventas", element: createElement(SalesPage) },
   { path: "informes", element: createElement(InformesPage) },
   // El informe del contador con su propia entrada en Informes (decisión del
-  // dueño 2026-09: «igual que café-sistema»). La pestaña de Ventas sigue.
+  // dueño 2026-09: «igual que café-sistema»). Es el único lugar donde se ve:
+  // la pestaña que tenía en Ventas se quitó (limpieza 2026-10).
   { path: "contador", element: createElement(AccountantReportPage) },
   // Las fichas relacionales cuelgan de la pantalla de su sección (Caja ›
   // Dinero, Equipo › Turnos, Inventario): el rail enciende la sección por
