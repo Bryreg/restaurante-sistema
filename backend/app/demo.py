@@ -1176,6 +1176,10 @@ class Demo:
         detail = a.get(f"/admin/counts/{count['id']}?store_id={sid}")
         lines = []
         for ln in detail.get("lines", []):
+            if ln.get("ingredient_id") is None:
+                # Preparación en modo lote (0038): se cuenta en su propia
+                # pantalla, no en el conteo de insumos de la demo.
+                continue
             theo = max(0.0, float(stock.get(int(ln["ingredient_id"]), {}).get("qty_base") or 0))
             counted = theo * self.rng.uniform(0.88, 1.03)
             fmt = f"{counted:.0f}" if ln.get("base_unit") != "unit" else f"{round(counted)}"
@@ -1196,6 +1200,7 @@ class Demo:
         self.recipes()
         # Stock de arranque: la compra grande del día anterior a abrir.
         self.restock_initial(self.first_day - timedelta(days=1))
+        self.plan_shifts([self.first_day + timedelta(days=i) for i in range(self.days + 7)])
         for idx in range(self.days):
             day = self.first_day + timedelta(days=idx)
             if idx and day.weekday() == 0:
@@ -1207,6 +1212,7 @@ class Demo:
             print(f"  día {idx + 1}/{self.days} listo: {self.day_summaries[-1] if self.day_summaries else day}",
                   flush=True)
         self.money_back_office(self.first_day + timedelta(days=self.days))
+        self.new_features(self.first_day + timedelta(days=self.days))
 
     # -- continuar una demo ya cargada ----------------------------------------
 
@@ -1243,6 +1249,8 @@ class Demo:
         set_local(days[0], "07:00")
         self.login()
         self.load_existing()
+        self.admin_session()
+        self.plan_shifts([days[0] + timedelta(days=i) for i in range(len(days) + 7)])
         for idx, day in enumerate(days, start=1):
             if day.weekday() == 0:
                 self.weekly_back_office(day)
@@ -1252,6 +1260,164 @@ class Demo:
                 self.pay_payables(day)
             print(f"  día {idx}/{len(days)} listo: {self.day_summaries[-1] if self.day_summaries else day}",
                   flush=True)
+        self.new_features(days[-1] + timedelta(days=1))
+
+    # -- lo nuevo de la auditoría (2026-10-06) ------------------------------
+
+    def plan_shifts(self, days: list[date]) -> None:
+        """Planeación de turnos (e1) para los días dados, con las horas en que
+        el simulador marca la entrada (10:30). Rosa Elena entra planeada a las
+        10:00 entre semana: la demo muestra llegadas tarde de verdad."""
+        a, sid = self.admin, self.store_id
+        a.step = "planeación de turnos"
+        people = [n for n, *_ in STAFF if n in self.staff and n != "Kevin Andrés Ortiz"]
+        for day in days:
+            for name in people:
+                start = "10:00" if name == "Rosa Elena Méndez" and day.weekday() < 4 else "10:30"
+                end = "22:15" if name == "Luz Marina Gómez" else "21:30"
+                self.attempt(f"planear {name} {day}", a.put, f"/admin/payroll/schedule/shifts?store_id={sid}", {
+                    "employee_id": self.staff_id(name), "business_date": day.isoformat(),
+                    "start": start, "end": end})
+
+    def new_features(self, today: date) -> None:
+        """Llena lo que agregó la auditoría del dueño: contratos y novedades de
+        nómina, libro del banco, obligaciones recurrentes y abonos, nómina
+        agendada, presupuesto, órdenes de compra y una devolución al
+        proveedor. Corre una sola vez: si ya hay contratos, no repite."""
+        a, sid = self.admin, self.store_id
+        set_local(today, "08:30")
+        self.admin_session()
+        if self.attempt("contratos cargados", a.get, f"/admin/payroll/contracts?store_id={sid}"):
+            return
+        # El primer día de operación de la sede (en una continuación, el de la
+        # carga original, no el primero que falta).
+        shifts = self.attempt("turnos", a.get, f"/admin/shifts?store_id={sid}") or []
+        dates = [date.fromisoformat(sh["business_date"]) for sh in shifts if sh.get("business_date")]
+        first = min(dates) if dates else self.first_day
+        month = today.replace(day=1)
+
+        a.step = "contratos"
+        monthly = {"Luz Marina Gómez": 1_950_000, "Jhon Jairo Cárdenas": 2_300_000}
+        for name, _role, _pin, _cc, _area, _wage in STAFF:
+            if name not in self.staff:
+                continue
+            kind, salary_type, salary = "part_time", "hourly", None
+            if name in monthly:
+                kind, salary_type, salary = "indefinite", "monthly", monthly[name]
+            elif name == "Brayan Estiven Mora":
+                kind = "services"
+            elif name in ("Andrés Felipe Rojas", "Rosa Elena Méndez"):
+                kind = "fixed_term"
+            if self.attempt(f"contrato {name}", a.post, f"/admin/payroll/contracts?store_id={sid}", {
+                    "employee_id": self.staff_id(name), "kind": kind, "salary_type": salary_type,
+                    "monthly_salary_pesos": salary, "start_date": first.isoformat(), "end_date": None,
+                    "arl_risk_class": 1}):
+                self.report.counts["contratos"] += 1
+        for name, kind, d_from, d_to, note in (
+            ("Yuliana Pérez Ríos", "sick_leave", first + timedelta(days=9), first + timedelta(days=11),
+             "Incapacidad EPS Sura 4471"),
+            ("Andrés Felipe Rojas", "vacation", today + timedelta(days=7), today + timedelta(days=11),
+             "Vacaciones pedidas con un mes"),
+        ):
+            if name in self.staff and self.attempt(f"novedad {name}", a.post, f"/admin/payroll/absences?store_id={sid}", {
+                    "employee_id": self.staff_id(name), "kind": kind, "date_from": d_from.isoformat(),
+                    "date_to": d_to.isoformat(), "note": note}):
+                self.report.counts["novedades de nómina"] += 1
+
+        a.step = "libro del banco"
+        main = self.attempt("cuenta principal", a.post, f"/admin/bank/accounts?store_id={sid}", {
+            "name": "Bancolombia ahorros", "is_default": True, "receives_transfers": True})
+        nequi = self.attempt("cuenta Nequi", a.post, f"/admin/bank/accounts?store_id={sid}", {
+            "name": "Nequi", "gmf_exempt": True})
+        if main:
+            self.attempt("saldo del extracto", a.post, f"/admin/bank/anchors?store_id={sid}", {
+                "account_id": main["id"], "balance_date": (first - timedelta(days=1)).isoformat(),
+                "balance": 18_500_000, "note": "Extracto Bancolombia"})
+            for direction, cause, when, amount, desc in (
+                ("out", "bank_fee", first + timedelta(days=13), 14_900, "Cuota de manejo"),
+                ("out", "owner_withdrawal", first + timedelta(days=10), 2_000_000, "Retiro del dueño"),
+                ("in", "interest", first + timedelta(days=15), 3_412, "Intereses de la cuenta"),
+            ):
+                if when <= today:
+                    self.attempt(f"movimiento {desc}", a.post, f"/admin/bank/movements?store_id={sid}", {
+                        "account_id": main["id"], "direction": direction, "cause": cause,
+                        "business_date": when.isoformat(), "amount": amount, "description": desc})
+            if nequi and first + timedelta(days=5) <= today:
+                self.attempt("saldo Nequi", a.post, f"/admin/bank/anchors?store_id={sid}", {
+                    "account_id": nequi["id"], "balance_date": (first - timedelta(days=1)).isoformat(),
+                    "balance": 850_000, "note": "Saldo de la app"})
+                self.attempt("traslado a Nequi", a.post, f"/admin/bank/movements?store_id={sid}", {
+                    "account_id": main["id"], "direction": "out", "cause": "account_transfer",
+                    "business_date": (first + timedelta(days=5)).isoformat(), "amount": 500_000,
+                    "description": "Fondo para pagos menores", "counter_account_id": nequi["id"]})
+
+        a.step = "nómina agendada y pagada"
+        for run in self.attempt("liquidaciones", a.get, f"/admin/obligations/payroll-runs?store_id={sid}") or []:
+            if run.get("scheduled_obligation_id") or not run.get("amount"):
+                continue
+            ob = self.attempt("agendar nómina", a.post, f"/admin/obligations/payroll/schedule?store_id={sid}",
+                              {"payroll_run_id": run["payroll_run_id"]})
+            if ob and main and date.fromisoformat(run["date_to"]) < today:
+                self.attempt("pagar nómina", a.post, f"/admin/obligations/{ob['obligation']['id']}/payments", {
+                    "amount": int(run["amount"]), "paid_on": run["date_to"], "source": "bank",
+                    "note": "Transferencia de nómina"})
+
+        a.step = "obligaciones recurrentes"
+        for cat, desc, amount, every, day_of in (
+            ("utilities", "Internet y telefonía", 189_900, 1, 12),
+            ("other", "Honorarios del contador", 650_000, 1, 10),
+            ("other", "Software y datáfono", 120_000, 1, 3),
+            ("other", "Fumigación", 280_000, 2, 20),
+        ):
+            self.attempt(f"plantilla {desc}", a.post, f"/admin/obligation-templates?store_id={sid}", {
+                "category": cat, "description": desc, "amount": amount, "interval_months": every,
+                "due_day": day_of, "start_month": month.isoformat()})
+        nxt = (month + timedelta(days=32)).replace(day=1)
+        for m in (month, nxt):
+            self.attempt(f"armar el mes {m:%Y-%m}", a.post, f"/admin/obligations/generate-month?store_id={sid}",
+                         {"year": m.year, "month": m.month})
+        for ob in self.attempt("obligaciones", a.get, f"/admin/obligations?store_id={sid}") or []:
+            if ob.get("description") == "Honorarios del contador" and ob.get("due_date", "") < nxt.isoformat():
+                self.attempt("abono al contador", a.post, f"/admin/obligations/{ob['id']}/payments", {
+                    "amount": 300_000, "paid_on": today.isoformat(), "source": "bank",
+                    "note": "Primer abono"})
+
+        a.step = "presupuesto"
+        for m in ((month - timedelta(days=1)).replace(day=1), month):
+            for line, amount in (("net_sales", 85_000_000), ("cost", 29_000_000), ("payroll", 14_500_000),
+                                 ("obligations", 9_800_000), ("expenses", 2_000_000)):
+                self.attempt(f"presupuesto {line}", a.put, f"/admin/profit/budget?store_id={sid}",
+                             {"year": m.year, "month": m.month, "line": line, "amount": amount})
+
+        a.step = "órdenes de compra"
+        made = 0
+        for supplier_id in list(self.suppliers.values())[:3]:
+            po = self.attempt("orden desde la reposición", a.post,
+                              f"/admin/purchase-orders/from-replenishment?store_id={sid}", {"supplier_id": supplier_id})
+            if po:
+                made += 1
+                if made == 1:
+                    self.attempt("enviar orden", a.post, f"/admin/purchase-orders/{po['id']}/send?store_id={sid}", {})
+        if not made:
+            ing = next(iter(self.ingredients.values()), None)
+            if ing and ing.get("supplier_id"):
+                self.attempt("orden a mano", a.post, f"/admin/purchase-orders?store_id={sid}", {
+                    "supplier_id": ing["supplier_id"], "notes": "Pedido de la semana",
+                    "lines": [{"ingredient_id": ing["id"], "quantity": "2"}]})
+
+        a.step = "devolución al proveedor"
+        receptions: Any = self.attempt("recepciones", a.get, f"/admin/receptions?store_id={sid}") or []
+        rows: list[dict[str, Any]] = receptions if isinstance(receptions, list) else receptions.get("items", [])
+        for rec in sorted(rows, key=lambda r: int(r.get("id", 0)), reverse=True)[:5]:
+            detail = self.attempt("recepción", a.get, f"/admin/receptions/{rec['id']}?store_id={sid}") or {}
+            rline: Any = next((ln for ln in detail.get("lines", []) if float(ln.get("qty_received") or 0) >= 10), None)
+            if rline:
+                qty = f"{max(1, int(float(rline['qty_received']) * 0.1))}"
+                if self.attempt("devolver al proveedor", a.post, f"/admin/receptions/{rec['id']}/returns?store_id={sid}", {
+                        "reception_line_id": rline["id"], "qty": qty,
+                        "reason": "Llegó en mal estado", "authorizer_pin": ADMIN_PIN}):
+                    self.report.counts["devoluciones al proveedor"] += 1
+                    break
 
     def restock_initial(self, day: date) -> None:
         self.restock(day, everyone=True)
@@ -1283,7 +1449,10 @@ def main() -> None:
     try:
         demo.run()
     except Exception as exc:  # el informe se imprime igual: es lo que importa
-        demo.issues.append(f"El simulador se detuvo: {exc!r}")
+        import traceback
+
+        where = traceback.extract_tb(exc.__traceback__)[-1]
+        demo.issues.append(f"El simulador se detuvo: {exc!r} (en {where.filename}:{where.lineno}, {where.line})")
     finally:
         clock.set_clock(None)
 
