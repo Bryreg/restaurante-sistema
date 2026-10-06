@@ -602,8 +602,9 @@ export type AccountantMethodGroup = "cash" | "card" | "transfer" | "other"
 /**
  * Una fila del informe del contador, por día operativo. Todo lo manda el
  * servidor ya calculado (`app/reports/accountant.py`): acá no se suma, no se
- * resta ni se promedia nada. `avg_ticket` es `null` si el día no tuvo
- * facturas.
+ * resta ni se promedia nada. `avg_ticket` es el mismo de «Hoy»: venta neta
+ * sin impuesto ni propina ÷ comandas (`orders_count`), no `total` ÷
+ * facturas; `null` si el día no tuvo facturas.
  */
 export interface AccountantDayOut {
   business_date: string
@@ -614,6 +615,8 @@ export interface AccountantDayOut {
   total: number
   cumulative: number
   documents_count: number
+  /** Comandas distintas con factura: el divisor del ticket promedio. Ausente en un backend viejo. */
+  orders_count?: number
   avg_ticket: number | null
   base: number
   tax: number
@@ -647,6 +650,8 @@ export interface AccountantSummaryOut {
   transfer: number
   other: number
   documents_count: number
+  /** Comandas distintas con factura en el período: el divisor del ticket promedio. */
+  orders_count?: number
   days_with_sales: number
   days_in_period: number
   avg_daily_with_sales: number | null
@@ -996,9 +1001,10 @@ export interface PeakHoursSeriesOut {
 }
 
 /**
- * El grupo de un plato en el «Mix de platos», decidido por el servidor contra
- * los promedios: `keep` venden y dejan, `promote` dejan pero venden poco,
- * `reprice` venden pero dejan poco, `review` venden poco y dejan poco.
+ * El grupo de un plato en el «Mix de platos»: es el cuadrante de la
+ * ingeniería de menú con otro nombre (lo decide el servidor, la misma matriz
+ * de Analítica): `keep` = estrella, `promote` = enigma, `reprice` = caballo
+ * de batalla, `review` = perro.
  */
 export type DishMixGroup = "keep" | "promote" | "reprice" | "review"
 
@@ -1006,22 +1012,30 @@ export interface DishMixPointOut {
   key: string
   label: string
   units: number
-  /** Margen bruto sobre la venta neta del plato, en puntos básicos. */
-  margin_bp: number
+  /** Margen de contribución sobre la venta neta con costo, en puntos básicos; `null` sin venta con costo. */
+  margin_bp: number | null
   net: number
   group: DishMixGroup
+  /** El cuadrante de la ingeniería de menú (`star`/`plowhorse`/`puzzle`/`dog`). */
+  classification?: string | null
+  /** Margen de contribución por unidad, en pesos: la cifra contra la que se clasifica (eje y). */
+  margin_per_unit?: number | null
 }
 
 export interface DishMixSeriesOut {
   available: boolean
   reason: string | null
-  /** Promedio simple de unidades de los platos ubicados. */
+  /** La raya de popularidad (regla del 70 %) en unidades. */
   avg_units: number | null
-  /** Promedio simple de margen, en puntos básicos. */
+  /** Ya no parte el gráfico: llega `null` (compatibilidad). */
   avg_margin_bp: number | null
+  /** Margen de contribución promedio por unidad (ponderado), en pesos: la raya del eje y. */
+  avg_margin_per_unit?: number | null
   points: DishMixPointOut[]
-  /** Platos vendidos sin costo: no se pueden ubicar. */
+  /** Platos vendidos sin costo suficiente: no se pueden ubicar. */
   without_cost: number
+  /** Platos con muy pocas unidades para clasificarlos. */
+  insufficient_sample?: number
 }
 
 export interface OverviewSeriesOut {

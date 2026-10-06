@@ -142,9 +142,11 @@ class PeakHoursSeriesOut(BaseModel):
     views: list[PeakHoursViewOut] = []
 
 
-#: El grupo de un plato en el «Mix de platos» (cuadrante contra los
-#: promedios): `keep` venden y dejan, `promote` dejan pero venden poco,
-#: `reprice` venden pero dejan poco, `review` venden poco y dejan poco.
+#: El grupo de un plato en el «Mix de platos». **Es el cuadrante de la
+#: ingeniería de menú con otro nombre** (auditoría u9: antes era otra regla y
+#: un plato podía ser «Estrella» en Analítica y «Revisar» acá):
+#: `keep` = estrella, `promote` = enigma (`puzzle`), `reprice` = caballo de
+#: batalla (`plowhorse`), `review` = perro (`dog`).
 DishMixGroup = Literal["keep", "promote", "reprice", "review"]
 
 
@@ -153,25 +155,42 @@ class DishMixPointOut(BaseModel):
     label: str
     #: Unidades vendidas en el período (eje x).
     units: int
-    #: Margen bruto sobre la venta neta del plato, en puntos básicos (eje y).
-    margin_bp: int
+    #: Margen de contribución sobre la venta neta con costo, en puntos
+    #: básicos (dato de apoyo). `None` sin venta neta con costo.
+    margin_bp: int | None
     net: int
     group: DishMixGroup
+    #: El cuadrante de `app.analytics.service.classify_dish`, tal cual
+    #: (`star`/`plowhorse`/`puzzle`/`dog`). Ausente en respuestas viejas.
+    classification: str | None = None
+    #: Margen de contribución POR UNIDAD, en pesos (eje y): es la cifra
+    #: contra la que se clasifica. `None` en respuestas viejas.
+    margin_per_unit: int | None = None
 
 
 class DishMixSeriesOut(BaseModel):
-    """«¿Qué platos venden y dejan plata?»: unidades contra margen de los
-    platos más vendidos con costo, partidos en cuatro por los promedios
-    (simples) de los dos ejes. Los platos sin costo no se ubican: se cuentan
-    en `without_cost`."""
+    """«¿Qué platos venden y dejan plata?»: la matriz de ingeniería de menú
+    (`app.analytics.hooks.menu_classification`) de los platos clasificados
+    más vendidos. Los umbrales y el grupo de cada plato son los de esa
+    matriz —la pestaña «Ingeniería de menú» y este gráfico no pueden
+    discrepar—. Los platos sin costo suficiente no se ubican
+    (`without_cost`), ni los de muestra chica (`insufficient_sample`).
+
+    `avg_units` es la raya de popularidad expresada en unidades (regla del
+    70 %), y `avg_margin_per_unit` el margen de contribución promedio por
+    unidad (ponderado). `avg_margin_bp` ya no parte el gráfico: viaja
+    `null` (se conserva por compatibilidad)."""
 
     available: bool = True
     reason: str | None = None
     avg_units: int | None = None
     avg_margin_bp: int | None = None
+    avg_margin_per_unit: int | None = None
     points: list[DishMixPointOut] = []
     #: Platos vendidos en el período que no tienen costo (no se pueden ubicar).
     without_cost: int = 0
+    #: Platos con menos unidades que el mínimo para clasificar.
+    insufficient_sample: int = 0
 
 
 class OverviewSeriesOut(BaseModel):

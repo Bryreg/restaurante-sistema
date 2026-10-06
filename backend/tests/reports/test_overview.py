@@ -381,3 +381,9 @@ def test_all_stores_is_the_sum_of_each_store(
     # La ingeniería de menú es por sede: consolidada, «sin dato» con motivo.
     assert everything["menu_engineering"]["available"] is False
     assert "sede" in everything["menu_engineering"]["reason"]
+    # El «Mix de platos» es la misma matriz (auditoría u9): tampoco se arma
+    # sobre varias sedes.
+    from app.reports.series import DISH_MIX_ALL_STORES_REASON
+
+    assert everything["series"]["dish_mix"]["available"] is False
+    assert everything["series"]["dish_mix"]["reason"] == DISH_MIX_ALL_STORES_REASON

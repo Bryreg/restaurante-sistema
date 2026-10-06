@@ -887,7 +887,8 @@ function MixDePlatos({ data }: { data: ReportsOverviewOut }): React.JSX.Element 
   const id = useId()
   const mix = data.series?.dish_mix
   if (!mix) return null
-  if (!mix.available || mix.avg_units === null || mix.avg_margin_bp === null) {
+  const umbralMargen = mix.avg_margin_per_unit ?? null
+  if (!mix.available || mix.avg_units === null || umbralMargen === null) {
     return (
       <Pregunta titulo="Mix de platos">
         <SinDato motivo={mix.reason ?? "No hay platos con costo en el período."} />
@@ -912,18 +913,27 @@ function MixDePlatos({ data }: { data: ReportsOverviewOut }): React.JSX.Element 
           <QuadrantScatter
             variante="mix"
             alto={300}
-            puntos={mix.points.map((pt) => ({
-              key: pt.key,
-              etiqueta: pt.label,
-              x: pt.units,
-              y: pt.margin_bp,
-              detalle: formatPct(pt.margin_bp, 0),
-              alerta: pt.group === "review",
-            }))}
-            umbralX={{ valor: mix.avg_units, etiqueta: `Promedio ${mix.avg_units.toLocaleString("es-CO")} u.` }}
-            umbralY={{ valor: mix.avg_margin_bp, etiqueta: `Promedio ${formatPct(mix.avg_margin_bp, 0)}` }}
+            puntos={mix.points.flatMap((pt) =>
+              pt.margin_per_unit === null || pt.margin_per_unit === undefined
+                ? []
+                : [
+                    {
+                      key: pt.key,
+                      etiqueta: pt.label,
+                      x: pt.units,
+                      y: pt.margin_per_unit,
+                      detalle:
+                        pt.margin_bp === null
+                          ? `${formatCOP(pt.margin_per_unit)} por unidad`
+                          : `${formatCOP(pt.margin_per_unit)} por unidad · ${formatPct(pt.margin_bp, 0)}`,
+                      alerta: pt.group === "review",
+                    },
+                  ],
+            )}
+            umbralX={{ valor: mix.avg_units, etiqueta: `Popular desde ${mix.avg_units.toLocaleString("es-CO")} u.` }}
+            umbralY={{ valor: umbralMargen, etiqueta: `Promedio ${formatCOP(umbralMargen)} por unidad` }}
             ejeX={{ titulo: "Unidades vendidas · más a la derecha vende más →", formato: (v) => v.toLocaleString("es-CO") }}
-            ejeY={{ titulo: "Margen · más arriba deja más ↑", formato: (v) => formatPct(v, 0) }}
+            ejeY={{ titulo: "Margen por unidad · más arriba deja más ↑", formato: (v) => formatCOP(v) }}
             cuadrantes={["Venden y dejan", "Dejan, pero venden poco", "Revisar", "Venden, pero dejan poco"]}
             cuadranteAlerta={2}
           />
@@ -931,6 +941,13 @@ function MixDePlatos({ data }: { data: ReportsOverviewOut }): React.JSX.Element 
             <p className="text-xs text-muted-foreground">
               {mix.without_cost} {mix.without_cost === 1 ? "plato vendido no tiene" : "platos vendidos no tienen"} costo:
               sin costo no hay margen que ubicar. No es 0 %.
+            </p>
+          ) : null}
+          {mix.insufficient_sample ? (
+            <p className="text-xs text-muted-foreground">
+              {mix.insufficient_sample}{" "}
+              {mix.insufficient_sample === 1 ? "plato vendió" : "platos vendieron"} muy poco para clasificarlo con
+              confianza: no se ubica. Los grupos son los mismos de Analítica → Ingeniería de menú.
             </p>
           ) : null}
         </div>

@@ -15,16 +15,26 @@ excepción al cruzar este territorio contra el patrón del resto del repo.
 **Primer consumidor (Informes, sep. 2026):** `app.reports.overview` publica un
 resumen de la ingeniería de menú —cuántos platos en cada cuadrante— y lo lee
 por `menu_class_counts`, que llama a `service.menu_engineering` tal cual.
+
+**Segundo consumidor (auditoría u9):** el «Mix de platos» de Informes
+(`app.reports.series.dish_mix`) partía los platos con otra regla (promedios
+simples de unidades y de margen %, top 12) y un mismo plato podía ser
+«Estrella» acá y «Revisar» allá. Ahora lee `menu_classification`: la misma
+matriz, fila por fila.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
 from app.stores.models import Store
+
+if TYPE_CHECKING:
+    from app.analytics.schemas import MenuEngineeringOut
 
 
 @dataclass(frozen=True)
@@ -61,3 +71,13 @@ def menu_class_counts(db: Session, *, store: Store, date_from: date, date_to: da
         unclassified=counts.unclassified,
         insufficient_sample=counts.insufficient_sample,
     )
+
+
+def menu_classification(db: Session, *, store: Store, date_from: date, date_to: date) -> MenuEngineeringOut:
+    """La matriz completa de `service.menu_engineering` (umbrales y una fila
+    por plato con su `classification`), con los parámetros por defecto: los
+    mismos que usa la pestaña «Ingeniería de menú» sin filtros. Quien
+    necesite el cuadrante de un plato lo lee de acá, no lo recalcula."""
+    from app.analytics import service
+
+    return service.menu_engineering(db, store=store, date_from=date_from, date_to=date_to)

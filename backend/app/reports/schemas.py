@@ -608,7 +608,10 @@ class AccountantDayOut(BaseModel):
     cobrado de la venta, **sin propina**; `tips` va aparte y no es venta.
     `credit_notes` es lo que devolvieron las notas crédito y de ajuste de
     ese día (el documento que corrigen ya no suma: quedó reversado).
-    `avg_ticket` es `null` si el día no tuvo facturas (sólo notas)."""
+    `avg_ticket` es el de «Hoy» (`app.reports.service.average_ticket`):
+    venta neta sin impuesto ni propina ÷ comandas distintas
+    (`orders_count`), no `total` ÷ facturas; `null` si el día no tuvo
+    facturas (sólo notas)."""
 
     business_date: date
     cash: int
@@ -618,6 +621,7 @@ class AccountantDayOut(BaseModel):
     total: int
     cumulative: int
     documents_count: int
+    orders_count: int = 0
     avg_ticket: int | None
     base: int
     tax: int
@@ -649,7 +653,10 @@ class AccountantRateTotalOut(BaseModel):
 class AccountantSummaryOut(BaseModel):
     """Los totales del período («Total del mes» de café-sistema), más lo
     fiscal que el contador necesita. Los promedios son `null` cuando su
-    divisor es cero: sin días con venta no hay promedio, no hay un $0."""
+    divisor es cero: sin días con venta no hay promedio, no hay un $0.
+    `avg_ticket` es el de «Hoy» (`app.reports.service.average_ticket`):
+    venta neta sin impuesto ni propina ÷ `orders_count` (comandas distintas
+    con factura en el período)."""
 
     total: int
     cash: int
@@ -657,6 +664,7 @@ class AccountantSummaryOut(BaseModel):
     transfer: int
     other: int
     documents_count: int
+    orders_count: int = 0
     days_with_sales: int
     days_in_period: int
     avg_daily_with_sales: int | None

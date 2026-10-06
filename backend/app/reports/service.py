@@ -385,6 +385,44 @@ def low_base_orders(db: Session, scope: StoreScope, field: str, default: int) ->
     return max(values) if values else default
 
 
+def average_ticket(net: int, orders: int) -> int | None:
+    """**El ticket promedio del sistema** — la única fórmula (auditoría u9:
+    el informe del contador dividía lo cobrado CON impuesto entre facturas y
+    no coincidía con «Hoy»). La usan «Hoy», «Ventas», «Informes», el cierre
+    de ayer, la comparación contra el período anterior, el informe del
+    contador y la actividad por persona.
+
+    - **Qué venta cuenta** (`net`): la venta NETA de los comprobantes de
+      venta emitidos (`SALE_DOCUMENT_TYPES`, `status="issued"`): `total −
+      tax_total` de cada uno, es decir **sin impuesto (INC/IVA) y sin
+      propina** (la propina nunca entra en `total`, Ley 1935 de 2018). Lo
+      anulado no está: el ítem anulado no llega al comprobante y el
+      comprobante que una nota corrige queda `reversed` y deja de sumar; las
+      notas no se netean acá. Una cortesía suma lo que se cobró de ella
+      (normalmente $0) y su comanda cuenta si tuvo comprobante.
+    - **Entre qué** (`orders`): las COMANDAS distintas con al menos un
+      comprobante de venta en el período (`len({doc.order_id})`): una cuenta
+      dividida en varias facturas es un solo ticket. No son pagos ni
+      documentos.
+    - Redondeo half-up a peso entero (`money.round_half_up`). `None` sin
+      comandas o con neto negativo: sin divisor no hay promedio, nunca $0.
+
+    `ticket_basis` arma `(net, orders)` desde los comprobantes; quien ya
+    los tiene acumulados (`aggregate_sales`) llama directo a esta función.
+    """
+    if orders <= 0 or net < 0:
+        return None
+    return money.round_half_up(net, orders)
+
+
+def ticket_basis(documents: Sequence[FiscalDocument]) -> tuple[int, int]:
+    """`(venta neta, comandas distintas)` de unos comprobantes de venta: los
+    dos lados de `average_ticket`. Los comprobantes son los de
+    `_sale_documents` (emitidos, no reversados)."""
+    net = sum(int(d.total) - int(d.tax_total) for d in documents)
+    return net, len({d.order_id for d in documents})
+
+
 def _delta_bp(current: int | None, previous: int | None) -> int | None:
     """Variación de `current` contra `previous`, en puntos básicos con signo.
     `None` sin valor anterior o con anterior `<= 0`: sin divisor no hay
@@ -607,9 +645,7 @@ def aggregate_sales(
         # En una fila por medio, `orders` cuenta pagos (científico #10): el
         # ticket promedio es por pago, no por una comanda contada dos veces.
         count_for_ticket = bucket.payments if method_row else orders_count
-        avg_ticket = (
-            money.round_half_up(net, count_for_ticket) if count_for_ticket > 0 and net >= 0 and not (by_line and not is_total) else None
-        )
+        avg_ticket = None if (by_line and not is_total) else average_ticket(net, count_for_ticket)
         # Científico #1: el ticket por comensal divide el neto de las
         # comandas QUE TIENEN comensales por esos comensales — antes dividía
         # el neto de TODAS (mostrador y domicilio incluidos) y lo inflaba.
@@ -1635,7 +1671,7 @@ def today_report(db: Session, *, store: Store) -> TodayOut:
     net = gross - tax
     covers_sum = sum(c for oid in order_ids if (c := covers_map.get(oid)) is not None)
     orders_count = len(order_ids)
-    avg_ticket = money.round_half_up(net, orders_count) if orders_count > 0 else None
+    avg_ticket = average_ticket(net, orders_count)
     # Científico #1: neto de las comandas CON comensales ÷ esos comensales
     # (mismo arreglo que `aggregate_sales`); antes el numerador era el neto
     # de todas las comandas, mostrador y domicilio incluidos.

@@ -17,6 +17,12 @@ from sqlalchemy.orm import Session
 
 from app.reports import service
 
+#: Los comprobantes que son venta (no notas) y el ticket promedio: una sola
+#: definición, publicada para `app.shifts.activity_metrics` (auditoría u9).
+SALE_DOCUMENT_TYPES = service.SALE_DOCUMENT_TYPES
+average_ticket = service.average_ticket
+ticket_basis = service.ticket_basis
+
 
 @dataclass(frozen=True)
 class PeriodSales:

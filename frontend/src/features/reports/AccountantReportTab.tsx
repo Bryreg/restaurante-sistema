@@ -680,7 +680,11 @@ function Contenido({
         <Kpi
           label="Ticket promedio"
           value={formatCOP(s.avg_ticket)}
-          sub={`${s.documents_count} facturas`}
+          sub={
+            s.orders_count === undefined
+              ? `${s.documents_count} facturas`
+              : `sin impuesto ni propina · ${s.orders_count} ${s.orders_count === 1 ? "comanda" : "comandas"}`
+          }
           icon={Receipt}
           delta={cmp.avg_ticket}
           contra={contra}

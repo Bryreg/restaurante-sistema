@@ -145,12 +145,32 @@ function series(over: Partial<OverviewSeriesOut> = {}): OverviewSeriesOut {
       available: true,
       reason: null,
       avg_units: 44,
-      avg_margin_bp: 6_950,
+      avg_margin_bp: null,
+      avg_margin_per_unit: 9_000,
       points: [
-        { key: "2", label: "Limonada", units: 60, margin_bp: 8_100, net: 300_000, group: "keep" },
-        { key: "1", label: "Bandeja Paisa", units: 28, margin_bp: 5_800, net: 700_000, group: "review" },
+        {
+          key: "2",
+          label: "Limonada",
+          units: 60,
+          margin_bp: 8_100,
+          net: 300_000,
+          group: "keep",
+          classification: "star",
+          margin_per_unit: 12_000,
+        },
+        {
+          key: "1",
+          label: "Bandeja Paisa",
+          units: 28,
+          margin_bp: 5_800,
+          net: 700_000,
+          group: "review",
+          classification: "dog",
+          margin_per_unit: 6_000,
+        },
       ],
       without_cost: 1,
+      insufficient_sample: 2,
     },
     ...over,
   }
@@ -316,6 +336,9 @@ describe("InformesPage", () => {
     expect(within(mix).getByText("Limonada. Cuidarlos: que nunca falten.")).toBeInTheDocument()
     expect(within(mix).getByText("Bandeja Paisa. Venden poco y dejan poco.")).toBeInTheDocument()
     expect(within(mix).getByText(/1 plato vendido no tiene costo/)).toBeInTheDocument()
+    // La raya del margen es la de la ingeniería de menú: por unidad, en pesos.
+    expect(within(mix).getAllByText(/Promedio \$\s9\.000 por unidad/).length).toBeGreaterThan(0)
+    expect(within(mix).getByText(/2 platos vendieron muy poco/)).toBeInTheDocument()
 
     // Horas pico: franja pasada y la fila de meseros.
     const pico = screen.getByRole("region", { name: "Comandas de salón por hora, promedio del período" })

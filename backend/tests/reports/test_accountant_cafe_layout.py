@@ -79,7 +79,10 @@ def test_per_day_split_by_method_totals_and_averages(
     assert first["total"] == 50_000
     assert first["cumulative"] == 50_000
     assert first["documents_count"] == 2
-    assert first["avg_ticket"] == 25_000
+    # Ticket promedio = el de «Hoy» (`service.average_ticket`): venta neta
+    # sin impuesto ni propina ÷ comandas. $25.000 con INC 8 % → 23.148.
+    assert first["orders_count"] == 2
+    assert first["avg_ticket"] == 23_148
     # Lo fiscal que café no tenía: base + impuesto reproducen la venta, y la
     # propina va aparte (no suma al total).
     assert first["base"] + first["tax"] == 50_000
@@ -96,7 +99,8 @@ def test_per_day_split_by_method_totals_and_averages(
     assert s["days_in_period"] == 31  # mes cerrado: todos sus días
     assert s["avg_daily_with_sales"] == 37_500
     assert s["avg_daily_calendar"] == 2_419  # 75.000 / 31, half-up
-    assert s["avg_ticket"] == 25_000
+    assert s["orders_count"] == 3
+    assert s["avg_ticket"] == 23_148  # 69.444 ÷ 3
     assert s["tips"] == 2_000
     shares = {m["method"]: m["share_bp"] for m in s["shares"]}
     assert shares == {"cash": 6_667, "card": 3_333, "transfer": 0, "other": 0}
@@ -127,7 +131,7 @@ def test_current_month_divides_by_elapsed_days_and_deltas_are_server_side(
     assert cmp["previous_year"] == 2026 and cmp["previous_period"] == 2
     assert cmp["previous_label"] == "Febrero 2026"
     assert cmp["total"] == {"previous": 25_000, "pct": 200}
-    assert cmp["avg_ticket"] == {"previous": 25_000, "pct": 0}
+    assert cmp["avg_ticket"] == {"previous": 23_148, "pct": 0}
     assert cmp["avg_daily_with_sales"] == {"previous": 25_000, "pct": 50}
 
     # Febrero contra enero (sin ventas): el delta es `null`, no «+100 %».
@@ -298,7 +302,7 @@ def test_csv_is_semicolon_bom_spanish_headers_and_total_row(
         "Facturas;Ticket Promedio;Base;Impuesto;Notas credito;Propinas"
     )
     first = lines[1].split(";")
-    assert first[:9] == ["2026-03-03", "25000", "25000", "0", "0", "50000", "50000", "2", "25000"]
+    assert first[:9] == ["2026-03-03", "25000", "25000", "0", "0", "50000", "50000", "2", "23148"]
     assert first[12] == "2000"
     total = lines[-1].split(";")
     assert total[0] == "TOTAL"

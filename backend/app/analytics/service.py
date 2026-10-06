@@ -164,6 +164,35 @@ class _ProductAgg:
     has_cost: bool = False
 
 
+def classify_dish(*, popular: bool, profitable: bool) -> tuple[MenuClassLiteral, str]:
+    """El cuadrante de un plato: **la única clasificación de platos del
+    sistema** (auditoría u9). La usan la pestaña «Ingeniería de menú»
+    (`GET /admin/menu-engineering`), el resumen de Informes
+    (`app.reports.overview._menu_summary`) y el «Mix de platos» de Informes
+    (`app.reports.series.dish_mix`, que publica estos mismos cuadrantes con
+    otro nombre). Ninguna otra pantalla parte platos en cuadrantes.
+
+    Definición (Kasavana–Smith, la decide `menu_engineering`):
+
+    - `popular`: la participación del plato en las unidades vendidas es al
+      menos el 70 % de la participación pareja (`0,7 ÷ n` platos de la
+      matriz, sin cargos ni comida de personal).
+    - `profitable`: su margen de contribución POR UNIDAD (venta neta sin
+      impuesto ni propina menos el costo congelado al vender) es al menos el
+      promedio por unidad ponderado de los platos con costo suficiente.
+
+    Sólo se clasifica un plato con al menos `min_units` unidades y con
+    costo congelado en al menos `FOOD_COST_MIN_COSTED_BP` de ellas; el resto
+    es «muestra chica» (`None`) o `"unclassified"`, nunca un cuadrante."""
+    if popular and profitable:
+        return "star", "alta popularidad y margen sobre el promedio"
+    if popular:
+        return "plowhorse", "alta popularidad, margen bajo el promedio"
+    if profitable:
+        return "puzzle", "baja popularidad, margen sobre el promedio"
+    return "dog", "baja popularidad y margen bajo el promedio"
+
+
 def _empty_menu(
     store: Store, date_from: date, date_to: date, reason: str, *, category_id: int | None, min_units: int, excluded: int = 0
 ) -> MenuEngineeringOut:
@@ -344,14 +373,7 @@ def menu_engineering(
             # dividir (evita comparar dos cifras ya redondeadas):
             # margin/qty_costed >= total/qty_total  <=>  margin*qty_total >= total*qty_costed.
             profitable = contribution_margin * costed_qty_total >= costed_margin_total * row.qty_costed
-            if popular and profitable:
-                classification, reason = "star", "alta popularidad y margen sobre el promedio"
-            elif popular and not profitable:
-                classification, reason = "plowhorse", "alta popularidad, margen bajo el promedio"
-            elif not popular and profitable:
-                classification, reason = "puzzle", "baja popularidad, margen sobre el promedio"
-            else:
-                classification, reason = "dog", "baja popularidad y margen bajo el promedio"
+            classification, reason = classify_dish(popular=popular, profitable=profitable)
         if classification is not None:
             setattr(counts, classification, getattr(counts, classification) + 1)
 

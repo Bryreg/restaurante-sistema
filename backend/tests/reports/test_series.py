@@ -381,65 +381,22 @@ def test_stores_week_only_with_all_stores(
     assert point["margin_bp"] is None
 
 
-def _bucket(key: str, units: int, net: int, margin: int | None) -> Any:
-    return schemas.SalesBucketOut(
-        key=key,
-        label=f"Plato {key}",
-        gross=net,
-        net=net,
-        tax=0,
-        tips=None,
-        orders=units,
-        covers=None,
-        avg_ticket=None,
-        avg_per_cover=None,
-        theoretical_cost=None if margin is None else net - margin,
-        units=units,
-        gross_margin=margin,
-        costed_pct=100 if margin is not None else None,
-    )
-
-
-def test_dish_mix_splits_by_simple_averages_and_leaves_uncosted_out() -> None:
-    """El grupo de cada plato lo decide el servidor contra los promedios
-    simples de unidades y de margen de los platos ubicados; un plato sin
-    costo no se ubica (nunca un margen de 100 % inventado)."""
+def test_dish_mix_without_sales_says_why(
+    admin_client: TestClient, store: Any, clock: Any
+) -> None:
+    """Sin ventas el mix dice por qué (con «Todas las sedes», ver
+    `test_overview.test_all_stores_is_the_sum_of_each_store`)."""
     from app.reports import series
 
-    rows = [
-        _bucket("1", units=40, net=100_000, margin=80_000),  # vende y deja (80 %)
-        _bucket("2", units=10, net=100_000, margin=90_000),  # deja, vende poco (90 %)
-        _bucket("3", units=50, net=100_000, margin=40_000),  # vende, deja poco (40 %)
-        _bucket("4", units=4, net=100_000, margin=30_000),  # revisar (30 %)
-        _bucket("5", units=99, net=100_000, margin=None),  # sin costo
-    ]
-    mix = series.dish_mix(rows)
-    assert mix.available is True
-    assert mix.without_cost == 1
-    # (40 + 10 + 50 + 4) / 4 = 26; (8000 + 9000 + 4000 + 3000) / 4 = 6000.
-    assert mix.avg_units == 26
-    assert mix.avg_margin_bp == 6_000
-    groups = {p.key: p.group for p in mix.points}
-    assert groups == {"1": "keep", "2": "promote", "3": "reprice", "4": "review"}
-    # El más vendido primero; el margen viaja en puntos básicos.
-    assert [p.key for p in mix.points] == ["3", "1", "2", "4"]
-    assert next(p for p in mix.points if p.key == "4").margin_bp == 3_000
+    clock.set(datetime(2026, 9, 19, 18, 0, tzinfo=timezone.utc))
+    today = tz.today_business_date(store.cutoff_hour)
+    mix = _overview(admin_client, store.id, today)["series"]["dish_mix"]
+    assert mix["available"] is False
+    assert mix["reason"] == series.DISH_MIX_NO_SALES_REASON
+    assert mix["points"] == []
 
 
-def test_dish_mix_without_cost_or_sales_says_why() -> None:
-    from app.reports import series
-
-    none_costed = series.dish_mix([_bucket("1", units=3, net=10_000, margin=None)])
-    assert none_costed.available is False
-    assert none_costed.reason == series.DISH_MIX_NO_COST_REASON
-    assert none_costed.points == []
-    assert none_costed.without_cost == 1
-    nothing = series.dish_mix([])
-    assert nothing.available is False
-    assert nothing.reason == series.DISH_MIX_NO_SALES_REASON
-
-
-def test_dish_mix_travels_in_the_overview_with_the_same_margin_as_the_category(
+def test_dish_mix_is_the_menu_engineering_matrix(
     admin_client: TestClient,
     open_shift: Any,
     sell: Any,
@@ -449,6 +406,13 @@ def test_dish_mix_travels_in_the_overview_with_the_same_margin_as_the_category(
     set_recipe: Any,
     ingredient_seeded: Any,
 ) -> None:
+    """Auditoría u9: el «Mix de platos» ya no parte con su propia regla.
+    Un plato con menos unidades que el mínimo de la ingeniería de menú no se
+    ubica (muestra chica), y uno que sí lo alcanza lleva el cuadrante de la
+    matriz: un solo plato es su propio promedio, «estrella» → `keep`."""
+    from app.analytics.service import MENU_MIN_UNITS_DEFAULT
+    from app.reports import series
+
     clock.set(datetime(2026, 9, 19, 18, 0, tzinfo=timezone.utc))
     set_recipe(
         main_product.id,
@@ -457,20 +421,26 @@ def test_dish_mix_travels_in_the_overview_with_the_same_margin_as_the_category(
     open_shift()
     sell(main_product, qty=2)
     today = tz.today_business_date(store.cutoff_hour)
+    mix = _overview(admin_client, store.id, today)["series"]["dish_mix"]
+    assert mix["available"] is False
+    assert mix["reason"] == series.DISH_MIX_SMALL_SAMPLE_REASON
+    assert mix["insufficient_sample"] == 1
+
+    sell(main_product, qty=MENU_MIN_UNITS_DEFAULT)
     body = _overview(admin_client, store.id, today)
     mix = body["series"]["dish_mix"]
     [point] = mix["points"]
-    [cat] = body["series"]["category_margin"]["points"]
     assert point["key"] == str(main_product.id)
-    assert point["units"] == 2
-    # Un solo plato en su categoría: el mismo margen que la fila de la categoría.
-    assert point["margin_bp"] == cat["value"]
-    # Un solo plato es su propio promedio: vende y deja.
-    assert point["group"] == "keep"
-    assert (mix["avg_units"], mix["avg_margin_bp"]) == (2, point["margin_bp"])
-    # Con todas las sedes, la sede lleva su margen: el mismo del período.
-    [store_point] = _overview(admin_client, "all", today)["series"]["stores_week"]["points"]
-    assert store_point["margin_bp"] == body["series"]["category_margin"]["total_bp"]
+    assert point["units"] == 2 + MENU_MIN_UNITS_DEFAULT
+    assert (point["classification"], point["group"]) == ("star", "keep")
+    assert mix["avg_margin_per_unit"] == point["margin_per_unit"]
+    # Un solo plato: toda la popularidad es suya (raya del 70 % en unidades).
+    assert mix["avg_units"] == 15  # 7.000 bp × 22 u.
+    # Con «Todas las sedes» de una organización de una sola sede, la matriz
+    # es la de esa sede.
+    all_body = _overview(admin_client, "all", today)
+    assert all_body["store_ids"] == [store.id]
+    assert all_body["series"]["dish_mix"]["points"] == mix["points"]
 
 
 def test_peak_hours_are_dine_in_orders_against_waiters_on_shift(

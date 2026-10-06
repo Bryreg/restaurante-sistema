@@ -92,15 +92,23 @@ def employee_sales_metrics(
     orders = list(db.execute(orders_stmt).scalars())
     order_ids = [o.id for o in orders]
 
+    # El ticket promedio es el del resto del sistema
+    # (`app.reports.hooks.average_ticket`, auditoría u9): venta neta de los
+    # comprobantes de VENTA emitidos (sin impuesto ni propina; las notas no
+    # suman acá) ÷ comandas distintas con comprobante, half-up — antes
+    # sumaba cualquier documento emitido y truncaba.
+    reports_hooks = importlib.import_module("app.reports.hooks")
     sales_net = 0
+    ticket_orders = 0
     if order_ids:
-        doc_stmt = select(FiscalDocument.total, FiscalDocument.tax_total).where(
-            FiscalDocument.order_id.in_(order_ids), FiscalDocument.status == "issued"
+        doc_stmt = select(FiscalDocument).where(
+            FiscalDocument.order_id.in_(order_ids),
+            FiscalDocument.status == "issued",
+            FiscalDocument.document_type.in_(reports_hooks.SALE_DOCUMENT_TYPES),
         )
-        for total, tax_total in db.execute(doc_stmt).all():
-            sales_net += int(total) - int(tax_total)
+        sales_net, ticket_orders = reports_hooks.ticket_basis(list(db.execute(doc_stmt).scalars()))
     orders_count = len(orders)
-    avg_ticket = sales_net // orders_count if orders_count else None
+    avg_ticket = reports_hooks.average_ticket(sales_net, ticket_orders)
 
     # -- Anulaciones de ítem que esta persona ejecutó ---------------------
     void_stmt = (

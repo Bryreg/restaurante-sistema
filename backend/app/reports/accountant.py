@@ -16,6 +16,11 @@ sin float); la interfaz sólo pinta. `null` no es 0: un promedio sin divisor,
 un delta contra un período en cero o una meta que no existe viajan como
 `null`.
 
+**El ticket promedio no es de este módulo**: es `service.average_ticket`
+(venta neta sin impuesto ni propina ÷ comandas distintas), el mismo de «Hoy»
+y «Ventas» (auditoría u9: antes era lo cobrado con impuesto ÷ facturas y no
+cuadraba con «Hoy»). «Facturas» sigue siendo su propia columna.
+
 Lee los mismos documentos que «Ventas» (`service._sale_documents`: emitidos,
 no reversados) — el documento que una nota corrige queda `reversed` y deja de
 sumar; la nota se lista aparte en «Notas crédito».
@@ -150,6 +155,10 @@ def delta_pct(current: int | None, previous: int | None) -> int | None:
 class _Day:
     methods: dict[str, int] = field(default_factory=lambda: {g: 0 for g in METHOD_GROUPS})
     documents: int = 0
+    #: Venta neta (sin impuesto ni propina) y comandas distintas: los dos
+    #: lados del ticket promedio (`service.average_ticket`).
+    net: int = 0
+    order_ids: set[int] = field(default_factory=set)
     base: int = 0
     tax: int = 0
     credit_notes: int = 0
@@ -204,6 +213,8 @@ def _compute(
     for doc in sale_docs:
         day = per_day[doc.business_date]
         day.documents += 1
+        day.net += int(doc.total) - int(doc.tax_total)
+        day.order_ids.add(doc.order_id)
         day.tips += int(doc.tip_amount or 0)
         for split in doc.payments_snapshot or []:
             day.methods[method_group(split)] += int(split.get("amount", 0))
@@ -233,7 +244,8 @@ def _compute(
                 total=total,
                 cumulative=cumulative,
                 documents_count=d.documents,
-                avg_ticket=_avg(total, d.documents),
+                orders_count=len(d.order_ids),
+                avg_ticket=service.average_ticket(d.net, len(d.order_ids)),
                 base=d.base,
                 tax=d.tax,
                 credit_notes=d.credit_notes,
@@ -244,6 +256,10 @@ def _compute(
     totals = {g: sum(getattr(d, g) for d in days) for g in METHOD_GROUPS}
     grand_total = sum(totals.values())
     documents = sum(d.documents_count for d in days)
+    # El ticket promedio es el de «Hoy» y «Ventas» (`service.average_ticket`):
+    # venta neta sin impuesto ni propina ÷ comandas distintas — no lo cobrado
+    # con impuesto ÷ facturas (auditoría u9).
+    period_net, period_orders = service.ticket_basis(sale_docs)
     selling_days = [d for d in days if d.documents_count > 0]
     days_in_period = _days_in_period(date_from, date_to, today)
     best = max(selling_days, key=lambda d: d.total) if selling_days else None
@@ -256,11 +272,12 @@ def _compute(
         transfer=totals["transfer"],
         other=totals["other"],
         documents_count=documents,
+        orders_count=period_orders,
         days_with_sales=len(selling_days),
         days_in_period=days_in_period,
         avg_daily_with_sales=_avg(grand_total, len(selling_days)),
         avg_daily_calendar=_avg(grand_total, days_in_period),
-        avg_ticket=_avg(grand_total, documents),
+        avg_ticket=service.average_ticket(period_net, period_orders),
         base=sum(d.base for d in days),
         tax=sum(d.tax for d in days),
         credit_notes=sum(d.credit_notes for d in days),

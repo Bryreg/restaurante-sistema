@@ -30,6 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import clock, features, tz
+from app.core.modules import find_spec_safe
 from app.core.quantity import format_qty_base
 from app.orders import money
 from app.orders.models import Order, OrderChannel, OrderStatus
@@ -458,65 +459,90 @@ def peak_hours(
     return PeakHoursSeriesOut(orders_per_waiter=common_opw, views=views)
 
 
-#: Cuántos platos entran al «Mix de platos» (los de más unidades con costo).
+#: Cuántos platos entran al «Mix de platos» (los clasificados de más unidades).
 DISH_MIX_MAX = 12
 DISH_MIX_NO_COST_REASON = (
     "Ningún plato vendido en el período tiene costo: sin costo no hay margen que ubicar."
 )
 DISH_MIX_NO_SALES_REASON = "No se vendió ningún plato en el período."
+DISH_MIX_SMALL_SAMPLE_REASON = (
+    "Ningún plato vendió lo suficiente en el período para clasificarlo con confianza."
+)
+DISH_MIX_ALL_STORES_REASON = (
+    "El mix de platos se calcula sede por sede (los umbrales dependen de la carta de cada una): "
+    "elegí una sede para verlo."
+)
+
+#: El cuadrante de la ingeniería de menú → el grupo del «Mix de platos».
+_GROUP_BY_CLASS: dict[str, DishMixGroup] = {
+    "star": "keep",
+    "puzzle": "promote",
+    "plowhorse": "reprice",
+    "dog": "review",
+}
 
 
-def _signed_half_up(numerator: int, denominator: int) -> int:
-    """`numerator / denominator` entero, half-up sobre el valor absoluto y
-    con el signo del numerador (un margen promedio puede ser negativo)."""
-    magnitude = money.round_half_up(abs(numerator), denominator)
-    return magnitude if numerator >= 0 else -magnitude
-
-
-def dish_mix(product_rows: list[SalesBucketOut]) -> DishMixSeriesOut:
-    """Unidades contra margen de los platos más vendidos con costo. Los
-    promedios que parten los cuadrantes son simples (un plato, un voto),
-    y el grupo de cada plato lo decide acá el servidor: la pantalla no
-    compara contra el promedio."""
-    sold = [r for r in product_rows if (r.units or 0) > 0]
-    if not sold:
-        return DishMixSeriesOut(available=False, reason=DISH_MIX_NO_SALES_REASON)
-    with_margin = [(r, _margin_bp(r)) for r in sold]
-    costed = [(r, m) for r, m in with_margin if m is not None]
-    without_cost = len(sold) - len(costed)
-    if not costed:
+def dish_mix(
+    db: Session, *, stores: list[Store], all_stores: bool, date_from: date, date_to: date
+) -> DishMixSeriesOut:
+    """Unidades contra margen por unidad de los platos más vendidos, con
+    **la clasificación de la ingeniería de menú** (auditoría u9). Antes este
+    gráfico partía los platos con su propia regla (promedios simples de
+    unidades y de margen %, top 12) y un mismo plato podía ser «Estrella» en
+    Analítica y «▲ Revisar» acá. Ahora no decide nada: lee la matriz de
+    `app.analytics.hooks.menu_classification` —umbrales, cuadrante de cada
+    plato y la exclusión de cargos, comida de personal y muestra chica— y
+    sólo la lleva a la forma del gráfico."""
+    if all_stores and len(stores) != 1:
+        return DishMixSeriesOut(available=False, reason=DISH_MIX_ALL_STORES_REASON)
+    if find_spec_safe("app.analytics.hooks") is None:
         return DishMixSeriesOut(
-            available=False, reason=DISH_MIX_NO_COST_REASON, without_cost=without_cost
+            available=False, reason="La ingeniería de menú no está instalada en este sistema."
         )
-    costed.sort(key=lambda rm: (-(rm[0].units or 0), -rm[0].net, rm[0].label or rm[0].key))
-    top = costed[:DISH_MIX_MAX]
-    n = len(top)
-    avg_units = money.round_half_up(sum(r.units or 0 for r, _ in top), n)
-    avg_margin = _signed_half_up(sum(m for _, m in top if m is not None), n)
-    points: list[DishMixPointOut] = []
-    for r, m in top:
-        assert m is not None
-        units = r.units or 0
-        sells = units >= avg_units
-        earns = m >= avg_margin
-        group: DishMixGroup = (
-            "keep" if sells and earns else "promote" if earns else "reprice" if sells else "review"
+    from app.analytics import hooks as analytics_hooks
+
+    matrix = analytics_hooks.menu_classification(
+        db, store=stores[0], date_from=date_from, date_to=date_to
+    )
+    if not matrix.available or not matrix.rows:
+        return DishMixSeriesOut(available=False, reason=DISH_MIX_NO_SALES_REASON)
+    without_cost = sum(1 for r in matrix.rows if r.classification == "unclassified")
+    small = sum(1 for r in matrix.rows if r.insufficient_sample)
+    classified = [r for r in matrix.rows if r.classification in _GROUP_BY_CLASS]
+    if not classified or matrix.avg_contribution_margin_per_unit is None:
+        no_cost = without_cost > 0 and (small == 0 or matrix.avg_contribution_margin_per_unit is None)
+        return DishMixSeriesOut(
+            available=False,
+            reason=DISH_MIX_NO_COST_REASON if no_cost else DISH_MIX_SMALL_SAMPLE_REASON,
+            without_cost=without_cost,
+            insufficient_sample=small,
         )
-        points.append(
-            DishMixPointOut(
-                key=r.key,
-                label=r.label or r.key,
-                units=units,
-                margin_bp=m,
-                net=r.net,
-                group=group,
-            )
+    # La raya de popularidad (regla del 70 %) llevada a unidades: la
+    # participación mínima por las unidades de toda la matriz.
+    total_units = sum(r.qty_sold for r in matrix.rows)
+    threshold_bp = matrix.popularity_threshold_bp or 0
+    units_line = money.round_half_up(threshold_bp * total_units, 10_000)
+    top = sorted(classified, key=lambda r: (-r.qty_sold, -r.revenue_net, r.product_name))[:DISH_MIX_MAX]
+    points = [
+        DishMixPointOut(
+            key=str(r.product_id),
+            label=r.product_name,
+            units=r.qty_sold,
+            margin_bp=r.margin_pct_bp,
+            net=r.revenue_net,
+            group=_GROUP_BY_CLASS[r.classification or ""],
+            classification=r.classification,
+            margin_per_unit=r.contribution_margin_per_unit,
         )
+        for r in top
+    ]
     return DishMixSeriesOut(
-        avg_units=avg_units,
-        avg_margin_bp=avg_margin,
+        avg_units=units_line,
+        avg_margin_bp=None,
+        avg_margin_per_unit=matrix.avg_contribution_margin_per_unit,
         points=points,
         without_cost=without_cost,
+        insufficient_sample=small,
     )
 
 
@@ -530,7 +556,6 @@ def overview_series(
     date_to: date,
     by_category: list[SalesBucketOut],
     total: SalesBucketOut,
-    product_rows: list[SalesBucketOut] | None = None,
 ) -> OverviewSeriesOut:
     today = tz.today_business_date(stores[0].cutoff_hour)
     return OverviewSeriesOut(
@@ -550,7 +575,9 @@ def overview_series(
         if all_stores
         else None,
         peak_hours=peak_hours(db, stores=stores, date_from=date_from, date_to=date_to),
-        dish_mix=dish_mix(product_rows) if product_rows is not None else None,
+        dish_mix=dish_mix(
+            db, stores=stores, all_stores=all_stores, date_from=date_from, date_to=date_to
+        ),
     )
 
 
