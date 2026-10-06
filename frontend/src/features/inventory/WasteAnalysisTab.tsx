@@ -106,7 +106,7 @@ export function WasteAnalysisTab({ storeId }: { storeId: number }): React.JSX.El
               "Ninguna merma registrada en el período."
             ) : (
               <>
-                Se perdieron <b className="tabular-nums">{data.cost === null ? "—" : formatCOP(data.cost)}</b> al costo en{" "}
+                Se perdieron <b className="tabular-nums">{data.amount === null ? "—" : formatCOP(data.amount)}</b> al costo en{" "}
                 {data.entries} {data.entries === 1 ? "merma" : "mermas"}
                 {data.uncosted_entries > 0 ? ` (${data.uncosted_entries} sin costo, no sumadas)` : ""}.
               </>
@@ -121,7 +121,7 @@ export function WasteAnalysisTab({ storeId }: { storeId: number }): React.JSX.El
                 nombre: WASTE_TYPE_LABEL[r.type] ?? r.type,
                 detalle: r.loss ? undefined : "no es pérdida",
                 entries: r.entries,
-                cost: r.cost,
+                cost: r.amount,
                 uncosted: r.uncosted_entries,
                 share: r.share_bp,
               }))}
@@ -133,7 +133,7 @@ export function WasteAnalysisTab({ storeId }: { storeId: number }): React.JSX.El
                 key: String(p.employee_id),
                 nombre: p.employee_name,
                 entries: p.entries,
-                cost: p.cost,
+                cost: p.amount,
                 uncosted: p.uncosted_entries,
                 share: p.share_bp,
               }))}
@@ -147,7 +147,7 @@ export function WasteAnalysisTab({ storeId }: { storeId: number }): React.JSX.El
               nombre: i.name,
               detalle: formatCantidad(i.qty, UNIT_LABEL[i.unit] ?? i.unit),
               entries: i.entries,
-              cost: i.cost,
+              cost: i.amount,
               uncosted: i.uncosted_entries,
               share: i.share_bp,
             }))}

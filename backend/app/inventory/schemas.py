@@ -1109,7 +1109,8 @@ class CountSheetOut(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Análisis de mermas (tanda 5, i6). Sólo administración: lleva costos.
-# Costos en pesos enteros; `None` cuando ninguna merma del grupo tiene costo
+# Plata al costo (`amount`) en pesos enteros —un total, no un costo
+# por unidad base—; `None` cuando ninguna merma del grupo tiene costo
 # (`uncosted_entries` dice cuántas no lo tienen). `share_bp`: parte del costo
 # total de las pérdidas del período, en puntos básicos.
 # ---------------------------------------------------------------------------
@@ -1122,7 +1123,7 @@ class WasteReasonRowOut(BaseModel):
     loss: bool
     entries: int
     uncosted_entries: int
-    cost: int | None
+    amount: int | None
     share_bp: int | None
 
 
@@ -1134,7 +1135,7 @@ class WasteItemRowOut(BaseModel):
     qty: str
     entries: int
     uncosted_entries: int
-    cost: int | None
+    amount: int | None
     share_bp: int | None
 
 
@@ -1143,7 +1144,7 @@ class WastePersonRowOut(BaseModel):
     employee_name: str
     entries: int
     uncosted_entries: int
-    cost: int | None
+    amount: int | None
     share_bp: int | None
 
 
@@ -1151,10 +1152,10 @@ class WasteAnalysisOut(BaseModel):
     store_id: int
     date_from: str
     date_to: str
-    # Sólo pérdidas. `cost` es `None` si hay mermas y ninguna tiene costo.
+    # Sólo pérdidas. `amount` es `None` si hay mermas y ninguna tiene costo.
     entries: int
     uncosted_entries: int
-    cost: int | None
+    amount: int | None
     by_reason: list[WasteReasonRowOut]
     by_ingredient: list[WasteItemRowOut]
     by_person: list[WastePersonRowOut]

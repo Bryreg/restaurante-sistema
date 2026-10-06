@@ -126,11 +126,11 @@ def waste_analysis(db: Session, *, store: Store, date_from: date, date_to: date)
                 "qty": format_qty_base(acc.qty),
                 "entries": acc.entries,
                 "uncosted_entries": acc.uncosted,
-                "cost": cost,
+                "amount": cost,
                 "share_bp": _share_bp(cost, total_for_share),
             }
         )
-    item_rows.sort(key=lambda r: (-(r["cost"] or 0), r["name"].casefold()))
+    item_rows.sort(key=lambda r: (-(r["amount"] or 0), r["name"].casefold()))
 
     reason_rows: list[dict[str, Any]] = []
     for waste_type in WasteType:
@@ -146,11 +146,11 @@ def waste_analysis(db: Session, *, store: Store, date_from: date, date_to: date)
                 "loss": loss,
                 "entries": acc.entries,
                 "uncosted_entries": acc.uncosted,
-                "cost": cost,
+                "amount": cost,
                 "share_bp": _share_bp(cost, total_for_share) if loss else None,
             }
         )
-    reason_rows.sort(key=lambda r: (not r["loss"], -(r["cost"] or 0), r["type"]))
+    reason_rows.sort(key=lambda r: (not r["loss"], -(r["amount"] or 0), r["type"]))
 
     person_rows: list[dict[str, Any]] = []
     for employee_id, acc in by_person.items():
@@ -161,11 +161,11 @@ def waste_analysis(db: Session, *, store: Store, date_from: date, date_to: date)
                 "employee_name": person_names[employee_id],
                 "entries": acc.entries,
                 "uncosted_entries": acc.uncosted,
-                "cost": cost,
+                "amount": cost,
                 "share_bp": _share_bp(cost, total_for_share),
             }
         )
-    person_rows.sort(key=lambda r: (-(r["cost"] or 0), r["employee_name"].casefold()))
+    person_rows.sort(key=lambda r: (-(r["amount"] or 0), r["employee_name"].casefold()))
 
     return {
         "store_id": store.id,
@@ -173,7 +173,7 @@ def waste_analysis(db: Session, *, store: Store, date_from: date, date_to: date)
         "date_to": date_to.isoformat(),
         "entries": total.entries,
         "uncosted_entries": total.uncosted,
-        "cost": total_cost if total.entries > 0 else 0,
+        "amount": total_cost if total.entries > 0 else 0,
         "by_reason": reason_rows,
         "by_ingredient": item_rows,
         "by_person": person_rows,

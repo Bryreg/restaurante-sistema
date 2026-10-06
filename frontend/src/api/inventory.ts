@@ -1157,7 +1157,7 @@ export interface WasteReasonRowOut {
   loss: boolean
   entries: number
   uncosted_entries: number
-  cost: number | null
+  amount: number | null
   /** Parte del costo de las pérdidas del período, en puntos básicos. */
   share_bp: number | null
 }
@@ -1170,7 +1170,7 @@ export interface WasteItemRowOut {
   qty: string
   entries: number
   uncosted_entries: number
-  cost: number | null
+  amount: number | null
   share_bp: number | null
 }
 
@@ -1179,7 +1179,7 @@ export interface WastePersonRowOut {
   employee_name: string
   entries: number
   uncosted_entries: number
-  cost: number | null
+  amount: number | null
   share_bp: number | null
 }
 
@@ -1189,7 +1189,7 @@ export interface WasteAnalysisOut {
   date_to: string
   entries: number
   uncosted_entries: number
-  cost: number | null
+  amount: number | null
   by_reason: WasteReasonRowOut[]
   by_ingredient: WasteItemRowOut[]
   by_person: WastePersonRowOut[]

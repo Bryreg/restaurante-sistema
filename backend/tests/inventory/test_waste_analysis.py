@@ -60,27 +60,27 @@ def test_waste_is_broken_down_by_reason_ingredient_and_person_at_cost(
     body = resp.json()
     assert body["entries"] == 4
     assert body["uncosted_entries"] == 1
-    assert body["cost"] == 5_500
+    assert body["amount"] == 5_500
 
     reasons = {r["type"]: r for r in body["by_reason"]}
-    assert reasons["expired"]["cost"] == 3_000 and reasons["expired"]["uncosted_entries"] == 1
-    assert reasons["kitchen_error"]["cost"] == 1_500
+    assert reasons["expired"]["amount"] == 3_000 and reasons["expired"]["uncosted_entries"] == 1
+    assert reasons["kitchen_error"]["amount"] == 1_500
     assert reasons["internal_use"]["loss"] is False
     assert reasons["internal_use"]["share_bp"] is None
     # Primero las pérdidas, de la más cara a la más barata.
     assert [r["type"] for r in body["by_reason"]] == ["expired", "kitchen_error", "breakage", "internal_use"]
 
     items = {i["name"]: i for i in body["by_ingredient"]}
-    assert items["Carne"]["cost"] == 4_500  # sin el consumo interno
+    assert items["Carne"]["amount"] == 4_500  # sin el consumo interno
     assert items["Carne"]["qty"] == "150"
     assert items["Carne"]["share_bp"] == 8182  # 4.500 / 5.500
     # Ninguna merma de hierbas tiene costo: null, no $0.
-    assert items["Hierbas"]["cost"] is None
+    assert items["Hierbas"]["amount"] is None
     assert items["Hierbas"]["share_bp"] is None
 
     people = {p["employee_name"]: p for p in body["by_person"]}
-    assert people["Operator"]["cost"] == 4_000
-    assert people["Operator2"]["cost"] == 1_500
+    assert people["Operator"]["amount"] == 4_000
+    assert people["Operator2"]["amount"] == 1_500
     assert people["Operator2"]["uncosted_entries"] == 1
 
 
@@ -102,7 +102,7 @@ def test_only_the_period_counts_and_empty_is_a_real_zero(
 
     body = _analysis(admin_client, store, "2026-02-01", "2026-02-28").json()
     assert body["entries"] == 0
-    assert body["cost"] == 0
+    assert body["amount"] == 0
     assert body["by_ingredient"] == []
     bad = _analysis(admin_client, store, "2026-02-28", "2026-02-01")
     assert bad.status_code == 400

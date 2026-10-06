@@ -19,16 +19,16 @@ const DATA: WasteAnalysisOut = {
   date_to: "2026-01-31",
   entries: 4,
   uncosted_entries: 1,
-  cost: 5_500,
+  amount: 5_500,
   by_reason: [
-    { type: "expired", loss: true, entries: 2, uncosted_entries: 1, cost: 3_000, share_bp: 5455 },
-    { type: "internal_use", loss: false, entries: 1, uncosted_entries: 0, cost: 6_000, share_bp: null },
+    { type: "expired", loss: true, entries: 2, uncosted_entries: 1, amount: 3_000, share_bp: 5455 },
+    { type: "internal_use", loss: false, entries: 1, uncosted_entries: 0, amount: 6_000, share_bp: null },
   ],
   by_ingredient: [
-    { kind: "ingredient", item_id: 1, name: "Carne", unit: "g", qty: "150", entries: 2, uncosted_entries: 0, cost: 4_500, share_bp: 8182 },
-    { kind: "ingredient", item_id: 3, name: "Hierbas", unit: "g", qty: "10", entries: 1, uncosted_entries: 1, cost: null, share_bp: null },
+    { kind: "ingredient", item_id: 1, name: "Carne", unit: "g", qty: "150", entries: 2, uncosted_entries: 0, amount: 4_500, share_bp: 8182 },
+    { kind: "ingredient", item_id: 3, name: "Hierbas", unit: "g", qty: "10", entries: 1, uncosted_entries: 1, amount: null, share_bp: null },
   ],
-  by_person: [{ employee_id: 4, employee_name: "Operator", entries: 2, uncosted_entries: 0, cost: 4_000, share_bp: 7273 }],
+  by_person: [{ employee_id: 4, employee_name: "Operator", entries: 2, uncosted_entries: 0, amount: 4_000, share_bp: 7273 }],
 }
 
 describe("Inventario › Análisis de mermas", () => {
