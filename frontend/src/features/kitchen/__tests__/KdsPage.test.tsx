@@ -504,7 +504,7 @@ describe("KdsPage — la pizarra del handoff", () => {
     expect(within(estaciones).getByRole("button", { name: "Postres" })).toHaveTextContent("0")
     expect(within(estaciones).queryByRole("button", { name: /sin estación/i })).not.toBeInTheDocument()
 
-    expect(screen.getByText("1 demorados")).toBeInTheDocument()
+    expect(screen.getByText("1 demorado")).toBeInTheDocument()
     expect(screen.getByText("1 por vencer")).toBeInTheDocument()
     expect(screen.getByText("1 a tiempo")).toBeInTheDocument()
   })
