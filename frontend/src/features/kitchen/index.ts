@@ -8,6 +8,13 @@
  * `kitchen.kds` suma deshacer listo, expedir e impresión por estación. La
  * vieja vista mínima (`/pos/cocina`) se borró: su ruta redirige acá para que
  * un enlace guardado no termine en una página en blanco.
+ *
+ * El BAR es la misma pantalla con `area="bar"` (`/pos/bar`, mismo permiso):
+ * muestra sólo las estaciones del bar que distingue la carta (`BAR_STATIONS`).
+ * Todavía no tiene entrada propia en la barra del salón: el puesto «bar»
+ * (`app/puesto.ts`) lleva a `/pos/kds`, así que una entrada «Bar» sólo la
+ * vería quien no tiene puesto; hasta que el puesto apunte acá, se llega por
+ * la dirección.
  */
 import { ChefHat } from "lucide-react"
 import { createElement } from "react"
@@ -19,6 +26,7 @@ import { KdsPage } from "./KdsPage"
 
 const posRoutes: RouteObject[] = [
   { path: "kds", element: createElement(KdsPage) },
+  { path: "bar", element: createElement(KdsPage, { area: "bar" }) },
   { path: "cocina", element: createElement(Navigate, { to: "/pos/kds", replace: true }) },
 ]
 

@@ -25,11 +25,11 @@ const {
   registerPrintJobMock: vi.fn(),
 }))
 
-const { markReadyMock } = vi.hoisted(() => ({ markReadyMock: vi.fn() }))
+const { markReadyMock, markServedMock } = vi.hoisted(() => ({ markReadyMock: vi.fn(), markServedMock: vi.fn() }))
 
 vi.mock("@/api/orders", async () => {
   const actual = await vi.importActual<typeof import("@/api/orders")>("@/api/orders")
-  return { ...actual, markReady: markReadyMock }
+  return { ...actual, markReady: markReadyMock, markServed: markServedMock }
 })
 
 const { deviceIdentifyMock } = vi.hoisted(() => ({ deviceIdentifyMock: vi.fn() }))
@@ -406,8 +406,11 @@ describe("KdsPage", () => {
     renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
 
     const alerta = await screen.findByText(/alerta de alergia/i)
-    expect(alerta.closest(".tiquete-alergia")).toHaveTextContent(/alérgico al maní/i)
-    expect(screen.getByText("Sin cebolla")).toHaveClass("tiquete-modificadores")
+    const pastilla = alerta.closest(".bg-destructive-soft")
+    expect(pastilla).toHaveTextContent(/alérgico al maní/i)
+    expect(pastilla).toHaveClass("text-destructive", "font-bold")
+    expect(pastilla?.querySelector("svg")).not.toBeNull()
+    expect(screen.getByText("Sin cebolla")).toHaveClass("bg-warning-soft", "text-warning")
   })
 
   it("lo «de ayer» se aparta por defecto y se ve con el botón", async () => {
@@ -493,7 +496,7 @@ describe("KdsPage — la pizarra del handoff", () => {
     renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
 
     await screen.findByText("Plato 11")
-    const estaciones = screen.getByRole("radiogroup", { name: "Estación" })
+    const estaciones = screen.getByRole("group", { name: "Estación" })
     expect(within(estaciones).getByRole("button", { name: "Todas" })).toHaveTextContent("3")
     expect(within(estaciones).getByRole("button", { name: "Cocina caliente" })).toHaveTextContent("2")
     expect(within(estaciones).getByRole("button", { name: "Cocina fría" })).toHaveTextContent("1")
@@ -524,12 +527,16 @@ describe("KdsPage — la pizarra del handoff", () => {
       "Comanda #3, Mesa 9",
     ])
     expect(within(tiquetes[0]!).getByText("26 min")).toBeInTheDocument()
-    expect(tiquetes[0]!.querySelector("header")).toHaveClass("bg-destructive")
-    expect(tiquetes[1]!.querySelector("header")).toHaveClass("bg-warning")
-    expect(tiquetes[2]!.querySelector("header")).toHaveClass("bg-success")
+    // Cabecera teñida en el suave del tono y aro de 4 px del mismo tono.
+    expect(tiquetes[0]!.querySelector("header")).toHaveClass("bg-destructive-soft")
+    expect(tiquetes[1]!.querySelector("header")).toHaveClass("bg-warning-soft")
+    expect(tiquetes[2]!.querySelector("header")).toHaveClass("bg-success-soft")
+    expect(tiquetes[0]!).toHaveClass("shadow-[inset_0_0_0_4px_var(--ring-destructive)]")
+    expect(tiquetes[1]!).toHaveClass("shadow-[inset_0_0_0_4px_var(--ring-warning)]")
+    expect(tiquetes[2]!).toHaveClass("shadow-[inset_0_0_0_4px_var(--ring-ok)]")
   })
 
-  it("«Listo» va en contorno y, ya listo, lleno con el plato tachado", async () => {
+  it("«Listo» va sobre la burbuja y, ya listo, en verde con «✓ Listo» y el plato tachado al 50 %", async () => {
     listKitchenRoundsMock.mockResolvedValue([
       buildKdsRound({
         items: [
@@ -545,8 +552,146 @@ describe("KdsPage — la pizarra del handoff", () => {
     const hecho = await screen.findByRole("button", { name: "Deshacer listo: Posta" })
     const falta = screen.getByRole("button", { name: "Marcar listo: Arroz" })
     expect(hecho).toHaveClass("bg-success")
-    expect(falta).toHaveClass("bg-transparent")
+    expect(hecho).toHaveTextContent("✓ Listo")
+    expect(hecho.closest("li")).toHaveClass("opacity-50")
+    expect(falta).toHaveClass("bg-card")
+    expect(falta).toHaveTextContent(/^Listo$/)
+    expect(falta.closest("li")).not.toHaveClass("opacity-50")
     expect(screen.getByText("Posta")).toHaveClass("line-through")
     expect(screen.getByText("Arroz")).not.toHaveClass("line-through")
+  })
+})
+
+describe("KdsPage — «Burbujas» (10a–10d)", () => {
+  const plato = (item_id: number, name: string, station: string, status: "sent" | "ready" = "sent", qty = 1) => ({
+    item_id,
+    name,
+    qty,
+    course: "main",
+    station,
+    status,
+    elapsed_seconds: 60,
+    semaphore: "green" as const,
+  })
+
+  it("el recuento de cada estación son platos (suma de cantidades), no tiquetes", async () => {
+    listKitchenRoundsMock.mockResolvedValue([
+      buildKdsRound({ items: [plato(1, "Arroz", "hot_kitchen", "sent", 3), plato(2, "Ceviche", "cold_kitchen", "sent", 2)] }),
+    ])
+    listPrintJobsMock.mockResolvedValue([])
+
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    await screen.findByText("Arroz")
+    const estaciones = screen.getByRole("group", { name: "Estación" })
+    expect(within(estaciones).getByRole("button", { name: "Todas" })).toHaveTextContent("5")
+    expect(within(estaciones).getByRole("button", { name: "Cocina caliente" })).toHaveTextContent("3")
+    expect(within(estaciones).getByRole("button", { name: "Cocina fría" })).toHaveTextContent("2")
+  })
+
+  it("con todos los platos listos, el botón final despacha la comanda con la entrega que ya existe", async () => {
+    listKitchenRoundsMock.mockResolvedValue([
+      buildKdsRound({ items: [plato(1, "Posta", "hot_kitchen", "ready"), plato(2, "Arroz", "hot_kitchen", "ready")] }),
+    ])
+    listPrintJobsMock.mockResolvedValue([])
+    markServedMock.mockResolvedValue({})
+
+    const user = userEvent.setup()
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    const despachar = await screen.findByRole("button", { name: /^Despachar Mesa 5/ })
+    expect(despachar).toHaveTextContent("Despachar Mesa 5")
+    expect(despachar).toHaveClass("bg-primary")
+    expect(screen.queryByRole("button", { name: /^Todo listo/ })).not.toBeInTheDocument()
+
+    await user.click(despachar)
+    await waitFor(() => expect(markServedMock).toHaveBeenCalledTimes(2))
+    expect(markServedMock).toHaveBeenCalledWith(501, 1, expect.any(String))
+    expect(markServedMock).toHaveBeenCalledWith(501, 2, expect.any(String))
+    expect(expediteOrderMock).not.toHaveBeenCalled()
+  })
+
+  it("con sólo kitchen.view, «Todo listo» marca listos los que faltan por la ruta de la comanda (sin expedir)", async () => {
+    listKitchenRoundsMock.mockResolvedValue([
+      buildKdsRound({ items: [plato(1, "Posta", "hot_kitchen", "ready"), plato(2, "Arroz", "hot_kitchen")] }),
+    ])
+    markReadyMock.mockResolvedValue({})
+
+    const user = userEvent.setup()
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.view": true, "kitchen.kds": false }) })
+
+    const todo = await screen.findByRole("button", { name: /^Todo listo/ })
+    expect(todo).toHaveTextContent("Todo listo")
+    expect(todo).toHaveClass("bg-muted")
+    await user.click(todo)
+
+    await waitFor(() => expect(markReadyMock).toHaveBeenCalledWith(501, 2, expect.any(String)))
+    expect(markReadyMock).toHaveBeenCalledTimes(1)
+    expect(expediteOrderMock).not.toHaveBeenCalled()
+  })
+
+  it("el bar muestra sólo las estaciones del bar y, en «Todas», expide sólo el bar", async () => {
+    listKitchenStationsMock.mockResolvedValue(["hot_kitchen", "cold_kitchen", "bar", "desserts", "none"])
+    listKitchenRoundsMock.mockResolvedValue([
+      buildKdsRound({ items: [plato(1, "Bandeja", "hot_kitchen"), plato(2, "Limonada", "bar", "sent", 2)] }),
+      buildKdsRound({ order_id: 502, tables: ["8"], items: [plato(3, "Sancocho", "hot_kitchen")] }),
+    ])
+    listPrintJobsMock.mockResolvedValue([])
+    expediteOrderMock.mockResolvedValue({})
+
+    const user = userEvent.setup()
+    renderWithProviders(<KdsPage area="bar" />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    expect(await screen.findByRole("heading", { name: "Bar" })).toBeInTheDocument()
+    await screen.findByText("Limonada")
+    expect(screen.queryByText("Bandeja")).not.toBeInTheDocument()
+    expect(screen.queryByText("Sancocho")).not.toBeInTheDocument()
+    expect(screen.getAllByRole("article")).toHaveLength(1)
+
+    const estaciones = screen.getByRole("group", { name: "Estación" })
+    expect(within(estaciones).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Todas2",
+      "Bar2",
+    ])
+
+    await user.click(screen.getByRole("button", { name: /^Todo listo/ }))
+    await waitFor(() => expect(expediteOrderMock).toHaveBeenCalledWith(501, "bar"))
+    expect(expediteOrderMock).not.toHaveBeenCalledWith(501)
+  })
+
+  it("la cocina sigue en la noche por defecto y el ajuste «Claro» pasa al KDS claro y lo recuerda", async () => {
+    listKitchenRoundsMock.mockResolvedValue([buildKdsRound()])
+    listPrintJobsMock.mockResolvedValue([])
+
+    const user = userEvent.setup()
+    const { unmount } = renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    await screen.findByText(/bandeja paisa/i)
+    const root = document.documentElement
+    expect(root).toHaveClass("cocina")
+    expect(root).not.toHaveClass("cocina-clara")
+    expect(screen.getByRole("heading", { name: "Cocina" })).toBeInTheDocument()
+
+    await user.click(screen.getByTestId("kds-tema-claro"))
+    expect(root).toHaveClass("cocina", "cocina-clara")
+    expect(JSON.parse(localStorage.getItem("cocina-pantalla") ?? "{}").tema).toBe("claro")
+
+    unmount()
+    expect(root).not.toHaveClass("cocina")
+    expect(root).not.toHaveClass("cocina-clara")
+  })
+
+  it("en pantalla completa el destino y el plato crecen (30 y 24 px)", async () => {
+    listKitchenRoundsMock.mockResolvedValue([buildKdsRound()])
+    listPrintJobsMock.mockResolvedValue([])
+
+    const user = userEvent.setup()
+    renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
+
+    expect(await screen.findByText("Bandeja Paisa")).toHaveClass("text-[21px]")
+    expect(screen.getByText("Mesa 5")).toHaveClass("text-[25px]")
+    await user.click(screen.getByRole("button", { name: "Pantalla completa" }))
+    expect(screen.getByText("Bandeja Paisa")).toHaveClass("text-[24px]")
+    expect(screen.getByText("Mesa 5")).toHaveClass("text-[30px]")
   })
 })
