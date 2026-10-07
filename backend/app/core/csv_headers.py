@@ -389,6 +389,7 @@ TOKENS: dict[str, str] = {
     "discounts": "descuentos",
     "discrepancy": "discrepancia",
     "dish": "plato",
+    "dispatched": "sacado",
     "distribution": "distribución",
     "doc": "documento",
     "document": "documento",
