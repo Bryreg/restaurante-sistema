@@ -2,11 +2,11 @@ import { useState } from "react";
 
 import type { TipInfoOut } from "@/api/orders";
 import type { PaymentTipIn } from "@/api/payments";
+import { SegmentadoTactil } from "@/components/admin";
 import { MoneyInput } from "@/components/MoneyInput";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { formatCOP } from "@/lib/money";
-import { cn } from "@/lib/utils";
 
 export interface TipQuestionProps {
   tipInfo: TipInfoOut;
@@ -14,19 +14,11 @@ export interface TipQuestionProps {
   onChange: (tip: PaymentTipIn) => void;
 }
 
-/** Opción de propina: 64 px, borde de 2 px; la elegida en `primary` sobre `accent`. */
-function opcionClass(elegida: boolean): string {
-  return cn(
-    "flex h-[64px] min-w-0 flex-col items-center justify-center rounded-lg border-2 px-2 transition-colors",
-    "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-    elegida ? "border-primary bg-accent" : "border-border bg-card hover:bg-muted",
-  );
-}
-
 /**
  * Pregunta de propina (SPEC-NEGOCIO §6.2 y §9.1; CONTRATO-INTERNO-1b-1.md
- * §2.4), como la dibuja el handoff (`PosCobro`): «Propina voluntaria · la
- * decide el cliente» y tres opciones de 64 px — «10 % sugerida» con el
+ * §2.4), como la dibuja el handoff (`design_handoff_pos_burbujas`, 9d):
+ * «Propina voluntaria · la decide el cliente» y un segmentado de 60 px con
+ * tres opciones — «10 % sugerida» con el
  * sugerido que manda el servidor (`tip.suggested_amount`, base = subtotal
  * neto de descuentos sin impuesto; el servidor también valida que no supere
  * el 10 %), «Otra» (el monto a mano) y «Sin propina». Registra
@@ -59,44 +51,44 @@ export function TipQuestion({ tipInfo, value, onChange }: TipQuestionProps): Rea
     setModifying(false);
   }
 
+  const elegida = eligioOtra ? "otra" : eligioSugerida ? "sug" : eligioNinguna ? "no" : null;
+
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-[16px] font-bold">
-        Propina voluntaria <span className="font-medium text-muted-foreground">· la decide el cliente</span>
+      <p className="px-1 text-sm font-semibold">
+        Propina voluntaria <span className="font-normal text-muted-foreground">· la decide el cliente</span>
       </p>
-      <p className="text-[13px] text-muted-foreground">¿Desea incluir servicio voluntario del {suggestedPct}%?</p>
-      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Propina">
-        <button type="button" aria-pressed={eligioSugerida} className={opcionClass(eligioSugerida)} onClick={accept}>
-          <b className="text-[16px]">{suggestedPct} % sugerida</b>{" "}
-          <span className="text-[14px] text-muted-foreground tabular-nums">{formatCOP(suggestedAmount)}</span>
-        </button>
-        <button
-          type="button"
-          aria-pressed={eligioOtra}
-          className={opcionClass(eligioOtra)}
-          onClick={() => setModifying(true)}
-        >
-          <b className="text-[16px]">Otra</b>{" "}
-          <span className="text-[14px] text-muted-foreground tabular-nums">
-            {value?.modified && value.accepted ? formatCOP(value.amount) : "—"}
-          </span>
-        </button>
-        <button type="button" aria-pressed={eligioNinguna} className={opcionClass(eligioNinguna)} onClick={decline}>
-          <b className="text-[16px]">Sin propina</b>{" "}
-          <span className="text-[14px] text-muted-foreground tabular-nums">{formatCOP(0)}</span>
-        </button>
-      </div>
+      <p className="sr-only">¿Desea incluir servicio voluntario del {suggestedPct}%?</p>
+      <SegmentadoTactil
+        etiqueta="Propina"
+        alto={60}
+        columnas={3}
+        apilado
+        valor={elegida}
+        onChange={(v) => (v === "sug" ? accept() : v === "no" ? decline() : setModifying(true))}
+        opciones={[
+          { value: "sug", label: `${suggestedPct} % sugerida`, detalle: formatCOP(suggestedAmount) },
+          {
+            value: "otra",
+            label: "Otra",
+            detalle: value?.modified && value.accepted ? formatCOP(value.amount) : "—",
+          },
+          { value: "no", label: "Sin propina", detalle: formatCOP(0) },
+        ]}
+      />
 
       {modifying ? (
-        <div className="flex flex-wrap items-end gap-2">
+        <div className="flex flex-wrap items-end gap-2 rounded-[18px] bg-muted p-3">
           <div className="min-w-0 flex-1 space-y-1">
-            <Label htmlFor="tip-custom-amount">Monto de propina</Label>
+            <Label htmlFor="tip-custom-amount" className="text-[13px] font-normal text-muted-foreground">
+              Monto de propina
+            </Label>
             <MoneyInput id="tip-custom-amount" value={customAmount} onChange={setCustomAmount} />
           </div>
-          <Button type="button" className="h-[56px] px-4 text-[16px]" onClick={confirmCustom}>
+          <Button type="button" className="h-12 rounded-[14px] px-4 text-[15px]" onClick={confirmCustom}>
             Confirmar
           </Button>
-          <Button type="button" variant="ghost" className="h-[56px] px-3 text-[16px]" onClick={() => setModifying(false)}>
+          <Button type="button" variant="ghost" className="h-12 px-3 text-[15px]" onClick={() => setModifying(false)}>
             Cancelar
           </Button>
         </div>

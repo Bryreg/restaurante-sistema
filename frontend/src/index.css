@@ -57,6 +57,11 @@
     --color-warning-soft: var(--warning-soft);
     --color-destructive-soft: var(--destructive-soft);
     --color-data-track: var(--data-track);
+    /* POS «Burbujas»: mesa ocupada y aros del tiquete de cocina. */
+    --color-fill-strong: var(--fill-strong);
+    --color-ring-ok: var(--ring-ok);
+    --color-ring-warning: var(--ring-warning);
+    --color-ring-destructive: var(--ring-destructive);
     --color-data-bar: var(--data-1);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
@@ -180,82 +185,121 @@
     --sidebar-ring: #8D9BFF;
 }
 
-/* EL SALÓN CLARO (por defecto): mesas y caja con luz de día. No es el libro
-   de la oficina: tinta más oscura, gris secundario más firme y líneas más
-   visibles, porque se lee de pie y a un brazo de distancia. `html.salon` gana
-   sobre `.dark` (más especificidad): el claro/oscuro del admin no manda acá;
-   manda la elección de la tablet (`useSalonTheme` en `src/app/theme.tsx`). */
+/* EL SALÓN, piel «Burbujas» (handoff `design_handoff_pos_burbujas`): la
+   misma paleta del panel del dueño —página gris, burbujas blancas, pozos
+   grises, tinta y el cobalto sólo para las acciones— con tamaños para el
+   dedo. `html.salon` gana sobre `.dark` (más especificidad): el claro/oscuro
+   del admin no manda acá; manda la elección de la tablet (`useSalonTheme` en
+   `src/app/theme.tsx`). */
 html.salon {
     color-scheme: light;
-    --background: #F7F8F5;
-    --foreground: #101814;
-    --card: #FFFFFF;
-    --card-foreground: #101814;
+    --background: #ECECE8;           /* página, detrás de las burbujas      */
+    --foreground: #111111;           /* tinta                               */
+    --card: #FFFFFF;                 /* burbuja                             */
+    --card-foreground: #111111;
     --popover: #FFFFFF;
-    --popover-foreground: #101814;
-    --primary: #3D4FE0;
+    --popover-foreground: #111111;
+    --primary: #2F4BFF;              /* sólo acciones                       */
     --primary-foreground: #FFFFFF;
-    --secondary: #E6EBE4;
-    --secondary-foreground: #101814;
-    --muted: #E6EBE4;
-    --muted-foreground: #3E4B45;
-    --accent: #E3E6FB;
-    --accent-foreground: #2F3DB8;
-    --destructive: #C4302B;
+    --secondary: #F4F4F1;            /* pozo                                */
+    --secondary-foreground: #111111;
+    --muted: #F4F4F1;
+    --muted-foreground: #5E5E5B;
+    --accent: #EEF0FF;
+    --accent-foreground: #2F4BFF;
+    --destructive: #C8261C;
     --destructive-foreground: #FFFFFF;
-    --success: #0F7A6A;
+    --destructive-soft: #FBE6E3;
+    --success: #13795B;
     --success-foreground: #FFFFFF;
-    --warning: #9A6412;
+    --success-soft: #E3F2EC;
+    --warning: #A85A00;
     --warning-foreground: #FFFFFF;
-    --border: #C9D1C8;
-    --input: #B3BDB2;
-    --ring: #3D4FE0;
-    --sidebar: #E6EBE4;
-    --sidebar-foreground: #101814;
-    --sidebar-primary: #101814;
-    --sidebar-primary-foreground: #F7F8F5;
-    --sidebar-accent: #DCE2DA;
-    --sidebar-accent-foreground: #101814;
-    --sidebar-border: #C9D1C8;
-    --sidebar-ring: #3D4FE0;
+    --warning-soft: #FBEEDD;
+    --border: #E9E9E5;
+    --input: #CFCFCA;
+    --ring: #2F4BFF;
+    --sidebar: #FFFFFF;
+    --sidebar-foreground: #111111;
+    --sidebar-primary: #111111;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #F4F4F1;
+    --sidebar-accent-foreground: #111111;
+    --sidebar-border: #E9E9E5;
+    --sidebar-ring: #2F4BFF;
+    /* Los cuatro tokens nuevos del POS (handoff § 1). */
+    --fill-strong: #E9E9E4;          /* mesa ocupada: un punto más que el pozo */
+    --ring-ok: #1FA971;              /* aros del tiquete (KDS)              */
+    --ring-warning: #F08C00;
+    --ring-destructive: #E5342A;
+    --data-track: #E6E6E1;
 }
 
-/* LA PIZARRA: la tablet que eligió «pantalla oscura» (bar, noche) y SIEMPRE
-   la cocina (`html.cocina`, puesta por el KDS mientras está abierto). */
+/* LA NOCHE: la tablet que eligió «pantalla oscura» (bar, noche) y, por
+   defecto, la cocina (`html.cocina`, puesta por el KDS mientras está
+   abierto; el handoff recomienda la noche en la cocina). */
 html.salon.salon-oscuro,
-html.salon.cocina {
+html.salon.cocina:not(.cocina-clara) {
     color-scheme: dark;
-    --background: #121A17;           /* pizarra                   */
-    --foreground: #EEF2EF;           /* tiza                      */
-    --card: #1B2622;
-    --card-foreground: #EEF2EF;
-    --popover: #1B2622;
-    --popover-foreground: #EEF2EF;
-    --primary: #8D9BFF;              /* añil sobre pizarra        */
-    --primary-foreground: #10163F;
-    --secondary: #26332D;
-    --secondary-foreground: #EEF2EF;
-    --muted: #26332D;
-    --muted-foreground: #A9B6AF;     /* tiza 2                    */
-    --accent: #2C3A60;
-    --accent-foreground: #D4DAFF;
-    --destructive: #FF8F88;
+    --background: #060606;
+    --foreground: #F2F2EF;
+    --card: #151514;
+    --card-foreground: #F2F2EF;
+    --popover: #151514;
+    --popover-foreground: #F2F2EF;
+    --primary: #7B8CFF;
+    --primary-foreground: #0B1033;
+    --secondary: #1F1F1D;
+    --secondary-foreground: #F2F2EF;
+    --muted: #1F1F1D;
+    --muted-foreground: #A3A39E;
+    --accent: #1B2050;
+    --accent-foreground: #B4BEFF;
+    --destructive: #FF7A6E;
     --destructive-foreground: #2A0C0A;
-    --success: #5CCFB9;
+    --destructive-soft: #331512;
+    --success: #4CC79C;
     --success-foreground: #06231E;
-    --warning: #F0B458;
+    --success-soft: #12291F;
+    --warning: #F0A848;
     --warning-foreground: #2A1A03;
-    --border: #2E3C35;
-    --input: #3A4841;
-    --ring: #8D9BFF;
-    --sidebar: #1B2622;
-    --sidebar-foreground: #EEF2EF;
-    --sidebar-primary: #EEF2EF;
-    --sidebar-primary-foreground: #121A17;
-    --sidebar-accent: #26332D;
-    --sidebar-accent-foreground: #EEF2EF;
-    --sidebar-border: #2E3C35;
-    --sidebar-ring: #8D9BFF;
+    --warning-soft: #2E2210;
+    --border: #262624;
+    --input: #3A3A37;
+    --ring: #7B8CFF;
+    --sidebar: #151514;
+    --sidebar-foreground: #F2F2EF;
+    --sidebar-primary: #F2F2EF;
+    --sidebar-primary-foreground: #151514;
+    --sidebar-accent: #1F1F1D;
+    --sidebar-accent-foreground: #F2F2EF;
+    --sidebar-border: #262624;
+    --sidebar-ring: #7B8CFF;
+    --fill-strong: #2A2A27;
+    --ring-ok: var(--success);
+    --ring-warning: var(--warning);
+    --ring-destructive: var(--destructive);
+    --data-track: #2A2A27;
+}
+
+/* Sólo en el KDS claro: los suaves más intensos, para que la cabecera
+   teñida del tiquete se distinga a 2 m. */
+html.salon.cocina.cocina-clara {
+    --success-soft: #D8F1E5;
+    --warning-soft: #FDE6C4;
+    --destructive-soft: #FCD9D4;
+}
+
+/* La letra del salón es la del panel. */
+html.salon,
+html.salon .font-sans,
+html.salon .font-heading {
+    font-family: 'Hanken Grotesk', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+html.salon h1,
+html.salon h2 {
+    font-stretch: normal;
+    letter-spacing: -0.02em;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -279,8 +323,9 @@ html.salon.cocina {
     --control-min-h: auto;
 }
 
+/* «Burbujas» en el POS: texto base 16 px (handoff § 2). */
 html.salon {
-    font-size: 17px;
+    font-size: 16px;
 }
 
 /* 16 px y no 14,5: el dueño comparó con café-sistema y el admin del
@@ -540,47 +585,13 @@ html.oficina main :is(.bg-card.border, .burbuja) .bg-card.border:not(.border-inp
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   EL TIQUETE DE COCINA (KDS) — papel sobre la pizarra, letra condensada.
-   Es el formato que la cocina ya lee, y a dos metros entra más plato por
-   renglón. Colores fijos: el papel es papel en cualquier tema.
+   EL TIQUETE DE COCINA (KDS). El KDS «Burbujas» (`features/kitchen/KdsPage`)
+   se arma con Tailwind y los tokens de `html.salon.cocina` (noche) y
+   `html.salon.cocina.cocina-clara` (claro); de la piel vieja de papel queda
+   sólo el recuadro amarillo de modificadores, que la comanda del salón
+   (`features/orders/OrderItemsList`) sigue usando. Colores fijos: el papel
+   es papel en cualquier tema; #1A1A17 sobre #FFE27A da 14:1.
    ───────────────────────────────────────────────────────────────────────── */
-.tiquete {
-    --background: #F2EEE3;
-    --foreground: #1A1A17;
-    --card: #F2EEE3;
-    --muted-foreground: #5C574C;
-    --border: #CFC7B5;
-    --input: #BDB6A6;
-    --secondary: #E4DECF;
-    --secondary-foreground: #1A1A17;
-    --accent: #E4DECF;
-    --accent-foreground: #1A1A17;
-    --primary: #3D4FE0;
-    --primary-foreground: #FFFFFF;
-    --success: #0F7A6A;
-    --success-foreground: #FFFFFF;
-    --warning: #9A6412;
-    --warning-foreground: #FFFFFF;
-    --destructive: #C4302B;
-    --destructive-foreground: #FFFFFF;
-    background: var(--background);
-    color: var(--foreground);
-    border-radius: 4px 4px 12px 12px;
-    box-shadow: 0 1px 0 rgb(0 0 0 / 35%);
-}
-.tiquete-cabeza { border-bottom: 2px dashed #BDB6A6; }
-.tiquete-numero { font-size: 1.35rem; font-weight: 800; font-stretch: 72%; letter-spacing: 0.01em; }
-.tiquete-item + .tiquete-item { border-top: 1px dashed #CFC7B5; }
-.tiquete-plato { font-size: 1.2rem; font-weight: 700; font-stretch: 72%; line-height: 1.15; }
-.tiquete-detalle { color: #5C574C; font-size: 0.9rem; }
-
-/* Cabecera del tiquete, pintada con el semáforo del plato más urgente:
-   dónde va (mesa, canal) y cuánto lleva, en letra que se lee a dos metros. */
-.tiquete-destino { font-size: 1.6rem; font-weight: 800; font-stretch: 72%; line-height: 1.05; }
-.tiquete-minutos { font-size: 1.6rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.05; }
-
-/* Modificadores: el recuadro amarillo del papel de comandas. Colores fijos
-   (el papel es papel): #1A1A17 sobre #FFE27A da 14:1. */
 .tiquete-modificadores {
     background: #FFE27A;
     color: #1A1A17;
@@ -590,24 +601,6 @@ html.oficina main :is(.bg-card.border, .burbuja) .bg-card.border:not(.border-inp
     font-size: 1rem;
     font-weight: 700;
 }
-
-/* Una alergia en la nota o en los modificadores: rojo, con ícono, y nunca
-   sólo por color (el ícono y el texto «Alerta de alergia» para lectores de
-   pantalla). #7A0F0B sobre #FDE3E1 da 9,6:1. */
-.tiquete-alergia {
-    background: #FDE3E1;
-    color: #7A0F0B;
-    border: 2px solid #C4302B;
-    border-radius: 3px;
-    padding: 0.25rem 0.5rem;
-    font-size: 1rem;
-    font-weight: 800;
-}
-
-/* Pantalla completa de la estación: el plato un punto más grande. */
-.kds-completa .tiquete-plato { font-size: 1.4rem; }
-.kds-completa .tiquete-destino,
-.kds-completa .tiquete-minutos { font-size: 1.9rem; }
 
 /* El semáforo por forma: ● a tiempo, ▲ por vencer, ■ demorado. */
 .semaforo { display: inline-block; width: 0.7em; height: 0.7em; background: currentColor; flex: none; }
@@ -673,7 +666,7 @@ html.oficina main :is(.bg-card.border, .burbuja) .bg-card.border:not(.border-inp
 }
 .dark,
 html.salon.salon-oscuro,
-html.salon.cocina {
+html.salon.cocina:not(.cocina-clara) {
     --data-1: #3a8fc7;
     --data-2: #d95926;
     --data-3: #199e70;

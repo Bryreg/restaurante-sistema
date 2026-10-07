@@ -1,5 +1,4 @@
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
-import { Banknote, Check, CreditCard, Landmark, Smartphone, Ticket, Wallet } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -22,7 +21,6 @@ import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
 import { MoneyInput } from "@/components/MoneyInput";
 import { PinPad } from "@/components/PinPad";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/errors";
@@ -76,36 +74,19 @@ export interface PaymentSplitsFormProps {
 
 const CASH_SHORTCUTS = DENOMINATIONS.filter((value) => value >= 1000);
 
-/** El ícono del medio: por código, y las billeteras del celular por su nombre en la sede. */
-function methodIcon(method: DevicePaymentMethod): typeof Banknote {
-  if (/nequi|daviplata|billetera/i.test(method.label)) return Smartphone;
-  switch (method.code) {
-    case "cash":
-      return Banknote;
-    case "card":
-      return CreditCard;
-    case "transfer":
-      return Landmark;
-    case "voucher":
-      return Ticket;
-    default:
-      return Wallet;
-  }
-}
-
-function methodLabel(methods: DevicePaymentMethod[], code: PaymentMethod): string {
-  const found = methods.find((m) => m.code === code);
-  return found?.label || PAYMENT_METHOD_LABEL[code] || code;
-}
-
 /**
- * El cobro (handoff `PosCobro`, columna derecha; CONTRATO-INTERNO-1b-1.md
- * §2.4): el total grande de 60 px, la caja de «Vuelto» o «Falta recibir», los
- * medios de pago **habilitados en la sede** (`GET /device/payment-methods`,
- * botones de 64 px), los montos rápidos (`GET /payments/tender-suggestions`:
- * «Exacto» y los billetes siguientes, del servidor), y siempre a la vista
- * «Recibido», el teclado de PIN de 3 × 56 y «Cobrar $ X» de 72 px, que se
- * habilita sólo con el pago completo y el PIN.
+ * El cobro (handoff `design_handoff_pos_burbujas`, 9d; CONTRATO-INTERNO-1b-1.md
+ * §2.4), en DOS burbujas que `CheckoutPage` pone al lado de la cuenta:
+ *
+ * - **Pago**: el total en 64/500, el medio en un segmentado de 60 px (los
+ *   **habilitados en la sede**, `GET /device/payment-methods`), «Recibido»
+ *   en un pozo de 64 px con «Exacto» y los billetes siguientes del servidor
+ *   (`GET /payments/tender-suggestions`) al lado, y al pie el pozo del vuelto
+ *   (rojo suave si falta). «Sumar billetes» y «Agregar pago» (pago mixto, una
+ *   fila por medio) van chicos, como segunda mano.
+ * - **PIN**: «PIN de Ana para cobrar», los puntos, el teclado de 60 px y
+ *   «Cobrar $ X» de 72 px, que se pinta en `primary` sólo con el pago
+ *   completo, el vuelto en cero o más y el PIN.
  *
  * **Nada de plata se calcula acá** salvo la excepción declarada: lo tecleado
  * en los `splits` (`sumTyped`) para la guía "faltan $X". El vuelto y lo que
@@ -296,10 +277,11 @@ export function PaymentSplitsForm({
   const pinListo = pin.length === 4;
   const puedeCobrar = complete && efectivoListo && pinListo && !mutation.isPending && !bloqueo && splits.length > 0;
 
-  // La caja de arriba a la derecha: «Vuelto», «Falta recibir» (roja) o «No aplica».
+  // El pozo del vuelto, al pie de la burbuja de pago: «Vuelto», «Falta
+  // recibir» (rojo) o «Vuelto · no aplica».
   let estado: { rotulo: string; valor: string; tono: "neutro" | "ok" | "falta" };
   if (filasEfectivo.length === 0) {
-    estado = { rotulo: "Vuelto", valor: "No aplica", tono: "neutro" };
+    estado = { rotulo: "Vuelto · no aplica", valor: "—", tono: "neutro" };
   } else if (faltantes.length === 1) {
     estado = { rotulo: "Falta recibir", valor: formatCOP(faltantes[0]!.short_by), tono: "falta" };
   } else if (faltantes.length > 1) {
@@ -320,218 +302,218 @@ export function PaymentSplitsForm({
           ? "Falta tu PIN para confirmar."
           : "Listo para cobrar.";
 
+  const nombrePin = chargerName ? chargerName.split(" ")[0] : null;
+
   return (
-    <div className="flex flex-col gap-3">
-      <h2 className="sr-only">Pagos</h2>
-
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex min-w-0 flex-col">
-          <span className="text-[14px] tracking-[0.08em] text-muted-foreground uppercase">{rotuloTotal}</span>
-          <b className="text-[60px] leading-none font-extrabold tracking-[-0.02em] tabular-nums [font-stretch:108%]">
-            {formatCOP(totalDue)}
-          </b>
+    <>
+      <section aria-label="Pago" className="flex min-w-0 flex-col gap-5 rounded-[24px] bg-card p-6 lg:min-h-0 lg:overflow-y-auto">
+        <h2 className="sr-only">Pagos</h2>
+        <div className="flex flex-col gap-1">
+          <span className="text-sm text-muted-foreground">{rotuloTotal}</span>
+          <b className="text-[64px] leading-none font-medium tracking-[-0.035em] tabular-nums">{formatCOP(totalDue)}</b>
         </div>
-        <div
-          role="status"
-          className={cn(
-            "flex min-w-[230px] flex-col items-end gap-0.5 rounded-lg border px-3.5 py-2.5",
-            estado.tono === "ok" && "border-success bg-success/14",
-            estado.tono === "falta" && "border-destructive bg-destructive/10",
-            estado.tono === "neutro" && "border-border bg-card",
-            vueltoViejo && estado.tono !== "neutro" && "opacity-50",
-          )}
-        >
-          <span className="text-[14px] text-muted-foreground">{estado.rotulo}</span>
-          <b
-            className={cn(
-              "text-[30px] leading-tight tabular-nums",
-              estado.tono === "falta" && "text-destructive",
-              estado.tono === "neutro" && "text-muted-foreground",
-            )}
-          >
-            {estado.valor}
-          </b>
-        </div>
-      </div>
 
-      {single ? (
-        <>
-          <MethodButtons
-            label="Medio"
-            methods={methods}
-            value={single.method}
-            size="grande"
-            onChange={(method) => updateRow(single.key, { method })}
-          />
-          <TenderShortcuts
-            enabled={single.method === "cash"}
-            amount={single.amount}
-            tendered={single.tendered}
-            onPick={(value) => updateRow(single.key, { tendered: value })}
-          />
-        </>
-      ) : null}
-
-      <div className="grid min-h-0 flex-1 gap-4 md:grid-cols-[minmax(0,1fr)_256px]">
-        <div className="flex min-w-0 flex-col justify-end gap-2.5">
-          {single ? null : (
+        {single ? (
+          <>
             <div className="flex flex-col gap-2">
-              {splits.map((row, index) => (
-                <PaymentRow
-                  key={row.key}
-                  row={row}
-                  index={index}
-                  methods={methods}
-                  onChange={(patch) => updateRow(row.key, patch)}
-                  onRemove={() => removeRow(row.key)}
-                  vuelto={
-                    row.method === "cash" && row.tendered !== null && hayVuelto ? (
-                      <VueltoDeFila preview={vueltoDeFila.get(row.key)} viejo={vueltoViejo} />
-                    ) : null
-                  }
-                />
-              ))}
+              <span className="text-sm text-muted-foreground">Medio de pago</span>
+              <MethodButtons
+                label="Medio"
+                methods={methods}
+                value={single.method}
+                onChange={(method) => updateRow(single.key, { method })}
+              />
             </div>
-          )}
-
-          <div className="flex flex-wrap items-end gap-2">
-            {single ? (
-              <div className="min-w-0 flex-1 space-y-1">
-                <Label htmlFor={`amount-${single.key}`} className="text-[14px] text-muted-foreground">
-                  Monto
+            <div className="flex flex-col gap-2">
+              {single.method === "cash" ? (
+                <Label htmlFor={`tendered-${single.key}`} className="text-sm font-normal text-muted-foreground">
+                  Recibido
                 </Label>
-                <MoneyInput
-                  id={`amount-${single.key}`}
-                  value={single.amount}
-                  onChange={(value) => updateRow(single.key, { amount: value, amountTouched: true })}
-                />
+              ) : (
+                <span className="text-sm text-muted-foreground">Recibido</span>
+              )}
+              <div className="flex items-center gap-2">
+                <div className="flex h-16 min-w-0 flex-1 items-center rounded-[18px] bg-muted px-5">
+                  {single.method === "cash" ? (
+                    <MoneyInput
+                      id={`tendered-${single.key}`}
+                      value={single.tendered}
+                      onChange={(value) => updateRow(single.key, { tendered: value })}
+                      placeholder="$ 0"
+                      className="h-12 min-w-0 border-0 bg-transparent px-0 text-[26px] font-medium shadow-none placeholder:text-muted-foreground focus-visible:ring-2 md:text-[26px] dark:bg-transparent"
+                    />
+                  ) : (
+                    <b className="text-[26px] font-medium tabular-nums">{formatCOP(single.amount)}</b>
+                  )}
+                </div>
+                {single.method === "cash" ? (
+                  <TenderShortcuts
+                    amount={single.amount}
+                    tendered={single.tendered}
+                    onPick={(value) => updateRow(single.key, { tendered: value })}
+                  />
+                ) : null}
               </div>
+            </div>
+            {methods.find((m) => m.code === single.method)?.requires_reference ? (
+              <ReferenceField row={single} onChange={(patch) => updateRow(single.key, patch)} />
             ) : null}
-            <Button
+          </>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {splits.map((row, index) => (
+              <PaymentRow
+                key={row.key}
+                row={row}
+                index={index}
+                methods={methods}
+                onChange={(patch) => updateRow(row.key, patch)}
+                onRemove={() => removeRow(row.key)}
+                vuelto={
+                  row.method === "cash" && row.tendered !== null && hayVuelto ? (
+                    <VueltoDeFila preview={vueltoDeFila.get(row.key)} viejo={vueltoViejo} />
+                  ) : null
+                }
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Lo de segunda mano, en una fila chica: sumar billetes distintos y
+            dividir el pago entre medios. */}
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {single?.method === "cash" ? (
+              <button
+                type="button"
+                className={botonChico}
+                aria-expanded={showBills}
+                onClick={() => setShowBills((v) => !v)}
+              >
+                {showBills ? "Ocultar billetes" : "Sumar billetes"}
+              </button>
+            ) : null}
+            <button
               type="button"
-              variant="outline"
-              className="h-[56px] px-4 text-[15px]"
+              className={botonChico}
               onClick={() =>
                 // Lo que falta, que es lo que casi siempre va en la fila nueva.
                 setSplits((prev) => [...prev, newRow(methods[0].code, remaining > 0 ? remaining : null)])
               }
             >
               Agregar pago
-            </Button>
-            <p className="ml-auto self-center text-[14px] font-medium text-muted-foreground tabular-nums" role="status">
-              {remaining > 0
-                ? `Faltan ${formatCOP(remaining)}`
-                : remaining < 0
-                  ? `Sobran ${formatCOP(-remaining)}`
-                  : "Completo"}
-            </p>
+            </button>
+            {single ? null : (
+              <p className="ml-auto text-sm font-medium text-muted-foreground tabular-nums" role="status">
+                {remaining > 0
+                  ? `Faltan ${formatCOP(remaining)}`
+                  : remaining < 0
+                    ? `Sobran ${formatCOP(-remaining)}`
+                    : "Completo"}
+              </p>
+            )}
           </div>
+          {single?.method === "cash" && showBills ? (
+            <BillAdders tendered={single.tendered} onChange={(value) => updateRow(single.key, { tendered: value })} />
+          ) : null}
+        </div>
 
-          {single ? (
+        <div
+          role="status"
+          data-testid="cobro-vuelto"
+          className={cn(
+            "mt-auto flex items-baseline justify-between gap-3 rounded-[20px] px-5 py-[18px]",
+            estado.tono === "falta" ? "bg-destructive-soft text-destructive" : "bg-muted",
+            vueltoViejo && estado.tono !== "neutro" && "opacity-50",
+          )}
+        >
+          <span className="text-base font-semibold">{estado.rotulo}</span>
+          <b className="text-[40px] leading-none font-medium tracking-[-0.02em] tabular-nums">{estado.valor}</b>
+        </div>
+      </section>
+
+      {/* Cobrar pide el PIN aunque haya persona activa (SPEC-NEGOCIO §2.1:
+          una tablet abandonada no vende a nombre de quien la dejó). El
+          teclado ignora las teclas que van a otro campo (`PinPad`). */}
+      <section aria-label="PIN" className="flex flex-col gap-3.5 rounded-[24px] bg-card p-5">
+        <span className="text-center text-sm text-muted-foreground">
+          {nombrePin ? (
             <>
-              <RecibidoBox row={single} methods={methods} onChange={(patch) => updateRow(single.key, patch)} />
-              {single.method === "cash" ? (
-                <div className="flex flex-col gap-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-11 self-start px-2 text-[14px]"
-                    aria-expanded={showBills}
-                    onClick={() => setShowBills((v) => !v)}
-                  >
-                    {showBills ? "Ocultar billetes" : "Sumar billetes"}
-                  </Button>
-                  {showBills ? (
-                    <BillAdders
-                      tendered={single.tendered}
-                      onChange={(value) => updateRow(single.key, { tendered: value })}
-                    />
-                  ) : null}
-                </div>
-              ) : null}
-              {methods.find((m) => m.code === single.method)?.requires_reference ? (
-                <ReferenceField row={single} onChange={(patch) => updateRow(single.key, patch)} />
-              ) : null}
+              PIN de <b className="font-normal">{nombrePin}</b> para cobrar
             </>
-          ) : null}
-
-          {error ? (
-            <p role="alert" className="text-center text-[15px] text-destructive">
-              {error}
-            </p>
-          ) : null}
-
-          <Button
+          ) : (
+            "PIN de quien cobra"
+          )}
+        </span>
+        <PinPad
+          key={pinKey}
+          length={4}
+          label="PIN propio para cobrar"
+          burbuja="cobro"
+          holdValue
+          onChange={setPin}
+          onSubmit={() => {}}
+          disabled={mutation.isPending}
+        />
+        {error ? (
+          <p role="alert" className="text-center text-sm font-medium text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <div className="mt-auto flex flex-col gap-2">
+          <button
             type="button"
-            className="h-[72px] gap-2.5 rounded-[14px] text-[22px] font-extrabold [&_svg]:size-[26px]"
+            className={cn(
+              "h-[72px] rounded-[20px] text-lg font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              puedeCobrar ? "bg-primary text-primary-foreground hover:bg-primary/90" : "bg-muted text-muted-foreground",
+            )}
             disabled={!puedeCobrar}
             onClick={() => mutation.mutate(pin)}
           >
-            <Check aria-hidden="true" />
             {mutation.isPending ? "Cobrando…" : `Cobrar ${formatCOP(totalDue)}`}
-          </Button>
-          <p className="text-center text-[14px] text-muted-foreground">{ayuda}</p>
+          </button>
+          <p className="text-center text-[13px] text-muted-foreground">{ayuda}</p>
         </div>
-
-        {/* Cobrar pide el PIN aunque haya persona activa (SPEC-NEGOCIO §2.1:
-            una tablet abandonada no vende a nombre de quien la dejó). El
-            teclado ignora las teclas que van a otro campo (`PinPad`). */}
-        <div
-          className={cn(
-            "flex flex-col gap-2 self-start rounded-[14px] border bg-card p-2.5",
-            "[&_.grid]:w-full [&_.grid]:gap-1.5 [&_.grid_button]:h-[56px] [&_.grid_button]:w-full [&_.grid_button]:rounded-[10px] [&_.grid_button]:text-[22px] [&_.grid_button]:font-semibold",
-          )}
-        >
-          <PinPad
-            key={pinKey}
-            length={4}
-            label="PIN propio para cobrar"
-            heading="PIN de quien cobra"
-            holdValue
-            onChange={setPin}
-            onSubmit={() => {}}
-            disabled={mutation.isPending}
-          />
-          {chargerName ? (
-            <p className="text-center text-[13px] text-muted-foreground">
-              Cobra <b className="text-foreground">{chargerName}</b>
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </div>
+      </section>
+    </>
   );
 }
 
-/** Los medios de pago de la sede como fila de botones (radio): un toque, no dos. */
+/** Los botones de segunda mano del pago: pastilla gris de 44 px. */
+const botonChico =
+  "h-11 rounded-full bg-muted px-4 text-sm font-semibold transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
+
+/**
+ * Los medios de pago de la sede en un interruptor segmentado (radio): un
+ * toque, no dos. Hasta cinco por fila, de 60 px (56 en un pago mixto).
+ */
 function MethodButtons({
   label,
   methods,
   value,
-  size,
+  chico = false,
   onChange,
 }: {
   label: string;
   methods: DevicePaymentMethod[];
   value: PaymentMethod;
-  size: "grande" | "chico";
+  chico?: boolean;
   onChange: (method: PaymentMethod) => void;
 }): React.JSX.Element {
   const labelId = useId();
   return (
-    <div className="flex flex-col gap-1">
+    <>
       <span id={labelId} className="sr-only">
         {label}
       </span>
       <div
         role="radiogroup"
         aria-labelledby={labelId}
-        className="grid gap-2"
+        className={cn("grid gap-1 p-1", chico ? "rounded-2xl bg-card" : "rounded-[18px] bg-muted")}
         style={{ gridTemplateColumns: `repeat(${Math.min(methods.length, 5)}, minmax(0, 1fr))` }}
       >
         {methods.map((method) => {
           const selected = value === method.code;
-          const Icon = methodIcon(method);
           return (
             <button
               key={method.code}
@@ -539,70 +521,33 @@ function MethodButtons({
               role="radio"
               aria-checked={selected}
               className={cn(
-                "flex min-w-0 items-center justify-center gap-2 rounded-lg border-2 px-2 font-bold transition-colors",
+                "min-w-0 truncate rounded-[14px] px-2 text-sm transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                size === "grande" ? "h-[64px] text-[16px] [&_svg]:size-5" : "h-[56px] text-[15px] [&_svg]:size-[18px]",
+                chico ? "h-12" : "h-[60px]",
                 selected
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-foreground hover:bg-muted",
+                  ? cn("font-semibold text-foreground shadow-[0_1px_2px_rgb(0_0_0/8%)]", chico ? "bg-muted" : "bg-card")
+                  : "font-medium text-foreground",
               )}
               onClick={() => onChange(method.code)}
             >
-              <Icon aria-hidden="true" />
-              <span className="truncate">{method.label || PAYMENT_METHOD_LABEL[method.code] || method.code}</span>
+              {method.label || PAYMENT_METHOD_LABEL[method.code] || method.code}
             </button>
           );
         })}
       </div>
-    </div>
-  );
-}
-
-/** «Recibido · Efectivo  $ 150.000»: siempre a la vista. En efectivo se teclea; con otro medio es el monto. */
-function RecibidoBox({
-  row,
-  methods,
-  onChange,
-}: {
-  row: SplitRow;
-  methods: DevicePaymentMethod[];
-  onChange: (patch: Partial<SplitRow>) => void;
-}): React.JSX.Element {
-  const medio = methodLabel(methods, row.method);
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border bg-card px-3.5 py-2">
-      <span className="shrink-0 text-[16px] text-muted-foreground">
-        {row.method === "cash" ? (
-          <Label htmlFor={`tendered-${row.key}`} className="inline text-[16px] font-normal text-muted-foreground">
-            Recibido
-          </Label>
-        ) : (
-          "Recibido"
-        )}{" "}
-        · {medio}
-      </span>
-      {row.method === "cash" ? (
-        <MoneyInput
-          id={`tendered-${row.key}`}
-          value={row.tendered}
-          onChange={(value) => onChange({ tendered: value })}
-          placeholder="—"
-          className="h-[44px] min-w-0 border-0 bg-transparent text-right text-[26px] font-bold shadow-none placeholder:text-foreground focus-visible:ring-2 md:text-[26px]"
-        />
-      ) : (
-        <b className="text-[26px] tabular-nums">{formatCOP(row.amount)}</b>
-      )}
-    </div>
+    </>
   );
 }
 
 function ReferenceField({ row, onChange }: { row: SplitRow; onChange: (patch: Partial<SplitRow>) => void }) {
   return (
     <div className="space-y-1">
-      <Label htmlFor={`reference-${row.key}`}>Referencia (si aplica)</Label>
+      <Label htmlFor={`reference-${row.key}`} className="text-sm font-normal text-muted-foreground">
+        Referencia (si aplica)
+      </Label>
       <Input
         id={`reference-${row.key}`}
-        className="h-11"
+        className="h-12 rounded-[14px] border-0 bg-muted text-base"
         value={row.reference}
         onChange={(event) => onChange({ reference: event.target.value })}
       />
@@ -619,21 +564,20 @@ function BillAdders({
   onChange: (value: number | null) => void;
 }): React.JSX.Element {
   return (
-    <div className="flex flex-wrap gap-1" role="group" aria-label="Sumar billetes a lo recibido">
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sumar billetes a lo recibido">
       {CASH_SHORTCUTS.map((bill) => (
-        <Button
+        <button
           key={bill}
           type="button"
-          variant="outline"
-          className="h-11 px-2 text-[13px]"
+          className={cn(botonChico, "px-3 tabular-nums")}
           onClick={() => onChange((tendered ?? 0) + bill)}
         >
           +{formatCOP(bill)}
-        </Button>
+        </button>
       ))}
-      <Button type="button" variant="ghost" className="h-11 px-2 text-[13px]" onClick={() => onChange(null)}>
+      <button type="button" className={cn(botonChico, "bg-transparent px-3")} onClick={() => onChange(null)}>
         Limpiar
-      </Button>
+      </button>
     </div>
   );
 }
@@ -659,23 +603,25 @@ function PaymentRow({
   vuelto: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <div className="space-y-2 rounded-lg border bg-card p-2.5">
+    <div className="flex flex-col gap-2.5 rounded-[18px] bg-muted p-3.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[14px] font-semibold">Pago {index + 1}</span>
-        <Button type="button" variant="ghost" className="h-11" aria-label="Quitar este pago" onClick={onRemove}>
+        <span className="text-[15px] font-semibold">Pago {index + 1}</span>
+        <button type="button" className={cn(botonChico, "bg-card")} aria-label="Quitar este pago" onClick={onRemove}>
           Quitar
-        </Button>
+        </button>
       </div>
       <MethodButtons
         label={`Pago ${index + 1} · medio`}
         methods={methods}
         value={row.method}
-        size="chico"
+        chico
         onChange={(method) => onChange({ method })}
       />
       <div className={cn("grid gap-2", row.method === "cash" && "grid-cols-2")}>
         <div className="space-y-1">
-          <Label htmlFor={`amount-${row.key}`}>Monto</Label>
+          <Label htmlFor={`amount-${row.key}`} className="text-[13px] font-normal text-muted-foreground">
+            Monto
+          </Label>
           <MoneyInput
             id={`amount-${row.key}`}
             value={row.amount}
@@ -684,7 +630,9 @@ function PaymentRow({
         </div>
         {row.method === "cash" ? (
           <div className="space-y-1">
-            <Label htmlFor={`tendered-${row.key}`}>Recibido</Label>
+            <Label htmlFor={`tendered-${row.key}`} className="text-[13px] font-normal text-muted-foreground">
+              Recibido
+            </Label>
             <MoneyInput
               id={`tendered-${row.key}`}
               value={row.tendered}
@@ -696,7 +644,6 @@ function PaymentRow({
       {row.method === "cash" ? (
         <>
           <TenderShortcuts
-            enabled
             compact
             amount={row.amount}
             tendered={row.tendered}
@@ -713,20 +660,18 @@ function PaymentRow({
 }
 
 /**
- * «Exacto $ 135.000 · Recibe $ 140.000 · $ 150.000 · $ 200.000»: lo que el
- * cliente entrega casi siempre, a un toque. Las cifras redondas las calcula
- * el servidor (`GET /payments/tender-suggestions`); «Exacto» es el monto de
- * la fila tal cual, sin cuenta. Con otro medio que no es efectivo se atenúa:
- * lo recibido es el total.
+ * «Exacto · $ 160.000 · $ 200.000»: lo que el cliente entrega casi siempre,
+ * a un toque, en botones de 64 px al lado de «Recibido»; el elegido va en
+ * tinta. Las cifras redondas las calcula el servidor (`GET
+ * /payments/tender-suggestions`); «Exacto» es el monto de la fila tal cual,
+ * sin cuenta.
  */
 function TenderShortcuts({
-  enabled,
   compact = false,
   amount,
   tendered,
   onPick,
 }: {
-  enabled: boolean;
   compact?: boolean;
   amount: number | null;
   tendered: number | null;
@@ -740,47 +685,37 @@ function TenderShortcuts({
   const query = useQuery({
     queryKey: ["payments", "tender-suggestions", deferred],
     queryFn: () => getTenderSuggestions(deferred ?? 0),
-    enabled: enabled && deferred !== null && deferred > 0,
+    enabled: deferred !== null && deferred > 0,
     staleTime: Infinity,
   });
   if (amount === null || amount <= 0) return null;
   // Sugerencias de otro monto (todavía se está tecleando) no se ofrecen.
-  const suggestions = deferred === amount ? (query.data?.suggestions ?? []).slice(0, 3) : [];
+  const suggestions = deferred === amount ? (query.data?.suggestions ?? []).slice(0, 2) : [];
   const botonClass = (on: boolean) =>
     cn(
-      "flex min-w-0 flex-col items-center justify-center rounded-lg border-2 leading-tight font-bold tabular-nums transition-colors",
-      "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none",
-      compact ? "h-[56px] text-[16px]" : "h-[64px] text-[19px]",
-      on ? "border-primary bg-accent" : "border-border bg-card hover:bg-muted",
+      "shrink-0 px-4 text-sm font-semibold whitespace-nowrap tabular-nums transition-colors",
+      "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+      compact ? "h-12 rounded-[14px]" : "h-16 rounded-[18px]",
+      on ? "bg-foreground text-card" : compact ? "bg-card text-foreground" : "bg-muted text-foreground hover:bg-fill-strong",
     );
   return (
-    <div
-      className={cn("grid grid-cols-4 gap-2", !enabled && "opacity-45")}
-      role="group"
-      aria-label="Recibido en un toque"
-    >
+    <div className="flex flex-wrap gap-2" role="group" aria-label="Recibido en un toque">
       <button
         type="button"
-        aria-pressed={enabled && tendered === amount}
-        disabled={!enabled}
-        className={botonClass(enabled && tendered === amount)}
+        aria-pressed={tendered === amount}
+        className={botonClass(tendered === amount)}
         onClick={() => onPick(amount)}
       >
-        <span className="text-[13px] font-semibold text-muted-foreground">Exacto</span>
-        <span aria-hidden="true">{formatCOP(amount)}</span>
+        Exacto
       </button>
       {suggestions.map((value) => (
         <button
           key={value}
           type="button"
-          aria-pressed={enabled && tendered === value}
-          disabled={!enabled}
-          className={botonClass(enabled && tendered === value)}
+          aria-pressed={tendered === value}
+          className={botonClass(tendered === value)}
           onClick={() => onPick(value)}
         >
-          <span aria-hidden="true" className="text-[13px] font-semibold text-muted-foreground">
-            Recibe
-          </span>
           {formatCOP(value)}
         </button>
       ))}

@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError } from "@/api/client";
 import type { BillSplitEqualOut, BillSplitItemsOut, OrderItemOut, SplitGroupIn } from "@/api/orders";
 import { splitBill } from "@/api/orders";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -52,11 +51,18 @@ const NO_GROUP = "__none__";
  */
 function segmentClass(selected: boolean): string {
   return cn(
-    "h-[56px] min-w-0 rounded-lg border px-2 text-[15px] font-bold transition-colors",
+    "h-12 min-w-0 rounded-xl px-2 text-[15px] transition-colors",
     "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
-    selected ? "border-foreground bg-foreground text-background" : "border-border bg-background hover:bg-muted",
+    selected ? "bg-card font-semibold shadow-[0_1px_2px_rgb(0_0_0/8%)]" : "font-medium hover:text-foreground",
   );
 }
+
+/** El contenedor del segmentado (handoff POS «Burbujas» § 2). */
+const SEGMENTADO = "grid gap-1 rounded-2xl bg-muted p-1";
+
+/** Un botón de segunda mano: pastilla gris de 44 px. */
+const BOTON_CHICO =
+  "inline-flex h-11 shrink-0 items-center gap-1.5 rounded-full bg-muted px-4 text-sm font-semibold transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50 [&_svg]:size-4";
 
 /** «Asiento 2» o, sin asiento, «Sin asiento»: los grupos de «Por asiento». */
 function seatGroups(items: OrderItemOut[]): { seat: number | null; items: OrderItemOut[] }[] {
@@ -134,15 +140,10 @@ export function SplitBillPanel({
   // dividir. Dividida (B): los tres modos, y la vuelta a «todo junto».
   if (mode === "none" && !locked) {
     return (
-      <Button
-        type="button"
-        variant="outline"
-        className="h-[56px] w-full text-[16px] font-semibold [&_svg]:size-5"
-        onClick={() => onModeChange(seatsAvailable ? "seat" : "equal")}
-      >
+      <button type="button" className={BOTON_CHICO} onClick={() => onModeChange(seatsAvailable ? "seat" : "equal")}>
         <Split aria-hidden="true" />
         Dividir la cuenta
-      </Button>
+      </button>
     );
   }
 
@@ -156,7 +157,7 @@ export function SplitBillPanel({
   return (
     <div className="flex flex-col gap-2.5">
       <div
-        className="grid gap-1.5"
+        className={SEGMENTADO}
         style={{ gridTemplateColumns: `repeat(${modes.length}, minmax(0, 1fr))` }}
         role="group"
         aria-label="Cómo se cobra la cuenta"
@@ -176,11 +177,18 @@ export function SplitBillPanel({
       </div>
 
       {locked ? (
-        <p className="text-[14px] text-muted-foreground">Ya hay partes cobradas: la división no se puede cambiar.</p>
+        <p className="px-1 text-sm text-muted-foreground">Ya hay partes cobradas: la división no se puede cambiar.</p>
       ) : (
-        <Button type="button" variant="ghost" className="h-11 self-start text-[15px]" onClick={() => onModeChange("none")}>
-          Cobrar todo junto
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className={BOTON_CHICO} onClick={() => onModeChange("none")}>
+            Cobrar todo junto
+          </button>
+          {(mode === "items" || mode === "seat") && hasParts && !rearmando ? (
+            <button type="button" className={BOTON_CHICO} onClick={() => setRearmando(true)}>
+              Rehacer la división
+            </button>
+          ) : null}
+        </div>
       )}
 
       {error ? (
@@ -189,14 +197,8 @@ export function SplitBillPanel({
         </p>
       ) : null}
 
-      {!locked && (mode === "items" || mode === "seat") && hasParts && !rearmando ? (
-        <Button type="button" variant="ghost" className="h-11 self-start text-[15px]" onClick={() => setRearmando(true)}>
-          Rehacer la división
-        </Button>
-      ) : null}
-
       {building && mode === "seat" ? (
-        <div className="flex flex-col gap-2 rounded-lg border p-3">
+        <div className="flex flex-col gap-2.5 rounded-[18px] bg-muted p-3.5">
           <ul className="flex flex-col gap-1.5 text-[15px]">
             {seatGroups(items).map(({ seat, items: list }) => (
               <li key={seat ?? "sin-asiento"} className="flex gap-2">
@@ -207,20 +209,19 @@ export function SplitBillPanel({
               </li>
             ))}
           </ul>
-          <Button
+          <button
             type="button"
-            variant="outline"
-            className="h-[56px] text-[16px] font-semibold"
+            className="h-14 rounded-2xl bg-card text-[15px] font-semibold disabled:opacity-50"
             disabled={itemsMutation.isPending || items.length === 0}
             onClick={splitBySeat}
           >
             {itemsMutation.isPending ? "Dividiendo…" : "Dividir por asiento"}
-          </Button>
+          </button>
         </div>
       ) : null}
 
       {building && mode === "items" ? (
-        <div className="flex flex-col gap-3 rounded-lg border p-3">
+        <div className="flex flex-col gap-3 rounded-[18px] bg-muted p-3.5">
           <div className="flex flex-wrap items-end gap-2">
             {groupLabels.map((label, index) => (
               <div key={index} className="space-y-1">
@@ -235,19 +236,18 @@ export function SplitBillPanel({
                 />
               </div>
             ))}
-            <Button
+            <button
               type="button"
-              variant="outline"
-              className="h-11"
+              className={cn(BOTON_CHICO, "bg-card")}
               onClick={() => setGroupLabels((prev) => [...prev, `Cuenta ${prev.length + 1}`])}
             >
               Agregar cuenta
-            </Button>
+            </button>
           </div>
 
           <div className="space-y-2">
             {items.map((item) => (
-              <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2">
+              <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-card p-2 pl-3">
                 <span className="text-sm">
                   {item.qty ?? 1}× {item.name ?? "Ítem"}
                 </span>
@@ -277,15 +277,14 @@ export function SplitBillPanel({
             {unassigned.length === 0 ? "Todos los ítems están asignados." : `${unassigned.length} ítem(s) sin asignar.`}
           </p>
 
-          <Button
+          <button
             type="button"
-            variant="outline"
-            className="h-[56px] text-[16px] font-semibold"
+            className="h-14 rounded-2xl bg-card text-[15px] font-semibold disabled:opacity-50"
             disabled={itemsMutation.isPending || unassigned.length > 0 || items.length === 0}
             onClick={splitByItems}
           >
             {itemsMutation.isPending ? "Dividiendo…" : "Dividir cuenta"}
-          </Button>
+          </button>
         </div>
       ) : null}
     </div>
@@ -364,9 +363,9 @@ export function EqualSplitPicker({
   const due = result?.per_part_due && result.per_part_due.length > 0 ? result.per_part_due : result?.per_part;
 
   return (
-    <div className="space-y-2 rounded-md border p-3">
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Partes">
-        <span className="text-sm font-medium">Partes</span>
+    <div className="flex flex-col gap-2.5">
+      <div className="flex flex-wrap items-center gap-1 rounded-2xl bg-muted p-1" role="group" aria-label="Partes">
+        <span className="px-2 text-sm text-muted-foreground">Partes</span>
         {QUICK_PARTS.map((n) => (
           <button
             key={n}
@@ -416,7 +415,7 @@ export function EqualSplitPicker({
               servidor exige que los pagos sumen el total de una vez, así
               que acá no hay «cobrar parte 3» — cada parte es una fila de
               Pagos, abajo, con su medio. */}
-          <p className="text-sm text-muted-foreground">
+          <p className="px-1 text-[13px] text-muted-foreground">
             {result?.tip_amount
               ? "Cada parte ya incluye su propina. Se cobran juntas, en un solo comprobante: elegí abajo el medio de cada una."
               : "Las partes se cobran juntas, en un solo comprobante: elegí abajo, en Pagos, el medio de cada una."}
@@ -463,35 +462,34 @@ const STATE_TEXT: Record<SplitPartState, string> = {
 const STATE_ICON = { paid: CircleCheck, active: HandCoins, pending: Clock } as const;
 
 const STATE_CHIP: Record<SplitPartState, string> = {
-  paid: "bg-success/16 text-success",
-  active: "bg-accent text-accent-foreground",
-  pending: "bg-muted text-muted-foreground",
+  paid: "bg-success-soft text-success",
+  active: "bg-foreground text-card",
+  pending: "bg-card text-muted-foreground",
 };
 
 /**
- * Las partes de una cuenta dividida como tarjetas (handoff `PosCobro` B):
+ * Las partes de una cuenta dividida como pozos (handoff POS «Burbujas»):
  * «Parte 2 · Asiento 2», el chip de estado con palabra e ícono (Pagada /
  * Cobrando / Pendiente), los platos, el monto y, cobrada, con qué se pagó.
- * La que se está cobrando lleva el borde de acción (`primary`) sobre
- * `accent`; la cajera avanza de arriba abajo y el sistema nunca pierde qué
+ * La que se está cobrando lleva un anillo de tinta; la cajera avanza de arriba abajo y el sistema nunca pierde qué
  * falta. Ningún monto se calcula acá: cada uno llega del servidor
  * (`per_part_due`/`per_part` o `totals.total` de la sub-cuenta).
  */
 export function SplitPartsList({ parts, onSelect }: SplitPartsListProps): React.JSX.Element {
   return (
-    <ol aria-label="Partes de la cuenta" className="flex flex-col gap-2.5">
+    <ol aria-label="Partes de la cuenta" className="flex flex-col gap-2">
       {parts.map((part) => {
         const Icon = STATE_ICON[part.state];
         const contenido = (
           <>
             <span className="flex w-full items-center gap-2">
-              <b className="flex-1 text-[17px]">
+              <b className="flex-1 text-base font-semibold">
                 Parte {part.number}
                 {part.label ? ` · ${part.label}` : ""}
               </b>
               <span
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-full px-2.5 py-[3px] text-[13px] font-bold",
+                  "inline-flex h-[26px] items-center gap-1 rounded-full px-2.5 text-xs font-semibold",
                   STATE_CHIP[part.state],
                 )}
               >
@@ -499,13 +497,13 @@ export function SplitPartsList({ parts, onSelect }: SplitPartsListProps): React.
                 {STATE_TEXT[part.state]}
               </span>
             </span>
-            {part.dishes ? <span className="text-[14px] text-muted-foreground">{part.dishes}</span> : null}
-            <span className="flex w-full items-baseline justify-between gap-2 text-[15px]">
+            {part.dishes ? <span className="text-[13px] text-muted-foreground">{part.dishes}</span> : null}
+            <span className="flex w-full items-baseline justify-between gap-2 text-[13px]">
               <span className="text-muted-foreground">{part.detail ?? ""}</span>
-              <b className="text-[18px] tabular-nums">{formatCOP(part.amount)}</b>
+              <b className="text-base font-semibold tabular-nums">{formatCOP(part.amount)}</b>
             </span>
             {part.state === "paid" && part.paidWith ? (
-              <span className="flex items-center gap-1.5 text-[14px]">
+              <span className="flex items-center gap-1.5 text-[13px]">
                 <Wallet className="size-4" aria-hidden="true" />
                 {part.paidWith}
                 {part.withInvoice ? " · con factura" : ""}
@@ -514,15 +512,15 @@ export function SplitPartsList({ parts, onSelect }: SplitPartsListProps): React.
           </>
         );
         const clases = cn(
-          "flex w-full flex-col items-start gap-1.5 rounded-lg border-2 p-3 text-left",
-          part.state === "active" ? "border-primary bg-accent" : "border-border bg-background",
+          "flex w-full flex-col items-start gap-1 rounded-[18px] bg-muted px-3.5 py-3 text-left",
+          part.state === "active" && "shadow-[inset_0_0_0_2px_var(--foreground)]",
         );
         return (
           <li key={part.key} aria-current={part.state === "active" ? "step" : undefined}>
             {onSelect && part.state === "pending" ? (
               <button
                 type="button"
-                className={cn(clases, "transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
+                className={cn(clases, "transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
                 onClick={() => onSelect(part.key)}
               >
                 {contenido}

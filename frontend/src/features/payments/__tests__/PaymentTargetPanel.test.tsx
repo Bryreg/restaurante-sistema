@@ -40,8 +40,8 @@ describe("PaymentTargetPanel — A-10 (la venta discriminada, y el total que hay
 
     expect(await screen.findByText("Consumo")).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?50\.000/).length).toBeGreaterThan(0);
-    expect(await screen.findByText(/total a cobrar/i)).toBeInTheDocument();
-    expect(screen.queryByText("Propina (no es venta)")).not.toBeInTheDocument();
+    expect((await screen.findAllByText(/total a cobrar/i)).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Propina, no es venta")).not.toBeInTheDocument();
   });
 
   it("con propina aceptada muestra el total a cobrar, que es el número que el mesero necesita", async () => {
@@ -73,8 +73,8 @@ describe("PaymentTargetPanel — A-10 (la venta discriminada, y el total que hay
     // y del impuesto), pero el total existe: sin él, el mesero suma de cabeza
     // delante del cliente. 85.000 + 7.870.
     expect(await screen.findByText("Consumo")).toBeInTheDocument();
-    expect(screen.getByText("Propina (no es venta)")).toBeInTheDocument();
-    expect(await screen.findByText("Total a cobrar")).toBeInTheDocument();
+    expect(screen.getByText("Propina, no es venta")).toBeInTheDocument();
+    expect(await screen.findAllByText("Total a cobrar")).toHaveLength(2);
     expect(screen.getAllByText(/\$\s?92\.870/).length).toBeGreaterThan(0);
   });
 

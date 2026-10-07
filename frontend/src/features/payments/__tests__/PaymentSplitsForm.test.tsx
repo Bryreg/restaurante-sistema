@@ -131,46 +131,55 @@ describe("PaymentSplitsForm — el monto arranca con lo que hay que cobrar", () 
 
   it("la primera fila viene con el total, sin teclear nada", async () => {
     vi.mocked(listDevicePaymentMethods).mockResolvedValue(soloEfectivo);
+    vi.mocked(previewChange).mockResolvedValue({ splits: [{ change: 0, short_by: null }], change_total: 0 });
     renderForm();
 
-    const monto = await screen.findByLabelText<HTMLInputElement>("Monto");
-    await waitFor(() => expect(monto.value).toBe("$ 50.000"));
+    // «Exacto» llena lo recibido con el monto de la fila: si el pago queda
+    // completo sin teclear el monto, es que la fila ya traía el total.
+    const user = userEvent.setup();
+    const atajos = await screen.findByRole("group", { name: "Recibido en un toque" });
+    await user.click(within(atajos).getByRole("button", { name: "Exacto" }));
+    expect(screen.getByLabelText<HTMLInputElement>("Recibido").value).toBe("$ 50.000");
+    expect(await screen.findByText("Falta tu PIN para confirmar.")).toBeInTheDocument();
     expect(screen.queryByText(/Faltan/)).not.toBeInTheDocument();
   });
 
   it("se puede bajar para armar un pago dividido, y la fila nueva trae lo que falta", async () => {
     vi.mocked(listDevicePaymentMethods).mockResolvedValue(soloEfectivo);
     renderForm();
-
-    const monto = await screen.findByLabelText<HTMLInputElement>("Monto");
-    await waitFor(() => expect(monto.value).toBe("$ 50.000"));
-
     const user = userEvent.setup();
-    await user.clear(monto);
-    await user.type(monto, "20000");
+
+    // El pago mixto se abre con «Agregar pago»: la primera fila conserva el total.
+    await user.click(await screen.findByRole("button", { name: "Agregar pago" }));
+    const [monto] = await screen.findAllByLabelText<HTMLInputElement>("Monto");
+    await waitFor(() => expect(monto!.value).toBe("$ 50.000"));
+
+    await user.clear(monto!);
+    await user.type(monto!, "20000");
     await waitFor(() => expect(screen.getByText(/Faltan .*30\.000/)).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "Agregar pago" }));
     const montos = await screen.findAllByLabelText<HTMLInputElement>("Monto");
-    expect(montos).toHaveLength(2);
-    await waitFor(() => expect(montos[1]!.value).toBe("$ 30.000"));
+    expect(montos).toHaveLength(3);
+    await waitFor(() => expect(montos[2]!.value).toBe("$ 30.000"));
     expect(screen.queryByText(/Faltan/)).not.toBeInTheDocument();
   });
 
   it("una fila que ya se editó no vuelve a seguir al total", async () => {
     vi.mocked(listDevicePaymentMethods).mockResolvedValue(soloEfectivo);
     renderForm();
-
-    const monto = await screen.findByLabelText<HTMLInputElement>("Monto");
-    await waitFor(() => expect(monto.value).toBe("$ 50.000"));
-
     const user = userEvent.setup();
-    await user.clear(monto);
-    await user.type(monto, "20000");
-    await waitFor(() => expect(monto.value).toBe("20000"));
+
+    await user.click(await screen.findByRole("button", { name: "Agregar pago" }));
+    const [monto] = await screen.findAllByLabelText<HTMLInputElement>("Monto");
+    await waitFor(() => expect(monto!.value).toBe("$ 50.000"));
+
+    await user.clear(monto!);
+    await user.type(monto!, "20000");
+    await waitFor(() => expect(monto!.value).toBe("20000"));
     // Sin más interacción, lo tecleado se queda: nada lo pisa.
     await new Promise((r) => setTimeout(r, 50));
-    expect(monto.value).toBe("20000");
+    expect(monto!.value).toBe("20000");
   });
 });
 
@@ -233,18 +242,21 @@ describe("PaymentSplitsForm — el vuelto antes de cobrar", () => {
     vi.mocked(previewChange).mockResolvedValue({ splits: [{ change: 1234, short_by: null }], change_total: 1234 });
 
     renderForm();
-    const monto = await screen.findByLabelText<HTMLInputElement>("Monto");
     const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Agregar pago" }));
+    const [monto] = await screen.findAllByLabelText<HTMLInputElement>("Monto");
     // Monto a medias (faltan $30.000) y recibido de sobra para ese monto.
-    await user.clear(monto);
-    await user.type(monto, "20000");
-    await user.click(screen.getByRole("button", { name: "Sumar billetes" }));
-    await user.click(screen.getByRole("button", { name: "+$ 50.000" }));
+    await user.clear(monto!);
+    await user.type(monto!, "20000");
+    const [recibido] = screen.getAllByLabelText<HTMLInputElement>("Recibido");
+    await user.type(recibido!, "50000");
+    await user.tab();
 
     await waitFor(() => expect(previewChange).toHaveBeenCalledWith([{ amount: 20000, tendered: 50000 }]));
     expect(await screen.findByText(/faltan \$\s?30\.000/i)).toBeInTheDocument();
-    // La caja dice «Vuelto —»: con montos a medio teclear no hay vuelto que decir.
-    expect(screen.queryByText("$ 1.234")).not.toBeInTheDocument();
+    // El pozo del vuelto dice «Vuelto —»: con montos a medio teclear no hay
+    // vuelto total que decir.
+    expect(screen.getByTestId("cobro-vuelto")).not.toHaveTextContent("1.234");
   });
 });
 
@@ -331,9 +343,11 @@ describe("PaymentSplitsForm — «Cobrar $ X» (handoff PosCobro)", () => {
     await screen.findByText("Pagos");
     await user.click(screen.getByRole("radio", { name: "Tarjeta" }));
 
-    expect(screen.getByText("No aplica")).toBeInTheDocument();
-    expect(screen.getByText("Recibido · Tarjeta")).toBeInTheDocument();
-    // Los montos rápidos son de efectivo: con tarjeta no se tocan.
-    expect(within(screen.getByRole("group", { name: "Recibido en un toque" })).getByRole("button", { name: "Exacto" })).toBeDisabled();
+    expect(screen.getByText("Vuelto · no aplica")).toBeInTheDocument();
+    expect(screen.getByTestId("cobro-vuelto")).toHaveTextContent("—");
+    expect(screen.getByText("Recibido")).toBeInTheDocument();
+    expect(screen.getAllByText("$ 50.000").length).toBeGreaterThan(0);
+    // Los montos rápidos son de efectivo: con tarjeta no se ofrecen.
+    expect(screen.queryByRole("group", { name: "Recibido en un toque" })).not.toBeInTheDocument();
   });
 });

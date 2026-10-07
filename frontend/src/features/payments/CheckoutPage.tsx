@@ -1,5 +1,4 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -20,7 +19,6 @@ import {
 import { PAYMENT_METHOD_LABEL, type PaymentMethod, type PaymentOut } from "@/api/payments";
 import { Cargando } from "@/components/Cargando";
 import { EmptyState } from "@/components/EmptyState";
-import { Button } from "@/components/ui/button";
 import { formatClockTime } from "@/lib/businessDate";
 import { errorMessage } from "@/lib/errors";
 import { formatCOP } from "@/lib/money";
@@ -52,14 +50,6 @@ function paidWithText(doc: DocumentPrintable | undefined): string | null {
   return medios.length > 0 ? [...new Set(medios)].join(" + ") : null;
 }
 
-/** «Mesa 4 · 3 comensales», o el canal y el número si no es de mesa. */
-function orderTitle(order: OrderOut): string {
-  const mesas = (order.tables ?? []).map((t) => t.number).join(", ");
-  const partes = [mesas ? `Mesa ${mesas}` : `Comanda #${order.id}`];
-  if (order.covers) partes.push(`${order.covers} ${order.covers === 1 ? "comensal" : "comensales"}`);
-  return partes.join(" · ");
-}
-
 /** El nombre de fábrica de una sub-cuenta («Cuenta 3») no suma nada al lado de «Parte 3». */
 function customLabel(sa: SubAccountOut, number: number): string | null {
   const label = sa.label?.trim();
@@ -79,10 +69,11 @@ function customLabel(sa: SubAccountOut, number: number): string | null {
  * cobra con `PaymentTargetPanel` (comanda entera o una sub-cuenta) y, con el
  * documento que vuelve, navega a `/pos/documento/:id`.
  *
- * **Forma** (handoff `PosCobro`, tablet apaisada): a la izquierda, 440 px
- * con la cuenta —las líneas, «Consumo» con el impuesto incluido, la propina
- * en tres opciones y el libro con doble raya «Propina (no es venta)»—; a la
- * derecha, el cobro (`PaymentSplitsForm`). En vertical, una columna.
+ * **Forma** (handoff `design_handoff_pos_burbujas`, 9d y 9f; tablet
+ * apaisada): tres burbujas, `400px · 1fr · 300px`. La cuenta —las líneas en
+ * un pozo con el impuesto incluido al pie, la propina en un segmentado de
+ * 60 px y, abajo, consumo, «Propina, no es venta» y total—; el pago y el PIN
+ * (`PaymentSplitsForm`). En vertical, una columna.
  *
  * Dividida (por asiento o por plato), las sub-cuentas son tarjetas
  * (`SplitPartsList`) que se cobran de arriba abajo, de a una: la que sigue
@@ -260,13 +251,13 @@ export default function CheckoutPage(): React.JSX.Element {
 
   if (order.status === "paid") {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 rounded-[24px] bg-card p-6">
         <EmptyState title="Esta comanda ya fue cobrada" description="Consultá el comprobante." />
         {order.document_id ? (
           <div className="flex justify-center">
             <button
               type="button"
-              className="h-11 rounded-md border px-4 text-sm font-medium"
+              className="h-14 rounded-2xl bg-muted px-5 text-[15px] font-semibold"
               onClick={() => navigate(`/pos/documento/${order.document_id}`)}
             >
               Ver comprobante
@@ -341,159 +332,173 @@ export default function CheckoutPage(): React.JSX.Element {
   const taxName = items.some((item) => item.tax_code?.startsWith("iva")) ? "IVA" : "impuesto al consumo";
   const taxText =
     order.totals?.tax_total != null
-      ? `Incluye ${taxName}${taxLines.length === 1 && taxLines[0]?.rate != null ? ` ${taxLines[0].rate} %` : ""} · ${formatCOP(order.totals.tax_total)}`
+      ? {
+          label: `Incluye ${taxName}${taxLines.length === 1 && taxLines[0]?.rate != null ? ` ${taxLines[0].rate} %` : ""}`,
+          amount: formatCOP(order.totals.tax_total),
+        }
       : null;
   const seatsAvailable = hasFeature("pos.seats") && items.some((item) => item.seat != null);
 
+  const lugar = mesas ? `Mesa ${mesas}` : `Comanda #${order.id}`;
+  const quienAtendio = [
+    order.covers ? `${order.covers} ${order.covers === 1 ? "comensal" : "comensales"}` : null,
+    order.opened_by?.name ? `atendió ${order.opened_by.name}` : null,
+    order.opened_at ? formatClockTime(order.opened_at) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const splitPanel = splitBillFlag ? (
+    <SplitBillPanel
+      orderId={order.id}
+      expectedVersion={order.version ?? 1}
+      items={items}
+      mode={splitMode}
+      seatsAvailable={seatsAvailable}
+      hasParts={subMode && subAccounts.length > 0}
+      locked={subMode && subAccounts.some((sa) => sa.status === "paid")}
+      onModeChange={(mode) => {
+        setSplitMode(mode);
+        if (mode !== "equal") setEqualInitialSplits(undefined);
+        if (mode !== "items" && mode !== "seat") setActiveSubAccountId(null);
+      }}
+      onItemsResult={(result: BillSplitItemsOut) => {
+        queryClient.setQueryData(subAccountsQueryKey(orderId), result.sub_accounts ?? []);
+        setActiveSubAccountId(null);
+      }}
+    />
+  ) : null;
+  const splitEnCabecera = splitMode === "none" && !(subMode && subAccounts.some((sa) => sa.status === "paid"));
+
+  // Tres burbujas (handoff `design_handoff_pos_burbujas`, 9d): la cuenta
+  // (400 px), el pago y el PIN (300 px). En vertical, una columna.
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-[440px_minmax(0,1fr)] lg:overflow-hidden">
-      <section aria-label="Cuenta" className="flex flex-col border-b bg-card lg:min-h-0 lg:border-r lg:border-b-0">
-        <div className="flex items-center gap-2.5 border-b px-4 py-3">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-[56px] shrink-0 gap-1.5 rounded-lg px-3.5 text-[16px] font-semibold [&_svg]:size-5"
-            onClick={() => navigate(`/pos/comanda/${order.id}`)}
-          >
-            <ArrowLeft aria-hidden="true" />
-            Comanda
-          </Button>
-          <div className="flex min-w-0 flex-col">
-            <h1 className="truncate text-[20px] leading-tight font-bold">{orderTitle(order)}</h1>
-            <span className="truncate text-[14px] text-muted-foreground">
-              {[
-                order.opened_by?.name ? `Atendió ${order.opened_by.name}` : null,
-                order.opened_at ? formatClockTime(order.opened_at) : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
+    <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto lg:grid lg:grid-cols-[400px_minmax(0,1fr)_300px] lg:overflow-hidden">
+      <section aria-label="Cuenta" className="flex flex-col gap-3.5 rounded-[24px] bg-card p-5 lg:min-h-0 lg:overflow-y-auto">
+        <div className="flex items-start gap-2 px-1">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <button
+              type="button"
+              aria-label={`Volver a la comanda de ${lugar}`}
+              className="self-start rounded-md text-sm font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              onClick={() => navigate(`/pos/comanda/${order.id}`)}
+            >
+              ← {lugar}
+            </button>
+            {quienAtendio ? <span className="truncate text-[13px] text-muted-foreground">{quienAtendio}</span> : null}
           </div>
+          {splitEnCabecera ? splitPanel : null}
         </div>
 
-        <div className="flex flex-col gap-2.5 px-4 py-2.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-          {alreadyPaidNotice ? (
-            <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
-              <p role="alert" className="text-sm font-medium text-destructive">
-                Esta comanda ya fue cobrada.
+        {alreadyPaidNotice ? (
+          <div className="flex flex-col gap-2 rounded-[18px] bg-destructive-soft p-3.5">
+            <p role="alert" className="text-sm font-semibold text-destructive">
+              ■ Esta comanda ya fue cobrada.
+            </p>
+            <button
+              type="button"
+              className="h-11 self-start rounded-full bg-card px-4 text-sm font-semibold"
+              onClick={() => void goToLastDocument()}
+            >
+              Ver el último comprobante
+            </button>
+          </div>
+        ) : null}
+
+        {splitEnCabecera ? null : splitPanel}
+
+        {subMode ? (
+          subAccounts.length > 0 ? (
+            <SplitPartsList parts={splitParts} onSelect={(id) => setActiveSubAccountId(id)} />
+          ) : null
+        ) : (
+          <div className="flex flex-col gap-2 lg:min-h-0 lg:shrink">
+            {preBillFlag && presentBillMutation.isPending && !preBill ? (
+              <p className="px-1 text-sm text-muted-foreground">Presentando la cuenta…</p>
+            ) : null}
+            {preBillFlag && presentBillMutation.isError && !preBill ? (
+              <p role="alert" className="px-1 text-sm text-destructive">
+                {errorMessage(presentBillMutation.error)}
               </p>
-              <button
-                type="button"
-                className="h-11 rounded-md border px-4 text-sm font-medium"
-                onClick={() => void goToLastDocument()}
-              >
-                Ver el último comprobante
-              </button>
-            </div>
-          ) : null}
-
-          {splitBillFlag ? (
-            <SplitBillPanel
-              orderId={order.id}
-              expectedVersion={order.version ?? 1}
-              items={items}
-              mode={splitMode}
-              seatsAvailable={seatsAvailable}
-              hasParts={subMode && subAccounts.length > 0}
-              locked={subMode && subAccounts.some((sa) => sa.status === "paid")}
-              onModeChange={(mode) => {
-                setSplitMode(mode);
-                if (mode !== "equal") setEqualInitialSplits(undefined);
-                if (mode !== "items" && mode !== "seat") setActiveSubAccountId(null);
-              }}
-              onItemsResult={(result: BillSplitItemsOut) => {
-                queryClient.setQueryData(subAccountsQueryKey(orderId), result.sub_accounts ?? []);
-                setActiveSubAccountId(null);
-              }}
-            />
-          ) : null}
-
-          {subMode ? (
-            subAccounts.length > 0 ? (
-              <SplitPartsList parts={splitParts} onSelect={(id) => setActiveSubAccountId(id)} />
-            ) : null
-          ) : (
-            <div className="flex flex-col">
-              {preBillFlag && presentBillMutation.isPending && !preBill ? (
-                <p className="text-sm text-muted-foreground">Presentando la cuenta…</p>
-              ) : null}
-              {preBillFlag && presentBillMutation.isError && !preBill ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {errorMessage(presentBillMutation.error)}
-                </p>
-              ) : null}
-              {/* En vertical el detalle se pliega: el espacio es para lo
-                  recibido y el PIN. En horizontal (440 px) se ve siempre. */}
-              <button
-                type="button"
-                className="flex min-h-11 w-full items-center justify-between text-left text-[15px] font-medium lg:hidden"
-                aria-expanded={showLines}
-                onClick={() => setShowLines((v) => !v)}
-              >
-                <span>
-                  Detalle de la cuenta · {lines.length} {lines.length === 1 ? "línea" : "líneas"}
-                </span>
-                <span aria-hidden="true">{showLines ? "▴" : "▾"}</span>
-              </button>
-              <ul aria-label="Detalle de la cuenta" className={cn(showLines ? "block" : "hidden lg:block")}>
+            ) : null}
+            {/* En vertical el detalle se pliega: el espacio es para lo
+                recibido y el PIN. En horizontal se ve siempre. */}
+            <button
+              type="button"
+              className="flex min-h-11 w-full items-center justify-between px-1 text-left text-[15px] font-medium lg:hidden"
+              aria-expanded={showLines}
+              onClick={() => setShowLines((v) => !v)}
+            >
+              <span>
+                Detalle de la cuenta · {lines.length} {lines.length === 1 ? "línea" : "líneas"}
+              </span>
+              <span aria-hidden="true">{showLines ? "▴" : "▾"}</span>
+            </button>
+            <div
+              className={cn(
+                "flex-col rounded-[18px] bg-muted px-3.5 py-1.5 lg:min-h-0 lg:overflow-y-auto",
+                showLines ? "flex" : "hidden lg:flex",
+              )}
+            >
+              <ul aria-label="Detalle de la cuenta">
                 {lines.map((line) => (
-                  <li key={line.key} className="flex gap-2.5 border-b border-dashed py-[7px] text-[16px]">
-                    <b className="min-w-6">{line.qty}×</b>
+                  <li key={line.key} className="flex min-h-10 items-baseline gap-2.5 pt-2.5 text-[15px]">
+                    <span className="w-5 shrink-0 text-muted-foreground">{line.qty}</span>
                     <span className="flex-1">{line.name}</span>
                     <span className="tabular-nums">{formatCOP(line.net)}</span>
                   </li>
                 ))}
               </ul>
               {order.totals?.discount_total ? (
-                <div className="flex justify-between pt-2 text-[15px] text-muted-foreground">
+                <div className="mt-1 flex justify-between border-t pt-2.5 pb-1 text-[13px] text-muted-foreground">
                   <span>Descuentos</span>
                   <span className="tabular-nums">{formatCOP(order.totals.discount_total)}</span>
                 </div>
               ) : null}
-              <div className="flex justify-between pt-2.5 text-[17px] font-bold">
-                <span>Consumo</span>
-                <span className="tabular-nums">{formatCOP(order.totals?.total)}</span>
-              </div>
-              {taxText ? <p className="text-[13px] text-muted-foreground">{taxText}</p> : null}
-              {legend ? (
-                <p className="pt-2 text-center text-[12px] font-medium text-muted-foreground uppercase">{legend}</p>
+              {taxText ? (
+                <div className="mt-1 flex justify-between gap-3 border-t pt-2.5 pb-1.5 text-[13px] text-muted-foreground">
+                  <span>{taxText.label}</span>
+                  <span className="tabular-nums">{taxText.amount}</span>
+                </div>
               ) : null}
             </div>
-          )}
+            {legend ? (
+              <p className="text-center text-xs font-medium text-muted-foreground uppercase">{legend}</p>
+            ) : null}
+          </div>
+        )}
 
-          {/* La propina, las partes iguales y el libro con doble raya los
-              dibuja `PaymentTargetPanel` acá (portal): son de la cuenta, a la
-              izquierda, y el cobro queda a la derecha. */}
-          <div ref={setCuentaSlot} className="mt-auto flex flex-col gap-2.5 pt-2" />
+        {/* La propina, las partes iguales y el pie «Consumo / Propina, no es
+            venta / Total a cobrar» los dibuja `PaymentTargetPanel` acá
+            (portal): son de la cuenta. El pago y el PIN van a la derecha. */}
+        <div ref={setCuentaSlot} className="flex flex-col gap-3.5 lg:flex-1" />
 
-          {subMode && subAccounts.length > 0 ? (
-            <p className="text-[15px] text-muted-foreground">
-              {paidCount} de {subAccounts.length} {subAccounts.length === 1 ? "parte pagada" : "partes pagadas"}
-            </p>
-          ) : null}
-        </div>
+        {subMode && subAccounts.length > 0 ? (
+          <p className="px-1 text-sm text-muted-foreground">
+            {paidCount} de {subAccounts.length} {subAccounts.length === 1 ? "parte pagada" : "partes pagadas"}
+          </p>
+        ) : null}
       </section>
 
-      <section aria-label="Cobro" className="flex flex-col gap-3 px-[18px] py-3.5 lg:min-h-0 lg:overflow-y-auto">
-        {subMode ? (
-          activeSubAccount ? (
-            <PaymentTargetPanel
-              key={activeSubAccount.id}
-              orderId={order.id}
-              expectedVersion={order.version}
-              target={{
-                subAccountId: activeSubAccount.id,
-                totals: activeSubAccount.totals ?? {},
-                tipInfo: activeSubAccount.tip,
-              }}
-              tipsEnabled={tipsFlag}
-              rotuloTotal={`Parte ${activeNumber} de ${subAccounts.length} · a cobrar`}
-              cuentaSlot={cuentaSlot}
-              onPaid={handlePaid}
-              onStale={replaceWithFreshOrder}
-              onAlreadyPaid={handleAlreadyPaid}
-            />
-          ) : (
+      {subMode ? (
+        activeSubAccount ? (
+          <PaymentTargetPanel
+            key={activeSubAccount.id}
+            orderId={order.id}
+            expectedVersion={order.version}
+            target={{
+              subAccountId: activeSubAccount.id,
+              totals: activeSubAccount.totals ?? {},
+              tipInfo: activeSubAccount.tip,
+            }}
+            tipsEnabled={tipsFlag}
+            rotuloTotal={`Parte ${activeNumber} de ${subAccounts.length} · a cobrar`}
+            cuentaSlot={cuentaSlot}
+            onPaid={handlePaid}
+            onStale={replaceWithFreshOrder}
+            onAlreadyPaid={handleAlreadyPaid}
+          />
+        ) : (
+          <section aria-label="Cobro" className="rounded-[24px] bg-card p-6 lg:col-span-2">
             <p className="text-[15px] text-muted-foreground">
               {subAccounts.length > 0
                 ? "Todas las partes están pagadas."
@@ -501,55 +506,55 @@ export default function CheckoutPage(): React.JSX.Element {
                   ? "Revisá los asientos a la izquierda y tocá «Dividir por asiento»."
                   : "Armá las cuentas a la izquierda y tocá «Dividir cuenta»."}
             </p>
-          )
-        ) : (
-          // Una sola instancia para «todo junto» y «partes iguales»: la
-          // propina se responde UNA vez y sobrevive al cambio de modo. Lo
-          // que se vuelve a sembrar al dividir es sólo la tabla de pagos.
-          <PaymentTargetPanel
-            key="whole"
-            orderId={order.id}
-            expectedVersion={order.version}
-            target={wholeOrderTarget}
-            tipsEnabled={tipsFlag}
-            cuentaSlot={cuentaSlot}
-            initialSplits={splitMode === "equal" ? equalInitialSplits : undefined}
-            splitsKey={
-              splitMode === "equal" && equalInitialSplits
-                ? `equal-${equalInitialSplits.map((s) => s.amount).join("-")}`
-                : "whole"
-            }
-            beforePayments={
-              splitMode === "equal"
-                ? (tip) => (
-                    <EqualSplitPicker
-                      orderId={order.id}
-                      expectedVersion={order.version ?? 1}
-                      tipAmount={tip?.amount}
-                      onResult={(result: BillSplitEqualOut) => {
-                        // Lo que paga cada parte, venta + propina, del
-                        // servidor (`per_part_due`); `per_part` sólo si el
-                        // servidor no lo mandó.
-                        const due =
-                          result.per_part_due && result.per_part_due.length > 0
-                            ? result.per_part_due
-                            : (result.per_part ?? []);
-                        setEqualInitialSplits(due.map((amount) => ({ method: "cash" as const, amount })));
-                        // Dividir sube la versión de la comanda: se relee
-                        // antes de cobrar para no chocar con un 409.
-                        void queryClient.invalidateQueries({ queryKey: orderQueryKey(orderId) });
-                      }}
-                      onStale={() => void queryClient.invalidateQueries({ queryKey: orderQueryKey(orderId) })}
-                    />
-                  )
-                : undefined
-            }
-            onPaid={handlePaid}
-            onStale={replaceWithFreshOrder}
-            onAlreadyPaid={handleAlreadyPaid}
-          />
-        )}
-      </section>
+          </section>
+        )
+      ) : (
+        // Una sola instancia para «todo junto» y «partes iguales»: la
+        // propina se responde UNA vez y sobrevive al cambio de modo. Lo
+        // que se vuelve a sembrar al dividir es sólo la tabla de pagos.
+        <PaymentTargetPanel
+          key="whole"
+          orderId={order.id}
+          expectedVersion={order.version}
+          target={wholeOrderTarget}
+          tipsEnabled={tipsFlag}
+          cuentaSlot={cuentaSlot}
+          initialSplits={splitMode === "equal" ? equalInitialSplits : undefined}
+          splitsKey={
+            splitMode === "equal" && equalInitialSplits
+              ? `equal-${equalInitialSplits.map((s) => s.amount).join("-")}`
+              : "whole"
+          }
+          beforePayments={
+            splitMode === "equal"
+              ? (tip) => (
+                  <EqualSplitPicker
+                    orderId={order.id}
+                    expectedVersion={order.version ?? 1}
+                    tipAmount={tip?.amount}
+                    onResult={(result: BillSplitEqualOut) => {
+                      // Lo que paga cada parte, venta + propina, del
+                      // servidor (`per_part_due`); `per_part` sólo si el
+                      // servidor no lo mandó.
+                      const due =
+                        result.per_part_due && result.per_part_due.length > 0
+                          ? result.per_part_due
+                          : (result.per_part ?? []);
+                      setEqualInitialSplits(due.map((amount) => ({ method: "cash" as const, amount })));
+                      // Dividir sube la versión de la comanda: se relee
+                      // antes de cobrar para no chocar con un 409.
+                      void queryClient.invalidateQueries({ queryKey: orderQueryKey(orderId) });
+                    }}
+                    onStale={() => void queryClient.invalidateQueries({ queryKey: orderQueryKey(orderId) })}
+                  />
+                )
+              : undefined
+          }
+          onPaid={handlePaid}
+          onStale={replaceWithFreshOrder}
+          onAlreadyPaid={handleAlreadyPaid}
+        />
+      )}
     </div>
   );
 }

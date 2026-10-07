@@ -276,5 +276,21 @@ describe("CashRibbon — el botón del momento", () => {
     const nav = await cinta();
     await within(nav).findByRole("button", { name: "Retiro sugerido" });
     expect(nav.textContent).not.toMatch(/987|\$/);
+    // La columna «Caja» entera (con su pie «Efectivo en caja») tampoco:
+    // dice de qué lado del umbral está, no cuánto hay.
+    const caja = screen.getByRole("complementary", { name: "Caja" });
+    expect(caja.textContent).not.toMatch(/987|\$/);
+    expect(within(caja).getByText("Pasó el umbral")).toBeInTheDocument();
+  });
+
+  it("el pie «Efectivo en caja» dice «sin dato» si el servidor no manda el aviso del umbral (null ≠ falso)", async () => {
+    const sinAviso: ShiftCurrent = { ...SHIFT };
+    delete sinAviso.cash_over_threshold;
+    mocks.getCurrentShift.mockResolvedValue(sinAviso);
+    renderMesas(CAJERO);
+
+    await cinta();
+    const pie = screen.getByTestId("caja-efectivo");
+    expect(within(pie).getByText("sin dato")).toBeInTheDocument();
   });
 });

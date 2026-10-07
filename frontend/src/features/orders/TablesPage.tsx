@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { BellRing, Circle, Link2, Move, Plus, Receipt, Send, UserRound, Users, Utensils } from "lucide-react"
+import { BellRing, Link2, Move, Plus } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -12,6 +12,7 @@ import {
   type TableStatusOut,
   type ZoneStatusOut,
 } from "@/api/orders"
+import { SegmentadoTactil } from "@/components/admin"
 import { Cargando } from "@/components/Cargando"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -31,7 +32,6 @@ import { useSession } from "@/app/session"
 import { CashRibbon } from "@/features/shifts"
 import { formatCOP } from "@/lib/money"
 import { errorMessage } from "@/lib/errors"
-import { TABLET_HORIZONTAL, useMediaQuery } from "@/lib/useMediaQuery"
 import { cn } from "@/lib/utils"
 
 import { AuthorizerDialog } from "./AuthorizerDialog"
@@ -44,49 +44,56 @@ type Mode = "idle" | "merge" | "move"
 const STATUS_LABEL: Record<string, string> = { free: "Libre", occupied: "Ocupada", to_pay: "Por cobrar" }
 
 /**
- * El fondo de la tarjeta dice el estado de lejos (handoff `PosMesas`):
- * libre en `card` con borde `border`; ocupada con `primary` al 12 % y borde
- * al 45 %; por cobrar con `warning` al 22 % y borde `warning`. Tokens del
- * tema (nunca un color crudo), con el texto en `foreground` para que el
- * contraste no dependa del fondo. El estado va además con ícono y palabra.
+ * El fondo de la mesa dice el estado de lejos (handoff «Burbujas», 9b):
+ * libre en `card` con anillo `inset 1.5px var(--input)`; ocupada en
+ * `fill-strong` (un punto más oscura que el pozo); por cobrar en tinta, con
+ * el texto en `card`. Tokens del tema: la noche (`salon-oscuro`) sale sola.
+ * «Por cobrar» es el `status: "to_pay"` del servidor (cuenta presentada).
  */
 const STATUS_CARD_CLASS: Record<string, string> = {
-  free: "border-border bg-card",
-  occupied: "border-primary/45 bg-primary/12",
-  to_pay: "border-warning bg-warning/22",
+  free: "bg-card text-foreground shadow-[inset_0_0_0_1.5px_var(--input)]",
+  occupied: "bg-fill-strong text-foreground",
+  to_pay: "bg-foreground text-card",
 }
 
-const STATUS_ICON = { free: Circle, occupied: Utensils, to_pay: Receipt } as const
-const STATUS_TEXT_CLASS: Record<string, string> = {
-  free: "text-muted-foreground",
-  occupied: "text-accent-foreground",
-  to_pay: "text-foreground",
+/** El cuadrito de 12 px de la leyenda: el mismo fondo que la mesa. */
+const MUESTRA_CLASS: Record<keyof typeof STATUS_LABEL, string> = {
+  free: "shadow-[inset_0_0_0_1.5px_var(--input)]",
+  occupied: "bg-fill-strong",
+  to_pay: "bg-foreground",
 }
 
-/** El cuadrito de la leyenda: la misma pareja fondo/borde que la tarjeta. */
-function Muestra({ estado }: { estado: keyof typeof STATUS_ICON }): React.JSX.Element {
-  return <span aria-hidden="true" className={cn("size-[14px] rounded-[4px] border-2", STATUS_CARD_CLASS[estado])} />
+function Muestra({ estado }: { estado: keyof typeof STATUS_LABEL }): React.JSX.Element {
+  return <span aria-hidden="true" className={cn("size-3 shrink-0 rounded-[4px]", MUESTRA_CLASS[estado])} />
 }
 
-/** Botón de 56 px de la fila de Mesas (Mis mesas, Mover / unir). */
-const BOTON_FILA = "h-[56px] gap-2 rounded-lg px-4 text-[16px] font-semibold [&_svg]:size-5"
+/** Botón de 52 px de la burbuja de filtros («Mis mesas», «Mover / unir»): pozo, o tinta si está activo. */
+const BOTON_FILTRO =
+  "inline-flex h-[52px] shrink-0 items-center gap-2 rounded-2xl px-[18px] text-[15px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none [&_svg]:size-[18px]"
+const BOTON_FILTRO_TONO = (activo: boolean) =>
+  activo ? "bg-foreground text-card" : "bg-muted text-foreground hover:bg-fill-strong"
+
+/** Botón de 52 px dentro de un aviso (pozo), y su variante principal. */
+const BOTON_AVISO = "h-[52px] rounded-2xl px-[18px] text-[15px] font-semibold"
+
+/** Pastilla de 24 px, texto blanco 12/600 («2 listos», «3 sin enviar»). */
+const PASTILLA_MESA = "inline-flex h-6 shrink-0 items-center rounded-full px-[9px] text-[12px] font-semibold text-white"
 
 /**
- * La tarjeta de una mesa (handoff `PosMesas`): 128 px de alto (112 en la
- * tablet apaisada), el nombre, las iniciales de quien la atiende en un
- * círculo de 34 px, el estado con ícono y palabra, «3 · 12 min» y el total
- * del servidor, y los chips «2 listos» (success) y «2 sin enviar»
- * (destructive), que son conteos del servidor, no cuentas de la pantalla.
+ * La mesa (handoff «Burbujas», 9b): botón de 112 px mínimo, radio 18. Arriba
+ * el nombre en 19/600 y las iniciales de quien la atiende en un cuadro de
+ * 30 px; la línea de estado («Libre · 4 puestos», «3 · 12 min» o «Por cobrar
+ * · 3 · 12 min»); al pie las pastillas «N listos» (success) y «N sin enviar»
+ * (destructive) —conteos del servidor, no cuentas de la pantalla— y el total
+ * del servidor.
  */
 function TableCard({
   table,
-  compact,
   selecting,
   isSelected,
   onClick,
 }: {
   table: TableStatusOut
-  compact: boolean
   selecting: boolean
   isSelected: boolean
   onClick: () => void
@@ -101,7 +108,11 @@ function TableCard({
   const unsentText = `${unsentCount} sin enviar`
   const waiter = table.opened_by?.name ?? null
   const status = table.status ?? "free"
-  const StatusIcon = STATUS_ICON[status] ?? Circle
+  const tinta = status === "to_pay"
+  const meta =
+    status === "free"
+      ? `Libre · ${table.seats ?? "—"} puestos`
+      : `${tinta ? "Por cobrar · " : ""}${table.covers ?? table.seats ?? "—"} · ${elapsedMinutesLabel(table.opened_at)}`
   return (
     <button
       type="button"
@@ -110,56 +121,46 @@ function TableCard({
       }${unsentCount > 0 ? `, ${unsentText}` : ""}${waiter ? `, atiende ${waiter}` : ""}`}
       aria-pressed={selecting ? isSelected : undefined}
       className={cn(
-        "flex flex-col items-stretch gap-1.5 rounded-lg border-2 p-3 text-left text-foreground transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
-        compact ? "min-h-[112px]" : "min-h-[128px]",
+        "box-border flex min-h-[112px] flex-col items-stretch gap-1 rounded-[18px] px-3.5 py-3 text-left transition-[filter] hover:brightness-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         STATUS_CARD_CLASS[status] ?? STATUS_CARD_CLASS.free,
-        isSelected && "border-primary ring-2 ring-primary",
+        isSelected && "outline-[3px] outline-offset-2 outline-primary",
       )}
       onClick={onClick}
     >
       <span className="flex w-full items-center justify-between gap-1.5">
-        <b className="text-[21px] leading-tight font-bold [font-stretch:90%]">Mesa {table.number}</b>
+        <b className="text-[19px] leading-tight font-semibold">Mesa {table.number}</b>
         {waiter ? (
           <span
             aria-hidden="true"
             title={waiter}
-            className="grid size-[34px] shrink-0 place-items-center rounded-full border border-foreground/30 bg-background text-[13px] font-extrabold"
+            className={cn(
+              "grid size-[30px] shrink-0 place-items-center rounded-[10px] text-[12px] font-semibold",
+              tinta ? "bg-[color-mix(in_oklab,var(--card)_18%,transparent)]" : "bg-card",
+            )}
           >
             {initials(waiter)}
           </span>
         ) : null}
       </span>
-      <span className={cn("inline-flex items-center gap-1.5 text-[14px] font-bold", STATUS_TEXT_CLASS[status])}>
-        <StatusIcon className="size-4" aria-hidden="true" />
-        {STATUS_LABEL[status]}
+      <span
+        className={cn(
+          "text-[13px]",
+          tinta ? "text-[color-mix(in_oklab,var(--card)_75%,var(--foreground))]" : "text-muted-foreground",
+        )}
+      >
+        {meta}
       </span>
-      {status !== "free" ? (
-        <span className="flex w-full flex-wrap items-baseline justify-between gap-x-2 text-[15px]">
-          <span className="inline-flex items-center gap-1">
-            <Users className="size-[15px]" aria-hidden="true" />
-            {table.covers ?? table.seats ?? "—"} · {elapsedMinutesLabel(table.opened_at)}
+      <span className="mt-auto flex w-full items-end justify-between gap-1.5">
+        {readyCount > 0 || unsentCount > 0 ? (
+          <span className="flex flex-wrap gap-1">
+            {readyCount > 0 ? <span className={cn(PASTILLA_MESA, "bg-success")}>{readyText}</span> : null}
+            {unsentCount > 0 ? <span className={cn(PASTILLA_MESA, "bg-destructive")}>{unsentText}</span> : null}
           </span>
-          <b className="tabular-nums">{formatCOP(table.total)}</b>
-        </span>
-      ) : (
-        <span className="text-[14px] text-muted-foreground">{table.seats ?? "—"} puestos</span>
-      )}
-      {readyCount > 0 || unsentCount > 0 ? (
-        <span className="mt-auto flex flex-wrap gap-1.5">
-          {readyCount > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-success px-[9px] py-[3px] text-[13px] font-bold text-success-foreground">
-              <BellRing className="size-3.5" aria-hidden="true" />
-              {readyText}
-            </span>
-          ) : null}
-          {unsentCount > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-destructive px-[9px] py-[3px] text-[13px] font-bold text-destructive-foreground">
-              <Send className="size-3.5" aria-hidden="true" />
-              {unsentText}
-            </span>
-          ) : null}
-        </span>
-      ) : null}
+        ) : null}
+        {status !== "free" ? (
+          <b className="ml-auto text-[16px] font-semibold tabular-nums">{formatCOP(table.total)}</b>
+        ) : null}
+      </span>
     </button>
   )
 }
@@ -188,11 +189,10 @@ export function TablesPage(): React.JSX.Element {
   const myId = me?.employee?.id ?? null
 
   const authorizerFlow = useAuthorizerFlow();
-  // Mesas maneja su propio alto: la cinta y la fila de arriba quedan quietas
-  // y sólo se desplaza la grilla.
+  // Mesas maneja su propio alto: la burbuja de filtros y la columna «Caja»
+  // quedan quietas y sólo se desplazan las burbujas de zona.
   usePosTarea({ aLoAncho: true })
-  const horizontal = useMediaQuery(TABLET_HORIZONTAL)
-  const [zonaId, setZonaId] = useState<number | "todas" | null>(null)
+  const [zonaId, setZonaId] = useState<number | "todas">("todas")
 
   // Aviso de «plato listo» (auditoría p4): cada lectura de Mesas se compara
   // con la anterior; la mesa a la que le llegó algo nuevo de cocina sale
@@ -354,12 +354,12 @@ export function TablesPage(): React.JSX.Element {
   for (const zone of zones) for (const table of zone.tables ?? []) cuenta[table.status ?? "free"] += 1
   const visibleTables = (zone: ZoneStatusOut) =>
     (zone.tables ?? []).filter((table) => !onlyMine || table.status === "free" || table.opened_by?.id === myId)
-  // Variante B (tablet apaisada): las zonas van en pestañas, arrancando por la primera.
-  const zonaElegida = horizontal ? (zonaId ?? zones[0]?.id ?? "todas") : "todas"
+  // El segmentado de zona: «Todas» y las zonas reales, con su recuento de mesas.
+  const zonaElegida = zonaId === "todas" || zones.some((zone) => zone.id === zonaId) ? zonaId : "todas"
   const zonasVisibles = zonaElegida === "todas" ? zones : zones.filter((zone) => zone.id === zonaElegida)
   const pestanas = [
-    { id: "todas" as const, name: "Todas", n: tableById.size },
-    ...zones.map((zone) => ({ id: zone.id, name: zone.name ?? "Zona", n: (zone.tables ?? []).length })),
+    { value: "todas" as const, label: "Todas", detalle: tableById.size },
+    ...zones.map((zone) => ({ value: zone.id, label: zone.name ?? "Zona", detalle: (zone.tables ?? []).length })),
   ]
 
   function toggleMode(next: Exclude<Mode, "idle">) {
@@ -372,212 +372,191 @@ export function TablesPage(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* La cinta de caja: una fila a lo ancho, arriba de Mesas. Sólo la ve
-          quien puede manejar la caja, con turno abierto; cada acción abre su
-          hoja encima de Mesas. */}
-      <CashRibbon />
-
-      <div className="flex flex-wrap items-center gap-2.5 px-4 pt-3 pb-1">
-        <h1 className="text-[26px] leading-tight font-extrabold">Mesas</h1>
-        <p className="flex flex-1 flex-wrap gap-x-3.5 gap-y-1 text-[14px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
-            <Muestra estado="free" />
-            Libre {cuenta.free}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Muestra estado="occupied" />
-            Ocupada {cuenta.occupied}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Muestra estado="to_pay" />
-            Por cobrar {cuenta.to_pay}
-          </span>
-        </p>
-        {myId !== null ? (
-          <Button
-            type="button"
-            variant={onlyMine ? "default" : "outline"}
-            className={BOTON_FILA}
-            aria-pressed={onlyMine}
-            onClick={() => setOnlyMine((on) => !on)}
-          >
-            <UserRound aria-hidden="true" />
-            Mis mesas
-          </Button>
-        ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className={cn(
-              BOTON_FILA,
-              "inline-flex items-center border transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              mode === "idle"
-                ? "border-border bg-background hover:bg-muted"
-                : "border-primary bg-primary text-primary-foreground",
-            )}
-          >
-            <Move aria-hidden="true" />
-            Mover / unir
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-auto min-w-56">
-            <DropdownMenuItem className="min-h-14 gap-3 text-base" onClick={() => toggleMode("move")}>
-              <Move className="size-5" aria-hidden="true" />
-              Mover mesa
-            </DropdownMenuItem>
-            <DropdownMenuItem className="min-h-14 gap-3 text-base" onClick={() => toggleMode("merge")}>
-              <Link2 className="size-5" aria-hidden="true" />
-              Unir mesas
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {horizontal && zones.length > 1 ? (
-        <div className="flex gap-2 overflow-x-auto px-4 pt-2" role="group" aria-label="Zonas">
-          {pestanas.map((pestana) => {
-            const activa = zonaElegida === pestana.id
-            return (
-              <button
-                key={pestana.id}
-                type="button"
-                aria-pressed={activa}
-                className={cn(
-                  "inline-flex h-[56px] shrink-0 items-center gap-2 rounded-lg px-[18px] text-[17px] font-bold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                  activa ? "bg-foreground text-background" : "bg-secondary text-foreground hover:bg-muted",
-                )}
-                onClick={() => setZonaId(pestana.id)}
-              >
-                {pestana.name}
-                <span className="text-[14px] font-medium opacity-80">{pestana.n}</span>
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
-
-      {mode !== "idle" ? (
-        <div className="mx-4 mt-2 flex flex-wrap items-center gap-3 rounded-lg border-2 border-dashed border-primary/45 bg-accent/40 p-3 text-[15px]">
-          <p className="flex-1">
-            {mode === "merge"
-              ? "Tocá las mesas ocupadas que querés unir (2 o más)."
-              : selected.length === 0
-                ? "Tocá la mesa que querés mover."
-                : "Tocá una o más mesas libres de destino."}
+    <div className="flex min-h-0 flex-1 gap-2.5">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2.5">
+        {/* La burbuja de filtros (9b): título, zona, leyenda, «Mover / unir» y «Mis mesas». */}
+        <div className="flex flex-none flex-wrap items-center gap-3 rounded-[22px] bg-card py-2.5 pr-2.5 pl-[22px]">
+          <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.02em]">Mesas</h1>
+          {zones.length > 0 ? (
+            <SegmentadoTactil
+              etiqueta="Zonas"
+              opciones={pestanas}
+              valor={zonaElegida}
+              onChange={setZonaId}
+              alto={48}
+              className="ml-2"
+            />
+          ) : null}
+          <p className="ml-auto flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5">
+              <Muestra estado="free" />
+              Libre {cuenta.free}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Muestra estado="occupied" />
+              Ocupada {cuenta.occupied}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Muestra estado="to_pay" />
+              Por cobrar {cuenta.to_pay}
+            </span>
           </p>
-          {mode === "merge" && mergeSelectable ? (
-            <Button
+          <DropdownMenu>
+            <DropdownMenuTrigger className={cn(BOTON_FILTRO, BOTON_FILTRO_TONO(mode !== "idle"))}>
+              <Move aria-hidden="true" />
+              Mover / unir
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-auto min-w-56">
+              <DropdownMenuItem className="min-h-14 gap-3 text-base" onClick={() => toggleMode("move")}>
+                <Move className="size-5" aria-hidden="true" />
+                Mover mesa
+              </DropdownMenuItem>
+              <DropdownMenuItem className="min-h-14 gap-3 text-base" onClick={() => toggleMode("merge")}>
+                <Link2 className="size-5" aria-hidden="true" />
+                Unir mesas
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {myId !== null ? (
+            <button
               type="button"
-              className="h-[56px] px-5 text-[16px] font-semibold"
-              onClick={() => {
-                setMergeTarget(selected[0])
-                setMergeDialogOpen(true)
-              }}
+              className={cn(BOTON_FILTRO, BOTON_FILTRO_TONO(onlyMine))}
+              aria-pressed={onlyMine}
+              onClick={() => setOnlyMine((on) => !on)}
             >
-              Continuar
-            </Button>
+              Mis mesas
+            </button>
           ) : null}
-          {mode === "move" && moveSelectable ? (
-            <Button
-              type="button"
-              className="h-[56px] px-5 text-[16px] font-semibold"
-              disabled={actionPending}
-              onClick={() => void runMove()}
-            >
-              {actionPending ? "Moviendo…" : "Confirmar traslado"}
-            </Button>
-          ) : null}
-          <Button type="button" variant="outline" className="h-[56px] px-5 text-[16px]" onClick={resetMode}>
-            Cancelar
-          </Button>
         </div>
-      ) : null}
 
-      {readyAlerts.length > 0 ? (
-        <ul className="mx-4 mt-2 flex flex-col gap-2" aria-label="Platos listos para servir">
-          {readyAlerts.map((alert) => (
-            <li
-              key={alert.tableId}
-              role="alert"
-              className="flex flex-wrap items-center gap-3 rounded-lg border-2 border-success bg-success/10 p-3 text-[16px]"
-            >
-              <BellRing className="size-6 shrink-0 text-success" aria-hidden="true" />
-              <p className="min-w-0 flex-1 font-bold">
-                Mesa {alert.tableNumber}: {alert.readyCount} {alert.readyCount === 1 ? "plato listo" : "platos listos"} para
-                servir
-              </p>
-              {alert.orderId !== null ? (
-                <Button
-                  type="button"
-                  className="h-[56px] px-5 text-[16px] font-semibold"
-                  onClick={() => {
-                    setReadyAlerts((current) => current.filter((a) => a.tableId !== alert.tableId))
-                    navigate(`/pos/comanda/${alert.orderId}`)
-                  }}
-                >
-                  Ir a la mesa {alert.tableNumber}
-                </Button>
-              ) : null}
+        {mode !== "idle" ? (
+          <div className="flex flex-none flex-wrap items-center gap-3 rounded-[22px] bg-card py-2.5 pr-2.5 pl-[22px] shadow-[inset_0_0_0_2px_var(--primary)]">
+            <p className="flex-1 text-[15px]">
+              {mode === "merge"
+                ? "Tocá las mesas ocupadas que querés unir (2 o más)."
+                : selected.length === 0
+                  ? "Tocá la mesa que querés mover."
+                  : "Tocá una o más mesas libres de destino."}
+            </p>
+            {mode === "merge" && mergeSelectable ? (
               <Button
                 type="button"
-                variant="outline"
-                className="h-[56px] px-5 text-[16px]"
-                onClick={() => setReadyAlerts((current) => current.filter((a) => a.tableId !== alert.tableId))}
+                className={BOTON_AVISO}
+                onClick={() => {
+                  setMergeTarget(selected[0])
+                  setMergeDialogOpen(true)
+                }}
               >
-                Entendido
+                Continuar
               </Button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+            ) : null}
+            {mode === "move" && moveSelectable ? (
+              <Button type="button" className={BOTON_AVISO} disabled={actionPending} onClick={() => void runMove()}>
+                {actionPending ? "Moviendo…" : "Confirmar traslado"}
+              </Button>
+            ) : null}
+            <button type="button" className={cn(BOTON_FILTRO, BOTON_FILTRO_TONO(false))} onClick={resetMode}>
+              Cancelar
+            </button>
+          </div>
+        ) : null}
 
-      {actionError ? (
-        <p role="alert" className="px-4 pt-2 text-sm text-destructive">
-          {actionError}
-        </p>
-      ) : null}
-
-      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pt-2 pb-4">
-        {tablesStatus.isLoading ? (
-          <Cargando texto="Cargando mesas…" />
-        ) : zones.length === 0 ? (
-          <EmptyState title="Esta sede todavía no tiene zonas ni mesas activas" />
-        ) : (
-          zonasVisibles.map((zone) => (
-            <section key={zone.id} className="flex flex-col gap-2">
-              <h2 className="text-[15px] font-bold tracking-[0.06em] text-muted-foreground uppercase">{zone.name}</h2>
-              <div
-                className={cn(
-                  "grid gap-2.5",
-                  horizontal
-                    ? "grid-cols-[repeat(auto-fill,minmax(140px,1fr))]"
-                    : "grid-cols-[repeat(auto-fill,minmax(180px,1fr))]",
-                )}
+        {readyAlerts.length > 0 ? (
+          <ul className="flex flex-none flex-col gap-2.5" aria-label="Platos listos para servir">
+            {readyAlerts.map((alert) => (
+              <li
+                key={alert.tableId}
+                role="alert"
+                className="flex flex-wrap items-center gap-3 rounded-[22px] bg-success-soft py-2.5 pr-2.5 pl-[22px] text-[16px]"
               >
-                {visibleTables(zone).map((table) => (
-                  <TableCard
-                    key={table.id}
-                    table={table}
-                    compact={horizontal}
-                    selecting={mode !== "idle"}
-                    isSelected={selected.includes(table.id)}
+                <BellRing className="size-6 shrink-0 text-success" aria-hidden="true" />
+                <p className="min-w-0 flex-1 font-semibold">
+                  Mesa {alert.tableNumber}: {alert.readyCount} {alert.readyCount === 1 ? "plato listo" : "platos listos"}{" "}
+                  para servir
+                </p>
+                {alert.orderId !== null ? (
+                  <Button
+                    type="button"
+                    className={BOTON_AVISO}
                     onClick={() => {
-                      if (mode !== "idle") {
-                        toggleSelected(table)
-                        return
-                      }
-                      if (table.status === "free") {
-                        setOpenTable(table)
-                      } else if (table.order_id) {
-                        navigate(`/pos/comanda/${table.order_id}`)
-                      }
+                      setReadyAlerts((current) => current.filter((a) => a.tableId !== alert.tableId))
+                      navigate(`/pos/comanda/${alert.orderId}`)
                     }}
-                  />
-                ))}
-              </div>
-            </section>
-          ))
-        )}
+                  >
+                    Ir a la mesa {alert.tableNumber}
+                  </Button>
+                ) : null}
+                <button
+                  type="button"
+                  className={cn(BOTON_FILTRO, "bg-card text-foreground hover:bg-muted")}
+                  onClick={() => setReadyAlerts((current) => current.filter((a) => a.tableId !== alert.tableId))}
+                >
+                  Entendido
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {actionError ? (
+          <p role="alert" className="flex-none rounded-[22px] bg-destructive-soft px-[22px] py-3 text-[15px] text-destructive">
+            {actionError}
+          </p>
+        ) : null}
+
+        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto">
+          {tablesStatus.isLoading ? (
+            <div className="rounded-[24px] bg-card p-[18px]">
+              <Cargando texto="Cargando mesas…" />
+            </div>
+          ) : zones.length === 0 ? (
+            <div className="rounded-[24px] bg-card p-[18px]">
+              <EmptyState title="Esta sede todavía no tiene zonas ni mesas activas" />
+            </div>
+          ) : (
+            zonasVisibles.map((zone) => {
+              const todas = zone.tables ?? []
+              const ocupadas = todas.filter((table) => (table.status ?? "free") !== "free").length
+              return (
+                <section key={zone.id} className="flex flex-none flex-col gap-3 rounded-[24px] bg-card p-[18px]">
+                  <div className="flex items-baseline gap-2.5 px-1">
+                    <h2 className="text-[16px] font-semibold">{zone.name}</h2>
+                    <span className="text-[13px] text-muted-foreground">
+                      {ocupadas} de {todas.length} ocupadas
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
+                    {visibleTables(zone).map((table) => (
+                      <TableCard
+                        key={table.id}
+                        table={table}
+                        selecting={mode !== "idle"}
+                        isSelected={selected.includes(table.id)}
+                        onClick={() => {
+                          if (mode !== "idle") {
+                            toggleSelected(table)
+                            return
+                          }
+                          if (table.status === "free") {
+                            setOpenTable(table)
+                          } else if (table.order_id) {
+                            navigate(`/pos/comanda/${table.order_id}`)
+                          }
+                        }}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )
+            })
+          )}
+        </div>
       </div>
+
+      {/* La columna «Caja» (9b): las acciones del turno a un toque. Sólo la
+          ve quien puede manejar la caja, con turno abierto; cada acción abre
+          su hoja encima de Mesas. Sin caja no dibuja nada y Mesas va a lo ancho. */}
+      <CashRibbon variante="columna" />
 
       <Dialog open={openTable !== null} onOpenChange={(next) => !next && setOpenTable(null)}>
         <DialogContent>

@@ -31,6 +31,12 @@ export interface PinPadProps {
   onChange?: (pin: string) => void;
   /** Rótulo visible a la izquierda de los puntos (p. ej. «PIN de quien cobra»). */
   heading?: React.ReactNode;
+  /**
+   * La piel «Burbujas» del POS (handoff `design_handoff_pos_burbujas`):
+   * teclas en pozos a lo ancho, sin borde, y puntos con anillo de tinta.
+   * `cobro`: teclas de 60 px y puntos de 16; `quien`: 72 px y 18.
+   */
+  burbuja?: "cobro" | "quien";
 }
 
 const ROWS: readonly (readonly string[])[] = [
@@ -55,8 +61,9 @@ export function PinPad({
   holdValue = false,
   onChange,
   heading,
+  burbuja,
 }: PinPadProps) {
-  const grande = size === "grande";
+  const grande = size === "grande" && !burbuja;
   const [value, setValue] = useState("");
   const statusId = useId();
   const errorId = useId();
@@ -128,17 +135,47 @@ export function PinPad({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [append, backspace, disabled]);
 
-  const tecla = grande ? "h-[72px] w-[96px] rounded-[12px] bg-background text-[28px] font-semibold" : "h-14 w-14 text-xl";
+  const tecla = burbuja
+    ? cn(
+        "w-full border-0 bg-muted font-medium text-foreground shadow-none hover:bg-fill-strong",
+        burbuja === "quien" ? "h-[72px] rounded-[20px] text-[26px]" : "h-[60px] rounded-[16px] text-[22px]",
+      )
+    : grande
+      ? "h-[72px] w-[96px] rounded-[12px] bg-background text-[28px] font-semibold"
+      : "h-14 w-14 text-xl";
 
   return (
-    <div className="flex flex-col items-center gap-4" role="group" aria-label={label}>
+    <div
+      className={cn("flex flex-col items-center", burbuja ? "w-full gap-3.5" : "gap-4")}
+      role="group"
+      aria-label={label}
+    >
       {(() => {
         const puntos = (
           <div
-            className={cn("flex", grande ? "h-[24px] items-center gap-[16px]" : heading ? "shrink-0 gap-2" : "gap-3")}
+            className={cn(
+              "flex",
+              burbuja
+                ? cn("justify-center py-1", burbuja === "quien" ? "gap-4" : "gap-3.5")
+                : grande
+                  ? "h-[24px] items-center gap-[16px]"
+                  : heading
+                    ? "shrink-0 gap-2"
+                    : "gap-3",
+            )}
             aria-hidden="true"
           >
-            {Array.from({ length }).map((_, index) => (
+            {Array.from({ length }).map((_, index) =>
+              burbuja ? (
+                <span
+                  key={index}
+                  className={cn(
+                    "rounded-full shadow-[inset_0_0_0_1.5px_var(--foreground)]",
+                    burbuja === "quien" ? "size-[18px]" : "size-4",
+                    index < value.length && "bg-foreground",
+                  )}
+                />
+              ) : (
               <span
                 key={index}
                 className={cn(
@@ -147,11 +184,12 @@ export function PinPad({
                   !grande && (heading ? "size-3.5" : "size-4"),
                   index < value.length && "border-foreground bg-foreground",
                 )}
-              />
-            ))}
+                />
+              ),
+            )}
           </div>
         );
-        return heading ? (
+        return heading && !burbuja ? (
           <div className="flex w-full items-center justify-between gap-2">
             <span className="text-[14px] font-semibold">{heading}</span>
             {puntos}
@@ -178,7 +216,7 @@ export function PinPad({
         <span aria-hidden="true" className="min-h-[22px]" />
       ) : null}
       <div
-        className="grid grid-cols-3 gap-3"
+        className={cn("grid grid-cols-3", burbuja === "quien" ? "w-full gap-2.5" : burbuja ? "w-full gap-2" : "gap-3")}
         aria-describedby={errorMessage ? errorId : statusId}
       >
         {ROWS.flat().map((digit) => (
@@ -214,7 +252,7 @@ export function PinPad({
           disabled={disabled || value.length === 0}
           onClick={backspace}
         >
-          <Delete className={grande ? "size-[26px]" : "size-5"} aria-hidden="true" />
+          <Delete className={grande || burbuja === "quien" ? "size-[26px]" : "size-5"} aria-hidden="true" />
         </Button>
       </div>
     </div>
