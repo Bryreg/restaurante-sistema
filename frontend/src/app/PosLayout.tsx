@@ -445,10 +445,10 @@ export default function PosLayout(): React.JSX.Element | null {
   // cambiaría nada visible, así que no se ofrece.
   const location = useLocation();
   const { pathname } = location;
-  const enCocina = /^\/pos\/(kds|cocina)\b/.test(pathname);
+  const enCocina = /^\/pos\/(kds|cocina|bar)\b/.test(pathname);
   // El KDS es una pantalla de ESTACIÓN: mirarlo no exige persona (manos
   // sucias, guantes). Se pide el PIN sólo al marcar algo (`KdsPage`).
-  const enKds = /^\/pos\/kds\b/.test(pathname);
+  const enKds = /^\/pos\/(kds|bar)\b/.test(pathname);
   // Para volver acá después del PIN (sesión vencida o «Cambiar de persona»).
   const identificarse = rutaIdentificarse(`${location.pathname}${location.search}`);
   const { me, refresh, hasFeature } = useSession();

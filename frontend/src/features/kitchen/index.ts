@@ -11,12 +11,10 @@
  *
  * El BAR es la misma pantalla con `area="bar"` (`/pos/bar`, mismo permiso):
  * muestra sólo las estaciones del bar que distingue la carta (`BAR_STATIONS`).
- * Todavía no tiene entrada propia en la barra del salón: el puesto «bar»
- * (`app/puesto.ts`) lleva a `/pos/kds`, así que una entrada «Bar» sólo la
- * vería quien no tiene puesto; hasta que el puesto apunte acá, se llega por
- * la dirección.
+ * Tiene su entrada «Bar» en la barra del salón; el puesto «bar»
+ * (`app/puesto.ts`) lleva acá; el de cocina, a `/pos/kds`.
  */
-import { ChefHat } from "lucide-react"
+import { ChefHat, Wine } from "lucide-react"
 import { createElement } from "react"
 import { Navigate, type RouteObject } from "react-router-dom"
 
@@ -32,6 +30,7 @@ const posRoutes: RouteObject[] = [
 
 const posNav: NavItem[] = [
   { to: "/pos/kds", label: "Cocina", icon: ChefHat, feature: "kitchen.view", posGroup: "cocina" },
+  { to: "/pos/bar", label: "Bar", icon: Wine, feature: "kitchen.view", posGroup: "cocina" },
 ]
 
 export const kitchenFeature = { posRoutes, posNav }

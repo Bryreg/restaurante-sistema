@@ -41,7 +41,7 @@ const DESTINOS: Record<Puesto, readonly string[]> = {
   salon: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno"],
   caja: ["/pos/mesas", "/pos/mostrador", "/pos/comanda/nueva", "/pos/turno", "/pos/kds"],
   cocina: ["/pos/kds", "/pos/conteo", "/pos/produccion", "/pos/etiquetas", "/pos/merma", "/pos/turno"],
-  bar: ["/pos/kds", "/pos/conteo", "/pos/produccion", "/pos/etiquetas", "/pos/merma", "/pos/turno"],
+  bar: ["/pos/bar", "/pos/conteo", "/pos/produccion", "/pos/etiquetas", "/pos/merma", "/pos/turno"],
 };
 
 function esPuesto(value: string | null | undefined): value is Puesto {
@@ -124,7 +124,8 @@ export function inicioParaPuesto(
       if (!opciones.sinConteo && hasFeature("inventory.perpetual") && hasFeature("inventory.shift_counts")) {
         return "/pos/conteo?inicio=1";
       }
-      if (hasFeature("kitchen.view") || hasFeature("kitchen.kds")) return "/pos/kds";
+      // El bar tiene su propia pantalla (`/pos/bar`, el KDS con `area="bar"`).
+      if (hasFeature("kitchen.view") || hasFeature("kitchen.kds")) return puesto === "bar" ? "/pos/bar" : "/pos/kds";
       return "/pos/turno";
     default:
       return venta;

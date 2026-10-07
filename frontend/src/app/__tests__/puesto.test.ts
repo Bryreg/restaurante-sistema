@@ -21,6 +21,7 @@ const TODAS: NavItem[] = [
   { to: "/pos/comanda/nueva", label: "Mostrador" },
   { to: "/pos/turno", label: "Turno", posGroup: "caja" },
   { to: "/pos/kds", label: "Cocina", feature: "kitchen.view", posGroup: "cocina" },
+  { to: "/pos/bar", label: "Bar", feature: "kitchen.view", posGroup: "cocina" },
   { to: "/pos/produccion", label: "Producción", feature: "catalog.preps", posGroup: "cocina" },
   { to: "/pos/merma", label: "Merma", feature: "inventory.waste", posGroup: "cocina" },
 ];
@@ -56,13 +57,14 @@ describe("barraDelSalon — cinco destinos como máximo, según el puesto", () =
       "Mostrador",
       "Turno",
       "Cocina",
+      "Bar",
       "Producción",
       "Merma",
     ]);
   });
 
   it("supervisor con puesto igual ve todo", () => {
-    expect(barraDelSalon(TODAS, todo, { role: "supervisor", puesto: "salon" })).toHaveLength(6);
+    expect(barraDelSalon(TODAS, todo, { role: "supervisor", puesto: "salon" })).toHaveLength(7);
   });
 
   it("salón: Mesas, Mostrador y Turno", () => {
@@ -88,9 +90,10 @@ describe("barraDelSalon — cinco destinos como máximo, según el puesto", () =
     expect(barra.length).toBeLessThanOrEqual(5);
   });
 
-  it("bar: los tiquetes primero (el KDS recuerda su estación por su cuenta)", () => {
+  it("bar: sus tiquetes primero (`/pos/bar`, el KDS con las estaciones del bar)", () => {
     const barra = barraDelSalon(TODAS, todo, { role: "operator", puesto: "bar" });
-    expect(barra[0]).toMatchObject({ label: "Cocina", to: "/pos/kds" });
+    expect(barra[0]).toMatchObject({ label: "Bar", to: "/pos/bar" });
+    expect(rotulos(barra)).not.toContain("Cocina");
   });
 
   it("los flags siguen mandando: con todo apagado la cocina sólo ve Turno", () => {
@@ -123,7 +126,7 @@ describe("inicioParaPuesto — a dónde llega después del PIN", () => {
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, conConteo)).toBe("/pos/conteo?inicio=1");
     expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, conConteo)).toBe("/pos/conteo?inicio=1");
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, conConteo, { sinConteo: true })).toBe("/pos/kds");
-    expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, conConteo, { sinConteo: true })).toBe("/pos/kds");
+    expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, conConteo, { sinConteo: true })).toBe("/pos/bar");
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, todo)).toBe("/pos/kds");
     expect(inicioParaPuesto({ role: "operator", puesto: "cocina" }, (k) => k === "kitchen.view")).toBe("/pos/kds");
     expect(inicioParaPuesto({ role: "operator", puesto: "bar" }, nada)).toBe("/pos/turno");

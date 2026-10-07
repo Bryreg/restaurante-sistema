@@ -123,6 +123,7 @@ describe("PosLayout — la barra del salón la decide quién se identificó", ()
       "Mostrador",
       "Turno",
       "Cocina",
+      "Bar",
       "Producción",
       "Merma",
     ]);
@@ -131,7 +132,7 @@ describe("PosLayout — la barra del salón la decide quién se identificó", ()
   it("una función apagada no deja hueco: la entrada simplemente no está", async () => {
     renderLayout({ "pos.tables": false, "kitchen.view": true }, undefined, MESERO);
 
-    expect(await rotulosDeLaBarra()).toEqual(["Mostrador", "Turno", "Cocina"]);
+    expect(await rotulosDeLaBarra()).toEqual(["Mostrador", "Turno", "Cocina", "Bar"]);
   });
 
   it("con las dos vistas de cocina encendidas no hay dos «Cocina» iguales", async () => {
@@ -313,7 +314,7 @@ describe("PosLayout — inicio por rol: la barra según el puesto", () => {
   it("un supervisor con puesto ve la barra completa", async () => {
     renderLayout(TODO_ENCENDIDO, undefined, { ...SUPERVISOR, puesto: "salon" });
 
-    expect(await rotulosDeLaBarra()).toHaveLength(6);
+    expect(await rotulosDeLaBarra()).toHaveLength(7);
   });
 });
 

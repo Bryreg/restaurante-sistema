@@ -37,6 +37,7 @@ describe("PosHome — inicio por rol", () => {
         <Route path="/pos/mesas" element={<div>Mapa de mesas</div>} />
         <Route path="/pos/turno" element={<div>Turno</div>} />
         <Route path="/pos/kds" element={<KdsDoble />} />
+        <Route path="/pos/bar" element={<BarDoble />} />
       </Routes>,
       {
         route: "/",
@@ -63,10 +64,15 @@ describe("PosHome — inicio por rol", () => {
     const { unmount } = renderConPuesto("cocina", { "kitchen.kds": true });
     expect(await screen.findByText("KDS")).toBeInTheDocument();
     unmount();
+    // El bar tiene su propia pantalla: el mismo KDS con `area="bar"`.
     renderConPuesto("bar", { "kitchen.kds": true });
-    expect(await screen.findByText("KDS")).toBeInTheDocument();
+    expect(await screen.findByText("KDS del bar")).toBeInTheDocument();
   });
 });
+
+function BarDoble(): React.JSX.Element {
+  return <div>KDS del bar</div>;
+}
 
 function KdsDoble(): React.JSX.Element {
   return <div>KDS</div>;
