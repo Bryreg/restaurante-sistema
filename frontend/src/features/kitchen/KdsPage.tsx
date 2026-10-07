@@ -924,7 +924,7 @@ export function KdsPage({ area = "cocina" }: { area?: KdsArea }): React.JSX.Elem
                     )}
                   >
                     <Forma valor={valor} />
-                    {resumen[valor]} {TONO[valor].resumen}
+                    {resumen[valor]} {resumen[valor] === 1 && valor === "red" ? "demorado" : TONO[valor].resumen}
                   </span>
                 ))}
               </p>

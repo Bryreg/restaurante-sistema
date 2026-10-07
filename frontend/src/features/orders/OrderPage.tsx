@@ -609,7 +609,7 @@ export function OrderPage(): React.JSX.Element {
           "grid gap-2.5",
           isOrderOpenish
             ? "lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_420px] lg:grid-rows-[minmax(0,1fr)]"
-            : "mx-auto w-full max-w-[640px]",
+            : "mx-auto w-full max-w-[40rem]",
         )}
       >
         {isOrderOpenish ? (
