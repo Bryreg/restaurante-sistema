@@ -16,6 +16,12 @@ const { closeCountMock, getCloseReviewMock, confirmCloseMock, getShiftTipsMock, 
   getClosePrecheckMock: vi.fn(),
 }));
 
+const { listOrdersMock } = vi.hoisted(() => ({ listOrdersMock: vi.fn() }));
+vi.mock("@/api/orders", async () => {
+  const actual = await vi.importActual<typeof import("@/api/orders")>("@/api/orders");
+  return { ...actual, listOrders: listOrdersMock };
+});
+
 vi.mock("@/api/shifts", async () => {
   const actual = await vi.importActual<typeof import("@/api/shifts")>("@/api/shifts");
   return {
@@ -310,6 +316,11 @@ describe("CloseWizard — paso 0, retomar y volver a contar", () => {
         },
       ],
     } satisfies ClosePrecheck);
+    listOrdersMock.mockImplementation(async (params?: { status?: string }) =>
+      params?.status === "to_pay"
+        ? [{ id: 491, status: "to_pay", channel: "counter", tables: [], totals: { total: 43000 } }]
+        : [{ id: 488, status: "open", channel: "dine_in", tables: [{ id: 3, number: "3" }], totals: { total: 98000 } }],
+    );
     const user = userEvent.setup();
     renderWithProviders(<CloseWizard shiftId={1} onClosed={() => {}} />, {
       me: { kind: "device", features: { "pos.tables": true } },
@@ -317,7 +328,11 @@ describe("CloseWizard — paso 0, retomar y volver a contar", () => {
 
     expect(await screen.findByText("Antes de contar")).toBeInTheDocument();
     expect(screen.getByText(/Hay 2 comandas abiertas/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cobrar en Mesas" })).toHaveAttribute("href", "/pos/mesas");
+    // Cada comanda con su botón: la de mostrador no tiene mesa y antes no
+    // había cómo llegar a ella desde el cierre.
+    expect(await screen.findByRole("button", { name: "Cobrar Mostrador #491" })).toHaveAttribute("href", "/pos/cobro/491");
+    expect(screen.getByRole("button", { name: "Abrir Mesa 3" })).toHaveAttribute("href", "/pos/comanda/488");
+    expect(screen.getByRole("button", { name: "Ir a Mesas" })).toHaveAttribute("href", "/pos/mesas");
     expect(document.body.textContent ?? "").not.toMatch(/\$/);
 
     await user.click(screen.getByRole("button", { name: "Contar el cajón" }));

@@ -145,6 +145,31 @@ export function expediteOrder(
   })
 }
 
+export interface KitchenDispatchOut {
+  order_id: number
+  /** Los que se despacharon ahora; uno ya despachado desde su último «Listo» no se repite. */
+  dispatched_item_ids: number[]
+  dispatched_by: EmployeeRef
+  dispatched_at: string
+}
+
+/**
+ * `POST /kitchen/orders/{order_id}/dispatch` — «Despachar Mesa N»: los
+ * platos (todos `ready`) salen de las pantallas de cocina. **No** los marca
+ * servidos: el salón los sigue viendo listos para llevar.
+ */
+export function dispatchKitchenItems(
+  orderId: number,
+  itemIds: number[],
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<KitchenDispatchOut> {
+  return api<KitchenDispatchOut>(`/kitchen/orders/${orderId}/dispatch`, {
+    method: "POST",
+    body: { item_ids: itemIds },
+    idempotencyKey,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Impresión por estación: el TRABAJO de impresión (qué, para qué estación,
 // cuándo se confirmó, quién) — NO una impresora térmica real (fase 3).

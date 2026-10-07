@@ -16,6 +16,7 @@ import {
   type ClosePrecheckItem,
   type CloseReview,
 } from "@/api/shifts";
+import { listOrders } from "@/api/orders";
 import { useSession } from "@/app/session";
 import { Cargando } from "@/components/Cargando";
 import { Button } from "@/components/ui/button";
@@ -133,6 +134,43 @@ function PasoCero({
   );
 }
 
+/**
+ * Cada comanda que frena el cierre, con un botón que la abre. Antes sólo
+ * había «Cobrar en Mesas», y una comanda de mostrador (sin mesa) no aparecía
+ * en ningún lado: el cierre decía «hay 1 comanda abierta» y no había cómo
+ * llegar a ella. Sin montos: el cierre es a ciegas.
+ */
+function ComandasAbiertas(): React.JSX.Element | null {
+  const query = useQuery({
+    queryKey: ["orders", "abiertas-al-cerrar"],
+    queryFn: async () => {
+      const [abiertas, porCobrar] = await Promise.all([
+        listOrders({ status: "open" }),
+        listOrders({ status: "to_pay" }),
+      ]);
+      return [...abiertas, ...porCobrar].sort((a, b) => a.id - b.id);
+    },
+  });
+  const comandas = query.data ?? [];
+  if (comandas.length === 0) return null;
+  return (
+    <ul className="flex w-full flex-wrap gap-2" aria-label="Comandas abiertas">
+      {comandas.map((order) => {
+        const mesas = (order.tables ?? []).map((t) => t.number).join(", ");
+        const donde = mesas ? `Mesa ${mesas}` : `${order.channel === "counter" ? "Mostrador" : "Comanda"} #${order.id}`;
+        const destino = order.status === "to_pay" ? `/pos/cobro/${order.id}` : `/pos/comanda/${order.id}`;
+        return (
+          <li key={order.id}>
+            <Button variant="outline" className="h-11" nativeButton={false} render={<Link to={destino} />}>
+              {order.status === "to_pay" ? "Cobrar" : "Abrir"} {donde}
+            </Button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function ItemPrecheck({
   item,
   mesas,
@@ -153,9 +191,10 @@ function ItemPrecheck({
       <p className={item.level === "blocking" ? "font-medium text-destructive" : undefined}>{item.message}</p>
       {item.code === "OPEN_ORDERS" ? (
         <div className="flex flex-wrap items-center gap-2">
+          <ComandasAbiertas />
           {mesas ? (
             <Button variant="outline" className="h-11" nativeButton={false} render={<Link to="/pos/mesas" />}>
-              Cobrar en Mesas
+              Ir a Mesas
             </Button>
           ) : null}
           <p className="text-xs text-muted-foreground">

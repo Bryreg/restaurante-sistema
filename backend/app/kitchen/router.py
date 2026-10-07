@@ -49,7 +49,7 @@ from app.core import clock, features, tz
 from app.core.db import get_db
 from app.core.idempotency import hash_request_body, idempotency_key, run_idempotent
 from app.kitchen import service
-from app.kitchen.schemas import KitchenPrintJobOut, PrintJobIn
+from app.kitchen.schemas import DispatchIn, KitchenPrintJobOut, PrintJobIn
 from app.orders.models import OrderItem, OrderItemStatus
 from app.stores import service as stores_service
 from app.stores.models import Store
@@ -119,6 +119,10 @@ def get_kitchen_rounds(
         if station:
             items_stmt = items_stmt.where(OrderItem.station == station)
         items = service.visible_items(order, list(db.execute(items_stmt.order_by(OrderItem.id)).scalars()))
+        # Lo que cocina ya despachó deja la pantalla (el plato sigue `ready`
+        # para el salón hasta que lo entregan).
+        despachados = service.dispatched_item_ids(db, items)
+        items = [item for item in items if item.id not in despachados]
         if not items:
             continue
 
@@ -232,6 +236,31 @@ def post_expedite_order(
     return _idempotent(
         db, organization_id=actor.organization_id, scope="kitchen.expedite", request=request,
         extra={"order_id": order_id, "station": station}, payload=None, fn=_do,
+    )
+
+
+@router.post("/kitchen/orders/{order_id}/dispatch", dependencies=[Depends(features.require_feature("kitchen.view"))])
+def post_dispatch(
+    order_id: int,
+    payload: DispatchIn,
+    request: Request,
+    actor: Actor = Depends(current_operator),
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """«Despachar Mesa N»: el tiquete sale de las pantallas de cocina. No
+    cambia el estado de los platos: siguen listos para que el salón los
+    lleve y los marque servidos."""
+
+    def _do() -> tuple[int, dict[str, Any]]:
+        now = clock.now_utc()
+        result = service.dispatch_items(
+            db, order_id=order_id, item_ids=payload.item_ids, store_id=actor.store_id, actor=actor, now=now  # type: ignore[arg-type]
+        )
+        return 200, result.model_dump(mode="json")
+
+    return _idempotent(
+        db, organization_id=actor.organization_id, scope="kitchen.dispatch", request=request,
+        extra={"order_id": order_id}, payload=payload, fn=_do,
     )
 
 

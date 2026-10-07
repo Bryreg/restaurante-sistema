@@ -14,6 +14,7 @@ const {
   bumpItemMock,
   unbumpItemMock,
   expediteOrderMock,
+  dispatchKitchenItemsMock,
   registerPrintJobMock,
 } = vi.hoisted(() => ({
   listKitchenRoundsMock: vi.fn(),
@@ -22,6 +23,7 @@ const {
   bumpItemMock: vi.fn(),
   unbumpItemMock: vi.fn(),
   expediteOrderMock: vi.fn(),
+  dispatchKitchenItemsMock: vi.fn(),
   registerPrintJobMock: vi.fn(),
 }))
 
@@ -66,6 +68,7 @@ vi.mock("@/api/kitchen", async () => {
     bumpItem: bumpItemMock,
     unbumpItem: unbumpItemMock,
     expediteOrder: expediteOrderMock,
+    dispatchKitchenItems: dispatchKitchenItemsMock,
     registerPrintJob: registerPrintJobMock,
   }
 })
@@ -589,12 +592,12 @@ describe("KdsPage — «Burbujas» (10a–10d)", () => {
     expect(within(estaciones).getByRole("button", { name: "Cocina fría" })).toHaveTextContent("2")
   })
 
-  it("con todos los platos listos, el botón final despacha la comanda con la entrega que ya existe", async () => {
+  it("con todos los platos listos, el botón final saca el tiquete de la pantalla sin marcar los platos servidos", async () => {
     listKitchenRoundsMock.mockResolvedValue([
       buildKdsRound({ items: [plato(1, "Posta", "hot_kitchen", "ready"), plato(2, "Arroz", "hot_kitchen", "ready")] }),
     ])
     listPrintJobsMock.mockResolvedValue([])
-    markServedMock.mockResolvedValue({})
+    dispatchKitchenItemsMock.mockResolvedValue({ order_id: 501, dispatched_item_ids: [1, 2] })
 
     const user = userEvent.setup()
     renderWithProviders(<KdsPage />, { me: deviceMe({ "kitchen.kds": true }) })
@@ -605,9 +608,9 @@ describe("KdsPage — «Burbujas» (10a–10d)", () => {
     expect(screen.queryByRole("button", { name: /^Todo listo/ })).not.toBeInTheDocument()
 
     await user.click(despachar)
-    await waitFor(() => expect(markServedMock).toHaveBeenCalledTimes(2))
-    expect(markServedMock).toHaveBeenCalledWith(501, 1, expect.any(String))
-    expect(markServedMock).toHaveBeenCalledWith(501, 2, expect.any(String))
+    await waitFor(() => expect(dispatchKitchenItemsMock).toHaveBeenCalledWith(501, [1, 2]))
+    // El salón sigue viendo los platos listos para llevar: nada se marca servido.
+    expect(markServedMock).not.toHaveBeenCalled()
     expect(expediteOrderMock).not.toHaveBeenCalled()
   })
 

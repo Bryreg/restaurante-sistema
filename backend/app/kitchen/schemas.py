@@ -57,6 +57,22 @@ class KitchenExpediteOut(BaseModel):
     expedited_at: datetime
 
 
+class DispatchIn(BaseModel):
+    """Los platos del tiquete que se despacha: los que la pantalla tiene a
+    la vista, todos `ready`."""
+
+    item_ids: list[int]
+
+
+class KitchenDispatchOut(BaseModel):
+    order_id: int
+    dispatched_item_ids: list[int]
+    """Los que de verdad se despacharon ahora; un plato ya despachado desde
+    su último «Listo» no se repite."""
+    dispatched_by: EmployeeRef
+    dispatched_at: datetime
+
+
 class PrintJobIn(BaseModel):
     round_id: int
     station: str
