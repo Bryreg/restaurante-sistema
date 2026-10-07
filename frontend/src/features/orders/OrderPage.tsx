@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCheck, Clock, ReceiptText, Send } from "lucide-react"
+import { ArrowLeft, CheckCheck, MoreHorizontal, Percent, ReceiptText, Send, XCircle } from "lucide-react"
 import { useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
@@ -28,12 +28,13 @@ import {
   type PreBillOut,
   type VoidReason,
 } from "@/api/orders"
+import { Burbuja, EstadoPastilla, SegmentadoTactil } from "@/components/admin"
 import { Cargando } from "@/components/Cargando"
 import { EmptyState } from "@/components/EmptyState"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
 import { formatCOP } from "@/lib/money"
@@ -60,7 +61,7 @@ import {
 import {
   CHANNEL_LABEL,
   courseLabel,
-  elapsedLabel,
+  elapsedMinutesLabel,
   findMergeableLine,
   isDishLine,
   ORDER_STATUS_LABEL,
@@ -93,17 +94,47 @@ function voidNeedsAuthorizer(target: VoidTarget | null, order: OrderOut | undefi
   return (order.items ?? []).some((item) => item.status !== "pending" && item.status !== "voided")
 }
 
-/** Los cursos que se eligen en la comanda (handoff `PosComanda`: Entrada · Fuerte · Postre). */
+/** Los tiempos que se eligen en la comanda (handoff 9c: Entrada · Fuerte · Postre). */
 const CHOOSABLE_COURSES = ["starter", "main", "dessert"] as const
 
-/** Botón de «elegir uno» de 56 px (asiento, curso): el elegido en `foreground` lleno. */
-function segmentClass(selected: boolean, size: string): string {
-  return cn(
-    "h-[56px] min-w-0 flex-1 rounded-lg border font-bold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-    size,
-    selected ? "border-foreground bg-foreground text-background" : "border-border bg-background text-foreground hover:bg-muted",
-  )
+/** «Todos» en el interruptor de asiento: el plato no va a un asiento. */
+const ALL_SEATS = "todos"
+
+/**
+ * El título es la mesa, que es como el mesero la piensa («Mesa 2»); el resto
+ * de los canales, su nombre y número («Mostrador #12»).
+ */
+function orderTitleOf(order: OrderOut): string {
+  const tables = (order.tables ?? []).map((t) => t.number).join(", ")
+  if (order.channel === "dine_in" && tables !== "") return `Mesa ${tables}`
+  return `${order.channel ? CHANNEL_LABEL[order.channel] : "Comanda"} #${order.id}`
 }
+
+/** La pastilla de la barra (como en el cobro): «Mesa 4» o «#12». */
+function orderContextLabel(order: OrderOut): string {
+  const tables = (order.tables ?? []).map((t) => t.number).join(", ")
+  return tables !== "" ? `Mesa ${tables}` : `#${order.id}`
+}
+
+/** Los botones del pozo final (60 px, radio 16). */
+const FOOT_BUTTON_CLASS =
+  "inline-flex h-[60px] min-w-0 items-center justify-center gap-2 rounded-2xl px-3 font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed [&_svg]:size-[18px] [&_svg]:shrink-0"
+const FOOT_SECONDARY_CLASS = cn(
+  FOOT_BUTTON_CLASS,
+  "bg-card text-[15px] text-foreground enabled:hover:bg-fill-strong disabled:text-muted-foreground",
+)
+const FOOT_PRIMARY_CLASS = cn(
+  FOOT_BUTTON_CLASS,
+  "bg-primary text-base text-primary-foreground enabled:hover:bg-primary/90 disabled:opacity-70",
+)
+/** «Enviar a cocina» sin nada pendiente: en `card` y gris. */
+const FOOT_OFF_CLASS = cn(FOOT_BUTTON_CLASS, "bg-card text-base text-muted-foreground")
+/** Los botones del encabezado del pedido: pozos de 44 px. */
+const HEAD_BUTTON_CLASS =
+  "inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-[14px] bg-muted px-3 text-sm font-semibold text-foreground transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50 [&_svg]:size-[18px]"
+/** Las acciones del menú ⋯ y de «Marchar»: pozos de 56 / 48 px. */
+const MENU_ACTION_CLASS =
+  "flex h-14 w-full items-center gap-3 rounded-2xl bg-muted px-4 text-left text-base font-semibold transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50 [&_svg]:size-5"
 
 export function OrderPage(): React.JSX.Element {
   const { orderId: orderIdParam } = useParams<{ orderId: string }>()
@@ -149,9 +180,14 @@ export function OrderPage(): React.JSX.Element {
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
   const [otherNoteItem, setOtherNoteItem] = useState<OrderItemOut | null>(null)
   const [otherNoteText, setOtherNoteText] = useState("")
+  // «✓ Enviado a cocina…» en el pozo final, cuando se envía y se sigue en la comanda.
+  const [sentNotice, setSentNotice] = useState<string | null>(null)
+  // El menú ⋯ del encabezado: las acciones de la comanda entera.
+  const [orderMenuOpen, setOrderMenuOpen] = useState(false)
   // La comanda maneja su alto: carta y pedido se desplazan por dentro y el
-  // pie con «Enviar a cocina» queda fijo.
-  usePosTarea({ aLoAncho: true })
+  // pozo final con «Enviar a cocina» queda fijo. La pastilla de la barra
+  // dice en qué tarea se está («Comanda · Mesa 4»).
+  usePosTarea({ aLoAncho: true, titulo: order ? `Comanda · ${orderContextLabel(order)}` : null })
 
   function saveOrder(updated: NonNullable<typeof order>) {
     if (orderId !== null) queryClient.setQueryData(orderQueryKey(orderId), updated)
@@ -213,6 +249,7 @@ export function OrderPage(): React.JSX.Element {
       )
       saveOrder(updated)
       setItemTarget(null)
+      setSentNotice(null)
       settled()
     } catch (err) {
       handleError(err, { pin, retry: (retryPin) => void handleAddItem(itemIn, retryPin), onStale: () => setItemTarget(null) })
@@ -267,6 +304,7 @@ export function OrderPage(): React.JSX.Element {
             newIdempotencyKey(),
           )
       saveOrder(updated)
+      setSentNotice(null)
       // La línea que acaba de recibir el plato queda elegida: sus notas
       // rápidas («Sin cebolla») están a un toque.
       const known = new Set((current.items ?? []).map((item) => item.id))
@@ -465,7 +503,11 @@ export function OrderPage(): React.JSX.Element {
         duration: 4000,
       })
       void queryClient.invalidateQueries({ queryKey: TABLES_STATUS_QUERY_KEY })
-      if (!opts.stay && backToTables) navigate("/pos/mesas")
+      if (!opts.stay && backToTables) {
+        navigate("/pos/mesas")
+      } else {
+        setSentNotice(`Enviado a cocina. Seguís en ${isTableOrder ? `la ${orderTitle.toLowerCase()}` : orderTitle}.`)
+      }
     } catch (err) {
       handleError(err, { retry: () => void handleSend(opts) })
     } finally {
@@ -508,13 +550,11 @@ export function OrderPage(): React.JSX.Element {
 
   const tablesLabel = (order.tables ?? []).map((t) => t.number).join(", ")
   const isTableOrder = order.channel === "dine_in" && tablesLabel !== ""
-  // El título es la mesa, que es como el mesero la piensa («Mesa 2 · 2
-  // comensales»); el número de comanda queda de segunda línea.
-  const orderTitle = isTableOrder
-    ? `Mesa ${tablesLabel}`
-    : `${order.channel ? CHANNEL_LABEL[order.channel] : "Comanda"} #${order.id}`
-  const titleParts = [orderTitle]
-  if (order.covers) titleParts.push(`${order.covers} ${order.covers === 1 ? "comensal" : "comensales"}`)
+  const orderTitle = orderTitleOf(order)
+  // «3 comensales · 51 min» al lado del título (handoff 9c).
+  const metaParts: string[] = []
+  if (order.covers) metaParts.push(`${order.covers} ${order.covers === 1 ? "comensal" : "comensales"}`)
+  if (order.opened_at && isOrderOpenish) metaParts.push(elapsedMinutesLabel(order.opened_at))
   const subtitleParts: string[] = []
   if (isTableOrder) subtitleParts.push(`Comanda #${order.id}`)
   if (order.channel === "takeout" && order.takeout?.customer_name) subtitleParts.push(order.takeout.customer_name)
@@ -546,56 +586,34 @@ export function OrderPage(): React.JSX.Element {
   const seatOptions = seatsOn ? Array.from({ length: order.covers ?? 0 }, (_, index) => index + 1) : []
   const selectedLine = items.find((item) => item.id === selectedItemId && item.status === "pending") ?? null
 
+  // Las acciones de la comanda entera (menú ⋯ del encabezado).
+  const discountOrderOn = hasFeature("pos.discounts") && isOrderOpenish
+  const hasOrderMenu = backToTables || discountOrderOn || isOrderOpenish
+  const unitsLabel = `${unsentUnits} ${unsentUnits === 1 ? "ítem" : "ítems"}`
+  // El pozo final: mientras haya algo sin enviar, «Enviar y seguir» y
+  // «Enviar a cocina · N»; cuando ya salió todo, la cuenta en ese lugar (o,
+  // para quien no cobra, «Enviar a cocina» apagado: «Pedir cuenta» está en
+  // el encabezado).
+  const showAccount = !sendIsPrimary && !asksForBill
+  const showSendOff = !sendIsPrimary && asksForBill && canSend
+
   return (
-    <div className={isOrderOpenish ? "flex min-h-0 flex-1 flex-col" : "flex min-h-0 flex-1 flex-col overflow-y-auto"}>
+    <div
+      className={cn(
+        "flex min-h-0 flex-1 flex-col overflow-y-auto p-2.5",
+        isOrderOpenish && "lg:overflow-hidden",
+      )}
+    >
       <div
-        className={
+        className={cn(
+          "grid gap-2.5",
           isOrderOpenish
-            ? "min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(0,1fr)_470px] lg:overflow-hidden"
-            : "flex-1"
-        }
+            ? "lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_420px] lg:grid-rows-[minmax(0,1fr)]"
+            : "mx-auto w-full max-w-[640px]",
+        )}
       >
-        <section className="flex flex-col gap-3 px-4 py-3 lg:min-h-0 lg:overflow-y-auto">
-          <header className="flex flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-3">
-              {backToTables ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-[56px] gap-1.5 rounded-lg px-3.5 text-[16px] font-semibold [&_svg]:size-5"
-                  onClick={() => navigate("/pos/mesas")}
-                >
-                  <ArrowLeft aria-hidden="true" />
-                  Mesas
-                </Button>
-              ) : null}
-              <h1 className="text-[28px] leading-tight font-extrabold">{titleParts.join(" · ")}</h1>
-              {order.opened_at && isOrderOpenish ? (
-                <span className="ml-auto inline-flex items-center gap-1.5 text-[15px] text-muted-foreground">
-                  <Clock className="size-4" aria-hidden="true" />
-                  abierta hace {elapsedLabel(order.opened_at)}
-                </span>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-[14px] text-muted-foreground">
-              {subtitleParts.length > 0 ? <span>{subtitleParts.join(" · ")}</span> : null}
-              {order.status && order.status !== "open" ? (
-                <Badge variant="outline">{ORDER_STATUS_LABEL[order.status] ?? order.status}</Badge>
-              ) : null}
-              {order.bill_presented_at ? (
-                <Badge variant="secondary">Cuenta presentada · {formatInstant(order.bill_presented_at)}</Badge>
-              ) : null}
-              {order.note ? <span>Nota: {order.note}</span> : null}
-            </div>
-          </header>
-
-          {error ? (
-            <p role="alert" className="text-[15px] text-destructive">
-              {error}
-            </p>
-          ) : null}
-
-          {isOrderOpenish ? (
+        {isOrderOpenish ? (
+          <Burbuja aria-label="Carta" className="flex flex-col gap-3.5 rounded-[24px] p-[18px] lg:min-h-0">
             <CatalogPanel
               channel={order.channel ?? "counter"}
               unsentQty={unsentQty}
@@ -603,64 +621,106 @@ export function OrderPage(): React.JSX.Element {
               onSelectProduct={handleSelectProduct}
               onSelectCombo={(combo) => setItemTarget({ combo })}
             />
-          ) : null}
-        </section>
+          </Burbuja>
+        ) : null}
 
-        <aside
-          aria-label="Pedido"
-          className="flex flex-col border-t bg-card lg:min-h-0 lg:border-t-0 lg:border-l"
-        >
-          {isOrderOpenish && (seatOptions.length > 0 || coursesOn) ? (
-            <div className="flex flex-col gap-2 border-b px-3.5 py-3">
-              {seatOptions.length > 0 ? (
-                <div className="flex items-center gap-2" role="group" aria-label="Asiento">
-                  <span className="w-[58px] shrink-0 text-[14px] font-semibold text-muted-foreground">Asiento</span>
-                  {[...seatOptions, null].map((seat) => (
-                    <button
-                      key={seat ?? "todos"}
-                      type="button"
-                      aria-pressed={chosenSeat === seat}
-                      className={segmentClass(chosenSeat === seat, "text-[17px]")}
-                      onClick={() => setChosenSeat(seat)}
-                    >
-                      {seat ?? "Todos"}
-                    </button>
-                  ))}
+        <Burbuja aria-label="Pedido" className="flex flex-col gap-3 rounded-[24px] p-[18px] lg:min-h-0">
+          <header className="flex items-start gap-2 px-1">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+                <h1 className="text-xl leading-tight font-semibold">{orderTitle}</h1>
+                {metaParts.length > 0 ? (
+                  <span className="text-[13px] text-muted-foreground">{metaParts.join(" · ")}</span>
+                ) : null}
+              </div>
+              {subtitleParts.length > 0 ? (
+                <p className="text-[13px] text-muted-foreground">{subtitleParts.join(" · ")}</p>
+              ) : null}
+              {order.note ? <p className="text-[13px] text-muted-foreground">Nota: {order.note}</p> : null}
+              {(order.status && order.status !== "open") || order.bill_presented_at ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {order.status && order.status !== "open" ? (
+                    <EstadoPastilla tono="neutral">{ORDER_STATUS_LABEL[order.status] ?? order.status}</EstadoPastilla>
+                  ) : null}
+                  {order.bill_presented_at ? (
+                    <EstadoPastilla tono="warning">Cuenta presentada · {formatInstant(order.bill_presented_at)}</EstadoPastilla>
+                  ) : null}
                 </div>
               ) : null}
+            </div>
+            {isOrderOpenish && asksForBill ? (
+              // Quien no cobra pide la cuenta desde acá, aunque quede algo sin enviar.
+              <button
+                type="button"
+                className={HEAD_BUTTON_CLASS}
+                disabled={preBillPending}
+                onClick={() => void handlePresentBill()}
+              >
+                <ReceiptText aria-hidden="true" />
+                {preBillPending ? "Pidiendo…" : "Pedir cuenta"}
+              </button>
+            ) : null}
+            {hasOrderMenu ? (
+              <button
+                type="button"
+                className={cn(HEAD_BUTTON_CLASS, "w-11 px-0")}
+                aria-haspopup="dialog"
+                aria-label="Más acciones de la comanda"
+                onClick={() => setOrderMenuOpen(true)}
+              >
+                <MoreHorizontal aria-hidden="true" />
+              </button>
+            ) : null}
+          </header>
+
+          {error ? (
+            <p role="alert" className="rounded-2xl bg-destructive-soft px-3.5 py-2.5 text-sm font-semibold text-destructive">
+              {error}
+            </p>
+          ) : null}
+
+          {isOrderOpenish && (seatOptions.length > 0 || coursesOn) ? (
+            // Handoff 9c: «Asiento» y «Tiempo» a la izquierda, sus
+            // interruptores a lo ancho. Cada fila, sólo con su función.
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2.5 gap-y-2 px-1">
+              {seatOptions.length > 0 ? (
+                <>
+                  <span className="text-[13px] text-muted-foreground" aria-hidden="true">
+                    Asiento
+                  </span>
+                  <SegmentadoTactil
+                    etiqueta="Asiento"
+                    opciones={[
+                      ...seatOptions.map((seat) => ({ value: String(seat), label: String(seat) })),
+                      { value: ALL_SEATS, label: "Todos" },
+                    ]}
+                    valor={chosenSeat === null ? ALL_SEATS : String(chosenSeat)}
+                    onChange={(value) => setChosenSeat(value === ALL_SEATS ? null : Number(value))}
+                    alto={44}
+                    columnas={Math.min(seatOptions.length + 1, 6)}
+                  />
+                </>
+              ) : null}
               {coursesOn ? (
-                <div className="flex items-center gap-2" role="group" aria-label="Curso">
-                  <span className="w-[58px] shrink-0 text-[14px] font-semibold text-muted-foreground">Curso</span>
-                  {CHOOSABLE_COURSES.map((course) => (
-                    <button
-                      key={course}
-                      type="button"
-                      aria-pressed={chosenCourse === course}
-                      className={segmentClass(chosenCourse === course, "text-[16px]")}
-                      // Tocar el elegido lo suelta: el plato vuelve a su curso por defecto.
-                      onClick={() => setChosenCourse((current) => (current === course ? null : course))}
-                    >
-                      {courseLabel(course)}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <span className="text-[13px] text-muted-foreground" aria-hidden="true">
+                    Tiempo
+                  </span>
+                  <SegmentadoTactil
+                    etiqueta="Tiempo"
+                    opciones={CHOOSABLE_COURSES.map((course) => ({ value: course, label: courseLabel(course) }))}
+                    valor={chosenCourse}
+                    // Tocar el elegido lo suelta: el plato vuelve a su tiempo por defecto.
+                    onChange={(course) => setChosenCourse((current) => (current === course ? null : course))}
+                    alto={44}
+                    columnas={CHOOSABLE_COURSES.length}
+                  />
+                </>
               ) : null}
             </div>
           ) : null}
 
-          <div className="flex flex-col gap-2 px-2.5 py-1.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-            {readyItems.length > 0 ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-[56px] self-end text-[15px]"
-                disabled={servingAll}
-                onClick={() => void handleServeAll(readyItems)}
-              >
-                <CheckCheck className="size-4" aria-hidden="true" />
-                {servingAll ? "Marcando…" : `Marcar todo servido · ${readyItems.length}`}
-              </Button>
-            ) : null}
+          <div className="flex flex-col gap-1.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
             <OrderItemsList
               items={items}
               busyItemId={busyItemId}
@@ -680,30 +740,42 @@ export function OrderPage(): React.JSX.Element {
               }}
               onDiscount={(item) => setDiscountTarget({ scope: "item", item })}
               onServed={(item) => void handleServed(item)}
+              sentAction={
+                readyItems.length > 0 ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-[14px] bg-success-soft px-3 text-[13px] font-semibold text-success transition-opacity focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+                    disabled={servingAll}
+                    onClick={() => void handleServeAll(readyItems)}
+                  >
+                    <CheckCheck className="size-4" aria-hidden="true" />
+                    {servingAll ? "Marcando…" : `Marcar todo servido · ${readyItems.length}`}
+                  </button>
+                ) : null
+              }
             />
 
-            {hasFeature("pos.courses") && coursesInOrder.length > 0 ? (
-              <section className="flex flex-col gap-2 px-1 pt-2" aria-label="Marchar">
-                <h2 className="text-[13px] font-bold tracking-[0.06em] text-muted-foreground uppercase">Marchar</h2>
-                <ul className="flex flex-wrap gap-2">
+            {coursesOn && coursesInOrder.length > 0 ? (
+              <section className="flex flex-col gap-1.5 pt-2.5" aria-label="Marchar">
+                <h2 className="px-1 text-xs font-semibold text-muted-foreground">Marchar</h2>
+                <ul className="flex flex-wrap gap-1.5">
                   {coursesInOrder.map((course) => {
                     const fired = firedCourses.get(course)
                     return (
                       <li key={course}>
                         {fired ? (
-                          <Badge variant="secondary" className="h-11 items-center px-3 text-sm">
+                          <EstadoPastilla tono="success" className="h-12 rounded-2xl px-3.5 text-[13px]">
                             {courseLabel(course)} marchado · {formatInstant(fired.fired_at)}
-                          </Badge>
+                          </EstadoPastilla>
                         ) : (
-                          <Button
+                          <button
                             type="button"
-                            variant="outline"
-                            className="h-[56px] text-[15px]"
+                            className="inline-flex h-12 items-center rounded-2xl bg-muted px-4 text-[15px] font-semibold transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
                             disabled={firingCourse === course || !isOrderOpenish}
                             onClick={() => void handleFireCourse(course)}
                           >
                             {firingCourse === course ? "Marchando…" : `Marchar ${courseLabel(course)}`}
-                          </Button>
+                          </button>
                         )}
                       </li>
                     )
@@ -711,107 +783,141 @@ export function OrderPage(): React.JSX.Element {
                 </ul>
               </section>
             ) : null}
+          </div>
 
-            {hasFeature("pos.discounts") && isOrderOpenish ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-11 self-start text-[15px]"
-                onClick={() => setDiscountTarget({ scope: "order" })}
-              >
-                Descuento de la comanda
-              </Button>
+          <div
+            className="flex flex-col gap-2.5 rounded-[20px] bg-muted p-3.5"
+            style={isOrderOpenish ? { marginBottom: "env(safe-area-inset-bottom, 0px)" } : undefined}
+          >
+            <span className="flex items-baseline justify-between gap-3">
+              <span className="text-sm text-muted-foreground">{isTableOrder ? "Total mesa" : "Total"}</span>
+              <b className="text-[26px] leading-tight font-medium tracking-[-0.02em] tabular-nums">
+                {formatCOP(order.totals?.total)}
+              </b>
+            </span>
+            {sentNotice ? (
+              <span role="status" className="text-[13px] font-semibold text-success">
+                ✓ {sentNotice}
+              </span>
             ) : null}
-            {isOrderOpenish ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-11 self-start text-[15px] text-destructive"
-                onClick={() => setVoidTarget({ scope: "order" })}
-              >
-                Anular comanda
-              </Button>
+            {isOrderOpenish && sendIsPrimary ? (
+              <div className={cn("grid gap-2", backToTables ? "grid-cols-[1fr_1.4fr]" : "grid-cols-1")}>
+                {backToTables ? (
+                  <button
+                    type="button"
+                    className={FOOT_SECONDARY_CLASS}
+                    disabled={sendPending}
+                    onClick={() => void handleSend({ stay: true })}
+                  >
+                    Enviar y seguir
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={FOOT_PRIMARY_CLASS}
+                  disabled={sendPending}
+                  onClick={() => void handleSend({ stay: false })}
+                >
+                  <Send aria-hidden="true" />
+                  {sendPending ? "Enviando…" : `Enviar a cocina · ${unitsLabel}`}
+                </button>
+              </div>
+            ) : null}
+            {isOrderOpenish && showSendOff ? (
+              <div className={cn("grid gap-2", backToTables ? "grid-cols-[1fr_1.4fr]" : "grid-cols-1")}>
+                {backToTables ? (
+                  <button type="button" className={FOOT_SECONDARY_CLASS} disabled>
+                    Enviar y seguir
+                  </button>
+                ) : null}
+                <button type="button" className={FOOT_OFF_CLASS} disabled>
+                  <Send aria-hidden="true" />
+                  Enviar a cocina · {unitsLabel}
+                </button>
+              </div>
+            ) : null}
+            {isOrderOpenish && showAccount ? (
+              <div className={cn("grid gap-2", hasFeature("pos.pre_bill") ? "grid-cols-[1fr_1.4fr]" : "grid-cols-1")}>
+                {hasFeature("pos.pre_bill") ? (
+                  <button
+                    type="button"
+                    className={FOOT_SECONDARY_CLASS}
+                    disabled={preBillPending}
+                    onClick={() => void handlePresentBill()}
+                  >
+                    <ReceiptText aria-hidden="true" />
+                    {preBillPending ? "Presentando…" : "Presentar cuenta"}
+                  </button>
+                ) : null}
+                <button type="button" className={FOOT_PRIMARY_CLASS} onClick={() => navigate(`/pos/cobro/${order.id}`)}>
+                  {order.channel === "counter" ? "Cobrar" : "Cuenta / Cobrar"}
+                </button>
+              </div>
             ) : null}
           </div>
-        </aside>
+        </Burbuja>
       </div>
 
-      {isOrderOpenish ? (
-        <footer
-          className="flex flex-wrap items-center gap-2.5 border-t bg-card px-3.5 py-2.5"
-          style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.625rem)" }}
+      <Sheet open={orderMenuOpen} onOpenChange={setOrderMenuOpen}>
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          className="mx-auto max-h-[calc(100dvh-2rem)] max-w-xl overflow-y-auto rounded-t-[24px]"
         >
-          {asksForBill ? (
-            <Button
+          <SheetHeader>
+            <SheetTitle className="text-lg font-semibold">{orderTitle}</SheetTitle>
+            <SheetDescription>Acciones de la comanda</SheetDescription>
+          </SheetHeader>
+          <div className="flex flex-col gap-2 px-4 pb-4">
+            {backToTables ? (
+              <button
+                type="button"
+                className={MENU_ACTION_CLASS}
+                onClick={() => {
+                  setOrderMenuOpen(false)
+                  navigate("/pos/mesas")
+                }}
+              >
+                <ArrowLeft aria-hidden="true" />
+                Volver a Mesas
+              </button>
+            ) : null}
+            {discountOrderOn ? (
+              <button
+                type="button"
+                className={MENU_ACTION_CLASS}
+                onClick={() => {
+                  setOrderMenuOpen(false)
+                  setDiscountTarget({ scope: "order" })
+                }}
+              >
+                <Percent aria-hidden="true" />
+                Descuento de la comanda
+              </button>
+            ) : null}
+            {isOrderOpenish ? (
+              <button
+                type="button"
+                className={cn(MENU_ACTION_CLASS, "text-destructive")}
+                onClick={() => {
+                  setOrderMenuOpen(false)
+                  setVoidTarget({ scope: "order" })
+                }}
+              >
+                <XCircle aria-hidden="true" />
+                Anular comanda
+              </button>
+            ) : null}
+            <button
               type="button"
-              variant="outline"
-              className="h-[64px] gap-2 rounded-lg px-[18px] text-[17px] font-bold [&_svg]:size-5"
-              disabled={preBillPending}
-              onClick={() => void handlePresentBill()}
+              className="h-14 w-full rounded-2xl bg-secondary text-base font-semibold text-secondary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              onClick={() => setOrderMenuOpen(false)}
             >
-              <ReceiptText aria-hidden="true" />
-              {preBillPending ? "Pidiendo…" : "Pedir cuenta"}
-            </Button>
-          ) : null}
-          <div className="ml-2 flex flex-col">
-            <span className="text-[14px] text-muted-foreground">{isTableOrder ? "Total mesa" : "Total"}</span>
-            <b className="text-[24px] leading-tight tabular-nums">{formatCOP(order.totals?.total)}</b>
+              Cerrar
+            </button>
           </div>
-          {/* Las acciones de enviar/cobrar van juntas a la derecha; en la
-              tablet vertical bajan a su propio renglón, a lo ancho. */}
-          <div className="ml-auto flex gap-2.5 max-lg:w-full max-lg:[&>*]:flex-1">
-          {/* Una sola acción en añil por pantalla, y siempre a la vista en el
-              pie fijo: mientras haya algo sin enviar es «Enviar a cocina · N»;
-              cuando ya salió todo, la cuenta (o nada, para quien no cobra:
-              «Pedir cuenta» ya está a la izquierda). */}
-          {sendIsPrimary ? (
-            <>
-              {backToTables ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-[64px] rounded-lg px-5 text-[17px] font-bold"
-                  disabled={sendPending}
-                  onClick={() => void handleSend({ stay: true })}
-                >
-                  Enviar y quedarme
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                className="h-[64px] gap-2.5 rounded-lg px-[26px] text-[19px] font-extrabold [&_svg]:size-[22px]"
-                disabled={sendPending}
-                onClick={() => void handleSend({ stay: false })}
-              >
-                <Send aria-hidden="true" />
-                {sendPending ? "Enviando…" : `Enviar a cocina · ${unsentUnits} ${unsentUnits === 1 ? "ítem" : "ítems"}`}
-              </Button>
-            </>
-          ) : asksForBill ? null : (
-            <>
-              {hasFeature("pos.pre_bill") ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-[64px] rounded-lg px-5 text-[17px] font-bold"
-                  disabled={preBillPending}
-                  onClick={() => void handlePresentBill()}
-                >
-                  {preBillPending ? "Presentando…" : "Presentar cuenta"}
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                className="h-[64px] rounded-lg px-[26px] text-[19px] font-extrabold"
-                onClick={() => navigate(`/pos/cobro/${order.id}`)}
-              >
-                {order.channel === "counter" ? "Cobrar" : "Cuenta / Cobrar"}
-              </Button>
-            </>
-          )}
-          </div>
-        </footer>
-      ) : null}
+        </SheetContent>
+      </Sheet>
 
       <Dialog open={otherNoteItem !== null} onOpenChange={(open) => !open && setOtherNoteItem(null)}>
         <DialogContent>
