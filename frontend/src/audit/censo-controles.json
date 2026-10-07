@@ -118,12 +118,10 @@
   "Más opciones",
   "No hay nadie disponible para elegir",
   "No se pudo cargar el personal",
-  "No soy yo",
   "Otra persona",
   "PIN personal",
   "Quién opera",
-  "Reintentar",
-  "Volver a «Quién opera»"
+  "Reintentar"
  ],
  "features/auth/LoginPage.tsx": [
   "Activá este dispositivo",
@@ -715,19 +713,21 @@
   "Una preparación"
  ],
  "features/kitchen/KdsPage.tsx": [
-  "Cocina",
+  "Claro",
   "Comanda de un día operativo anterior que sigue abierta",
   "Curso marchado",
   "Estación",
   "Impresión por estación",
-  "La pantalla de cocina no está habilitada",
+  "Marca entregados los platos de este tiquete: salen de la pantalla",
   "Marca listos de un golpe todos los ítems enviados de esta comanda, en todas sus rondas",
   "Marcar agotado en la carta del POS",
   "Nada para imprimir",
   "No hay rondas pendientes",
   "No se pudieron cargar las rondas",
   "No se pudieron cargar los trabajos de impresión",
+  "Noche",
   "Reintentar",
+  "Tiquetes",
   "Tiquetes por demora"
  ],
  "features/kitchen/StationPinDialog.tsx": [
@@ -869,19 +869,17 @@
  ],
  "features/orders/OrderItemsList.tsx": [
   "Cerrar",
-  "Ya en cocina"
+  "En cocina"
  ],
  "features/orders/OrderPage.tsx": [
-  "Anular comanda",
-  "Asiento",
+  "Carta",
   "Comanda inválida",
-  "Curso",
-  "Descuento de la comanda",
-  "Enviar y quedarme",
   "Guardar nota",
   "Marchar",
+  "Más acciones de la comanda",
   "No se pudo cargar la comanda",
   "Pedido",
+  "Todos",
   "text-lg! font-bold!"
  ],
  "features/orders/OrdersAdminPage.tsx": [
@@ -906,14 +904,12 @@
   "Ítems enviados al cobrar"
  ],
  "features/orders/TablesPage.tsx": [
-  "Cancelar",
   "Continuar",
   "Elegí la mesa destino",
-  "Entendido",
   "Esta sede todavía no tiene zonas ni mesas activas",
   "Las mesas no están habilitadas",
   "Platos listos para servir",
-  "Zonas"
+  "Todas"
  ],
  "features/orders/VoidDialog.tsx": [
   "Elegí un motivo"
@@ -935,26 +931,23 @@
  ],
  "features/payments/PaymentSplitsForm.tsx": [
   "Esta sede no tiene medios de pago habilitados",
-  "Limpiar",
   "Medio",
   "No se pudieron cargar los medios de pago de la sede",
+  "PIN",
   "PIN propio para cobrar",
-  "Quitar",
+  "Pago",
   "Quitar este pago",
   "Recibido en un toque",
   "Reintentar",
   "Sumar billetes a lo recibido"
  ],
  "features/payments/SplitBillPanel.tsx": [
-  "Agregar cuenta",
-  "Cobrar todo junto",
   "Cómo se cobra la cuenta",
   "Partes",
   "Partes de la cuenta",
   "Partes iguales",
   "Por asiento",
   "Por plato",
-  "Rehacer la división",
   "Sin asiento",
   "Sin asignar",
   "Una parte más"
@@ -962,7 +955,8 @@
  "features/payments/TipQuestion.tsx": [
   "Cancelar",
   "Confirmar",
-  "Propina"
+  "Otra",
+  "Sin propina"
  ],
  "features/payroll/ContractsTab.tsx": [
   "Anular",
@@ -1791,6 +1785,7 @@
  ],
  "features/shifts/CashRibbon.tsx": [
   "Acciones de caja",
+  "Caja",
   "Mesas"
  ],
  "features/shifts/CashSwapPanel.tsx": [

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChefHat, DoorOpen, LayoutGrid, LogOut, Moon, MoreHorizontal, ShieldCheck, Sun, UserMinus, Users } from "lucide-react";
+import { ChefHat, DoorOpen, LayoutGrid, LogOut, Moon, MoreHorizontal, Repeat, ShieldCheck, Sun, UserMinus } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -66,41 +66,67 @@ import { useSession } from "./session";
  * está adentro.
  */
 const NAV_ITEM_CLASS =
-  // Barra de secciones del handoff (`PosBarra`): ítems de 56 px exactos
-  // (`min-h-[56px]`, no `min-h-14`, que con la raíz de 17 px da 59,5), letra
-  // de 17 px y el activo en `accent` con peso 700.
-  "flex min-h-[56px] shrink-0 items-center gap-2 rounded-lg px-[18px] text-[17px] font-medium whitespace-nowrap transition-colors";
+  // El segmentado de la barra (handoff Burbujas § 3, `PosLayout`): cada
+  // sección es un enlace de 48 px (`h-12`, el alto de los interruptores del
+  // POS), padding 0 20, radio 12 y letra de 15 px. Son enlaces, no botones:
+  // las clases son las de `segmentoClase` en tamaño táctil.
+  "inline-flex h-12 shrink-0 items-center gap-2 rounded-xl px-5 text-[15px] whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
-function PosNavBar({ items }: { items: NavItem[] }): React.JSX.Element | null {
-  const navRef = useRef<HTMLElement>(null);
+/** La sección activa en `bg-card`, 600 y la única sombra del estilo; las demás en gris. */
+function claseSegmento(activa: boolean): string {
+  return cn(
+    NAV_ITEM_CLASS,
+    activa
+      ? "bg-card font-semibold text-foreground shadow-[0_1px_2px_rgb(0_0_0/8%)]"
+      : "font-medium text-muted-foreground hover:text-foreground",
+  );
+}
+
+/** El aire entre segmentos (`gap-1`) y el padding del contenedor (`p-1`), para medir. */
+const SEGMENTO_GAP = 4;
+const SEGMENTADO_PADDING = 8;
+/** `ml-4` del segmentado y `ml-2` de la pastilla de la tarea. */
+const SEGMENTADO_MARGEN = 16;
+const CONTEXTO_MARGEN = 8;
+
+function PosNavBar({
+  items,
+  contexto,
+}: {
+  items: NavItem[];
+  /** La pastilla de la tarea («Cobro · Mesa 4»), al lado del segmentado. */
+  contexto: string | null;
+}): React.JSX.Element | null {
+  const zonaRef = useRef<HTMLDivElement>(null);
+  const contextoRef = useRef<HTMLSpanElement>(null);
   const medidasRef = useRef<HTMLDivElement>(null);
   const [caben, setCaben] = useState(items.length);
   const location = useLocation();
   const navigate = useNavigate();
-  const firma = items.map((item) => `${item.to}|${item.label}`).join("\n");
+  const firma = `${items.map((item) => `${item.to}|${item.label}`).join("\n")}\n${contexto ?? ""}`;
 
   useLayoutEffect(() => {
-    const nav = navRef.current;
+    const zona = zonaRef.current;
     const medidas = medidasRef.current;
-    if (!nav || !medidas) return;
+    if (!zona || !medidas) return;
     const total = medidas.children.length - 1;
     const medir = () => {
       const hijos = Array.from(medidas.children) as HTMLElement[];
       const anchos = hijos.slice(0, total).map((hijo) => hijo.offsetWidth);
       const mas = hijos[total]?.offsetWidth ?? 0;
-      const estilo = window.getComputedStyle(nav);
-      const disponible =
-        nav.clientWidth - (parseFloat(estilo.paddingLeft) || 0) - (parseFloat(estilo.paddingRight) || 0);
-      setCaben(cuantasCaben(anchos, disponible, mas));
+      const pastilla = contextoRef.current ? contextoRef.current.offsetWidth + CONTEXTO_MARGEN : 0;
+      // Sin layout (tests) `clientWidth` es 0 y se ven todas (`cuantasCaben`).
+      const disponible = zona.clientWidth > 0 ? zona.clientWidth - SEGMENTADO_MARGEN - SEGMENTADO_PADDING - pastilla : 0;
+      setCaben(cuantasCaben(anchos, disponible, mas, SEGMENTO_GAP));
     };
     medir();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(medir);
-    observer.observe(nav);
+    observer.observe(zona);
     return () => observer.disconnect();
   }, [firma]);
 
-  if (items.length === 0) return null;
+  if (items.length === 0 && !contexto) return null;
 
   const visibles = items.slice(0, caben);
   const enMas = items.slice(caben);
@@ -110,77 +136,61 @@ function PosNavBar({ items }: { items: NavItem[] }): React.JSX.Element | null {
   );
 
   return (
-    <nav
-      ref={navRef}
-      aria-label="Secciones del salón"
-      className="relative flex gap-2 overflow-x-auto border-b bg-background px-3 py-2 [&_svg]:size-5"
-    >
-      {visibles.map((item) => {
-        const Icon = item.icon ?? LayoutGrid;
-        return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) =>
-              cn(
-                NAV_ITEM_CLASS,
-                isActive
-                  ? "bg-accent font-bold text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              )
-            }
-          >
-            <Icon className="size-5" aria-hidden="true" />
-            {item.label}
-          </NavLink>
-        );
-      })}
-      {enMas.length > 0 ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className={cn(
-              NAV_ITEM_CLASS,
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              activaEnMas
-                ? "bg-accent font-bold text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-            )}
-          >
-            <MoreHorizontal className="size-5" aria-hidden="true" />
-            {activaEnMas ? `Más: ${activaEnMas.label}` : "Más"}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-auto min-w-52">
-            {enMas.map((item) => {
-              const Icon = item.icon ?? LayoutGrid;
-              return (
-                <DropdownMenuItem key={item.to} className="min-h-12 gap-2 text-base" onClick={() => navigate(item.to)}>
-                  <Icon className="size-5" aria-hidden="true" />
-                  {item.label}
-                </DropdownMenuItem>
-              );
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
+    <div ref={zonaRef} className="relative flex min-w-0 flex-1 items-center">
+      {items.length > 0 ? (
+        <nav aria-label="Secciones del salón" className="ml-4 flex min-w-0 gap-1 rounded-2xl bg-muted p-1">
+          {visibles.map((item) => (
+            <NavLink key={item.to} to={item.to} className={({ isActive }) => claseSegmento(isActive)}>
+              {item.label}
+            </NavLink>
+          ))}
+          {enMas.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger className={claseSegmento(activaEnMas !== undefined)}>
+                <MoreHorizontal className="size-[18px]" aria-hidden="true" />
+                {activaEnMas ? `Más: ${activaEnMas.label}` : "Más"}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-auto min-w-52">
+                {enMas.map((item) => {
+                  const Icon = item.icon ?? LayoutGrid;
+                  return (
+                    <DropdownMenuItem key={item.to} className="min-h-12 gap-2 text-base" onClick={() => navigate(item.to)}>
+                      <Icon className="size-5" aria-hidden="true" />
+                      {item.label}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </nav>
+      ) : null}
+      {contexto ? (
+        <span
+          ref={contextoRef}
+          className="ml-2 inline-flex h-9 shrink-0 items-center rounded-[18px] bg-muted px-3.5 text-[14px] font-semibold whitespace-nowrap"
+        >
+          {contexto}
+        </span>
       ) : null}
       {/* La fila invisible con la que se mide cuánto cabe: no es navegable
           ni la lee un lector de pantalla. */}
       <div
         ref={medidasRef}
         aria-hidden="true"
-        className="pointer-events-none invisible absolute top-0 left-0 flex h-0 gap-2 overflow-hidden"
+        className="pointer-events-none invisible absolute top-0 left-0 flex h-0 gap-1 overflow-hidden"
       >
         {items.map((item) => (
-          <span key={item.to} className={NAV_ITEM_CLASS}>
-            <span className="size-5" />
+          <span key={item.to} className={claseSegmento(true)}>
             {item.label}
           </span>
         ))}
-        <span className={NAV_ITEM_CLASS}>
-          <span className="size-5" />
+        <span className={claseSegmento(true)}>
+          <span className="size-[18px]" />
           Más: Tiquetes de cocina
         </span>
       </div>
-    </nav>
+    </div>
   );
 }
 
@@ -256,9 +266,9 @@ function PosMenu({
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label="Más opciones"
-          className="inline-flex size-[56px] shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="grid size-[52px] shrink-0 place-items-center rounded-2xl bg-muted text-foreground transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
-          <MoreHorizontal className="size-[22px]" aria-hidden="true" />
+          <MoreHorizontal className="size-5" aria-hidden="true" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-auto min-w-64">
           {tieneEntrada ? (
@@ -412,13 +422,16 @@ function iniciales(nombre: string): string {
 }
 
 /**
- * **La cabecera unificada del salón** (`PosBarra` del handoff
- * `docs/diseno/handoff-pos-y-panel` § POS): una fila de 76 px con el avatar
- * de 48 px, el nombre (18/700) · puesto, y debajo el contexto en 14 px — sede
- * · día · turno · caja —, que es `ShiftStatusStrip` como subtítulo (antes era
- * un renglón aparte: la cabecera gana unos 40 px de alto). A la derecha, la
- * pastilla opcional de la tarea actual (`usePosTarea`), «Cambiar de persona»
- * (56 px, contorno) y el menú «⋯» (56 × 56) con lo de siempre.
+ * **La barra superior del salón** (handoff `design_handoff_pos_burbujas`
+ * § 3, estilo «Burbujas»): una burbuja de 72 px (radio 22) sobre la página
+ * gris. A la izquierda, el avatar de 48 px en tinta, el nombre (17/600) ·
+ * puesto y debajo, en 13 px, el contexto — sede · día · turno · caja — que
+ * es `ShiftStatusStrip` como subtítulo, con sus avisos de caja. Después, las
+ * secciones por rol en un segmentado de enlaces (lo que no cabe va a «Más»)
+ * y la pastilla opcional de la tarea actual (`usePosTarea`). A la derecha,
+ * «Cambiar de persona» y el menú «⋯», los dos en pozos de 52 px.
+ *
+ * La cinta de caja no vive acá: la monta `TablesPage` (Mesas).
  *
  * Sondea `GET /auth/me` cada 5 s (SPEC-NEGOCIO § 9.1). La cocina con el KDS
  * sin persona sigue entrando (pantalla de estación): la cabecera lo dice.
@@ -432,10 +445,10 @@ export default function PosLayout(): React.JSX.Element | null {
   // cambiaría nada visible, así que no se ofrece.
   const location = useLocation();
   const { pathname } = location;
-  const enCocina = /^\/pos\/(kds|cocina)\b/.test(pathname);
+  const enCocina = /^\/pos\/(kds|cocina|bar)\b/.test(pathname);
   // El KDS es una pantalla de ESTACIÓN: mirarlo no exige persona (manos
   // sucias, guantes). Se pide el PIN sólo al marcar algo (`KdsPage`).
-  const enKds = /^\/pos\/kds\b/.test(pathname);
+  const enKds = /^\/pos\/(kds|bar)\b/.test(pathname);
   // Para volver acá después del PIN (sesión vencida o «Cambiar de persona»).
   const identificarse = rutaIdentificarse(`${location.pathname}${location.search}`);
   const { me, refresh, hasFeature } = useSession();
@@ -492,77 +505,82 @@ export default function PosLayout(): React.JSX.Element | null {
   return (
     <div
       className={cn(
-        "salon flex flex-col bg-background text-foreground",
+        // La página del salón (handoff Burbujas § 2): fondo gris, 10 px de
+        // margen y 10 px entre burbujas.
+        "salon flex flex-col gap-2.5 bg-background p-2.5 text-foreground",
         // Comanda y cobro ocupan el alto justo de la tablet: sus columnas se
         // desplazan por dentro y el pie queda fijo.
         aLoAncho ? "h-dvh overflow-hidden" : "min-h-screen",
       )}
     >
-      <header className="flex min-h-[76px] items-center gap-3 border-b px-[14px] py-[10px]">
+      <header className="flex h-[72px] flex-none items-center gap-3 rounded-[22px] bg-card pr-2.5 pl-3">
         <span
           aria-hidden="true"
-          className="grid size-12 flex-none place-items-center rounded-full bg-secondary text-[17px] font-extrabold text-secondary-foreground"
+          className="grid size-12 flex-none place-items-center rounded-2xl bg-foreground text-[15px] font-semibold text-card"
         >
           {persona ? iniciales(persona.name) : <ChefHat className="size-6" />}
         </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <p className="truncate text-[18px] leading-tight font-bold">
+        <div className="flex max-w-[380px] min-w-0 shrink flex-col">
+          <p className="truncate text-[17px] leading-tight font-semibold">
             {persona ? (
               <>
-                {persona.name} <span className="font-medium text-muted-foreground">· {rolLabel}</span>
+                {persona.name} <span className="font-normal text-muted-foreground">· {rolLabel}</span>
               </>
             ) : (
               "Pantalla de cocina · nadie identificado"
             )}
           </p>
-          <shiftsFeature.ShiftStatusStrip variante="subtitulo" />
+          {/* El renglón de contexto (sede · día · turno · caja, y los avisos
+              de caja) es `ShiftStatusStrip`; acá sólo se baja a 13 px. */}
+          <div className="min-w-0 [&_p]:text-[13px]">
+            <shiftsFeature.ShiftStatusStrip variante="subtitulo" />
+          </div>
         </div>
+        {tarea?.sinSecciones ? (
+          <PosNavBar items={[]} contexto={tarea?.titulo ?? null} />
+        ) : (
+          <PosNavBar
+            items={barraDelSalon(
+              [
+                ...ordersFeature.posNav,
+                ...shiftsFeature.posNav,
+                ...kitchenFeature.posNav,
+                ...recipesFeature.posNav,
+                ...labelsFeature.posNav,
+                ...inventoryFeature.posNav,
+              ],
+              hasFeature,
+              me.employee,
+            )}
+            contexto={tarea?.titulo ?? null}
+          />
+        )}
         {expired ? (
           <span
             role="alert"
-            className="max-w-64 rounded-lg bg-destructive/10 px-3 py-1.5 text-[14px] font-semibold text-destructive"
+            className="max-w-64 shrink-0 rounded-2xl bg-destructive-soft px-3 py-1.5 text-[13px] leading-tight font-semibold text-destructive"
           >
             Tu sesión de persona venció por inactividad. Identificate de nuevo.
           </span>
         ) : null}
-        {tarea?.titulo ? (
-          <span className="hidden shrink-0 rounded-full bg-accent px-3 py-1.5 text-[15px] font-semibold whitespace-nowrap text-accent-foreground md:inline-block">
-            {tarea.titulo}
-          </span>
-        ) : null}
-        <Button
+        <button
           type="button"
-          variant="outline"
-          className="h-[56px] shrink-0 gap-2 rounded-lg px-4 text-[16px] font-semibold [&_svg]:size-5"
+          className="ml-auto inline-flex h-[52px] shrink-0 items-center gap-2 rounded-2xl bg-muted px-[18px] text-[15px] font-medium whitespace-nowrap text-foreground transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
           onClick={handleChangePerson}
           disabled={releasing}
         >
-          <Users aria-hidden="true" />
+          <Repeat className="size-[17px]" aria-hidden="true" />
           Cambiar de persona
-        </Button>
-        <PosMenu storeName={me.store?.name ?? "Esta sede"} enCocina={enCocina}
+        </button>
+        <PosMenu
+          storeName={me.store?.name ?? "Esta sede"}
+          enCocina={enCocina}
           identificarse={identificarse}
           pantalla={pantalla}
           setPantalla={setPantalla}
         />
       </header>
-      {tarea?.sinSecciones ? null : (
-        <PosNavBar
-          items={barraDelSalon(
-            [
-              ...ordersFeature.posNav,
-              ...shiftsFeature.posNav,
-              ...kitchenFeature.posNav,
-              ...recipesFeature.posNav,
-              ...labelsFeature.posNav,
-              ...inventoryFeature.posNav,
-            ],
-            hasFeature,
-            me.employee,
-          )}
-        />
-      )}
-      <main className={aLoAncho ? "flex min-h-0 flex-1 flex-col" : "flex-1 p-3"}>
+      <main className={aLoAncho ? "flex min-h-0 flex-1 flex-col" : "flex-1"}>
         <PosTareaContext.Provider value={setTarea}>
           <Outlet />
         </PosTareaContext.Provider>

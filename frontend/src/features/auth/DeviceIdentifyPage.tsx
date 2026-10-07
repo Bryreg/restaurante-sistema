@@ -6,12 +6,12 @@ import {
   Clock,
   DoorOpen,
   Ellipsis,
-  Info,
   LogOut,
   Moon,
   ShieldCheck,
   Sun,
   UserPlus,
+  UserRound,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -64,26 +64,13 @@ function initials(name: string): string {
   return `${parts[0]![0]}${parts[parts.length - 1]![0]}`.toUpperCase();
 }
 
-const DIAS_LARGOS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"] as const;
-const MESES_LARGOS = [
-  "enero",
-  "febrero",
-  "marzo",
-  "abril",
-  "mayo",
-  "junio",
-  "julio",
-  "agosto",
-  "septiembre",
-  "octubre",
-  "noviembre",
-  "diciembre",
-] as const;
+const DIAS_CORTOS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"] as const;
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"] as const;
 
-/** «Sábado 27 de septiembre», en hora de Bogotá (UTC-5 todo el año, como `formatClockTime`). */
-function fechaLarga(now: Date): string {
+/** «Sáb 27 sep», en hora de Bogotá (UTC-5 todo el año, como `formatClockTime`). */
+function fechaCorta(now: Date): string {
   const bogota = new Date(now.getTime() - 5 * 60 * 60 * 1000);
-  return `${DIAS_LARGOS[bogota.getUTCDay()]} ${bogota.getUTCDate()} de ${MESES_LARGOS[bogota.getUTCMonth()]}`;
+  return `${DIAS_CORTOS[bogota.getUTCDay()]} ${bogota.getUTCDate()} ${MESES_CORTOS[bogota.getUTCMonth()]}`;
 }
 
 /** La hora de la cabecera: se mueve sola, sin pedir nada al servidor. */
@@ -137,13 +124,19 @@ function EstadoDelDia({
   employee,
   entrada,
   sabido,
+  enTinta = false,
 }: {
   employee: DeviceEmployee;
   entrada: AttendanceEntryOut | undefined;
   sabido: boolean;
+  /** La tarjeta elegida va en tinta: el gris pasa a la letra al 72 %. */
+  enTinta?: boolean;
 }): React.JSX.Element | null {
   if (!sabido) return null;
-  const clase = "inline-flex items-center gap-[5px] text-[14px] font-semibold";
+  const clase = cn(
+    "inline-flex items-center gap-[5px] text-[13px] font-semibold",
+    enTinta && "[&.text-muted-foreground]:text-current [&.text-muted-foreground]:opacity-[.72]",
+  );
   if (employee.role === "admin") {
     return (
       <span className={cn(clase, "text-muted-foreground")}>
@@ -186,9 +179,10 @@ interface Listo {
 /**
  * "Quién opera" (SPEC-NEGOCIO §9.1; CONTRATO-INTERNO-1b-1.md §6, cierra A-9
  * de la entrega de 1a), según el handoff del POS (pantalla 1, 1280 × 800):
- * a la izquierda la grilla del equipo en tarjetas de 112 px; a la derecha,
- * un panel de 440 px con el nombre elegido, los cuatro puntos y el teclado
- * de PIN grande. `POST /auth/device/identify {employee_id, pin}`; el error
+ * con la piel «Burbujas» (handoff `design_handoff_pos_burbujas`, vuelta 9a):
+ * a la izquierda, la burbuja del equipo en pozos de 88 px (la persona
+ * elegida en tinta); a la derecha, una burbuja de 400 px con el nombre
+ * elegido, los cuatro puntos y el teclado de 72 px al pie. `POST /auth/device/identify {employee_id, pin}`; el error
  * del servidor («PIN incorrecto · te quedan N intentos», `PIN_LOCKED`) se
  * muestra tal cual llega.
  *
@@ -322,28 +316,39 @@ export default function DeviceIdentifyPage(): React.JSX.Element {
   }
 
   const storeName = me?.store?.name ?? "";
+  const orgName = me?.organization?.name ?? "Restaurante Sistema";
+  const hora = formatClockTime(ahora.toISOString());
+  // «● Caja abierta · Nombre»: sólo con turno abierto y un responsable real.
+  const responsableCaja = turno.data?.cash_responsible?.name ?? null;
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background text-foreground tabular-nums md:landscape:h-dvh">
-      <header className="flex items-center gap-4 border-b px-5 py-[14px]">
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <p className="truncate text-[20px] font-extrabold [font-stretch:108%]">
-            {me?.organization?.name ?? "Restaurante Sistema"}
-          </p>
-          <p className="truncate text-[15px] text-muted-foreground">
-            {storeName ? `${storeName} · ` : ""}
-            {fechaLarga(ahora)}
+    <div className="flex min-h-dvh flex-col gap-2.5 bg-background p-2.5 text-foreground tabular-nums md:landscape:h-dvh">
+      <header className="flex h-[72px] flex-none items-center gap-3 rounded-[22px] bg-card pr-2.5 pl-3">
+        <span
+          title={orgName}
+          aria-hidden="true"
+          className="grid size-12 flex-none place-items-center rounded-2xl bg-foreground text-[15px] font-bold text-card"
+        >
+          {initials(orgName)}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <p className="truncate text-[17px] leading-tight font-semibold">{storeName || orgName}</p>
+          <p className="truncate text-[13px] text-muted-foreground">
+            {fechaCorta(ahora)} · <span aria-label={`Son las ${hora}`}>{hora}</span>
           </p>
         </div>
-        <p className="text-[22px] font-bold" aria-label={`Son las ${formatClockTime(ahora.toISOString())}`}>
-          {formatClockTime(ahora.toISOString())}
-        </p>
+        {responsableCaja ? (
+          <span className="inline-flex h-10 shrink-0 items-center gap-2 rounded-[20px] bg-success-soft px-3.5 text-[14px] font-semibold whitespace-nowrap text-success">
+            <span aria-hidden="true" className="size-[7px] rounded-full bg-success" />
+            Caja abierta · {responsableCaja}
+          </span>
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Más opciones"
-            className="grid size-[56px] place-items-center rounded-[12px] border bg-card text-foreground transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className="grid size-[52px] shrink-0 place-items-center rounded-2xl bg-muted text-foreground transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
-            <Ellipsis aria-hidden="true" className="size-6" />
+            <Ellipsis aria-hidden="true" className="size-5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-[320px] rounded-[14px] p-1.5 shadow-[0_12px_32px_rgb(0_0_0/18%)]">
             <DropdownMenuItem className="min-h-[56px] gap-3 px-3.5 text-[17px]" onClick={() => navigate("/login")}>
@@ -384,30 +389,29 @@ export default function DeviceIdentifyPage(): React.JSX.Element {
         </DropdownMenu>
       </header>
 
-      <div className="grid flex-1 md:landscape:min-h-0 md:landscape:grid-cols-[minmax(0,1fr)_440px]">
+      <div className="grid flex-1 gap-2.5 md:landscape:min-h-0 md:landscape:grid-cols-[minmax(0,1fr)_400px]">
         <section
           aria-labelledby="quien-opera-titulo"
-          className="flex min-h-0 flex-col gap-4 py-6 pr-6 pl-7 md:landscape:overflow-y-auto"
+          className="flex min-h-0 flex-col gap-4 rounded-[26px] bg-card p-[26px] md:landscape:overflow-y-auto"
         >
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h1 id="quien-opera-titulo" className="text-[30px] font-extrabold tracking-[-0.01em] [font-stretch:108%]">
+            <h1 id="quien-opera-titulo" className="text-[32px] font-semibold tracking-[-0.025em]">
               {modoSalida ? "Marcar salida" : "¿Quién opera?"}
             </h1>
-            <span className="text-[16px] text-muted-foreground">
-              {modoSalida ? "Tocá tu nombre y tecleá tu PIN" : "Equipo en turno hoy · tocá tu nombre"}
+            <span className="text-[15px] text-muted-foreground">
+              {modoSalida ? "Tocá tu nombre y escribí tu PIN" : "Equipo en turno hoy · tocá tu nombre"}
             </span>
             {modoSalida ? (
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                className="ml-auto h-[56px] rounded-[12px] px-4 text-[16px]"
+                className="ml-auto h-[52px] rounded-2xl bg-muted px-[18px] text-[15px] font-medium transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 onClick={() => {
                   setModoSalida(false);
                   setError(null);
                 }}
               >
                 Volver a «Quién opera»
-              </Button>
+              </button>
             ) : null}
           </div>
 
@@ -423,60 +427,78 @@ export default function DeviceIdentifyPage(): React.JSX.Element {
             asistenciaSabida={asistencia.isSuccess}
           />
 
-          <p className="mt-auto flex items-center gap-2 pt-4 text-[15px] text-muted-foreground">
-            <Info aria-hidden="true" className="size-[18px] shrink-0" />
-            El primer PIN del día marca tu entrada. Cocina puede mirar tiquetes sin identificarse.
-          </p>
+          <div className="mt-auto flex flex-col gap-1 pt-2 text-[13px] text-muted-foreground">
+            <p>¿No aparecés? Pedile a quien supervisa que te agregue al turno de hoy.</p>
+            <p>El primer PIN del día marca tu entrada. Cocina puede mirar tiquetes sin identificarse.</p>
+          </div>
         </section>
 
         <aside
           aria-label={modoSalida ? "PIN para marcar la salida" : "PIN personal"}
-          className="flex flex-col items-center gap-4 border-t bg-card px-7 py-6 md:landscape:border-t-0 md:landscape:border-l"
+          className="flex flex-col gap-[18px] rounded-[26px] bg-card p-[26px]"
         >
           {listo ? (
             <div role="status" className="flex flex-1 flex-col items-center justify-center gap-[14px] text-center">
-              <span className="grid size-[80px] place-items-center rounded-full bg-success text-success-foreground">
-                <Check aria-hidden="true" className="size-10" />
+              <span className="grid size-[64px] place-items-center rounded-[20px] bg-success-soft text-success">
+                <Check aria-hidden="true" className="size-8" />
               </span>
-              <p className="text-[28px] font-extrabold">Entrada {listo.hora}</p>
-              <p className="max-w-[320px] text-[17px] text-muted-foreground">
+              <p className="text-[26px] font-semibold">Entrada {listo.hora}</p>
+              <p className="max-w-[320px] text-[15px] text-muted-foreground">
                 Hola, {listo.employee.name.split(" ")[0]}. Quedó marcada tu entrada. Seguís a {listo.destino}.
               </p>
               <Button
                 type="button"
-                className="mt-3 h-[64px] w-full rounded-[12px] text-[19px] font-bold"
+                className="mt-auto h-[64px] w-full rounded-[20px] text-[17px] font-semibold"
                 onClick={() => navigate(siguiente ?? "/pos", { replace: true })}
               >
                 Ir a {listo.destino}
-                <ArrowRight aria-hidden="true" className="size-[22px]" />
+                <ArrowRight aria-hidden="true" className="size-[20px]" />
               </Button>
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                className="h-[56px] w-full rounded-[12px] bg-transparent text-[17px] font-semibold"
+                className="h-[56px] w-full rounded-[20px] bg-muted text-[15px] font-semibold transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 onClick={() => void noSoyYo()}
               >
                 No soy yo
-              </Button>
+              </button>
             </div>
           ) : (
             <>
               <div className="flex flex-col items-center gap-1 text-center">
-                <p className="text-[24px] font-extrabold">{employee ? employee.name : "Tocá tu nombre"}</p>
-                <p className="text-[16px] text-muted-foreground">
+                <span
+                  aria-hidden="true"
+                  className="grid size-16 place-items-center rounded-[20px] bg-muted text-[20px] font-semibold"
+                >
+                  {employee ? initials(employee.name) : <UserRound className="size-7 text-muted-foreground" />}
+                </span>
+                <p className="mt-2 text-[20px] font-semibold">{employee ? employee.name : "Tocá tu nombre"}</p>
+                <p className="text-[14px] text-muted-foreground">
                   {employee
-                    ? `${subtitulo(employee, entradas.get(employee.id))} · ${modoSalida ? "PIN para marcar la salida" : "PIN de 4 dígitos"}`
-                    : "Después tecleás tu PIN de 4 dígitos"}
+                    ? `${subtitulo(employee, entradas.get(employee.id))} · ${modoSalida ? "PIN para marcar la salida" : "Escribí tu PIN de 4 dígitos"}`
+                    : "Después escribís tu PIN de 4 dígitos"}
                 </p>
               </div>
-              <PinPad
-                length={4}
-                size="grande"
-                label="PIN personal"
-                onSubmit={handlePin}
-                disabled={submitting || !employee}
-                errorMessage={error}
-              />
+              {error ? (
+                // El mensaje del servidor tal cual llega («PIN incorrecto · te
+                // quedan N intentos», `PIN_LOCKED`), en la pastilla del diseño.
+                <p
+                  role="alert"
+                  className="inline-flex min-h-8 items-center gap-1.5 self-center rounded-2xl bg-destructive-soft px-3.5 py-1 text-center text-[13px] font-semibold text-destructive"
+                >
+                  <span aria-hidden="true" className="size-[7px] shrink-0 rounded-[1px] bg-current" />
+                  {error}
+                </p>
+              ) : null}
+              {/* El teclado queda al pie de la burbuja (margin-top auto). */}
+              <div className="flex flex-1 flex-col [&>[role=group]]:flex-1 [&>[role=group]>.grid]:mt-auto">
+                <PinPad
+                  length={4}
+                  burbuja="quien"
+                  label="PIN personal"
+                  onSubmit={handlePin}
+                  disabled={submitting || !employee}
+                />
+              </div>
             </>
           )}
         </aside>
@@ -531,12 +553,12 @@ function Equipo({
   entradas: Map<number, AttendanceEntryOut>;
   asistenciaSabida: boolean;
 }): React.JSX.Element {
-  const grilla = "grid grid-cols-2 gap-3 sm:grid-cols-3";
+  const grilla = "grid grid-cols-2 content-start gap-2.5 sm:grid-cols-3";
   if (query.isLoading) {
     return (
       <div aria-label="Quién opera" aria-busy="true" className={grilla}>
         {Array.from({ length: 6 }).map((_, index) => (
-          <Skeleton key={index} className="h-[112px] w-full rounded-[14px]" />
+          <Skeleton key={index} className="h-[88px] w-full rounded-[20px]" />
         ))}
       </div>
     );
@@ -581,17 +603,18 @@ function Equipo({
             disabled={disabled}
             onClick={() => onChange(employee)}
             className={cn(
-              "flex min-h-[112px] items-center gap-[14px] rounded-[14px] px-4 py-[14px] text-left transition-colors",
+              "flex min-h-[88px] items-center gap-[14px] rounded-[20px] px-4 py-[14px] text-left transition-colors",
               "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
-              checked ? "border-[3px] border-primary bg-accent" : "border bg-card hover:bg-muted",
+              // La elegida va en tinta; las demás, en pozo.
+              checked ? "bg-foreground text-card" : "bg-muted text-foreground hover:bg-fill-strong",
               disabled && !checked && "opacity-60",
             )}
           >
             <span
               aria-hidden="true"
               className={cn(
-                "grid size-[60px] shrink-0 place-items-center rounded-full text-[22px] font-extrabold",
-                checked ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground",
+                "grid size-[52px] shrink-0 place-items-center rounded-2xl text-[16px] font-semibold",
+                checked ? "bg-[color-mix(in_oklab,var(--card)_18%,transparent)]" : "bg-card",
               )}
             >
               {initials(employee.name)}
@@ -599,9 +622,9 @@ function Equipo({
             <span className="flex min-w-0 flex-col gap-[3px]">
               {/* El nombre completo, en varias líneas si hace falta: dos «Ana M…»
                   iguales no se distinguen. */}
-              <span className="text-[19px] leading-[1.15] font-bold break-words">{employee.name}</span>
-              <span className="text-[15px] text-muted-foreground">{sub}</span>
-              <EstadoDelDia employee={employee} entrada={entrada} sabido={asistenciaSabida} />
+              <span className="text-[17px] leading-[1.15] font-semibold break-words">{employee.name}</span>
+              <span className="text-[13px] opacity-[.72]">{sub}</span>
+              <EstadoDelDia employee={employee} entrada={entrada} sabido={asistenciaSabida} enTinta={checked} />
             </span>
           </button>
         );
@@ -613,17 +636,17 @@ function Equipo({
           aria-expanded={mostrarResto}
           disabled={disabled}
           onClick={() => setVerOtras(!verOtras)}
-          className="flex min-h-[112px] items-center gap-[14px] rounded-[14px] border-2 border-dashed border-input bg-transparent px-4 py-[14px] text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="flex min-h-[88px] items-center gap-[14px] rounded-[20px] border-2 border-dashed border-input bg-transparent px-4 py-[14px] text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           <span
             aria-hidden="true"
-            className="grid size-[60px] shrink-0 place-items-center rounded-full border-2 border-dashed border-input"
+            className="grid size-[52px] shrink-0 place-items-center rounded-2xl border-2 border-dashed border-input"
           >
             <UserPlus className="size-6" />
           </span>
           <span className="flex flex-col gap-[3px]">
-            <span className="text-[19px] font-bold">Otra persona</span>
-            <span className="text-[15px] text-muted-foreground">
+            <span className="text-[17px] font-semibold">Otra persona</span>
+            <span className="text-[13px] text-muted-foreground">
               {mostrarResto ? "Tocá para ver sólo el turno" : "No está en el turno de hoy"}
             </span>
           </span>

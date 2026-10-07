@@ -128,13 +128,16 @@ describe("TablesPage", () => {
     const mesa = await screen.findByRole("button", { name: /mesa 2, ocupada, 3 sin enviar, atiende ana maría/i })
     expect(within(mesa).getByText("3 sin enviar")).toBeInTheDocument()
     expect(within(mesa).getByText("AM")).toBeInTheDocument()
-    // Motivo del cambio: el handoff (`PosMesas`) fija la ocupada en `primary`
-    // al 12 % con borde al 45 % (antes 10 % / 40 %). Sigue siendo el token
-    // del tema, nunca un color crudo.
-    expect(mesa.className).toMatch(/bg-primary\/12/)
-    expect(mesa.className).toMatch(/border-primary\/45/)
-    expect(screen.getByRole("button", { name: /mesa 3, por cobrar/i }).className).toMatch(/bg-warning/)
-    expect(screen.getByRole("button", { name: /mesa 1, libre/i }).className).toMatch(/bg-card/)
+    // Motivo del cambio: el handoff «Burbujas» (9b) pinta la ocupada en
+    // `fill-strong`, la por cobrar en tinta con texto `card` y la libre en
+    // `card` con anillo `--input`. Siempre tokens del tema, nunca un color crudo.
+    expect(mesa.className).toMatch(/bg-fill-strong/)
+    const porCobrar = screen.getByRole("button", { name: /mesa 3, por cobrar/i })
+    expect(porCobrar.className).toMatch(/bg-foreground/)
+    expect(porCobrar.className).toMatch(/text-card/)
+    const libre = screen.getByRole("button", { name: /mesa 1, libre/i })
+    expect(libre.className).toMatch(/bg-card/)
+    expect(libre.className).toMatch(/var\(--input\)/)
   })
 
   it("la leyenda cuenta las mesas por estado y cada tarjeta dice su estado con palabra, comensales · minutos y total", async () => {
@@ -148,15 +151,43 @@ describe("TablesPage", () => {
     expect(screen.getByText("Por cobrar 1")).toBeInTheDocument()
 
     const libre = screen.getByRole("button", { name: /mesa 1, libre/i })
-    expect(within(libre).getByText("Libre")).toBeInTheDocument()
-    expect(within(libre).getByText("4 puestos")).toBeInTheDocument()
-    expect(libre.className).toMatch(/min-h-\[128px\]/)
+    expect(within(libre).getByText("Libre · 4 puestos")).toBeInTheDocument()
+    expect(libre.className).toMatch(/min-h-\[112px\]/)
 
+    // La ocupada dice su estado con el fondo y en su nombre accesible; la
+    // por cobrar, además, con palabra en la línea de estado.
     const ocupada = screen.getByRole("button", { name: /mesa 2, ocupada/i })
-    expect(within(ocupada).getByText("Ocupada")).toBeInTheDocument()
     // El total es el del servidor, tal cual.
     expect(within(ocupada).getByText("$ 25.000")).toBeInTheDocument()
     expect(within(ocupada).getByText(/^2 · \d+ (h \d+ )?min$/)).toBeInTheDocument()
+    const porCobrar = screen.getByRole("button", { name: /mesa 3, por cobrar/i })
+    expect(within(porCobrar).getByText(/^Por cobrar · \S+ · \d+ (h \d+ )?min$/)).toBeInTheDocument()
+  })
+
+  it("el segmentado de zona trae «Todas» y las zonas reales con su recuento, y cada zona dice cuántas están ocupadas", async () => {
+    const base = buildTablesStatus()
+    const zone = base.zones![0]!
+    const tables = zone.tables ?? []
+    listTablesStatusMock.mockResolvedValue({
+      zones: [
+        { ...zone, id: 1, name: "Salón", tables: tables.slice(0, 2) },
+        { ...zone, id: 2, name: "Terraza", tables: tables.slice(2) },
+      ],
+    })
+    const user = userEvent.setup()
+
+    renderWithProviders(<TablesPage />, { me: deviceMe({ "pos.tables": true }) })
+
+    await screen.findByRole("button", { name: /mesa 1, libre/i })
+    const zonas = screen.getByRole("group", { name: "Zonas" })
+    const todas = within(zonas).getByRole("button", { name: /todas/i })
+    expect(todas).toHaveAttribute("aria-pressed", "true")
+    expect(todas).toHaveTextContent(String(tables.length))
+    expect(screen.getByText(`1 de 2 ocupadas`)).toBeInTheDocument()
+
+    await user.click(within(zonas).getByRole("button", { name: /terraza/i }))
+    expect(screen.queryByRole("button", { name: /mesa 1, libre/i })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /mesa 3, por cobrar/i })).toBeInTheDocument()
   })
 
   it("«Mover / unir» es un solo botón que ofrece las dos cosas", async () => {

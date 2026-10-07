@@ -3,14 +3,15 @@ import { describe, expect, it } from "vitest"
 import { kitchenFeature } from "../index"
 
 describe("kitchenFeature — manifiesto (CONTRATO C8, pedido 2c)", () => {
-  it("expone UNA pantalla de cocina, gateada por kitchen.view; /pos/cocina redirige a ella", () => {
+  it("expone la pantalla de cocina y la del bar (el mismo KDS), gateadas por kitchen.view (en la barra, Cocina y Bar); /pos/cocina redirige a la de cocina", () => {
     const posPaths = kitchenFeature.posRoutes.map((r) => r.path)
-    expect(posPaths).toEqual(["kds", "cocina"])
+    expect(posPaths).toEqual(["kds", "bar", "cocina"])
 
     // Cada entrada del salón lleva su ícono propio (el genérico era el mismo para todas).
     for (const item of kitchenFeature.posNav) expect(item.icon).toBeDefined()
     expect(kitchenFeature.posNav.map(({ icon: _icon, ...item }) => item)).toEqual([
       { to: "/pos/kds", label: "Cocina", feature: "kitchen.view", posGroup: "cocina" },
+      { to: "/pos/bar", label: "Bar", feature: "kitchen.view", posGroup: "cocina" },
     ])
   })
 

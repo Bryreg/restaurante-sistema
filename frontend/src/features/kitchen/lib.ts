@@ -151,10 +151,17 @@ export interface StationPerson {
   name: string
 }
 
+/** Claro u oscuro del KDS en este dispositivo; sin preferencia, la noche (el handoff la recomienda en la cocina). */
+export type KdsTema = "noche" | "claro"
+
 export interface KdsScreenPrefs {
+  /** La estación elegida en la pantalla de cocina. */
   station?: string
+  /** La estación elegida en la pantalla del bar (aparte: una tablet puede mostrar las dos). */
+  stationBar?: string
   fullscreen?: boolean
   showStale?: boolean
+  tema?: KdsTema
   lastPerson?: StationPerson
 }
 
@@ -164,6 +171,8 @@ export function readKdsPrefs(): KdsScreenPrefs {
   const value = parsed as Record<string, unknown>
   const prefs: KdsScreenPrefs = {}
   if (typeof value.station === "string") prefs.station = value.station
+  if (typeof value.stationBar === "string") prefs.stationBar = value.stationBar
+  if (value.tema === "noche" || value.tema === "claro") prefs.tema = value.tema
   if (typeof value.fullscreen === "boolean") prefs.fullscreen = value.fullscreen
   if (typeof value.showStale === "boolean") prefs.showStale = value.showStale
   const person = value.lastPerson
@@ -181,6 +190,25 @@ export function writeKdsPrefs(patch: Partial<KdsScreenPrefs>): void {
     if (patch[key] === undefined) delete next[key]
   }
   guardarPreferenciasCocina(next)
+}
+
+// ---------------------------------------------------------------------------
+// Cocina y bar: el MISMO KDS con la prop `area`. La carta distingue la
+// estación por ítem (`station`, la del producto); de las de fábrica
+// (`DEFAULT_STATIONS` en `backend/app/stores/service.py`) sólo `bar` es del
+// bar. Una estación que el dueño creó con su propio nombre no dice de qué
+// área es, así que no se adivina: queda en la cocina. Las estaciones que
+// propone el handoff para el bar (Jugos, Cócteles, Café) no existen en la
+// carta y no se inventan.
+// ---------------------------------------------------------------------------
+
+export type KdsArea = "cocina" | "bar"
+
+/** Las estaciones que son del bar. */
+export const BAR_STATIONS: readonly string[] = ["bar"]
+
+export function esEstacionDelBar(station: string | null | undefined): boolean {
+  return station != null && BAR_STATIONS.includes(station)
 }
 
 /**

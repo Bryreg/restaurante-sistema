@@ -152,3 +152,22 @@ export function momentoDelTurno({
   }
   return null;
 }
+
+/**
+ * El renglón de detalle de cada acción en la **columna «Caja»** de Mesas
+ * (handoff «Burbujas», 9b): una frase corta bajo el rótulo. Sólo cuenta
+ * cosas (domiciliarios), nunca plata: la caja es a ciegas. `null` = sin
+ * renglón.
+ */
+export function detalleCinta(clave: ClaveAccion, contador: number): string | null {
+  switch (clave) {
+    case "domicilios":
+      return contador > 0 ? `${contador} por liquidar` : "Liquidar el efectivo";
+    case "cambio":
+      return "Un billete por sencillo";
+    case "movimientos":
+      return "Ingreso o egreso de efectivo";
+    default:
+      return null;
+  }
+}

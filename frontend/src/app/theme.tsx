@@ -147,8 +147,14 @@ export function guardarPreferenciasCocina(valor: unknown): void {
   }
 }
 
-/** Mientras la pantalla de cocina está abierta, la pizarra manda. */
-export function useCocinaPantalla(): void {
+/**
+ * Mientras la pantalla de cocina (o del bar) está abierta, manda ella: la
+ * noche por defecto (`html.cocina`). Con `clara`, el KDS claro
+ * (`html.cocina.cocina-clara`, con los suaves más intensos para que la
+ * cabecera teñida se distinga a 2 m); la elección vive en las preferencias
+ * de cocina del dispositivo.
+ */
+export function useCocinaPantalla(clara = false): void {
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add("cocina");
@@ -156,4 +162,11 @@ export function useCocinaPantalla(): void {
       root.classList.remove("cocina");
     };
   }, []);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("cocina-clara", clara);
+    return () => {
+      root.classList.remove("cocina-clara");
+    };
+  }, [clara]);
 }

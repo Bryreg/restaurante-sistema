@@ -88,9 +88,9 @@ describe("OrderItemsList", () => {
       { me: deviceMe({}) },
     )
 
-    // La cantidad del enviado queda como texto («1×») en su línea.
+    // La cantidad del enviado queda como texto («1», handoff 9c) en su línea.
     const sentLine = screen.getByText("Sopa").closest("li") as HTMLElement
-    expect(within(sentLine).getByText("1×")).toBeInTheDocument()
+    expect(within(sentLine).getByText("1")).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: /limonada de coco: acciones/i }))
     const pendingSheet = await screen.findByRole("dialog")
@@ -124,8 +124,9 @@ describe("OrderItemsList", () => {
   })
 
   // Motivo del cambio: el handoff (`PosComanda`) agrupa el pedido en «Sin
-  // enviar · N» (lo que todavía cambia) y «Ya en cocina», y el curso viaja en
-  // la etiqueta de cada línea («A2 · Fuerte») en vez de un rótulo de grupo.
+  // enviar · N» (lo que todavía cambia) y «En cocina» (handoff «Burbujas» 9c),
+  // y el curso viaja en la pastilla de cada línea («Asiento 2 · Fuerte») en
+  // vez de un rótulo de grupo.
   // Lo que se prueba es lo mismo: lo enviado y lo sin enviar no se mezclan, y
   // el monto es el `net` del servidor.
   it("separa lo ya en cocina de lo sin enviar, con asiento y curso en la línea", () => {
@@ -146,7 +147,7 @@ describe("OrderItemsList", () => {
       { me: deviceMe({}) },
     )
 
-    const sent = screen.getByRole("region", { name: "Ya en cocina" })
+    const sent = screen.getByRole("region", { name: "En cocina" })
     expect(within(sent).getByText("Sopa de guineo")).toBeInTheDocument()
     expect(within(sent).getByText("En preparación")).toBeInTheDocument()
     expect(within(sent).queryByText("Bandeja paisa")).not.toBeInTheDocument()
@@ -155,8 +156,8 @@ describe("OrderItemsList", () => {
     const unsent = screen.getByRole("region", { name: "Sin enviar · 5" })
     expect(within(unsent).queryByText("Sopa de guineo")).not.toBeInTheDocument()
     const bandeja = within(unsent).getByText("Bandeja paisa").closest("li") as HTMLElement
-    expect(within(bandeja).getByText("2×")).toBeInTheDocument()
-    expect(within(bandeja).getByText("A2 · Fuerte")).toBeInTheDocument()
+    expect(within(bandeja).getByText("2")).toBeInTheDocument()
+    expect(within(bandeja).getByText("Asiento 2 · Fuerte")).toBeInTheDocument()
     // El monto de la línea es el `net` del backend, tal cual.
     expect(within(bandeja).getByText(/76\.000/)).toBeInTheDocument()
   })
@@ -185,8 +186,8 @@ describe("OrderItemsList", () => {
     expect(sinCebolla.className).toMatch(/h-\[56px\]/)
     await user.click(within(notas).getByRole("button", { name: "Aparte" }))
     expect(onToggleNote).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }), "Aparte")
-    // La nota se lee como en el tiquete de cocina.
-    expect(screen.getByText("Sin cebolla", { selector: ".tiquete-modificadores" })).toBeInTheDocument()
+    // La nota va en su pastilla `warning-soft` (handoff 9c: reemplaza la cinta amarilla).
+    expect(screen.getByText("Sin cebolla", { selector: "[data-slot=line-note]" })).toHaveClass("bg-warning-soft")
   })
 
   it("los modificadores, las opciones del combo y la nota van en línea, debajo del nombre", () => {

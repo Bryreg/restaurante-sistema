@@ -123,6 +123,7 @@ describe("PosLayout — la barra del salón la decide quién se identificó", ()
       "Mostrador",
       "Turno",
       "Cocina",
+      "Bar",
       "Producción",
       "Merma",
     ]);
@@ -131,7 +132,7 @@ describe("PosLayout — la barra del salón la decide quién se identificó", ()
   it("una función apagada no deja hueco: la entrada simplemente no está", async () => {
     renderLayout({ "pos.tables": false, "kitchen.view": true }, undefined, MESERO);
 
-    expect(await rotulosDeLaBarra()).toEqual(["Mostrador", "Turno", "Cocina"]);
+    expect(await rotulosDeLaBarra()).toEqual(["Mostrador", "Turno", "Cocina", "Bar"]);
   });
 
   it("con las dos vistas de cocina encendidas no hay dos «Cocina» iguales", async () => {
@@ -141,16 +142,15 @@ describe("PosLayout — la barra del salón la decide quién se identificó", ()
     expect(new Set(rotulos).size).toBe(rotulos.length);
   });
 
-  it("los botones de la barra son objetivos de salón (56 px)", async () => {
+  it("las secciones de la barra son objetivos táctiles (48 px, interruptor del POS)", async () => {
     renderLayout({ "pos.tables": true }, undefined, CAJERA);
 
     await rotulosDeLaBarra();
-    // Motivo del cambio: el handoff `PosBarra` fija los ítems en 56 px
-    // exactos (`min-h-[56px]`); `min-h-14` con la raíz de 17 px del salón
-    // daba 59,5 px. La regla que se prueba —ninguno por debajo de 56— es la
-    // misma.
+    // Motivo del cambio: el handoff «Burbujas» (§ 2) pone las secciones en
+    // un segmentado, y los interruptores del POS son de 48 px (`h-12`). La
+    // regla que se prueba —todas con el alto táctil fijo— es la misma.
     for (const link of within(screen.getByRole("navigation", { name: "Secciones del salón" })).getAllByRole("link")) {
-      expect(link.className).toMatch(/\bmin-h-(14|\[56px\])(?=\s|$)/);
+      expect(link.className).toMatch(/\bh-12(?=\s|$)/);
     }
   });
 
@@ -314,7 +314,7 @@ describe("PosLayout — inicio por rol: la barra según el puesto", () => {
   it("un supervisor con puesto ve la barra completa", async () => {
     renderLayout(TODO_ENCENDIDO, undefined, { ...SUPERVISOR, puesto: "salon" });
 
-    expect(await rotulosDeLaBarra()).toHaveLength(6);
+    expect(await rotulosDeLaBarra()).toHaveLength(7);
   });
 });
 
@@ -324,7 +324,7 @@ function PantallaDeCobro(): React.JSX.Element {
 }
 
 describe("PosLayout — la cabecera unificada (handoff PosBarra)", () => {
-  it("avatar con iniciales, nombre · puesto y el turno como subtítulo, en una sola fila", async () => {
+  it("avatar con iniciales, nombre · puesto, el turno como subtítulo y las secciones, en una sola burbuja", async () => {
     renderLayout({ "pos.tables": true }, undefined, { ...CAJERA, puesto: "caja" });
 
     const cabecera = (await screen.findByText("Luz Marina")).closest("header") as HTMLElement;
@@ -332,8 +332,13 @@ describe("PosLayout — la cabecera unificada (handoff PosBarra)", () => {
     expect(within(cabecera).getByText("· Caja")).toBeInTheDocument();
     // `ShiftStatusStrip` va DENTRO de la cabecera, como subtítulo.
     expect(within(cabecera).getByTestId("shift-status-strip")).toBeInTheDocument();
-    expect(cabecera.className).toMatch(/min-h-\[76px\]/);
-    expect(within(cabecera).getByRole("button", { name: /cambiar de persona/i }).className).toMatch(/h-\[56px\]/);
+    // Handoff «Burbujas»: la barra es una burbuja de 72 px y los botones de
+    // la derecha, pozos de 52 px.
+    expect(cabecera.className).toMatch(/h-\[72px\]/);
+    expect(within(cabecera).getByRole("button", { name: /cambiar de persona/i }).className).toMatch(/h-\[52px\]/);
+    expect(within(cabecera).getByRole("button", { name: "Más opciones" }).className).toMatch(/size-\[52px\]/);
+    // Las secciones van dentro de la barra, en el segmentado.
+    expect(within(cabecera).getByRole("navigation", { name: "Secciones del salón" })).toBeInTheDocument();
   });
 
   it("la pantalla pone la pastilla de su tarea y puede esconder la barra de secciones", async () => {

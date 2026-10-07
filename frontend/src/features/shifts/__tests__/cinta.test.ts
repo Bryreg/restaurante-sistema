@@ -5,6 +5,7 @@ import type { ShiftCurrent } from "@/api/shifts";
 
 import { accionesHabilitadas } from "../acciones";
 import {
+  detalleCinta,
   domiciliariosPorLiquidar,
   haySencillaPorRecibir,
   momentoDelTurno,
@@ -117,5 +118,14 @@ describe("contadores (de cosas, nunca de plata)", () => {
   it("domicilios: cuántos domiciliarios tienen efectivo por liquidar", () => {
     expect(domiciliariosPorLiquidar({ couriers: [{ courier_employee_id: 1 }, { courier_employee_id: 2 }] })).toBe(2);
     expect(domiciliariosPorLiquidar(undefined)).toBe(0);
+  });
+});
+
+describe("detalleCinta (columna «Caja»)", () => {
+  it("cuenta domiciliarios, nunca plata, y no inventa renglón para el resto", () => {
+    expect(detalleCinta("domicilios", 2)).toBe("2 por liquidar");
+    expect(detalleCinta("domicilios", 0)).toBe("Liquidar el efectivo");
+    expect(detalleCinta("movimientos", 0)).toBe("Ingreso o egreso de efectivo");
+    expect(detalleCinta("relevo", 0)).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react"
+import { fireEvent, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useState } from "react"
 import { describe, expect, it, vi } from "vitest"
@@ -36,8 +36,10 @@ describe("CatalogPanel", () => {
       me: deviceMe({ "pos.daily_menu": true }),
     })
 
-    const tabs = screen.getAllByRole("tab")
+    // Las categorías van en el interruptor segmentado (handoff «Burbujas» 9c).
+    const tabs = within(screen.getByRole("group", { name: "Categorías de la carta" })).getAllByRole("button")
     expect(tabs[0]).toHaveTextContent("Menú del día")
+    expect(tabs[0]).toHaveAttribute("aria-pressed", "true")
     // El contenido del combo activo está visible sin tocar nada: es la pestaña activa por defecto.
     expect(screen.getByText("Menú ejecutivo")).toBeInTheDocument()
   })
@@ -50,7 +52,7 @@ describe("CatalogPanel", () => {
       me: deviceMe({ "pos.daily_menu": true }),
     })
 
-    expect(screen.queryByRole("tab", { name: "Menú del día" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Menú del día" })).not.toBeInTheDocument()
   })
 
   it("un producto agotado se muestra deshabilitado", () => {
@@ -141,7 +143,7 @@ describe("CatalogPanel", () => {
     })
     fireEvent.click(screen.getByRole("button", { name: "refrescar" }))
 
-    expect(screen.getByRole("tab", { name: "Menú del día" })).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByRole("button", { name: "Menú del día" })).toHaveAttribute("aria-pressed", "true")
     expect(screen.getByText("Menú ejecutivo")).toBeInTheDocument()
   })
 

@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 import { type Accion, type ClaveAccion, accionesHabilitadas } from "./acciones";
 import {
+  detalleCinta,
   domiciliariosPorLiquidar,
   haySencillaPorRecibir,
   type Momento,
@@ -63,7 +64,17 @@ const BOTON_CINTA =
  * La acción abierta vive en `?accion=` igual que en el turno: se puede
  * enlazar `/pos/mesas?accion=retiros`.
  */
-export function CashRibbon(): React.JSX.Element | null {
+export function CashRibbon({
+  variante = "fila",
+}: {
+  /**
+   * `fila` (por defecto): la cinta de siempre, una fila a lo ancho.
+   * `columna`: la columna «Caja» de 260 px a la derecha de Mesas (handoff
+   * «Burbujas», 9b/9e): cada acción en un pozo de 64 px con su detalle y el
+   * pie «Efectivo en caja». Mismos datos, mismas reglas: sólo cambia la forma.
+   */
+  variante?: "fila" | "columna";
+} = {}): React.JSX.Element | null {
   const { me, hasFeature } = useSession();
   const { data: shift } = useCurrentShift();
   const persona = me?.kind === "device" ? me.employee : null;
@@ -140,6 +151,33 @@ export function CashRibbon(): React.JSX.Element | null {
   // La hoja lleva el rótulo con que se tocó («Gasto / Ingreso», no «Movimientos»).
   const abierta = [...principales, ...mas].find((a) => a.clave === claveAbierta) ?? null;
 
+  const hoja = (
+    <ShiftActionSheet
+      accion={abierta}
+      shift={shift}
+      volver={{ label: "Mesas", ariaLabel: "Volver a Mesas" }}
+      onClose={cerrar}
+      onClosed={setCloseResult}
+    />
+  );
+
+  if (variante === "columna") {
+    return (
+      <>
+        <ColumnaCaja
+          principales={principales}
+          mas={mas}
+          momento={momento}
+          badges={badges}
+          badgeMas={badgeMas}
+          sobreUmbral={shift.cash_over_threshold}
+          onAbrir={abrir}
+        />
+        {hoja}
+      </>
+    );
+  }
+
   return (
     <>
       <nav aria-label="Acciones de caja" className="overflow-x-auto overscroll-x-contain border-b">
@@ -187,13 +225,7 @@ export function CashRibbon(): React.JSX.Element | null {
         </div>
       </nav>
 
-      <ShiftActionSheet
-        accion={abierta}
-        shift={shift}
-        volver={{ label: "Mesas", ariaLabel: "Volver a Mesas" }}
-        onClose={cerrar}
-        onClosed={setCloseResult}
-      />
+      {hoja}
     </>
   );
 }
@@ -289,5 +321,171 @@ function BotonMomento({
         {momento.descripcion}
       </span>
     </>
+  );
+}
+
+/** El pozo de 64 px de cada acción de la columna «Caja» (handoff «Burbujas», 9b). */
+const POZO_CAJA =
+  "flex min-h-[64px] w-full items-center gap-3 rounded-[18px] px-3.5 text-left text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
+
+/** El cuadro de 38 px, en `card`, donde va el ícono de 18 px. */
+const CUADRO_ICONO = "grid size-[38px] shrink-0 place-items-center rounded-xl bg-card [&_svg]:size-[18px]";
+
+/** Contador de cosas de la columna: pastilla roja de 24 px, texto blanco 12/600. */
+function ContadorColumna({ valor }: { valor: number }): React.JSX.Element | null {
+  if (valor <= 0) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className="grid h-6 min-w-6 shrink-0 place-items-center rounded-full bg-destructive px-[7px] text-[12px] font-semibold text-white"
+    >
+      {valor > 9 ? "9+" : valor}
+    </span>
+  );
+}
+
+function TextoPozo({ titulo, detalle, claseDetalle }: { titulo: string; detalle?: string | null; claseDetalle?: string }) {
+  return (
+    <span className="flex min-w-0 flex-1 flex-col">
+      <b className="text-[15px] leading-tight font-semibold">{titulo}</b>
+      {detalle ? <span className={cn("text-[12px] leading-snug", claseDetalle ?? "text-muted-foreground")}>{detalle}</span> : null}
+    </span>
+  );
+}
+
+/**
+ * **La columna «Caja»** de Mesas (handoff «Burbujas», 9b/9e): reemplaza la
+ * cinta de arriba con las mismas acciones (`repartirCinta`), el mismo aviso
+ * «del momento» (`momentoDelTurno`) y los mismos contadores de cosas. El
+ * aviso va primero, en `warning-soft` (o `destructive-soft` si es una
+ * alerta); al pie, el efectivo en caja contra el umbral **sin montos**: la
+ * caja es a ciegas, así que sólo se dice de qué lado de la raya está (el
+ * dato `cash_over_threshold` del servidor), nunca cuánto.
+ */
+function ColumnaCaja({
+  principales,
+  mas,
+  momento,
+  badges,
+  badgeMas,
+  sobreUmbral,
+  onAbrir,
+}: {
+  principales: Accion[];
+  mas: Accion[];
+  momento: Momento | null;
+  badges: Partial<Record<ClaveAccion, number>>;
+  badgeMas: number;
+  sobreUmbral: boolean | undefined;
+  onAbrir: (clave: ClaveAccion) => void;
+}): React.JSX.Element {
+  const idDescripcion = useId();
+  const alerta = momento?.tono === "alerta";
+  const IconoMomento = alerta ? AlertTriangle : BellRing;
+  return (
+    <aside
+      aria-label="Caja"
+      className="flex w-[260px] shrink-0 flex-col gap-2 overflow-y-auto rounded-[24px] bg-card px-3.5 pt-[18px] pb-3.5"
+    >
+      <b className="px-1.5 pb-1 text-[16px] font-semibold">Caja</b>
+      <nav aria-label="Acciones de caja" className="flex flex-col gap-2">
+        {momento ? (
+          <>
+            <button
+              type="button"
+              aria-label={momento.label}
+              aria-describedby={idDescripcion}
+              className={cn(
+                POZO_CAJA,
+                alerta ? "bg-destructive-soft hover:bg-destructive-soft/80" : "bg-warning-soft hover:bg-warning-soft/80",
+              )}
+              onClick={() => onAbrir(momento.clave)}
+            >
+              <span className={cn(CUADRO_ICONO, alerta ? "text-destructive" : "text-warning")}>
+                <IconoMomento aria-hidden="true" />
+              </span>
+              <TextoPozo
+                titulo={momento.label}
+                detalle={momento.descripcion}
+                claseDetalle={alerta ? "text-destructive" : "text-warning"}
+              />
+            </button>
+            <span id={idDescripcion} className="sr-only">
+              {momento.descripcion}
+            </span>
+          </>
+        ) : (
+          // Sin aviso queda el lugar quieto: las acciones no saltan cuando llega uno.
+          <span className={cn(POZO_CAJA, "bg-muted text-muted-foreground")} data-testid="momento-vacio">
+            <span className={CUADRO_ICONO}>
+              <CircleCheck aria-hidden="true" />
+            </span>
+            <TextoPozo titulo="Sin avisos" />
+          </span>
+        )}
+        {principales.map((accion) => {
+          const Icono = accion.icono;
+          const n = badges[accion.clave] ?? 0;
+          return (
+            <button
+              key={accion.clave}
+              type="button"
+              aria-label={n > 0 ? `${accion.label}, ${n} por atender` : accion.label}
+              className={cn(POZO_CAJA, "bg-muted hover:bg-fill-strong")}
+              onClick={() => onAbrir(accion.clave)}
+            >
+              <span className={CUADRO_ICONO}>
+                <Icono aria-hidden="true" />
+              </span>
+              <TextoPozo titulo={accion.label} detalle={detalleCinta(accion.clave, n)} />
+              <ContadorColumna valor={n} />
+            </button>
+          );
+        })}
+        {mas.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label={badgeMas > 0 ? `Más acciones de caja, ${badgeMas} por atender` : "Más acciones de caja"}
+              className={cn(POZO_CAJA, "bg-muted hover:bg-fill-strong")}
+            >
+              <span className={CUADRO_ICONO}>
+                <MoreHorizontal aria-hidden="true" />
+              </span>
+              <TextoPozo titulo="Más" />
+              <ContadorColumna valor={badgeMas} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-auto min-w-60">
+              {mas.map((accion) => {
+                const Icono = accion.icono;
+                const n = badges[accion.clave] ?? 0;
+                return (
+                  <Fragment key={accion.clave}>
+                    {accion.clave === "cierre" ? <DropdownMenuSeparator /> : null}
+                    <DropdownMenuItem className="min-h-14 gap-3 text-base" onClick={() => onAbrir(accion.clave)}>
+                      <Icono className="size-5" aria-hidden="true" />
+                      <span className="flex-1">{accion.label}</span>
+                      {n > 0 ? <Contador valor={n} enLinea /> : null}
+                    </DropdownMenuItem>
+                  </Fragment>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </nav>
+      <div className="mt-auto flex flex-col gap-1.5 rounded-[18px] bg-muted p-3.5" data-testid="caja-efectivo">
+        <span className="flex items-baseline justify-between gap-2 text-[12px]">
+          <span className="text-muted-foreground">Efectivo en caja</span>
+          {sobreUmbral === true ? (
+            <b className="font-semibold text-warning">Pasó el umbral</b>
+          ) : sobreUmbral === false ? (
+            <b className="font-semibold">Bajo el umbral</b>
+          ) : (
+            <b className="font-semibold text-muted-foreground">sin dato</b>
+          )}
+        </span>
+        <span className="text-[12px] text-muted-foreground">Sin montos: el cierre es a ciegas</span>
+      </div>
+    </aside>
   );
 }

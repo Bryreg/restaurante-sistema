@@ -21,7 +21,7 @@
  * | 12 | Barra de guardado       | `SaveBar`                                   |
  * | 13 | Estado vacío            | `EmptyState` (extendido) + los cuatro motivos |
  */
-export { Burbuja, EstadoPastilla, IrRedondo, Pozo, Segmentado, segmentoClase, type Tono } from "./Burbuja"
+export { Burbuja, EstadoPastilla, IrRedondo, Pozo, Segmentado, SegmentadoTactil, segmentoClase, type Tono } from "./Burbuja"
 export { ConsequenceZone, type ConsequenceAction, type ConsequenceLevel, type ConsequenceZoneProps } from "./ConsequenceZone"
 export {
   DENSE_BULLET_SIZE,

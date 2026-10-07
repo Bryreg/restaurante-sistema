@@ -1,9 +1,8 @@
-import { BellRing, CheckCheck, ChefHat, Flame, Gift, Minus, MoreHorizontal, Percent, Plus, Send, XCircle } from "lucide-react"
+import { CheckCheck, Gift, Minus, MoreHorizontal, Percent, Plus, XCircle } from "lucide-react"
 import { useState } from "react"
 
 import { useSession } from "@/app/session"
 import type { OrderItemOut } from "@/api/orders"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { formatCOP } from "@/lib/money"
@@ -27,92 +26,94 @@ export interface OrderItemsListProps {
   busyItemId?: number | null
   /**
    * Número de la ronda que se está armando. Se conserva por compatibilidad
-   * con quien lo manda; el handoff agrupa en «Sin enviar» y «Ya en cocina».
+   * con quien lo manda; el handoff agrupa en «Sin enviar» y «En cocina».
    */
   nextRoundNo?: number
   /** La línea sin enviar elegida: muestra sus notas rápidas (handoff `PosComanda`). */
   selectedItemId?: number | null
-  /** Tocar una línea sin enviar la elige. Sin esto, tocarla abre su panel. */
+  /** Tocar una línea sin enviar la elige. Sin esto, sus acciones quedan en «⋯». */
   onSelect?: (item: OrderItemOut) => void
   /** Pone o saca una nota rápida de la línea elegida («Sin cebolla»). */
   onToggleNote?: (item: OrderItemOut, note: string) => void
   /** «Otra nota…»: la nota escrita a mano. */
   onOtherNote?: (item: OrderItemOut) => void
+  /** Una acción al lado del rótulo «En cocina» («Marcar todo servido»). */
+  sentAction?: React.ReactNode
 }
 
-/** «A2 · Fuerte»: asiento y curso de la línea, como en el tiquete. */
+/** «Asiento 2 · Fuerte»: asiento y tiempo de la línea (handoff «Burbujas» 9c). */
 function lineTag(item: OrderItemOut): string | null {
   const parts: string[] = []
-  if (item.seat !== null && item.seat !== undefined) parts.push(`A${item.seat}`)
+  if (item.seat !== null && item.seat !== undefined) parts.push(`Asiento ${item.seat}`)
   if (item.course) parts.push(courseLabel(item.course))
   return parts.length > 0 ? parts.join(" · ") : null
 }
 
-/** El chip de estado de lo que ya salió: Listo (success) o En preparación. */
-function StatusChip({ item }: { item: OrderItemOut }): React.JSX.Element | null {
-  if (item.status === "ready") {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success px-[9px] py-[3px] text-[13px] font-bold text-success-foreground">
-        <BellRing className="size-3.5" aria-hidden="true" />
-        Listo
-      </span>
-    )
-  }
-  if (item.status === "sent") {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary px-[9px] py-[3px] text-[13px] font-bold text-secondary-foreground">
-        <Flame className="size-3.5" aria-hidden="true" />
-        En preparación
-      </span>
-    )
-  }
-  if (item.status === "served") {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-[9px] py-[2px] text-[13px] font-semibold">
-        <CheckCheck className="size-3.5" aria-hidden="true" />
-        {ITEM_STATUS_LABEL.served}
-      </span>
-    )
-  }
-  return null
+/** La pastilla de 24 px de debajo de una línea sin enviar. */
+const LINE_PILL_CLASS = "inline-flex min-h-6 items-center rounded-xl px-[9px] py-0.5 text-xs leading-tight"
+
+/**
+ * El estado de lo que ya salió, en pastilla de 26 px (12/600): «Listo» en
+ * `success-soft`; lo demás (en preparación, entregado, anulado) en gris.
+ */
+function StatusPill({ item }: { item: OrderItemOut }): React.JSX.Element | null {
+  const label = item.status === "sent" ? "En preparación" : item.status ? ITEM_STATUS_LABEL[item.status] : null
+  if (!label) return null
+  return (
+    <span
+      className={cn(
+        "inline-flex h-[26px] shrink-0 items-center rounded-[13px] px-2.5 text-xs font-semibold whitespace-nowrap",
+        item.status === "ready" ? "bg-success-soft text-success" : "bg-muted text-muted-foreground",
+      )}
+    >
+      {label}
+    </span>
+  )
+}
+
+/** El botón «⋯» de una línea: abre su panel de acciones. */
+function LineMenuButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-label={label}
+      onClick={onClick}
+      className="-my-2.5 -mr-2 grid size-11 shrink-0 place-items-center rounded-[14px] text-muted-foreground transition-colors hover:bg-card focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+    >
+      <MoreHorizontal className="size-5" aria-hidden="true" />
+    </button>
+  )
 }
 
 /**
- * Una línea del pedido como en el tiquete, en UN renglón (handoff
- * `PosComanda`): «1×  Nombre   A2 · Fuerte   $ 34.000». Debajo, lo que
- * cocina tiene que leer (modificadores, opciones del combo) y la nota en el
- * amarillo del tiquete (`.tiquete-modificadores`). A la derecha, el `net` que manda el
- * backend — el cliente no lo multiplica ni lo suma (AGENTS.md § "una sola
- * matemática").
+ * Una línea sin enviar (handoff «Burbujas» 9c): un pozo con la cantidad, el
+ * nombre y el `net` que manda el backend —el cliente no lo multiplica ni lo
+ * suma (AGENTS.md § "una sola matemática")—. Debajo, a 32 px, la pastilla
+ * blanca «Asiento N · Tiempo» y, si los hay, los modificadores y la nota en
+ * pastillas `warning-soft` (reemplazan la cinta amarilla anterior).
  *
- * Lo sin enviar se **elige** tocándolo (muestra sus notas rápidas de 56 px);
- * sus acciones —cantidad, anular, cortesía, descuento— están en el panel que
- * abre «⋯». Lo ya enviado abre el panel al tocarlo, y «Servido» queda a mano
- * cuando está listo: es lo que el mesero hace con la bandeja en la otra mano.
+ * Tocarla la **elige** (muestra sus notas rápidas de 56 px); sus acciones
+ * —cantidad, anular, cortesía, descuento— están en el panel que abre «⋯».
  */
-function OrderLine({
+function PendingLine({
   item,
-  sent,
   selected,
   busy,
   onOpen,
   onSelect,
-  onServed,
   onToggleNote,
   onOtherNote,
 }: {
   item: OrderItemOut
-  sent: boolean
   selected: boolean
   busy: boolean
   onOpen: (item: OrderItemOut) => void
   onSelect?: (item: OrderItemOut) => void
-  onServed?: (item: OrderItemOut) => void
   onToggleNote?: (item: OrderItemOut, note: string) => void
   onOtherNote?: (item: OrderItemOut) => void
 }) {
   const notesFor = useQuickNotes()
-  const isVoided = item.status === "voided"
   const isCourtesy = item.courtesy !== null && item.courtesy !== undefined
   const name = item.name ?? "—"
   const qty = item.qty ?? 1
@@ -122,116 +123,64 @@ function OrderLine({
     ...(item.combo_selections ?? []).map((selection) => selection.product_name || selection.group_name || null),
   ].filter((text): text is string => Boolean(text))
   const notes = splitNote(item.note)
+  const hasPills = tag !== null || details.length > 0 || notes.length > 0 || isCourtesy || item.is_delivery_fee === true
 
   const row = (
     <>
-      <b className={cn("min-w-[26px] shrink-0 tabular-nums", sent ? "text-[17px]" : "text-[18px]")}>{qty}×</b>
-      <span className="min-w-0 flex-1">
-        <span
-          className={cn(
-            "block leading-tight",
-            sent ? "text-[16px]" : "text-[17px] font-semibold",
-            isVoided && "text-muted-foreground line-through",
-          )}
-        >
-          {name}
-        </span>
-        {details.length > 0 ? (
-          <span className="block text-[13px] leading-snug text-muted-foreground">{details.join(" · ")}</span>
-        ) : null}
-        {isVoided && item.void ? (
-          <span className="block text-[13px] text-destructive">
-            Anulado: {item.void.reason ? (VOID_REASON_LABEL[item.void.reason] ?? item.void.reason) : "—"}
-            {item.void.after_bill ? " · después de presentar cuenta" : ""}
-          </span>
-        ) : null}
-      </span>
-      {isCourtesy ? <Badge variant="secondary">Cortesía</Badge> : null}
-      {item.is_delivery_fee ? <Badge variant="outline">No va a cocina</Badge> : null}
-      {tag && !sent ? (
-        <span className="shrink-0 rounded-md bg-secondary px-2 py-0.5 text-[13px] text-secondary-foreground">{tag}</span>
-      ) : null}
-      {sent ? <StatusChip item={item} /> : null}
-      <span className={cn("min-w-[78px] shrink-0 text-right tabular-nums", sent ? "text-[15px]" : "text-[16px]")}>
-        <span className={cn("block", isVoided && "text-muted-foreground line-through")}>{formatCOP(item.net)}</span>
+      <b className="w-[22px] shrink-0 font-semibold tabular-nums">{qty}</b>
+      <span className="min-w-0 flex-1 leading-snug">{name}</span>
+      <span className="shrink-0 text-right tabular-nums">
+        <span className="block">{formatCOP(item.net)}</span>
         {item.discount ? (
-          <span className="block text-[12px] text-muted-foreground">Descuento: {formatCOP(item.discount)}</span>
+          <span className="block text-xs text-muted-foreground">Descuento: {formatCOP(item.discount)}</span>
         ) : null}
       </span>
     </>
   )
 
-  const rowClass = cn(
-    "flex min-h-[44px] flex-1 items-center gap-2.5 rounded-[10px] text-left",
-    sent && "text-muted-foreground [&_b]:text-foreground",
-  )
-  const selectable = !sent && !isVoided && onSelect !== undefined
-
   return (
     <li
-      className={cn("flex flex-col gap-1.5 rounded-[10px] px-2 py-1.5", selected && "bg-accent")}
+      className={cn(
+        "flex flex-col gap-1 rounded-2xl bg-muted px-3.5 py-3",
+        selected && "shadow-[inset_0_0_0_2px_var(--foreground)]",
+      )}
       data-slot="order-line"
     >
-      <div className="flex items-center gap-1.5">
-        {isVoided ? (
-          <div className={rowClass}>{row}</div>
-        ) : selectable ? (
+      <div className="flex items-baseline gap-2.5 text-[15px]">
+        {onSelect ? (
           <button
             type="button"
-            className={cn(rowClass, "focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring")}
+            className="flex min-w-0 flex-1 items-baseline gap-2.5 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             aria-pressed={selected}
             aria-label={`Elegir ${qty}× ${name}${notes.length > 0 ? `, ${notes.join(", ")}` : ""}`}
-            onClick={() => onSelect?.(item)}
+            onClick={() => onSelect(item)}
           >
             {row}
           </button>
         ) : (
-          <button
-            type="button"
-            className={cn(
-              rowClass,
-              "transition-colors hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring active:bg-muted",
-            )}
-            aria-haspopup="dialog"
-            aria-label={`${qty}× ${name}: acciones`}
-            onClick={() => onOpen(item)}
-          >
-            {row}
-          </button>
+          <div className="flex min-w-0 flex-1 items-baseline gap-2.5">{row}</div>
         )}
-        {selectable ? (
-          <Button
-            type="button"
-            variant="ghost"
-            className="size-11 shrink-0 text-muted-foreground [&_svg]:size-5"
-            aria-haspopup="dialog"
-            aria-label={`${qty}× ${name}: acciones`}
-            onClick={() => onOpen(item)}
-          >
-            <MoreHorizontal aria-hidden="true" />
-          </Button>
-        ) : null}
-        {!isVoided && item.status === "ready" && onServed ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="h-11 shrink-0 border-success px-3 text-success"
-            disabled={busy}
-            onClick={() => onServed(item)}
-            aria-label={`Servido: ${item.name ?? "ítem"}`}
-          >
-            <CheckCheck className="size-4" aria-hidden="true" />
-            Servido
-          </Button>
-        ) : null}
+        <LineMenuButton label={`${qty}× ${name}: acciones`} onClick={() => onOpen(item)} />
       </div>
-      {notes.length > 0 ? (
-        <span className="tiquete-modificadores ml-9 self-start">
-          {notes.join(" · ")}
+      {hasPills ? (
+        <span className="ml-8 flex flex-wrap gap-1.5">
+          {tag ? <span className={cn(LINE_PILL_CLASS, "bg-card text-muted-foreground")}>{tag}</span> : null}
+          {details.length > 0 ? (
+            <span className={cn(LINE_PILL_CLASS, "bg-warning-soft font-semibold text-warning")}>{details.join(" · ")}</span>
+          ) : null}
+          {notes.length > 0 ? (
+            <span data-slot="line-note" className={cn(LINE_PILL_CLASS, "bg-warning-soft font-semibold text-warning")}>
+              {notes.join(" · ")}
+            </span>
+          ) : null}
+          {isCourtesy ? <span className={cn(LINE_PILL_CLASS, "bg-card font-semibold text-success")}>Cortesía</span> : null}
+          {item.is_delivery_fee ? (
+            <span className={cn(LINE_PILL_CLASS, "bg-card text-muted-foreground")}>No va a cocina</span>
+          ) : null}
         </span>
       ) : null}
-      {selected && !sent && onToggleNote ? (
-        <div className="ml-9 flex flex-wrap gap-1.5" role="group" aria-label={`Notas rápidas de ${name}`}>
+      {selected && onToggleNote ? (
+        <div className="mt-1 ml-8 flex flex-wrap gap-1.5" role="group" aria-label={`Notas rápidas de ${name}`}>
           {notesFor(item.course).map((note) => {
             const on = notes.includes(note)
             return (
@@ -241,10 +190,10 @@ function OrderLine({
                 aria-pressed={on}
                 disabled={busy}
                 className={cn(
-                  "h-[56px] rounded-lg border px-3.5 text-[15px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
-                  // El amarillo del tiquete de cocina (`.tiquete-modificadores`): lo
-                  // elegido se lee igual que como lo va a leer la cocina.
-                  on ? "border-[#C99A00] bg-[#FFE27A] text-[#1A1A17]" : "border-border bg-background hover:bg-muted",
+                  "h-[56px] rounded-2xl px-3.5 text-[15px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
+                  // Lo elegido se lee igual que la pastilla de la nota (y que
+                  // como la va a leer la cocina).
+                  on ? "bg-warning-soft text-warning shadow-[inset_0_0_0_1.5px_var(--warning)]" : "bg-card text-foreground hover:bg-fill-strong",
                 )}
                 onClick={() => onToggleNote(item, note)}
               >
@@ -256,7 +205,7 @@ function OrderLine({
             <button
               type="button"
               disabled={busy}
-              className="h-[56px] rounded-lg border border-border bg-background px-3.5 text-[15px] font-semibold transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+              className="h-[56px] rounded-2xl bg-card px-3.5 text-[15px] font-semibold transition-colors hover:bg-fill-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
               onClick={() => onOtherNote(item)}
             >
               Otra nota…
@@ -268,34 +217,136 @@ function OrderLine({
   )
 }
 
-/** «Sin enviar · N» (rojo) y «Ya en cocina»: los dos bloques del pedido. */
+/**
+ * Una línea que ya salió (handoff «Burbujas» 9c): anillo de 1 px, 48 px,
+ * cantidad, nombre en gris y el estado en pastilla. Tocarla abre su panel
+ * de acciones; «Servido» queda a mano cuando está lista: es lo que el mesero
+ * hace con la bandeja en la otra mano.
+ */
+function SentLine({
+  item,
+  busy,
+  onOpen,
+  onServed,
+}: {
+  item: OrderItemOut
+  busy: boolean
+  onOpen: (item: OrderItemOut) => void
+  onServed?: (item: OrderItemOut) => void
+}) {
+  const isVoided = item.status === "voided"
+  const isCourtesy = item.courtesy !== null && item.courtesy !== undefined
+  const name = item.name ?? "—"
+  const qty = item.qty ?? 1
+  const details = [
+    item.modifiers_text ?? null,
+    ...(item.combo_selections ?? []).map((selection) => selection.product_name || selection.group_name || null),
+    ...splitNote(item.note),
+  ].filter((text): text is string => Boolean(text))
+
+  const row = (
+    <>
+      <b className="w-[22px] shrink-0 font-semibold tabular-nums">{qty}</b>
+      <span className="min-w-0 flex-1 text-muted-foreground">
+        <span className={cn("block leading-snug", isVoided && "line-through")}>{name}</span>
+        {details.length > 0 ? <span className="block text-xs leading-snug">{details.join(" · ")}</span> : null}
+        {isVoided && item.void ? (
+          <span className="block text-xs text-destructive">
+            Anulado: {item.void.reason ? (VOID_REASON_LABEL[item.void.reason] ?? item.void.reason) : "—"}
+            {item.void.after_bill ? " · después de presentar cuenta" : ""}
+          </span>
+        ) : null}
+      </span>
+      {isCourtesy ? (
+        <span className="inline-flex h-[26px] shrink-0 items-center rounded-[13px] bg-muted px-2.5 text-xs font-semibold text-success">
+          Cortesía
+        </span>
+      ) : null}
+      {item.discount ? (
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">Desc. {formatCOP(item.discount)}</span>
+      ) : null}
+      {item.is_delivery_fee ? (
+        <span className="inline-flex h-[26px] shrink-0 items-center rounded-[13px] bg-muted px-2.5 text-xs text-muted-foreground">
+          No va a cocina
+        </span>
+      ) : null}
+      <StatusPill item={item} />
+    </>
+  )
+  const rowClass = "flex min-h-[48px] min-w-0 flex-1 items-center gap-2.5 py-1.5 text-left text-[15px]"
+
+  return (
+    <li
+      className="flex items-center gap-2 rounded-2xl px-3.5 shadow-[inset_0_0_0_1px_var(--border)]"
+      data-slot="order-line"
+    >
+      {isVoided ? (
+        // Anulado: no le queda ninguna acción, ni siquiera abrir su panel.
+        <div className={rowClass}>{row}</div>
+      ) : (
+        <button
+          type="button"
+          className={cn(rowClass, "rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring")}
+          aria-haspopup="dialog"
+          aria-label={`${qty}× ${name}: acciones`}
+          onClick={() => onOpen(item)}
+        >
+          {row}
+        </button>
+      )}
+      {!isVoided && item.status === "ready" && onServed ? (
+        <button
+          type="button"
+          className="-mr-1.5 inline-flex h-11 shrink-0 items-center gap-1.5 rounded-[14px] bg-success-soft px-3 text-[13px] font-semibold text-success transition-opacity focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+          disabled={busy}
+          onClick={() => onServed(item)}
+          aria-label={`Servido: ${item.name ?? "ítem"}`}
+        >
+          <CheckCheck className="size-4" aria-hidden="true" />
+          Servido
+        </button>
+      ) : null}
+    </li>
+  )
+}
+
+/**
+ * «▲ Sin enviar · N» (12/600 en `warning`, con el triángulo de 7 px) y «En
+ * cocina» (12/600 gris): los dos bloques del pedido.
+ */
 function LinesSection({
   title,
   tone,
+  action,
   children,
 }: {
   title: string
   tone: "unsent" | "sent"
+  action?: React.ReactNode
   children: React.ReactNode
 }) {
-  const Icon = tone === "unsent" ? Send : ChefHat
   return (
-    <section aria-label={title} className="flex flex-col">
-      <h3
-        className={cn(
-          "flex items-center gap-1.5 px-1 pt-1.5 pb-1 text-[13px] font-bold tracking-[0.06em] uppercase",
-          tone === "unsent" ? "text-destructive" : "text-muted-foreground",
-        )}
-      >
-        <Icon className="size-3.5" aria-hidden="true" />
-        {title}
-      </h3>
+    <section aria-label={title} className="flex flex-col gap-1.5">
+      <div className={cn("flex min-h-6 items-center gap-2 px-1", tone === "unsent" ? "pt-1" : "pt-2.5")}>
+        <h3
+          className={cn(
+            "flex flex-1 items-center gap-1.5 text-xs font-semibold",
+            tone === "unsent" ? "text-warning" : "text-muted-foreground",
+          )}
+        >
+          {tone === "unsent" ? (
+            <span aria-hidden="true" className="size-[7px] shrink-0 bg-warning [clip-path:polygon(50%_0,100%_100%,0_100%)]" />
+          ) : null}
+          {title}
+        </h3>
+        {action}
+      </div>
       {children}
     </section>
   )
 }
 
-const SHEET_ACTION_CLASS = "h-14 w-full justify-start gap-3 px-4 text-base"
+const SHEET_ACTION_CLASS = "h-14 w-full justify-start gap-3 rounded-2xl px-4 text-base"
 
 /**
  * El panel de una línea: todo lo que se le puede hacer, con botones de
@@ -465,10 +516,10 @@ function LineActionsSheet({
 }
 
 /**
- * El pedido como lo lee el mesero (handoff `PosComanda`): arriba lo que
- * todavía no salió («Sin enviar · N», en rojo: es lo único que cambia y lo
- * que se olvida), y abajo lo que ya está en cocina, ronda por ronda, con su
- * chip Listo / En preparación. Cantidad editable sólo en `pending`
+ * El pedido como lo lee el mesero (handoff «Burbujas» 9c): arriba lo que
+ * todavía no salió («▲ Sin enviar · N», en `warning`: es lo único que cambia
+ * y lo que se olvida), y abajo lo que ya está en cocina, ronda por ronda,
+ * con su pastilla Listo / En preparación. Cantidad editable sólo en `pending`
  * (SPEC-NEGOCIO §3.3); anular, cortesía y descuento por ítem detrás de sus
  * flags — el botón desaparece sin la función, el backend sigue siendo la
  * barrera. `N` es la suma de unidades (no de plata): la que dice el botón
@@ -487,6 +538,7 @@ export function OrderItemsList({
   onSelect,
   onToggleNote,
   onOtherNote,
+  sentAction,
 }: OrderItemsListProps): React.JSX.Element {
   const { hasFeature, me } = useSession()
   const [openItemId, setOpenItemId] = useState<number | null>(null)
@@ -514,33 +566,34 @@ export function OrderItemsList({
     .filter((item) => item.status !== "pending")
     .sort((a, b) => (a.round_no ?? Number.MAX_SAFE_INTEGER) - (b.round_no ?? Number.MAX_SAFE_INTEGER))
   const openLine = (item: OrderItemOut) => setOpenItemId(item.id)
-  const lineProps = { onOpen: openLine, onSelect, onServed, onToggleNote, onOtherNote }
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5">
       <LinesSection title={unsentUnits > 0 ? `Sin enviar · ${unsentUnits}` : "Nada sin enviar"} tone="unsent">
         {unsent.length === 0 ? (
-          <p className="px-1 pb-1 text-[14px] text-muted-foreground">Tocá un plato de la carta para empezar la ronda.</p>
+          <p className="px-1 pb-1 text-sm text-muted-foreground">Tocá un plato de la carta para empezar la ronda.</p>
         ) : (
-          <ul>
+          <ul className="flex flex-col gap-1.5">
             {unsent.map((item) => (
-              <OrderLine
+              <PendingLine
                 key={item.id}
                 item={item}
-                sent={false}
                 selected={selectedItemId === item.id}
                 busy={busyItemId === item.id}
-                {...lineProps}
+                onOpen={openLine}
+                onSelect={onSelect}
+                onToggleNote={onToggleNote}
+                onOtherNote={onOtherNote}
               />
             ))}
           </ul>
         )}
       </LinesSection>
       {sent.length > 0 ? (
-        <LinesSection title="Ya en cocina" tone="sent">
-          <ul>
+        <LinesSection title="En cocina" tone="sent" action={sentAction}>
+          <ul className="flex flex-col gap-1.5">
             {sent.map((item) => (
-              <OrderLine key={item.id} item={item} sent selected={false} busy={busyItemId === item.id} {...lineProps} />
+              <SentLine key={item.id} item={item} busy={busyItemId === item.id} onOpen={openLine} onServed={onServed} />
             ))}
           </ul>
         </LinesSection>

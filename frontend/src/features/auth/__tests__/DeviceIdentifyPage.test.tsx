@@ -305,7 +305,7 @@ describe("DeviceIdentifyPage — la grilla del handoff", () => {
 
     // Elegida: el panel de la derecha la nombra y habilita el teclado.
     await user.click(kevin);
-    expect(screen.getByText("Operador · PIN de 4 dígitos")).toBeInTheDocument();
+    expect(screen.getByText("Operador · Escribí tu PIN de 4 dígitos")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dígito 1" })).toBeEnabled();
   });
 

@@ -35,9 +35,10 @@ export interface PaymentTargetPanelProps {
   splitsKey?: string;
   /**
    * Dónde va la cuenta —la propina, lo que va entre la propina y los pagos
-   * (`beforePayments`) y el libro «Consumo / Propina (no es venta) / Total»
-   * con doble raya—: la columna izquierda de 440 px del cobro (handoff
-   * `PosCobro`). Sin él, arriba de los pagos.
+   * (`beforePayments`) y el pie «Consumo / Propina, no es venta / Total a
+   * cobrar»—: la burbuja de la cuenta, a la izquierda (handoff
+   * `design_handoff_pos_burbujas`, 9d). Sin él, arriba de los pagos. Las
+   * burbujas «Pago» y «PIN» se devuelven sueltas, para la grilla del cobro.
    */
   cuentaSlot?: HTMLElement | null;
   /** El rótulo sobre el total grande («Total a cobrar», «Parte 2 de 3 · a cobrar»). */
@@ -101,29 +102,29 @@ export function PaymentTargetPanel({
   const tipResolved = !showTipQuestion || tip !== null;
   const saleTotal = target.totals.total;
 
-  // La cuenta (propina y libro con doble raya) va en la columna de la
-  // cuenta —izquierda, 440 px— cuando la pantalla le da un lugar; si no,
-  // arriba de los pagos.
+  // La cuenta (propina y el pie «Consumo / Propina, no es venta / Total a
+  // cobrar») va en la burbuja de la cuenta —izquierda, 400 px— cuando la
+  // pantalla le da un lugar; si no, arriba de los pagos.
   const cuenta = (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-1 flex-col gap-3.5">
       {showTipQuestion && target.tipInfo ? (
         <TipQuestion tipInfo={target.tipInfo} value={tip} onChange={setTip} />
       ) : null}
       {tipResolved && saleTotal != null ? beforePayments?.(tip) : null}
       {saleTotal != null ? (
-        <dl className="flex flex-col border-t-[3px] border-double border-foreground/60 pt-2">
-          <div className="flex justify-between text-[15px] text-muted-foreground">
-            <dt>Consumo</dt>
+        <dl className="mt-auto flex flex-col px-1 text-sm">
+          <div className="flex justify-between py-[3px]">
+            <dt className="text-muted-foreground">Consumo</dt>
             <dd className="tabular-nums">{formatCOP(saleTotal)}</dd>
           </div>
           {showTipQuestion ? (
-            <div className="flex justify-between text-[15px] text-muted-foreground">
-              <dt>Propina (no es venta)</dt>
+            <div className="flex justify-between py-[3px]">
+              <dt className="text-muted-foreground">Propina, no es venta</dt>
               <dd className="tabular-nums">{tip ? formatCOP(tip.amount) : "—"}</dd>
             </div>
           ) : null}
-          <div className="flex justify-between pt-1 text-[20px] font-extrabold">
-            <dt>Total</dt>
+          <div className="mt-1 flex justify-between border-t pt-2 text-base font-semibold">
+            <dt>Total a cobrar</dt>
             <dd className="tabular-nums">{formatCOP(saleTotal + (tip?.amount ?? 0))}</dd>
           </div>
         </dl>
@@ -132,13 +133,15 @@ export function PaymentTargetPanel({
   );
 
   return (
-    <div className="flex flex-col gap-3">
+    <>
       {cuentaSlot ? createPortal(cuenta, cuentaSlot) : cuenta}
 
       {saleTotal == null ? (
-        <p role="alert" className="text-sm text-destructive">
-          No se pudo calcular el total de esta cuenta. Volvé a cargarla antes de cobrar.
-        </p>
+        <section className="rounded-[24px] bg-card p-6 lg:col-span-2">
+          <p role="alert" className="text-sm text-destructive">
+            No se pudo calcular el total de esta cuenta. Volvé a cargarla antes de cobrar.
+          </p>
+        </section>
       ) : (
         <PaymentSplitsForm
           key={splitsKey}
@@ -155,6 +158,6 @@ export function PaymentTargetPanel({
           onAlreadyPaid={onAlreadyPaid}
         />
       )}
-    </div>
+    </>
   );
 }

@@ -103,12 +103,13 @@ describe("CheckoutPage", () => {
     // La venta y la propina se discriminan (propina separada de la venta y
     // del impuesto, regla dura), Y se muestra lo que hay que cobrar: sin ese
     // número el mesero suma de cabeza frente al cliente. Rótulos del handoff
-    // (`PosCobro`): «Consumo» y «Propina (no es venta)».
+    // POS «Burbujas»: «Consumo» y «Propina, no es venta».
     expect(await screen.findByText("Consumo", { selector: "dt" })).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?50\.000/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Propina (no es venta)")).toBeInTheDocument();
+    expect(screen.getByText("Propina, no es venta")).toBeInTheDocument();
     expect(screen.getAllByText(/\$\s?4\.630/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Total a cobrar")).toBeInTheDocument();
+    // En el pie de la cuenta y sobre el total grande del pago.
+    expect(screen.getAllByText("Total a cobrar")).toHaveLength(2);
     expect(screen.getAllByText(/\$\s?54\.630/).length).toBeGreaterThan(0);
   });
 
@@ -144,16 +145,17 @@ describe("CheckoutPage", () => {
     renderCheckout({ "pos.pre_bill": false, "pos.tips": false, "pos.split_bill": false });
 
     await screen.findByText("Pagos");
-    expect(await screen.findByText("Completo")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^cobrar \$\s?50\.000$/i })).toBeInTheDocument();
     expect(screen.queryByText(/faltan/i)).not.toBeInTheDocument();
 
-    const amountInput = screen.getByLabelText("Monto");
-    await user.clear(amountInput);
-    await user.type(amountInput, "20000");
+    // Un pago mixto: «Agregar pago» abre una fila por medio, con su monto.
+    await user.click(screen.getByRole("button", { name: "Agregar pago" }));
+    const [amountInput, segundo] = await screen.findAllByLabelText("Monto");
+    await user.clear(amountInput!);
+    await user.type(amountInput!, "20000");
     expect(await screen.findByText(/faltan \$\s?30\.000/i)).toBeInTheDocument();
 
-    await user.clear(amountInput);
-    await user.type(amountInput, "50000");
+    await user.type(segundo!, "30000");
     await user.tab();
     expect(await screen.findByText("Completo")).toBeInTheDocument();
   });
@@ -170,8 +172,7 @@ describe("CheckoutPage", () => {
     // El monto llega puesto: el cajero toca lo recibido, teclea su PIN y
     // confirma con «Cobrar $ X» (handoff `PosCobro`: el botón se habilita
     // sólo con el pago completo y el PIN; el PIN ya no cobra solo).
-    await screen.findByText("Completo");
-    await user.click(within(screen.getByRole("group", { name: "Recibido en un toque" })).getByRole("button", { name: "Exacto" }));
+    await user.click(within(await screen.findByRole("group", { name: "Recibido en un toque" })).getByRole("button", { name: "Exacto" }));
     await screen.findByText(/falta tu pin/i);
 
     await user.keyboard("1234");
