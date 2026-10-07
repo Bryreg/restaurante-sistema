@@ -26,10 +26,11 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError
+from app.core.errors import AppError, NotFoundError
 from app.core.modules import find_spec_safe
-from app.kitchen.models import KitchenBumpAction, KitchenBumpEvent, KitchenPrintJob
+from app.kitchen.models import KitchenBumpAction, KitchenBumpEvent, KitchenDispatch, KitchenPrintJob
 from app.kitchen.schemas import (
+    KitchenDispatchOut,
     EmployeeRef,
     KitchenExpediteItemOut,
     KitchenExpediteOut,
@@ -265,6 +266,76 @@ def expedite_order(
 
 
 # ---------------------------------------------------------------------------
+# «Despachar»: el tiquete sale de la pantalla de cocina; el plato no cambia.
+# ---------------------------------------------------------------------------
+
+
+def dispatched_item_ids(db: Session, items: list[OrderItem]) -> set[int]:
+    """Los ítems `ready` que cocina despachó DESPUÉS de su último «Listo»:
+    ya no se dibujan en el KDS. Un ítem `sent` nunca está acá (si se deshizo
+    el listo, vuelve a ser trabajo de cocina)."""
+    ready = {item.id: item.ready_at for item in items if item.status == OrderItemStatus.READY and item.ready_at}
+    if not ready:
+        return set()
+    rows = db.execute(
+        select(KitchenDispatch.item_id, func.max(KitchenDispatch.dispatched_at))
+        .where(KitchenDispatch.item_id.in_(list(ready)))
+        .group_by(KitchenDispatch.item_id)
+    ).all()
+    return {item_id for item_id, last in rows if last is not None and last >= ready[item_id]}
+
+
+def dispatch_items(
+    db: Session, *, order_id: int, item_ids: list[int], store_id: int, actor: "Actor", now: datetime
+) -> KitchenDispatchOut:
+    """Despacha los platos de un tiquete: todos tienen que ser de la comanda
+    y estar `ready` (lo que falta preparar no se despacha). Registra una fila
+    por plato no despachado desde su último «Listo»; NO toca `OrderItem`
+    (CONTRATO C1): el salón sigue viendo el plato listo para llevar."""
+    order = db.get(Order, order_id)
+    if order is None or order.store_id != store_id:
+        raise NotFoundError("La comanda no existe en esta sede")
+    ids = sorted(set(item_ids))
+    if not ids:
+        raise AppError("KITCHEN_DISPATCH_EMPTY", "Elegí los platos del tiquete que vas a despachar.")
+    items = list(
+        db.execute(
+            select(OrderItem).where(OrderItem.id.in_(ids), OrderItem.order_id == order_id, OrderItem.store_id == store_id)
+        ).scalars()
+    )
+    if len(items) != len(ids):
+        raise NotFoundError("Algún plato no es de esta comanda")
+    pendientes = [item for item in items if item.status != OrderItemStatus.READY]
+    if pendientes:
+        raise AppError(
+            "KITCHEN_DISPATCH_NOT_READY",
+            "Hay platos de este tiquete que no están listos: marcalos «Listo» antes de despachar.",
+            extra={"item_ids": [item.id for item in pendientes]},
+        )
+    ya = dispatched_item_ids(db, items)
+    nuevos = [item for item in items if item.id not in ya]
+    for item in nuevos:
+        db.add(
+            KitchenDispatch(
+                organization_id=item.organization_id,
+                store_id=item.store_id,
+                order_id=item.order_id,
+                item_id=item.id,
+                dispatched_at=now,
+                dispatched_by_employee_id=actor.employee_id,  # type: ignore[arg-type]
+                dispatched_by_employee_name=actor.employee_name,  # type: ignore[arg-type]
+            )
+        )
+    db.flush()
+    return KitchenDispatchOut(
+        order_id=order_id,
+        dispatched_item_ids=[item.id for item in nuevos],
+        dispatched_by=EmployeeRef(id=actor.employee_id, name=actor.employee_name),  # type: ignore[arg-type]
+        dispatched_at=now,
+    )
+
+
+# ---------------------------------------------------------------------------
 # El orden respeta «marchar» (`fired_at_by_course`, lectura de CONTRATO C1) y
 # la atribución del bump — enriquecimiento de `GET /kitchen/rounds` cuando
 # `kitchen.kds` está encendida. `_semaphore`/la lectura de rondas siguen
@@ -485,6 +556,8 @@ def _station_dockets(db: Session, *, store_id: int, station: str | None) -> list
             ).scalars()
         )
         items = visible_items(order, items)
+        despachados = dispatched_item_ids(db, items)
+        items = [item for item in items if item.id not in despachados]
         by_station: dict[str, list[OrderItem]] = {}
         for item in items:
             if item.station is None:

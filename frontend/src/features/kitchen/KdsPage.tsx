@@ -7,6 +7,7 @@ import { useSession } from "@/app/session"
 import { ApiError, newIdempotencyKey } from "@/api/client"
 import {
   bumpItem,
+  dispatchKitchenItems,
   expediteOrder,
   registerPrintJob,
   unbumpItem,
@@ -15,7 +16,7 @@ import {
   type KitchenRoundOut,
 } from "@/api/kitchen"
 import { setProductAvailability } from "@/api/catalog"
-import { markReady, markServed } from "@/api/orders"
+import { markReady } from "@/api/orders"
 import { SegmentadoTactil } from "@/components/admin"
 import { Cargando } from "@/components/Cargando"
 import { Badge } from "@/components/ui/badge"
@@ -448,13 +449,17 @@ function OrderCard({
     })
   }
 
-  // «Despachar»: todo listo, sale de la cocina. Es la entrega que ya existe
-  // (`POST /orders/{id}/items/{id}/served`, la misma de la comanda), para los
-  // platos que muestra este tiquete.
+  // «Despachar»: todo listo, el tiquete sale de las pantallas de cocina
+  // (`POST /kitchen/orders/{id}/dispatch`). Los platos NO se marcan
+  // servidos: el salón los sigue viendo listos para llevar (decisión del
+  // dueño, 2026-10-07).
   function handleDespachar() {
-    void correr("despacho", `Despachar ${dondeVa} (comanda #${group.orderId})`, async () => {
-      for (const item of listos) await markServed(group.orderId, item.item_id, newIdempotencyKey())
-    })
+    void correr("despacho", `Despachar ${dondeVa} (comanda #${group.orderId})`, () =>
+      dispatchKitchenItems(
+        group.orderId,
+        listos.map((item) => item.item_id),
+      ),
+    )
   }
 
   const todoAria = full
@@ -546,8 +551,8 @@ function OrderCard({
           type="button"
           disabled={working !== null || listos.length === 0}
           onClick={handleDespachar}
-          aria-label={`Despachar ${dondeVa}: entregar la comanda #${group.orderId}`}
-          title="Marca entregados los platos de este tiquete: salen de la pantalla"
+          aria-label={`Despachar ${dondeVa}: sacar de la pantalla de cocina la comanda #${group.orderId}`}
+          title="El tiquete sale de la pantalla de cocina; los platos siguen listos para que el salón los lleve"
           className="h-[60px] rounded-[18px] bg-primary text-[18px] font-semibold text-primary-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-60"
         >
           {working === "despacho" ? "Despachando…" : `Despachar ${dondeVa}`}

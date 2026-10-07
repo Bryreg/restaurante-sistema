@@ -716,9 +716,9 @@
   "Claro",
   "Comanda de un día operativo anterior que sigue abierta",
   "Curso marchado",
+  "El tiquete sale de la pantalla de cocina; los platos siguen listos para que el salón los lleve",
   "Estación",
   "Impresión por estación",
-  "Marca entregados los platos de este tiquete: salen de la pantalla",
   "Marca listos de un golpe todos los ítems enviados de esta comanda, en todas sus rondas",
   "Marcar agotado en la carta del POS",
   "Nada para imprimir",
@@ -1793,6 +1793,7 @@
   "Volver a elegir"
  ],
  "features/shifts/CloseWizard.tsx": [
+  "Comandas abiertas",
   "Contar el cajón",
   "Continuar",
   "Sí, volver a contar"

@@ -135,3 +135,33 @@ class KitchenPrintJob(Base):
         Index("ix_kitchen_print_jobs_round_station", "round_id", "station"),
         Index("ix_kitchen_print_jobs_store_printed", "store_id", "printed_at"),
     )
+
+
+class KitchenDispatch(Base):
+    """«Despachar» desde el KDS (handoff POS «Burbujas», 10a–10d): el plato
+    salió del pase y el tiquete deja de ocupar la pantalla de cocina.
+
+    **No toca el ítem** (CONTRATO C1): el plato sigue `ready` hasta que el
+    salón lo marca `served`, así el aviso de «listo para llevar» de Mesas no
+    se pierde porque cocina despachó. Esta tabla sólo dice qué pantallas ya
+    no tienen que mostrarlo: un ítem `ready` con un despacho posterior a su
+    `ready_at` no se dibuja (`service.dispatched_item_ids`). Si alguien
+    deshace el listo y lo vuelve a marcar, el `ready_at` nuevo es posterior
+    al despacho y el tiquete vuelve a la pantalla.
+
+    Append-only, como las otras dos tablas de cocina: despachar dos veces
+    no escribe una segunda fila para el mismo `ready_at`."""
+
+    __tablename__ = "kitchen_dispatches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("order_items.id"), index=True)
+
+    dispatched_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    dispatched_by_employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"))
+    dispatched_by_employee_name: Mapped[str] = mapped_column(sa.String(200))
+
+    __table_args__ = (Index("ix_kitchen_dispatches_item_at", "item_id", "dispatched_at"),)
